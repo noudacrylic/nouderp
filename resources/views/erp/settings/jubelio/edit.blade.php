@@ -1,0 +1,184 @@
+@extends('layouts.erp')
+
+@section('content')
+<div class="max-w-4xl mx-auto">
+    <a href="{{ route('settings.integrations.index') }}" class="inline-block text-xs text-blue-600 hover:underline mb-3">← Integrasi</a>
+    <div class="bg-white shadow rounded-lg border p-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-2">Pengaturan Jubelio</h2>
+        <p class="text-sm text-gray-500 mb-6">
+            Integrasi omnichannel Jubelio. Pesanan marketplace otomatis menjadi Sales Order → Surat Jalan → Invoice di ERP,
+            dan <b>stok ERP menjadi sumber kebenaran</b> yang didorong ke Jubelio. Stok ERP yang dipakai adalah <b>stok tersedia</b> (available).
+        </p>
+
+        @if(session('success'))
+            <div class="bg-green-100 border border-green-300 text-green-700 px-3 py-2 rounded text-sm mb-4">
+                {{ session('success') }}
+            </div>
+        @endif
+        @if($errors->any())
+            <div class="bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded text-sm mb-4">
+                @foreach ($errors->all() as $err)<div>• {{ $err }}</div>@endforeach
+            </div>
+        @endif
+
+        <form method="POST" action="{{ route('settings.jubelio.update') }}" class="space-y-8">
+            @csrf
+
+            {{-- ===== Kredensial ===== --}}
+            <div>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Kredensial</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Email Login Jubelio</label>
+                        <input type="text" name="username" value="{{ old('username', $setting->username) }}"
+                               class="w-full border rounded px-3 py-2 text-sm" placeholder="user@perusahaan.com" autocomplete="off">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Password</label>
+                        <input type="password" name="password" value=""
+                               class="w-full border rounded px-3 py-2 text-sm" placeholder="{{ $setting->password ? '•••••••• (tersimpan)' : 'Password Jubelio' }}" autocomplete="new-password">
+                        <p class="text-xs text-gray-400 mt-1">Kosongkan bila tidak ingin mengubah password tersimpan.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Base URL API</label>
+                        <input type="text" name="base_url" value="{{ old('base_url', $setting->base_url) }}"
+                               class="w-full border rounded px-3 py-2 font-mono text-xs" placeholder="{{ \App\Modules\Marketplace\Jubelio\Models\JubelioSetting::DEFAULT_BASE_URL }}">
+                    </div>
+                    <div class="flex items-end gap-6">
+                        <label class="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                            <input type="checkbox" name="is_active" value="1" {{ old('is_active', $setting->is_active) ? 'checked' : '' }}
+                                   class="rounded border-gray-300">
+                            Aktif
+                        </label>
+                        <label class="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                            <input type="checkbox" name="is_production" value="1" {{ old('is_production', $setting->is_production) ? 'checked' : '' }}
+                                   class="rounded border-gray-300">
+                            Mode Production
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            {{-- ===== Default ERP ===== --}}
+            <div>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Default Pemetaan</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Gudang ERP (SO/SJ)</label>
+                        <select name="default_warehouse_id" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="">— pilih gudang —</option>
+                            @foreach($warehouses as $w)
+                                <option value="{{ $w->id }}" {{ (int) old('default_warehouse_id', $setting->default_warehouse_id) === $w->id ? 'selected' : '' }}>
+                                    {{ $w->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Location ID Jubelio (stok)</label>
+                        <input type="number" name="default_location_id" value="{{ old('default_location_id', $setting->default_location_id) }}"
+                               class="w-full border rounded px-3 py-2 text-sm" placeholder="mis. 2">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Customer Marketplace Fallback</label>
+                        <select name="default_customer_id" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="">— pilih customer —</option>
+                            @foreach($marketplaceCustomers as $c)
+                                <option value="{{ $c->id }}" {{ (int) old('default_customer_id', $setting->default_customer_id) === $c->id ? 'selected' : '' }}>
+                                    {{ $c->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <p class="text-xs text-gray-400 mt-1">Dipakai bila nama toko Jubelio belum dipetakan ke customer marketplace tertentu.</p>
+                    </div>
+                </div>
+            </div>
+
+            {{-- ===== Webhook ===== --}}
+            <div>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Webhook (opsional, butuh URL publik)</h3>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Webhook Secret Key</label>
+                        <input type="text" name="webhook_secret" value="{{ old('webhook_secret', $setting->webhook_secret) }}"
+                               class="w-full border rounded px-3 py-2 font-mono text-xs" placeholder="Secret untuk verifikasi signature">
+                        <p class="text-xs text-gray-400 mt-1">
+                            Set di Jubelio (Pengaturan → Developer → Webhook) dan isi sama di sini. Callback URL:
+                            <code class="bg-gray-100 px-1">{{ url('/jubelio/webhook/salesorder') }}</code>,
+                            <code class="bg-gray-100 px-1">/salesreturn</code>, <code class="bg-gray-100 px-1">/stock</code>.
+                            Saat di localhost, andalkan sinkron otomatis terjadwal (cron) — webhook hanya jalan jika ERP dapat diakses publik.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center border-t pt-4">
+                <span class="text-xs {{ $setting->hasValidToken() ? 'text-green-600' : 'text-gray-400' }}">
+                    Token: {{ $setting->hasValidToken() ? 'aktif s/d ' . $setting->token_expires_at->format('d M H:i') : 'belum / kedaluwarsa' }}
+                </span>
+                <div class="flex gap-2">
+                    <button formaction="{{ route('settings.jubelio.test') }}" formmethod="POST"
+                            class="border border-blue-600 text-blue-600 px-4 py-2 rounded font-semibold text-sm hover:bg-blue-50">Test Koneksi</button>
+                    <button class="bg-blue-600 text-white px-5 py-2 rounded font-semibold">Simpan</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {{-- ===== Pemetaan Toko → Customer Marketplace ===== --}}
+    <div class="bg-white shadow rounded-lg border p-6 mt-5">
+        <h3 class="text-base font-bold text-gray-800 mb-1">Pemetaan Toko Jubelio → Customer</h3>
+        <p class="text-sm text-gray-500 mb-4">
+            Pesanan dari toko/channel tertentu di Jubelio akan dibuatkan SO atas nama customer marketplace yang dipetakan di sini.
+            Toko yang belum dipetakan memakai <b>Customer Marketplace Fallback</b> di atas.
+        </p>
+
+        <form method="POST" action="{{ route('settings.jubelio.channel-map.store') }}" class="flex flex-wrap items-end gap-3 mb-4">
+            @csrf
+            <div class="flex-1 min-w-[180px]">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Nama Toko / Channel (di Jubelio)</label>
+                <input type="text" name="store" required class="w-full border rounded px-3 py-2 text-sm" placeholder="mis. Shopee Noud Acrylic">
+            </div>
+            <div class="flex-1 min-w-[180px]">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Customer Marketplace ERP</label>
+                <select name="customer_id" required class="w-full border rounded px-3 py-2 text-sm">
+                    <option value="">— pilih —</option>
+                    @foreach($marketplaceCustomers as $c)
+                        <option value="{{ $c->id }}">{{ $c->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <button class="bg-blue-600 text-white px-4 py-2 rounded font-semibold text-sm">Tambah / Perbarui</button>
+        </form>
+
+        @if($channelMaps->isEmpty())
+            <p class="text-xs text-gray-400">Belum ada pemetaan toko.</p>
+        @else
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-xs uppercase text-gray-400 border-b">
+                        <th class="py-2">Toko Jubelio</th>
+                        <th class="py-2">Customer ERP</th>
+                        <th class="py-2 w-16"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($channelMaps as $map)
+                        <tr class="border-b border-gray-50">
+                            <td class="py-2 font-medium text-gray-700">{{ $map->store }}</td>
+                            <td class="py-2 text-gray-600">{{ $map->customer->name ?? '—' }}</td>
+                            <td class="py-2 text-right">
+                                <form method="POST" action="{{ route('settings.jubelio.channel-map.destroy', $map->id) }}"
+                                      onsubmit="return confirm('Hapus pemetaan ini?')">
+                                    @csrf @method('DELETE')
+                                    <button class="text-xs text-red-500 hover:underline">Hapus</button>
+                                </form>
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        @endif
+    </div>
+</div>
+@endsection

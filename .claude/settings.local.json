@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r 'protected $fillable' /c/xampp/htdocs/noud-erp/app/Models '--include=*.php')",
+      "PowerShell(Test-Connection -ComputerName 192.168.1.201 -Count 2 -ErrorAction SilentlyContinue)",
+      "PowerShell(Test-NetConnection -ComputerName 192.168.1.201 -Port 4370 -WarningAction SilentlyContinue)"
+    ]
+  }
+}

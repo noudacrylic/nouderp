@@ -1,0 +1,38 @@
+TUGAS: Convert raw Excel/CSV laporan settlement marketplace (Shopee / TikTok / Lazada / Blibli / Tokopedia / dll) ke format baku settlement Noud ERP.
+
+INPUT:
+- Satu atau beberapa file Excel/CSV laporan transaksi / settlement / income report dari dashboard marketplace mana saja.
+- Boleh campur multi-marketplace. Auto-deteksi sumber dari nama file & struktur kolomnya.
+
+YANG HARUS KAMU LAKUKAN:
+1. Auto-deteksi marketplace tiap baris (shopee / tiktok / lazada / blibli / tokopedia / dll). Kalau tidak yakin, tanya saya.
+2. Identifikasi kolom yang berisi:
+   - Nomor pesanan / Order ID / Order SN / No. Pesanan
+   - Tanggal settlement / release date / dana cair / payout date
+   - Tipe transaksi (Sales / Refund / Fee / Komisi / Biaya Admin / Ongkir / dll)
+   - Amount (positif = pemasukan, negatif = biaya)
+3. Group SEMUA baris yang punya nomor pesanan sama → jadi 1 entry per pesanan.
+4. Hitung NET AMOUNT = SUM(amount semua baris untuk pesanan tsb):
+   - Penjualan (+), komisi (-), biaya admin (-), ongkir penjual (-), refund (-), program/voucher (-), dll.
+   - SKIP baris withdrawal / payout ke bank / top-up / adjustment global (bukan per-pesanan).
+5. SETTLEMENT_DATE = tanggal release / settlement / dana cair (atau tanggal transaksi paling akhir kalau tidak ada kolom khusus).
+
+OUTPUT: Excel/CSV 1 sheet, header WAJIB di row 1, persis 4 kolom ini:
+
+| marketplace | order_ref | settlement_date | net_amount |
+|-------------|-----------|-----------------|------------|
+| shopee      | 240511XXX | 2026-05-11      | 119500     |
+| tiktok      | 583902464109085851 | 2026-05-12 | 50511 |
+| lazada      | 2689408799183236 | 2026-05-11 | 24328     |
+| ...         | ...       | ...             | ...        |
+
+ATURAN OUTPUT:
+- Kolom "marketplace": nilai literal lowercase — "shopee" / "tiktok" / "lazada" / "blibli" / "tokopedia" (sesuai sumber). Boleh campur multi-marketplace di file output yang sama.
+- Kolom "order_ref": nomor pesanan asli marketplace, apa adanya (huruf/angka).
+- Kolom "settlement_date": format YYYY-MM-DD.
+- Kolom "net_amount": angka bulat, tanpa pemisah ribuan, tanpa simbol mata uang. Boleh negatif untuk refund net.
+- 1 baris output = 1 nomor pesanan UNIK per marketplace. JANGAN duplikat.
+- Skip baris tanpa nomor pesanan.
+- JANGAN tambah kolom lain. JANGAN ubah urutan kolom.
+
+Setelah selesai, sajikan output sebagai TABEL Excel/CSV yang bisa langsung saya download.
