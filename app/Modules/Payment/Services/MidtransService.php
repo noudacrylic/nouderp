@@ -203,7 +203,8 @@ class MidtransService
      */
     public function createQrisInstore(SalesInvoice $invoice, ?int $userId = null): MidtransTransaction
     {
-        $base = (int) round($invoice->remaining_amount);
+        // Draft (POS QRIS di-defer) belum punya remaining_amount → pakai grand_total.
+        $base = (int) round($invoice->remaining_amount ?: ((float) $invoice->grand_total - (float) $invoice->paid_amount));
         if ($base <= 0) {
             throw new RuntimeException('Invoice ini sudah lunas.');
         }
@@ -461,6 +462,18 @@ class MidtransService
         if (!$isSo && !$invoice) {
             Log::warning('Midtrans settle tanpa invoice', ['trx' => $trx->id]);
             return;
+        }
+
+        // POS QRIS di-defer: invoice masih DRAFT → POST dulu (stok keluar + COGS + piutang)
+        // saat pembayaran terkonfirmasi, baru catat pembayaran di bawah. Invoice yg sudah
+        // posted (QRIS utk faktur existing) tidak terpengaruh.
+        if (!$isSo && $invoice) {
+            $invStatus = $invoice->status instanceof \App\Enums\InvoiceStatusEnum
+                ? $invoice->status->value : $invoice->status;
+            if ($invStatus === 'draft') {
+                app(\App\Services\InvoicePostingService::class)->post($invoice);
+                $invoice->refresh();
+            }
         }
 
         $base        = (int) round($trx->base_amount);          // porsi tagihan invoice / nominal DP
