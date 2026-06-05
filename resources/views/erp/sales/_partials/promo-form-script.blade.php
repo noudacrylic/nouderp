@@ -152,6 +152,18 @@
                 doApply();
             });
         }
+        // Lindungi diskon yang SUDAH tersimpan (mode edit / konversi quotation) agar
+        // tidak ditimpa promo saat resolusi awal. Tandai baris ber-diskon > 0 sebagai
+        // manual, dan set manualGlobal/manualShip bila diskon global/ongkir existing > 0.
+        // (Baris ber-diskon 0 tetap boleh diisi promo — fitur entry baru tetap jalan.)
+        document.querySelectorAll('#items tr.item-row').forEach(row => {
+            if (num(row.querySelector('.discount-value')?.value) > 0) {
+                row.setAttribute('data-promo-manual', '1');
+            }
+        });
+        if (num(document.getElementById('globalDiscount')?.value) > 0) manualGlobal = true;
+        if (num(document.getElementById('ship_disc_value')?.value) > 0) manualShip = true;
+
         // resolusi awal (mis. saat edit / load dari quotation)
         setTimeout(scheduleApply, 600);
     });
