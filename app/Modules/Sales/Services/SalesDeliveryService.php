@@ -274,34 +274,38 @@ class SalesDeliveryService
      */
     public function settleDeferredCogs(int $deliveryId): void
     {
-        $delivery = SalesDelivery::with('items.product')->findOrFail($deliveryId);
+        // Bungkus dalam transaksi: bila item ke-2 gagal settle (produksi belum
+        // selesai), konsumsi FIFO item ke-1 tidak boleh ter-commit parsial.
+        DB::transaction(function () use ($deliveryId) {
+            $delivery = SalesDelivery::with('items.product')->findOrFail($deliveryId);
 
-        foreach ($delivery->items as $item) {
-            if (!$item->cogs_deferred) {
-                continue;
+            foreach ($delivery->items as $item) {
+                if (!$item->cogs_deferred) {
+                    continue;
+                }
+
+                $product = $item->product;
+                if (!$product || in_array($product->sale_type, ['service', 'non_stock'], true)) {
+                    $item->update(['cogs_total' => 0, 'cogs_deferred' => false]);
+                    continue;
+                }
+
+                try {
+                    $cogs = $this->inventory->settleShipmentCogs(
+                        $item->product_id,
+                        $delivery->warehouse_id,
+                        (float) $item->qty,
+                        $delivery->id
+                    );
+                } catch (\Throwable $e) {
+                    throw new Exception(
+                        "HPP belum bisa dihitung untuk produk \"{$product->name}\" pada Surat Jalan {$delivery->delivery_number}: "
+                        . "stok belum tersedia. Selesaikan produksi barang ini terlebih dahulu sebelum membuat invoice."
+                    );
+                }
+
+                $item->update(['cogs_total' => $cogs, 'cogs_deferred' => false]);
             }
-
-            $product = $item->product;
-            if (!$product || in_array($product->sale_type, ['service', 'non_stock'], true)) {
-                $item->update(['cogs_total' => 0, 'cogs_deferred' => false]);
-                continue;
-            }
-
-            try {
-                $cogs = $this->inventory->settleShipmentCogs(
-                    $item->product_id,
-                    $delivery->warehouse_id,
-                    (float) $item->qty,
-                    $delivery->id
-                );
-            } catch (\Throwable $e) {
-                throw new Exception(
-                    "HPP belum bisa dihitung untuk produk \"{$product->name}\" pada Surat Jalan {$delivery->delivery_number}: "
-                    . "stok belum tersedia. Selesaikan produksi barang ini terlebih dahulu sebelum membuat invoice."
-                );
-            }
-
-            $item->update(['cogs_total' => $cogs, 'cogs_deferred' => false]);
-        }
+        });
     }
 }
