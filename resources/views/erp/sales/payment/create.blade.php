@@ -86,7 +86,7 @@
                     <label class="block text-xs font-bold text-gray-600 mb-3 uppercase tracking-widest text-center">Jumlah Pembayaran</label>
                     <div class="flex items-center bg-white border-2 border-transparent rounded-xl px-4 mb-2 shadow-sm focus-within:border-blue-500 transition group">
                         <span class="text-lg font-black text-gray-300 pr-2 group-focus-within:text-blue-500">Rp</span>
-                        <input type="number" id="amount" name="amount" class="w-full py-4 text-2xl font-black outline-none bg-transparent" placeholder="0" step="any" required>
+                        <input type="text" inputmode="numeric" id="amount" name="amount" class="rupiah-input w-full py-4 text-2xl font-black outline-none bg-transparent" placeholder="0" required>
                     </div>
 
                     <div id="payment_warning" class="text-[10px] text-orange-600 mt-2 font-bold hidden bg-orange-50 p-2 rounded-lg border border-orange-100 italic text-center">
@@ -119,7 +119,7 @@
                                 <label class="block text-[8px] font-bold text-gray-400 mb-1 uppercase tracking-widest pl-1">Nominal Fee</label>
                                 <div class="flex items-center bg-white border rounded-lg px-3 py-1 shadow-sm focus-within:ring-2 focus-within:ring-blue-100 transition" id="admin_fee_container">
                                     <span class="text-xs font-bold text-gray-400 pr-1">Rp</span>
-                                    <input type="number" id="admin_fee" name="admin_fee" class="w-full py-1 text-sm font-bold outline-none bg-transparent text-red-600" value="0" step="any">
+                                    <input type="text" inputmode="numeric" id="admin_fee" name="admin_fee" class="rupiah-input w-full py-1 text-sm font-bold outline-none bg-transparent text-red-600" value="0">
                                 </div>
                             </div>
                             <button type="button" id="btn_calc_fee" class="bg-gray-800 text-white text-[10px] font-black px-4 py-2 rounded-lg hover:bg-black transition active:scale-95 h-[34px] flex items-center shadow-lg shadow-gray-200">
@@ -442,12 +442,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (checked.length > 1) {
             warning.classList.remove('hidden');
             // Force amount to full for multi-doc
-            amountInput.value      = total;
+            amountInput.value      = window.formatThousands(String(total));
             amountInput.dataset.auto = '1';
         } else {
             warning.classList.add('hidden');
-            if (checked.length === 1 && (parseFloat(amountInput.value || 0) === 0 || amountInput.dataset.auto === '1')) {
-                amountInput.value      = total;
+            if (checked.length === 1 && (window.cleanNumber(amountInput.value) === 0 || amountInput.dataset.auto === '1')) {
+                amountInput.value      = window.formatThousands(String(total));
                 amountInput.dataset.auto = '1';
             }
         }
@@ -466,8 +466,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const feeContainer = document.getElementById('admin_fee_container');
 
     function updateNet() {
-        const amt = parseFloat(amountInput.value || 0);
-        const fee = parseFloat(adminFeeInput.value || 0);
+        const amt = window.cleanNumber(amountInput.value);
+        const fee = window.cleanNumber(adminFeeInput.value);
         const net = amt - fee;
         netDisplay.innerText = net.toLocaleString();
 
@@ -506,7 +506,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function calculateFee() {
         const cashId = cashAccountSelect.value;
-        const amt = parseFloat(amountInput.value || 0);
+        const amt = window.cleanNumber(amountInput.value);
 
         if (!cashId || amt <= 0) {
             alert('Pilih Akun Kas dan isi Jumlah Bayar terlebih dahulu.');
@@ -520,7 +520,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const res = await fetch(`/erp/sales/ajax/calculate-fee?cash_account_id=${cashId}&amount=${amt}`);
             const data = await res.json();
             
-            adminFeeInput.value = data.fee;
+            adminFeeInput.value = window.formatThousands(String(data.fee));
             // Expense account handled on backend now
             updateNet();
         } catch (e) {
@@ -566,7 +566,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('total_tagihan').innerText = 'Rp ' + sisa.toLocaleString();
 
         // Fill amount
-        document.getElementById('amount').value      = sisa;
+        document.getElementById('amount').value      = window.formatThousands(String(sisa));
         document.getElementById('amount').dataset.auto = '0';
 
         showSaldoInfo(saldoUsed, sisa);
@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── BAYAR PENUH ────────────────────────────────────────────────────────
     document.getElementById('btn_full').onclick = function() {
         const total = window.totalSetelahSaldo || 0;
-        document.getElementById('amount').value      = total;
+        document.getElementById('amount').value      = window.formatThousands(String(total));
         document.getElementById('amount').dataset.auto = '0';
         updateNet();
     };
@@ -592,7 +592,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        document.getElementById('amount').value      = Math.ceil(total / 2);
+        document.getElementById('amount').value      = window.formatThousands(String(Math.ceil(total / 2)));
         document.getElementById('amount').dataset.auto = '0';
         updateNet();
     };
@@ -606,7 +606,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const totalNet   = window.totalSetelahSaldo || 0;
-        const amount     = parseFloat(document.getElementById('amount').value || 0);
+        const amount     = window.cleanNumber(document.getElementById('amount').value);
 
         // Multi-invoice: harus bayar penuh (after saldo)
         if (checked.length > 1 && amount < (totalNet - 1)) {

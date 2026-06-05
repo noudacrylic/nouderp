@@ -293,8 +293,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-save inline nominal di Summary box on blur jika berubah
     document.querySelectorAll('.summary-val-form input[name="nominal"]').forEach(function (inp) {
         inp.addEventListener('blur', function () {
-            const original = inp.dataset.original;
-            if (String(inp.value || '0') === String(original)) return;
+            // value bisa berformat titik ribuan (rupiah-input) → bandingkan via angka polos
+            const cur  = window.cleanNumber ? window.cleanNumber(inp.value) : (parseFloat(inp.value) || 0);
+            const orig = window.cleanNumber ? window.cleanNumber(inp.dataset.original) : (parseFloat(inp.dataset.original) || 0);
+            if (cur === orig) return;
             inp.form.submit();
         });
         inp.addEventListener('keydown', function (e) {

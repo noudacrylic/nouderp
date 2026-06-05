@@ -21,9 +21,9 @@
     </div>
     <div>
         <label class="block text-xs text-gray-500 mb-1">Jumlah <span class="text-red-500">*</span></label>
-        <input type="text" name="jumlah"
+        <input type="text" inputmode="numeric" name="jumlah"
                value="{{ old('jumlah', $kp->jumlah ?? '') }}"
-               class="w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0" required>
+               class="rupiah-input w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0" required>
     </div>
     <div class="md:col-span-2">
         <label class="block text-xs text-gray-500 mb-1">Akun Kas/Bank Penerima <span class="text-red-500">*</span></label>

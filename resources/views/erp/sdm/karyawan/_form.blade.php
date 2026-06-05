@@ -113,12 +113,12 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Gaji Pokok / Bulan (Rp)</label>
-                <input type="text" name="gaji_pokok" value="{{ old('gaji_pokok', isset($karyawan) ? number_format((float)$karyawan->gaji_pokok, 0, ',', '.') : '0') }}" class="border rounded px-3 py-2 w-full text-right">
+                <input type="text" inputmode="numeric" name="gaji_pokok" value="{{ old('gaji_pokok', isset($karyawan) ? number_format((float)$karyawan->gaji_pokok, 0, ',', '.') : '0') }}" class="rupiah-input border rounded px-3 py-2 w-full text-right">
                 <div class="text-[11px] text-gray-400 mt-1">Tunjangan otomatis &amp; bonus diatur di <a href="{{ route('sdm.kebijakan.kolom.index') }}" class="text-blue-600 hover:underline">menu Kebijakan</a>.</div>
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Tunjangan Pegawai / Bulan (Rp)</label>
-                <input type="text" name="tunjangan_pegawai" value="{{ old('tunjangan_pegawai', isset($karyawan) ? number_format((float)$karyawan->tunjangan_pegawai, 0, ',', '.') : '0') }}" class="border rounded px-3 py-2 w-full text-right">
+                <input type="text" inputmode="numeric" name="tunjangan_pegawai" value="{{ old('tunjangan_pegawai', isset($karyawan) ? number_format((float)$karyawan->tunjangan_pegawai, 0, ',', '.') : '0') }}" class="rupiah-input border rounded px-3 py-2 w-full text-right">
                 <div class="text-[11px] text-gray-400 mt-1">Tunjangan khusus per pegawai (mis. masa kerja, kinerja). Tampil di slip gaji.</div>
             </div>
             <div>
@@ -398,15 +398,15 @@
             <div class="grid grid-cols-3 gap-3">
                 <div>
                     <label class="block mb-1">BPJS Kesehatan (Rp/bln)</label>
-                    <input type="text" name="bpjs_kesehatan_amount" value="{{ old('bpjs_kesehatan_amount', isset($karyawan) ? number_format((float)$karyawan->bpjs_kesehatan_amount, 0, ',', '.') : '0') }}" class="border rounded px-2 py-1 w-full text-right">
+                    <input type="text" inputmode="numeric" name="bpjs_kesehatan_amount" value="{{ old('bpjs_kesehatan_amount', isset($karyawan) ? number_format((float)$karyawan->bpjs_kesehatan_amount, 0, ',', '.') : '0') }}" class="rupiah-input border rounded px-2 py-1 w-full text-right">
                 </div>
                 <div>
                     <label class="block mb-1">BPJS TK (Rp/bln)</label>
-                    <input type="text" name="bpjs_tk_amount" value="{{ old('bpjs_tk_amount', isset($karyawan) ? number_format((float)$karyawan->bpjs_tk_amount, 0, ',', '.') : '0') }}" class="border rounded px-2 py-1 w-full text-right">
+                    <input type="text" inputmode="numeric" name="bpjs_tk_amount" value="{{ old('bpjs_tk_amount', isset($karyawan) ? number_format((float)$karyawan->bpjs_tk_amount, 0, ',', '.') : '0') }}" class="rupiah-input border rounded px-2 py-1 w-full text-right">
                 </div>
                 <div>
                     <label class="block mb-1">PPh 21 (Rp/bln)</label>
-                    <input type="text" name="pph21_amount" value="{{ old('pph21_amount', isset($karyawan) ? number_format((float)$karyawan->pph21_amount, 0, ',', '.') : '0') }}" class="border rounded px-2 py-1 w-full text-right">
+                    <input type="text" inputmode="numeric" name="pph21_amount" value="{{ old('pph21_amount', isset($karyawan) ? number_format((float)$karyawan->pph21_amount, 0, ',', '.') : '0') }}" class="rupiah-input border rounded px-2 py-1 w-full text-right">
                 </div>
             </div>
         </details>

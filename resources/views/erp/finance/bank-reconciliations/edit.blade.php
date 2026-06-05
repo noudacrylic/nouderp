@@ -150,8 +150,8 @@
         </div>
         <div>
             <label class="block text-[11px] text-gray-500 mb-0.5">Saldo Per Rek. Koran</label>
-            <input type="number" step="0.01" name="statement_balance" id="statementInput"
-                   value="{{ $br->statement_balance }}" class="border rounded px-2 py-1 w-full text-right text-sm">
+            <input type="text" inputmode="numeric" name="statement_balance" id="statementInput"
+                   value="{{ $br->statement_balance }}" class="border rounded px-2 py-1 w-full text-right text-sm rupiah-input">
         </div>
         <div>
             <div class="text-[11px] text-gray-500">Selisih (Buku − Koran)</div>
@@ -296,7 +296,7 @@ function recalc(){
     });
     document.getElementById('matchedSum').textContent = fmt(matched);
     document.getElementById('unmatchedSum').textContent = fmt(unmatched);
-    const stmt = parseFloat(document.getElementById('statementInput').value) || 0;
+    const stmt = window.cleanNumber(document.getElementById('statementInput').value) || 0;
     const diff = bookBalance - stmt;
     document.getElementById('diffDisplay').textContent = fmt(diff);
     document.getElementById('diffDisplay').className = 'font-semibold ' + (Math.abs(diff) > 0.01 ? 'text-red-600' : 'text-green-700');
@@ -410,8 +410,8 @@ recalc();
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Jumlah (Rp) <span class="text-red-500">*</span></label>
-                    <input type="number" id="qmAmount" required min="0.01" step="0.01"
-                           class="border rounded px-2 h-9 w-full text-right">
+                    <input type="text" inputmode="numeric" id="qmAmount" required
+                           class="border rounded px-2 h-9 w-full text-right rupiah-input">
                 </div>
             </div>
 
@@ -558,7 +558,7 @@ async function submitQuickModal(e) {
     fd.append('_token', QM_CSRF);
     fd.append('date', document.getElementById('qmDate').value);
     fd.append('cash_account_id', QM_CASH_ACCOUNT_ID);
-    fd.append('amount', document.getElementById('qmAmount').value);
+    fd.append('amount', window.cleanNumber(document.getElementById('qmAmount').value));
     fd.append('description', document.getElementById('qmDescription').value);
     fd.append('reference', document.getElementById('qmReference').value);
     fd.append(kind === 'disbursement' ? 'expense_account_id' : 'revenue_account_id', accId);

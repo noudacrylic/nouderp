@@ -261,7 +261,7 @@
                 <option value="rol">rol</option>
             </select>
         </td>
-        <td><input type="number" step="0.01" min="0" name="items[__I__][price]" class="border rounded px-2 py-1.5 w-full text-right price-in" required></td>
+        <td><input type="text" inputmode="numeric" name="items[__I__][price]" class="rupiah-input border rounded px-2 py-1.5 w-full text-right price-in" required></td>
         <td>
             <div class="flex gap-1">
                 <select name="items[__I__][discount_type]" class="border rounded px-1 py-1.5 text-xs disc-type" style="width:50px;">
@@ -292,7 +292,7 @@
                 <option value="direct_expense">Direct Expense</option>
             </select>
         </td>
-        <td><input type="number" step="0.01" min="0.01" name="expenses[__E__][amount]" class="border rounded px-2 py-1.5 w-full text-right amount-in" required></td>
+        <td><input type="text" inputmode="numeric" name="expenses[__E__][amount]" class="rupiah-input border rounded px-2 py-1.5 w-full text-right amount-in" required></td>
         <td><button type="button" class="text-red-600 del-expense">×</button></td>
     </tr>
 </template>
@@ -716,7 +716,7 @@
         let sumLine = 0, sumLineDisc = 0;
         document.querySelectorAll('.po-item-row').forEach(r => {
             const qty = parseFloat(r.querySelector('.qty-in').value) || 0;
-            const price = parseFloat(r.querySelector('.price-in').value) || 0;
+            const price = window.cleanNumber(r.querySelector('.price-in').value) || 0;
             const dtype = r.querySelector('.disc-type').value;
             const dval = parseFloat(r.querySelector('.disc-val').value) || 0;
             const gross = qty * price;
@@ -735,7 +735,7 @@
 
         let sumExpense = 0;
         document.querySelectorAll('.expense-row').forEach(r => {
-            sumExpense += parseFloat(r.querySelector('.amount-in').value) || 0;
+            sumExpense += window.cleanNumber(r.querySelector('.amount-in').value) || 0;
         });
 
         const ppnPct = parseFloat(document.getElementById('ppnPercent').value) || 0;

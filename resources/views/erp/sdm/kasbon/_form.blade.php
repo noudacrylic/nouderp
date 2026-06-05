@@ -19,15 +19,15 @@
     </div>
     <div>
         <label class="block text-xs text-gray-500 mb-1">Jumlah Pinjaman <span class="text-red-500">*</span></label>
-        <input type="text" name="jumlah_pinjaman"
+        <input type="text" inputmode="numeric" name="jumlah_pinjaman"
                value="{{ old('jumlah_pinjaman', $kasbon->jumlah_pinjaman ?? '') }}"
-               class="w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0" required>
+               class="rupiah-input w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0" required>
     </div>
     <div>
         <label class="block text-xs text-gray-500 mb-1">Cicilan per Bulan <span class="text-red-500">*</span></label>
-        <input type="text" name="cicilan_per_bulan"
+        <input type="text" inputmode="numeric" name="cicilan_per_bulan"
                value="{{ old('cicilan_per_bulan', $kasbon->cicilan_per_bulan ?? '') }}"
-               class="w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0" required>
+               class="rupiah-input w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0" required>
     </div>
     <div>
         <label class="block text-xs text-gray-500 mb-1">Tanggal Mulai Potong</label>

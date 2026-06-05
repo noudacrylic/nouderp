@@ -199,7 +199,7 @@
                 <div class="border-t pt-3">
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Minimal DP (Rp)</label>
                     <div class="flex gap-2">
-                        <input id="md_mindp" type="number" value="${data.min_dp}" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+                        <input id="md_mindp" type="text" inputmode="numeric" value="${window.formatThousands ? window.formatThousands(String(data.min_dp)) : data.min_dp}" class="rupiah-input flex-1 border rounded-lg px-3 py-2 text-sm">
                         <button onclick="window._midtransSoApplyMin(${soId})" class="px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600">Terapkan</button>
                     </div>
                     <p class="text-[11px] text-gray-400 mt-1">Default 50% dari total. Sisa tagihan Rp ${Number(data.remaining).toLocaleString('id-ID')}. Turunkan untuk mengizinkan DP &lt; 50% (approval).</p>
@@ -219,7 +219,7 @@
     window._midtransOpenSo = function(soId) { showSoLink(soId, null); };
     window._midtransOpenSoQris = function(soId) { showSoQris(soId); };
     window._midtransSoApplyMin = function(soId) {
-        const v = document.getElementById('md_mindp')?.value;
+        const v = window.cleanNumber(document.getElementById('md_mindp')?.value);
         showSoLink(soId, v);
     };
     window._midtransCloseQris = function() {

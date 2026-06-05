@@ -64,9 +64,9 @@
             </div>
             <div>
                 <label class="block text-xs font-bold text-gray-500 mb-1">Nilai Barang (Rp, opsional)</label>
-                <input type="number" name="item_value" min="0" step="1"
+                <input type="text" inputmode="numeric" name="item_value"
                        value="{{ $input['item_value'] ?? '' }}" placeholder="untuk estimasi asuransi"
-                       class="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                       class="rupiah-input w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400">
             </div>
         </div>
         <div class="flex justify-end mt-3">

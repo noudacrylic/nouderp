@@ -42,7 +42,7 @@
     <div class="grid grid-cols-2 gap-3 mb-3">
         <div>
             <label class="block text-xs text-gray-500 mb-1">Nilai Jual / Penerimaan</label>
-            <input type="number" step="0.01" min="0" name="proceeds_amount" value="{{ old('proceeds_amount', $d->proceeds_amount ?? 0) }}" class="w-full border rounded px-2 py-1.5" id="proceeds_amount">
+            <input type="text" inputmode="numeric" name="proceeds_amount" value="{{ old('proceeds_amount', $d->proceeds_amount ?? 0) }}" class="w-full border rounded px-2 py-1.5 rupiah-input" id="proceeds_amount">
             <p class="text-xs text-gray-400 mt-1">Untuk Jual: nilai jual. Untuk Rusak/Hilang biasanya 0 (atau klaim asuransi).</p>
         </div>
         <div>
@@ -72,7 +72,7 @@
 function toggleProceeds() {
     const t = document.getElementById('disposal_type').value;
     const p = document.getElementById('proceeds_amount');
-    if (t !== 'sale' && parseFloat(p.value || 0) === 0) {
+    if (t !== 'sale' && window.cleanNumber(p.value || 0) === 0) {
         p.placeholder = '0 (opsional untuk non-sale)';
     }
 }

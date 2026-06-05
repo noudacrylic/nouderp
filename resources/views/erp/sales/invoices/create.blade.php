@@ -183,7 +183,7 @@
                         <input type="number" name="items[${index}][qty]" value="${item.qty}" class="qty w-full border border-gray-200 rounded px-3 py-2 text-right text-sm">
                     </td>
                     <td class="p-2">
-                        <input type="text" name="items[${index}][unit_price]" value="${formatIDR(item.price)}" class="price w-full border border-gray-200 rounded px-3 py-2 text-right text-sm">
+                        <input type="text" inputmode="numeric" name="items[${index}][unit_price]" value="${formatIDR(item.price)}" class="price rupiah-input w-full border border-gray-200 rounded px-3 py-2 text-right text-sm">
                     </td>
                     <td class="p-2">
                         <div class="flex gap-2">

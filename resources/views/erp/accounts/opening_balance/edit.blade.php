@@ -38,9 +38,9 @@
         <div class="grid grid-cols-2 gap-3">
             <div>
                 <label class="block text-xs text-gray-600 mb-1">Saldo (Rp)</label>
-                <input type="number" step="0.01" min="0.01" name="amount" required
+                <input type="text" inputmode="numeric" name="amount" required
                        value="{{ old('amount', $currentAmount) }}"
-                       class="border rounded px-2 py-1.5 w-full text-right">
+                       class="border rounded px-2 py-1.5 w-full text-right rupiah-input">
             </div>
             <div>
                 <label class="block text-xs text-gray-600 mb-1">Tanggal</label>

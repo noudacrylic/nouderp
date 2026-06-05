@@ -69,8 +69,8 @@
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Jumlah Transfer <span class="text-red-500">*</span></label>
-                    <input type="number" step="0.01" min="0.01" name="amount" id="amount"
-                           value="{{ $defaults['amount'] }}" class="border rounded px-2 h-9 w-full text-right text-base font-semibold" required>
+                    <input type="text" inputmode="numeric" name="amount" id="amount"
+                           value="{{ $defaults['amount'] }}" class="border rounded px-2 h-9 w-full text-right text-base font-semibold rupiah-input" required>
                 </div>
             </div>
 
@@ -95,8 +95,8 @@
         <div class="grid grid-cols-12 gap-3 text-sm">
             <div class="col-span-3">
                 <label class="block text-xs text-gray-500 mb-1">Nominal Biaya</label>
-                <input type="number" step="0.01" min="0" name="admin_fee" id="adminFee"
-                       value="{{ $defaults['admin_fee'] }}" class="border rounded px-2 h-9 w-full text-right">
+                <input type="text" inputmode="numeric" name="admin_fee" id="adminFee"
+                       value="{{ $defaults['admin_fee'] }}" class="border rounded px-2 h-9 w-full text-right rupiah-input">
             </div>
             <div class="col-span-5">
                 <label class="block text-xs text-gray-500 mb-1">Akun Beban Admin</label>
@@ -213,8 +213,8 @@
     }
 
     function recalc(){
-        const amount = parseFloat(amountEl.value) || 0;
-        const fee    = parseFloat(feeEl.value) || 0;
+        const amount = window.cleanNumber(amountEl.value) || 0;
+        const fee    = window.cleanNumber(feeEl.value) || 0;
         const borne  = document.querySelector('input[name="fee_borne_by"]:checked')?.value || 'source';
 
         sumFromLabel.textContent = labelOf(fromSearch, fromAccount, 'Sumber');

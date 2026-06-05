@@ -267,8 +267,8 @@ function renderGeneralRow(line){
             <input type="text" name="lines[][description]" value="${esc(line.description)}" class="border rounded px-2 py-1 w-full">
         </td>
         <td class="px-2 py-1 text-right">
-            <input type="number" step="0.01" min="0.01" name="lines[][amount]" value="${line.amount||''}"
-                   class="border rounded px-2 py-1 w-full text-right amount-input" required>
+            <input type="text" inputmode="numeric" name="lines[][amount]" value="${line.amount||''}"
+                   class="border rounded px-2 py-1 w-full text-right amount-input rupiah-input" required>
         </td>
         <td class="px-2 py-1 text-center">
             <button type="button" class="text-red-600 hover:text-red-800 btn-remove">×</button>
@@ -288,8 +288,8 @@ function renderLockedRow(line, lockedAcc){
             <input type="text" name="lines[][description]" value="${esc(line.description)}" class="border rounded px-2 py-1 w-full">
         </td>
         <td class="px-2 py-1 text-right">
-            <input type="number" step="0.01" min="0.01" name="lines[][amount]" value="${line.amount||''}"
-                   class="border rounded px-2 py-1 w-full text-right amount-input" required>
+            <input type="text" inputmode="numeric" name="lines[][amount]" value="${line.amount||''}"
+                   class="border rounded px-2 py-1 w-full text-right amount-input rupiah-input" required>
         </td>
         <td class="px-2 py-1 text-center">
             <button type="button" class="text-red-600 hover:text-red-800 btn-remove">×</button>
@@ -337,7 +337,7 @@ function fixGenericNames(){
 
 function recalcGeneric(){
     let sum = 0;
-    linesBody.querySelectorAll('.amount-input').forEach(i => sum += parseFloat(i.value)||0);
+    linesBody.querySelectorAll('.amount-input').forEach(i => sum += window.cleanNumber(i.value)||0);
     grandTotalEl.textContent = fmt(sum);
 }
 
@@ -398,8 +398,8 @@ function renderFreightRows(rows){
             </td>
             <td class="px-2 py-1 text-right titipan-cell">${fmt(inv.shipping_cost)}</td>
             <td class="px-2 py-1 text-right">
-                <input type="number" step="0.01" min="0" value="${amountVal}"
-                       class="border rounded px-2 py-1 w-full text-right freight-amount" placeholder="${fmt(inv.shipping_cost)}">
+                <input type="text" inputmode="numeric" value="${amountVal}"
+                       class="border rounded px-2 py-1 w-full text-right freight-amount rupiah-input" placeholder="${fmt(inv.shipping_cost)}">
                 <input type="hidden" class="freight-account" disabled value="${esc(titipanId)}">
                 <input type="hidden" class="freight-invoice" disabled value="${inv.id}">
                 <input type="hidden" class="freight-desc" disabled value="Bayar ongkir ${esc(inv.invoice_number)}">
@@ -422,7 +422,7 @@ function bindFreightRow(tr){
         recalcFreight();
     });
     amt.addEventListener('input', () => {
-        if (parseFloat(amt.value) > 0 && !check.checked) check.checked = true;
+        if (window.cleanNumber(amt.value) > 0 && !check.checked) check.checked = true;
         updateFreightRowState(tr);
         recalcFreight();
     });
@@ -430,7 +430,7 @@ function bindFreightRow(tr){
 
 function updateFreightRowState(tr){
     const checked = tr.querySelector('.freight-check').checked;
-    const amt = parseFloat(tr.querySelector('.freight-amount').value) || 0;
+    const amt = window.cleanNumber(tr.querySelector('.freight-amount').value) || 0;
     const titipan = parseFloat(tr.dataset.titipan) || 0;
     const selisih = titipan - amt;
 
@@ -471,7 +471,7 @@ function recalcFreight(){
         const check = tr.querySelector('.freight-check');
         if (!check || !check.checked) return;
         titipan += parseFloat(tr.dataset.titipan) || 0;
-        bayar += parseFloat(tr.querySelector('.freight-amount').value) || 0;
+        bayar += window.cleanNumber(tr.querySelector('.freight-amount').value) || 0;
     });
     const selisih = titipan - bayar;
     document.getElementById('freightTotalTitipan').textContent = fmt(titipan);

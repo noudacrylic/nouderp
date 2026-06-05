@@ -45,9 +45,9 @@
             </div>
             <div class="col-span-4">
                 <label class="block text-xs text-gray-500 mb-1">Saldo Akhir Per Rekening Koran</label>
-                <input type="number" step="0.01" name="statement_balance"
+                <input type="text" inputmode="numeric" name="statement_balance"
                        value="{{ old('statement_balance', 0) }}"
-                       class="border rounded px-2 h-9 w-full text-right">
+                       class="border rounded px-2 h-9 w-full text-right rupiah-input">
                 <div class="text-xs text-gray-400 mt-1">Bisa diubah lagi nanti.</div>
             </div>
         </div>

@@ -932,7 +932,7 @@
                     <input type="number" name="items[${index}][qty]" value="${item.qty}" class="qty w-full border border-gray-300 rounded px-3 py-2 text-right">
                 </td>
                 <td class="p-2">
-                    <input type="text" name="items[${index}][unit_price]" value="${formatIDR(item.unit_price)}" class="price w-full border border-gray-300 rounded px-3 py-2 text-right">
+                    <input type="text" inputmode="numeric" name="items[${index}][unit_price]" value="${formatIDR(item.unit_price)}" class="price rupiah-input w-full border border-gray-300 rounded px-3 py-2 text-right">
                 </td>
                 <td class="p-2">
                     <div class="flex gap-2">
@@ -1025,7 +1025,9 @@
     }
 
     // Auto Format Input
-    $(document).on('input keyup', '.price, .discount-value, #shipping, #globalDiscount, #additional_fee', function(){
+    // NOTE: .price kini pakai formatter global `rupiah-input` (layout) → tidak di-bind di sini
+    //       agar tidak terjadi double-format / lompat kursor. Read tetap via cleanNumber di recalculate().
+    $(document).on('input keyup', '.discount-value, #shipping, #globalDiscount, #additional_fee', function(){
         let val = $(this).val();
         let clean = cleanNumber(val);
         $(this).val(formatIDR(clean));
@@ -1170,7 +1172,7 @@
                     <input type="number" name="items[${index}][qty]" value="${item.qty}" class="qty w-full border border-gray-300 rounded px-3 py-2 text-right">
                 </td>
                 <td class="p-2">
-                    <input type="text" name="items[${index}][unit_price]" value="${formatIDR(item.unit_price || item.price)}" class="price w-full border border-gray-300 rounded px-3 py-2 text-right">
+                    <input type="text" inputmode="numeric" name="items[${index}][unit_price]" value="${formatIDR(item.unit_price || item.price)}" class="price rupiah-input w-full border border-gray-300 rounded px-3 py-2 text-right">
                 </td>
                 <td class="p-2">
                     <div class="flex gap-2">

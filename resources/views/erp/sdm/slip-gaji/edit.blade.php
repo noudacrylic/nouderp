@@ -122,19 +122,19 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
                 <label class="block text-xs text-gray-500 mb-1">BPJS Kesehatan (Rp)</label>
-                <input type="text" name="bpjs_kesehatan_amount" value="{{ old('bpjs_kesehatan_amount', number_format((float)$slip->bpjs_kesehatan_amount, 0, ',', '.')) }}" class="border rounded px-3 py-2 w-full text-right">
+                <input type="text" inputmode="numeric" name="bpjs_kesehatan_amount" value="{{ old('bpjs_kesehatan_amount', number_format((float)$slip->bpjs_kesehatan_amount, 0, ',', '.')) }}" class="rupiah-input border rounded px-3 py-2 w-full text-right">
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">BPJS TK (Rp)</label>
-                <input type="text" name="bpjs_tk_amount" value="{{ old('bpjs_tk_amount', number_format((float)$slip->bpjs_tk_amount, 0, ',', '.')) }}" class="border rounded px-3 py-2 w-full text-right">
+                <input type="text" inputmode="numeric" name="bpjs_tk_amount" value="{{ old('bpjs_tk_amount', number_format((float)$slip->bpjs_tk_amount, 0, ',', '.')) }}" class="rupiah-input border rounded px-3 py-2 w-full text-right">
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">PPh 21 (Rp)</label>
-                <input type="text" name="pph21_amount" value="{{ old('pph21_amount', number_format((float)$slip->pph21_amount, 0, ',', '.')) }}" class="border rounded px-3 py-2 w-full text-right">
+                <input type="text" inputmode="numeric" name="pph21_amount" value="{{ old('pph21_amount', number_format((float)$slip->pph21_amount, 0, ',', '.')) }}" class="rupiah-input border rounded px-3 py-2 w-full text-right">
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Potongan Kasbon (Rp)</label>
-                <input type="text" name="kasbon_payment" value="{{ old('kasbon_payment', number_format((float)$slip->kasbon_payment, 0, ',', '.')) }}" class="border rounded px-3 py-2 w-full text-right">
+                <input type="text" inputmode="numeric" name="kasbon_payment" value="{{ old('kasbon_payment', number_format((float)$slip->kasbon_payment, 0, ',', '.')) }}" class="rupiah-input border rounded px-3 py-2 w-full text-right">
                 @if(isset($kasbonAktif) && $kasbonAktif->isNotEmpty())
                     @php $totalCicilan = $kasbonAktif->sum('cicilan_per_bulan'); @endphp
                     <p class="text-[11px] text-amber-700 mt-1">Saran cicilan: Rp {{ number_format($totalCicilan, 0, ',', '.') }} dari {{ $kasbonAktif->count() }} kasbon aktif.</p>

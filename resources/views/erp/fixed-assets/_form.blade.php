@@ -53,7 +53,7 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Harga Perolehan <span class="text-red-500">*</span></label>
-                <input type="number" step="0.01" min="0" name="acquisition_cost" id="acquisition_cost" value="{{ old('acquisition_cost', $a->acquisition_cost ?? '') }}" class="w-full border rounded px-2 py-1.5" required @if($isEdit && $a->source_type === 'purchase') readonly title="Cost berasal dari invoice — tidak bisa diubah" @endif oninput="recalcDepreciation()">
+                <input type="text" inputmode="numeric" name="acquisition_cost" id="acquisition_cost" value="{{ old('acquisition_cost', $a->acquisition_cost ?? '') }}" class="w-full border rounded px-2 py-1.5 rupiah-input" required @if($isEdit && $a->source_type === 'purchase') readonly title="Cost berasal dari invoice — tidak bisa diubah" @endif oninput="recalcDepreciation()">
             </div>
         </div>
     </div>
@@ -144,7 +144,7 @@ function loadDefaults(catId) {
     if (depEl) depEl.checked = opt.dataset.depreciable === '1';
     toggleDepreciable();
     if (salvageEl && !salvageEl.value) {
-        const cost = parseFloat(costEl?.value || 0);
+        const cost = window.cleanNumber(costEl?.value || 0);
         const pct = parseFloat(opt.dataset.salvage || 0);
         if (cost > 0 && pct > 0) salvageEl.value = (cost * pct / 100).toFixed(2);
     }
@@ -214,7 +214,7 @@ function recalcDepreciation() {
 
     const start = document.getElementById('depreciation_start_date')?.value || '';
     const life = parseInt(document.getElementById('useful_life_months')?.value || '0', 10);
-    const cost = parseFloat(document.getElementById('acquisition_cost')?.value || '0');
+    const cost = window.cleanNumber(document.getElementById('acquisition_cost')?.value || '0');
     const salvage = parseFloat(document.getElementById('salvage_value')?.value || '0');
 
     // Selesai disusutkan = end of (start + life - 1) bulan

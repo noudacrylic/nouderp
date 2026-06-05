@@ -105,9 +105,9 @@
             <label class="block text-xs font-bold text-gray-600 mb-3 uppercase tracking-widest text-center">Jumlah Pembayaran</label>
             <div class="flex items-center bg-white border-2 border-transparent rounded-xl px-4 mb-2 shadow-sm focus-within:border-blue-500 transition group">
                 <span class="text-lg font-black text-gray-300 pr-2 group-focus-within:text-blue-500">Rp</span>
-                <input type="number" id="paymentAmount" name="amount"
-                    class="w-full py-4 text-2xl font-black outline-none bg-transparent" placeholder="0"
-                    step="0.01" min="0" value="{{ old('amount', $payment->amount ?? '') }}" required>
+                <input type="text" inputmode="numeric" id="paymentAmount" name="amount"
+                    class="rupiah-input w-full py-4 text-2xl font-black outline-none bg-transparent" placeholder="0"
+                    value="{{ old('amount', $payment->amount ?? '') }}" required>
             </div>
 
             <div id="dpInfo" class="text-[10px] text-purple-700 font-bold hidden bg-purple-50 p-2 rounded-lg border border-purple-200 italic text-center mt-2">
@@ -180,7 +180,7 @@
         </div>
         <div class="invoice-amount-row hidden mt-2 pl-8 flex items-center gap-2">
             <span class="text-[10px] text-gray-500 font-bold">Bayar:</span>
-            <input type="number" step="0.01" min="0" class="invoice-amount border rounded px-2 py-1 text-sm text-right flex-1" value="0">
+            <input type="text" inputmode="numeric" class="rupiah-input invoice-amount border rounded px-2 py-1 text-sm text-right flex-1" value="0">
             <input type="hidden" class="invoice-id">
         </div>
     </label>
@@ -337,7 +337,7 @@
                 '</div>' +
                 '<div class="po-amount-row hidden mt-2 pl-8 flex items-center gap-2">' +
                   '<span class="text-[10px] text-gray-500 font-bold">DP:</span>' +
-                  '<input type="number" step="0.01" min="0" class="po-amount border rounded px-2 py-1 text-sm text-right flex-1" value="' + po.remaining_value + '">' +
+                  '<input type="text" inputmode="numeric" class="rupiah-input po-amount border rounded px-2 py-1 text-sm text-right flex-1" value="' + po.remaining_value + '">' +
                 '</div>';
 
             const cb = label.querySelector('.po-cb');
@@ -486,14 +486,14 @@
                 .filter(l => l.querySelector('.po-cb').checked)
                 .map(l => ({
                     label: l,
-                    amount: parseFloat(l.querySelector('.po-amount').value || 0),
+                    amount: window.cleanNumber(l.querySelector('.po-amount').value || 0),
                 }));
         }
         return Array.from(document.querySelectorAll('.invoice-item'))
             .filter(l => l.querySelector('.invoice-cb').checked)
             .map(l => ({
                 label: l,
-                amount: parseFloat(l.querySelector('.invoice-amount').value || 0),
+                amount: window.cleanNumber(l.querySelector('.invoice-amount').value || 0),
             }));
     }
 
@@ -529,7 +529,7 @@
      *   Mode PELUNASAN: allocSum = pelunasan invoice (Dr AP). excess = DP (1107) [tetap].
      */
     function updateBreakdown(){
-        const amt = parseFloat(amountInput.value || 0);
+        const amt = window.cleanNumber(amountInput.value || 0);
         const used = parseFloat(usedBalanceInput.value || 0);
         const totalDana = amt + used;
         const allocSum = getCheckedRows().reduce((s, r) => s + r.amount, 0);
@@ -625,7 +625,7 @@
         this.querySelectorAll('input[data-alloc]').forEach(el => el.remove());
 
         if (currentMode === 'pelunasan'){
-            const amt = parseFloat(amountInput.value || 0);
+            const amt = window.cleanNumber(amountInput.value || 0);
             const used = parseFloat(usedBalanceInput.value || 0);
             const totalDana = amt + used;
             let allocSum = 0;
@@ -634,7 +634,7 @@
                 const cb = item.querySelector('.invoice-cb');
                 if (cb && cb.checked){
                     const id = item.querySelector('.invoice-id').value;
-                    const a = parseFloat(item.querySelector('.invoice-amount').value || 0);
+                    const a = window.cleanNumber(item.querySelector('.invoice-amount').value || 0);
                     if (a > 0){
                         allocs.push({id, amount: a});
                         allocSum += a;

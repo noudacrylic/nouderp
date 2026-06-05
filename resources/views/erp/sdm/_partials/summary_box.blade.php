@@ -63,9 +63,9 @@
                             <input type="hidden" name="bulan" value="{{ $bulan }}">
                             <input type="hidden" name="tahun" value="{{ $tahun }}">
                             @if($s->arah === 'minus' && $val > 0)<span class="text-red-500">−</span>@endif
-                            <input type="number" step="1" min="0" name="nominal" value="{{ (int) $val }}"
+                            <input type="text" inputmode="numeric" name="nominal" value="{{ number_format((int) $val, 0, ',', '.') }}"
                                    data-original="{{ (int) $val }}"
-                                   class="border rounded px-2 py-1 w-32 text-right font-mono text-sm bg-emerald-50 focus:bg-white focus:border-emerald-400">
+                                   class="rupiah-input border rounded px-2 py-1 w-32 text-right font-mono text-sm bg-emerald-50 focus:bg-white focus:border-emerald-400">
                         </form>
                     @else
                         {{ $s->arah === 'minus' && $val > 0 ? '−' : '' }}{{ rupiah($val) }}
@@ -99,8 +99,8 @@
                             @endif
                             <input type="hidden" name="bulan" value="{{ $bulan }}">
                             <input type="hidden" name="tahun" value="{{ $tahun }}">
-                            <input type="number" step="1" min="0" name="nominal" placeholder="Nominal" required
-                                   class="border rounded px-2 py-1 w-32 text-right font-mono text-sm">
+                            <input type="text" inputmode="numeric" name="nominal" placeholder="Nominal" required
+                                   class="rupiah-input border rounded px-2 py-1 w-32 text-right font-mono text-sm">
                             <button type="submit" title="Simpan (Enter)" class="text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded p-1.5 inline-flex items-center justify-center">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                             </button>

@@ -155,7 +155,7 @@
                     <div>
                         <label class="block text-xs text-gray-500 mb-1">Biaya Admin <span class="text-gray-400">(transfer beda bank)</span></label>
                         <input type="text" name="admin_fee" x-model="adminFee" inputmode="numeric"
-                               placeholder="0" class="border rounded px-3 py-2 w-full text-sm text-right">
+                               placeholder="0" class="rupiah-input border rounded px-3 py-2 w-full text-sm text-right">
                     </div>
                     <div x-show="adminFeeNum > 0" x-cloak>
                         <label class="block text-xs text-gray-500 mb-1">Akun Beban Admin <span class="text-red-500">*</span></label>
@@ -425,8 +425,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-save inline nominal di Summary box on blur jika berubah
     document.querySelectorAll('.summary-val-form input[name="nominal"]').forEach(function (inp) {
         inp.addEventListener('blur', function () {
-            const original = inp.dataset.original;
-            if (String(inp.value || '0') === String(original)) return; // no change
+            // value bisa berformat titik ribuan (rupiah-input) → bandingkan via angka polos
+            const cur  = window.cleanNumber ? window.cleanNumber(inp.value) : (parseFloat(inp.value) || 0);
+            const orig = window.cleanNumber ? window.cleanNumber(inp.dataset.original) : (parseFloat(inp.dataset.original) || 0);
+            if (cur === orig) return; // no change
             inp.form.submit();
         });
         inp.addEventListener('keydown', function (e) {

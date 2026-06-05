@@ -134,9 +134,9 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-600 mb-1">Dasar Maks (Rp/bln)</label>
-                <input type="number" step="1" min="0" name="bpjs_kesehatan_max_base"
+                <input type="text" inputmode="numeric" name="bpjs_kesehatan_max_base"
                        value="{{ old('bpjs_kesehatan_max_base', $setting->bpjs_kesehatan_max_base) }}"
-                       class="w-full border rounded px-2 py-1.5 text-sm text-right">
+                       class="rupiah-input w-full border rounded px-2 py-1.5 text-sm text-right">
             </div>
         </div>
     </div>
@@ -187,9 +187,9 @@
             </div>
             <div class="col-span-2">
                 <label class="block text-xs text-gray-600 mb-1">Dasar JP Maks (Rp/bln)</label>
-                <input type="number" step="1" min="0" name="bpjs_jp_max_base"
+                <input type="text" inputmode="numeric" name="bpjs_jp_max_base"
                        value="{{ old('bpjs_jp_max_base', $setting->bpjs_jp_max_base) }}"
-                       class="w-full border rounded px-2 py-1.5 text-sm text-right">
+                       class="rupiah-input w-full border rounded px-2 py-1.5 text-sm text-right">
             </div>
         </div>
     </div>

@@ -62,7 +62,7 @@
                             <input name="items[{{ $index }}][qty]" type="number" value="{{ $qtyVal }}" class="qty w-full border border-gray-300 rounded px-3 py-2 text-right">
                         </td>
                         <td class="p-2">
-                            <input name="items[{{ $index }}][unit_price]" type="text" value="{{ number_format($item->unit_price ?? 0, 0, ',', '.') }}" class="price w-full border border-gray-300 rounded px-3 py-2 text-right">
+                            <input name="items[{{ $index }}][unit_price]" type="text" inputmode="numeric" value="{{ number_format($item->unit_price ?? 0, 0, ',', '.') }}" class="price rupiah-input w-full border border-gray-300 rounded px-3 py-2 text-right">
                         </td>
                         <td class="p-2">
                             <div class="flex gap-2">
@@ -105,7 +105,7 @@
                         <input name="items[0][qty]" type="number" value="1" class="qty w-full border border-gray-300 rounded px-3 py-2 text-right">
                     </td>
                     <td class="p-2">
-                        <input name="items[0][unit_price]" type="text" value="0" class="price w-full border border-gray-300 rounded px-3 py-2 text-right">
+                        <input name="items[0][unit_price]" type="text" inputmode="numeric" value="0" class="price rupiah-input w-full border border-gray-300 rounded px-3 py-2 text-right">
                     </td>
                     <td class="p-2">
                         <div class="flex gap-2">
@@ -157,7 +157,7 @@ function addItemRow() {
             <input name="items[${idx}][qty]" type="number" value="1" class="qty w-full border border-gray-300 rounded px-3 py-2 text-right">
         </td>
         <td class="p-2">
-            <input name="items[${idx}][unit_price]" type="text" value="0" class="price w-full border border-gray-300 rounded px-3 py-2 text-right">
+            <input name="items[${idx}][unit_price]" type="text" inputmode="numeric" value="0" class="price rupiah-input w-full border border-gray-300 rounded px-3 py-2 text-right">
         </td>
         <td class="p-2">
             <div class="flex gap-2">

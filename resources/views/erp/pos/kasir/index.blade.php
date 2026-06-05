@@ -127,7 +127,7 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Uang Diterima</label>
-                <input id="cashTendered" type="number" min="0" step="any" class="w-full border rounded-lg px-3 py-2 text-lg text-right font-bold">
+                <input id="cashTendered" type="text" inputmode="numeric" class="rupiah-input w-full border rounded-lg px-3 py-2 text-lg text-right font-bold">
                 <div class="flex gap-1.5 mt-1.5" id="cashQuick"></div>
             </div>
             <div class="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
@@ -184,6 +184,10 @@
     let promoTimer = null;
 
     const rupiah = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
+    // Format angka polos jadi titik ribuan (untuk value input rupiah-input yang dirender dinamis)
+    const rupiah0 = n => (window.formatThousands ? window.formatThousands(String(Math.round(n || 0))) : String(Math.round(n || 0)));
+    // Baca nilai input mata uang (titik ribuan) → number
+    const num = v => (window.cleanNumber ? window.cleanNumber(v) : (parseFloat(v) || 0));
     const el = id => document.getElementById(id);
 
     // ---------- Katalog & pencarian ----------
@@ -260,7 +264,7 @@
                         <button type="button" class="px-2 text-gray-500 hover:bg-gray-100" onclick="posQty(${i},1)">+</button>
                     </div>
                     <span class="text-[11px] text-gray-400">×</span>
-                    <input type="number" min="0" step="any" value="${it.price}" class="w-24 text-right text-xs border rounded px-1.5 py-0.5" oninput="posSet(${i},'price',this.value)" title="Harga satuan">
+                    <input type="text" inputmode="numeric" value="${rupiah0(it.price)}" class="rupiah-input w-24 text-right text-xs border rounded px-1.5 py-0.5" oninput="posSet(${i},'price',this.value)" title="Harga satuan">
                     <span class="text-[11px] text-gray-400 ml-auto">Disk</span>
                     <input type="number" min="0" step="any" value="${it.dval}" class="w-16 text-right text-xs border rounded px-1.5 py-0.5" oninput="posSet(${i},'dval',this.value)" title="Diskon (nominal = per unit)">
                     <select class="border rounded px-1 py-0.5 text-xs" onchange="posSet(${i},'dtype',this.value)">
@@ -277,7 +281,8 @@
     window.posSet = (i, f, v) => {
         if (f === 'dtype') { cart[i].dtype = v; cart[i].manual = true; cart[i].promoName = null; }
         else if (f === 'dval') { cart[i].dval = parseFloat(v) || 0; cart[i].manual = true; cart[i].promoName = null; }
-        else cart[i][f] = parseFloat(v) || 0;
+        else if (f === 'price') cart[i][f] = num(v);   // harga satuan: input rupiah-input (titik ribuan)
+        else cart[i][f] = parseFloat(v) || 0;          // qty (bukan mata uang)
         renderCart();
         if (f === 'qty' || f === 'price') applyCartPromos(); // subtotal berubah → cek tier cart_total
     };
@@ -389,7 +394,7 @@
     el('cashTendered').addEventListener('input', updateChange);
     function updateChange() {
         const t = calcTotals();
-        const change = (parseFloat(el('cashTendered').value) || 0) - t.grand;
+        const change = num(el('cashTendered').value) - t.grand;
         el('cashChange').textContent = rupiah(Math.max(0, change));
         el('cashChange').classList.toggle('text-red-500', change < 0);
         el('cashChange').classList.toggle('text-green-700', change >= 0);
@@ -403,7 +408,7 @@
     }
     el('cashSubmit').addEventListener('click', function () {
         const t = calcTotals();
-        const tendered = parseFloat(el('cashTendered').value) || 0;
+        const tendered = num(el('cashTendered').value);
         if (tendered + 0.01 < t.grand) { alert('Uang diterima kurang dari total.'); return; }
         this.disabled = true; this.textContent = 'Memproses…';
         postCheckout(buildPayload('cash', { cash_account_id: el('cashAccount').value, amount_tendered: tendered }))
