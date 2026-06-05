@@ -43,32 +43,6 @@ class PosSaleService
      */
     public function createSale(array $data): SalesInvoice
     {
-        $invoice = $this->buildDraft($data);
-
-        try {
-            $this->postingService->post($invoice);
-        } catch (\Throwable $e) {
-            // Draft belum punya pembayaran/alokasi → aman dihapus supaya tidak jadi sampah.
-            $invoice->delete();
-            throw new DomainException('Gagal memproses penjualan: ' . $e->getMessage(), 0, $e);
-        }
-
-        return $invoice->refresh();
-    }
-
-    /**
-     * Buat invoice POS sebagai DRAFT (BELUM potong stok / piutang). Dipakai jalur QRIS:
-     * invoice baru di-POST saat pembayaran QRIS dikonfirmasi Midtrans
-     * (MidtransService::postCustomerPayment) — supaya stok & piutang tidak tercatat
-     * sebelum customer benar-benar bayar. Bila QRIS batal/expired, draft cukup dihapus.
-     */
-    public function createSaleDraft(array $data): SalesInvoice
-    {
-        return $this->buildDraft($data);
-    }
-
-    private function buildDraft(array $data): SalesInvoice
-    {
         $ppn = (float) ($data['ppn_percent'] ?? 0);
 
         $items = [];
@@ -117,6 +91,14 @@ class PosSaleService
             'shipping_discount_type' => 'nominal',
             'shipping_discount_value' => 0,
         ]);
+
+        try {
+            $this->postingService->post($invoice);
+        } catch (\Throwable $e) {
+            // Draft belum punya pembayaran/alokasi → aman dihapus supaya tidak jadi sampah.
+            $invoice->delete();
+            throw new DomainException('Gagal memproses penjualan: ' . $e->getMessage(), 0, $e);
+        }
 
         return $invoice->refresh();
     }

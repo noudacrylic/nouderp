@@ -101,9 +101,7 @@ class MidtransAdminController extends Controller
     {
         $inv = SalesInvoice::findOrFail($invoice);
 
-        // Draft (POS QRIS yg di-defer) belum punya remaining_amount → pakai grand_total.
-        $due = (float) ($inv->remaining_amount ?: ((float) $inv->grand_total - (float) $inv->paid_amount));
-        if ($due <= 0) {
+        if ($inv->remaining_amount <= 0) {
             return response()->json(['error' => 'Invoice ini sudah lunas.'], 422);
         }
 

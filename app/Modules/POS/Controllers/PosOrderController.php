@@ -154,21 +154,15 @@ class PosOrderController extends Controller
             'description'    => $it['description'] ?? '',
         ], $data['items']);
 
-        $saleData = [
-            'customer_id'           => (int) $customerId,
-            'global_discount_type'  => $data['global_discount_type'] ?? 'nominal',
-            'global_discount_value' => (float) clean_number($data['global_discount_value'] ?? 0),
-            'ppn_percent'           => (float) clean_number($data['ppn_percent'] ?? 0),
-            'notes'                 => $data['notes'] ?? null,
-            'items'                 => $items,
-        ];
-
         try {
-            // QRIS: buat DRAFT dulu (stok & piutang BELUM tercatat) — invoice di-POST saat
-            // Midtrans konfirmasi bayar. Cash: langsung posted (kasir sudah terima uang).
-            $invoice = $data['payment_method'] === 'qris'
-                ? $svc->createSaleDraft($saleData)
-                : $svc->createSale($saleData);
+            $invoice = $svc->createSale([
+                'customer_id'           => (int) $customerId,
+                'global_discount_type'  => $data['global_discount_type'] ?? 'nominal',
+                'global_discount_value' => (float) clean_number($data['global_discount_value'] ?? 0),
+                'ppn_percent'           => (float) clean_number($data['ppn_percent'] ?? 0),
+                'notes'                 => $data['notes'] ?? null,
+                'items'                 => $items,
+            ]);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
