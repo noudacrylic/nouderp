@@ -643,54 +643,108 @@ class SalesDeliveryController extends Controller
                         continue;
                     }
 
+                    // Baris konsumsi FIFO milik SJ ini (per-layer, simpan unit_cost asli).
                     $consumeLayers = \App\Models\InventoryCostLayer::where('product_id', $item->product_id)
                         ->where('reference_type', 'sales')
                         ->where('reference_id', $delivery->id)
                         ->where('qty_out', '>', 0)
+                        ->orderBy('id')
                         ->get();
 
                     $totalQty = (float) $consumeLayers->sum('qty_out');
+
                     if ($totalQty <= 0) {
+                        // Tak ada jejak konsumsi (data lama): fallback kembalikan qty item ke
+                        // ledger saja dgn cost dari cogs_total bila ada.
                         $totalQty = (float) $item->qty;
+                        $fbCost = ((float) $item->qty > 0 && (float) ($item->cogs_total ?? 0) > 0)
+                            ? (float) $item->cogs_total / (float) $item->qty : 0;
+
+                        $engine->ledger(
+                            $item->product_id, $delivery->warehouse_id, $totalQty, 0,
+                            'sales_void', $delivery->delivery_number,
+                            'Void delivery ' . $delivery->delivery_number, $delivery->id
+                        );
+                        \App\Core\Inventory\StockLayer::create([
+                            'product_id'    => $item->product_id,
+                            'warehouse_id'  => $delivery->warehouse_id,
+                            'qty_in'        => $totalQty,
+                            'qty_remaining' => $totalQty,
+                            'unit_cost'     => $fbCost,
+                            'source_type'   => 'sales_void',
+                            'source_id'     => $delivery->id,
+                        ]);
+                        \App\Models\InventoryCostLayer::create([
+                            'product_id'     => $item->product_id,
+                            'qty_in'         => $totalQty,
+                            'qty_balance'    => $totalQty,
+                            'unit_cost'      => $fbCost,
+                            'reference_type' => 'sales_void',
+                            'reference_id'   => $delivery->id,
+                        ]);
+                        continue;
                     }
 
-                    $avgCost = 0;
-                    if ($consumeLayers->count() > 0 && $totalQty > 0) {
-                        $totalCost = $consumeLayers->sum(fn($l) => (float) $l->qty_out * (float) $l->unit_cost);
-                        $avgCost = $totalCost / $totalQty;
-                    } elseif ((float) $item->qty > 0 && (float) ($item->cogs_total ?? 0) > 0) {
-                        $avgCost = (float) $item->cogs_total / (float) $item->qty;
-                    }
-
+                    // 1) Ledger: kembalikan qty fisik ke running-balance.
                     $engine->ledger(
-                        $item->product_id,
-                        $delivery->warehouse_id,
-                        $totalQty,
-                        0,
-                        'sales_void',
-                        $delivery->delivery_number,
-                        'Void delivery ' . $delivery->delivery_number,
-                        $delivery->id
+                        $item->product_id, $delivery->warehouse_id, $totalQty, 0,
+                        'sales_void', $delivery->delivery_number,
+                        'Void delivery ' . $delivery->delivery_number, $delivery->id
                     );
 
-                    \App\Core\Inventory\StockLayer::create([
-                        'product_id'    => $item->product_id,
-                        'warehouse_id'  => $delivery->warehouse_id,
-                        'qty_in'        => $totalQty,
-                        'qty_remaining' => $totalQty,
-                        'unit_cost'     => $avgCost,
-                        'source_type'   => 'sales_void',
-                        'source_id'     => $delivery->id,
-                    ]);
+                    // 2) Kembalikan qty_remaining ke LAYER ASLI per unit_cost (jaga FIFO &
+                    //    cost asli) — bukan bikin layer rata-rata baru di akhir antrean.
+                    $byCost = [];
+                    foreach ($consumeLayers as $cl) {
+                        $key = (string) round((float) $cl->unit_cost, 4);
+                        $byCost[$key] = ($byCost[$key] ?? 0) + (float) $cl->qty_out;
+                    }
 
-                    \App\Models\InventoryCostLayer::create([
-                        'product_id'     => $item->product_id,
-                        'qty_in'         => $totalQty,
-                        'qty_balance'    => $totalQty,
-                        'unit_cost'      => $avgCost,
-                        'reference_type' => 'sales_void',
-                        'reference_id'   => $delivery->id,
-                    ]);
+                    foreach ($byCost as $costKey => $restoreQty) {
+                        $cost = (float) $costKey;
+                        $remainingToRestore = $restoreQty;
+
+                        // Layer asli ber-cost sama yg sempat terkuras (FIFO: tertua dulu).
+                        $stockLayers = \App\Core\Inventory\StockLayer::where('product_id', $item->product_id)
+                            ->where('warehouse_id', $delivery->warehouse_id)
+                            ->whereRaw('ROUND(unit_cost, 4) = ?', [round($cost, 4)])
+                            ->whereColumn('qty_remaining', '<', 'qty_in')
+                            ->orderBy('id')
+                            ->lockForUpdate()
+                            ->get();
+
+                        foreach ($stockLayers as $sl) {
+                            if ($remainingToRestore <= 0.00001) break;
+                            $headroom = (float) $sl->qty_in - (float) $sl->qty_remaining;
+                            $add = min($headroom, $remainingToRestore);
+                            $sl->qty_remaining = (float) $sl->qty_remaining + $add;
+                            $sl->save();
+                            $remainingToRestore -= $add;
+                        }
+
+                        // Sisa tak terpetakan (cost bergeser/data lama) → layer pemulih baru.
+                        if ($remainingToRestore > 0.00001) {
+                            \App\Core\Inventory\StockLayer::create([
+                                'product_id'    => $item->product_id,
+                                'warehouse_id'  => $delivery->warehouse_id,
+                                'qty_in'        => $remainingToRestore,
+                                'qty_remaining' => $remainingToRestore,
+                                'unit_cost'     => $cost,
+                                'source_type'   => 'sales_void',
+                                'source_id'     => $delivery->id,
+                            ]);
+                        }
+
+                        // Audit ledger: entri pembalik per-cost.
+                        \App\Models\InventoryCostLayer::create([
+                            'product_id'     => $item->product_id,
+                            'qty_in'         => $restoreQty,
+                            'qty_balance'    => $restoreQty,
+                            'unit_cost'      => $cost,
+                            'reference_type' => 'sales_void',
+                            'reference_id'   => $delivery->id,
+                        ]);
+                    }
                 }
 
                 // Fase 5 — balik jurnal booking ongkir (Saldo Biteship kembali) bila ada resi.
