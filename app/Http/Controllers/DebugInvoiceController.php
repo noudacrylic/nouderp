@@ -413,7 +413,9 @@ class DebugInvoiceController extends Controller
             (float) $request->ppn_percent,
             (float) $request->pph_percent,
             $ship['net'],
-            clean_number($request->additional_fee),
+            // Form mengirim "selling_expense" (Biaya Lain) — sebelumnya keliru baca
+            // "additional_fee" yang tak pernah dikirim, sehingga biaya hilang saat create.
+            clean_number($request->selling_expense),
             clean_number($request->advance_applied),
             $request->notes,
             $items
