@@ -48,6 +48,7 @@ class PosOrderController extends Controller
 
         $rows = Product::query()
             ->where('is_active', true)
+            ->where('is_sellable', true) // Kasir hanya tampilkan produk yang dijual.
             ->when($q !== '', fn ($query) => $query->where(fn ($w) =>
                 $w->where('name', 'like', "%{$q}%")->orWhere('sku', 'like', "%{$q}%")))
             ->orderBy('name')

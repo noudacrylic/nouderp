@@ -3,6 +3,7 @@
     <form action="{{ route('inventory.products.update-info', $product->id) }}" method="POST">
         @csrf
         <input type="hidden" name="jubelio_section" value="1">
+        <input type="hidden" name="sellable_section" value="1">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
                 <label class="block text-xs font-bold text-gray-500 uppercase mb-1">SKU</label>
@@ -19,6 +20,14 @@
                 <input type="text" name="name" value="{{ $product->name }}"
                     class="w-full border rounded-lg px-4 py-2 bg-gray-50 focus:bg-white transition" required>
             </div>
+        </div>
+        <div class="mt-4 border-t pt-4">
+            <label class="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <input type="checkbox" name="is_sellable" value="1" {{ ($product->is_sellable ?? true) ? 'checked' : '' }}
+                    class="rounded border-gray-300">
+                Dijual (tampil di Kasir, Penawaran &amp; Faktur)
+            </label>
+            <p class="text-[11px] text-gray-400 mt-1">Centang bila produk dijual langsung ke pembeli. Matikan untuk produk setengah jadi, komponen wajib, atau pelengkap bundle — tetap bisa diproduksi &amp; dipakai sbg komponen, tapi tidak muncul saat memilih barang jualan.</p>
         </div>
         <div class="mt-4 border-t pt-4">
             <label class="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">

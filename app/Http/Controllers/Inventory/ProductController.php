@@ -122,6 +122,11 @@ class ProductController extends Controller
             $data['sync_to_jubelio'] = $request->boolean('sync_to_jubelio');
         }
 
+        // Flag "Dijual" (muncul di form jual/POS). Marker memastikan unchecked = false.
+        if ($request->has('sellable_section')) {
+            $data['is_sellable'] = $request->boolean('is_sellable');
+        }
+
         $product->update($data);
 
         return back()->with('success', 'Konfigurasi produk berhasil diperbarui.');
@@ -571,6 +576,9 @@ class ProductController extends Controller
             ->with(['units' => fn($u) => $u->where('is_active', true)->orderBy('level')])
             // Konteks produksi (BOM): produk bundle tidak masuk produksi.
             ->when($request->boolean('exclude_bundle'), fn($qq) => $qq->where('sale_type', '!=', 'bundle'))
+            // Konteks JUAL (Penawaran/SO/Faktur): hanya produk yang ditandai "Dijual".
+            // Produksi/purchasing/warranty TIDAK kirim param ini → semua produk tampil.
+            ->when($request->boolean('sellable_only'), fn($qq) => $qq->where('is_sellable', true))
             ->where(function ($w) use ($q) {
                 $w->where('sku', 'like', "%$q%")
                   ->orWhere('name', 'like', "%$q%");
@@ -791,36 +799,39 @@ class ProductController extends Controller
         $sheet->setTitle('Produk');
 
         // Header
-        $sheet->fromArray(['sku', 'name', 'sale_type', 'base_unit', 'base_price', 'cost_price'], null, 'A1');
-        $sheet->getStyle('A1:F1')->getFont()->setBold(true);
-        $sheet->getStyle('A1:F1')->getFill()
+        $sheet->fromArray(['sku', 'name', 'sale_type', 'base_unit', 'base_price', 'cost_price', 'weight_gram', 'is_sellable'], null, 'A1');
+        $sheet->getStyle('A1:H1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:H1')->getFill()
             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
             ->getStartColor()->setRGB('FEF3C7');
 
         // Contoh
         $sheet->fromArray([
-            ['MP-001',  'Contoh Produk Marketplace 1', 'ready',    'pcs', 50000,  30000],
-            ['MP-002',  'Contoh Produk Marketplace 2', 'ready',    'pcs', 75000,  45000],
-            ['',        'Auto-SKU jika kolom A kosong', 'ready',    'pcs', 100000, 60000],
-            ['SRV-001', 'Contoh Jasa',                  'service',  'pcs', 25000,  0],
+            ['MP-001',  'Contoh Produk Marketplace 1',  'ready',    'pcs', 50000,  30000,  500,  'Ya'],
+            ['MP-002',  'Contoh Produk Marketplace 2',  'ready',    'pcs', 75000,  45000,  1000, 'Ya'],
+            ['',        'Auto-SKU jika kolom A kosong',  'ready',    'pcs', 100000, 60000,  250,  'Ya'],
+            ['SRV-001', 'Contoh Jasa',                   'service',  'pcs', 25000,  0,      '',   'Ya'],
+            ['CMP-001', 'Contoh Komponen (tdk dijual)',  'ready',    'pcs', 0,      15000,  300,  'Tidak'],
         ], null, 'A2');
 
         // Width
-        foreach (['A' => 18, 'B' => 40, 'C' => 14, 'D' => 12, 'E' => 14, 'F' => 14] as $col => $w) {
+        foreach (['A' => 18, 'B' => 40, 'C' => 14, 'D' => 12, 'E' => 14, 'F' => 14, 'G' => 14, 'H' => 12] as $col => $w) {
             $sheet->getColumnDimension($col)->setWidth($w);
         }
-        $sheet->getStyle('E:F')->getNumberFormat()->setFormatCode('#,##0');
+        $sheet->getStyle('E:G')->getNumberFormat()->setFormatCode('#,##0');
 
         // Petunjuk
-        $sheet->setCellValue('A7', 'Petunjuk:');
-        $sheet->setCellValue('A8', '- sku: kosongkan untuk auto-generate (PRD00xxx, dst sesuai sale_type)');
-        $sheet->setCellValue('A9', '- name: wajib');
-        $sheet->setCellValue('A10', '- sale_type: ready / preorder / bundle / service / non_stock. Default = ready');
-        $sheet->setCellValue('A11', '- base_unit: default "pcs"');
-        $sheet->setCellValue('A12', '- base_price: harga jual (Rp). Boleh kosong (default 0)');
-        $sheet->setCellValue('A13', '- cost_price: harga pokok / referensi pembelian (Rp). Boleh kosong');
-        $sheet->setCellValue('A14', '- Hapus 4 contoh di atas sebelum isi data riil');
-        $sheet->setCellValue('A15', '- Stok awal & akun jurnal di-setup terpisah via halaman Setup Produk');
+        $sheet->setCellValue('A8', 'Petunjuk:');
+        $sheet->setCellValue('A9', '- sku: kosongkan untuk auto-generate (PRD00xxx, dst sesuai sale_type)');
+        $sheet->setCellValue('A10', '- name: wajib');
+        $sheet->setCellValue('A11', '- sale_type: ready / preorder / bundle / service / non_stock. Default = ready');
+        $sheet->setCellValue('A12', '- base_unit: default "pcs"');
+        $sheet->setCellValue('A13', '- base_price: harga jual (Rp). Boleh kosong (default 0)');
+        $sheet->setCellValue('A14', '- cost_price: harga pokok / referensi pembelian (Rp). Boleh kosong');
+        $sheet->setCellValue('A15', '- weight_gram: berat satuan dalam GRAM (untuk ongkir). Boleh kosong');
+        $sheet->setCellValue('A16', '- is_sellable: Ya = dijual (muncul di Kasir/Penawaran/Faktur). Tidak = komponen/setengah jadi. Default = Ya');
+        $sheet->setCellValue('A17', '- Hapus contoh di atas sebelum isi data riil');
+        $sheet->setCellValue('A18', '- Stok awal & akun jurnal di-setup terpisah via halaman Setup Produk');
         $sheet->getStyle('A7')->getFont()->setBold(true);
         $sheet->getStyle('A7:A15')->getFont()->setItalic(true);
 
@@ -883,10 +894,11 @@ class ProductController extends Controller
             'SKU', 'Nama Produk', 'Tipe', 'Status', 'Base Unit',
             'Base Price (Rp)', 'Cost Price (Rp)', 'Last Cost (Rp)',
             'Total Stok', 'Preorder Stok', 'Lead Time (hari)', 'Dibuat',
+            'Berat (gram)', 'Bisa Dijual',
         ];
         $sheet->fromArray($headers, null, 'A1');
-        $sheet->getStyle('A1:L1')->getFont()->setBold(true);
-        $sheet->getStyle('A1:L1')->getFill()
+        $sheet->getStyle('A1:N1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:N1')->getFill()
             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
             ->getStartColor()->setRGB('FEF3C7');
 
@@ -907,12 +919,15 @@ class ProductController extends Controller
             $sheet->setCellValue("J{$row}", (float) ($p->preorder_stock ?? 0));
             $sheet->setCellValue("K{$row}", (int) ($p->lead_time_days ?? 0));
             $sheet->setCellValue("L{$row}", $p->created_at ? $p->created_at->format('Y-m-d') : '');
+            $sheet->setCellValue("M{$row}", $p->weight_gram !== null ? (int) $p->weight_gram : '');
+            $sheet->setCellValue("N{$row}", $p->is_sellable ? 'Ya' : 'Tidak');
             $row++;
         }
 
         // Column widths
         foreach (['A' => 18, 'B' => 45, 'C' => 12, 'D' => 10, 'E' => 10,
-                  'F' => 16, 'G' => 16, 'H' => 16, 'I' => 12, 'J' => 12, 'K' => 14, 'L' => 12] as $col => $w) {
+                  'F' => 16, 'G' => 16, 'H' => 16, 'I' => 12, 'J' => 12, 'K' => 14, 'L' => 12,
+                  'M' => 14, 'N' => 12] as $col => $w) {
             $sheet->getColumnDimension($col)->setWidth($w);
         }
 
@@ -920,6 +935,7 @@ class ProductController extends Controller
         $lastRow = max($row - 1, 2);
         $sheet->getStyle("F2:I{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
         $sheet->getStyle("J2:K{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
+        $sheet->getStyle("M2:M{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
 
         $filename = 'produk-' . now()->format('Ymd-His') . '.xlsx';
         $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss);
@@ -958,6 +974,8 @@ class ProductController extends Controller
             'base_unit'   => array_search('base_unit', $header, true),
             'base_price'  => array_search('base_price', $header, true),
             'cost_price'  => array_search('cost_price', $header, true),
+            'weight_gram' => array_search('weight_gram', $header, true),
+            'is_sellable' => array_search('is_sellable', $header, true),
         ];
         if ($idx['name'] === false) {
             return back()->with('error', 'Header "name" wajib ada di kolom Excel.');
@@ -986,6 +1004,20 @@ class ProductController extends Controller
                 $basePrice = $idx['base_price'] !== false ? (float) clean_number($r[$idx['base_price']] ?? 0) : 0;
                 $costPrice = $idx['cost_price'] !== false ? (float) clean_number($r[$idx['cost_price']] ?? 0) : 0;
 
+                // Berat satuan (gram) — pakai clean_number (handle "1.000" = 1000).
+                $weightGram = $idx['weight_gram'] !== false && trim((string) ($r[$idx['weight_gram']] ?? '')) !== ''
+                    ? (int) round((float) clean_number($r[$idx['weight_gram']]))
+                    : null;
+
+                // Bisa dijual — default TRUE. Terima: kosong/ya/yes/y/true/1/dijual = true; tidak/no/n/false/0 = false.
+                $isSellable = true;
+                if ($idx['is_sellable'] !== false) {
+                    $sv = strtolower(trim((string) ($r[$idx['is_sellable']] ?? '')));
+                    if ($sv !== '') {
+                        $isSellable = !in_array($sv, ['tidak', 'no', 'n', 'false', '0', 'non', 'nonsell', 'tdk'], true);
+                    }
+                }
+
                 // Auto-SKU kalau kosong
                 if ($sku === '') {
                     $sku = $this->generateSku($saleType);
@@ -998,13 +1030,15 @@ class ProductController extends Controller
 
                 try {
                     $product = Product::create([
-                        'sku'        => $sku,
-                        'name'       => $name,
-                        'sale_type'  => $saleType,
-                        'base_unit'  => $baseUnit,
-                        'base_price' => $basePrice,
-                        'cost_price' => $costPrice,
-                        'is_active'  => 1,
+                        'sku'         => $sku,
+                        'name'        => $name,
+                        'sale_type'   => $saleType,
+                        'base_unit'   => $baseUnit,
+                        'base_price'  => $basePrice,
+                        'cost_price'  => $costPrice,
+                        'weight_gram' => $weightGram,
+                        'is_sellable' => $isSellable,
+                        'is_active'   => 1,
                     ]);
 
                     // Bikin level-0 unit

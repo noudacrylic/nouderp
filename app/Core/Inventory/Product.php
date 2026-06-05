@@ -22,6 +22,7 @@ class Product extends Model
         'min_stock',
         'last_cost',
         'is_active',
+        'is_sellable',
         'type',
         'unit',
         'inventory_account_id',
@@ -42,6 +43,7 @@ class Product extends Model
     protected $casts = [
         'needs_printing' => 'boolean',
         'is_active' => 'boolean',
+        'is_sellable' => 'boolean',
         'sync_to_jubelio' => 'boolean',
         'jubelio_sync_pending' => 'boolean',
         'jubelio_price_pending' => 'boolean',

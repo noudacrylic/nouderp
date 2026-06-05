@@ -589,7 +589,7 @@
                 return;
             }
 
-            $.get('/erp/api/products/search', { q: keyword }, function(products){
+            $.get('/erp/api/products/search', { q: keyword, sellable_only: 1 }, function(products){
                 let html = '';
                 if(products.length === 0){
                     html = '<div class="p-3 text-xs text-gray-500 italic">Produk tidak ditemukan</div>';
