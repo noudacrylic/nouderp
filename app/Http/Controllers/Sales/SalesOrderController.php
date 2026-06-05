@@ -425,6 +425,15 @@ class SalesOrderController extends Controller
     {
         return DB::transaction(function () use ($request, $id) {
             $so = SalesOrder::findOrFail($id);
+
+            // Update menghapus & membuat ulang item (ID baru). Pada SO yang sudah
+            // dikonfirmasi hal ini me-reset qty_invoiced, meninggalkan reservasi stok
+            // yatim, dan memutus link SalesInvoiceItem.sales_order_item_id. Karena itu
+            // edit hanya diizinkan pada status draft — selain itu harus di-void dulu.
+            if ($so->status !== SalesOrderStatus::DRAFT->value) {
+                return back()->with('error', 'Sales Order yang sudah dikonfirmasi tidak dapat diedit. Lakukan Void terlebih dahulu bila ingin mengubah.');
+            }
+
             $date = $request->order_date ?? now()->toDateString();
 
             $customerId = $request->customer_id;
