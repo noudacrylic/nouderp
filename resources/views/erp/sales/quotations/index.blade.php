@@ -9,7 +9,7 @@
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari nomor penawaran atau customer...',
+        'placeholder' => 'Cari nomor penawaran atau pelanggan...',
     ])
     <div>
         <label class="block text-xs text-gray-500 mb-1">Belum Diproses</label>
@@ -29,10 +29,10 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Penawaran</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-48">Action</th>
+                <th class="px-3 py-2 text-right w-48">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -43,7 +43,7 @@
                         ? route('sales.quotations.edit', $q->id)
                         : route('sales.quotations.show', $q->id);
                     [$stCls, $stLabel] = match(strtolower($q->status ?? '')) {
-                        'draft'     => ['bg-yellow-100 text-yellow-700', 'Draft'],
+                        'draft'     => ['bg-yellow-100 text-yellow-700', 'Draf'],
                         'confirmed' => ['bg-blue-100 text-blue-700', 'Confirmed'],
                         'cancelled' => ['bg-gray-200 text-gray-600', 'Cancelled'],
                         default     => ['bg-gray-100 text-gray-500', strtoupper($q->status ?? '-')],
@@ -66,7 +66,7 @@
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
                             <a href="{{ route('sales.quotations.print', $q->id) }}"
-                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Print">Print</a>
+                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Cetak">Cetak</a>
 
                             @if($isDraft)
                                 <a href="{{ route('sales.orders.create', ['quotation_id' => $q->id]) }}"

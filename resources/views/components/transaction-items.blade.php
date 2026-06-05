@@ -12,7 +12,7 @@
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
-                Add item
+                Tambah item
             </button>
         @endif
     </div>
@@ -22,12 +22,12 @@
             <tr>
                 <th class="p-4 text-left" style="width: 200px;">SKU</th>
                 <th class="p-4 text-left">Nama Produk</th>
-                <th class="p-4 text-center w-24">Stock</th>
+                <th class="p-4 text-center w-24">Stok</th>
                 <th class="p-4 text-left w-32">Unit</th>
                 <th class="p-4 text-left w-24">Qty</th>
-                <th class="p-4 text-left w-40">Price</th>
-                <th class="p-4 text-left w-40">Discount</th>
-                <th class="p-4 text-right w-40">Line Total</th>
+                <th class="p-4 text-left w-40">Harga</th>
+                <th class="p-4 text-left w-40">Diskon</th>
+                <th class="p-4 text-right w-40">Total Baris</th>
                 <th class="p-4 w-10"></th>
             </tr>
         </thead>

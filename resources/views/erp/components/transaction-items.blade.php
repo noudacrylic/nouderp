@@ -4,14 +4,14 @@
 
     <thead class="bg-gray-100">
         <tr>
-            <th class="p-2">Product</th>
+            <th class="p-2">Produk</th>
             <th class="p-2">Unit</th>
             <th class="p-2">Qty</th>
-            <th class="p-2">Unit Price</th>
-            <th class="p-2">Disc/Unit</th>
-            <th class="p-2">Line Subtotal</th>
-            <th class="p-2">Line Discount</th>
-            <th class="p-2">Line Total</th>
+            <th class="p-2">Harga Unit</th>
+            <th class="p-2">Diskon/Unit</th>
+            <th class="p-2">Subtotal Baris</th>
+            <th class="p-2">Diskon Baris</th>
+            <th class="p-2">Total Baris</th>
         </tr>
     </thead>
 

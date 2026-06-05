@@ -204,7 +204,7 @@
             @unless($isQuotation)
                 <button type="submit" name="_after_save" value=""
                     class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-2.5 rounded-lg font-bold shadow-sm transition">
-                    Draft
+                    Draf
                 </button>
             @endunless
             <button type="submit" name="_after_save" value="{{ $isQuotation ? '' : 'post' }}"
@@ -213,7 +213,7 @@
             </button>
             <button type="submit" name="_after_save" value="print"
                 class="bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:shadow-lg transition">
-                Print
+                Cetak
             </button>
         </div>
     </div>
@@ -226,14 +226,14 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
-            Tambah Customer Cepat
+            Tambah Pelanggan Cepat
         </h6>
         
         <form id="customerForm" action="/customers/store" method="POST">
             @csrf
             <div class="mb-4">
                 <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Nama Lengkap <span class="text-red-500">*</span></label>
-                <input type="text" name="name" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Masukkan nama customer..." required>
+                <input type="text" name="name" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Masukkan nama pelanggan..." required>
                 <p class="text-[10px] text-gray-400 mt-1.5">No. HP & alamat diisi nanti di kartu Pengiriman.</p>
             </div>
 
@@ -1056,7 +1056,7 @@
             const customerId = document.getElementById('customer_id')?.value?.trim() || '';
             const quotationId = document.getElementById('quotation_id')?.value?.trim() || '';
             if (!customerId && !quotationId) {
-                errors.push('Customer belum dipilih.');
+                errors.push('Pelanggan belum dipilih.');
             }
 
             // 2) Minimal satu baris item dengan product_id terisi
@@ -1128,7 +1128,7 @@
                     });
             },
             error: function(xhr){
-                alert('Gagal menyimpan customer: ' + (xhr.responseJSON?.message || 'Error tidak diketahui'));
+                alert('Gagal menyimpan pelanggan: ' + (xhr.responseJSON?.message || 'Error tidak diketahui'));
             }
         });
     });

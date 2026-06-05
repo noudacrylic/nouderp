@@ -1,4 +1,4 @@
-@props(['label' => 'Save'])
+@props(['label' => 'Simpan'])
 
 <div class="mt-8 flex justify-end">
     <button type="submit"

@@ -11,7 +11,7 @@
                     </th>
                 @endforeach
 
-                <th class="p-3 text-center">Action</th>
+                <th class="p-3 text-center">Aksi</th>
 
             </tr>
         </thead>

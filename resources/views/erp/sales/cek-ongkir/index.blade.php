@@ -37,7 +37,7 @@
                 <p id="wh_address" class="text-[11px] text-gray-500 mt-1"></p>
                 <p id="wh_warning" class="text-[11px] text-amber-600 mt-1 hidden">
                     Gudang ini belum punya alamat pengiriman.
-                    <a href="{{ route('inventory.warehouses.index') }}" class="underline font-semibold">Lengkapi di Warehouse</a>.
+                    <a href="{{ route('inventory.warehouses.index') }}" class="underline font-semibold">Lengkapi di Gudang</a>.
                 </p>
             </div>
 

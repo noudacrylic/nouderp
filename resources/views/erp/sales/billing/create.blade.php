@@ -16,8 +16,8 @@
                 <!-- SECTION 1: CUSTOMER SELECTION -->
                 <div class="bg-gray-50 p-4 rounded-lg border border-gray-100 space-y-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-600 mb-2 uppercase tracking-tight">Customer</label>
-                        <select id="customer_id" name="customer_id" class="w-full border rounded px-3 py-2 text-sm" placeholder="Ketik nama customer..." required></select>
+                        <label class="block text-xs font-bold text-gray-600 mb-2 uppercase tracking-tight">Pelanggan</label>
+                        <select id="customer_id" name="customer_id" class="w-full border rounded px-3 py-2 text-sm" placeholder="Ketik nama pelanggan..." required></select>
                     </div>
 
                     <div>
@@ -25,14 +25,14 @@
                         <div class="flex gap-4">
                             <label class="flex items-center gap-2 cursor-pointer group">
                                 <input type="radio" name="billing_type" value="invoice" checked class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
-                                <span class="text-sm font-semibold text-gray-700 group-hover:text-blue-600 transition">Pelunasan Invoice</span>
+                                <span class="text-sm font-semibold text-gray-700 group-hover:text-blue-600 transition">Pelunasan Faktur</span>
                             </label>
                             <label class="flex items-center gap-2 cursor-pointer group">
                                 <input type="radio" name="billing_type" value="sales_order" class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
                                 <span class="text-sm font-semibold text-gray-700 group-hover:text-blue-600 transition">Uang Muka (SO)</span>
                             </label>
                         </div>
-                        <p class="text-[10px] text-gray-500 mt-1 italic" id="billing_hint">Pilih invoice yang akan ditagihkan secara kolektif.</p>
+                        <p class="text-[10px] text-gray-500 mt-1 italic" id="billing_hint">Pilih faktur yang akan ditagihkan secara kolektif.</p>
                     </div>
                 </div>
 
@@ -45,7 +45,7 @@
 
                     <div id="invoice_list_container" class="space-y-2 max-h-[350px] overflow-y-auto pr-1">
                         <div class="text-center py-10 border-2 border-dashed rounded-lg bg-gray-50 border-gray-100 text-xs text-gray-400 italic">
-                            Pilih customer untuk melihat daftar invoice
+                            Pilih pelanggan untuk melihat daftar faktur
                         </div>
                     </div>
 
@@ -108,8 +108,8 @@ document.addEventListener("DOMContentLoaded", function() {
         radio.addEventListener('change', function() {
             currentType = this.value;
             if (currentType === 'invoice') {
-                sectionTitle.innerText = 'Pilih Invoice untuk Pelunasan';
-                billingHint.innerText = 'Pilih invoice yang akan ditagihkan secara kolektif (pelunasan).';
+                sectionTitle.innerText = 'Pilih Faktur untuk Pelunasan';
+                billingHint.innerText = 'Pilih faktur yang akan ditagihkan secara kolektif (pelunasan).';
             } else {
                 sectionTitle.innerText = 'Pilih Sales Order untuk Uang Muka';
                 billingHint.innerText = 'Pilih Sales Order yang belum memiliki invoice untuk penagihan Uang Muka (DP).';
@@ -120,7 +120,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function resetAll() {
         rawData = { invoices: [], sales_orders: [] };
-        document.getElementById('invoice_list_container').innerHTML = `<div class="text-center py-10 border-2 border-dashed rounded-lg bg-gray-50 border-gray-100 text-xs text-gray-400 italic font-bold">Pilih customer untuk melihat daftar invoice</div>`;
+        document.getElementById('invoice_list_container').innerHTML = `<div class="text-center py-10 border-2 border-dashed rounded-lg bg-gray-50 border-gray-100 text-xs text-gray-400 italic font-bold">Pilih pelanggan untuk melihat daftar faktur</div>`;
         calculateTotal();
     }
 
@@ -141,7 +141,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const items = (currentType === 'invoice') ? rawData.invoices : rawData.sales_orders;
         
         if (!items || items.length === 0) {
-            container.innerHTML = `<div class="text-center py-10 border rounded bg-gray-50 italic text-gray-400 text-xs">Tidak ada ${currentType === 'invoice' ? 'invoice' : 'Sales Order'} terbuka untuk customer ini</div>`;
+            container.innerHTML = `<div class="text-center py-10 border rounded bg-gray-50 italic text-gray-400 text-xs">Tidak ada ${currentType === 'invoice' ? 'faktur' : 'Sales Order'} terbuka untuk pelanggan ini</div>`;
             calculateTotal();
             return;
         }
@@ -195,7 +195,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     document.getElementById('billing_form').onsubmit = function() {
         if (document.querySelectorAll('.doc-checkbox:checked').length === 0) {
-            alert(`Pilih minimal satu ${currentType === 'invoice' ? 'invoice' : 'Sales Order'}!`);
+            alert(`Pilih minimal satu ${currentType === 'invoice' ? 'faktur' : 'Sales Order'}!`);
             return false;
         }
         return true;

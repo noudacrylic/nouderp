@@ -30,8 +30,8 @@
                 <th>Nama Produk</th>
                 <th class="text-right">Qty</th>
                 <th>Unit</th>
-                <th class="text-right">Price</th>
-                <th class="text-right">Discount</th>
+                <th class="text-right">Harga</th>
+                <th class="text-right">Diskon</th>
                 <th class="text-right">Total</th>
             </tr>
         </thead>

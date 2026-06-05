@@ -54,7 +54,7 @@
                 ];
             }
         }
-        if (!empty($invItems)) $groups[] = ['label' => 'Invoice Dialokasikan', 'items' => $invItems];
+        if (!empty($invItems)) $groups[] = ['label' => 'Faktur Dialokasikan', 'items' => $invItems];
         if (!empty($soItems))  $groups[] = ['label' => 'SO Dialokasikan (Uang Muka)', 'items' => $soItems];
         if (!empty($bilItems)) $groups[] = ['label' => 'Billing Dialokasikan', 'items' => $bilItems];
     }

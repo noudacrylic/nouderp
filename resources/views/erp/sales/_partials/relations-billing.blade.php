@@ -44,7 +44,7 @@
                 }
             }
         }
-        if (!empty($invItems)) $groups[] = ['label' => 'Invoice (Sumber)', 'items' => $invItems];
+        if (!empty($invItems)) $groups[] = ['label' => 'Faktur (Sumber)', 'items' => $invItems];
         if (!empty($soItems))  $groups[] = ['label' => 'Sales Order (Sumber)', 'items' => $soItems];
     }
 

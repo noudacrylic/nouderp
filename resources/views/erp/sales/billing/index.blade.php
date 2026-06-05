@@ -2,14 +2,14 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Billing Customer</h1>
+    <h1 class="text-lg font-semibold">Billing Pelanggan</h1>
     <a href="{{ route('sales.billing.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Billing</a>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari nomor billing, customer, atau dokumen...',
+        'placeholder' => 'Cari nomor billing, pelanggan, atau dokumen...',
     ])
     @include('erp.purchasing._partials.date-range', [
         'fromName' => 'from',
@@ -19,7 +19,7 @@
         <label class="block text-xs text-gray-500 mb-1">Jenis</label>
         <select name="type" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="invoice" @selected(request('type')=='invoice')>Pelunasan Invoice</option>
+            <option value="invoice" @selected(request('type')=='invoice')>Pelunasan Faktur</option>
             <option value="sales_order" @selected(request('type')=='sales_order')>Uang Muka (SO)</option>
         </select>
     </div>
@@ -40,13 +40,13 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Billing</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-left">Jenis</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-right">Terbayar</th>
                 <th class="px-3 py-2 text-right">Sisa</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-40">Action</th>
+                <th class="px-3 py-2 text-right w-40">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -100,7 +100,7 @@
                                 <a href="{{ route('sales.payment.create', ['billing_id' => $billing->id]) }}"
                                    class="bg-indigo-600 text-white px-2 py-1 rounded text-xs">Bayar</a>
                             @elseif($billing->billing_type == 'sales_order' && $hasInvoiceOnSO)
-                                <span class="bg-gray-100 text-gray-400 px-2 py-1 rounded text-xs" title="DP sudah jadi Invoice">Locked</span>
+                                <span class="bg-gray-100 text-gray-400 px-2 py-1 rounded text-xs" title="DP sudah jadi Faktur">Locked</span>
                             @endif
 
                             @if($paid == 0)

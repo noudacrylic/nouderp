@@ -58,11 +58,11 @@
                 {{-- NOMOR PO --}}
                 <div>
                     <label class="block text-sm text-gray-600 mb-1">
-                        Nomor PO Customer
+                        Nomor PO Pelanggan
                     </label>
 
                     <input type="text" name="customer_po_number" class="border rounded w-full p-2"
-                        placeholder="Masukkan nomor PO customer"
+                        placeholder="Masukkan nomor PO pelanggan"
                         value="{{ old('customer_po_number', $so->customer_po_number ?? '') }}">
                 </div>
             </div>
@@ -81,7 +81,7 @@
 
             <!-- Customer -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Customer</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Pelanggan</label>
                 <div class="flex gap-2">
                     <select name="customer_id" class="customer-select w-full border rounded px-3 py-2 text-sm">
                         <option value=""></option>
@@ -101,7 +101,7 @@
 
             <!-- Warehouse -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Warehouse</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Gudang</label>
                 <select name="warehouse_id" class="w-full border rounded px-3 py-2 text-sm">
                     @php
                         $selectedWarehouse = old('warehouse_id', $quotation->warehouse_id ?? ($so->warehouse_id ?? \App\Core\Inventory\Warehouse::defaultId()));
@@ -132,17 +132,17 @@
                 <h3 class="text-sm font-semibold text-gray-600">Items</h3>
                 <button type="button" onclick="addItem()"
                     class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                    <span>+ Add item</span>
+                    <span>+ Tambah item</span>
                 </button>
             </div>
 
             <table class="w-full border border-gray-200 rounded-lg">
                 <thead class="bg-gray-50 text-sm text-gray-600">
                     <tr>
-                        <th class="p-4 text-left">Product</th>
+                        <th class="p-4 text-left">Produk</th>
                         <th class="p-4 text-left w-24">Qty</th>
-                        <th class="p-4 text-left w-40">Price</th>
-                        <th class="p-4 text-left w-40">Discount</th>
+                        <th class="p-4 text-left w-40">Harga</th>
+                        <th class="p-4 text-left w-40">Diskon</th>
                         <th class="p-4 text-right w-40">Total</th>
                         <th class="p-4 w-10"></th>
                     </tr>
@@ -244,7 +244,7 @@
                         <span id="subtotal">0</span>
                     </div>
                     <div class="flex justify-between items-center text-gray-600">
-                        <span>Global Discount</span>
+                        <span>Diskon Global</span>
                         <div class="flex gap-2">
                             @php
                                 $gDiscType = old('global_discount_type', $quotation->global_discount_type ?? ($so->global_discount_type ?? 'nominal'));
@@ -297,7 +297,7 @@
             @unless($isQuotation)
                 <button type="submit" name="_after_save" value=""
                     class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm font-bold transition">
-                    Draft
+                    Draf
                 </button>
             @endunless
             <button type="submit" name="_after_save" value="{{ $isQuotation ? '' : 'post' }}"
@@ -306,7 +306,7 @@
             </button>
             <button type="submit" name="_after_save" value="print"
                 class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-bold transition">
-                Print
+                Cetak
             </button>
         </div>
     </div>
@@ -315,8 +315,8 @@
 {{-- MODAL CUSTOMER --}}
 <div id="customerModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center z-50">
     <div class="bg-white rounded-lg shadow-lg p-6 w-96">
-        <h2 class="text-lg font-semibold mb-4">Tambah Customer</h2>
-        <input id="customerName" type="text" placeholder="Nama customer" class="w-full border rounded px-3 py-2 mb-4">
+        <h2 class="text-lg font-semibold mb-4">Tambah Pelanggan</h2>
+        <input id="customerName" type="text" placeholder="Nama pelanggan" class="w-full border rounded px-3 py-2 mb-4">
         <div class="flex justify-end gap-2">
             <button type="button" onclick="closeCustomerModal()" class="px-4 py-2 border rounded">Batal</button>
             <button type="button" onclick="saveCustomer()"
@@ -345,7 +345,7 @@
         document.addEventListener('input', calculate);
 
         if (document.querySelector(".customer-select")) {
-            new TomSelect(".customer-select", { create: false, maxItems: 1, placeholder: "Cari customer...", dropdownParent: 'body' });
+            new TomSelect(".customer-select", { create: false, maxItems: 1, placeholder: "Cari pelanggan...", dropdownParent: 'body' });
         }
 
         initProductSelects();

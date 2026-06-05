@@ -29,7 +29,7 @@
                 <div class="bg-gray-50 p-5 rounded-xl border border-gray-200">
                     <div class="grid grid-cols-2 gap-6">
                         <div>
-                            <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Customer</label>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Pelanggan</label>
                             <div class="text-sm font-bold text-gray-800">{{ $billing->customer->name }}</div>
                             <input type="hidden" name="customer_id" value="{{ $billing->customer_id }}">
                         </div>
@@ -42,7 +42,7 @@
                             <div class="flex gap-4">
                                 <label class="flex items-center gap-2">
                                     <input type="radio" name="billing_type" value="invoice" {{ $type == 'invoice' ? 'checked' : '' }} class="text-blue-600 focus:ring-blue-500">
-                                    <span class="text-sm font-semibold text-gray-700">Pelunasan Invoice</span>
+                                    <span class="text-sm font-semibold text-gray-700">Pelunasan Faktur</span>
                                 </label>
                                 <label class="flex items-center gap-2">
                                     <input type="radio" name="billing_type" value="sales_order" {{ $type == 'sales_order' ? 'checked' : '' }} class="text-blue-600 focus:ring-blue-500">
@@ -108,7 +108,7 @@ document.addEventListener("DOMContentLoaded", function() {
     typeRadios.forEach(radio => {
         radio.addEventListener('change', function() {
             currentType = this.value;
-            sectionTitle.innerText = currentType === 'invoice' ? 'Pilih Invoice untuk Pelunasan' : 'Pilih Sales Order untuk Uang Muka';
+            sectionTitle.innerText = currentType === 'invoice' ? 'Pilih Faktur untuk Pelunasan' : 'Pilih Sales Order untuk Uang Muka';
             renderItems();
         });
     });

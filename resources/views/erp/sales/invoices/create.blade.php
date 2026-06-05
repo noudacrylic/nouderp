@@ -2,7 +2,7 @@
 
 @section('content')
 
-    <x-transaction-header title="Create Invoice" />
+    <x-transaction-header title="Buat Faktur" />
 
     {{-- HEADER INVOICE: 2 BARIS (STRUKTUR FINAL) --}}
     <div class="card p-4 mb-4 bg-white shadow-sm border border-gray-100">
@@ -13,7 +13,7 @@
             <div>
                 <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Sales Order</label>
                 <select id="so_select" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none transition">
-                    <option value="">Cari SO number / customer</option>
+                    <option value="">Cari SO number / pelanggan</option>
                     @foreach($salesOrders as $order)
                         <option value="{{ $order->id }}" {{ ($so && $so->id == $order->id) ? 'selected' : '' }}>
                             {{ $order->order_number }} - {{ $order->customer->name }}
@@ -24,7 +24,7 @@
 
             <!-- No PO Customer -->
             <div>
-                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">No. PO Customer</label>
+                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">No. PO Pelanggan</label>
                 <input type="text" id="customer_po_header" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500" placeholder="-" readonly>
             </div>
 
@@ -45,7 +45,7 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
             <!-- Nomor Invoice -->
             <div>
-                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nomor Invoice</label>
+                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nomor Faktur</label>
                 <div class="flex items-center gap-2">
                     <input type="checkbox" id="autoNumber" checked class="h-4 w-4">
                     <input type="text" name="invoice_number" id="quotationNumber" 
@@ -58,14 +58,14 @@
 
             <!-- Customer -->
             <div>
-                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1 text-primary">Customer</label>
+                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1 text-primary">Pelanggan</label>
                 <div id="customer_manual_container" class="{{ $so ? 'hidden' : '' }}">
                     <div class="customer-select">
                         <div class="flex">
                             <input type="text" 
                                    id="customer_search" 
                                    class="form-control w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition border-r-0" 
-                                   placeholder="Cari customer..."
+                                   placeholder="Cari pelanggan..."
                                    value="{{ $so->customer->name ?? '' }}">
 
                             <button type="button" onclick="openQuickCustomer(this)"
@@ -84,7 +84,7 @@
 
             <!-- Warehouse -->
             <div>
-                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Warehouse</label>
+                <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Gudang</label>
                 @php $whSelected = old('warehouse_id', $so->warehouse_id ?? \App\Core\Inventory\Warehouse::defaultId()); @endphp
                 <select name="warehouse_id" id="warehouse_select" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white" form="transactionForm">
                     @foreach($warehouses as $w)
@@ -224,7 +224,7 @@
         }
 
         $(document).ready(function () {
-            $('#so_select').select2({ placeholder: "Cari SO number / customer", width: '100%' });
+            $('#so_select').select2({ placeholder: "Cari SO number / pelanggan", width: '100%' });
 
             $('#so_select').on('change', function () {
                 let soId = $(this).val();

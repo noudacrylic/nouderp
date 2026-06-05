@@ -11,7 +11,7 @@
                 <span>›</span>
                 <span class="text-gray-600">{{ $return->return_number }}</span>
             </div>
-            <h1 class="text-xl font-bold text-gray-800">Detail Retur</h1>
+            <h1 class="text-xl font-bold text-gray-800">Rincian Retur</h1>
             <p class="text-xs text-gray-500 mt-0.5">Dokumen retur yang sudah diposting tidak dapat diubah.</p>
         </div>
         <div class="flex items-center gap-2">
@@ -64,7 +64,7 @@
                     @if($return->status === 'posted')
                         <span class="inline-flex items-center gap-1.5 bg-green-100 text-green-700 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-green-200">
                             <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                            POSTED
+                            DIPOSTING
                         </span>
                     @elseif($return->status === 'void')
                         <span class="inline-flex items-center gap-1.5 bg-red-100 text-red-700 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-200">
@@ -88,7 +88,7 @@
                         <div class="font-bold text-gray-800">
                             @if($return->invoice_id)
                                 <span class="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-lg">
-                                    🛍️ Dari Invoice
+                                    🛍️ Dari Faktur
                                 </span>
                             @else
                                 <span class="inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-lg">
@@ -98,7 +98,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Customer</div>
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pelanggan</div>
                         <div class="font-bold text-gray-800">{{ $return->customer->name ?? '-' }}</div>
                         @if($return->customer->is_marketplace ?? false)
                             <div class="text-[10px] text-purple-600 font-bold mt-0.5">🏪 Marketplace</div>
@@ -111,7 +111,7 @@
                                class="font-bold text-blue-600 hover:underline text-sm">
                                 {{ $return->invoice->invoice_number }}
                             </a>
-                            <div class="text-[10px] text-gray-400 mt-0.5">Invoice</div>
+                            <div class="text-[10px] text-gray-400 mt-0.5">Faktur</div>
                         @elseif($return->salesOrder)
                             <a href="{{ route('sales.orders.show', $return->sales_order_id) }}"
                                class="font-bold text-blue-600 hover:underline text-sm">
@@ -258,7 +258,7 @@
                 </div>
 
                 <div class="mt-3 flex items-center justify-between text-xs text-gray-400">
-                    <span>Posted: {{ $journal->posted_at ? \Carbon\Carbon::parse($journal->posted_at)->format('d/m/Y H:i') : '-' }}</span>
+                    <span>Diposting: {{ $journal->posted_at ? \Carbon\Carbon::parse($journal->posted_at)->format('d/m/Y H:i') : '-' }}</span>
                     <span class="inline-flex items-center gap-1 bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold text-[10px]">
                         ✓ BALANCED
                     </span>
@@ -284,12 +284,12 @@
                         <span class="font-bold text-gray-800">{{ $return->return_number }}</span>
                     </div>
                     <div class="flex justify-between text-sm">
-                        <span class="text-gray-500">Customer</span>
+                        <span class="text-gray-500">Pelanggan</span>
                         <span class="font-bold text-gray-800">{{ $return->customer->name ?? '-' }}</span>
                     </div>
                     <div class="flex justify-between text-sm">
                         <span class="text-gray-500">Jenis</span>
-                        <span class="font-bold text-gray-800">{{ $return->invoice_id ? 'Retur Invoice' : 'Retur SO' }}</span>
+                        <span class="font-bold text-gray-800">{{ $return->invoice_id ? 'Retur Faktur' : 'Retur SO' }}</span>
                     </div>
                     <div class="flex justify-between text-sm">
                         <span class="text-gray-500">Jumlah Item</span>
@@ -298,9 +298,9 @@
                     <div class="border-t border-gray-100 pt-3 flex justify-between text-sm">
                         <span class="text-gray-500">Status</span>
                         @if($return->status === 'posted')
-                            <span class="font-black text-green-600">POSTED</span>
+                            <span class="font-black text-green-600">DIPOSTING</span>
                         @elseif($return->status === 'draft')
-                            <span class="font-black text-amber-600">DRAFT</span>
+                            <span class="font-black text-amber-600">DRAF</span>
                         @elseif($return->status === 'void')
                             <span class="font-black text-red-600">VOID</span>
                         @endif
@@ -332,7 +332,7 @@
                     @endif
                     <li class="flex items-start gap-2">
                         <span class="text-green-500 font-black mt-0.5">•</span>
-                        <span>Saldo Kelebihan Bayar customer bertambah</span>
+                        <span>Saldo Kelebihan Bayar pelanggan bertambah</span>
                     </li>
                     <li class="flex items-start gap-2">
                         <span class="text-purple-500 font-black mt-0.5">•</span>

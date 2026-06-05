@@ -3,8 +3,8 @@
 @section('content')
 <div class="w-full px-6 py-4">
     <div class="mb-4">
-        <h1 class="text-xl font-bold text-gray-800">New Customer Payment</h1>
-        <p class="text-xs text-gray-500">Terima pembayaran customer untuk Pelunasan (Invoice/Billing) atau Uang Muka (SO/Billing).</p>
+        <h1 class="text-xl font-bold text-gray-800">Pembayaran Pelanggan Baru</h1>
+        <p class="text-xs text-gray-500">Terima pembayaran pelanggan untuk Pelunasan (Faktur/Billing) atau Uang Muka (SO/Billing).</p>
     </div>
 
     <form action="{{ route('sales.payment.store') }}" method="POST" id="payment_form">
@@ -17,7 +17,7 @@
             <div class="bg-white border rounded-lg p-4 shadow-sm overflow-visible">
                 <div class="mb-4">
                     <div class="relative autocomplete-container">
-                        <input type="text" id="customer_search" class="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition" placeholder="Ketik nama customer..." autocomplete="off">
+                        <input type="text" id="customer_search" class="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition" placeholder="Ketik nama pelanggan..." autocomplete="off">
                         <input type="hidden" name="customer_id" id="customer_id" required>
                         <div id="customer_dropdown" class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl hidden max-h-60 overflow-y-auto"></div>
                     </div>
@@ -45,7 +45,7 @@
                             <span id="total_tagihan" class="text-lg font-black text-blue-950">Rp 0</span>
                             <button type="button"
                                 id="btn_use_balance"
-                                title="Kurangi total dengan saldo customer"
+                                title="Kurangi total dengan saldo pelanggan"
                                 class="text-[10px] font-black uppercase tracking-wide bg-white border border-blue-200 text-blue-600 px-2 py-1 rounded-lg shadow-sm hover:bg-blue-600 hover:text-white transition active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed">
                                 Pakai Saldo
                             </button>
@@ -59,7 +59,7 @@
 
                 <div id="items_list_container" class="space-y-2 max-h-[450px] overflow-y-auto pr-1 custom-scrollbar">
                     <div class="text-center py-12 border-2 border-dashed rounded-xl bg-gray-50 border-gray-100 text-xs text-gray-400 italic font-bold">
-                        Pilih customer untuk memulai pembayaran
+                        Pilih pelanggan untuk memulai pembayaran
                     </div>
                 </div>
             </div>
@@ -220,7 +220,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderDropdown(data) {
         dropdown.innerHTML = '';
         if (data.length === 0) {
-            dropdown.innerHTML = '<div class="p-3 text-xs text-gray-400 italic">No customers found</div>';
+            dropdown.innerHTML = '<div class="p-3 text-xs text-gray-400 italic">Pelanggan tidak ditemukan</div>';
         } else {
             data.forEach(cust => {
                 const div = document.createElement('div');
@@ -588,7 +588,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const checked = document.querySelectorAll('input[name="item_ids[]"]:checked');
         if (checked.length > 1) {
-            alert('⚠ Bayar 50% hanya untuk satu tagihan. Multi-invoice wajib bayar penuh.');
+            alert('⚠ Bayar 50% hanya untuk satu tagihan. Multi-faktur wajib bayar penuh.');
             return;
         }
 
@@ -610,7 +610,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Multi-invoice: harus bayar penuh (after saldo)
         if (checked.length > 1 && amount < (totalNet - 1)) {
-            alert('❌ Multi-invoice harus bayar penuh atau gunakan billing.\nSisa tagihan: Rp ' + totalNet.toLocaleString());
+            alert('❌ Multi-faktur harus bayar penuh atau gunakan billing.\nSisa tagihan: Rp ' + totalNet.toLocaleString());
             return false;
         }
 

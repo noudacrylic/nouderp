@@ -26,7 +26,7 @@
                 <i class="fas fa-edit mr-1"></i> Edit
             </a>
 
-            <form action="{{ route('sales.invoices.destroy', $invoice->id) }}" method="POST" class="inline" onsubmit="return confirm('Hapus draft invoice ini?')">
+            <form action="{{ route('sales.invoices.destroy', $invoice->id) }}" method="POST" class="inline" onsubmit="return confirm('Hapus draf faktur ini?')">
                 @csrf
                 @method('DELETE')
                 <button class="btn btn-danger btn-sm">
@@ -53,7 +53,7 @@
             @endif
 
             @if($invoice->canBeVoided())
-                <form action="{{ route('sales.invoices.void', $invoice->id) }}" method="POST" class="inline" onsubmit="return confirm('Void invoice ini? Jurnal akan dibatalkan.')">
+                <form action="{{ route('sales.invoices.void', $invoice->id) }}" method="POST" class="inline" onsubmit="return confirm('Void faktur ini? Jurnal akan dibatalkan.')">
                     @csrf
                     <button class="btn btn-danger btn-sm opacity-80 hover:opacity-100" style="background-color: #991b1b;">
                         <i class="fas fa-ban mr-1"></i> Void
@@ -77,12 +77,12 @@
 
         @if($status !== 'void')
             <a href="{{ route('sales.invoices.print', $invoice->id) }}" class="btn bg-gray-100 text-gray-600 hover:bg-gray-200 btn-sm">
-                <i class="fas fa-print mr-1"></i> Print
+                <i class="fas fa-print mr-1"></i> Cetak
             </a>
         @endif
 
         <a href="{{ route('sales.invoices.create') }}" class="btn btn-outline-primary btn-sm font-bold border-2">
-            <i class="fas fa-plus mr-1"></i> Buat Invoice
+            <i class="fas fa-plus mr-1"></i> Buat Faktur
         </a>
     </div>
 </div>

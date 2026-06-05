@@ -131,8 +131,8 @@
 @endphp
 
 @include('erp.sales._partials.relations-shell', [
-    'title'   => 'Keterkaitan Dokumen Invoice',
-    'hint'    => 'Sebelum void invoice, semua dokumen di bawah harus sudah tidak aktif (titik merah = masih memblokir void).',
+    'title'   => 'Keterkaitan Dokumen Faktur',
+    'hint'    => 'Sebelum void faktur, semua dokumen di bawah harus sudah tidak aktif (titik merah = masih memblokir void).',
     'groups'  => $groups,
     'canVoid' => $invoice->canBeVoided(),
 ])

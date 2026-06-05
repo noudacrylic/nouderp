@@ -24,7 +24,7 @@
 
                 <!-- Global Discount -->
                 <div class="flex justify-between items-center text-gray-600">
-                    <span>Discount</span>
+                    <span>Diskon</span>
                     <div class="flex gap-2">
                         @php
                             $gDiscType = $globalDiscountType ?? 'percent';

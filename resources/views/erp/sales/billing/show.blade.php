@@ -11,8 +11,8 @@
                 </svg>
             </a>
             <div>
-                <h1 class="text-xl font-bold text-gray-800">Detail Billing: {{ $billing->billing_number }}</h1>
-                <p class="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Customer: {{ $billing->customer->name }} • {{ $billing->date->format('d M Y') }}</p>
+                <h1 class="text-xl font-bold text-gray-800">Rincian Billing: {{ $billing->billing_number }}</h1>
+                <p class="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Pelanggan: {{ $billing->customer->name }} • {{ $billing->date->format('d M Y') }}</p>
             </div>
         </div>
         <div class="flex gap-2">

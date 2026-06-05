@@ -28,7 +28,7 @@
                 <form method="POST" action="{{ $cancelUrl }}">
                     @csrf
                     <button class="bg-red-600 text-white px-3 py-1 rounded">
-                        Cancel
+                        Batal
                     </button>
                 </form>
             @endif
@@ -57,7 +57,7 @@
 
             @if(!empty($invoiceUrl))
                 <a href="{{ $invoiceUrl }}" class="bg-blue-600 text-white px-3 py-1 rounded">
-                    Buat Invoice
+                    Buat Faktur
                 </a>
             @endif
 

@@ -12,9 +12,9 @@
 
 <div class="row mb-4">
     <div class="col-md-6">
-        <label class="form-label">Customer</label>
+        <label class="form-label">Pelanggan</label>
         <select name="customer_id" class="form-select" id="customer_id">
-            <option value="">-- Select Customer --</option>
+            <option value="">-- Pilih Pelanggan --</option>
             @foreach($customers as $c)
                 <option value="{{ $c->id }}" {{ $customer_id == $c->id ? 'selected' : '' }}>
                     {{ $c->name }}
@@ -23,14 +23,14 @@
         </select>
     </div>
     <div class="col-md-6">
-        <label class="form-label">Tanggal Invoice</label>
+        <label class="form-label">Tanggal Faktur</label>
         <input type="date" name="invoice_date" value="{{ $invoice_date }}" class="form-control">
     </div>
 </div>
 
 <div class="row mb-4">
     <div class="col-md-6">
-        <label class="form-label">Warehouse</label>
+        <label class="form-label">Gudang</label>
         @php $whSelected = old('warehouse_id', $invoice->warehouse_id ?? ($so->warehouse_id ?? \App\Core\Inventory\Warehouse::defaultId())); @endphp
         <select name="warehouse_id" class="form-select">
             @foreach($warehouses as $w)
@@ -57,12 +57,12 @@
         <thead class="bg-light">
             <tr>
                 <th>SKU</th>
-                <th>Product</th>
-                <th style="width: 100px;">Stock</th>
+                <th>Produk</th>
+                <th style="width: 100px;">Stok</th>
                 <th style="width: 100px;">Unit</th>
                 <th style="width: 120px;">Qty</th>
-                <th style="width: 180px;">Unit Price</th>
-                <th style="width: 200px;">Discount</th>
+                <th style="width: 180px;">Harga Unit</th>
+                <th style="width: 200px;">Diskon</th>
             </tr>
         </thead>
         <tbody>
@@ -102,7 +102,7 @@
                 <tr class="item-row">
                     <td colspan="2">
                         <select name="items[0][product_id]" class="form-select select2">
-                            <option value="">-- Select Product --</option>
+                            <option value="">-- Pilih Produk --</option>
                             @foreach($products as $p)
                                 <option value="{{ $p->id }}">{{ $p->sku }} - {{ $p->name }}</option>
                             @endforeach
@@ -131,7 +131,7 @@
 
 <div class="row mt-4">
     <div class="col-md-6">
-        <label class="form-label">Global Discount</label>
+        <label class="form-label">Diskon Global</label>
         <div class="input-group">
             <select name="global_discount_type" class="form-select" style="max-width: 120px;">
                 <option value="percent" {{ $global_discount_type == 'percent' ? 'selected' : '' }}>Percent (%)</option>

@@ -9,7 +9,7 @@
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari nomor SJ, customer, kurir, atau no. resi...',
+        'placeholder' => 'Cari nomor SJ, pelanggan, kurir, atau no. resi...',
     ])
     <div>
         <label class="block text-xs text-gray-500 mb-1">Pengiriman</label>
@@ -29,10 +29,10 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Surat Jalan</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-left">Kurir / Pengiriman</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -46,8 +46,8 @@
                         : route('sales.deliveries.show', $d->id);
                     $customerName = $d->order->customer->name ?? $d->invoice->customer->name ?? '-';
                     [$stCls, $stLabel] = match($status) {
-                        'draft'     => ['bg-yellow-100 text-yellow-700', 'Draft'],
-                        'posted'    => ['bg-green-100 text-green-700', 'Posted'],
+                        'draft'     => ['bg-yellow-100 text-yellow-700', 'Draf'],
+                        'posted'    => ['bg-green-100 text-green-700', 'Diposting'],
                         'confirmed' => ['bg-blue-100 text-blue-700', 'Confirmed'],
                         'cancelled' => ['bg-gray-200 text-gray-600', 'Cancelled'],
                         'void'      => ['bg-red-100 text-red-700', 'Void'],
@@ -101,16 +101,16 @@
                                       onsubmit="return confirm('Cancel Surat Jalan {{ $d->delivery_number }}?')">
                                     @csrf
                                     @method('DELETE')
-                                    <button class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">Cancel</button>
+                                    <button class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">Batal</button>
                                 </form>
                             @endif
 
                             @if($isPosted)
                                 <a href="{{ route('sales.deliveries.print', $d->id) }}"
-                                   class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Print Surat Jalan">Print</a>
+                                   class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Cetak Surat Jalan">Cetak</a>
                                 @if($isBooked)
                                     <a href="{{ route('sales.deliveries.resi', $d->id) }}"
-                                       class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" title="Print Resi">Resi</a>
+                                       class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" title="Cetak Resi">Resi</a>
                                     <a href="{{ route('sales.deliveries.track', $d->id) }}"
                                        class="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1 rounded text-xs" title="Lacak Paket">Lacak</a>
                                 @endif

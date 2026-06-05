@@ -2,20 +2,20 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Retur Customer</h1>
+    <h1 class="text-lg font-semibold">Retur Pelanggan</h1>
     <a href="{{ route('sales.returns.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Retur</a>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari nomor retur, invoice, atau customer...',
+        'placeholder' => 'Cari nomor retur, faktur, atau pelanggan...',
     ])
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach(['draft' => 'Draft', 'posted' => 'Posted', 'void' => 'Void'] as $val => $label)
+            @foreach(['draft' => 'Draf', 'posted' => 'Diposting', 'void' => 'Void'] as $val => $label)
                 <option value="{{ $val }}" @selected(request('status')==$val)>{{ $label }}</option>
             @endforeach
         </select>
@@ -28,11 +28,11 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Retur</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-left">Referensi</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -47,8 +47,8 @@
                     $refNumber = $return->invoice->invoice_number ?? $return->salesOrder->order_number ?? '-';
 
                     [$stCls, $stLabel] = match(true) {
-                        $isPosted => ['bg-green-100 text-green-700', 'Posted'],
-                        $isDraft  => ['bg-yellow-100 text-yellow-700', 'Draft'],
+                        $isPosted => ['bg-green-100 text-green-700', 'Diposting'],
+                        $isDraft  => ['bg-yellow-100 text-yellow-700', 'Draf'],
                         $isVoid   => ['bg-red-100 text-red-700', 'Void'],
                         default   => ['bg-gray-100 text-gray-500', strtoupper($return->status ?? '-')],
                     };
@@ -72,7 +72,7 @@
                                     @csrf
                                     <button class="bg-green-600 text-white px-2 py-1 rounded text-xs">POST</button>
                                 </form>
-                                <form method="POST" action="{{ route('sales.returns.destroy', $return->id) }}" onsubmit="return confirm('Hapus draft retur ini?')">
+                                <form method="POST" action="{{ route('sales.returns.destroy', $return->id) }}" onsubmit="return confirm('Hapus draf retur ini?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>

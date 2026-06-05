@@ -27,7 +27,7 @@
                 </span>
             </h1>
             <div class="flex items-center gap-4 mt-1.5 text-sm text-gray-500">
-                <span>Customer: <strong class="text-gray-700">{{ $warranty->customer->name }}</strong></span>
+                <span>Pelanggan: <strong class="text-gray-700">{{ $warranty->customer->name }}</strong></span>
                 <span>|</span>
                 <span>Tanggal: <strong class="text-gray-700">{{ $warranty->warranty_date->format('d/m/Y') }}</strong></span>
                 <span>|</span>
@@ -36,7 +36,7 @@
                 </span>
                 @if($warranty->invoice)
                     <span>|</span>
-                    <span>Invoice: <a href="{{ route('sales.invoices.show', $warranty->invoice_id) }}" class="text-blue-600 font-bold hover:underline">{{ $warranty->invoice->invoice_number }}</a></span>
+                    <span>Faktur: <a href="{{ route('sales.invoices.show', $warranty->invoice_id) }}" class="text-blue-600 font-bold hover:underline">{{ $warranty->invoice->invoice_number }}</a></span>
                 @endif
             </div>
         </div>

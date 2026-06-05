@@ -25,7 +25,7 @@
                 'extra'        => 'Rp ' . number_format((float) $inv->grand_total, 0, ',', '.'),
             ];
         }
-        $groups[] = ['label' => 'Invoice', 'items' => $items];
+        $groups[] = ['label' => 'Faktur', 'items' => $items];
     }
 
     // Deliveries

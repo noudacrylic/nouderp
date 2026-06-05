@@ -18,7 +18,7 @@
             @if($canConfirm)
                 <form action="{{ route('sales.orders.pickup', $so->id) }}" method="POST"
                       class="flex items-end gap-2"
-                      onsubmit="return confirm('Konfirmasi barang diambil customer? Surat Jalan akan terbit & stok berkurang.')">
+                      onsubmit="return confirm('Konfirmasi barang diambil pelanggan? Surat Jalan akan terbit & stok berkurang.')">
                     @csrf
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Verifikasi Booking Code</label>
@@ -64,7 +64,7 @@
         </div>
 
         @if($canConfirm)
-            <p class="text-[11px] text-gray-400 mt-2">Masukkan kode yang disebutkan customer. Sistem akan menerbitkan Surat Jalan & memotong stok.</p>
+            <p class="text-[11px] text-gray-400 mt-2">Masukkan kode yang disebutkan pelanggan. Sistem akan menerbitkan Surat Jalan & memotong stok.</p>
         @endif
     </div>
 </div>

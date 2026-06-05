@@ -2,7 +2,7 @@
 
 @section('content')
 
-<x-transaction-header title="Edit Invoice {{ $invoice->invoice_number }}" />
+<x-transaction-header title="Edit Faktur {{ $invoice->invoice_number }}" />
 
 {{-- HEADER INVOICE: 2 BARIS — struktur sama dengan halaman Create supaya konsisten --}}
 <div class="card p-4 mb-4 bg-white shadow-sm border border-gray-100">
@@ -20,7 +20,7 @@
 
         {{-- No PO Customer --}}
         <div>
-            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">No. PO Customer</label>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">No. PO Pelanggan</label>
             <input type="text"
                 value="{{ $invoice->salesOrder->customer_po_number ?? '-' }}"
                 class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500"
@@ -50,7 +50,7 @@
     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
         {{-- Nomor Invoice (sudah ter-generate, bisa diedit jika perlu) --}}
         <div>
-            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nomor Invoice</label>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nomor Faktur</label>
             <input type="text" name="invoice_number" form="transactionForm"
                 value="{{ old('invoice_number', $invoice->invoice_number) }}"
                 class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
@@ -58,7 +58,7 @@
 
         {{-- Customer (readonly — terikat ke SO) --}}
         <div>
-            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1 text-primary">Customer</label>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1 text-primary">Pelanggan</label>
             <input type="text"
                 value="{{ $invoice->customer->name ?? ($invoice->salesOrder->customer->name ?? '-') }}"
                 class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 font-bold"
@@ -68,7 +68,7 @@
 
         {{-- Warehouse --}}
         <div>
-            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Warehouse</label>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Gudang</label>
             @php $whSelected = old('warehouse_id', $invoice->warehouse_id); @endphp
             <select name="warehouse_id" form="transactionForm"
                 class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">

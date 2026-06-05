@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Pembayaran Customer</h1>
+    <h1 class="text-lg font-semibold">Pembayaran Pelanggan</h1>
     <a href="{{ route('sales.payment.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Pembayaran</a>
 </div>
 
@@ -16,7 +16,7 @@
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari No Payment atau customer...',
+        'placeholder' => 'Cari No Payment atau pelanggan...',
     ])
     @include('erp.purchasing._partials.date-range')
     <div>
@@ -36,12 +36,12 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Payment</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-left">Akun Kas</th>
                 <th class="px-3 py-2 text-left">Jenis</th>
                 <th class="px-3 py-2 text-right">Nominal</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-48">Action</th>
+                <th class="px-3 py-2 text-right w-48">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -82,8 +82,8 @@
                     }
 
                     [$stCls, $stLabel] = match(strtolower($payment->status ?? '')) {
-                        'posted' => ['bg-green-100 text-green-700', 'Posted'],
-                        'draft'  => ['bg-yellow-100 text-yellow-700', 'Draft'],
+                        'posted' => ['bg-green-100 text-green-700', 'Diposting'],
+                        'draft'  => ['bg-yellow-100 text-yellow-700', 'Draf'],
                         'void'   => ['bg-red-100 text-red-700', 'Void'],
                         default  => ['bg-gray-100 text-gray-500', strtoupper($payment->status ?? '-')],
                     };
@@ -119,27 +119,27 @@
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
                             @if($isDraft)
                                 <form method="POST" action="{{ route('sales.payment.post', $payment->id) }}"
-                                      onsubmit="return confirm('Post payment {{ $payment->payment_number }}?')">
+                                      onsubmit="return confirm('Post pembayaran {{ $payment->payment_number }}?')">
                                     @csrf
                                     <button class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs">Post</button>
                                 </form>
                                 <form method="POST" action="{{ route('sales.payment.destroy', $payment->id) }}"
-                                      onsubmit="return confirm('Hapus payment draft {{ $payment->payment_number }}?')">
+                                      onsubmit="return confirm('Hapus pembayaran draf {{ $payment->payment_number }}?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>
                                 <a href="{{ route('sales.payment.print', $payment->id) }}"
-                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Print</a>
+                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Cetak</a>
                             @elseif($isPosted)
                                 @if($payment->canBeVoided())
                                     <form method="POST" action="{{ route('sales.payment.void', $payment->id) }}"
-                                          onsubmit="return confirm('Void payment {{ $payment->payment_number }}? Pembayaran dibatalkan & jurnal di-void.')">
+                                          onsubmit="return confirm('Void pembayaran {{ $payment->payment_number }}? Pembayaran dibatalkan & jurnal di-void.')">
                                         @csrf
                                         <button class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Void</button>
                                     </form>
                                 @endif
                                 <a href="{{ route('sales.payment.print', $payment->id) }}"
-                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Print</a>
+                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Cetak</a>
                             @else
                                 <span class="text-gray-300 text-xs">-</span>
                             @endif

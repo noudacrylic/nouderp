@@ -7,19 +7,19 @@
 @if(isset($customer))
     <div class="grid grid-cols-3 gap-6 mb-6">
         <div>
-            <label class="block text-sm font-medium text-gray-700">Customer</label>
+            <label class="block text-sm font-medium text-gray-700">Pelanggan</label>
             <div class="mt-1 p-2 border border-gray-300 rounded bg-gray-50 text-gray-900">
                 {{ $customer->name ?? '-' }}
             </div>
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-700">Warehouse</label>
+            <label class="block text-sm font-medium text-gray-700">Gudang</label>
             <div class="mt-1 p-2 border border-gray-300 rounded bg-gray-50 text-gray-900">
                 {{ $warehouse->name ?? '-' }}
             </div>
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-700">Invoice Date</label>
+            <label class="block text-sm font-medium text-gray-700">Tanggal Faktur</label>
             <input type="date" name="{{ $dateField ?? 'invoice_date' }}" value="{{ $dateValue ?? date('Y-m-d') }}"
                 class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
         </div>

@@ -5,16 +5,16 @@
 <div class="mb-2 text-sm text-gray-600">
     Status : <b class="text-gray-900">{{ strtoupper($so->status) }}</b>
     &nbsp; | &nbsp;
-    Invoice : 
+    Faktur :
     @if($invoiceStatus == 'not_invoiced')
         <b class="text-red-600 uppercase">NOT INVOICED</b>
     @elseif($invoiceStatus == 'partial')
-        <b class="text-yellow-600 uppercase">PARTIAL</b>
+        <b class="text-yellow-600 uppercase">SEBAGIAN</b>
     @else
         <b class="text-green-600 uppercase">INVOICED FULL</b>
     @endif
 </div>
 
 <div class="mb-3 text-sm text-gray-700">
-    Customer : <b class="text-gray-900">{{ $so->customer->name ?? '-' }}</b>
+    Pelanggan : <b class="text-gray-900">{{ $so->customer->name ?? '-' }}</b>
 </div>

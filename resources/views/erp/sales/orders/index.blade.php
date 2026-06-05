@@ -9,7 +9,7 @@
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari No SO atau customer...',
+        'placeholder' => 'Cari No SO atau pelanggan...',
     ])
     @include('erp.purchasing._partials.date-range', [
         'fromName' => 'from',
@@ -21,10 +21,10 @@
             <option value="">Semua</option>
             @php
                 $statusOptions = [
-                    'draft'         => 'Draft',
-                    'not_invoiced'  => 'Belum Invoice',
-                    'partial'       => 'Partial Invoice',
-                    'invoiced_full' => 'Full Invoice',
+                    'draft'         => 'Draf',
+                    'not_invoiced'  => 'Belum Faktur',
+                    'partial'       => 'Sebagian Faktur',
+                    'invoiced_full' => 'Full Faktur',
                     'retur'         => 'Retur',
                     'void'          => 'Void',
                 ];
@@ -60,10 +60,10 @@
             <tr>
                 <th class="px-3 py-2 text-left">No SO</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -100,16 +100,16 @@
                         $stLabel = 'Retur';
                     } elseif ($isDraft) {
                         $stCls = 'bg-yellow-100 text-yellow-700';
-                        $stLabel = 'Draft';
+                        $stLabel = 'Draf';
                     } elseif ($isFullyInvoiced) {
                         $stCls = 'bg-green-100 text-green-700';
-                        $stLabel = 'Full Invoice';
+                        $stLabel = 'Full Faktur';
                     } elseif ($isPartialInvoiced) {
                         $stCls = 'bg-amber-100 text-amber-700';
-                        $stLabel = 'Partial Invoice';
+                        $stLabel = 'Sebagian Faktur';
                     } else {
                         $stCls = 'bg-gray-100 text-gray-500';
-                        $stLabel = 'Belum Invoice';
+                        $stLabel = 'Belum Faktur';
                     }
                 @endphp
                 <tr class="border-b hover:bg-blue-50 cursor-pointer" data-href="{{ $rowHref }}">
@@ -141,7 +141,7 @@
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
                             @unless($isCancelled)
                                 <a href="{{ route('sales.orders.print', $so->id) }}"
-                                   class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Print SO">Print</a>
+                                   class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Cetak SO">Cetak</a>
                             @endunless
 
                             @if($isDraft)
@@ -174,7 +174,7 @@
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7"/></svg>
                                     </button>
                                     <a href="{{ route('sales.invoices.create', ['sales_order_id' => $so->id]) }}"
-                                       class="bg-indigo-600 text-white px-2 py-1 rounded text-xs">+ Invoice</a>
+                                       class="bg-indigo-600 text-white px-2 py-1 rounded text-xs">+ Faktur</a>
                                 @endif
                                 @if($so->canBeVoided())
                                     <form method="POST" action="{{ route('sales.orders.void', $so->id) }}" onsubmit="return confirm('Void SO {{ $so->order_number }}?')">

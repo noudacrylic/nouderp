@@ -23,14 +23,14 @@
 
         <!-- Customer -->
         <div>
-            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Customer</label>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Pelanggan</label>
             <div class="customer-select relative">
                 <input type="hidden" name="customer_id" id="customer_id" form="transactionForm">
                 <div class="flex">
                     <input type="text" 
                            id="customer_search" 
                            class="form-control w-full border border-gray-200 rounded-l-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" 
-                           placeholder="Cari customer..."
+                           placeholder="Cari pelanggan..."
                            form="transactionForm">
                     <button type="button" onclick="openQuickCustomer(this)"
                             class="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-r-lg font-bold transition-colors">
@@ -43,7 +43,7 @@
 
         <!-- Warehouse -->
         <div>
-            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Warehouse</label>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Gudang</label>
             @php $whSelected = old('warehouse_id', (isset($quotation) ? $quotation->warehouse_id : null) ?? \App\Core\Inventory\Warehouse::defaultId()); @endphp
             <select name="warehouse_id" form="transactionForm" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none transition appearance-none">
                 @foreach($warehouses as $wh)

@@ -12,9 +12,9 @@
                 <span class="text-gray-600">Buat Retur Baru</span>
             </div>
             <h1 class="text-xl font-bold text-gray-800">
-                Form Retur Customer
+                Form Retur Pelanggan
             </h1>
-            <p class="text-xs text-gray-500 mt-0.5">Retur akan membalik penjualan & menambah saldo Kelebihan Bayar Customer (2106).</p>
+            <p class="text-xs text-gray-500 mt-0.5">Retur akan membalik penjualan & menambah saldo Kelebihan Bayar Pelanggan (2106).</p>
         </div>
         <a href="{{ route('sales.returns.index') }}"
            class="inline-flex items-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
@@ -38,22 +38,22 @@
                 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-5">
                         <span class="w-7 h-7 bg-blue-600 text-white rounded-lg flex items-center justify-center text-xs font-black">1</span>
-                        <h3 class="font-bold text-gray-700">Pilih Customer & Invoice</h3>
+                        <h3 class="font-bold text-gray-700">Pilih Pelanggan & Faktur</h3>
                     </div>
 
                     <div class="grid grid-cols-3 gap-4 mb-4">
                         {{-- Customer Search --}}
                         <div class="col-span-1 border-gray-200 relative" @click.outside="showCustomerDropdown = false">
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Customer <span class="text-red-500">*</span></label>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Pelanggan <span class="text-red-500">*</span></label>
                             
                             <input type="text"
                                 x-model="customerQuery"
                                 @input.debounce.300ms="searchCustomer()"
                                 @focus="showCustomerDropdown = true; if(customerQuery.length >= 2) searchCustomer()"
-                                placeholder="Cari customer..."
+                                placeholder="Cari pelanggan..."
                                 autocomplete="off"
                                 class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                            
+
                             <input type="hidden" name="customer_id" :value="customerId">
                             
                             <div x-show="showCustomerDropdown && customerResults.length > 0" x-transition class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto">
@@ -70,14 +70,14 @@
                         <div class="col-span-1">
                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Jenis Retur</label>
                             <select x-model="returnType" @change="onReturnTypeChange()" class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                                <option value="invoice">🛍️ Dari Invoice</option>
+                                <option value="invoice">🛍️ Dari Faktur</option>
                                 <option value="so">📋 Dari Sales Order</option>
                             </select>
                         </div>
 
                         {{-- Document Selector Search --}}
                         <div class="col-span-1 relative" x-show="documents.length > 0" x-transition @click.outside="showDocDropdown = false">
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5" x-text="returnType === 'invoice' ? 'Invoice *' : 'Sales Order *'"></label>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5" x-text="returnType === 'invoice' ? 'Faktur *' : 'Sales Order *'"></label>
                             
                             <input type="text"
                                 x-model="docQuery"
@@ -110,7 +110,7 @@
                         {{-- No documents message --}}
                         <div class="col-span-3" x-show="customerId && documents.length === 0 && !loadingDocs" x-transition>
                             <div class="text-center py-4 bg-amber-50 rounded-xl border border-amber-100">
-                                <span class="text-amber-500 font-semibold text-sm" x-text="returnType === 'invoice' ? '⚠️ Tidak ada invoice posted/partial untuk customer ini.' : '⚠️ Tidak ada Sales Order aktif untuk customer ini.'"></span>
+                                <span class="text-amber-500 font-semibold text-sm" x-text="returnType === 'invoice' ? '⚠️ Tidak ada faktur posted/partial untuk pelanggan ini.' : '⚠️ Tidak ada Sales Order aktif untuk pelanggan ini.'"></span>
                             </div>
                         </div>
 
@@ -180,7 +180,7 @@
                             <thead>
                                 <tr class="bg-gray-50 border-b border-gray-100">
                                     <th class="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Produk</th>
-                                    <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-24" x-text="returnType === 'invoice' ? 'Qty Invoice' : 'Qty Order'"></th>
+                                    <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-24" x-text="returnType === 'invoice' ? 'Qty Faktur' : 'Qty Order'"></th>
                                     <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-28">Qty Retur</th>
                                     <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-36">Kondisi</th>
                                     <th class="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest w-36">Nilai Retur</th>
@@ -363,11 +363,11 @@
                         </li>
                         <li class="flex items-start gap-2" x-show="returnType === 'so'">
                             <span class="bg-indigo-200 text-indigo-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">1</span>
-                            <span>Uang Muka (Advance) akan dibalik ke saldo customer.</span>
+                            <span>Uang Muka (Advance) akan dibalik ke saldo pelanggan.</span>
                         </li>
                         <li class="flex items-start gap-2">
                             <span class="bg-amber-200 text-amber-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">2</span>
-                            <span x-text="`Saldo ${getReturnAccountName()} customer akan bertambah.`"></span>
+                            <span x-text="`Saldo ${getReturnAccountName()} pelanggan akan bertambah.`"></span>
                         </li>
                         <li class="flex items-start gap-2">
                             <span class="bg-amber-200 text-amber-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">3</span>
@@ -391,7 +391,7 @@
                                 :class="canSubmit()
                                     ? 'bg-white text-gray-700 hover:bg-gray-50'
                                     : 'bg-gray-50 text-gray-300 cursor-not-allowed'">
-                            <span x-text="returnId ? '💾 Update Draft' : '💾 Save Draft'"></span>
+                            <span x-text="returnId ? '💾 Perbarui Draf' : '💾 Simpan Draf'"></span>
                         </button>
 
                         <button type="button"
@@ -442,11 +442,11 @@
 
             <div class="bg-gray-50 rounded-xl p-4 mb-5 space-y-2 text-sm">
                 <div class="flex justify-between">
-                    <span class="text-gray-500">Customer</span>
+                    <span class="text-gray-500">Pelanggan</span>
                     <span class="font-bold text-gray-800" x-text="selectedInvoice?.number ? getCustomerName() : '—'"></span>
                 </div>
                 <div class="flex justify-between">
-                    <span class="text-gray-500" x-text="returnType === 'invoice' ? 'Invoice' : 'Sales Order'"></span>
+                    <span class="text-gray-500" x-text="returnType === 'invoice' ? 'Faktur' : 'Sales Order'"></span>
                     <span class="font-bold text-gray-800" x-text="selectedDoc?.number"></span>
                 </div>
                 <div class="flex justify-between">

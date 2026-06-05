@@ -44,7 +44,7 @@
             <input type="checkbox" name="show_bank_account" value="1" class="w-4 h-4 accent-blue-600"
                    {{ $showBankValue ? 'checked' : '' }}>
             Tampilkan info rekening bank di cetak penawaran
-            <span class="text-gray-400">(untuk customer yang butuh verifikasi rekening)</span>
+            <span class="text-gray-400">(untuk pelanggan yang butuh verifikasi rekening)</span>
         </label>
     </div>
 

@@ -13,7 +13,7 @@
             <h1 class="text-xl font-bold text-gray-800">
                 {{ isset($warranty) ? 'Edit Garansi ' . $warranty->warranty_number : 'Form Garansi Baru' }}
             </h1>
-            <p class="text-xs text-gray-500 mt-0.5">Klaim garansi tidak mempengaruhi saldo customer.</p>
+            <p class="text-xs text-gray-500 mt-0.5">Klaim garansi tidak mempengaruhi saldo pelanggan.</p>
         </div>
         <a href="{{ route('sales.warranty.index') }}"
            class="inline-flex items-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
@@ -43,11 +43,11 @@
                     <div class="grid grid-cols-3 gap-4 mb-4">
                         {{-- Customer --}}
                         <div class="relative" @click.outside="showCustomerDropdown = false">
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Customer <span class="text-red-500">*</span></label>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Pelanggan <span class="text-red-500">*</span></label>
                             <input type="text" x-model="customerQuery"
                                 @input.debounce.300ms="searchCustomer()"
                                 @focus="if(customerQuery.length >= 1) showCustomerDropdown = true"
-                                placeholder="Cari customer..."
+                                placeholder="Cari pelanggan..."
                                 autocomplete="off"
                                 class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                             <input type="hidden" name="customer_id" :value="customerId">
@@ -68,7 +68,7 @@
                             <select x-model="refType" @change="onRefTypeChange()"
                                     class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                                 <option value="none">— Tanpa Referensi —</option>
-                                <option value="invoice">🛍️ Dari Invoice</option>
+                                <option value="invoice">🛍️ Dari Faktur</option>
                                 <option value="so">📋 Dari Sales Order</option>
                             </select>
                         </div>
@@ -76,7 +76,7 @@
                         {{-- Document Selector --}}
                         <div class="relative" x-show="refType !== 'none' && documents.length > 0" x-transition @click.outside="showDocDropdown = false">
                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5"
-                                   x-text="refType === 'invoice' ? 'Invoice *' : 'Sales Order *'"></label>
+                                   x-text="refType === 'invoice' ? 'Faktur *' : 'Sales Order *'"></label>
                             <input type="text"
                                 x-model="docQuery"
                                 @input="showDocDropdown = true"
@@ -106,7 +106,7 @@
                         <div class="col-span-3" x-show="refType !== 'none' && customerId && documents.length === 0 && !loadingDocs" x-transition>
                             <div class="text-center py-3 bg-amber-50 rounded-xl border border-amber-100">
                                 <span class="text-amber-600 font-semibold text-sm"
-                                      x-text="refType === 'invoice' ? '⚠️ Tidak ada invoice untuk customer ini.' : '⚠️ Tidak ada Sales Order aktif untuk customer ini.'"></span>
+                                      x-text="refType === 'invoice' ? '⚠️ Tidak ada faktur untuk pelanggan ini.' : '⚠️ Tidak ada Sales Order aktif untuk pelanggan ini.'"></span>
                             </div>
                         </div>
                         <div class="col-span-3" x-show="loadingDocs" x-transition>
@@ -115,7 +115,7 @@
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                                 </svg>
-                                <span x-text="refType === 'invoice' ? 'Memuat invoice...' : 'Memuat Sales Order...'"></span>
+                                <span x-text="refType === 'invoice' ? 'Memuat faktur...' : 'Memuat Sales Order...'"></span>
                             </div>
                         </div>
                     </div>
@@ -176,7 +176,7 @@
                     <div class="mt-4">
                         <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Deskripsi Masalah</label>
                         <textarea name="issue_description" rows="2"
-                                  placeholder="Jelaskan masalah yang dilaporkan customer..."
+                                  placeholder="Jelaskan masalah yang dilaporkan pelanggan..."
                                   class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none">{{ isset($warranty) ? $warranty->issue_description : '' }}</textarea>
                     </div>
                 </div>
@@ -367,11 +367,11 @@
                             </div>
                             <div class="flex items-start gap-2">
                                 <span class="mt-0.5 text-purple-500">④</span>
-                                <span><strong>Post SJ:</strong> Dr 1132 (HPP customer) + Dr 6106 (biaya perbaikan) / Cr 1130.</span>
+                                <span><strong>Post SJ:</strong> Dr 1132 (HPP pelanggan) + Dr 6106 (biaya perbaikan) / Cr 1130.</span>
                             </div>
                             <div class="flex items-start gap-2 pt-2 border-t border-gray-100">
                                 <span class="mt-0.5 text-gray-400">ℹ</span>
-                                <span class="text-gray-400">Saldo customer <strong>tidak berubah</strong>.</span>
+                                <span class="text-gray-400">Saldo pelanggan <strong>tidak berubah</strong>.</span>
                             </div>
                         </div>
                     </div>
@@ -384,7 +384,7 @@
                                         :disabled="!canSubmit()"
                                         class="flex-1 py-3 rounded-xl font-bold text-sm transition-all border border-gray-200 flex items-center justify-center gap-2"
                                         :class="canSubmit() ? 'bg-white text-gray-700 hover:bg-gray-50' : 'bg-gray-50 text-gray-300 cursor-not-allowed'">
-                                    💾 Simpan Draft
+                                    💾 Simpan Draf
                                 </button>
                                 <button type="button" @click="confirmPost()"
                                         :disabled="!canSubmit()"
@@ -437,11 +437,11 @@
             </div>
             <div class="bg-gray-50 rounded-xl p-4 mb-5 space-y-2 text-sm">
                 <div class="flex justify-between">
-                    <span class="text-gray-500">Customer</span>
+                    <span class="text-gray-500">Pelanggan</span>
                     <span class="font-bold text-gray-800" x-text="customerQuery"></span>
                 </div>
                 <div class="flex justify-between" x-show="selectedDoc">
-                    <span class="text-gray-500" x-text="refType === 'invoice' ? 'Invoice' : 'Sales Order'"></span>
+                    <span class="text-gray-500" x-text="refType === 'invoice' ? 'Faktur' : 'Sales Order'"></span>
                     <span class="font-bold text-gray-800" x-text="selectedDoc?.number"></span>
                 </div>
                 <div class="flex justify-between">

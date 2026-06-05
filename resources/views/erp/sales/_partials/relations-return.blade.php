@@ -13,7 +13,7 @@
         $inv = $return->invoice;
         $sv = $statusValue($inv);
         $groups[] = [
-            'label' => 'Invoice (Sumber)',
+            'label' => 'Faktur (Sumber)',
             'items' => [[
                 'number'       => $inv->invoice_number,
                 'date'         => optional($inv->invoice_date)->format('d M Y'),
@@ -48,7 +48,7 @@
         $remaining = (float) $overpay->amount;
         $alreadyUsed = $remaining + 0.0001 < $original;
         $groups[] = [
-            'label' => 'Saldo Customer Overpayment',
+            'label' => 'Saldo Pelanggan Overpayment',
             'items' => [[
                 'number'       => $overpay->reference ?? '#'.$overpay->id,
                 'date'         => optional($overpay->created_at)->format('d M Y'),

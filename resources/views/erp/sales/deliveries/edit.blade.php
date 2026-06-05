@@ -16,7 +16,7 @@
             <div>
 
                 <label class="block text-sm mb-1">
-                    Date @if($delivery->status == 'posted') <span class="text-xs text-gray-400">(locked)</span> @endif
+                    Tanggal @if($delivery->status == 'posted') <span class="text-xs text-gray-400">(locked)</span> @endif
                 </label>
 
                 <input type="date" name="delivery_date" value="{{ $delivery->delivery_date }}"
@@ -53,7 +53,7 @@
 
 
         <button class="bg-blue-600 text-white px-4 py-2 rounded">
-            Update Delivery
+            Perbarui Delivery
         </button>
 
     </form>

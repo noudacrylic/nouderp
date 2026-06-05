@@ -60,7 +60,7 @@
                 $custAddr = $custAddr ?: ($cust->address ?? null);
             @endphp
             <div class="flex justify-between gap-3">
-                <dt class="text-gray-500">Customer</dt>
+                <dt class="text-gray-500">Pelanggan</dt>
                 <dd class="text-right">{{ $cust->name ?? '-' }}</dd>
             </div>
             <div class="flex justify-between gap-3">
@@ -145,7 +145,7 @@
             <div><span class="text-gray-500">Order ID:</span> <span class="font-mono text-[11px]">{{ $delivery->provider_order_id }}</span></div>
             <div><span class="text-gray-500">Ambil:</span> {{ $delivery->collection_method === 'dropoff' ? 'Antar ke gerai' : 'Dijemput kurir' }}</div>
             <a href="{{ route('sales.deliveries.resi', $delivery->id) }}"
-               class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-xs font-bold">🏷️ Print Resi</a>
+               class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-xs font-bold">🏷️ Cetak Resi</a>
             <a href="{{ route('sales.deliveries.track', $delivery->id) }}"
                class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded text-xs font-bold">📦 Lacak Paket</a>
         </div>
@@ -172,7 +172,7 @@
             <button class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm font-bold">📦 Booking Resi</button>
         </form>
         @if($delivery->shipping_status === 'failed')
-            <p class="text-red-500 text-xs mt-2">⚠ Booking terakhir gagal. Periksa alamat customer / kurir lalu coba lagi.</p>
+            <p class="text-red-500 text-xs mt-2">⚠ Booking terakhir gagal. Periksa alamat pelanggan / kurir lalu coba lagi.</p>
         @endif
     @endif
 </div>
@@ -183,7 +183,7 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">Product</th>
+                <th class="px-3 py-2 text-left">Produk</th>
                 <th class="px-3 py-2 text-right w-40">Qty</th>
             </tr>
         </thead>
@@ -207,22 +207,22 @@
             @csrf
             <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm">Post</button>
         </form>
-        <form method="POST" action="{{ route('sales.deliveries.destroy', $delivery->id) }}" onsubmit="return confirm('Cancel delivery ini?')">
+        <form method="POST" action="{{ route('sales.deliveries.destroy', $delivery->id) }}" onsubmit="return confirm('Batalkan delivery ini?')">
             @csrf
             @method('DELETE')
-            <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">Cancel</button>
+            <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">Batal</button>
         </form>
     @endif
 
     @if($isPosted)
         <a href="{{ route('sales.deliveries.print', $delivery->id) }}"
            class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm inline-flex items-center gap-1">
-            🖨️ Print Surat Jalan
+            🖨️ Cetak Surat Jalan
         </a>
         @if($delivery->isBooked())
             <a href="{{ route('sales.deliveries.resi', $delivery->id) }}"
                class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm inline-flex items-center gap-1">
-                🏷️ Print Resi
+                🏷️ Cetak Resi
             </a>
             <a href="{{ route('sales.deliveries.track', $delivery->id) }}"
                class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-2 rounded text-sm inline-flex items-center gap-1">

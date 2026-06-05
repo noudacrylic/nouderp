@@ -15,7 +15,7 @@
                 <label class="block text-sm mb-1">Sales Order</label>
                 <input type="hidden" name="sales_order_id" :value="selectedId">
                 <input type="text" x-model="query" @focus="open = true" autocomplete="off"
-                    placeholder="Cari No SO atau customer..."
+                    placeholder="Cari No SO atau pelanggan..."
                     class="border px-3 py-2 rounded w-full focus:ring-blue-500 focus:border-blue-500 outline-none">
                 <div x-show="open" x-cloak @click.outside="open = false"
                     class="absolute z-30 mt-1 w-full bg-white border rounded shadow-lg max-h-64 overflow-auto">
@@ -65,7 +65,7 @@
                 <input type="text" name="pickup_code" required autocomplete="off"
                     inputmode="numeric" maxlength="5"
                     class="border px-3 py-2 rounded w-full font-mono tracking-widest max-w-xs" placeholder="1234">
-                <p class="text-[11px] text-gray-400 mt-1">Masukkan kode yang disebutkan customer. Harus cocok dengan kode di SO.</p>
+                <p class="text-[11px] text-gray-400 mt-1">Masukkan kode yang disebutkan pelanggan. Harus cocok dengan kode di SO.</p>
             </div>
         @else
             <div class="mb-6">
@@ -85,7 +85,7 @@
                 <table class="w-full text-sm">
                     <thead class="bg-gray-50 border-b text-gray-600 font-semibold">
                         <tr>
-                            <th class="text-left px-6 py-3">Product</th>
+                            <th class="text-left px-6 py-3">Produk</th>
                             <th class="text-center px-4 py-3 w-24">SKU</th>
                             <th class="text-right px-4 py-3 w-24">Dipesan</th>
                             <th class="text-right px-4 py-3 w-28">Sudah Dikirim</th>
@@ -123,7 +123,7 @@
                     </tbody>
                 </table>
                 <div class="px-6 py-3 text-xs text-gray-500 border-t bg-gray-50">
-                    Qty kirim default = sisa. Jika <span class="text-amber-600 font-semibold">Tersedia (Stok)</span> lebih kecil dari qty kirim, barang preorder yang belum selesai produksi tetap bisa dikirim (stok minus) — HPP-nya ditunda dan dihitung saat invoice. Invoice diblok sampai produksinya selesai.
+                    Qty kirim default = sisa. Jika <span class="text-amber-600 font-semibold">Tersedia (Stok)</span> lebih kecil dari qty kirim, barang preorder yang belum selesai produksi tetap bisa dikirim (stok minus) — HPP-nya ditunda dan dihitung saat faktur. Faktur diblok sampai produksinya selesai.
                 </div>
             </div>
 
@@ -132,7 +132,7 @@
                     class="px-4 py-2 border rounded text-sm font-bold text-gray-600 hover:bg-gray-50 transition">Batal</a>
                 <button type="submit" name="action" value="draft"
                     class="px-4 py-2 border border-gray-300 rounded text-sm font-bold text-gray-700 bg-white hover:bg-gray-50 transition">
-                    Draft
+                    Draf
                 </button>
                 <button type="submit" name="action" value="post"
                     class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold transition">
@@ -140,7 +140,7 @@
                 </button>
                 <button type="submit" name="action" value="print"
                     class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-bold transition">
-                    Print
+                    Cetak
                 </button>
             </div>
         @else

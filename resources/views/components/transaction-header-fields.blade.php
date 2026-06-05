@@ -34,7 +34,7 @@
 
     {{-- CUSTOMER --}}
     <div>
-        <label>Customer</label>
+        <label>Pelanggan</label>
         <div class="customer-select">
             @php
                 $customerId = old('customer_id', $quotation->customer_id ?? ($so->customer_id ?? ($invoice->customer_id ?? '')));
@@ -51,7 +51,7 @@
                        id="customer_search" 
                        name="customer_name"
                        class="form-control w-full border border-gray-300 rounded-l px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500 border-r-0" 
-                       placeholder="Cari customer..."
+                       placeholder="Cari pelanggan..."
                        value="{{ old('customer_name', $customerName) }}">
 
                 <button type="button" onclick="openQuickCustomer(this)"
@@ -66,7 +66,7 @@
 
     {{-- NO PO CUSTOMER --}}
     <div>
-        <label>No. PO Customer</label>
+        <label>No. PO Pelanggan</label>
         <input type="text" 
                name="customer_po_number" 
                class="form-control w-full border rounded px-3 py-2 text-sm"
@@ -78,7 +78,7 @@
 
     {{-- NOMOR --}}
     <div>
-        <label>Nomor {{ $type == 'quotation' ? 'Penawaran' : ($type == 'invoice' ? 'Invoice' : 'Sales Order') }}</label>
+        <label>Nomor {{ $type == 'quotation' ? 'Penawaran' : ($type == 'invoice' ? 'Faktur' : 'Sales Order') }}</label>
         <div class="flex items-center gap-2">
             @php
                 $numberField = $type == 'quotation' ? 'quotation_number' : ($type == 'invoice' ? 'invoice_number' : 'order_number');
@@ -95,7 +95,7 @@
 
     {{-- WAREHOUSE --}}
     <div>
-        <label>Warehouse</label>
+        <label>Gudang</label>
         <select name="warehouse_id" class="form-control w-full border rounded px-3 py-2 text-sm bg-white">
             @php
                 $selectedWH = old('warehouse_id', $quotation->warehouse_id ?? ($so->warehouse_id ?? ($invoice->warehouse_id ?? \App\Core\Inventory\Warehouse::defaultId())));

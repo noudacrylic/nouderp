@@ -6,8 +6,8 @@
                 <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">Nama Produk</th>
                 <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Qty</th>
                 <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">Unit</th>
-                <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Price</th>
-                <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Discount</th>
+                <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Harga</th>
+                <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Diskon</th>
                 <th class="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Total</th>
             </tr>
         </thead>

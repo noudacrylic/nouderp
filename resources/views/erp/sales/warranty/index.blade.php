@@ -9,13 +9,13 @@
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari nomor garansi, customer, atau invoice...',
+        'placeholder' => 'Cari nomor garansi, pelanggan, atau faktur...',
     ])
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach(['draft' => 'Draft', 'received' => 'Diterima', 'repaired' => 'Diperbaiki', 'shipped' => 'Dikirim'] as $val => $label)
+            @foreach(['draft' => 'Draf', 'received' => 'Diterima', 'repaired' => 'Diperbaiki', 'shipped' => 'Dikirim'] as $val => $label)
                 <option value="{{ $val }}" @selected(request('status')==$val)>{{ $label }}</option>
             @endforeach
         </select>
@@ -36,11 +36,11 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Garansi</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
-                <th class="px-3 py-2 text-left">Invoice</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
+                <th class="px-3 py-2 text-left">Faktur</th>
                 <th class="px-3 py-2 text-center">Jenis</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-32">Action</th>
+                <th class="px-3 py-2 text-right w-32">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -52,7 +52,7 @@
                         : route('sales.warranty.show', $w->id);
 
                     [$stCls, $stLabel] = match($w->status ?? '') {
-                        'draft'    => ['bg-yellow-100 text-yellow-700', 'Draft'],
+                        'draft'    => ['bg-yellow-100 text-yellow-700', 'Draf'],
                         'received' => ['bg-blue-100 text-blue-700', 'Diterima'],
                         'repaired' => ['bg-indigo-100 text-indigo-700', 'Diperbaiki'],
                         'shipped'  => ['bg-green-100 text-green-700', 'Dikirim'],
@@ -82,7 +82,7 @@
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
                             @if($isDraft)
-                                <form method="POST" action="{{ route('sales.warranty.destroy', $w->id) }}" onsubmit="return confirm('Hapus draft garansi ini?')">
+                                <form method="POST" action="{{ route('sales.warranty.destroy', $w->id) }}" onsubmit="return confirm('Hapus draf garansi ini?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>

@@ -1,6 +1,6 @@
 <hr>
 
-<h4>Global Discount</h4>
+<h4>Global Diskon</h4>
 
 <select name="global_discount_type">
     <option value="percent" {{ old('global_discount_type', $quotation->global_discount_type ?? '') == 'percent' ? 'selected' : '' }}>

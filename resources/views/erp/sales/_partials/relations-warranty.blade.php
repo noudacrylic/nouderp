@@ -13,7 +13,7 @@
         $inv = $warranty->invoice;
         $sv = $statusValue($inv);
         $groups[] = [
-            'label' => 'Invoice (Sumber)',
+            'label' => 'Faktur (Sumber)',
             'items' => [[
                 'number'       => $inv->invoice_number,
                 'date'         => optional($inv->invoice_date)->format('d M Y'),

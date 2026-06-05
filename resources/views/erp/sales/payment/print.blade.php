@@ -50,7 +50,7 @@
 
 {{-- Customer --}}
 <div class="recipient-block">
-    <div class="lbl">Customer</div>
+    <div class="lbl">Pelanggan</div>
     <div class="name">{{ $payment->customer->name ?? '-' }}</div>
     @if(!empty($payment->customer?->phone))
         <div class="addr">Telp. {{ $payment->customer->phone }}</div>
@@ -85,7 +85,7 @@
         @forelse($payment->allocations as $alloc)
             @php
                 if ($alloc->invoice) {
-                    $type = 'Invoice'; $ref = $alloc->invoice->invoice_number;
+                    $type = 'Faktur'; $ref = $alloc->invoice->invoice_number;
                 } elseif ($alloc->billing) {
                     $type = 'Billing'; $ref = $alloc->billing->billing_number ?? ('#' . $alloc->billing_id);
                 } elseif ($alloc->salesOrder) {

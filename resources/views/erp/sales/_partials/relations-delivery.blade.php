@@ -30,7 +30,7 @@
         $inv = $delivery->invoice;
         $sv = $statusValue($inv);
         $groups[] = [
-            'label' => 'Invoice',
+            'label' => 'Faktur',
             'items' => [[
                 'number'       => $inv->invoice_number,
                 'date'         => optional($inv->invoice_date)->format('d M Y'),

@@ -2,17 +2,17 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Sales Invoice</h1>
+    <h1 class="text-lg font-semibold">Faktur Penjualan</h1>
     <div class="flex gap-2">
         <a href="{{ route('sales.invoices.excel-import.form') }}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm">Import Excel</a>
-        <a href="{{ route('sales.invoices.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Invoice</a>
+        <a href="{{ route('sales.invoices.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Faktur</a>
     </div>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari nomor invoice atau customer...',
+        'placeholder' => 'Cari nomor faktur atau pelanggan...',
     ])
     @include('erp.purchasing._partials.date-range')
     <div>
@@ -21,7 +21,7 @@
             <option value="">Semua</option>
             @php
                 $statusOptions = [
-                    'draft'            => 'Draft',
+                    'draft'            => 'Draf',
                     'belum_lunas'      => 'Belum Lunas',
                     'selesai'          => 'Lunas',
                     'returned_partial' => 'Retur Sebagian',
@@ -58,12 +58,12 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">No Invoice</th>
+                <th class="px-3 py-2 text-left">No Faktur</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Customer</th>
+                <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -96,7 +96,7 @@
                         $stLabel = 'Void';
                     } elseif ($isDraft) {
                         $stCls = 'bg-yellow-100 text-yellow-700';
-                        $stLabel = 'Draft';
+                        $stLabel = 'Draf';
                     } elseif ($isFullyReturned) {
                         $stCls = 'bg-rose-100 text-rose-700';
                         $stLabel = 'Retur';
@@ -113,7 +113,7 @@
                         {{ $invoice->invoice_number }}
                         @include('erp.purchasing._partials.copy-btn', ['value' => $invoice->invoice_number])
                         @if($isPartial)
-                            <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase" title="Invoice partial dari SO yang dipecah jadi beberapa invoice">Partial</span>
+                            <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase" title="Faktur sebagian dari SO yang dipecah jadi beberapa faktur">Sebagian</span>
                         @endif
                     </td>
                     <td class="px-3 py-2 whitespace-nowrap">
@@ -143,17 +143,17 @@
                             {{-- Print selalu pertama di DOM (paling kanan visual karena flex-row-reverse) --}}
                             @unless($isVoid)
                                 <a href="{{ url('/erp/sales/invoices/' . $invoice->id . '/print') }}"
-                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Print</a>
+                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Cetak</a>
                             @endunless
 
                             @if($isDraft)
                                 <form method="POST" action="{{ route('sales.invoices.post', $invoice->id) }}" class="inline"
-                                      onsubmit="return confirm('Post invoice {{ $invoice->invoice_number }}? Stok akan dikurangi & jurnal dicatat.')">
+                                      onsubmit="return confirm('Post faktur {{ $invoice->invoice_number }}? Stok akan dikurangi & jurnal dicatat.')">
                                     @csrf
                                     <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs">Post</button>
                                 </form>
                                 <form method="POST" action="{{ route('sales.invoices.destroy', $invoice->id) }}" class="inline"
-                                      onsubmit="return confirm('Hapus invoice draft {{ $invoice->invoice_number }}?')">
+                                      onsubmit="return confirm('Hapus faktur draf {{ $invoice->invoice_number }}?')">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>
@@ -169,7 +169,7 @@
                                 </button>
                                 @if($invoice->canBeVoided())
                                     <form method="POST" action="{{ route('sales.invoices.void', $invoice->id) }}" class="inline"
-                                          onsubmit="return confirm('Void invoice {{ $invoice->invoice_number }}? Jurnal di-void & stok dikembalikan.')">
+                                          onsubmit="return confirm('Void faktur {{ $invoice->invoice_number }}? Jurnal di-void & stok dikembalikan.')">
                                         @csrf
                                         <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Void</button>
                                     </form>
@@ -178,7 +178,7 @@
                             @elseif(!$isVoid)
                                 @if($invoice->canBeVoided())
                                     <form method="POST" action="{{ route('sales.invoices.void', $invoice->id) }}" class="inline"
-                                          onsubmit="return confirm('Void invoice {{ $invoice->invoice_number }}? Jurnal di-void.')">
+                                          onsubmit="return confirm('Void faktur {{ $invoice->invoice_number }}? Jurnal di-void.')">
                                         @csrf
                                         <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Void</button>
                                     </form>
@@ -188,7 +188,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="6" class="px-3 py-6 text-center text-gray-400">Belum ada invoice.</td></tr>
+                <tr><td colspan="6" class="px-3 py-6 text-center text-gray-400">Belum ada faktur.</td></tr>
             @endforelse
         </tbody>
     </table>

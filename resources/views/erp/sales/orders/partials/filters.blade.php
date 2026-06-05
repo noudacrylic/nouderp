@@ -5,7 +5,7 @@
             type="text"
             name="search"
             class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-            placeholder="No. SO atau Customer..."
+            placeholder="No. SO atau Pelanggan..."
             value="{{ request('search') }}">
     </div>
 
@@ -35,7 +35,7 @@
             style="background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 fill=%22none%22 viewBox=%220%200%2020%2020%22%3E%3Cpath stroke=%22%236b7280%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%221.5%22 d=%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E'); background-position: right 0.5rem center; background-size: 1.5em 1.5em;">
             <option value="">Semua Status</option>
             <option value="confirmed" {{ request('status') == 'confirmed' ? 'selected' : '' }}>CONFIRMED</option>
-            <option value="draft" {{ request('status') == 'draft' ? 'selected' : '' }}>DRAFT</option>
+            <option value="draft" {{ request('status') == 'draft' ? 'selected' : '' }}>DRAF</option>
             <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>CANCELLED</option>
             <option value="retur" {{ request('status') == 'retur' ? 'selected' : '' }}>↩ RETUR</option>
         </select>
@@ -47,10 +47,10 @@
             name="invoice_status"
             class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition appearance-none bg-no-repeat bg-right"
             style="background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 fill=%22none%22 viewBox=%220%200%2020%2020%22%3E%3Cpath stroke=%22%236b7280%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%221.5%22 d=%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E'); background-position: right 0.5rem center; background-size: 1.5em 1.5em;">
-            <option value="">Semua Invoice</option>
-            <option value="not_invoiced" {{ request('invoice_status') == 'not_invoiced' ? 'selected' : '' }}>NOT INVOICED</option>
-            <option value="draft" {{ request('invoice_status') == 'draft' ? 'selected' : '' }}>DRAFT INVOICE</option>
-            <option value="partial" {{ request('invoice_status') == 'partial' ? 'selected' : '' }}>PARTIAL</option>
+            <option value="">Semua Faktur</option>
+            <option value="not_invoiced" {{ request('invoice_status') == 'not_invoiced' ? 'selected' : '' }}>BELUM FAKTUR</option>
+            <option value="draft" {{ request('invoice_status') == 'draft' ? 'selected' : '' }}>DRAF FAKTUR</option>
+            <option value="partial" {{ request('invoice_status') == 'partial' ? 'selected' : '' }}>SEBAGIAN</option>
             <option value="invoiced_full" {{ request('invoice_status') == 'invoiced_full' ? 'selected' : '' }}>FULL</option>
         </select>
     </div>

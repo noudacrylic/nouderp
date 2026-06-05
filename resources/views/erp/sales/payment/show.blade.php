@@ -4,8 +4,8 @@
 @php
     $status = strtolower($payment->status ?? '');
     [$stCls, $stLabel] = match($status) {
-        'posted' => ['bg-green-100 text-green-700', 'Posted'],
-        'draft'  => ['bg-yellow-100 text-yellow-700', 'Draft'],
+        'posted' => ['bg-green-100 text-green-700', 'Diposting'],
+        'draft'  => ['bg-yellow-100 text-yellow-700', 'Draf'],
         'void'   => ['bg-red-100 text-red-700', 'Void'],
         default  => ['bg-gray-100 text-gray-500', strtoupper($payment->status ?? '-')],
     };
@@ -15,7 +15,7 @@
 
 <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-3">
-        <h1 class="text-lg font-semibold">Pembayaran Customer</h1>
+        <h1 class="text-lg font-semibold">Pembayaran Pelanggan</h1>
         <span class="px-2 py-0.5 rounded text-xs uppercase {{ $stCls }}">{{ $stLabel }}</span>
         @if($isInvoicePay)
             <span class="px-2 py-0.5 rounded text-xs uppercase bg-blue-100 text-blue-700">Pelunasan</span>
@@ -25,7 +25,7 @@
     </div>
     <div class="flex items-center gap-2">
         @if($payment->canBeVoided())
-            <form action="{{ route('sales.payment.void', $payment->id) }}" method="POST" onsubmit="return confirm('Void payment ini? Alokasi akan dibalik & jurnal dibatalkan.')">
+            <form action="{{ route('sales.payment.void', $payment->id) }}" method="POST" onsubmit="return confirm('Void pembayaran ini? Alokasi akan dibalik & jurnal dibatalkan.')">
                 @csrf
                 <button type="submit" class="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Void</button>
             </form>
@@ -58,7 +58,7 @@
                 <dd class="text-right">{{ $payment->date ? $payment->date->format('d M Y') : '-' }}</dd>
             </div>
             <div class="flex justify-between gap-3">
-                <dt class="text-gray-500">Customer</dt>
+                <dt class="text-gray-500">Pelanggan</dt>
                 <dd class="text-right">{{ $payment->customer->name ?? '-' }}</dd>
             </div>
             <div class="flex justify-between gap-3">
@@ -118,14 +118,14 @@
             <tr>
                 <th class="px-3 py-2 text-left">Tipe</th>
                 <th class="px-3 py-2 text-left">Referensi</th>
-                <th class="px-3 py-2 text-right w-40">Amount</th>
+                <th class="px-3 py-2 text-right w-40">Nominal</th>
             </tr>
         </thead>
         <tbody>
             @forelse($payment->allocations as $alloc)
                 @php
                     if ($alloc->invoice) {
-                        $type = 'Invoice';
+                        $type = 'Faktur';
                         $typeCls = 'bg-blue-100 text-blue-700';
                         $ref = $alloc->invoice->invoice_number;
                         $refUrl = route('sales.invoices.show', $alloc->invoice->id);
