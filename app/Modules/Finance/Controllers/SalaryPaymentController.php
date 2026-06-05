@@ -165,7 +165,9 @@ class SalaryPaymentController extends Controller
                     'periode_bulan'     => $periode->bulan,
                     'periode_tahun'     => $periode->tahun,
                     'cash_account_id'   => $data['cash_account_id'],
-                    'bruto_gaji'        => (float) $slip->subtotal,
+                    // Bruto = subtotal + komponen earning custom. Tanpa komponen, validate()
+                    // "Tidak balance" krn nett (=subtotal+komponen-potongan) tak cocok.
+                    'bruto_gaji'        => (float) $slip->subtotal + (float) $slip->total_komponen_earning,
                     'bpjs_kes_employee' => (float) $slip->bpjs_kesehatan_amount,
                     'bpjs_tk_employee'  => (float) $slip->bpjs_tk_amount,
                     'pph21_amount'      => (float) $slip->pph21_amount,
@@ -291,7 +293,8 @@ class SalaryPaymentController extends Controller
                 'periode_bulan'        => $data['periode_bulan'],
                 'periode_tahun'        => $data['periode_tahun'],
                 'cash_account_id'      => $data['cash_account_id'],
-                'bruto_gaji'           => (float) $slip->subtotal,
+                // Bruto = subtotal + komponen earning custom (lihat bulkFromSlips).
+                'bruto_gaji'           => (float) $slip->subtotal + (float) $slip->total_komponen_earning,
                 'bpjs_kes_employee'    => (float) $slip->bpjs_kesehatan_amount,
                 'bpjs_tk_employee'     => (float) $slip->bpjs_tk_amount,
                 'pph21_amount'         => (float) $slip->pph21_amount,

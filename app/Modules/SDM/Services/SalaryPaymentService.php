@@ -289,7 +289,7 @@ class SalaryPaymentService
                 + (float) ($data['pph21_amount'] ?? 0)
                 + (float) ($data['kasbon_potongan'] ?? 0);
         $nett   = (float) ($data['nett_dibayar'] ?? 0);
-        if (round($bruto - $emp - $nett, 2) !== 0.00) {
+        if (abs(round($bruto - $emp - $nett, 2)) > 0.005) {
             throw new DomainException(sprintf(
                 'Tidak balance: bruto (%s) - potongan karyawan (%s) ≠ nett (%s).',
                 number_format($bruto, 0, ',', '.'),
@@ -321,7 +321,7 @@ class SalaryPaymentService
         $lines = JournalLine::where('journal_id', $journalId)->get();
         $debit  = round($lines->sum('debit'), 2);
         $credit = round($lines->sum('credit'), 2);
-        if ($debit !== $credit) {
+        if (abs($debit - $credit) > 0.005) {
             throw new DomainException("Journal not balanced: Dr={$debit} Cr={$credit}");
         }
     }
