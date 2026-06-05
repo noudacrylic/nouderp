@@ -126,7 +126,23 @@ class PaymentController extends Controller
                     }
                 }
 
-                // 2. Hapus customer overpayment ledger entries (saldo dipakai + overpay)
+                // 2. Hapus customer overpayment ledger entries (saldo dipakai + overpay).
+                //    GUARD: kelebihan bayar (baris positif) yg dibuat payment ini bisa SUDAH
+                //    dipakai transaksi lain (payment/CD berikutnya membuat baris negatif
+                //    ber-reference berbeda). Menghapusnya akan membuat saldo customer minus
+                //    & menarik kembali kredit yg sudah dibelanjakan → blok void.
+                $customerId = $payment->customer_id;
+                $currentBalance = (float) \App\Models\CustomerOverpayment::where('customer_id', $customerId)->sum('amount');
+                $thisPaymentNet = (float) \App\Models\CustomerOverpayment::where('customer_id', $customerId)
+                    ->where('reference', $payment->payment_number)
+                    ->sum('amount');
+                if (($currentBalance - $thisPaymentNet) < -0.01) {
+                    throw new \Exception(
+                        'Tidak bisa void: saldo kelebihan bayar yang dihasilkan payment ini sudah '
+                        . 'terpakai pada transaksi lain. Void/batalkan transaksi yang memakai saldo '
+                        . 'tersebut terlebih dahulu.'
+                    );
+                }
                 \App\Models\CustomerOverpayment::where('reference', $payment->payment_number)->delete();
 
                 // 3. Hapus sales_advances yang dibuat saat post (mirror dari service)
