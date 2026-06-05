@@ -5,6 +5,7 @@ namespace App\Modules\SDM\Services;
 use App\Modules\SDM\Models\Attendance;
 use App\Modules\SDM\Models\Kasbon;
 use App\Modules\SDM\Models\Karyawan;
+use App\Modules\SDM\Models\KebijakanSummary;
 use App\Modules\SDM\Models\PeriodePenggajian;
 use App\Modules\SDM\Models\SlipGaji;
 use App\Modules\SDM\Models\SlipGajiKomponen;
@@ -82,23 +83,21 @@ class PayrollCalculationService
     protected function recalculate(SlipGaji $slip): SlipGaji
     {
         $karyawan = Karyawan::findOrFail($slip->karyawan_id);
+        $periode  = $slip->periode ?: PeriodePenggajian::find($slip->periode_id);
         $agg = $this->aggregateAttendance($slip->periode_id, $karyawan->id);
-
-        // Hari kerja default = dari KALENDER (jadwal karyawan - tanggal merah), bukan fix 25.
-        // Nilai tersimpan > 0 (mis. override manual via form edit slip) tetap dihormati.
-        $hariKerjaPeriode = $slip->exists && (int) $slip->hari_kerja_periode > 0
-            ? (int) $slip->hari_kerja_periode
-            : $this->computeHariKerjaPeriode($karyawan, $slip->periode ?: PeriodePenggajian::find($slip->periode_id));
 
         $manual = [
             'bonus'              => (float) ($slip->bonus ?? 0),
             'thr_amount'         => (float) ($slip->thr_amount ?? 0),
             'cuti_unused_amount' => (float) ($slip->cuti_unused_amount ?? 0),
-            'hari_kerja_periode' => $hariKerjaPeriode,
             'notes'              => $slip->notes,
         ];
 
-        $amounts = $this->computeAmounts($karyawan, $agg, $manual);
+        // SUMBER TUNGGAL: bagian auto (gaji pokok, lembur, tunjangan) diambil dari engine
+        // per-hari PayrollBreakdownService — sama persis dgn slip show & slip cetak, sehingga
+        // angka yang DIBAYAR == angka yang DITAMPILKAN/DICETAK. Hari kerja ikut kalender
+        // (jadwal - tanggal merah) konsisten dgn tampilan; lembur ikut jadwal & istirahat.
+        $amounts = $this->computeAmountsFromBuild($karyawan, $periode, $manual);
 
         // BPJS/Pajak fix dari master karyawan (bisa di-override per slip nanti via edit form)
         $bpjsKes = $slip->exists ? (float) $slip->bpjs_kesehatan_amount : 0.0;
@@ -185,95 +184,56 @@ class PayrollCalculationService
     }
 
     /**
-     * Hari kerja efektif dalam periode dari KALENDER: iterasi tiap tanggal di bulan
-     * periode, dihitung kerja bila BUKAN hari off (jadwal karyawan; default Minggu off
-     * bila tak ada jadwal) DAN BUKAN tanggal merah (NationalHoliday).
-     * Konsisten dgn PayrollBreakdownService::build. Fallback 25 bila periode tak ada.
+     * Bagian AUTO slip (gaji pokok, lembur, tunjangan) diambil dari engine per-hari
+     * PayrollBreakdownService::build — SUMBER TUNGGAL yang sama dgn slip show & cetak.
+     * Hari kerja, gaji/hari, lembur (jadwal jam_masuk_lembur − istirahat lembur) dan
+     * tunjangan (kolom + summary Kebijakan per-hari) semuanya konsisten dgn tampilan.
+     * Pendapatan manual (bonus/THR/cuti) ditambahkan di atas bruto engine.
      */
-    protected function computeHariKerjaPeriode(Karyawan $karyawan, ?PeriodePenggajian $periode): int
+    protected function computeAmountsFromBuild(Karyawan $k, ?PeriodePenggajian $periode, array $manual): array
     {
+        $manualAdd = (float) $manual['bonus'] + (float) $manual['thr_amount'] + (float) $manual['cuti_unused_amount'];
+
         if (! $periode) {
-            return 25;
+            return [
+                'hari_kerja_periode'       => 0,
+                'gaji_per_hari'            => 0,
+                'gaji_pokok_dibayar'       => 0,
+                'lembur_amount'            => 0,
+                'tunjangan_harian_amount'  => 0,
+                'tunjangan_bulanan_amount' => 0,
+                'bonus_absen_amount'       => 0,
+                'total_jam_lembur'         => 0,
+                'subtotal'                 => round($manualAdd, 2),
+            ];
         }
 
-        $start = \Carbon\Carbon::create((int) $periode->tahun, (int) $periode->bulan, 1)->startOfDay();
-        $end   = $start->copy()->endOfMonth();
+        $build = app(PayrollBreakdownService::class)->build($k, (int) $periode->bulan, (int) $periode->tahun);
 
-        $holidayDates = \App\Modules\SDM\Models\NationalHoliday::whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
-            ->pluck('tanggal')
-            ->map(fn ($d) => \Carbon\Carbon::parse($d)->toDateString())
-            ->all();
+        $totalKolom = array_sum(array_filter($build['totalKolom'] ?? [], 'is_numeric'));
 
-        $schedule = $karyawan->schedules->keyBy('day_of_week');
-
-        $hariKerja = 0;
-        $cursor = $start->copy();
-        while ($cursor->lte($end)) {
-            $dow   = (int) $cursor->dayOfWeek;
-            $sched = $schedule[$dow] ?? null;
-            $isOff = $sched ? (bool) $sched->is_off : ($dow === 0);
-            $isHoli = in_array($cursor->toDateString(), $holidayDates, true);
-            if (! $isOff && ! $isHoli) {
-                $hariKerja++;
-            }
-            $cursor->addDay();
+        $summaryNet = 0.0;
+        foreach (($build['summaryRows'] ?? []) as $s) {
+            if ($s->key === KebijakanSummary::KEY_TOTAL) continue;
+            $v = (float) ($build['summaryValue'][$s->key] ?? 0);
+            $summaryNet += (($s->arah ?? 'plus') === 'minus') ? -$v : $v;
         }
 
-        return max(1, $hariKerja);
-    }
-
-    protected function computeAmounts(Karyawan $k, array $agg, array $manual): array
-    {
-        $hariKerja = max(1, (int) $manual['hari_kerja_periode']);
-        $gajiPerHari = (float) $k->gaji_pokok / $hariKerja;
-        // Pembagi lembur = 7 (aturan: lembur 2x = Rp29.829/jam pada UMR), konsisten dgn
-        // PayrollBreakdownService, SummaryPreviewService, AttendanceController. Sebelumnya
-        // keliru 8 → slip DB undervalue lembur ~12,5% & beda dgn tampilan slip/dashboard.
-        $jamPerHari = 7;
-
-        $gajiPokokDibayar = ($agg['hari_full'] * $gajiPerHari)
-                          + ($agg['hari_half'] * 0.5 * $gajiPerHari);
-
-        $lemburAmount = $agg['total_jam_lembur'] * ($gajiPerHari / $jamPerHari) * 2;
-
-        $tunjHarianPerHari = $this->resolveKolomNominal($k, 'tunjangan_harian', $gajiPerHari);
-        $tunjHarianAmount  = $agg['hari_dapat_tunjangan'] * $tunjHarianPerHari;
-
-        $bonusHarianPerHari = $this->resolveKolomNominal($k, 'bonus_harian', $gajiPerHari);
-        $bonusAbsenAmount   = $agg['hari_bonus_absen'] * $bonusHarianPerHari;
-
-        $summaryAuto       = $this->engine->applySummaryAuto($k, $gajiPerHari);
-        $tunjBulananAmount = (float) ($summaryAuto['tunjangan_bulanan'] ?? 0);
-
-        $subtotal = $gajiPokokDibayar + $lemburAmount + $tunjHarianAmount + $tunjBulananAmount
-                  + $bonusAbsenAmount
-                  + $manual['bonus'] + $manual['thr_amount'] + $manual['cuti_unused_amount'];
+        // bruto engine = gaji + lembur + kolom + summary (identik brutoSebelumPotongan build).
+        $brutoEngine = (float) ($build['brutoSebelumPotongan']
+            ?? ((float) $build['totalGajiHari'] + (float) $build['totalLembur'] + $totalKolom + $summaryNet));
 
         return [
-            'hari_kerja_periode'       => $hariKerja,
-            'gaji_per_hari'            => round($gajiPerHari, 2),
-            'gaji_pokok_dibayar'       => round($gajiPokokDibayar, 2),
-            'lembur_amount'            => round($lemburAmount, 2),
-            'tunjangan_harian_amount'  => round($tunjHarianAmount, 2),
-            'tunjangan_bulanan_amount' => round($tunjBulananAmount, 2),
-            'bonus_absen_amount'       => round($bonusAbsenAmount, 2),
-            'subtotal'                 => round($subtotal, 2),
+            'hari_kerja_periode'       => (int) ($build['hariKerja'] ?? 0),
+            'gaji_per_hari'            => round((float) ($build['gajiPerHari'] ?? 0), 2),
+            'gaji_pokok_dibayar'       => round((float) $build['totalGajiHari'], 2),
+            'lembur_amount'            => round((float) $build['totalLembur'], 2),
+            'tunjangan_harian_amount'  => round($totalKolom, 2),
+            'tunjangan_bulanan_amount' => round($summaryNet, 2),
+            'bonus_absen_amount'       => 0,
+            'total_jam_lembur'         => round((float) ($build['totalLemburJam'] ?? 0), 2),
+            'subtotal'                 => round($brutoEngine + $manualAdd, 2),
         ];
-    }
-
-    protected function resolveKolomNominal(Karyawan $k, string $kolomKey, float $gajiPerHari): float
-    {
-        $sampleRow = [
-            'status'       => 'hadir',
-            'reg_datang'   => '07:00',
-            'reg_pulang'   => '16:00',
-            'lembur_jam'   => 0,
-            'is_holiday'   => false,
-            'is_off'       => false,
-        ];
-        $result = $this->engine->applyRow($sampleRow, $k, $gajiPerHari);
-        $v = $result[$kolomKey] ?? 0;
-        return is_numeric($v) ? (float) $v : 0.0;
     }
 
     public function finalizePeriode(PeriodePenggajian $periode): void
