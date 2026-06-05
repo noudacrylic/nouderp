@@ -239,14 +239,17 @@ class PurchaseInvoicePostingService
             throw new DomainException('Invoice sudah dibayar manual via Payment. Void payment-nya dulu sebelum void invoice.');
         }
 
-        // Cek aset tetap: tolak void kalau ada aset terkait yang sudah aktif dengan history.
-        // (Throw di sini sebelum masuk transaction, supaya error tampil bersih ke user.)
         $hasAssetRow = $invoice->items()->where('is_asset', true)->exists();
-        if ($hasAssetRow) {
-            app(FixedAssetAcquisitionService::class)->revertAssetsForInvoice($invoice);
-        }
 
-        return DB::transaction(function () use ($invoice, $layers) {
+        return DB::transaction(function () use ($invoice, $layers, $hasAssetRow) {
+
+            // Revert aset tetap (set status 'voided') DI DALAM transaksi: dulu dipanggil
+            // sebelum transaksi sehingga bila void utama gagal, aset terlanjur ter-void
+            // tapi invoice tetap posted (inkonsisten). Throw dari sini (mis. aset punya
+            // riwayat) tetap membatalkan seluruh void & tampil bersih ke user.
+            if ($hasAssetRow) {
+                app(FixedAssetAcquisitionService::class)->revertAssetsForInvoice($invoice);
+            }
 
             // Reverse auto-DP allocations dulu — kembalikan saldo DP ke supplier.
             $this->reverseAutoDpAllocations($invoice);
