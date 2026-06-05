@@ -186,7 +186,10 @@ class PayrollCalculationService
     {
         $hariKerja = max(1, (int) $manual['hari_kerja_periode']);
         $gajiPerHari = (float) $k->gaji_pokok / $hariKerja;
-        $jamPerHari = 8;
+        // Pembagi lembur = 7 (aturan: lembur 2x = Rp29.829/jam pada UMR), konsisten dgn
+        // PayrollBreakdownService, SummaryPreviewService, AttendanceController. Sebelumnya
+        // keliru 8 → slip DB undervalue lembur ~12,5% & beda dgn tampilan slip/dashboard.
+        $jamPerHari = 7;
 
         $gajiPokokDibayar = ($agg['hari_full'] * $gajiPerHari)
                           + ($agg['hari_half'] * 0.5 * $gajiPerHari);
