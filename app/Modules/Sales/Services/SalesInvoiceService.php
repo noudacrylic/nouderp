@@ -205,7 +205,14 @@ class SalesInvoiceService
                     ->where('status', 'posted')
                     ->sum('amount');
 
-                $advanceApplied = min($totalAdvance, $grandTotal);
+                // Kurangi uang muka yang SUDAH terpakai invoice lain (posted) dari SO sama,
+                // supaya invoice ke-2+ tidak ikut menghitung ulang advance yang sama.
+                $usedByOthers = \App\Models\SalesInvoice::where('sales_order_id', $dto->sales_order_id)
+                    ->where('status', 'posted')
+                    ->sum('advance_applied');
+
+                $availableAdvance = max(0, $totalAdvance - $usedByOthers);
+                $advanceApplied = min($availableAdvance, $grandTotal);
             }
 
             // =========================
@@ -483,7 +490,14 @@ class SalesInvoiceService
                     ->where('status', 'posted')
                     ->sum('amount');
 
-                $advanceApplied = min($totalAdvance, $grandTotal);
+                // Kurangi uang muka yang SUDAH terpakai invoice lain (posted) dari SO sama,
+                // supaya invoice ke-2+ tidak ikut menghitung ulang advance yang sama.
+                $usedByOthers = \App\Models\SalesInvoice::where('sales_order_id', $dto->sales_order_id)
+                    ->where('status', 'posted')
+                    ->sum('advance_applied');
+
+                $availableAdvance = max(0, $totalAdvance - $usedByOthers);
+                $advanceApplied = min($availableAdvance, $grandTotal);
             }
 
             // =========================
