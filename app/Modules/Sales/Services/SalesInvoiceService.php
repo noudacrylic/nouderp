@@ -25,8 +25,12 @@ class SalesInvoiceService
             $so = null;
 
             if ($hasSO) {
-                // 🔥 STRICT 1:1 LOCK: SO tidak boleh punya invoice sama sekali (Draft/Posted)
-                $exists = \App\Models\SalesInvoice::where('sales_order_id', $dto->sales_order_id)->exists();
+                // 🔥 STRICT 1:1 LOCK: SO tidak boleh punya invoice AKTIF (Draft/Posted).
+                //    Invoice yang sudah di-void diabaikan agar SO bisa di-invoice ulang
+                //    untuk koreksi (qty_invoiced sudah dikembalikan saat void).
+                $exists = \App\Models\SalesInvoice::where('sales_order_id', $dto->sales_order_id)
+                    ->where('status', '!=', 'void')
+                    ->exists();
                 if ($exists) {
                     throw new Exception("Sales Order ini sudah memiliki invoice.");
                 }

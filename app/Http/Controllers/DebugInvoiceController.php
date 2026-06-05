@@ -213,7 +213,7 @@ class DebugInvoiceController extends Controller
             if (!$soModel) {
                 return redirect()->back()->with('error', 'Sales Order tidak ditemukan.');
             }
-            if ($soModel->invoices()->exists()) {
+            if ($soModel->invoices()->where('status', '!=', 'void')->exists()) {
                 return redirect()->back()->with('error', 'Sales Order ini sudah memiliki invoice.');
             }
             return $this->createFromSO($soModel->id);
@@ -235,7 +235,7 @@ class DebugInvoiceController extends Controller
         $products = Product::all();
 
         $salesOrders = SalesOrder::where('status', SalesOrderStatus::CONFIRMED->value)
-            ->whereDoesntHave('invoices')
+            ->whereDoesntHave('invoices', fn ($q) => $q->where('status', '!=', 'void'))
             ->with('customer')
             ->latest()
             ->get();
@@ -266,7 +266,7 @@ class DebugInvoiceController extends Controller
             'warehouse'
         ])->findOrFail($soId);
 
-        if ($so->invoices()->exists()) {
+        if ($so->invoices()->where('status', '!=', 'void')->exists()) {
             return redirect()
                 ->back()
                 ->with('error', 'Sales Order ini sudah memiliki invoice.');
@@ -319,7 +319,7 @@ class DebugInvoiceController extends Controller
         $products = \App\Core\Inventory\Product::all();
 
         $salesOrders = SalesOrder::where('status', SalesOrderStatus::CONFIRMED->value)
-            ->whereDoesntHave('invoices')
+            ->whereDoesntHave('invoices', fn ($q) => $q->where('status', '!=', 'void'))
             ->with('customer')
             ->latest()
             ->get();
@@ -481,14 +481,27 @@ class DebugInvoiceController extends Controller
 
     public function cancel($id)
     {
-        $invoice = \App\Models\SalesInvoice::findOrFail($id);
+        $invoice = \App\Models\SalesInvoice::with('items')->findOrFail($id);
 
         if ($invoice->status !== \App\Enums\InvoiceStatusEnum::DRAFT) {
             return back()->with('error', 'Hanya invoice berstatus draft yang dapat dibatalkan.');
         }
 
-        $invoice->status = \App\Enums\InvoiceStatusEnum::VOID; // Or cancelled if you have that enum
-        $invoice->save();
+        \Illuminate\Support\Facades\DB::transaction(function () use ($invoice) {
+            // Draft invoice sudah menambah qty_invoiced di SO saat dibuat → kembalikan
+            // supaya SO tidak terkunci dan bisa di-invoice ulang.
+            foreach ($invoice->items as $invItem) {
+                if ($invItem->sales_order_item_id) {
+                    $soItem = \App\Modules\Sales\Models\SalesOrderItem::find($invItem->sales_order_item_id);
+                    if ($soItem) {
+                        $soItem->qty_invoiced = max(0, (float) $soItem->qty_invoiced - (float) $invItem->qty);
+                        $soItem->save();
+                    }
+                }
+            }
+            $invoice->status = \App\Enums\InvoiceStatusEnum::VOID;
+            $invoice->save();
+        });
 
         return redirect()->route('sales.invoices.show', $invoice->id)
             ->with('success', 'Invoice berhasil dibatalkan.');
@@ -555,15 +568,36 @@ class DebugInvoiceController extends Controller
                     $delivery->save();
                 }
 
-                // 2. Mark journal as void
+                // 2. Mark journal utama (sales_invoice) sebagai void
                 \App\Core\Journal\Journal::where('reference_type', 'sales_invoice')
                     ->where('reference_id', $invoice->id)
                     ->update(['status' => 'void', 'voided_at' => now()]);
 
-                // 3. Reset advance_applied (uang muka kembali ke saldo SO)
+                // 2b. Void jurnal MARKETPLACE (fee + settlement) dari MarketplaceEngineService,
+                //     dan reset flag agar invoice bisa diproses ulang bila di-post lagi.
+                \App\Core\Journal\Journal::whereIn('reference_type', ['sales_invoice_fee', 'sales_invoice_settlement'])
+                    ->where('reference_id', $invoice->id)
+                    ->update(['status' => 'void', 'voided_at' => now()]);
+                if (\Illuminate\Support\Facades\Schema::hasColumn($invoice->getTable(), 'marketplace_processed')) {
+                    $invoice->marketplace_processed = false;
+                }
+
+                // 3. Kembalikan qty_invoiced pada item SO (kalau dari SO), supaya SO tidak
+                //    terkunci dan bisa di-invoice ulang untuk koreksi.
+                foreach ($invoice->items as $invItem) {
+                    if ($invItem->sales_order_item_id) {
+                        $soItem = \App\Modules\Sales\Models\SalesOrderItem::find($invItem->sales_order_item_id);
+                        if ($soItem) {
+                            $soItem->qty_invoiced = max(0, (float) $soItem->qty_invoiced - (float) $invItem->qty);
+                            $soItem->save();
+                        }
+                    }
+                }
+
+                // 4. Reset advance_applied (uang muka kembali ke saldo SO)
                 $invoice->advance_applied = 0;
 
-                // 4. Set status void
+                // 5. Set status void
                 $invoice->status = \App\Enums\InvoiceStatusEnum::VOID;
                 $invoice->save();
             });
