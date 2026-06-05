@@ -84,9 +84,11 @@ class PayrollCalculationService
         $karyawan = Karyawan::findOrFail($slip->karyawan_id);
         $agg = $this->aggregateAttendance($slip->periode_id, $karyawan->id);
 
+        // Hari kerja default = dari KALENDER (jadwal karyawan - tanggal merah), bukan fix 25.
+        // Nilai tersimpan > 0 (mis. override manual via form edit slip) tetap dihormati.
         $hariKerjaPeriode = $slip->exists && (int) $slip->hari_kerja_periode > 0
             ? (int) $slip->hari_kerja_periode
-            : 25;
+            : $this->computeHariKerjaPeriode($karyawan, $slip->periode ?: PeriodePenggajian::find($slip->periode_id));
 
         $manual = [
             'bonus'              => (float) ($slip->bonus ?? 0),
@@ -180,6 +182,44 @@ class PayrollCalculationService
             'hari_libur'            => (int) $rows->where('status', 'libur')->count(),
             'total_jam_lembur'      => (float) $rows->sum('overtime_hours'),
         ];
+    }
+
+    /**
+     * Hari kerja efektif dalam periode dari KALENDER: iterasi tiap tanggal di bulan
+     * periode, dihitung kerja bila BUKAN hari off (jadwal karyawan; default Minggu off
+     * bila tak ada jadwal) DAN BUKAN tanggal merah (NationalHoliday).
+     * Konsisten dgn PayrollBreakdownService::build. Fallback 25 bila periode tak ada.
+     */
+    protected function computeHariKerjaPeriode(Karyawan $karyawan, ?PeriodePenggajian $periode): int
+    {
+        if (! $periode) {
+            return 25;
+        }
+
+        $start = \Carbon\Carbon::create((int) $periode->tahun, (int) $periode->bulan, 1)->startOfDay();
+        $end   = $start->copy()->endOfMonth();
+
+        $holidayDates = \App\Modules\SDM\Models\NationalHoliday::whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
+            ->pluck('tanggal')
+            ->map(fn ($d) => \Carbon\Carbon::parse($d)->toDateString())
+            ->all();
+
+        $schedule = $karyawan->schedules->keyBy('day_of_week');
+
+        $hariKerja = 0;
+        $cursor = $start->copy();
+        while ($cursor->lte($end)) {
+            $dow   = (int) $cursor->dayOfWeek;
+            $sched = $schedule[$dow] ?? null;
+            $isOff = $sched ? (bool) $sched->is_off : ($dow === 0);
+            $isHoli = in_array($cursor->toDateString(), $holidayDates, true);
+            if (! $isOff && ! $isHoli) {
+                $hariKerja++;
+            }
+            $cursor->addDay();
+        }
+
+        return max(1, $hariKerja);
     }
 
     protected function computeAmounts(Karyawan $k, array $agg, array $manual): array
