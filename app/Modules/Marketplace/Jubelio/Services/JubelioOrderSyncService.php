@@ -111,19 +111,39 @@ class JubelioOrderSyncService
             return $link;
         }
 
-        // TAHAP A — dibayar → SO + DP
+        // TAHAP A — dibayar → SO + DP.
+        // (Aman dari duplikasi via unique constraint jubelio_salesorder_id + transaksi
+        // internal; API resolveItems sengaja di luar lock.)
         if ($this->isPaid($detail) && !$link->dp_posted) {
             $this->ensureSalesOrderAndDp($detail, $link);
         }
 
-        // TAHAP B — terkirim → SJ
-        if ($link->sales_order_id && $this->isShipped($detail) && !$link->sj_created) {
-            $this->ensureDelivery($link);
-        }
+        // TAHAP B & C — SJ & Invoice. Keduanya murni DB → bungkus dalam satu transaksi
+        // dgn lockForUpdate pada baris link + re-cek flag, supaya webhook & cron tidak
+        // memproses tahap yang sama bersamaan (SJ/Invoice dobel → stok keluar dobel).
+        $needB = $link->sales_order_id && $this->isShipped($detail)   && !$link->sj_created;
+        $needC = $link->sales_order_id && $this->isCompleted($detail) && !$link->invoice_posted;
+        if ($needB || $needC) {
+            DB::transaction(function () use ($link, $detail) {
+                $locked = JubelioOrderLink::where('id', $link->id)->lockForUpdate()->first();
+                if (!$locked) {
+                    return;
+                }
 
-        // TAHAP C — selesai → Invoice
-        if ($link->sales_order_id && $this->isCompleted($detail) && !$link->invoice_posted) {
-            $this->ensureInvoice($detail, $link);
+                if ($this->isShipped($detail) && !$locked->sj_created) {
+                    $this->ensureDelivery($locked);
+                }
+                if ($locked->sales_order_id && $this->isCompleted($detail) && !$locked->invoice_posted) {
+                    $this->ensureInvoice($detail, $locked);
+                }
+
+                // Sinkronkan flag hasil ke instance luar agar save() metadata di bawah
+                // tidak me-revert flag. (Re-run idempotent: ensureInvoice cek exists,
+                // ensureDelivery via alreadyDelivered, jadi clobber pun aman.)
+                $link->sj_created         = $locked->sj_created;
+                $link->invoice_posted     = $locked->invoice_posted;
+                $link->jubelio_invoice_id = $locked->jubelio_invoice_id;
+            });
         }
 
         $link->last_status = $this->statusLabel($detail);
