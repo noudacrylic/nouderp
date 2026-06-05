@@ -322,7 +322,9 @@ class SalesOrderController extends Controller
                 if ($discountType == 'percent') {
                     $lineDiscount = $lineSubtotal * ($discountValue / 100);
                 } else {
-                    $lineDiscount = $discountValue;
+                    // Diskon nominal = PER-UNIT (konsisten dgn SalesInvoiceService:111).
+                    // Sebelumnya diperlakukan per-baris → total beda saat qty>1.
+                    $lineDiscount = $discountValue * $qty;
                 }
 
                 $lineTotal = $lineSubtotal - $lineDiscount;
@@ -481,7 +483,9 @@ class SalesOrderController extends Controller
                 if ($discountType == 'percent') {
                     $lineDiscount = $lineSubtotal * ($discountValue / 100);
                 } else {
-                    $lineDiscount = $discountValue;
+                    // Diskon nominal = PER-UNIT (konsisten dgn SalesInvoiceService:111).
+                    // Sebelumnya diperlakukan per-baris → total beda saat qty>1.
+                    $lineDiscount = $discountValue * $qty;
                 }
 
                 $lineTotal = $lineSubtotal - $lineDiscount;
