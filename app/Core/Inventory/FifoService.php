@@ -42,6 +42,7 @@ class FifoService
         ])
             ->where('qty_remaining', '>', 0)
             ->orderBy('created_at')
+            ->orderBy('id')
             ->lockForUpdate()
             ->get();
 
@@ -86,6 +87,7 @@ class FifoService
             'warehouse_id' => $fromWarehouseId
         ])
             ->where('qty_remaining', '>', 0)
+            ->orderBy('created_at')
             ->orderBy('id')
             ->lockForUpdate()
             ->get();
