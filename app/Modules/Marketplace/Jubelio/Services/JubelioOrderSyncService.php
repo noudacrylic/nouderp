@@ -181,10 +181,29 @@ class JubelioOrderSyncService
                 $stats['skipped']++;
                 continue;
             }
+
+            // Klaim atomik return_created agar webhook & cron tak membuat draft retur
+            // dobel (createReturnDraft punya API call, jadi tak dibungkus lock penuh).
+            $claimed = JubelioOrderLink::where('id', $link->id)
+                ->where('return_created', false)
+                ->update(['return_created' => true]);
+            if (!$claimed) {
+                $stats['skipped']++;
+                continue;
+            }
+
             try {
-                $this->createReturnDraft($link, $rows);
-                $stats['created']++;
+                $created = $this->createReturnDraft($link, $rows);
+                if ($created) {
+                    $stats['created']++;
+                } else {
+                    // Tak ada draft dibuat (SO hilang / item tak terpetakan) → lepas klaim
+                    // agar bisa dicoba lagi nanti.
+                    JubelioOrderLink::where('id', $link->id)->update(['return_created' => false]);
+                    $stats['skipped']++;
+                }
             } catch (\Throwable $e) {
+                JubelioOrderLink::where('id', $link->id)->update(['return_created' => false]);
                 $stats['skipped']++;
                 Log::error('Jubelio createReturnDraft error', ['salesorder_id' => $soId, 'error' => $e->getMessage()]);
             }
@@ -416,11 +435,12 @@ class JubelioOrderSyncService
 
     // ───────────────────────────── Retur draft ─────────────────────────────
 
-    private function createReturnDraft(JubelioOrderLink $link, array $rows): void
+    /** @return bool true bila draft retur benar-benar dibuat. */
+    private function createReturnDraft(JubelioOrderLink $link, array $rows): bool
     {
         $so = SalesOrder::with('items')->find($link->sales_order_id);
         if (!$so) {
-            return;
+            return false;
         }
 
         // Map tiap baris retur Jubelio (item_id, qty) ke SO item ERP.
@@ -447,7 +467,7 @@ class JubelioOrderSyncService
         }
 
         if (empty($items)) {
-            return;
+            return false;
         }
 
         $dto = new SalesReturnDTO(
@@ -458,8 +478,8 @@ class JubelioOrderSyncService
         );
 
         $this->returnService->saveDraft($dto); // DRAFT — tidak di-post
-        $link->return_created = true;
-        $link->save();
+        // Flag return_created di-set oleh pemanggil (klaim atomik) — lihat syncReturns.
+        return true;
     }
 
     // ───────────────────────────── Helpers ─────────────────────────────
