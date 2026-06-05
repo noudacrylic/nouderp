@@ -99,6 +99,14 @@ class PosFulfillmentService
         );
 
         return DB::transaction(function () use ($so, $dto) {
+            // Lock SO + re-cek existence DI DALAM lock: cegah double-invoice dari
+            // double-click tombol Proses / proses massal paralel (TOCTOU pada guard
+            // exists() di atas yang berjalan tanpa lock).
+            SalesOrder::where('id', $so->id)->lockForUpdate()->first();
+            if (SalesInvoice::where('sales_order_id', $so->id)->whereNotIn('status', ['void'])->exists()) {
+                throw new DomainException('Sales Order ini sudah memiliki invoice.');
+            }
+
             if ($so->isPickup()) {
                 $so->update(['pickup_status' => 'picked_up', 'picked_up_at' => now()]);
             }
