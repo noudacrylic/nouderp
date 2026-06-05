@@ -97,7 +97,7 @@
                     <th class="px-3 py-2 text-left">Eksekutor</th>
                     <th class="px-3 py-2 text-left">Divisi &amp; Waktu</th>
                     <th class="px-3 py-2 text-right whitespace-nowrap">Total Waktu</th>
-                    <th class="px-3 py-2 text-right w-20">Action</th>
+                    <th class="px-3 py-2 text-right w-20">Aksi</th>
                 </tr>
             </thead>
             <tbody>

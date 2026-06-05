@@ -29,7 +29,7 @@
 
     $typeSubtitles = [
         'general'         => 'Kas/Bank ← Akun Pendapatan',
-        'supplier_refund' => 'Kas/Bank ← Piutang Lebih Bayar Supplier (1108)',
+        'supplier_refund' => 'Kas/Bank ← Piutang Lebih Bayar Pemasok (1108)',
     ];
 @endphp
 
@@ -48,7 +48,7 @@
             <label class="block text-xs text-gray-500 mb-1">Tipe Pemasukan <span class="text-red-500">*</span></label>
             <select name="type" id="crType" class="border rounded px-2 h-9 w-full" required>
                 <option value="general"         @selected($defaults['type']==='general')>Umum</option>
-                <option value="supplier_refund" @selected($defaults['type']==='supplier_refund')>Refund Supplier</option>
+                <option value="supplier_refund" @selected($defaults['type']==='supplier_refund')>Refund Pemasok</option>
             </select>
             <div id="typeSubtitle" class="text-[11px] text-gray-400 mt-1"></div>
         </div>
@@ -84,15 +84,15 @@
         <div class="bg-purple-50 border border-purple-200 rounded p-3 space-y-2">
             <div class="grid grid-cols-12 gap-3 items-end">
                 <div class="col-span-7">
-                    <label class="block text-xs font-semibold text-purple-700 mb-1">Supplier (pemberi refund) <span class="text-red-500">*</span></label>
+                    <label class="block text-xs font-semibold text-purple-700 mb-1">Pemasok (pemberi refund) <span class="text-red-500">*</span></label>
                     <input type="text" list="supplierOverpayList" id="supplierSearch"
                            value="{{ $selectedSupplierLabel }}"
                            class="border rounded px-2 h-9 w-full"
-                           placeholder="Ketik nama supplier…">
+                           placeholder="Ketik nama pemasok…">
                     <input type="hidden" name="supplier_id" id="supplierId" value="{{ $defaults['supplier_id'] }}">
                 </div>
                 <div class="col-span-5">
-                    <div class="text-xs text-purple-700">Saldo Piutang ke Supplier</div>
+                    <div class="text-xs text-purple-700">Saldo Piutang ke Pemasok</div>
                     <div class="flex items-center gap-2">
                         <div id="overpayBalance" class="text-base font-bold text-purple-900">—</div>
                         <button type="button" id="btnFillFullRefund"
@@ -103,7 +103,7 @@
                 </div>
             </div>
             <div class="text-[11px] text-purple-700">
-                Hanya supplier dengan saldo piutang &gt; 0 yang muncul. Total refund tidak boleh melebihi saldo.
+                Hanya pemasok dengan saldo piutang &gt; 0 yang muncul. Total refund tidak boleh melebihi saldo.
             </div>
         </div>
 
@@ -118,7 +118,7 @@
     {{-- ============ DETAIL TABLE ============ --}}
     <div>
         <div class="flex items-center justify-between mb-2">
-            <h3 class="text-sm font-semibold">Detail</h3>
+            <h3 class="text-sm font-semibold">Rincian</h3>
             <button type="button" id="btnAddLine" class="bg-green-600 text-white px-2 py-1 rounded text-xs">+ Baris</button>
         </div>
         <table class="w-full text-sm" id="linesTable">
@@ -155,7 +155,7 @@
     <div class="flex justify-between border-t pt-3">
         <a href="{{ route(\App\Modules\Finance\Models\CashReceipt::listRouteForType($type ?? 'general')) }}" class="text-gray-500 text-sm">← Kembali</a>
         <div class="flex gap-2">
-            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
             <button type="submit" name="_after_save" value="post" class="bg-green-600 text-white px-4 py-2 rounded text-sm"
                     onclick="return confirm('Simpan & langsung POST?')">Simpan & Post</button>
         </div>
@@ -325,7 +325,7 @@ function syncSupplier(){
 function fillFullRefund(){
     if (currentOverpayBalance <= 0) return;
     linesBody.innerHTML = '';
-    addLineRow({ amount: currentOverpayBalance, description: 'Terima refund penuh dari supplier' });
+    addLineRow({ amount: currentOverpayBalance, description: 'Terima refund penuh dari pemasok' });
 }
 
 // ============================================================

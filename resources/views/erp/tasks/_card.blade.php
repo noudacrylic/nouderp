@@ -104,12 +104,12 @@
                 data-task-id="{{ $task->id }}"
                 data-current="{{ $task->priority }}"
                 @disabled($isReadOnly)>
-            <option value="high" @selected($task->priority==='high')>High</option>
+            <option value="high" @selected($task->priority==='high')>Tinggi</option>
             <option value="normal" @selected($task->priority==='normal')>Normal</option>
-            <option value="low" @selected($task->priority==='low')>Low</option>
+            <option value="low" @selected($task->priority==='low')>Rendah</option>
         </select>
         <button type="button" class="task-detail-btn js-open-detail"
                 data-task-id="{{ $task->id }}"
-                title="Lihat detail, deskripsi, dokumen terkait, dan riwayat">Detail</button>
+                title="Lihat rincian, deskripsi, dokumen terkait, dan riwayat">Rincian</button>
     </div>
 </div>

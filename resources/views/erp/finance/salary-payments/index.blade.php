@@ -41,8 +41,8 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="draft" @selected(request('status')=='draft')>Draft</option>
-            <option value="posted" @selected(request('status')=='posted')>Posted</option>
+            <option value="draft" @selected(request('status')=='draft')>Draf</option>
+            <option value="posted" @selected(request('status')=='posted')>Diposting</option>
             <option value="void" @selected(request('status')=='void')>Void</option>
         </select>
     </div>
@@ -100,7 +100,7 @@
                                 <a href="{{ route('finance.cash-bank.salary-payments.edit', $sp->id) }}"
                                    class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs">Edit</a>
                                 <form method="POST" action="{{ route('finance.cash-bank.salary-payments.destroy', $sp->id) }}" class="inline"
-                                      onsubmit="return confirm('Hapus draft {{ $sp->number }}?')">
+                                      onsubmit="return confirm('Hapus draf {{ $sp->number }}?')">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>

@@ -7,7 +7,7 @@
         <div class="w-full max-w-lg">
 
             <h1 class="text-xl font-semibold mb-6">
-                Edit Warehouse
+                Edit Gudang
             </h1>
 
             <div class="bg-white shadow rounded-lg p-6">
@@ -20,14 +20,14 @@
                     <div class="space-y-4">
 
                         <div>
-                            <label class="block text-sm font-medium mb-1">Warehouse Name</label>
+                            <label class="block text-sm font-medium mb-1">Nama Gudang</label>
                             <input type="text" name="name" value="{{ $warehouse->name }}"
                                 class="border rounded w-full px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
                         </div>
 
 
                         <div>
-                            <label class="block text-sm font-medium mb-1">Location</label>
+                            <label class="block text-sm font-medium mb-1">Lokasi</label>
                             <input type="text" name="location" value="{{ $warehouse->location }}"
                                 class="border rounded w-full px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
                         </div>
@@ -46,11 +46,11 @@
 
                         <a href="{{ route('inventory.warehouses.index') }}"
                             class="px-4 py-2 border rounded hover:bg-gray-50">
-                            Cancel
+                            Batal
                         </a>
 
                         <button class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                            Update Warehouse
+                            Perbarui Gudang
                         </button>
 
                     </div>

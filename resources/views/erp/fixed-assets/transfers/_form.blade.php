@@ -41,7 +41,7 @@
 </div>
 
 <div class="mt-4 flex gap-2">
-    <button type="submit" name="_after_save" value="" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+    <button type="submit" name="_after_save" value="" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
     <button type="submit" name="_after_save" value="post" class="bg-green-600 text-white px-4 py-2 rounded text-sm" onclick="return confirm('Simpan & POST transfer?')">Simpan & Post</button>
     <a href="{{ route('fixed-assets.transfers.index') }}" class="bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm">Batal</a>
 </div>

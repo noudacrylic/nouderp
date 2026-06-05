@@ -2,17 +2,17 @@
 
 @section('content')
 
-    <x-erp.index-layout title="Inventory Valuation Report">
+    <x-erp.index-layout title="Laporan Penilaian Persediaan">
 
         <div class="bg-white shadow rounded-lg border overflow-hidden">
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 border-b">
                     <tr>
                         <th class="p-3 text-left">SKU</th>
-                        <th class="p-3 text-left">Product</th>
-                        <th class="p-3 text-right">Current Stock</th>
-                        <th class="p-3 text-right">Total Value (FIFO)</th>
-                        <th class="p-3 text-center">Action</th>
+                        <th class="p-3 text-left">Produk</th>
+                        <th class="p-3 text-right">Stok Saat Ini</th>
+                        <th class="p-3 text-right">Total Nilai (FIFO)</th>
+                        <th class="p-3 text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -27,7 +27,7 @@
                             <td class="p-3 text-center">
                                 <a href="{{ route('inventory.reports.stock-card', $product->id) }}"
                                     class="text-blue-600 hover:underline">
-                                    Stock Card
+                                    Kartu Stok
                                 </a>
                             </td>
                         </tr>

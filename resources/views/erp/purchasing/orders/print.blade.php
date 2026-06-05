@@ -36,7 +36,7 @@
 
 {{-- Supplier --}}
 <div class="recipient-block">
-    <div class="lbl">Kepada Supplier</div>
+    <div class="lbl">Kepada Pemasok</div>
     <div class="name">{{ $order->supplier->name ?? '-' }}</div>
     @if(!empty($order->supplier?->address))
         <div class="addr">{{ $order->supplier->address }}</div>

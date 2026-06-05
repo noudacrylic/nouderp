@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Stock</h1>
+    <h1 class="text-lg font-semibold">Stok</h1>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">

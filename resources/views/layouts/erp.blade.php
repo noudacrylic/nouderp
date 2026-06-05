@@ -938,8 +938,8 @@
 
                 {{-- ================= SETTINGS ================= --}}
                 @if(should_show_menu_group('settings'))
-                <a href="{{ module_landing_url('settings') }}" class="menu-single {{ request()->is('erp/settings/*') ? 'active' : '' }}" data-tip="Settings">
-                    <span class="menu-icon">{!! $svgSettings !!}</span><span class="menu-label">&nbsp;Settings</span>
+                <a href="{{ module_landing_url('settings') }}" class="menu-single {{ request()->is('erp/settings/*') ? 'active' : '' }}" data-tip="Pengaturan">
+                    <span class="menu-icon">{!! $svgSettings !!}</span><span class="menu-label">&nbsp;Pengaturan</span>
                 </a>
                 @endif
             </div>

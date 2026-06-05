@@ -3,7 +3,7 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <div>
-        <h1 class="text-lg font-semibold">Detail Kehadiran — {{ $periode->label }}</h1>
+        <h1 class="text-lg font-semibold">Rincian Kehadiran — {{ $periode->label }}</h1>
         <div class="text-xs text-gray-500 mt-1">{{ $periode->start_date->format('d M') }} – {{ $periode->end_date->format('d M Y') }}</div>
     </div>
     <a href="{{ route('sdm.periode-gaji.show', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700">Kembali ke Periode</a>

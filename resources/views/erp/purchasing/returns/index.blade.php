@@ -8,7 +8,7 @@
 
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
-    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Retur / Invoice / PO / supplier...'])
+    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Retur / Faktur / PO / pemasok...'])
     @include('erp.purchasing._partials.date-range')
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
@@ -23,7 +23,7 @@
         <label class="block text-xs text-gray-500 mb-1">Tipe</label>
         <select name="return_type" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="invoice" @selected(request('return_type')=='invoice')>Invoice</option>
+            <option value="invoice" @selected(request('return_type')=='invoice')>Faktur</option>
             <option value="po" @selected(request('return_type')=='po')>Refund DP (PO)</option>
         </select>
     </div>
@@ -35,12 +35,12 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Retur</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Supplier</th>
+                <th class="px-3 py-2 text-left">Pemasok</th>
                 <th class="px-3 py-2 text-left">Tipe</th>
                 <th class="px-3 py-2 text-left">Referensi</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-56">Action</th>
+                <th class="px-3 py-2 text-right w-56">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -68,7 +68,7 @@
                         @if($isPo)
                             <span class="px-2 py-0.5 rounded text-xs font-bold bg-purple-100 text-purple-700 uppercase">Refund DP</span>
                         @else
-                            <span class="px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-700 uppercase">Invoice</span>
+                            <span class="px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-700 uppercase">Faktur</span>
                         @endif
                     </td>
                     <td class="px-3 py-2 font-mono text-xs">
@@ -97,7 +97,7 @@
                                     <button class="bg-blue-600 text-white px-2 py-1 rounded text-xs">Post</button>
                                 </form>
                                 <form method="POST" action="{{ route('purchasing.returns.destroy', $r->id) }}"
-                                      onsubmit="return confirm('Hapus draft retur {{ $r->return_number }}?')">
+                                      onsubmit="return confirm('Hapus draf retur {{ $r->return_number }}?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>

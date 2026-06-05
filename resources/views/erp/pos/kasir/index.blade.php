@@ -4,7 +4,7 @@
 <div class="mb-3 flex items-start justify-between gap-3">
     <div>
         <h1 class="text-lg font-semibold">Kasir</h1>
-        <p class="text-xs text-gray-500">Cari produk, tambahkan ke keranjang, lalu Bayar (Cash / QRIS). Invoice + Surat Jalan dibuat otomatis (ambil di toko).</p>
+        <p class="text-xs text-gray-500">Cari produk, tambahkan ke keranjang, lalu Bayar (Cash / QRIS). Faktur + Surat Jalan dibuat otomatis (ambil di toko).</p>
     </div>
     <a href="{{ route('sales.invoices.index') }}"
        class="shrink-0 text-sm px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold"
@@ -27,13 +27,13 @@
     <div class="lg:col-span-5">
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 sticky top-3">
             <div class="flex items-center gap-2 mb-2">
-                <label class="text-xs text-gray-500 shrink-0">Customer</label>
+                <label class="text-xs text-gray-500 shrink-0">Pelanggan</label>
                 <select id="posCustomer" class="flex-1 border rounded-lg px-2 py-1.5 text-sm">
                     @foreach($customers as $c)
                         <option value="{{ $c->id }}" {{ $c->id == $defaultCustomer->id ? 'selected' : '' }}>{{ $c->name }}</option>
                     @endforeach
                 </select>
-                <button type="button" id="btnAddCust" title="Tambah customer baru"
+                <button type="button" id="btnAddCust" title="Tambah pelanggan baru"
                         class="shrink-0 px-2.5 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-bold">＋</button>
             </div>
 
@@ -91,13 +91,13 @@
 <div id="custModal" class="fixed inset-0 z-[10000] hidden bg-black/50 items-center justify-center p-4">
     <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
         <div class="px-5 py-3 border-b flex justify-between items-center bg-indigo-50">
-            <h3 class="font-bold text-indigo-800">Tambah Customer</h3>
+            <h3 class="font-bold text-indigo-800">Tambah Pelanggan</h3>
             <button onclick="posCloseCust()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
         </div>
         <div class="p-5 space-y-3">
             <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Nama <span class="text-red-500">*</span></label>
-                <input id="custName" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama customer">
+                <input id="custName" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama pelanggan">
             </div>
             <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">No. HP</label>
@@ -163,7 +163,7 @@
                 <div id="doneChange" class="text-2xl font-bold text-green-700">Rp 0</div>
             </div>
             <div class="mt-5 grid grid-cols-2 gap-2">
-                <a id="donePrint" href="#" class="px-3 py-2 rounded-lg text-sm font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">🖨 Print Invoice</a>
+                <a id="donePrint" href="#" class="px-3 py-2 rounded-lg text-sm font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">🖨 Cetak Faktur</a>
                 <button type="button" onclick="posNewSale()" class="px-3 py-2 rounded-lg text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white">Transaksi Baru</button>
             </div>
         </div>
@@ -444,7 +444,7 @@
                 if (!ok) { el('qrisBody').innerHTML = `<div class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">${data.error || 'Gagal'}</div>`; return; }
                 el('qrisBody').innerHTML = `
                     <div class="text-2xl font-bold text-emerald-700 mb-2">${rupiah(data.amount)}</div>
-                    <div class="text-xs text-gray-400 mb-3">Invoice ${escapeHtml(checkout.invoice_no)}</div>
+                    <div class="text-xs text-gray-400 mb-3">Faktur ${escapeHtml(checkout.invoice_no)}</div>
                     <div id="qrisStatus" class="text-sm text-amber-600 font-semibold py-4">⏳ Menunggu pembayaran…</div>
                     <div class="text-[10px] text-gray-400">Order ID: ${data.order_id}</div>`;
                 startPolling(data.poll_url, checkout);
@@ -489,7 +489,7 @@
 
     // ---------- Sukses ----------
     function showDone(data, change) {
-        el('doneInfo').textContent = 'Invoice ' + (data.invoice_no || '') + ' · ' + rupiah(data.grand_total);
+        el('doneInfo').textContent = 'Faktur ' + (data.invoice_no || '') + ' · ' + rupiah(data.grand_total);
         el('donePrint').href = data.print_url || '#';
         if (change != null) {
             el('doneChange').textContent = rupiah(change);
@@ -529,7 +529,7 @@
     // ---------- Customer: live search (TomSelect) + quick add ----------
     let custTom = null;
     if (window.TomSelect) {
-        custTom = new TomSelect('#posCustomer', { create: false, maxItems: 1, placeholder: 'Cari customer…', dropdownParent: 'body' });
+        custTom = new TomSelect('#posCustomer', { create: false, maxItems: 1, placeholder: 'Cari pelanggan…', dropdownParent: 'body' });
     }
     el('btnAddCust').addEventListener('click', function () {
         el('custName').value = ''; el('custPhone').value = '';
@@ -552,7 +552,7 @@
             else { const o = document.createElement('option'); o.value = d.id; o.textContent = d.name; o.selected = true; el('posCustomer').appendChild(o); }
             posCloseCust();
         })
-        .catch(() => alert('Gagal menyimpan customer.'))
+        .catch(() => alert('Gagal menyimpan pelanggan.'))
         .finally(() => { this.disabled = false; this.textContent = 'Simpan & Pilih'; });
     });
 

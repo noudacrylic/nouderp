@@ -15,14 +15,14 @@
                 @if($return->status === 'posted')
                     <span class="bg-green-100 text-green-700 text-[10px] font-black px-2 py-1 rounded-full uppercase border border-green-200">POSTED</span>
                 @elseif($return->status === 'draft')
-                    <span class="bg-amber-100 text-amber-700 text-[10px] font-black px-2 py-1 rounded-full uppercase border border-amber-200">DRAFT</span>
+                    <span class="bg-amber-100 text-amber-700 text-[10px] font-black px-2 py-1 rounded-full uppercase border border-amber-200">DRAF</span>
                 @else
                     <span class="bg-gray-100 text-gray-500 text-[10px] font-black px-2 py-1 rounded-full uppercase border border-gray-200">{{ strtoupper($return->status) }}</span>
                 @endif
                 @if($return->return_type === 'po')
                     <span class="bg-purple-100 text-purple-700 text-[10px] font-black px-2 py-1 rounded-full uppercase">Refund DP</span>
                 @else
-                    <span class="bg-blue-100 text-blue-700 text-[10px] font-black px-2 py-1 rounded-full uppercase">Invoice</span>
+                    <span class="bg-blue-100 text-blue-700 text-[10px] font-black px-2 py-1 rounded-full uppercase">Faktur</span>
                 @endif
             </h1>
         </div>
@@ -33,7 +33,7 @@
                     @csrf
                     <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">POST</button>
                 </form>
-                <form method="POST" action="{{ route('purchasing.returns.destroy', $return->id) }}" onsubmit="return confirm('Hapus draft retur ini?')">
+                <form method="POST" action="{{ route('purchasing.returns.destroy', $return->id) }}" onsubmit="return confirm('Hapus draf retur ini?')">
                     @csrf @method('DELETE')
                     <button class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition">Hapus</button>
                 </form>
@@ -54,7 +54,7 @@
         <div class="col-span-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <h3 class="font-bold text-gray-700 mb-3">Detail</h3>
             <div class="grid grid-cols-2 gap-3 text-sm">
-                <div><span class="text-gray-500">Supplier</span><div class="font-bold text-gray-800">{{ $return->supplier->name ?? '-' }}</div></div>
+                <div><span class="text-gray-500">Pemasok</span><div class="font-bold text-gray-800">{{ $return->supplier->name ?? '-' }}</div></div>
                 <div><span class="text-gray-500">Tanggal Retur</span><div class="font-bold text-gray-800">{{ $return->return_date->format('d M Y') }}</div></div>
                 <div><span class="text-gray-500">Referensi</span>
                     <div class="font-bold text-gray-800">
@@ -63,7 +63,7 @@
                             : ($return->purchaseInvoice->invoice_number ?? '-') }}
                     </div>
                 </div>
-                <div><span class="text-gray-500">Tipe Retur</span><div class="font-bold text-gray-800">{{ $return->return_type === 'po' ? 'Refund DP (PO)' : 'Retur Barang (Invoice)' }}</div></div>
+                <div><span class="text-gray-500">Tipe Retur</span><div class="font-bold text-gray-800">{{ $return->return_type === 'po' ? 'Refund DP (PO)' : 'Retur Barang (Faktur)' }}</div></div>
                 @if($return->warehouse_id)
                     <div><span class="text-gray-500">Gudang</span><div class="font-bold text-gray-800">{{ $return->warehouse->name ?? '-' }}</div></div>
                 @endif
@@ -127,8 +127,8 @@
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 text-gray-600">
                     <tr>
-                        <th class="px-5 py-3 text-left font-black text-[10px] uppercase tracking-widest">Payment Ref</th>
-                        <th class="px-5 py-3 text-right font-black text-[10px] uppercase tracking-widest w-32">Amount</th>
+                        <th class="px-5 py-3 text-left font-black text-[10px] uppercase tracking-widest">Ref Pembayaran</th>
+                        <th class="px-5 py-3 text-right font-black text-[10px] uppercase tracking-widest w-32">Nominal</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-50">
@@ -137,7 +137,7 @@
                             $pay = \App\Modules\Purchasing\Models\SupplierPayment::find($alloc['payment_id'] ?? null);
                         @endphp
                         <tr>
-                            <td class="px-5 py-3 font-medium">{{ $pay->payment_number ?? ('Payment #'.($alloc['payment_id'] ?? '?')) }}</td>
+                            <td class="px-5 py-3 font-medium">{{ $pay->payment_number ?? ('Pembayaran #'.($alloc['payment_id'] ?? '?')) }}</td>
                             <td class="px-5 py-3 text-right font-bold">{{ number_format($alloc['amount'] ?? 0, 0, ',', '.') }}</td>
                         </tr>
                     @endforeach

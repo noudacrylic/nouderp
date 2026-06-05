@@ -30,8 +30,8 @@
         </div>
         <div class="mt-4 flex justify-end">
             <button type="submit"
-                class="bg-gray-800 text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-gray-900 transition">Update
-                Produk Info</button>
+                class="bg-gray-800 text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-gray-900 transition">Perbarui
+                Info Produk</button>
         </div>
     </form>
 </div>

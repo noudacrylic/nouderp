@@ -1,6 +1,6 @@
 <div class="bg-white shadow-lg rounded-xl border border-gray-100 mt-8 overflow-hidden">
     <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
-        <h3 class="font-bold text-gray-700 uppercase tracking-tight text-sm">Update Opening Balance (Initial Stock)</h3>
+        <h3 class="font-bold text-gray-700 uppercase tracking-tight text-sm">Perbarui Saldo Awal (Stok Awal)</h3>
     </div>
     <div class="p-6">
         <form action="{{ route('products.opening.post', $product->id) }}" method="POST">
@@ -19,10 +19,10 @@
                 </div>
 
                 <div class="md:col-span-4">
-                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Warehouse</label>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Gudang</label>
                     <select name="opening_warehouse_id"
                         class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none transition">
-                        <option value="">-- Pilih Warehouse --</option>
+                        <option value="">-- Pilih Gudang --</option>
                         @foreach ($warehouses as $w)
                             <option value="{{ $w->id }}" {{ ($openingWarehouseId ?? null) == $w->id ? 'selected' : '' }}>
                                 {{ $w->name }}

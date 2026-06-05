@@ -25,8 +25,8 @@
             <h2 class="text-sm font-semibold">Status Settlement · {{ $monthName }}</h2>
             <div class="text-xs text-gray-500">
                 <span class="text-red-600 font-semibold">⚠ {{ $totalNone }} belum</span> ·
-                <span class="text-yellow-700 font-semibold">✏ {{ $totalDraft }} draft</span> ·
-                <span class="text-green-700 font-semibold">✅ {{ $totalPosted }} posted</span>
+                <span class="text-yellow-700 font-semibold">✏ {{ $totalDraft }} draf</span> ·
+                <span class="text-green-700 font-semibold">✅ {{ $totalPosted }} diposting</span>
             </div>
         </div>
         <form method="GET" class="flex items-end gap-2">
@@ -53,8 +53,8 @@
                     $cfg = $row['config'];
                     $st  = $row['status'];
                     [$color, $badge, $badgeCls] = match($st) {
-                        'posted' => ['bg-green-50 border-green-300',  '✅ Posted', 'bg-green-100 text-green-700'],
-                        'draft'  => ['bg-yellow-50 border-yellow-300', '✏ Draft',  'bg-yellow-100 text-yellow-700'],
+                        'posted' => ['bg-green-50 border-green-300',  '✅ Diposting', 'bg-green-100 text-green-700'],
+                        'draft'  => ['bg-yellow-50 border-yellow-300', '✏ Draf',  'bg-yellow-100 text-yellow-700'],
                         default  => ['bg-red-50 border-red-300',      '⚠ Belum',  'bg-red-100 text-red-700'],
                     };
                     $listUrl = route('finance.cash-bank.settlements.index', [
@@ -71,7 +71,7 @@
                             <span class="px-1.5 py-0.5 rounded {{ $badgeCls }}">{{ $badge }}</span>
                             @if($row['posted_count'] || $row['draft_count'])
                                 <span class="text-[11px] text-gray-700">
-                                    {{ $row['posted_count'] }} posted{{ $row['draft_count'] ? ' · '.$row['draft_count'].' draft' : '' }}
+                                    {{ $row['posted_count'] }} diposting{{ $row['draft_count'] ? ' · '.$row['draft_count'].' draf' : '' }}
                                 </span>
                             @endif
                             @if($row['latest_date'])
@@ -111,8 +111,8 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="draft" @selected(request('status')=='draft')>Draft</option>
-            <option value="posted" @selected(request('status')=='posted')>Posted</option>
+            <option value="draft" @selected(request('status')=='draft')>Draf</option>
+            <option value="posted" @selected(request('status')=='posted')>Diposting</option>
             <option value="void" @selected(request('status')=='void')>Void</option>
         </select>
     </div>
@@ -147,7 +147,7 @@
                 <th class="px-3 py-2 text-right">Selisih Fee</th>
                 <th class="px-3 py-2 text-right">Net</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-60">Action</th>
+                <th class="px-3 py-2 text-right w-60">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -194,7 +194,7 @@
                                         <button class="bg-blue-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap" title="Re-run matching">Retry</button>
                                     </form>
                                 @endif
-                                <form method="POST" action="{{ route('finance.cash-bank.settlements.destroy', $ms->id) }}" class="inline" onsubmit="return confirm('Hapus draft?')">
+                                <form method="POST" action="{{ route('finance.cash-bank.settlements.destroy', $ms->id) }}" class="inline" onsubmit="return confirm('Hapus draf?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>

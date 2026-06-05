@@ -20,7 +20,7 @@
 </head>
 <body>
 <div class="actions">
-    <button onclick="window.print()" style="padding:6px 12px">Print</button>
+    <button onclick="window.print()" style="padding:6px 12px">Cetak</button>
     <a href="{{ route('finance.cash-bank.disbursements.show', $cd->id) }}" style="margin-left:8px">← Kembali</a>
 </div>
 
@@ -28,9 +28,9 @@
 <div class="muted">No. {{ $cd->number }} · {{ $cd->date->format('d M Y') }} · Status: {{ strtoupper($cd->status) }}</div>
 
 <div class="grid">
-    <div><span class="label">Tipe</span><br>{{ ['general'=>'Umum','freight'=>'Bayar Ongkir','customer_refund'=>'Refund Customer'][$cd->type] ?? $cd->type }}</div>
+    <div><span class="label">Tipe</span><br>{{ ['general'=>'Umum','freight'=>'Bayar Ongkir','customer_refund'=>'Refund Pelanggan'][$cd->type] ?? $cd->type }}</div>
     <div><span class="label">Sumber Kas/Bank</span><br>{{ $cd->cashAccount->code ?? '' }} — {{ $cd->cashAccount->name ?? '' }}</div>
-    @if($cd->customer)<div><span class="label">Customer</span><br>{{ $cd->customer->name }}</div>@endif
+    @if($cd->customer)<div><span class="label">Pelanggan</span><br>{{ $cd->customer->name }}</div>@endif
     @if($cd->payee)<div><span class="label">Penerima</span><br>{{ $cd->payee }}</div>@endif
     @if($cd->reference)<div><span class="label">Referensi</span><br>{{ $cd->reference }}</div>@endif
 </div>
@@ -50,8 +50,8 @@
     <table>
         <thead>
             <tr>
-                <th>Customer</th>
-                <th>Invoice</th>
+                <th>Pelanggan</th>
+                <th>Faktur</th>
                 <th>SJ / Resi</th>
                 <th class="right" style="width:110px">Titipan</th>
                 <th class="right" style="width:120px">Bayar Aktual</th>

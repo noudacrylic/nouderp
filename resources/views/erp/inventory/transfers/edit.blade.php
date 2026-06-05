@@ -14,7 +14,7 @@
                 </span>
             </div>
             <a href="{{ route('inventory.transfers.index') }}" class="text-gray-500 hover:text-gray-700">
-                &larr; Back to List
+                &larr; Kembali ke Daftar
             </a>
         </div>
 
@@ -25,13 +25,13 @@
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
                     <input type="date" name="date" value="{{ $transfer->date }}"
                         class="border w-full p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">From Warehouse</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Dari Gudang</label>
                     <select name="from_warehouse_id" id="from_warehouse_id"
                         class="border w-full p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none">
                         @foreach($warehouses as $wh)
@@ -43,7 +43,7 @@
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">To Warehouse</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Ke Gudang</label>
                     <select name="to_warehouse_id"
                         class="border w-full p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none">
                         @foreach($warehouses as $wh)
@@ -60,9 +60,9 @@
                 <table class="w-full border rounded overflow-hidden" id="items-table">
                     <thead class="bg-gray-50 border-b">
                         <tr>
-                            <th class="p-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Product</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Produk</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">SKU</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Available
+                            <th class="p-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tersedia
                             </th>
                             <th class="p-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Qty</th>
                             <th class="p-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-20"></th>
@@ -74,7 +74,7 @@
                                 <td class="p-3">
                                     <select name="products[]"
                                         class="border p-2 w-full rounded product-select focus:ring-2 focus:ring-blue-500 outline-none">
-                                        <option value="">Select Product</option>
+                                        <option value="">Pilih Produk</option>
                                         @foreach($products as $product)
                                             <option value="{{$product->id}}" data-sku="{{$product->sku}}" {{ $item->product_id == $product->id ? 'selected' : '' }}>
                                                 {{$product->name}}
@@ -109,12 +109,12 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6">
                     </path>
                 </svg>
-                Add Item
+                Tambah Item
             </button>
 
             <div class="flex justify-end gap-3 pt-6 border-t font-semibold">
                 <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded shadow transition">
-                    Save Changes
+                    Simpan Perubahan
                 </button>
             </div>
         </form>
@@ -189,7 +189,7 @@
                 let qty = parseFloat(e.target.value) || 0;
 
                 if (qty > stock) {
-                    alert('Insufficent stock! Available: ' + stock);
+                    alert('Stok tidak cukup! Tersedia: ' + stock);
                     e.target.value = stock;
                 }
             }

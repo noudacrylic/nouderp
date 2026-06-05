@@ -10,7 +10,7 @@
             </div>
             <a href="/erp/inventory/stocks"
                 class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded text-sm transition whitespace-nowrap">
-                &larr; Back to Stocks
+                &larr; Kembali ke Stok
             </a>
         </div>
 

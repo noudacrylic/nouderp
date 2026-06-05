@@ -5,12 +5,12 @@
     <div class="p-6">
         <div class="flex justify-between items-center mb-6">
             <div>
-                <h2 class="text-2xl font-bold text-gray-800">Warehouse Ledger</h2>
-                <p class="text-gray-600 font-medium">Warehouse: {{ $warehouse->name }}</p>
+                <h2 class="text-2xl font-bold text-gray-800">Ledger Gudang</h2>
+                <p class="text-gray-600 font-medium">Gudang: {{ $warehouse->name }}</p>
             </div>
             <a href="{{ route('inventory.warehouses.index') }}"
                 class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded transition font-semibold">
-                &larr; Back to Warehouses
+                &larr; Kembali ke Gudang
             </a>
         </div>
 
@@ -18,13 +18,13 @@
             <table class="w-full border-collapse">
                 <thead class="bg-gray-100 border-b">
                     <tr>
-                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Date</th>
-                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Product</th>
-                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Reference</th>
-                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Type</th>
-                        <th class="p-4 text-right font-bold text-gray-600 uppercase text-xs">Qty In</th>
-                        <th class="p-4 text-right font-bold text-gray-600 uppercase text-xs">Qty Out</th>
-                        <th class="p-4 text-right font-bold text-gray-600 uppercase text-xs">Balance</th>
+                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Tanggal</th>
+                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Produk</th>
+                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Referensi</th>
+                        <th class="p-4 text-left font-bold text-gray-600 uppercase text-xs">Tipe</th>
+                        <th class="p-4 text-right font-bold text-gray-600 uppercase text-xs">Qty Masuk</th>
+                        <th class="p-4 text-right font-bold text-gray-600 uppercase text-xs">Qty Keluar</th>
+                        <th class="p-4 text-right font-bold text-gray-600 uppercase text-xs">Saldo</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -74,7 +74,7 @@
                     @if ($ledger->isEmpty())
                         <tr>
                             <td colspan="7" class="p-12 text-center text-gray-400 italic">
-                                No records found for this warehouse.
+                                Tidak ada catatan untuk gudang ini.
                             </td>
                         </tr>
                     @endif

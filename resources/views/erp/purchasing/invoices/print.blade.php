@@ -29,7 +29,7 @@
     'docNumber' => $invoice->invoice_number,
     'docDate'   => $invoice->invoice_date,
     'extraMeta' => [
-        'Faktur Supplier' => $invoice->supplier_invoice_no ?? null,
+        'Faktur Pemasok' => $invoice->supplier_invoice_no ?? null,
         'Jatuh Tempo'     => isset($invoice->due_date) && $invoice->due_date
             ? \Carbon\Carbon::parse($invoice->due_date)->format('d M Y')
             : null,
@@ -38,7 +38,7 @@
 
 {{-- Supplier --}}
 <div class="recipient-block">
-    <div class="lbl">Dari Supplier</div>
+    <div class="lbl">Dari Pemasok</div>
     <div class="name">{{ $invoice->supplier->name ?? '-' }}</div>
     @if(!empty($invoice->supplier?->address))
         <div class="addr">{{ $invoice->supplier->address }}</div>

@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Transfer Stock</h1>
+    <h1 class="text-lg font-semibold">Transfer Stok</h1>
     <a href="{{ route('inventory.transfers.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Transfer</a>
 </div>
 
@@ -14,8 +14,8 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="draft" @selected(request('status') == 'draft')>Draft</option>
-            <option value="posted" @selected(request('status') == 'posted')>Posted</option>
+            <option value="draft" @selected(request('status') == 'draft')>Draf</option>
+            <option value="posted" @selected(request('status') == 'posted')>Diposting</option>
             <option value="void" @selected(request('status') == 'void')>Void</option>
         </select>
     </div>
@@ -28,7 +28,7 @@
                 <th class="px-3 py-2 text-left">No Transfer</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-center w-72">Action</th>
+                <th class="px-3 py-2 text-center w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -39,9 +39,9 @@
                         : route('inventory.transfers.show', $transfer->id);
 
                     [$statusLabel, $statusCls] = match($transfer->status) {
-                        'posted' => ['Posted', 'bg-green-100 text-green-700'],
+                        'posted' => ['Diposting', 'bg-green-100 text-green-700'],
                         'void'   => ['Void',   'bg-red-100 text-red-700'],
-                        default  => ['Draft',  'bg-gray-100 text-gray-500'],
+                        default  => ['Draf',  'bg-gray-100 text-gray-500'],
                     };
                 @endphp
                 <tr class="border-b hover:bg-blue-50 cursor-pointer" data-href="{{ $rowHref }}">
@@ -56,7 +56,7 @@
                     <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
                         <div class="flex gap-1 justify-center flex-wrap">
                             <a href="{{ route('inventory.transfers.show', $transfer->id) }}"
-                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs">View</a>
+                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs">Lihat</a>
 
                             @if ($transfer->status == 'draft')
                                 <form method="POST" action="{{ route('inventory.transfers.post', $transfer->id) }}"
@@ -66,7 +66,7 @@
                                 </form>
 
                                 <form method="POST" action="{{ route('inventory.transfers.destroy', $transfer->id) }}"
-                                      onsubmit="return confirm('Delete transfer?')">
+                                      onsubmit="return confirm('Hapus transfer?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>

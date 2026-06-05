@@ -161,7 +161,7 @@
                                 <th class="ps-3" style="width: 110px">Tanggal</th>
                                 <th style="width: 140px">Journal #</th>
                                 <th style="width: 160px">Ref</th>
-                                <th style="min-width: 250px">Description</th>
+                                <th style="min-width: 250px">Keterangan</th>
                                 <th class="text-end" style="width: 150px">Debit</th>
                                 <th class="text-end" style="width: 150px">Credit</th>
                                 <th class="text-end" style="width: 180px">Running Balance</th>

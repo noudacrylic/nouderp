@@ -18,7 +18,7 @@
             </form>
             <a href="{{ route('fixed-assets.disposals.edit', $disposal->id) }}" class="bg-gray-700 text-white px-3 py-2 rounded text-sm">Edit</a>
         @endif
-        <a href="{{ route('fixed-assets.disposals.print', $disposal->id) }}" class="bg-gray-500 text-white px-3 py-2 rounded text-sm">Print</a>
+        <a href="{{ route('fixed-assets.disposals.print', $disposal->id) }}" class="bg-gray-500 text-white px-3 py-2 rounded text-sm">Cetak</a>
         <a href="{{ route('fixed-assets.disposals.index') }}" class="text-gray-500 text-sm underline self-center">← Kembali</a>
     </div>
 </div>

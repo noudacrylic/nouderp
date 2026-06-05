@@ -11,9 +11,9 @@
 <div class="flex items-center justify-between mb-4">
     <div>
         <h1 class="text-lg font-semibold">Upload Settlement Marketplace</h1>
-        <p class="text-xs text-gray-500">Cocokkan dana cair marketplace dengan invoice yang belum di-settle.</p>
+        <p class="text-xs text-gray-500">Cocokkan dana cair marketplace dengan faktur yang belum di-settle.</p>
     </div>
-    <a href="{{ route('finance.cash-bank.settlements.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List</a>
+    <a href="{{ route('finance.cash-bank.settlements.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -22,20 +22,20 @@
     <div class="bg-white rounded shadow p-4">
         <div class="flex items-center justify-between mb-3 pb-3 border-b">
             <div>
-                <div class="font-semibold text-sm">📋 Invoice Marketplace Belum Settled</div>
+                <div class="font-semibold text-sm">📋 Faktur Marketplace Belum Settled</div>
                 <div class="text-[11px] text-gray-500 mt-0.5">
-                    {{ $totalPending }} invoice · Rp {{ number_format($totalPendingAmount, 0, ',', '.') }}
+                    {{ $totalPending }} faktur · Rp {{ number_format($totalPendingAmount, 0, ',', '.') }}
                 </div>
             </div>
             @if($pendingInvoices->isNotEmpty())
-                <input type="text" id="pending_search" placeholder="Cari order/customer..."
+                <input type="text" id="pending_search" placeholder="Cari order/pelanggan..."
                        class="border rounded px-2 py-1 text-xs w-40">
             @endif
         </div>
 
         @if($pendingInvoices->isEmpty())
             <div class="text-center py-12 text-xs text-gray-400 italic">
-                Tidak ada invoice marketplace yang menunggu settlement.
+                Tidak ada faktur marketplace yang menunggu settlement.
             </div>
         @else
             <div class="max-h-[600px] overflow-y-auto pr-1 space-y-3" id="pending_list">

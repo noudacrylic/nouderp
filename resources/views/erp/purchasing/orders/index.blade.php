@@ -8,7 +8,7 @@
 
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
-    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No PO atau supplier...'])
+    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No PO atau pemasok...'])
     @include('erp.purchasing._partials.date-range')
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
@@ -16,8 +16,8 @@
             <option value="">Semua</option>
             @php
                 $statusOptions = [
-                    'draft'       => 'Draft',
-                    'posted'      => 'Posted',
+                    'draft'       => 'Draf',
+                    'posted'      => 'Diposting',
                     'closed'      => 'Closed',
                     'cancelled'   => 'Cancelled',
                     'returned_dp' => 'Retur DP',
@@ -36,11 +36,11 @@
             <tr>
                 <th class="px-3 py-2 text-left">No PO</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Supplier</th>
+                <th class="px-3 py-2 text-left">Pemasok</th>
                 <th class="px-3 py-2 text-left">Gudang</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -85,11 +85,11 @@
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
                             <a href="{{ route('purchasing.orders.print', $po->id) }}"
-                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Print PO">Print</a>
+                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Cetak PO">Cetak</a>
 
                             @if(!$isLocked && !$isFull && !$hasPoReturn)
                                 <a href="{{ route('purchasing.invoices.create', ['po_id' => $po->id]) }}"
-                                   class="bg-indigo-600 text-white px-2 py-1 rounded text-xs">+ Invoice</a>
+                                   class="bg-indigo-600 text-white px-2 py-1 rounded text-xs">+ Faktur</a>
                             @endif
 
                             @if(!$isLocked && !$hasInvoice && !$dpLunas && !$hasPoReturn)

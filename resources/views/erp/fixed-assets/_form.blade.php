@@ -53,7 +53,7 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Harga Perolehan <span class="text-red-500">*</span></label>
-                <input type="text" inputmode="numeric" name="acquisition_cost" id="acquisition_cost" value="{{ old('acquisition_cost', $a->acquisition_cost ?? '') }}" class="w-full border rounded px-2 py-1.5 rupiah-input" required @if($isEdit && $a->source_type === 'purchase') readonly title="Cost berasal dari invoice — tidak bisa diubah" @endif oninput="recalcDepreciation()">
+                <input type="text" inputmode="numeric" name="acquisition_cost" id="acquisition_cost" value="{{ old('acquisition_cost', $a->acquisition_cost ?? '') }}" class="w-full border rounded px-2 py-1.5 rupiah-input" required @if($isEdit && $a->source_type === 'purchase') readonly title="Biaya berasal dari faktur — tidak bisa diubah" @endif oninput="recalcDepreciation()">
             </div>
         </div>
     </div>
@@ -119,13 +119,13 @@
 
 @if($isEdit && $a->source_type === 'purchase' && $a->sourceInvoice)
     <div class="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded mt-3 text-sm">
-        Aset ini berasal dari Invoice <a href="{{ route('purchasing.invoices.show', $a->source_invoice_id) }}" class="font-medium underline">{{ $a->sourceInvoice->invoice_number }}</a>.
-        Cost & akumulasi awal tidak bisa diubah dari sini.
+        Aset ini berasal dari Faktur <a href="{{ route('purchasing.invoices.show', $a->source_invoice_id) }}" class="font-medium underline">{{ $a->sourceInvoice->invoice_number }}</a>.
+        Biaya & akumulasi awal tidak bisa diubah dari sini.
     </div>
 @endif
 
 <div class="mt-4 flex gap-2">
-    <button type="submit" name="_after_save" value="" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+    <button type="submit" name="_after_save" value="" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
     <button type="submit" name="_after_save" value="post" class="bg-green-600 text-white px-4 py-2 rounded text-sm" onclick="return confirm('Simpan & POST aset?')">Simpan & Post</button>
     <a href="{{ route('fixed-assets.index') }}" class="bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm">Batal</a>
 </div>

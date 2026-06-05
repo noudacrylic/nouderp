@@ -35,7 +35,7 @@
         <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Tanggal Pengambilan</label>
         <input type="date" name="pickup_date" id="pickup_date" value="{{ $pkDate }}"
             class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
-        <p class="text-[11px] text-gray-400 mt-1">Perkiraan tanggal customer mengambil pesanan di toko.</p>
+        <p class="text-[11px] text-gray-400 mt-1">Perkiraan tanggal pelanggan mengambil pesanan di toko.</p>
     </div>
 
     {{-- Body kurir (disembunyikan saat Ambil di Toko) --}}
@@ -45,7 +45,7 @@
             <div class="flex justify-between items-start gap-2">
                 <div class="text-xs text-gray-600 min-w-0">
                     <div class="font-semibold text-gray-700" id="ship_addr_name">—</div>
-                    <div id="ship_addr_line" class="text-gray-500 break-words">Pilih customer dulu untuk alamat tujuan.</div>
+                    <div id="ship_addr_line" class="text-gray-500 break-words">Pilih pelanggan dulu untuk alamat tujuan.</div>
                     <div id="ship_addr_area" class="text-[11px] mt-0.5"></div>
                 </div>
                 <button type="button" id="btn_addr_edit"
@@ -105,7 +105,7 @@
                 </div>
             </div>
         </div>
-        <div class="text-[11px] text-gray-500 mt-2">Ongkir bersih (ditagih ke customer): <span id="ship_net_display" class="font-bold text-gray-700">Rp 0</span></div>
+        <div class="text-[11px] text-gray-500 mt-2">Ongkir bersih (ditagih ke pelanggan): <span id="ship_net_display" class="font-bold text-gray-700">Rp 0</span></div>
     </div>
 
     {{-- Pesan saat Ambil di Toko --}}
@@ -120,7 +120,7 @@
 <div id="addrModal" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-black/40 p-4">
     <div class="bg-white rounded-xl shadow-2xl w-[520px] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between px-4 py-3 border-b">
-            <h6 class="font-bold text-gray-800 text-sm">Alamat Pengiriman Customer</h6>
+            <h6 class="font-bold text-gray-800 text-sm">Alamat Pengiriman Pelanggan</h6>
             <button type="button" id="addr_close" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <div class="p-4 space-y-3">

@@ -5,20 +5,20 @@
     <div class="max-w-4xl mx-auto">
 
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-semibold">Stock Card: {{ $product->sku }} - {{ $product->name }}</h2>
-            <a href="{{ route('inventory.reports.valuation') }}" class="text-blue-600 hover:underline">← Back to
-                Valuation</a>
+            <h2 class="text-xl font-semibold">Kartu Stok: {{ $product->sku }} - {{ $product->name }}</h2>
+            <a href="{{ route('inventory.reports.valuation') }}" class="text-blue-600 hover:underline">← Kembali ke
+                Penilaian</a>
         </div>
 
         <div class="bg-white shadow rounded-lg border overflow-hidden">
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 border-b">
                     <tr>
-                        <th class="p-3 text-left">Date</th>
-                        <th class="p-3 text-left">Transaction</th>
-                        <th class="p-3 text-right">In</th>
-                        <th class="p-3 text-right">Out</th>
-                        <th class="p-3 text-right">Balance</th>
+                        <th class="p-3 text-left">Tanggal</th>
+                        <th class="p-3 text-left">Transaksi</th>
+                        <th class="p-3 text-right">Masuk</th>
+                        <th class="p-3 text-right">Keluar</th>
+                        <th class="p-3 text-right">Saldo</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -46,7 +46,7 @@
 
             @if($ledgers->isEmpty())
                 <div class="p-10 text-center text-gray-400">
-                    No transactions found for this product.
+                    Tidak ada transaksi untuk produk ini.
                 </div>
             @endif
         </div>

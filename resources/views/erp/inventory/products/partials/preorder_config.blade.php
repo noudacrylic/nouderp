@@ -22,6 +22,6 @@
 
         <button type="submit"
             class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-blue-700 shadow-md transition">Simpan
-            Config Preorder</button>
+            Konfigurasi Preorder</button>
     </form>
 </div>

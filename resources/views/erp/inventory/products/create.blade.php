@@ -6,7 +6,7 @@
 
         <div class="p-6 border-b">
             <h2 class="text-xl font-semibold">
-                Create New Product
+                Tambah Produk Baru
             </h2>
 
             <p class="text-sm text-gray-500">
@@ -79,7 +79,7 @@
 
                 <button class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
 
-                    Create & Continue Setup
+                    Buat & Lanjut Setup
 
                 </button>
 

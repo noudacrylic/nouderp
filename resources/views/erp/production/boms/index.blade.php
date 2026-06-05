@@ -34,7 +34,7 @@
                 <th class="px-3 py-2 text-center">Langkah</th>
                 <th class="px-3 py-2 text-center">Skor</th>
                 <th class="px-3 py-2 text-center">Auto</th>
-                <th class="px-3 py-2 text-center w-40">Action</th>
+                <th class="px-3 py-2 text-center w-40">Aksi</th>
             </tr>
         </thead>
         <tbody>

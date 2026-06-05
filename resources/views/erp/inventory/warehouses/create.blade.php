@@ -7,7 +7,7 @@
         <div class="w-full max-w-lg">
 
             <h1 class="text-xl font-semibold mb-6">
-                Create Warehouse
+                Tambah Gudang
             </h1>
 
             <div class="bg-white shadow rounded-lg p-6">
@@ -20,7 +20,7 @@
 
                         <div>
                             <label class="block text-sm font-medium mb-1">
-                                Warehouse Name
+                                Nama Gudang
                             </label>
 
                             <input type="text" name="name" required class="w-full border rounded px-3 py-2">
@@ -29,7 +29,7 @@
 
                         <div>
                             <label class="block text-sm font-medium mb-1">
-                                Location
+                                Lokasi
                             </label>
 
                             <input type="text" name="location" value="{{ old('location') }}" class="w-full border rounded px-3 py-2">
@@ -40,7 +40,7 @@
                             <input type="checkbox" name="is_sellable" value="1" checked>
 
                             <label class="text-sm">
-                                Sellable Warehouse
+                                Gudang Bisa Dijual
                             </label>
 
                         </div>
@@ -58,11 +58,11 @@
                     <div class="mt-6 flex justify-end gap-3">
 
                         <a href="{{ route('inventory.warehouses.index') }}" class="px-4 py-2 border rounded">
-                            Cancel
+                            Batal
                         </a>
 
                         <button type="submit" class="bg-green-600 text-white px-5 py-2 rounded">
-                            Save
+                            Simpan
                         </button>
 
                     </div>

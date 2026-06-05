@@ -70,7 +70,7 @@
                     <td class="text-right font-semibold">{{ number_format($r->sisa_terhutang, 0, ',', '.') }}</td>
                     <td><span class="text-xs px-2 py-0.5 rounded {{ $badge }}">{{ strtoupper($r->status) }}</span></td>
                     <td class="text-right">
-                        <a href="{{ route('sdm.kasbon.show', $r->id) }}" class="text-blue-600 text-xs">Detail</a>
+                        <a href="{{ route('sdm.kasbon.show', $r->id) }}" class="text-blue-600 text-xs">Rincian</a>
                         @if($r->canBeEdited())
                             · <a href="{{ route('sdm.kasbon.edit', $r->id) }}" class="text-amber-600 text-xs">Edit</a>
                         @endif

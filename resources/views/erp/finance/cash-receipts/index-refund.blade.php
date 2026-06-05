@@ -2,23 +2,23 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Refund Supplier</h1>
+    <h1 class="text-lg font-semibold">Refund Pemasok</h1>
     <a href="{{ route('finance.cash-bank.receipts.create', ['type' => 'supplier_refund']) }}"
-       class="bg-purple-600 text-white px-3 py-2 rounded text-sm">+ Refund Supplier</a>
+       class="bg-purple-600 text-white px-3 py-2 rounded text-sm">+ Refund Pemasok</a>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     <div>
         <label class="block text-xs text-gray-500 mb-1">Cari</label>
-        <input type="text" name="q" value="{{ request('q') }}" placeholder="Nomor / supplier / referensi"
+        <input type="text" name="q" value="{{ request('q') }}" placeholder="Nomor / pemasok / referensi"
                class="border rounded px-2 py-1.5 w-64">
     </div>
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="draft" @selected(request('status')=='draft')>Draft</option>
-            <option value="posted" @selected(request('status')=='posted')>Posted</option>
+            <option value="draft" @selected(request('status')=='draft')>Draf</option>
+            <option value="posted" @selected(request('status')=='posted')>Diposting</option>
             <option value="void" @selected(request('status')=='void')>Void</option>
         </select>
     </div>
@@ -42,11 +42,11 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Dok</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Supplier</th>
+                <th class="px-3 py-2 text-left">Pemasok</th>
                 <th class="px-3 py-2 text-left">Kas/Bank</th>
                 <th class="px-3 py-2 text-right">Total Refund</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -70,7 +70,7 @@
                         <div class="flex gap-1 flex-row-reverse flex-nowrap">
                             @unless($cr->isVoid())
                                 <a href="{{ route('finance.cash-bank.receipts.print', $cr->id) }}"
-                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Print</a>
+                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Cetak</a>
                             @endunless
                             @if($cr->isDraft())
                                 <form method="POST" action="{{ route('finance.cash-bank.receipts.post', $cr->id) }}" class="inline"
@@ -96,7 +96,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada refund supplier.</td></tr>
+                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada refund pemasok.</td></tr>
             @endforelse
         </tbody>
     </table>

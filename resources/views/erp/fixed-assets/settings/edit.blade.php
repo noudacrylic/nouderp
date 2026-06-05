@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Settings Aset Tetap</h1>
+    <h1 class="text-lg font-semibold">Pengaturan Aset Tetap</h1>
 </div>
 
 @if(session('success')) <div class="bg-green-100 border border-green-300 text-green-700 px-3 py-2 rounded mb-3 text-sm">{{ session('success') }}</div> @endif
@@ -95,7 +95,7 @@
     </div>
 
     <div class="flex gap-2">
-        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Settings</button>
+        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Pengaturan</button>
     </div>
 </form>
 

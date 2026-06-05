@@ -20,7 +20,7 @@
     @endphp
     <div class="flex gap-2">
         @if(!$isLocked)
-            <a href="{{ route('purchasing.invoices.create', ['po_id' => $po->id]) }}" class="bg-indigo-600 text-white px-3 py-2 rounded text-sm">→ Buat Invoice</a>
+            <a href="{{ route('purchasing.invoices.create', ['po_id' => $po->id]) }}" class="bg-indigo-600 text-white px-3 py-2 rounded text-sm">→ Buat Faktur</a>
             @if(!$hasInvoice)
                 <a href="{{ route('purchasing.orders.edit', $po->id) }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">Edit</a>
                 <form method="POST" action="{{ route('purchasing.orders.destroy', $po->id) }}" onsubmit="return confirm('Hapus PO ini?')">
@@ -38,7 +38,7 @@
     <div class="bg-white rounded shadow p-4 text-sm">
         <h3 class="font-semibold mb-2">Header</h3>
         <div class="grid grid-cols-2 gap-2">
-            <div class="text-gray-500">Supplier</div><div>{{ $po->supplier->name }}</div>
+            <div class="text-gray-500">Pemasok</div><div>{{ $po->supplier->name }}</div>
             <div class="text-gray-500">Gudang</div><div>{{ $po->warehouse->name ?? '-' }}</div>
             <div class="text-gray-500">Tanggal PO</div><div>{{ $po->po_date->format('d M Y') }}</div>
             <div class="text-gray-500">Tgl Diharapkan</div><div>{{ $po->expected_date ? $po->expected_date->format('d M Y') : '-' }}</div>

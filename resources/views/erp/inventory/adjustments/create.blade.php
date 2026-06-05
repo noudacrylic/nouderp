@@ -7,7 +7,7 @@
     <div class="flex items-center justify-between mb-5">
         <div>
             <h2 class="text-xl font-bold text-gray-800">Penyesuaian Stok</h2>
-            <p class="text-xs text-gray-500 mt-0.5">Buat penyesuaian stok baru sebagai draft</p>
+            <p class="text-xs text-gray-500 mt-0.5">Buat penyesuaian stok baru sebagai draf</p>
         </div>
         <a href="{{ route('inventory.adjustments.index') }}"
            class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Kembali</a>
@@ -31,7 +31,7 @@
                     <select name="purpose" id="purpose-select"
                             class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" required>
                         <option value="stock_opname">Stock Opname</option>
-                        <option value="perbaikan_rusak">Perbaikan Stock Rusak</option>
+                        <option value="perbaikan_rusak">Perbaikan Stok Rusak</option>
                     </select>
                 </div>
 
@@ -163,7 +163,7 @@
         <div class="flex items-center gap-3">
             <button type="submit"
                     class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition shadow-sm">
-                Simpan sebagai Draft
+                Simpan sebagai Draf
             </button>
             <a href="{{ route('inventory.adjustments.index') }}"
                class="px-5 py-3 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl transition">

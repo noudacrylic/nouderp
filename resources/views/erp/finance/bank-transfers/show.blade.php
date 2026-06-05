@@ -23,7 +23,7 @@
     </div>
     <div class="flex gap-2 flex-row-reverse">
         @unless($bt->isVoid())
-            <a href="{{ route('finance.cash-bank.transfers.print', $bt->id) }}" class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Print</a>
+            <a href="{{ route('finance.cash-bank.transfers.print', $bt->id) }}" class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Cetak</a>
         @endunless
         @if($bt->isDraft())
             <form method="POST" action="{{ route('finance.cash-bank.transfers.post', $bt->id) }}" class="inline" onsubmit="return confirm('Post {{ $bt->number }}?')">
@@ -37,7 +37,7 @@
                 <button class="bg-red-600 text-white px-3 py-1.5 rounded text-sm">Void</button>
             </form>
         @endif
-        <a href="{{ route('finance.cash-bank.transfers.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List</a>
+        <a href="{{ route('finance.cash-bank.transfers.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
     </div>
 </div>
 
@@ -45,7 +45,7 @@
     <div class="grid grid-cols-3 gap-3 text-sm">
         <div><div class="text-xs text-gray-500">Status</div><span class="px-2 py-0.5 rounded text-xs uppercase {{ $stCls }}">{{ $bt->status }}</span></div>
         <div><div class="text-xs text-gray-500">Tanggal</div>{{ $bt->date->format('d M Y') }}</div>
-        <div><div class="text-xs text-gray-500">Journal</div>{{ $bt->journal_id ? '#'.$bt->journal_id : '-' }}</div>
+        <div><div class="text-xs text-gray-500">Jurnal</div>{{ $bt->journal_id ? '#'.$bt->journal_id : '-' }}</div>
         <div><div class="text-xs text-gray-500">Dari Akun</div>{{ $bt->fromAccount->code ?? '' }} — {{ $bt->fromAccount->name ?? '' }}</div>
         <div><div class="text-xs text-gray-500">Ke Akun</div>{{ $bt->toAccount->code ?? '' }} — {{ $bt->toAccount->name ?? '' }}</div>
         <div><div class="text-xs text-gray-500">Akun Beban Admin</div>{{ $bt->adminFeeAccount ? ($bt->adminFeeAccount->code.' — '.$bt->adminFeeAccount->name) : '-' }}</div>

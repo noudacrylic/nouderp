@@ -67,8 +67,8 @@
     </div>
     <div class="flex items-center gap-2">
         @if($slips->count())
-            <a href="{{ route('sdm.attendance.index', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Detail Kehadiran</a>
-            <a href="{{ route('sdm.periode-gaji.print-all', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Print Semua</a>
+            <a href="{{ route('sdm.attendance.index', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Rincian Kehadiran</a>
+            <a href="{{ route('sdm.periode-gaji.print-all', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Cetak Semua</a>
             <a href="{{ route('sdm.periode-gaji.print-all', ['id' => $periode->id, 'pdf' => 1]) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">PDF Semua</a>
         @endif
         @if($periode->canBeFinalized() && $periode->status !== 'finalized')
@@ -102,7 +102,7 @@
     <div class="flex items-center gap-1.5">
         <button type="button" @click="bulkPrint()" :disabled="selectedIds.length === 0"
                 class="border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded text-xs disabled:opacity-40 disabled:cursor-not-allowed">
-            🖨 Print Terpilih
+            🖨 Cetak Terpilih
         </button>
         <button type="button" @click="bulkPdf()" :disabled="selectedIds.length === 0"
                 class="border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded text-xs disabled:opacity-40 disabled:cursor-not-allowed">
@@ -160,9 +160,9 @@
                     </td>
                     <td class="px-3 py-2 text-right" @click.stop>
                         <div class="inline-flex items-center gap-1">
-                            <a href="{{ route('sdm.slip-gaji.print', $s->id) }}" title="Print" class="text-xs text-gray-600 hover:underline">Print</a>
+                            <a href="{{ route('sdm.slip-gaji.print', $s->id) }}" title="Cetak" class="text-xs text-gray-600 hover:underline">Cetak</a>
                             <span class="text-gray-300">|</span>
-                            <a href="{{ route('sdm.slip-gaji.print', ['id' => $s->id, 'pdf' => 1]) }}" title="Download PDF" class="text-xs text-gray-600 hover:underline">PDF</a>
+                            <a href="{{ route('sdm.slip-gaji.print', ['id' => $s->id, 'pdf' => 1]) }}" title="Unduh PDF" class="text-xs text-gray-600 hover:underline">PDF</a>
                             @if(! $isPaid)
                                 <span class="text-gray-300">|</span>
                                 <a href="{{ route('finance.cash-bank.salary-payments.create', ['karyawan_id' => $s->karyawan_id, 'periode_bulan' => $periode->bulan, 'periode_tahun' => $periode->tahun]) }}"

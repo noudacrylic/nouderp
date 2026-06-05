@@ -20,7 +20,7 @@
 </head>
 <body>
 <div class="actions">
-    <button onclick="window.print()" style="padding:6px 12px">Print</button>
+    <button onclick="window.print()" style="padding:6px 12px">Cetak</button>
     <a href="{{ route('finance.cash-bank.receipts.show', $cr->id) }}" style="margin-left:8px">← Kembali</a>
 </div>
 
@@ -28,9 +28,9 @@
 <div class="muted">No. {{ $cr->number }} · {{ $cr->date->format('d M Y') }} · Status: {{ strtoupper($cr->status) }}</div>
 
 <div class="grid">
-    <div><span class="label">Tipe</span><br>{{ ['general'=>'Umum','supplier_refund'=>'Refund Supplier'][$cr->type] ?? $cr->type }}</div>
+    <div><span class="label">Tipe</span><br>{{ ['general'=>'Umum','supplier_refund'=>'Refund Pemasok'][$cr->type] ?? $cr->type }}</div>
     <div><span class="label">Tujuan Kas/Bank</span><br>{{ $cr->cashAccount->code ?? '' }} — {{ $cr->cashAccount->name ?? '' }}</div>
-    @if($cr->supplier)<div><span class="label">Supplier</span><br>{{ $cr->supplier->name }}</div>@endif
+    @if($cr->supplier)<div><span class="label">Pemasok</span><br>{{ $cr->supplier->name }}</div>@endif
     @if($cr->payer)<div><span class="label">Pembayar</span><br>{{ $cr->payer }}</div>@endif
     @if($cr->reference)<div><span class="label">Referensi</span><br>{{ $cr->reference }}</div>@endif
 </div>

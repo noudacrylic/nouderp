@@ -46,7 +46,7 @@
                             class="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm rupiah-input" required>
                     </div>
                     <button type="submit"
-                        class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-blue-700 transition">Update
+                        class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-blue-700 transition">Perbarui
                         / Tambah Harga</button>
                 </form>
             @else

@@ -4,7 +4,7 @@
 <div class="flex items-center justify-between mb-3">
     <div>
         <h1 class="text-lg font-semibold">Telah Diproses</h1>
-        <p class="text-xs text-gray-500">Pesanan yang sudah punya invoice / sudah dikirim. Generate resi, cetak Surat Jalan & invoice di sini.</p>
+        <p class="text-xs text-gray-500">Pesanan yang sudah punya faktur / sudah dikirim. Generate resi, cetak Surat Jalan & faktur di sini.</p>
     </div>
 </div>
 
@@ -12,7 +12,7 @@
 @if(session('success'))<div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>@endif
 
 <form method="GET" class="mb-3">
-    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / customer…"
+    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan…"
            class="border rounded px-3 py-2 text-sm w-72">
 </form>
 
@@ -29,7 +29,7 @@
                     <div class="mt-3 border-t border-gray-50 pt-3 flex items-center justify-between gap-2 flex-wrap text-xs bg-gray-50/70 rounded-lg px-3 py-1.5">
                         <span class="font-semibold text-gray-700">📄 <span class="js-copy cursor-pointer hover:text-indigo-600" data-copy="{{ $gd->delivery_number }}" title="Klik untuk salin nomor SJ">{{ $gd->delivery_number }}</span></span>
                         <a href="{{ route('sales.deliveries.print', $gd->id) }}"
-                           class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Print SJ</a>
+                           class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Cetak SJ</a>
                     </div>
                 @endif
             </div>

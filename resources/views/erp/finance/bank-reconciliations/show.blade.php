@@ -21,7 +21,7 @@
                 $label = 'Faktur Pembelian'; $color = 'amber';
                 $url = $id ? route('purchasing.invoices.show', $id) : null; break;
             case 'supplier_payment':
-                $label = 'Bayar Supplier'; $color = 'rose';
+                $label = 'Bayar Pemasok'; $color = 'rose';
                 $url = $id ? route('purchasing.payments.show', $id) : null; break;
             case 'cash_receipt':
                 $label = 'Pemasukan Kas'; $color = 'green';
@@ -83,7 +83,7 @@
                 <button class="bg-red-600 text-white px-3 py-1.5 rounded text-sm">Void</button>
             </form>
         @endif
-        <a href="{{ route('finance.cash-bank.reconciliations.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List</a>
+        <a href="{{ route('finance.cash-bank.reconciliations.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
     </div>
 </div>
 

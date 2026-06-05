@@ -8,7 +8,7 @@
         'void'   => 'bg-red-100 text-red-700',
         default  => 'bg-gray-100 text-gray-700',
     };
-    $typeLabel = ['general'=>'Umum','supplier_refund'=>'Refund Supplier'][$cr->type] ?? $cr->type;
+    $typeLabel = ['general'=>'Umum','supplier_refund'=>'Refund Pemasok'][$cr->type] ?? $cr->type;
 @endphp
 
 <div class="flex items-center justify-between mb-4">
@@ -19,7 +19,7 @@
     <div class="flex gap-2 flex-row-reverse">
         @unless($cr->isVoid())
             <a href="{{ route('finance.cash-bank.receipts.print', $cr->id) }}"
-               class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Print</a>
+               class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Cetak</a>
         @endunless
         @if($cr->isDraft())
             <form method="POST" action="{{ route('finance.cash-bank.receipts.post', $cr->id) }}" class="inline"
@@ -36,7 +36,7 @@
                 <button class="bg-red-600 text-white px-3 py-1.5 rounded text-sm">Void</button>
             </form>
         @endif
-        <a href="{{ route('finance.cash-bank.receipts.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List</a>
+        <a href="{{ route('finance.cash-bank.receipts.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
     </div>
 </div>
 
@@ -46,10 +46,10 @@
         <div><div class="text-xs text-gray-500">Tipe</div>{{ $typeLabel }}</div>
         <div><div class="text-xs text-gray-500">Tanggal</div>{{ $cr->date->format('d M Y') }}</div>
         <div><div class="text-xs text-gray-500">Tujuan Kas/Bank</div>{{ $cr->cashAccount->code ?? '' }} — {{ $cr->cashAccount->name ?? '' }}</div>
-        @if($cr->supplier)<div><div class="text-xs text-gray-500">Supplier</div>{{ $cr->supplier->name }}</div>@endif
+        @if($cr->supplier)<div><div class="text-xs text-gray-500">Pemasok</div>{{ $cr->supplier->name }}</div>@endif
         @if($cr->payer)<div><div class="text-xs text-gray-500">Pembayar</div>{{ $cr->payer }}</div>@endif
         @if($cr->reference)<div><div class="text-xs text-gray-500">Referensi</div>{{ $cr->reference }}</div>@endif
-        @if($cr->journal_id)<div><div class="text-xs text-gray-500">Journal</div>#{{ $cr->journal_id }}</div>@endif
+        @if($cr->journal_id)<div><div class="text-xs text-gray-500">Jurnal</div>#{{ $cr->journal_id }}</div>@endif
     </div>
     @if($cr->notes)
         <div class="mt-3 text-xs text-gray-500">Catatan</div>

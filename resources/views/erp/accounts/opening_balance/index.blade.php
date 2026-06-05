@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Opening Balance History</h1>
+    <h1 class="text-lg font-semibold">Riwayat Saldo Awal</h1>
     <div class="flex gap-2 flex-wrap">
         <a href="{{ route('accounts.opening-balance.products.template') }}"
            class="bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded text-sm" title="Template Excel saldo awal produk">
@@ -57,11 +57,11 @@
                 <th class="px-3 py-2 text-left">Akun / Produk</th>
                 <th class="px-3 py-2 text-left">Gudang</th>
                 <th class="px-3 py-2 text-right">Qty</th>
-                <th class="px-3 py-2 text-right">Cost</th>
+                <th class="px-3 py-2 text-right">Biaya</th>
                 <th class="px-3 py-2 text-right">Tambah (Debit)</th>
                 <th class="px-3 py-2 text-right">Kurangi (Kredit)</th>
                 <th class="px-3 py-2 text-left">Deskripsi</th>
-                <th class="px-3 py-2 text-right w-36">Action</th>
+                <th class="px-3 py-2 text-right w-36">Aksi</th>
             </tr>
         </thead>
         <tbody>

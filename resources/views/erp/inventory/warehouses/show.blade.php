@@ -7,7 +7,7 @@
         <div class="text-xs text-gray-500 mt-0.5">
             {{ $warehouse->location ?: '—' }}
             @if($warehouse->is_sellable)
-                <span class="ml-2 px-1.5 py-0.5 rounded text-[10px] uppercase bg-green-100 text-green-700">Sellable</span>
+                <span class="ml-2 px-1.5 py-0.5 rounded text-[10px] uppercase bg-green-100 text-green-700">Bisa Dijual</span>
             @endif
         </div>
     </div>
@@ -20,7 +20,7 @@
 
 <div class="grid grid-cols-2 gap-3 mb-4">
     <div class="bg-white rounded shadow p-3">
-        <div class="text-[11px] text-gray-500 uppercase tracking-wide">Total Nilai Stock</div>
+        <div class="text-[11px] text-gray-500 uppercase tracking-wide">Total Nilai Stok</div>
         <div class="text-lg font-semibold text-gray-800">Rp {{ number_format($totalStockValue, 0, ',', '.') }}</div>
         <div class="text-[11px] text-gray-400 mt-0.5">{{ $stocks->count() }} produk · {{ number_format($stocks->sum('qty_on_hand'), 2, ',', '.') }} qty</div>
     </div>
@@ -33,7 +33,7 @@
 
 <div class="bg-white rounded shadow mb-4">
     <div class="px-3 py-2 border-b flex items-center justify-between">
-        <h2 class="font-semibold text-sm">Stock Produk</h2>
+        <h2 class="font-semibold text-sm">Stok Produk</h2>
         <a href="{{ route('inventory.warehouses.stock') }}" class="text-xs text-gray-500 underline">Lihat semua gudang</a>
     </div>
     <div class="overflow-x-auto">
@@ -57,7 +57,7 @@
                         <td class="px-3 py-2 text-right font-medium">{{ number_format($s->stock_value, 0, ',', '.') }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">Tidak ada stock produk di gudang ini.</td></tr>
+                    <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">Tidak ada stok produk di gudang ini.</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -77,7 +77,7 @@
                     <th class="px-3 py-2 text-left">Nama</th>
                     <th class="px-3 py-2 text-left">Kategori</th>
                     <th class="px-3 py-2 text-left">Tgl Perolehan</th>
-                    <th class="px-3 py-2 text-right">Cost</th>
+                    <th class="px-3 py-2 text-right">Biaya</th>
                     <th class="px-3 py-2 text-right">Nilai Buku</th>
                     <th class="px-3 py-2 text-center">Status</th>
                 </tr>
@@ -86,7 +86,7 @@
                 @forelse($assets as $asset)
                     @php
                         [$statusLabel, $statusCls] = match($asset->status) {
-                            'draft'    => ['Draft', 'bg-yellow-100 text-yellow-700'],
+                            'draft'    => ['Draf', 'bg-yellow-100 text-yellow-700'],
                             'active'   => ['Aktif', 'bg-green-100 text-green-700'],
                             'disposed' => ['Disposed', 'bg-gray-200 text-gray-600'],
                             default    => [ucfirst($asset->status), 'bg-gray-100 text-gray-500'],

@@ -58,11 +58,11 @@
 </div>
 
 <div class="mt-6 bg-white rounded shadow p-4">
-    <h3 class="font-semibold mb-3">Riwayat Invoice ({{ $supplier->purchaseInvoices->count() }})</h3>
+    <h3 class="font-semibold mb-3">Riwayat Faktur ({{ $supplier->purchaseInvoices->count() }})</h3>
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">No Invoice</th>
+                <th class="px-3 py-2 text-left">No Faktur</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-right">Outstanding</th>
@@ -79,7 +79,7 @@
                     <td class="px-3 py-2 text-center text-xs uppercase">{{ $inv->status }}</td>
                 </tr>
             @empty
-                <tr><td colspan="5" class="px-3 py-4 text-center text-gray-400">Belum ada invoice.</td></tr>
+                <tr><td colspan="5" class="px-3 py-4 text-center text-gray-400">Belum ada faktur.</td></tr>
             @endforelse
         </tbody>
     </table>

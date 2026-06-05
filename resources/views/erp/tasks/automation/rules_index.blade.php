@@ -46,7 +46,7 @@
                 <th class="px-3 py-2 text-center">Prioritas</th>
                 <th class="px-3 py-2 text-left">Terakhir Trigger</th>
                 <th class="px-3 py-2 text-center">Aktif</th>
-                <th class="px-3 py-2 text-right">Action</th>
+                <th class="px-3 py-2 text-right">Aksi</th>
             </tr>
         </thead>
         <tbody>

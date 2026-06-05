@@ -30,7 +30,7 @@
             <thead class="bg-gray-50 border-b text-gray-600">
                 <tr>
                     <th class="px-2 py-2 text-left">Produk</th>
-                    <th class="px-2 py-2 text-right w-32">Cost</th>
+                    <th class="px-2 py-2 text-right w-32">Biaya</th>
                     <th class="px-2 py-2 text-right w-28">Qty</th>
                     <th class="px-2 py-2 text-right w-32">Subtotal</th>
                 </tr>

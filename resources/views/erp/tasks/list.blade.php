@@ -19,7 +19,7 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach(['open'=>'Open','in_progress'=>'In Progress','done'=>'Selesai','cancelled'=>'Dibatalkan'] as $v=>$lbl)
+            @foreach(['open'=>'Terbuka','in_progress'=>'Dikerjakan','done'=>'Selesai','cancelled'=>'Dibatalkan'] as $v=>$lbl)
                 <option value="{{ $v }}" @selected($status===$v)>{{ $lbl }}</option>
             @endforeach
         </select>
@@ -28,7 +28,7 @@
         <label class="block text-xs text-gray-500 mb-1">Prioritas</label>
         <select name="priority" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach(['high'=>'High','normal'=>'Normal','low'=>'Low'] as $v=>$lbl)
+            @foreach(['high'=>'Tinggi','normal'=>'Normal','low'=>'Rendah'] as $v=>$lbl)
                 <option value="{{ $v }}" @selected($priority===$v)>{{ $lbl }}</option>
             @endforeach
         </select>
@@ -56,7 +56,7 @@
                 <th class="px-3 py-2 text-center">Prioritas</th>
                 <th class="px-3 py-2 text-center">Status</th>
                 <th class="px-3 py-2 text-left">Jatuh Tempo</th>
-                <th class="px-3 py-2 text-right">Action</th>
+                <th class="px-3 py-2 text-right">Aksi</th>
             </tr>
         </thead>
         <tbody>

@@ -26,7 +26,7 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">Code</th>
+                <th class="px-3 py-2 text-left">Kode</th>
                 <th class="px-3 py-2 text-left">Nama</th>
                 <th class="px-3 py-2 text-left">Serial</th>
                 <th class="px-3 py-2 text-left">IP : Port</th>
@@ -65,7 +65,7 @@
                     <td class="px-3 py-2 text-xs text-gray-600">{{ optional($m->last_seen_at)->diffForHumans() ?? '-' }}</td>
                     <td class="px-3 py-2 text-right">
                         <div class="flex items-center justify-end gap-3">
-                            <a href="{{ route('sdm.mesin.show', $m->id) }}" class="text-blue-600 text-xs">Detail</a>
+                            <a href="{{ route('sdm.mesin.show', $m->id) }}" class="text-blue-600 text-xs">Rincian</a>
                             @if(! $m->isArchived())
                                 <a href="{{ route('sdm.mesin.edit', $m->id) }}" class="text-gray-600 text-xs">Edit</a>
 

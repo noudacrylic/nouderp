@@ -8,10 +8,10 @@
             <div class="flex items-center gap-2 text-xs text-gray-400 font-medium mb-1">
                 <a href="{{ route('purchasing.returns.index') }}" class="hover:text-blue-600 transition">Retur Pembelian</a>
                 <span>›</span>
-                <span class="text-gray-600" x-text="returnId ? 'Edit Draft' : 'Buat Retur Baru'"></span>
+                <span class="text-gray-600" x-text="returnId ? 'Edit Draf' : 'Buat Retur Baru'"></span>
             </div>
             <h1 class="text-xl font-bold text-gray-800">Form Retur Pembelian</h1>
-            <p class="text-xs text-gray-500 mt-0.5">Retur Invoice mengurangi hutang/menambah Piutang Lebih Bayar (1108) sebesar HPP barang. Retur PO memindah DP ke Piutang Lebih Bayar.</p>
+            <p class="text-xs text-gray-500 mt-0.5">Retur Faktur mengurangi hutang/menambah Piutang Lebih Bayar (1108) sebesar HPP barang. Retur PO memindah DP ke Piutang Lebih Bayar.</p>
         </div>
         <a href="{{ route('purchasing.returns.index') }}"
            class="inline-flex items-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
@@ -50,18 +50,18 @@
                 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-5">
                         <span class="w-7 h-7 bg-blue-600 text-white rounded-lg flex items-center justify-center text-xs font-black">1</span>
-                        <h3 class="font-bold text-gray-700">Pilih Supplier &amp; Dokumen</h3>
+                        <h3 class="font-bold text-gray-700">Pilih Pemasok &amp; Dokumen</h3>
                     </div>
 
                     <div class="grid grid-cols-3 gap-4 mb-4">
                         {{-- Supplier search --}}
                         <div class="col-span-1 relative" @click.outside="showSupplierDropdown = false">
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Supplier <span class="text-red-500">*</span></label>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Pemasok <span class="text-red-500">*</span></label>
                             <input type="text"
                                 x-model="supplierQuery"
                                 @input.debounce.300ms="searchSupplier()"
                                 @focus="showSupplierDropdown = true; if(supplierQuery.length >= 2) searchSupplier()"
-                                placeholder="Cari supplier..."
+                                placeholder="Cari pemasok..."
                                 autocomplete="off"
                                 class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                             <div x-show="showSupplierDropdown && supplierResults.length > 0" x-transition class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto">
@@ -79,14 +79,14 @@
                         <div class="col-span-1">
                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Jenis Retur</label>
                             <select x-model="returnType" @change="onReturnTypeChange()" class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                                <option value="invoice">📄 Dari Invoice (Barang Rusak)</option>
+                                <option value="invoice">📄 Dari Faktur (Barang Rusak)</option>
                                 <option value="po">📋 Dari PO (Refund DP)</option>
                             </select>
                         </div>
 
                         {{-- Document selector --}}
                         <div class="col-span-1 relative" x-show="documents.length > 0" x-transition @click.outside="showDocDropdown = false">
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5" x-text="returnType === 'invoice' ? 'Invoice *' : 'Purchase Order *'"></label>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5" x-text="returnType === 'invoice' ? 'Faktur *' : 'Purchase Order *'"></label>
                             <input type="text"
                                 x-model="docQuery"
                                 @input="showDocDropdown = true"
@@ -111,7 +111,7 @@
 
                         <div class="col-span-3" x-show="supplierId && documents.length === 0 && !loadingDocs" x-transition>
                             <div class="text-center py-4 bg-amber-50 rounded-xl border border-amber-100">
-                                <span class="text-amber-500 font-semibold text-sm" x-text="returnType === 'invoice' ? '⚠️ Tidak ada invoice posted untuk supplier ini.' : '⚠️ Tidak ada PO aktif untuk supplier ini.'"></span>
+                                <span class="text-amber-500 font-semibold text-sm" x-text="returnType === 'invoice' ? '⚠️ Tidak ada faktur diposting untuk pemasok ini.' : '⚠️ Tidak ada PO aktif untuk pemasok ini.'"></span>
                             </div>
                         </div>
 
@@ -163,7 +163,7 @@
 
                             <div class="text-[10px] text-gray-500 mb-3 italic flex items-center gap-2">
                                 <span class="bg-blue-50 px-2 py-0.5 rounded">i</span>
-                                Refund per unit = <b>HPP</b> (harga supplier − diskon + landed cost capitalized). Beban direct (non-capitalized) tidak ikut di-refund.
+                                Refund per unit = <b>HPP</b> (harga pemasok − diskon + landed cost capitalized). Beban direct (non-capitalized) tidak ikut di-refund.
                             </div>
 
                             <div class="overflow-hidden rounded-xl border border-gray-100">
@@ -213,7 +213,7 @@
                                             </tr>
                                         </template>
                                         <tr x-show="items.length === 0">
-                                            <td colspan="6" class="px-4 py-8 text-center text-gray-300 font-medium text-sm">Pilih invoice terlebih dahulu</td>
+                                            <td colspan="6" class="px-4 py-8 text-center text-gray-300 font-medium text-sm">Pilih faktur terlebih dahulu</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -232,7 +232,7 @@
                             </div>
 
                             <div class="bg-purple-50 border border-purple-100 rounded-xl p-4 mb-4">
-                                <div class="text-[10px] font-black text-purple-700 uppercase tracking-widest mb-1">Saldo Uang Muka Supplier (1107)</div>
+                                <div class="text-[10px] font-black text-purple-700 uppercase tracking-widest mb-1">Saldo Uang Muka Pemasok (1107)</div>
                                 <div class="text-2xl font-black text-purple-900">Rp <span x-text="formatNumber(dpBalance)"></span></div>
                                 <div class="text-[10px] text-purple-600 italic mt-1">Refund tidak boleh melebihi saldo ini.</div>
                             </div>
@@ -324,12 +324,12 @@
                         <template x-if="returnType === 'po'">
                             <li class="flex items-start gap-2">
                                 <span class="bg-amber-200 text-amber-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">1</span>
-                                <span>Saldo Uang Muka Supplier (1107) berkurang FIFO; pindah ke Piutang Lebih Bayar Supplier (1108).</span>
+                                <span>Saldo Uang Muka Pemasok (1107) berkurang FIFO; pindah ke Piutang Lebih Bayar Pemasok (1108).</span>
                             </li>
                         </template>
                         <li class="flex items-start gap-2">
                             <span class="bg-amber-200 text-amber-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">2</span>
-                            <span>Saldo Piutang Lebih Bayar Supplier bertambah → bisa dipakai via tombol "Pakai Saldo" di Payment, atau diterima sebagai cash di Kas/Bank.</span>
+                            <span>Saldo Piutang Lebih Bayar Pemasok bertambah → bisa dipakai via tombol "Pakai Saldo" di Pembayaran, atau diterima sebagai cash di Kas/Bank.</span>
                         </li>
                         <li class="flex items-start gap-2 pt-1 border-t border-amber-200/50">
                             <span class="text-red-500 font-black">✖</span>
@@ -344,7 +344,7 @@
                         <button type="button" @click="saveDraft()" :disabled="!canSubmit()"
                                 class="flex-1 py-3.5 rounded-xl font-bold text-sm transition-all border border-gray-200"
                                 :class="canSubmit() ? 'bg-white text-gray-700 hover:bg-gray-50' : 'bg-gray-50 text-gray-300 cursor-not-allowed'">
-                            <span x-text="returnId ? '💾 Update Draft' : '💾 Save Draft'"></span>
+                            <span x-text="returnId ? '💾 Perbarui Draf' : '💾 Simpan Draf'"></span>
                         </button>
                         <button type="button" @click="confirmAndSubmit()" :disabled="!canSubmit()"
                                 class="flex-[1.5] py-3.5 rounded-xl font-black text-sm transition-all shadow-lg"
@@ -370,8 +370,8 @@
                 <p class="text-gray-500 text-sm mt-1">Tindakan ini tidak dapat dibatalkan setelah post.</p>
             </div>
             <div class="bg-gray-50 rounded-xl p-4 mb-5 space-y-2 text-sm">
-                <div class="flex justify-between"><span class="text-gray-500">Supplier</span><span class="font-bold text-gray-800" x-text="supplierName"></span></div>
-                <div class="flex justify-between"><span class="text-gray-500" x-text="returnType === 'invoice' ? 'Invoice' : 'PO'"></span><span class="font-bold text-gray-800" x-text="selectedDoc?.number"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Pemasok</span><span class="font-bold text-gray-800" x-text="supplierName"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500" x-text="returnType === 'invoice' ? 'Faktur' : 'PO'"></span><span class="font-bold text-gray-800" x-text="selectedDoc?.number"></span></div>
                 <div class="flex justify-between"><span class="text-gray-500">Total Refund</span><span class="font-black text-purple-600">Rp <span x-text="formatNumber(summary.total)"></span></span></div>
             </div>
             <div class="flex gap-3">
@@ -570,8 +570,8 @@ function returForm(initialData = null) {
             if (total <= 0) return [];
             if (this.returnType === 'po') {
                 return [
-                    { label: 'Dr. 1108 Piutang Lebih Bayar Supplier', amount: total, cssClass: 'text-purple-700 font-bold', indent: false },
-                    { label: 'Cr. 1107 Uang Muka Supplier', amount: total, cssClass: 'text-gray-500 italic', indent: true },
+                    { label: 'Dr. 1108 Piutang Lebih Bayar Pemasok', amount: total, cssClass: 'text-purple-700 font-bold', indent: false },
+                    { label: 'Cr. 1107 Uang Muka Pemasok', amount: total, cssClass: 'text-gray-500 italic', indent: true },
                 ];
             }
             // Invoice

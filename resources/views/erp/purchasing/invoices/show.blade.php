@@ -3,7 +3,7 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <div>
-        <h1 class="text-lg font-semibold">Purchase Invoice — {{ $invoice->invoice_number }}</h1>
+        <h1 class="text-lg font-semibold">Faktur Pembelian — {{ $invoice->invoice_number }}</h1>
         @php
             $cls = match($invoice->status) {
                 'posted' => 'bg-green-100 text-green-700',
@@ -19,11 +19,11 @@
     <div class="flex flex-wrap items-center justify-end gap-2">
         @if($invoice->status === 'draft')
             <a href="{{ route('purchasing.invoices.edit', $invoice->id) }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">Edit</a>
-            <form method="POST" action="{{ route('purchasing.invoices.post', $invoice->id) }}" onsubmit="return confirm('POST invoice ini? Stok akan masuk + jurnal terbuat. Tidak bisa diedit lagi setelah ini.')">
+            <form method="POST" action="{{ route('purchasing.invoices.post', $invoice->id) }}" onsubmit="return confirm('POST faktur ini? Stok akan masuk + jurnal terbuat. Tidak bisa diedit lagi setelah ini.')">
                 @csrf
                 <button class="bg-green-600 text-white px-3 py-2 rounded text-sm">POST</button>
             </form>
-            <form method="POST" action="{{ route('purchasing.invoices.destroy', $invoice->id) }}" onsubmit="return confirm('Hapus invoice draft ini?')">
+            <form method="POST" action="{{ route('purchasing.invoices.destroy', $invoice->id) }}" onsubmit="return confirm('Hapus faktur draf ini?')">
                 @csrf @method('DELETE')
                 <button class="bg-red-600 text-white px-3 py-2 rounded text-sm">Hapus</button>
             </form>
@@ -31,9 +31,9 @@
             @if($invoice->outstanding_amount > 0)
                 <a href="{{ route('purchasing.payments.create', ['supplier_id' => $invoice->supplier_id]) }}" class="bg-indigo-600 text-white px-3 py-2 rounded text-sm">→ Bayar</a>
             @endif
-            <a href="{{ route('purchasing.returns.create', ['invoice_id' => $invoice->id]) }}" class="bg-orange-600 text-white px-3 py-2 rounded text-sm">→ Return</a>
+            <a href="{{ route('purchasing.returns.create', ['invoice_id' => $invoice->id]) }}" class="bg-orange-600 text-white px-3 py-2 rounded text-sm">→ Retur</a>
             @if($invoice->canBeVoided())
-                <form method="POST" action="{{ route('purchasing.invoices.void', $invoice->id) }}" onsubmit="return confirm('VOID invoice ini? Stok akan dikembalikan + jurnal di-void.')">
+                <form method="POST" action="{{ route('purchasing.invoices.void', $invoice->id) }}" onsubmit="return confirm('VOID faktur ini? Stok akan dikembalikan + jurnal di-void.')">
                     @csrf
                     <button class="bg-red-600 text-white px-3 py-2 rounded text-sm">Void</button>
                 </form>
@@ -48,12 +48,12 @@
     <div class="bg-white rounded shadow p-4 text-sm">
         <h3 class="font-semibold mb-2">Header</h3>
         <div class="grid grid-cols-2 gap-2">
-            <div class="text-gray-500">Supplier</div><div>{{ $invoice->supplier->name }}</div>
+            <div class="text-gray-500">Pemasok</div><div>{{ $invoice->supplier->name }}</div>
             <div class="text-gray-500">Gudang</div><div>{{ $invoice->warehouse->name ?? '-' }}</div>
-            <div class="text-gray-500">Tgl Invoice</div><div>{{ $invoice->invoice_date->format('d M Y') }}</div>
+            <div class="text-gray-500">Tgl Faktur</div><div>{{ $invoice->invoice_date->format('d M Y') }}</div>
             <div class="text-gray-500">Jatuh Tempo</div><div>{{ $invoice->due_date ? $invoice->due_date->format('d M Y') : '-' }}</div>
-            <div class="text-gray-500">No Faktur Supplier</div><div>{{ $invoice->supplier_invoice_no ?? '-' }}</div>
-            <div class="text-gray-500">Tgl Faktur Supplier</div><div>{{ $invoice->supplier_invoice_date ? $invoice->supplier_invoice_date->format('d M Y') : '-' }}</div>
+            <div class="text-gray-500">No Faktur Pemasok</div><div>{{ $invoice->supplier_invoice_no ?? '-' }}</div>
+            <div class="text-gray-500">Tgl Faktur Pemasok</div><div>{{ $invoice->supplier_invoice_date ? $invoice->supplier_invoice_date->format('d M Y') : '-' }}</div>
         </div>
     </div>
     <div class="bg-white rounded shadow p-4 text-sm">

@@ -2,13 +2,13 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Purchase Invoice</h1>
-    <a href="{{ route('purchasing.invoices.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Invoice</a>
+    <h1 class="text-lg font-semibold">Faktur Pembelian</h1>
+    <a href="{{ route('purchasing.invoices.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Faktur</a>
 </div>
 
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
-    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Invoice / No supplier / supplier...'])
+    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Faktur / No pemasok / pemasok...'])
     @include('erp.purchasing._partials.date-range')
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
@@ -16,7 +16,7 @@
             <option value="">Semua</option>
             @php
                 $statusOptions = [
-                    'draft'            => 'Draft',
+                    'draft'            => 'Draf',
                     'unpaid'           => 'Belum Lunas',
                     'paid'             => 'Lunas',
                     'returned_partial' => 'Retur Sebagian',
@@ -35,13 +35,13 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">No Invoice</th>
+                <th class="px-3 py-2 text-left">No Faktur</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Supplier</th>
+                <th class="px-3 py-2 text-left">Pemasok</th>
                 <th class="px-3 py-2 text-left">Gudang</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-80">Action</th>
+                <th class="px-3 py-2 text-right w-80">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -82,7 +82,7 @@
                         {{ $inv->invoice_number }}
                         @include('erp.purchasing._partials.copy-btn', ['value' => $inv->invoice_number])
                         @if($isPartial)
-                            <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase" title="Invoice partial dari PO yang dipecah jadi beberapa invoice">Partial</span>
+                            <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase" title="Faktur sebagian dari PO yang dipecah jadi beberapa faktur">Sebagian</span>
                         @endif
                     </td>
                     <td class="px-3 py-2">{{ $inv->invoice_date->format('d M Y') }}</td>
@@ -103,11 +103,11 @@
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
                             <a href="{{ route('purchasing.invoices.print', $inv->id) }}"
-                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Print Invoice">Print</a>
+                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Cetak Faktur">Cetak</a>
 
                             @if($isPosted)
                                 <a href="{{ route('purchasing.returns.create', ['invoice_id' => $inv->id]) }}"
-                                   class="bg-orange-600 text-white px-2 py-1 rounded text-xs" title="Buat retur">Return</a>
+                                   class="bg-orange-600 text-white px-2 py-1 rounded text-xs" title="Buat retur">Retur</a>
 
                                 @if($hasOutstanding)
                                     <a href="{{ route('purchasing.payments.create', ['supplier_id' => $inv->supplier_id]) }}"
@@ -116,7 +116,7 @@
 
                                 @if($inv->canBeVoided())
                                     <form method="POST" action="{{ route('purchasing.invoices.void', $inv->id) }}"
-                                          onsubmit="return confirm('VOID invoice {{ $inv->invoice_number }}? Stok dikembalikan & jurnal di-void.')">
+                                          onsubmit="return confirm('VOID faktur {{ $inv->invoice_number }}? Stok dikembalikan & jurnal di-void.')">
                                         @csrf
                                         <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Void</button>
                                     </form>
@@ -125,7 +125,7 @@
 
                             @if($isDraft)
                                 <form method="POST" action="{{ route('purchasing.invoices.destroy', $inv->id) }}"
-                                      onsubmit="return confirm('Hapus invoice draft {{ $inv->invoice_number }}?')">
+                                      onsubmit="return confirm('Hapus faktur draf {{ $inv->invoice_number }}?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>
@@ -134,7 +134,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada invoice.</td></tr>
+                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada faktur.</td></tr>
             @endforelse
         </tbody>
     </table>

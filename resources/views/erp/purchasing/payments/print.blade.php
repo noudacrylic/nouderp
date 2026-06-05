@@ -1,5 +1,5 @@
 @extends('erp.print._shell', [
-    'printTitle' => 'Pembayaran Supplier ' . $payment->payment_number,
+    'printTitle' => 'Pembayaran Pemasok ' . $payment->payment_number,
     'pdfUrl'     => route('purchasing.payments.pdf', $payment->id),
     'indexUrl'   => route('purchasing.payments.index'),
 ])
@@ -39,7 +39,7 @@
 
 @include('erp._partials.print-header-accurate', [
     'profile'   => $profile,
-    'docTitle'  => 'Pembayaran Supplier',
+    'docTitle'  => 'Pembayaran Pemasok',
     'docNumber' => $payment->payment_number,
     'docDate'   => $payment->payment_date,
     'extraMeta' => [
@@ -49,7 +49,7 @@
 
 {{-- Supplier --}}
 <div class="recipient-block">
-    <div class="lbl">Kepada Supplier</div>
+    <div class="lbl">Kepada Pemasok</div>
     <div class="name">{{ $payment->supplier->name ?? '-' }}</div>
     @if(!empty($payment->supplier?->address))
         <div class="addr">{{ $payment->supplier->address }}</div>

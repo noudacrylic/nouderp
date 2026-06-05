@@ -162,7 +162,7 @@
     <div class="flex justify-between border-t pt-3">
         <a href="{{ route('finance.cash-bank.transfers.index') }}" class="text-gray-500 text-sm">← Kembali</a>
         <div class="flex gap-2">
-            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
             <button type="submit" name="_after_save" value="post" class="bg-green-600 text-white px-4 py-2 rounded text-sm"
                     onclick="return confirm('Simpan & langsung POST?')">Simpan & Post</button>
         </div>

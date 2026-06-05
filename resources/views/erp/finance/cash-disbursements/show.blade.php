@@ -8,7 +8,7 @@
         'void'   => 'bg-red-100 text-red-700',
         default  => 'bg-gray-100 text-gray-700',
     };
-    $typeLabel = ['general'=>'Umum','freight'=>'Bayar Ongkir','customer_refund'=>'Refund Customer'][$cd->type] ?? $cd->type;
+    $typeLabel = ['general'=>'Umum','freight'=>'Bayar Ongkir','customer_refund'=>'Refund Pelanggan'][$cd->type] ?? $cd->type;
 @endphp
 
 <div class="flex items-center justify-between mb-4">
@@ -19,7 +19,7 @@
     <div class="flex gap-2 flex-row-reverse">
         @unless($cd->isVoid())
             <a href="{{ route('finance.cash-bank.disbursements.print', $cd->id) }}"
-               class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Print</a>
+               class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Cetak</a>
         @endunless
         @if($cd->isDraft())
             <form method="POST" action="{{ route('finance.cash-bank.disbursements.post', $cd->id) }}" class="inline"
@@ -36,7 +36,7 @@
                 <button class="bg-red-600 text-white px-3 py-1.5 rounded text-sm">Void</button>
             </form>
         @endif
-        <a href="{{ route($cd->listRouteName()) }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List</a>
+        <a href="{{ route($cd->listRouteName()) }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
     </div>
 </div>
 
@@ -47,7 +47,7 @@
         <div><div class="text-xs text-gray-500">Tanggal</div>{{ $cd->date->format('d M Y') }}</div>
         <div><div class="text-xs text-gray-500">Sumber Kas/Bank</div>{{ $cd->cashAccount->code ?? '' }} — {{ $cd->cashAccount->name ?? '' }}</div>
         @if($cd->customer)
-            <div><div class="text-xs text-gray-500">Customer</div>{{ $cd->customer->name }}</div>
+            <div><div class="text-xs text-gray-500">Pelanggan</div>{{ $cd->customer->name }}</div>
         @endif
         @if($cd->payee)
             <div><div class="text-xs text-gray-500">Penerima</div>{{ $cd->payee }}</div>
@@ -56,7 +56,7 @@
             <div><div class="text-xs text-gray-500">Referensi</div>{{ $cd->reference }}</div>
         @endif
         @if($cd->journal_id)
-            <div><div class="text-xs text-gray-500">Journal</div>#{{ $cd->journal_id }}</div>
+            <div><div class="text-xs text-gray-500">Jurnal</div>#{{ $cd->journal_id }}</div>
         @endif
     </div>
     @if($cd->notes)
@@ -81,8 +81,8 @@
         <table class="w-full text-sm">
             <thead class="bg-gray-50 border-b text-xs uppercase text-gray-600">
                 <tr>
-                    <th class="px-3 py-2 text-left">Customer</th>
-                    <th class="px-3 py-2 text-left">Invoice</th>
+                    <th class="px-3 py-2 text-left">Pelanggan</th>
+                    <th class="px-3 py-2 text-left">Faktur</th>
                     <th class="px-3 py-2 text-left">SJ / Resi</th>
                     <th class="px-3 py-2 text-right w-32">Titipan</th>
                     <th class="px-3 py-2 text-right w-32">Bayar Aktual</th>

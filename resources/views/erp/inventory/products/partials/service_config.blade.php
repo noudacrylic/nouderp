@@ -1,6 +1,6 @@
 <div class="bg-white shadow rounded-lg border border-gray-100 flex flex-col h-full">
     <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
-        <h3 class="font-bold text-gray-700 uppercase tracking-tight text-sm">SETTING AKUN PENDAPATAN</h3>
+        <h3 class="font-bold text-gray-700 uppercase tracking-tight text-sm">PENGATURAN AKUN PENDAPATAN</h3>
     </div>
 
     <form action="{{ route('inventory.products.update-info', $product->id) }}" method="POST"

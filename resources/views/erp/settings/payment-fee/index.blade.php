@@ -3,7 +3,7 @@
 @section('content')
 <div class="w-full px-6 py-4">
     <div class="mb-6">
-        <h1 class="text-xl font-bold text-gray-800">Payment Fee Settings</h1>
+        <h1 class="text-xl font-bold text-gray-800">Pengaturan Biaya Pembayaran</h1>
         <p class="text-xs text-gray-500">Konfigurasi biaya admin otomatis berdasarkan akun kas/bank yang dipilih.</p>
     </div>
 
@@ -14,7 +14,7 @@
         <div class="lg:col-span-1">
             <div class="bg-white border rounded-xl shadow-sm overflow-hidden">
                 <div class="p-4 border-b bg-gray-50">
-                    <h2 class="text-sm font-black text-gray-700 uppercase tracking-widest">Tambah / Edit Setting</h2>
+                    <h2 class="text-sm font-black text-gray-700 uppercase tracking-widest">Tambah / Edit Pengaturan</h2>
                 </div>
                 <form action="{{ route('settings.payment-fee.store') }}" method="POST" id="fee_form" class="p-5 space-y-4">
                     @csrf
@@ -42,7 +42,7 @@
                     </div>
 
                     <div>
-                        <label class="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-widest">Akun Beban Fee</label>
+                        <label class="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-widest">Akun Beban Biaya</label>
                         <select name="expense_account_id" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 outline-none transition" required>
                             <option value="">-- PILIH AKUN BEBAN --</option>
                             @foreach($expenseAccounts as $acc)
@@ -53,7 +53,7 @@
 
                     <div class="pt-4 flex gap-2">
                         <button type="submit" id="btn-submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-blue-100 transition active:scale-95">
-                            Simpan Setting
+                            Simpan Pengaturan
                         </button>
                         <button type="button" id="btn-reset" onclick="resetForm()" class="hidden bg-gray-100 hover:bg-gray-200 text-gray-500 font-bold px-4 py-3 rounded-xl text-[10px] uppercase tracking-widest transition active:scale-95">
                             Reset
@@ -70,7 +70,7 @@
                     <thead>
                         <tr class="bg-gray-50 border-b">
                             <th class="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-[10px]">Akun Kas</th>
-                            <th class="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-[10px]">Flat</th>
+                            <th class="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-[10px]">Tetap</th>
                             <th class="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-[10px]">Persen</th>
                             <th class="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-[10px]">Akun Beban</th>
                             <th class="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-[10px]"></th>
@@ -99,7 +99,7 @@
                                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M16.242 3.758a2.121 2.121 0 013 3L12 15l-4 1 1-4 7.242-7.242z" />
                                         </svg>
                                     </button>
-                                    <form action="{{ route('settings.payment-fee.destroy', $setting->id) }}" method="POST" onsubmit="return confirm('Hapus setting ini?')">
+                                    <form action="{{ route('settings.payment-fee.destroy', $setting->id) }}" method="POST" onsubmit="return confirm('Hapus pengaturan ini?')">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="text-red-400 hover:text-red-600 transition p-2">

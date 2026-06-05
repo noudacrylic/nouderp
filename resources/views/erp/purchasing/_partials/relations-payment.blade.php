@@ -20,7 +20,7 @@
             ];
         }
         if (!empty($items)) {
-            $groups[] = ['label' => 'Invoice Dialokasikan', 'items' => $items];
+            $groups[] = ['label' => 'Faktur Dialokasikan', 'items' => $items];
         }
     }
 
@@ -68,7 +68,7 @@
 
 @include('erp.purchasing._partials.relations-shell', [
     'title'   => 'Keterkaitan Dokumen Pembayaran',
-    'hint'    => 'Saat payment di-void, alokasi ke invoice & saldo DP yang dipakai retur akan dibalik.',
+    'hint'    => 'Saat pembayaran di-void, alokasi ke faktur & saldo DP yang dipakai retur akan dibalik.',
     'groups'  => $groups,
     'canVoid' => $payment->canBeVoided(),
 ])

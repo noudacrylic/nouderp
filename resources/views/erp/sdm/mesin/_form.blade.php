@@ -11,7 +11,7 @@
         <div class="text-sm font-semibold text-gray-700 mb-3 border-b pb-2">Identitas Mesin</div>
         <div class="grid grid-cols-2 gap-4">
             <div>
-                <label class="block text-xs text-gray-500 mb-1">Code <span class="text-red-500">*</span></label>
+                <label class="block text-xs text-gray-500 mb-1">Kode <span class="text-red-500">*</span></label>
                 <input type="text" name="code" required value="{{ old('code', $machine->code ?? '') }}" class="border rounded px-3 py-2 w-full" placeholder="FP-01">
             </div>
             <div>

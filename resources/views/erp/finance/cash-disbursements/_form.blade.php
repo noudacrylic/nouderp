@@ -26,8 +26,8 @@
 
     $typeSubtitles = [
         'general'         => 'Beban / akun pengeluaran → Kas/Bank',
-        'freight'         => 'Titipan Ongkir (1203) → Kas/Bank, ambil otomatis dari invoice',
-        'customer_refund' => 'Overpay Customer (2106) → Kas/Bank',
+        'freight'         => 'Titipan Ongkir (1203) → Kas/Bank, ambil otomatis dari faktur',
+        'customer_refund' => 'Overpay Pelanggan (2106) → Kas/Bank',
     ];
 @endphp
 
@@ -47,7 +47,7 @@
             <select name="type" id="cdType" class="border rounded px-2 h-9 w-full" required>
                 <option value="general"         @selected($defaults['type']==='general')>Umum</option>
                 <option value="freight"         @selected($defaults['type']==='freight')>Bayar Ongkir</option>
-                <option value="customer_refund" @selected($defaults['type']==='customer_refund')>Refund Customer</option>
+                <option value="customer_refund" @selected($defaults['type']==='customer_refund')>Refund Pelanggan</option>
             </select>
             <div id="typeSubtitle" class="text-[11px] text-gray-400 mt-1"></div>
         </div>
@@ -83,11 +83,11 @@
         <div class="bg-purple-50 border border-purple-200 rounded p-3 space-y-2">
             <div class="grid grid-cols-12 gap-3 items-end">
                 <div class="col-span-7">
-                    <label class="block text-xs font-semibold text-purple-700 mb-1">Customer (penerima refund) <span class="text-red-500">*</span></label>
+                    <label class="block text-xs font-semibold text-purple-700 mb-1">Pelanggan (penerima refund) <span class="text-red-500">*</span></label>
                     <input type="text" list="customerOverpayList" id="customerSearch"
                            value="{{ $selectedCustomerLabel }}"
                            class="border rounded px-2 h-9 w-full"
-                           placeholder="Ketik nama customer…">
+                           placeholder="Ketik nama pelanggan…">
                     <input type="hidden" name="customer_id" id="customerId" value="{{ $defaults['customer_id'] }}">
                 </div>
                 <div class="col-span-5">
@@ -102,7 +102,7 @@
                 </div>
             </div>
             <div class="text-[11px] text-purple-700">
-                Hanya customer dengan saldo overpay &gt; 0 yang muncul. Total refund tidak boleh melebihi saldo.
+                Hanya pelanggan dengan saldo overpay &gt; 0 yang muncul. Total refund tidak boleh melebihi saldo.
             </div>
         </div>
 
@@ -117,7 +117,7 @@
     {{-- ============ GENERIC TABLE (general & customer_refund) ============ --}}
     <div id="genericSection">
         <div class="flex items-center justify-between mb-2">
-            <h3 class="text-sm font-semibold">Detail</h3>
+            <h3 class="text-sm font-semibold">Rincian</h3>
             <button type="button" id="btnAddLine" class="bg-green-600 text-white px-2 py-1 rounded text-xs">+ Baris</button>
         </div>
         <table class="w-full text-sm" id="linesTable">
@@ -143,14 +143,14 @@
     {{-- ============ FREIGHT TABLE ============ --}}
     <div id="freightSection" class="hidden">
         <div class="flex items-center justify-between mb-2 gap-3 flex-wrap">
-            <h3 class="text-sm font-semibold">Titipan Ongkir per Invoice</h3>
+            <h3 class="text-sm font-semibold">Titipan Ongkir per Faktur</h3>
             <div class="flex items-center gap-2 flex-wrap">
                 <input type="text" id="freightSearch" class="border rounded px-2 h-8 text-sm w-72"
-                       placeholder="Cari customer / no invoice / no SJ / resi…">
+                       placeholder="Cari pelanggan / no faktur / no SJ / resi…">
                 <span id="freightStatus" class="text-xs text-gray-500"></span>
                 <a href="{{ route('finance.cash-bank.disbursements.freight-import-template') }}"
                    class="text-xs text-blue-700 hover:underline whitespace-nowrap"
-                   title="Download template Excel">⬇ Template</a>
+                   title="Unduh template Excel">⬇ Template</a>
                 <label class="cursor-pointer bg-amber-600 hover:bg-amber-700 text-white px-2 h-8 inline-flex items-center rounded text-xs font-semibold"
                        title="Format: 2 kolom — A: No Inv/DO/Resi, B: Bayar Aktual">
                     📤 Upload Excel
@@ -164,8 +164,8 @@
                 <thead class="bg-gray-50 border-b text-xs uppercase text-gray-600">
                     <tr>
                         <th class="px-2 py-2 text-center w-10">Pilih</th>
-                        <th class="px-2 py-2 text-left">Customer</th>
-                        <th class="px-2 py-2 text-left">No Invoice</th>
+                        <th class="px-2 py-2 text-left">Pelanggan</th>
+                        <th class="px-2 py-2 text-left">No Faktur</th>
                         <th class="px-2 py-2 text-left">No SJ / Resi</th>
                         <th class="px-2 py-2 text-right" style="width:130px">Titipan</th>
                         <th class="px-2 py-2 text-right" style="width:160px">Bayar Aktual</th>
@@ -173,7 +173,7 @@
                     </tr>
                 </thead>
                 <tbody id="freightBody">
-                    <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400" id="freightEmpty">Memuat invoice…</td></tr>
+                    <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400" id="freightEmpty">Memuat faktur…</td></tr>
                 </tbody>
                 <tfoot class="border-t font-semibold bg-gray-50">
                     <tr>
@@ -187,7 +187,7 @@
         </div>
         <div class="text-xs text-gray-500 mt-1">
             Selisih lebih (titipan &gt; aktual) → pendapatan. Selisih kurang → beban.
-            Konfigurasi akun di <a href="{{ route('settings.freight.edit') }}" class="text-blue-600 underline">Settings &gt; Pengaturan Ongkir</a>.
+            Konfigurasi akun di <a href="{{ route('settings.freight.edit') }}" class="text-blue-600 underline">Pengaturan &gt; Pengaturan Ongkir</a>.
         </div>
     </div>
 
@@ -205,7 +205,7 @@
     <div class="flex justify-between border-t pt-3">
         <a href="{{ route(\App\Modules\Finance\Models\CashDisbursement::listRouteForType($type ?? 'general')) }}" class="text-gray-500 text-sm">← Kembali</a>
         <div class="flex gap-2">
-            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
             <button type="submit" name="_after_save" value="post" class="bg-green-600 text-white px-4 py-2 rounded text-sm"
                     onclick="return confirm('Simpan & langsung POST?')">Simpan & Post</button>
         </div>
@@ -363,7 +363,7 @@ async function loadFreightInvoices(q = ''){
         const res = await fetch(url);
         const data = await res.json();
         renderFreightRows(data);
-        freightStatus.textContent = `${data.length} invoice`;
+        freightStatus.textContent = `${data.length} faktur`;
         freightLoaded = true;
     } catch(e){
         freightStatus.textContent = 'gagal load: ' + e.message;
@@ -373,7 +373,7 @@ async function loadFreightInvoices(q = ''){
 function renderFreightRows(rows){
     freightBody.innerHTML = '';
     if (!rows.length) {
-        freightBody.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Tidak ada invoice yang belum dibayar ongkirnya.</td></tr>`;
+        freightBody.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Tidak ada faktur yang belum dibayar ongkirnya.</td></tr>`;
         recalcFreight();
         return;
     }
@@ -553,7 +553,7 @@ freightImportFile.addEventListener('change', async (e) => {
             : 'bg-amber-50 border-amber-200 text-amber-800';
         freightImportReport.className = 'mb-2 text-xs rounded border px-3 py-2 ' + cls;
 
-        let html = `<b>✓ ${applied} invoice di-import & ter-centang.</b>`;
+        let html = `<b>✓ ${applied} faktur di-import & ter-centang.</b>`;
         if (skipped.length) {
             html += `<div class="mt-1"><b>${skipped.length} baris di-skip:</b><ul class="list-disc ml-5">`;
             skipped.slice(0, 10).forEach(s => {

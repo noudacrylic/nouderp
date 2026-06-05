@@ -210,7 +210,7 @@
 
     <div class="flex justify-end gap-2">
         <a href="{{ route('finance.cash-bank.salary-payments.index') }}" class="text-gray-600 px-3 py-2 text-sm">Batal</a>
-        <button type="submit" name="_after_save" value="draft" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+        <button type="submit" name="_after_save" value="draft" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
         <button type="submit" name="_after_save" value="post" class="bg-green-600 text-white px-4 py-2 rounded text-sm font-semibold">Simpan &amp; Post</button>
     </div>
 </form>

@@ -45,7 +45,7 @@
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     <div class="md:col-span-2 bg-white rounded shadow p-4 text-sm">
-        <h2 class="font-semibold mb-3 border-b pb-2">Detail Kasbon</h2>
+        <h2 class="font-semibold mb-3 border-b pb-2">Rincian Kasbon</h2>
         <dl class="grid grid-cols-2 gap-y-2">
             <dt class="text-gray-500">Karyawan</dt><dd>{{ $kasbon->karyawan->name }} <span class="text-xs text-gray-500">({{ $kasbon->karyawan->staf_code }})</span></dd>
             <dt class="text-gray-500">Tanggal Pengajuan</dt><dd>{{ $kasbon->tanggal_pengajuan?->format('d M Y') }}</dd>

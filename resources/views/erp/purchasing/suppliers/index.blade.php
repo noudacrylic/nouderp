@@ -2,8 +2,8 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Supplier</h1>
-    <a href="{{ route('purchasing.suppliers.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Supplier</a>
+    <h1 class="text-lg font-semibold">Pemasok</h1>
+    <a href="{{ route('purchasing.suppliers.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Pemasok</a>
 </div>
 
 
@@ -26,11 +26,11 @@
                 <th class="px-3 py-2 text-left">Telp</th>
                 <th class="px-3 py-2 text-left">Kota</th>
                 <th class="px-3 py-2 text-right w-20">Term (hari)</th>
-                <th class="px-3 py-2 text-right w-32" title="Hutang Usaha (AP/2101) — outstanding invoice posted">Hutang</th>
-                <th class="px-3 py-2 text-right w-32" title="Saldo Uang Muka Supplier (1107) — auto-apply ke invoice">DP (1107)</th>
-                <th class="px-3 py-2 text-right w-32" title="Saldo Piutang Lebih Bayar Supplier (1108) — bisa dipakai via Gunakan Saldo">Piutang (1108)</th>
+                <th class="px-3 py-2 text-right w-32" title="Hutang Usaha (AP/2101) — outstanding faktur diposting">Hutang</th>
+                <th class="px-3 py-2 text-right w-32" title="Saldo Uang Muka Pemasok (1107) — auto-apply ke faktur">DP (1107)</th>
+                <th class="px-3 py-2 text-right w-32" title="Saldo Piutang Lebih Bayar Pemasok (1108) — bisa dipakai via Gunakan Saldo">Piutang (1108)</th>
                 <th class="px-3 py-2 text-center w-20">Status</th>
-                <th class="px-3 py-2 text-left w-20">Detail</th>
+                <th class="px-3 py-2 text-left w-20">Rincian</th>
             </tr>
         </thead>
         <tbody>
@@ -61,11 +61,11 @@
                         @endif
                     </td>
                     <td class="px-3 py-2">
-                        <a href="{{ route('purchasing.suppliers.show', $s->id) }}" class="text-gray-600">Detail</a>
+                        <a href="{{ route('purchasing.suppliers.show', $s->id) }}" class="text-gray-600">Rincian</a>
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="10" class="px-3 py-6 text-center text-gray-400">Belum ada supplier.</td></tr>
+                <tr><td colspan="10" class="px-3 py-6 text-center text-gray-400">Belum ada pemasok.</td></tr>
             @endforelse
         </tbody>
         @if($suppliers->count())

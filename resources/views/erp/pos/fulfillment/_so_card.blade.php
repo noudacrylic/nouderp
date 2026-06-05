@@ -156,7 +156,7 @@
     @if($mode === 'perlu_diproses')
         <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
             <a href="{{ route('sales.orders.print', $r['id']) }}"
-               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Print SO</a>
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
             @unless($r['is_lunas'])
                 <a href="{{ route('sales.payment.create', ['customer_id' => $r['customer_id'], 'so_id' => $r['id'], 'mode' => 'uang_muka']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">💵 Cash</a>
@@ -169,7 +169,7 @@
                 <a href="{{ route('sales.deliveries.createFromSO', $r['id']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">📦 Kirim Sebagian</a>
                 <form action="{{ route('pos.fulfillment.proses', $r['id']) }}" method="POST" class="flex items-center gap-1.5"
-                      onsubmit="return confirm('Proses pesanan {{ $r['number'] }}? Invoice + Surat Jalan akan dibuat otomatis.')">
+                      onsubmit="return confirm('Proses pesanan {{ $r['number'] }}? Faktur + Surat Jalan akan dibuat otomatis.')">
                     @csrf
                     @if($r['is_pickup'])
                         <input type="text" name="pickup_code" placeholder="Kode (4 angka)" required
@@ -190,7 +190,7 @@
     @elseif($mode === 'belum_siap')
         <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
             <a href="{{ route('sales.orders.print', $r['id']) }}"
-               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Print SO</a>
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
             @unless($r['is_lunas'])
                 <a href="{{ route('sales.payment.create', ['customer_id' => $r['customer_id'], 'so_id' => $r['id'], 'mode' => 'uang_muka']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">💵 Cash</a>
@@ -208,12 +208,12 @@
         @endphp
         <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
             <a href="{{ route('sales.orders.print', $r['id']) }}"
-               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Print SO</a>
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
             @if(!empty($r['invoice']))
                 <a href="{{ route('sales.invoices.print', $r['invoice']->id) }}"
-                   class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Print Invoice</a>
+                   class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</a>
                 <a href="{{ route('sales.invoices.show', $r['invoice']->id) }}"
-                   class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Lihat Invoice</a>
+                   class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Lihat Faktur</a>
             @endif
         </div>
         @if($deliveries->count())
@@ -228,7 +228,7 @@
                             @if($d->delivery_method !== 'ambil_toko')
                                 @if($d->tracking_number)
                                     <a href="{{ route('sales.deliveries.resi', $d->id) }}"
-                                       class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Print Resi</a>
+                                       class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Resi</a>
                                     <a href="{{ route('sales.deliveries.track', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🔎 Lacak</a>
                                 @else
@@ -240,7 +240,7 @@
                                 @endif
                             @endif
                             <a href="{{ route('sales.deliveries.print', $d->id) }}"
-                               class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Print SJ</a>
+                               class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Cetak SJ</a>
                         </div>
                     </div>
                 @endforeach

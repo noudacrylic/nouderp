@@ -40,7 +40,7 @@
             <div class="text-xl font-bold text-indigo-700" id="stat-potensi">{{ $rp($sales['totalPotensi']) }}</div>
         </div>
         <div class="rounded-lg border border-gray-100 border-l-4 border-l-emerald-500 bg-emerald-50/30 p-3">
-            <div class="text-xs text-gray-500">Penjualan <span class="text-gray-400">(Invoice terbentuk)</span></div>
+            <div class="text-xs text-gray-500">Penjualan <span class="text-gray-400">(Faktur terbentuk)</span></div>
             <div class="text-xl font-bold text-emerald-700" id="stat-penjualan">{{ $rp($sales['totalPenjualan']) }}</div>
         </div>
     </div>

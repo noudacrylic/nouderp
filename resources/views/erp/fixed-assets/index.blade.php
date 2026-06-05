@@ -22,7 +22,7 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach(['draft'=>'Draft','active'=>'Aktif','disposed'=>'Disposed','voided'=>'Void'] as $v=>$l)
+            @foreach(['draft'=>'Draf','active'=>'Aktif','disposed'=>'Disposed','voided'=>'Void'] as $v=>$l)
                 <option value="{{ $v }}" @selected(request('status')==$v)>{{ $l }}</option>
             @endforeach
         </select>
@@ -56,18 +56,18 @@
                 <th class="px-3 py-2 text-left">Kategori</th>
                 <th class="px-3 py-2 text-left">Gudang</th>
                 <th class="px-3 py-2 text-left">Tgl Perolehan</th>
-                <th class="px-3 py-2 text-right">Cost</th>
+                <th class="px-3 py-2 text-right">Biaya</th>
                 <th class="px-3 py-2 text-right">Akumulasi</th>
                 <th class="px-3 py-2 text-right">Nilai Buku</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
             @forelse($assets as $asset)
                 @php
                     [$statusLabel, $statusCls] = match($asset->status) {
-                        'draft'    => ['Draft', 'bg-yellow-100 text-yellow-700'],
+                        'draft'    => ['Draf', 'bg-yellow-100 text-yellow-700'],
                         'active'   => ['Aktif', 'bg-green-100 text-green-700'],
                         'disposed' => ['Disposed', 'bg-gray-200 text-gray-600'],
                         'voided'   => ['Void', 'bg-red-100 text-red-700'],
@@ -108,7 +108,7 @@
                                 <a href="{{ route('fixed-assets.transfers.create', ['asset_id' => $asset->id]) }}" class="bg-blue-500 text-white px-2 py-1 rounded text-xs">Transfer</a>
                             @endif
                             @if($asset->status === 'draft')
-                                <form method="POST" action="{{ route('fixed-assets.destroy', $asset->id) }}" onsubmit="return confirm('Hapus aset draft ini?')">
+                                <form method="POST" action="{{ route('fixed-assets.destroy', $asset->id) }}" onsubmit="return confirm('Hapus aset draf ini?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-gray-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>

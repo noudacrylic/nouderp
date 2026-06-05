@@ -18,15 +18,15 @@
 <div class="bg-white rounded shadow p-4 mb-4">
     <div class="grid grid-cols-4 gap-3">
         <div>
-            <label class="block text-sm mb-1">Supplier <span class="text-red-500">*</span></label>
+            <label class="block text-sm mb-1">Pemasok <span class="text-red-500">*</span></label>
             <div class="flex gap-1">
                 <div class="relative flex-1">
-                    <input type="text" id="supplierSearch" class="border rounded px-3 py-2 w-full" placeholder="Ketik nama / kode supplier..." autocomplete="off"
+                    <input type="text" id="supplierSearch" class="border rounded px-3 py-2 w-full" placeholder="Ketik nama / kode pemasok..." autocomplete="off"
                            value="{{ old('supplier_id') ? '' : (isset($po) && $po->supplier ? $po->supplier->name . ' (' . $po->supplier->code . ')' : '') }}" required>
                     <input type="hidden" name="supplier_id" id="supplierId" value="{{ old('supplier_id', $po->supplier_id ?? '') }}">
                     <div id="supplierResults" class="hidden absolute z-30 left-0 right-0 mt-1 bg-white border rounded shadow max-h-60 overflow-y-auto text-sm"></div>
                 </div>
-                <button type="button" id="btnNewSupplier" class="bg-green-600 text-white px-3 rounded text-sm" title="Tambah supplier baru">+</button>
+                <button type="button" id="btnNewSupplier" class="bg-green-600 text-white px-3 rounded text-sm" title="Tambah pemasok baru">+</button>
             </div>
         </div>
         <div>
@@ -181,7 +181,7 @@
     </button>
     <button type="submit" name="_after_save" value="print"
         class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-bold transition">
-        Print
+        Cetak
     </button>
 </div>
 
@@ -189,7 +189,7 @@
 <div id="modalSupplier" class="fixed inset-0 hidden items-center justify-center" style="background-color: rgba(0,0,0,0.55); z-index: 9999;">
     <div class="bg-white rounded-lg shadow-2xl w-full max-w-md p-5" style="margin: 16px;">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="font-semibold">Tambah Supplier Baru</h3>
+            <h3 class="font-semibold">Tambah Pemasok Baru</h3>
             <button type="button" class="text-gray-400 hover:text-gray-700 text-xl" id="closeModal">&times;</button>
         </div>
         <div id="modalError" class="hidden bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded text-sm mb-3"></div>

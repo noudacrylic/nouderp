@@ -11,9 +11,9 @@
 </head>
 <body class="bg-gray-100">
     <div class="no-print bg-white border-b px-6 py-3 flex justify-between items-center">
-        <div class="text-sm text-gray-600">Preview slip — pakai tombol Print untuk cetak.</div>
+        <div class="text-sm text-gray-600">Pratinjau slip — pakai tombol Cetak untuk mencetak.</div>
         <div class="flex gap-2">
-            <button onclick="window.print()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">🖨 Print</button>
+            <button onclick="window.print()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">🖨 Cetak</button>
             <a href="{{ route('sdm.slip-gaji.show', $slip->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700">Tutup</a>
         </div>
     </div>

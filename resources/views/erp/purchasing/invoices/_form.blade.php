@@ -22,21 +22,21 @@
     <div class="grid grid-cols-4 gap-3">
         {{-- Baris 1 --}}
         <div>
-            <label class="block text-sm mb-1">Supplier <span class="text-red-500">*</span></label>
+            <label class="block text-sm mb-1">Pemasok <span class="text-red-500">*</span></label>
             <div class="flex gap-1">
                 <div class="relative flex-1">
-                    <input type="text" id="supplierSearch" class="border rounded px-3 py-2 w-full" placeholder="Ketik nama / kode supplier..." autocomplete="off"
+                    <input type="text" id="supplierSearch" class="border rounded px-3 py-2 w-full" placeholder="Ketik nama / kode pemasok..." autocomplete="off"
                            value="{{ $preSupplier ? $preSupplier->name . ' (' . $preSupplier->code . ')' : '' }}" required>
                     <input type="hidden" name="supplier_id" id="supplierId" value="{{ $preSupplierId }}">
                     <div id="supplierResults" class="invc-dropdown"></div>
                 </div>
-                <button type="button" id="btnNewSupplier" class="bg-green-600 text-white px-3 rounded text-sm" title="Tambah supplier baru">+</button>
+                <button type="button" id="btnNewSupplier" class="bg-green-600 text-white px-3 rounded text-sm" title="Tambah pemasok baru">+</button>
             </div>
         </div>
         <div>
             <label class="block text-sm mb-1">Nomor PO</label>
             <div class="relative">
-                <input type="text" id="poSearch" class="border rounded px-3 py-2 w-full" placeholder="Pilih supplier dulu..." autocomplete="off"
+                <input type="text" id="poSearch" class="border rounded px-3 py-2 w-full" placeholder="Pilih pemasok dulu..." autocomplete="off"
                        value="{{ $prePoNumber }}" {{ $preSupplierId ? '' : 'disabled' }}>
                 <input type="hidden" name="purchase_order_id" id="poId" value="{{ $prePoId }}">
                 <div id="poResults" class="invc-dropdown"></div>
@@ -53,17 +53,17 @@
             </select>
         </div>
         <div>
-            <label class="block text-sm mb-1">Tanggal Invoice <span class="text-red-500">*</span></label>
+            <label class="block text-sm mb-1">Tanggal Faktur <span class="text-red-500">*</span></label>
             <input type="date" name="invoice_date" class="border rounded px-3 py-2 w-full" value="{{ old('invoice_date', isset($invoice) ? $invoice->invoice_date->format('Y-m-d') : now()->format('Y-m-d')) }}" required>
         </div>
 
         {{-- Baris 2 --}}
         <div>
-            <label class="block text-sm mb-1">No. Faktur Supplier</label>
+            <label class="block text-sm mb-1">No. Faktur Pemasok</label>
             <input type="text" name="supplier_invoice_no" class="border rounded px-3 py-2 w-full" value="{{ old('supplier_invoice_no', $invoice->supplier_invoice_no ?? '') }}">
         </div>
         <div>
-            <label class="block text-sm mb-1">Tgl Faktur Supplier</label>
+            <label class="block text-sm mb-1">Tgl Faktur Pemasok</label>
             <input type="date" name="supplier_invoice_date" class="border rounded px-3 py-2 w-full" value="{{ old('supplier_invoice_date', isset($invoice) && $invoice->supplier_invoice_date ? $invoice->supplier_invoice_date->format('Y-m-d') : '') }}">
         </div>
         <div>
@@ -71,9 +71,9 @@
             <input type="date" name="due_date" class="border rounded px-3 py-2 w-full" value="{{ old('due_date', isset($invoice) && $invoice->due_date ? $invoice->due_date->format('Y-m-d') : '') }}">
         </div>
         <div>
-            <label class="block text-sm mb-1">Saldo DP Supplier</label>
+            <label class="block text-sm mb-1">Saldo DP Pemasok</label>
             <input type="text" id="dpDisplay" class="border rounded px-3 py-2 w-full bg-purple-50 text-purple-700 font-semibold text-right" readonly value="Rp 0">
-            <p class="text-[10px] text-gray-500 mt-1">Otomatis di-apply ke AP saat invoice posted.</p>
+            <p class="text-[10px] text-gray-500 mt-1">Otomatis di-apply ke AP saat faktur diposting.</p>
         </div>
     </div>
 </div>
@@ -208,7 +208,7 @@
     <a href="{{ route('purchasing.invoices.index') }}" class="px-4 py-2 border rounded text-sm font-bold text-gray-600 hover:bg-gray-50 transition">Batal</a>
     <button type="submit" name="_after_save" value=""
         class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm font-bold transition">
-        Draft
+        Draf
     </button>
     <button type="submit" name="_after_save" value="post"
         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold transition">
@@ -216,7 +216,7 @@
     </button>
     <button type="submit" name="_after_save" value="print"
         class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-bold transition">
-        Print
+        Cetak
     </button>
 </div>
 
@@ -224,7 +224,7 @@
 <div id="modalSupplier" class="fixed inset-0 hidden items-center justify-center" style="background-color: rgba(0,0,0,0.55); z-index: 9999;">
     <div class="bg-white rounded-lg shadow-2xl w-full max-w-md p-5" style="margin: 16px;">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="font-semibold">Tambah Supplier Baru</h3>
+            <h3 class="font-semibold">Tambah Pemasok Baru</h3>
             <button type="button" class="text-gray-400 hover:text-gray-700 text-xl" id="closeModal">&times;</button>
         </div>
         <div id="modalError" class="hidden bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded text-sm mb-3"></div>
@@ -430,7 +430,7 @@
     function renderPoResults(list){
         poResults.innerHTML = '';
         if (!openPos.length){
-            poResults.innerHTML = '<div class="item text-gray-400">Tidak ada PO open untuk supplier ini.</div>';
+            poResults.innerHTML = '<div class="item text-gray-400">Tidak ada PO open untuk pemasok ini.</div>';
         } else if (!list.length){
             poResults.innerHTML = '<div class="item text-gray-400">Tidak ada hasil.</div>';
         } else {

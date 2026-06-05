@@ -2,13 +2,13 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Supplier Payment</h1>
-    <a href="{{ route('purchasing.payments.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Payment</a>
+    <h1 class="text-lg font-semibold">Pembayaran Pemasok</h1>
+    <a href="{{ route('purchasing.payments.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Pembayaran</a>
 </div>
 
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
-    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Payment atau supplier...'])
+    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Pembayaran atau pemasok...'])
     @include('erp.purchasing._partials.date-range')
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
@@ -25,16 +25,16 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">No Payment</th>
+                <th class="px-3 py-2 text-left">No Pembayaran</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Supplier</th>
+                <th class="px-3 py-2 text-left">Pemasok</th>
                 <th class="px-3 py-2 text-left">Tipe</th>
-                <th class="px-3 py-2 text-left">Method</th>
+                <th class="px-3 py-2 text-left">Metode</th>
                 <th class="px-3 py-2 text-right">Nominal</th>
                 <th class="px-3 py-2 text-right">Teralokasi</th>
                 <th class="px-3 py-2 text-right">Sisa (DP)</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-56">Action</th>
+                <th class="px-3 py-2 text-right w-56">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -100,11 +100,11 @@
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
                             <a href="{{ route('purchasing.payments.print', $p->id) }}"
-                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Print Payment">Print</a>
+                               class="bg-gray-700 text-white px-2 py-1 rounded text-xs" title="Cetak Pembayaran">Cetak</a>
 
                             @if($p->canBeVoided())
                                 <form method="POST" action="{{ route('purchasing.payments.void', $p->id) }}"
-                                      onsubmit="return confirm('VOID payment {{ $p->payment_number }}?')">
+                                      onsubmit="return confirm('VOID pembayaran {{ $p->payment_number }}?')">
                                     @csrf
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Void</button>
                                 </form>
@@ -112,7 +112,7 @@
 
                             @if($isDraft)
                                 <form method="POST" action="{{ route('purchasing.payments.destroy', $p->id) }}"
-                                      onsubmit="return confirm('Hapus payment draft {{ $p->payment_number }}?')">
+                                      onsubmit="return confirm('Hapus pembayaran draf {{ $p->payment_number }}?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>
@@ -121,7 +121,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="10" class="px-3 py-6 text-center text-gray-400">Belum ada payment.</td></tr>
+                <tr><td colspan="10" class="px-3 py-6 text-center text-gray-400">Belum ada pembayaran.</td></tr>
             @endforelse
         </tbody>
     </table>

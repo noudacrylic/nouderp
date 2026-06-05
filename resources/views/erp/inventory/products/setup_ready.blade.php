@@ -7,8 +7,8 @@
         <div class="bg-blue-600 rounded-xl p-6 text-white shadow-lg overflow-hidden relative">
             <div class="relative z-10 flex justify-between items-center">
                 <div>
-                    <h1 class="text-2xl font-bold">Step 2: Product Setup (Ready Stock)</h1>
-                    <p class="text-blue-100 mt-1">Configure details for: <span
+                    <h1 class="text-2xl font-bold">Langkah 2: Setup Produk (Ready Stock)</h1>
+                    <p class="text-blue-100 mt-1">Atur rincian untuk: <span
                             class="font-bold underline">{{ $product->name }}</span> ({{ $product->sku }})</p>
                 </div>
                 <span

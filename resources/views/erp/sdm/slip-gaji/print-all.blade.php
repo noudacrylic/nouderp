@@ -15,7 +15,7 @@
     <div class="no-print bg-white border-b px-6 py-3 flex justify-between items-center">
         <div class="text-sm text-gray-600">{{ $slips->count() }} slip — Periode {{ $periode->label }}</div>
         <div class="flex gap-2">
-            <button onclick="window.print()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">🖨 Print Semua</button>
+            <button onclick="window.print()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">🖨 Cetak Semua</button>
             <a href="{{ route('sdm.periode-gaji.show', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700">Tutup</a>
         </div>
     </div>

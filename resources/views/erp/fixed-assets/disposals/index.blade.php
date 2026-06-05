@@ -18,7 +18,7 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach(['draft'=>'Draft','posted'=>'Posted','void'=>'Void'] as $v=>$l)
+            @foreach(['draft'=>'Draf','posted'=>'Diposting','void'=>'Void'] as $v=>$l)
                 <option value="{{ $v }}" @selected(request('status')==$v)>{{ $l }}</option>
             @endforeach
         </select>
@@ -55,15 +55,15 @@
                 <th class="px-3 py-2 text-right">Nilai Buku</th>
                 <th class="px-3 py-2 text-right">Gain/Loss</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
             @forelse($disposals as $d)
                 @php
                     [$statusLabel, $statusCls] = match($d->status) {
-                        'draft'  => ['Draft', 'bg-yellow-100 text-yellow-700'],
-                        'posted' => ['Posted', 'bg-green-100 text-green-700'],
+                        'draft'  => ['Draf', 'bg-yellow-100 text-yellow-700'],
+                        'posted' => ['Diposting', 'bg-green-100 text-green-700'],
                         'void'   => ['Void', 'bg-red-100 text-red-700'],
                         default  => [ucfirst($d->status), 'bg-gray-100 text-gray-500'],
                     };
@@ -83,7 +83,7 @@
                                 <form method="POST" action="{{ route('fixed-assets.disposals.post', $d->id) }}" onsubmit="return confirm('Post disposisi?')">@csrf
                                     <button class="bg-green-600 text-white px-2 py-1 rounded text-xs">Post</button>
                                 </form>
-                                <form method="POST" action="{{ route('fixed-assets.disposals.destroy', $d->id) }}" onsubmit="return confirm('Hapus disposisi draft?')">@csrf @method('DELETE')
+                                <form method="POST" action="{{ route('fixed-assets.disposals.destroy', $d->id) }}" onsubmit="return confirm('Hapus disposisi draf?')">@csrf @method('DELETE')
                                     <button class="bg-gray-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>
                                 <a href="{{ route('fixed-assets.disposals.edit', $d->id) }}" class="bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</a>
@@ -93,8 +93,8 @@
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Void</button>
                                 </form>
                             @endif
-                            <a href="{{ route('fixed-assets.disposals.print', $d->id) }}" class="bg-gray-700 text-white px-2 py-1 rounded text-xs">Print</a>
-                            <a href="{{ route('fixed-assets.disposals.show', $d->id) }}" class="bg-gray-500 text-white px-2 py-1 rounded text-xs">Detail</a>
+                            <a href="{{ route('fixed-assets.disposals.print', $d->id) }}" class="bg-gray-700 text-white px-2 py-1 rounded text-xs">Cetak</a>
+                            <a href="{{ route('fixed-assets.disposals.show', $d->id) }}" class="bg-gray-500 text-white px-2 py-1 rounded text-xs">Rincian</a>
                         </div>
                     </td>
                 </tr>

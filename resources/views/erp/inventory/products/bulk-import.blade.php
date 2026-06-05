@@ -3,7 +3,7 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">Upload Produk via Excel</h1>
-    <a href="{{ route('inventory.products.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List Produk</a>
+    <a href="{{ route('inventory.products.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar Produk</a>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">

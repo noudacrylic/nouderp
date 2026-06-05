@@ -19,7 +19,7 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">Code</th>
+                <th class="px-3 py-2 text-left">Kode</th>
                 <th class="px-3 py-2 text-left">Periode</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
                 <th class="px-3 py-2 text-center w-24">Status</th>

@@ -22,7 +22,7 @@
             <h2 class="text-sm font-semibold">Status Rekonsiliasi · {{ $monthName }}</h2>
             <div class="text-xs text-gray-500">
                 <span class="text-red-600 font-semibold">⚠ {{ $totalNone }} belum</span> ·
-                <span class="text-yellow-700 font-semibold">✏ {{ $totalDraft }} draft</span> ·
+                <span class="text-yellow-700 font-semibold">✏ {{ $totalDraft }} draf</span> ·
                 <span class="text-green-700 font-semibold">✅ {{ $totalCompleted }} selesai</span>
             </div>
         </div>
@@ -48,7 +48,7 @@
                     $st  = $row['status'];
                     [$color, $badge, $badgeCls] = match($st) {
                         'completed' => ['bg-green-50 border-green-300',  '✅ Sudah',  'bg-green-100 text-green-700'],
-                        'draft'     => ['bg-yellow-50 border-yellow-300', '✏ Draft',  'bg-yellow-100 text-yellow-700'],
+                        'draft'     => ['bg-yellow-50 border-yellow-300', '✏ Draf',  'bg-yellow-100 text-yellow-700'],
                         default     => ['bg-red-50 border-red-300',      '⚠ Belum',  'bg-red-100 text-red-700'],
                     };
                 @endphp
@@ -109,8 +109,8 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="draft" @selected(request('status')=='draft')>Draft</option>
-            <option value="completed" @selected(request('status')=='completed')>Completed</option>
+            <option value="draft" @selected(request('status')=='draft')>Draf</option>
+            <option value="completed" @selected(request('status')=='completed')>Selesai</option>
             <option value="void" @selected(request('status')=='void')>Void</option>
         </select>
     </div>
@@ -128,7 +128,7 @@
                 <th class="px-3 py-2 text-right">Saldo Koran</th>
                 <th class="px-3 py-2 text-right">Selisih</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-60">Action</th>
+                <th class="px-3 py-2 text-right w-60">Aksi</th>
             </tr>
         </thead>
         <tbody>

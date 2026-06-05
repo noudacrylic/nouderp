@@ -62,7 +62,7 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-2 py-2 text-left">Code</th>
+                <th class="px-2 py-2 text-left">Kode</th>
                 <th class="px-2 py-2 text-left">Periode</th>
                 <th class="px-2 py-2 text-right">Total Gaji</th>
                 <th class="px-2 py-2 text-center w-20">Status</th>
@@ -78,7 +78,7 @@
                     <td class="px-2 py-1.5 text-center">
                         <span class="text-xs px-2 py-0.5 rounded {{ $s->status === 'finalized' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600' }}">{{ $s->status }}</span>
                     </td>
-                    <td class="px-2 py-1.5"><a href="{{ route('sdm.slip-gaji.show', $s->id) }}" class="text-blue-600 text-xs">Detail</a></td>
+                    <td class="px-2 py-1.5"><a href="{{ route('sdm.slip-gaji.show', $s->id) }}" class="text-blue-600 text-xs">Rincian</a></td>
                 </tr>
             @empty
                 <tr><td colspan="5" class="px-2 py-4 text-center text-gray-400 text-xs">Belum ada slip.</td></tr>

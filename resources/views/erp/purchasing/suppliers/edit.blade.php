@@ -1,7 +1,7 @@
 @extends('layouts.erp')
 
 @section('content')
-<h1 class="text-lg font-semibold mb-4">Edit Supplier — {{ $supplier->name }}</h1>
+<h1 class="text-lg font-semibold mb-4">Edit Pemasok — {{ $supplier->name }}</h1>
 
 @if($errors->any())
     <div class="bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded text-sm mb-3">

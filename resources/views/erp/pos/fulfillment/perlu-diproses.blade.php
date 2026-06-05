@@ -4,7 +4,7 @@
 <div class="flex items-center justify-between mb-3">
     <div>
         <h1 class="text-lg font-semibold">Perlu Diproses</h1>
-        <p class="text-xs text-gray-500">Pesanan siap diproses. Klik "Proses" untuk generate Invoice + Surat Jalan (wajib lunas{{ '' }} & kode booking bila ambil di toko).</p>
+        <p class="text-xs text-gray-500">Pesanan siap diproses. Klik "Proses" untuk generate Faktur + Surat Jalan (wajib lunas{{ '' }} & kode booking bila ambil di toko).</p>
     </div>
 </div>
 
@@ -12,7 +12,7 @@
 @if(session('success'))<div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>@endif
 
 <form method="GET" class="mb-3">
-    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / customer…"
+    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan…"
            class="border rounded px-3 py-2 text-sm w-72">
 </form>
 

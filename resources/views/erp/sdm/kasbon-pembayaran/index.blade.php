@@ -68,7 +68,7 @@
                     <td class="text-right">{{ number_format($r->jumlah, 0, ',', '.') }}</td>
                     <td><span class="text-xs px-2 py-0.5 rounded {{ $badge }}">{{ strtoupper($r->status) }}</span></td>
                     <td class="text-right">
-                        <a href="{{ route('sdm.kasbon-pembayaran.show', $r->id) }}" class="text-blue-600 text-xs">Detail</a>
+                        <a href="{{ route('sdm.kasbon-pembayaran.show', $r->id) }}" class="text-blue-600 text-xs">Rincian</a>
                         @if($r->canBeEdited())
                             · <a href="{{ route('sdm.kasbon-pembayaran.edit', $r->id) }}" class="text-amber-600 text-xs">Edit</a>
                         @endif

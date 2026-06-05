@@ -213,7 +213,7 @@
                                         <th class="text-end">Debit</th>
                                         <th class="text-end">Credit</th>
                                         <th class="text-end">Saldo</th>
-                                        <th class="text-center">Action</th>
+                                        <th class="text-center">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -274,7 +274,7 @@
                                                                     <button type="submit"
                                                                         onclick="event.stopPropagation(); return confirm('Hapus akun ini?')"
                                                                         class="btn btn-outline-danger btn-action">
-                                                                        Delete
+                                                                        Hapus
                                                                     </button>
                                                                 </form>
                                                             @endif

@@ -1,6 +1,6 @@
 <div class="bg-white shadow rounded-lg border border-gray-100 flex flex-col h-full">
     <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
-        <h3 class="font-bold text-gray-700 uppercase tracking-tight text-sm">Harga Beli (Cost)</h3>
+        <h3 class="font-bold text-gray-700 uppercase tracking-tight text-sm">Harga Beli (Biaya)</h3>
     </div>
     <div class="p-6 flex-1 flex flex-col space-y-6">
         @if(in_array($product->sale_type, ['service', 'non_stock']))
@@ -10,7 +10,7 @@
                 @csrf
                 <div>
                     <label class="text-sm font-semibold text-gray-700">
-                        Harga Beli (Cost)
+                        Harga Beli (Biaya)
                     </label>
 
                     <input type="text" name="cost_price" value="{{ number_format($product->cost_price ?? 0, 0, ',', '.') }}"
@@ -18,8 +18,8 @@
                         placeholder="Masukkan harga beli">
                 </div>
                 <button type="submit"
-                    class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">Update
-                    Cost</button>
+                    class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">Perbarui
+                    Biaya</button>
             </form>
 
         @elseif ($units->count() > 0)
@@ -36,13 +36,13 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-indigo-600 uppercase mb-1">Harga Beli (Cost)</label>
+                    <label class="block text-xs font-bold text-indigo-600 uppercase mb-1">Harga Beli (Biaya)</label>
                     <input type="text" name="cost" placeholder="0"
                         class="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm rupiah-input" required>
                 </div>
                 <button type="submit"
-                    class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">Update
-                    / Tambah Cost</button>
+                    class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">Perbarui
+                    / Tambah Biaya</button>
             </form>
         @else
             <div class="p-4 bg-yellow-50 text-yellow-700 text-sm rounded-lg border border-yellow-200">

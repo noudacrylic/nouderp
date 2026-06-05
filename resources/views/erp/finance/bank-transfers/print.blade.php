@@ -19,7 +19,7 @@
 </head>
 <body>
 <div class="actions">
-    <button onclick="window.print()" style="padding:6px 12px">Print</button>
+    <button onclick="window.print()" style="padding:6px 12px">Cetak</button>
     <a href="{{ route('finance.cash-bank.transfers.show', $bt->id) }}" style="margin-left:8px">← Kembali</a>
 </div>
 

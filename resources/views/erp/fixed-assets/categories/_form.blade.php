@@ -61,7 +61,7 @@
     </div>
 
     <h3 class="font-semibold text-sm mb-2 mt-4">Mapping Akun</h3>
-    <p class="text-xs text-gray-500 mb-3">Akun-akun yang akan otomatis dipakai saat aset di kategori ini bergerak (perolehan & penyusutan). Akun keuntungan/kerugian disposisi tidak per kategori — di-set sekali di <a href="{{ route('fixed-assets.settings.edit') }}" class="text-blue-600 underline">Settings Aset Tetap</a> (sistem auto pilih akun gain atau loss berdasarkan hasil perhitungan).</p>
+    <p class="text-xs text-gray-500 mb-3">Akun-akun yang akan otomatis dipakai saat aset di kategori ini bergerak (perolehan & penyusutan). Akun keuntungan/kerugian disposisi tidak per kategori — di-set sekali di <a href="{{ route('fixed-assets.settings.edit') }}" class="text-blue-600 underline">Pengaturan Aset Tetap</a> (sistem auto pilih akun gain atau loss berdasarkan hasil perhitungan).</p>
 
     <div class="grid grid-cols-2 gap-4 mb-3">
         @include('erp.fixed-assets.categories._account_picker', [

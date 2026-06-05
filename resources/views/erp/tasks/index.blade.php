@@ -610,7 +610,7 @@
 <div id="taskDetailModal" class="tm-modal tm-hidden" role="dialog" aria-modal="true">
     <div class="tm-modal-card" style="max-width:720px;">
         <div class="tm-modal-head">
-            <div class="text-base font-semibold" id="detailTitle">Detail Task</div>
+            <div class="text-base font-semibold" id="detailTitle">Rincian Task</div>
             <button type="button" class="tm-modal-close js-close-modal">✕</button>
         </div>
         <div class="tm-modal-body space-y-4">

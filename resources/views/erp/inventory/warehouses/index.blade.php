@@ -2,10 +2,10 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Warehouse</h1>
+    <h1 class="text-lg font-semibold">Gudang</h1>
     <div class="flex gap-2">
         <a href="{{ route('inventory.warehouses.stock') }}" class="bg-gray-700 text-white px-3 py-2 rounded text-sm">Lihat Stok Gudang</a>
-        <a href="{{ route('inventory.warehouses.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Warehouse</a>
+        <a href="{{ route('inventory.warehouses.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Gudang</a>
     </div>
 </div>
 
@@ -17,11 +17,11 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">Warehouse</th>
-                <th class="px-3 py-2 text-left">Location</th>
-                <th class="px-3 py-2 text-center">Sellable</th>
-                <th class="px-3 py-2 text-right">Total Stock</th>
-                <th class="px-3 py-2 text-center w-56">Action</th>
+                <th class="px-3 py-2 text-left">Gudang</th>
+                <th class="px-3 py-2 text-left">Lokasi</th>
+                <th class="px-3 py-2 text-center">Bisa Dijual</th>
+                <th class="px-3 py-2 text-right">Total Stok</th>
+                <th class="px-3 py-2 text-center w-56">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -31,9 +31,9 @@
                     <td class="px-3 py-2">{{ $warehouse->location }}</td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
                         @if ($warehouse->is_sellable)
-                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-green-100 text-green-700">Yes</span>
+                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-green-100 text-green-700">Ya</span>
                         @else
-                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-gray-100 text-gray-500">No</span>
+                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-gray-100 text-gray-500">Tidak</span>
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right">{{ number_format($warehouse->stock_total ?? 0, 2) }}</td>
@@ -41,13 +41,13 @@
                         <div class="flex gap-1 justify-center flex-wrap flex-row-reverse">
                             @if($warehouse->is_used)
                                 <form method="POST" action="{{ route('inventory.warehouses.archive', $warehouse->id) }}"
-                                      onsubmit="return confirm('Archive warehouse {{ $warehouse->name }}?')">
+                                      onsubmit="return confirm('Archive gudang {{ $warehouse->name }}?')">
                                     @csrf
                                     <button class="bg-yellow-500 text-white px-2 py-1 rounded text-xs" title="Sudah dipakai — hanya bisa di-archive">Archive</button>
                                 </form>
                             @else
                                 <form method="POST" action="{{ route('inventory.warehouses.destroy', $warehouse->id) }}"
-                                      onsubmit="return confirm('Hapus warehouse {{ $warehouse->name }}?')">
+                                      onsubmit="return confirm('Hapus gudang {{ $warehouse->name }}?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>
@@ -58,7 +58,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">Belum ada warehouse.</td></tr>
+                <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">Belum ada gudang.</td></tr>
             @endforelse
         </tbody>
     </table>

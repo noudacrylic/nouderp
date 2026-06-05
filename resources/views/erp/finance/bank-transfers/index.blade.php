@@ -15,8 +15,8 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="draft" @selected(request('status')=='draft')>Draft</option>
-            <option value="posted" @selected(request('status')=='posted')>Posted</option>
+            <option value="draft" @selected(request('status')=='draft')>Draf</option>
+            <option value="posted" @selected(request('status')=='posted')>Diposting</option>
             <option value="void" @selected(request('status')=='void')>Void</option>
         </select>
     </div>
@@ -42,7 +42,7 @@
                 <th class="px-3 py-2 text-right">Jumlah</th>
                 <th class="px-3 py-2 text-right">Biaya Admin</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right w-72">Action</th>
+                <th class="px-3 py-2 text-right w-72">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -66,7 +66,7 @@
                         <div class="flex gap-1 flex-row-reverse flex-nowrap">
                             @unless($bt->isVoid())
                                 <a href="{{ route('finance.cash-bank.transfers.print', $bt->id) }}"
-                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Print</a>
+                                   class="bg-gray-700 hover:bg-gray-800 text-white px-2 py-1 rounded text-xs">Cetak</a>
                             @endunless
                             @if($bt->isDraft())
                                 <form method="POST" action="{{ route('finance.cash-bank.transfers.post', $bt->id) }}" class="inline"

@@ -18,7 +18,7 @@
                 <th class="px-3 py-2 text-left">Nama</th>
                 <th class="px-3 py-2 text-center">Aktif</th>
                 <th class="px-3 py-2 text-center">Jumlah Task</th>
-                <th class="px-3 py-2 text-right">Action</th>
+                <th class="px-3 py-2 text-right">Aksi</th>
             </tr>
         </thead>
         <tbody>

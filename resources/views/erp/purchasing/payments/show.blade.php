@@ -3,7 +3,7 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <div>
-        <h1 class="text-lg font-semibold">Payment — {{ $payment->payment_number }}</h1>
+        <h1 class="text-lg font-semibold">Pembayaran — {{ $payment->payment_number }}</h1>
         @php
             $cls = match($payment->status) {
                 'posted' => 'bg-green-100 text-green-700',
@@ -16,17 +16,17 @@
     <div class="flex flex-wrap items-center justify-end gap-2">
         @if($payment->status === 'draft')
             <a href="{{ route('purchasing.payments.edit', $payment->id) }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">Edit</a>
-            <form method="POST" action="{{ route('purchasing.payments.post', $payment->id) }}" onsubmit="return confirm('POST payment ini? Jurnal akan terbuat & invoice yang dialokasi akan di-update.')">
+            <form method="POST" action="{{ route('purchasing.payments.post', $payment->id) }}" onsubmit="return confirm('POST pembayaran ini? Jurnal akan terbuat & faktur yang dialokasi akan di-update.')">
                 @csrf
                 <button class="bg-green-600 text-white px-3 py-2 rounded text-sm">POST</button>
             </form>
-            <form method="POST" action="{{ route('purchasing.payments.destroy', $payment->id) }}" onsubmit="return confirm('Hapus payment draft ini?')">
+            <form method="POST" action="{{ route('purchasing.payments.destroy', $payment->id) }}" onsubmit="return confirm('Hapus pembayaran draf ini?')">
                 @csrf @method('DELETE')
                 <button class="bg-red-600 text-white px-3 py-2 rounded text-sm">Hapus</button>
             </form>
         @elseif($payment->status === 'posted')
             @if($payment->canBeVoided())
-                <form method="POST" action="{{ route('purchasing.payments.void', $payment->id) }}" onsubmit="return confirm('VOID payment ini? Jurnal di-void & invoice outstanding akan dikembalikan.')">
+                <form method="POST" action="{{ route('purchasing.payments.void', $payment->id) }}" onsubmit="return confirm('VOID pembayaran ini? Jurnal di-void & faktur outstanding akan dikembalikan.')">
                     @csrf
                     <button class="bg-red-600 text-white px-3 py-2 rounded text-sm">Void</button>
                 </form>
@@ -41,9 +41,9 @@
     <div class="bg-white rounded shadow p-4 text-sm">
         <h3 class="font-semibold mb-2">Detail</h3>
         <div class="grid grid-cols-2 gap-2">
-            <div class="text-gray-500">Supplier</div><div>{{ $payment->supplier->name }}</div>
+            <div class="text-gray-500">Pemasok</div><div>{{ $payment->supplier->name }}</div>
             <div class="text-gray-500">Tanggal</div><div>{{ $payment->payment_date->format('d M Y') }}</div>
-            <div class="text-gray-500">Method</div><div>{{ ucfirst($payment->payment_method) }}</div>
+            <div class="text-gray-500">Metode</div><div>{{ ucfirst($payment->payment_method) }}</div>
             <div class="text-gray-500">Akun Kas/Bank</div><div>{{ $payment->bankAccount->code ?? '' }} — {{ $payment->bankAccount->name ?? '' }}</div>
         </div>
     </div>
@@ -75,9 +75,9 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
-                <th class="px-3 py-2 text-left">No Invoice</th>
-                <th class="px-3 py-2 text-left">Tgl Invoice</th>
-                <th class="px-3 py-2 text-right w-32">Total Invoice</th>
+                <th class="px-3 py-2 text-left">No Faktur</th>
+                <th class="px-3 py-2 text-left">Tgl Faktur</th>
+                <th class="px-3 py-2 text-right w-32">Total Faktur</th>
                 <th class="px-3 py-2 text-right w-32">Bayar</th>
             </tr>
         </thead>

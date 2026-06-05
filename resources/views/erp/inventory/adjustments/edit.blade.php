@@ -5,7 +5,7 @@
     <div class="max-w-5xl mx-auto">
 
         <h2 class="text-xl font-semibold mb-4">
-            Edit Adjustment: {{ $adjustment->number }}
+            Edit Penyesuaian: {{ $adjustment->number }}
         </h2>
 
         <form method="POST" action="{{ route('inventory.adjustments.update', $adjustment->id) }}">
@@ -20,7 +20,7 @@
                         </div>
                         <div class="ml-3">
                             <p class="text-sm text-yellow-700">
-                                This adjustment has been <strong>POSTED</strong>. It is now read-only and cannot be modified.
+                                Penyesuaian ini sudah <strong>DIPOSTING</strong>. Sekarang hanya-baca dan tidak bisa diubah.
                             </p>
                         </div>
                     </div>
@@ -34,20 +34,20 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
                         <div>
-                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Adjustment Number</label>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Nomor Penyesuaian</label>
                             <input type="text" value="{{ $adjustment->number }}"
                                 class="w-full border rounded px-3 py-2 bg-gray-50 text-gray-500" readonly>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Adjustment Name /
-                                Title</label>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Nama Penyesuaian /
+                                Judul</label>
                             <input type="text" name="title" value="{{ $adjustment->title }}"
                                 placeholder="Audit Bulanan / Stock Opname" class="w-full border rounded px-3 py-2">
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Type</label>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Tipe</label>
                             <select name="type" class="w-full border rounded px-3 py-2">
                                 <option value="Stock Opname" {{ $adjustment->type == 'Stock Opname' ? 'selected' : '' }}>Stock
                                     Opname</option>
@@ -61,13 +61,13 @@
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Date</label>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Tanggal</label>
                             <input type="date" name="date" value="{{ $adjustment->date }}"
                                 class="w-full border rounded px-3 py-2" required>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Warehouse</label>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Gudang</label>
                             <select name="warehouse_id" id="warehouse_id" class="w-full border rounded px-3 py-2" required>
                                 @foreach ($warehouses as $warehouse)
                                     <option value="{{ $warehouse->id }}" {{ $adjustment->warehouse_id == $warehouse->id ? 'selected' : '' }}>
@@ -84,7 +84,7 @@
                         </div>
 
                         <div class="md:col-span-2">
-                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Notes Header</label>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Catatan Header</label>
                             <input type="text" name="notes" value="{{ $adjustment->notes }}"
                                 placeholder="Catatan tambahan untuk transaksi ini..."
                                 class="w-full border rounded px-3 py-2">
@@ -97,9 +97,9 @@
                 <div class="bg-white border rounded-lg shadow mt-6">
 
                     <div class="p-4 border-b font-semibold flex justify-between items-center">
-                        <span>Items Adjustment</span>
+                        <span>Item Penyesuaian</span>
                         @if($adjustment->status != 'posted')
-                            <button type="button" onclick="addItem()" class="text-blue-600 text-sm font-bold">+ Add
+                            <button type="button" onclick="addItem()" class="text-blue-600 text-sm font-bold">+ Tambah
                                 Item</button>
                         @endif
                     </div>
@@ -109,11 +109,11 @@
 
                             <thead class="bg-gray-50 border-b">
                                 <tr>
-                                    <th class="p-3 text-left">Product</th>
-                                    <th class="p-3 text-right w-24">System</th>
-                                    <th class="p-3 text-right w-32">Actual</th>
-                                    <th class="p-3 text-right w-24">Diff</th>
-                                    <th class="p-3 text-left">Line Notes</th>
+                                    <th class="p-3 text-left">Produk</th>
+                                    <th class="p-3 text-right w-24">Sistem</th>
+                                    <th class="p-3 text-right w-32">Aktual</th>
+                                    <th class="p-3 text-right w-24">Selisih</th>
+                                    <th class="p-3 text-left">Catatan Baris</th>
                                     <th class="w-12"></th>
                                 </tr>
                             </thead>
@@ -124,7 +124,7 @@
                                         <td class="p-2">
                                             <select name="items[{{ $idx }}][product_id]"
                                                 class="product-select w-full border rounded px-2 py-2" required>
-                                                <option value="">Select Product</option>
+                                                <option value="">Pilih Produk</option>
                                                 @foreach ($products as $product)
                                                     <option value="{{ $product->id }}" {{ $item->product_id == $product->id ? 'selected' : '' }}>
                                                         {{ $product->sku }} - {{ $product->name }}
@@ -165,11 +165,11 @@
             </fieldset>
 
             <div class="mt-6 flex justify-end gap-3">
-                <a href="{{ route('inventory.adjustments.index') }}" class="btn btn-outline">Back to List</a>
+                <a href="{{ route('inventory.adjustments.index') }}" class="btn btn-outline">Kembali ke Daftar</a>
                 @if($adjustment->status != 'posted')
                     <button type="submit"
                         class="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:bg-blue-700 transition">
-                        Update Adjustment
+                        Perbarui Penyesuaian
                     </button>
                 @endif
             </div>

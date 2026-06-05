@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Penyesuaian Stock</h1>
+    <h1 class="text-lg font-semibold">Penyesuaian Stok</h1>
     <a href="{{ route('inventory.adjustments.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Penyesuaian</a>
 </div>
 
@@ -11,7 +11,7 @@
     @include('erp.purchasing._partials.date-range')
 
     <div>
-        <label class="block text-xs text-gray-500 mb-1">Warehouse</label>
+        <label class="block text-xs text-gray-500 mb-1">Gudang</label>
         <select name="warehouse" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
             @foreach($warehouses as $w)
@@ -24,8 +24,8 @@
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            <option value="draft" @selected(request('status') == 'draft')>Draft</option>
-            <option value="posted" @selected(request('status') == 'posted')>Posted</option>
+            <option value="draft" @selected(request('status') == 'draft')>Draf</option>
+            <option value="posted" @selected(request('status') == 'posted')>Diposting</option>
             <option value="void" @selected(request('status') == 'void')>Void</option>
         </select>
     </div>
@@ -37,22 +37,22 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Penyesuaian</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
-                <th class="px-3 py-2 text-left">Title / Catatan</th>
+                <th class="px-3 py-2 text-left">Judul / Catatan</th>
                 <th class="px-3 py-2 text-left">Tipe</th>
-                <th class="px-3 py-2 text-left">Warehouse</th>
+                <th class="px-3 py-2 text-left">Gudang</th>
                 <th class="px-3 py-2 text-left">PIC</th>
                 <th class="px-3 py-2 text-right">Items</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-center w-56">Action</th>
+                <th class="px-3 py-2 text-center w-56">Aksi</th>
             </tr>
         </thead>
         <tbody>
             @forelse($adjustments as $adj)
                 @php
                     [$statusLabel, $statusCls] = match($adj->status) {
-                        'posted' => ['Posted', 'bg-green-100 text-green-700'],
+                        'posted' => ['Diposting', 'bg-green-100 text-green-700'],
                         'void'   => ['Void',   'bg-gray-200 text-gray-600'],
-                        default  => ['Draft',  'bg-yellow-100 text-yellow-700'],
+                        default  => ['Draf',  'bg-yellow-100 text-yellow-700'],
                     };
                 @endphp
                 <tr class="border-b hover:bg-blue-50 cursor-pointer" data-href="{{ route('inventory.adjustments.edit', $adj->id) }}">
@@ -84,13 +84,13 @@
                                 </form>
 
                                 <form method="POST" action="{{ route('inventory.adjustments.destroy', $adj->id) }}"
-                                      onsubmit="return confirm('Hapus draft ini?')">
+                                      onsubmit="return confirm('Hapus draf ini?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                                 </form>
                             @elseif($adj->status == 'posted')
                                 <form method="POST" action="{{ route('inventory.adjustments.void', $adj->id) }}"
-                                      onsubmit="return confirm('Void penyesuaian? Stock & journal akan dibalik.')">
+                                      onsubmit="return confirm('Void penyesuaian? Stok & jurnal akan dibalik.')">
                                     @csrf
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Void</button>
                                 </form>

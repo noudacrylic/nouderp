@@ -49,7 +49,7 @@
 
 <div class="grid grid-cols-2 gap-4 mb-4">
     <div class="bg-white rounded shadow p-4 text-sm">
-        <div class="text-xs uppercase tracking-widest text-gray-400 mb-2">Detail Mesin</div>
+        <div class="text-xs uppercase tracking-widest text-gray-400 mb-2">Rincian Mesin</div>
         <table class="w-full text-sm">
             <tr><td class="py-1 text-gray-500 w-32">Serial Number</td><td class="font-mono">{{ $machine->serial_number ?? '-' }}</td></tr>
             <tr><td class="py-1 text-gray-500">IP : Port</td><td class="font-mono">{{ $machine->ip_address ?? '-' }}:{{ $machine->port }}</td></tr>

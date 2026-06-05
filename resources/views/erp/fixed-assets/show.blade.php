@@ -6,7 +6,7 @@
         <h1 class="text-lg font-semibold">{{ $asset->asset_code }} — {{ $asset->name }}</h1>
         @php
             [$statusLabel, $statusCls] = match($asset->status) {
-                'draft'    => ['Draft', 'bg-yellow-100 text-yellow-700'],
+                'draft'    => ['Draf', 'bg-yellow-100 text-yellow-700'],
                 'active'   => ['Aktif', 'bg-green-100 text-green-700'],
                 'disposed' => ['Disposed', 'bg-gray-200 text-gray-600'],
                 'voided'   => ['Void', 'bg-red-100 text-red-700'],
@@ -42,7 +42,7 @@
 
 <div class="grid grid-cols-3 gap-4 mb-4">
     <div class="bg-white rounded shadow p-4 col-span-2">
-        <h2 class="font-semibold mb-3">Detail Aset</h2>
+        <h2 class="font-semibold mb-3">Rincian Aset</h2>
         <table class="w-full text-sm">
             <tbody>
                 <tr><td class="py-1 text-gray-500 w-48">Kategori</td><td class="py-1">{{ $asset->category->name ?? '-' }}</td></tr>
@@ -93,7 +93,7 @@
                 <tr>
                     <th class="px-3 py-2 text-left">Periode</th>
                     <th class="px-3 py-2 text-left">Tanggal</th>
-                    <th class="px-3 py-2 text-right">Amount</th>
+                    <th class="px-3 py-2 text-right">Nominal</th>
                     <th class="px-3 py-2 text-right">Akumulasi Setelah</th>
                     <th class="px-3 py-2 text-right">Nilai Buku Setelah</th>
                     <th class="px-3 py-2 text-center">Status</th>

@@ -7,7 +7,7 @@
         $inv = $return->purchaseInvoice;
         $sv = strtolower((string) $inv->status);
         $groups[] = [
-            'label' => 'Invoice (Sumber)',
+            'label' => 'Faktur (Sumber)',
             'items' => [[
                 'number'       => $inv->invoice_number,
                 'date'         => optional($inv->invoice_date)->format('d M Y'),
@@ -42,7 +42,7 @@
             $pay = $payId ? \App\Modules\Purchasing\Models\SupplierPayment::find($payId) : null;
             $sv = $pay ? strtolower((string) $pay->status) : '';
             $items[] = [
-                'number'       => $pay ? $pay->payment_number : ('Payment #' . $payId),
+                'number'       => $pay ? $pay->payment_number : ('Pembayaran #' . $payId),
                 'date'         => $pay ? optional($pay->payment_date)->format('d M Y') : null,
                 'status'       => $sv ?: 'unknown',
                 'status_label' => strtoupper($sv ?: '-'),

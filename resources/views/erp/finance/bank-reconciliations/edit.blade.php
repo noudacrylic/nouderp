@@ -59,7 +59,7 @@
                 $label = 'Faktur Pembelian'; $color = 'amber';
                 $url = $id ? route('purchasing.invoices.show', $id) : null; break;
             case 'supplier_payment':
-                $label = 'Bayar Supplier'; $color = 'rose';
+                $label = 'Bayar Pemasok'; $color = 'rose';
                 $url = $id ? route('purchasing.payments.show', $id) : null; break;
             case 'cash_receipt':
                 $label = 'Pemasukan Kas'; $color = 'green';
@@ -123,7 +123,7 @@
                 class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-sm font-semibold">
             + Pemasukan
         </button>
-        <a href="{{ route('finance.cash-bank.reconciliations.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List</a>
+        <a href="{{ route('finance.cash-bank.reconciliations.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
     </div>
 </div>
 
@@ -261,9 +261,9 @@
             <button type="button" id="toggleAll" class="text-xs text-blue-600 hover:underline">Cocokkan / Batalkan Semua</button>
         </div>
         <div class="flex gap-2">
-            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+            <button type="submit" name="_after_save" value="" class="bg-gray-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
             <button type="submit" name="_after_save" value="complete" class="bg-green-600 text-white px-4 py-2 rounded text-sm"
-                    onclick="return confirm('Selesaikan rekonsiliasi? Status berubah jadi completed.')">Selesai (Completed)</button>
+                    onclick="return confirm('Selesaikan rekonsiliasi? Status berubah jadi selesai.')">Selesai</button>
         </div>
     </div>
 </form>

@@ -110,7 +110,7 @@
         const last = periods[periods.length-1];
         const lastSt = map[last].status;
         const cls = lastSt === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700';
-        const label = lastSt === 'completed' ? 'Sudah s/d' : 'Draft di';
+        const label = lastSt === 'completed' ? 'Sudah s/d' : 'Draf di';
         accStatus.innerHTML = badge(`${label} ${monthLabel(last)}`, cls)
             + ` <span class="text-gray-500">(total ${periods.length} bulan)</span>`;
     }
@@ -132,7 +132,7 @@
             submitBtn.disabled = true;
             submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
         } else {
-            perStatus.innerHTML = badge('✏ Masih draft: ' + entry.number,
+            perStatus.innerHTML = badge('✏ Masih draf: ' + entry.number,
                 'bg-yellow-100 text-yellow-700');
             submitBtn.disabled = true;
             submitBtn.classList.add('opacity-50', 'cursor-not-allowed');

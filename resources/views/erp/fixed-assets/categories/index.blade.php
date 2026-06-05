@@ -29,7 +29,7 @@
                 <th class="px-3 py-2 text-right">Umur Default</th>
                 <th class="px-3 py-2 text-center">Disusutkan?</th>
                 <th class="px-3 py-2 text-center">Aktif</th>
-                <th class="px-3 py-2 text-right w-44">Action</th>
+                <th class="px-3 py-2 text-right w-44">Aksi</th>
             </tr>
         </thead>
         <tbody>

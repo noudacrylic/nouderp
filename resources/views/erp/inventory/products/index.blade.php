@@ -28,9 +28,9 @@
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
-            <option value="active" @selected((request('status') ?? 'active') == 'active')>Active</option>
-            <option value="archived" @selected(request('status') == 'archived')>Archived</option>
-            <option value="all" @selected(request('status') == 'all')>All</option>
+            <option value="active" @selected((request('status') ?? 'active') == 'active')>Aktif</option>
+            <option value="archived" @selected(request('status') == 'archived')>Arsip</option>
+            <option value="all" @selected(request('status') == 'all')>Semua</option>
         </select>
     </div>
 </form>
@@ -43,8 +43,8 @@
                 <th class="px-3 py-2 text-left">Tipe</th>
                 <th class="px-3 py-2 text-center">Status</th>
                 <th class="px-3 py-2 text-left">Unit</th>
-                <th class="px-3 py-2 text-right">Base Price</th>
-                <th class="px-3 py-2 text-center w-40">Action</th>
+                <th class="px-3 py-2 text-right">Harga Dasar</th>
+                <th class="px-3 py-2 text-center w-40">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -66,9 +66,9 @@
                     </td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
                         @if ($product->is_active)
-                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-green-100 text-green-700">Active</span>
+                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-green-100 text-green-700">Aktif</span>
                         @else
-                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-gray-100 text-gray-500">Archived</span>
+                            <span class="px-2 py-0.5 rounded text-xs uppercase bg-gray-100 text-gray-500">Arsip</span>
                         @endif
                     </td>
                     <td class="px-3 py-2 text-gray-600">{{ $product->base_unit ?? '-' }}</td>

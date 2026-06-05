@@ -54,7 +54,7 @@
 <div id="ckw_modal" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-black/40 p-4">
     <div class="bg-white rounded-xl shadow-2xl w-[520px] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between px-4 py-3 border-b">
-            <h6 class="font-bold text-gray-800 text-sm">Alamat Pengiriman Customer</h6>
+            <h6 class="font-bold text-gray-800 text-sm">Alamat Pengiriman Pelanggan</h6>
             <button type="button" id="ckw_close" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <div class="p-4 space-y-3">

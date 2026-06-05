@@ -7,7 +7,7 @@
             <input type="hidden" name="fixed_asset_id" value="{{ $a->id }}">
             <div class="border rounded px-2 py-1.5 mb-3 bg-gray-50 text-sm">
                 <strong>{{ $a->asset_code }}</strong> — {{ $a->name }}
-                · Cost: {{ number_format($a->acquisition_cost, 0, ',', '.') }}
+                · Biaya: {{ number_format($a->acquisition_cost, 0, ',', '.') }}
                 · Akumulasi: {{ number_format($a->accumulated_depreciation, 0, ',', '.') }}
                 · <strong>Nilai Buku: {{ number_format($a->current_book_value, 0, ',', '.') }}</strong>
             </div>
@@ -20,7 +20,7 @@
     @else
         <div class="bg-gray-50 border rounded px-3 py-2 mb-3 text-sm">
             <strong>{{ $d->asset->asset_code ?? '-' }}</strong> — {{ $d->asset->name ?? '-' }}
-            · Nilai Buku saat draft: {{ number_format($d->book_value_at_disposal, 2, ',', '.') }}
+            · Nilai Buku saat draf: {{ number_format($d->book_value_at_disposal, 2, ',', '.') }}
         </div>
     @endif
 
@@ -63,7 +63,7 @@
 </div>
 
 <div class="mt-4 flex gap-2">
-    <button type="submit" name="_after_save" value="" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Draft</button>
+    <button type="submit" name="_after_save" value="" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan Draf</button>
     <button type="submit" name="_after_save" value="post" class="bg-green-600 text-white px-4 py-2 rounded text-sm" onclick="return confirm('Simpan & POST disposisi? Aset akan ter-disposed & jurnal terbuat.')">Simpan & Post</button>
     <a href="{{ route('fixed-assets.disposals.index') }}" class="bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm">Batal</a>
 </div>
@@ -105,7 +105,7 @@ async function loadAssets() {
     assetTS.on('change', (value) => {
         const a = assetCache.find(x => x.id == value);
         info.innerHTML = a
-            ? `Cost: ${a.acquisition_cost.toLocaleString()} · Akumulasi: ${a.accumulated_depreciation.toLocaleString()} · <strong>Nilai Buku: ${a.book_value.toLocaleString()}</strong>`
+            ? `Biaya: ${a.acquisition_cost.toLocaleString()} · Akumulasi: ${a.accumulated_depreciation.toLocaleString()} · <strong>Nilai Buku: ${a.book_value.toLocaleString()}</strong>`
             : '';
     });
 }

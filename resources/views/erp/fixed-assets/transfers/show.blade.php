@@ -33,7 +33,7 @@
             <tr><td class="py-1 text-gray-500">Dari Gudang</td><td class="py-1">{{ $transfer->fromWarehouse->name ?? '-' }}</td></tr>
             <tr><td class="py-1 text-gray-500">Ke Gudang</td><td class="py-1">{{ $transfer->toWarehouse->name ?? '-' }}</td></tr>
             @if($transfer->notes) <tr><td class="py-1 text-gray-500 align-top">Catatan</td><td class="py-1 whitespace-pre-line">{{ $transfer->notes }}</td></tr> @endif
-            @if($transfer->posted_at) <tr><td class="py-1 text-gray-500">Posted</td><td class="py-1">{{ $transfer->posted_at->format('d M Y H:i') }}</td></tr> @endif
+            @if($transfer->posted_at) <tr><td class="py-1 text-gray-500">Diposting</td><td class="py-1">{{ $transfer->posted_at->format('d M Y H:i') }}</td></tr> @endif
             @if($transfer->voided_at) <tr><td class="py-1 text-gray-500">Voided</td><td class="py-1">{{ $transfer->voided_at->format('d M Y H:i') }}</td></tr> @endif
         </tbody>
     </table>

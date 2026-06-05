@@ -50,7 +50,7 @@
     </div>
     @php
         $defaultApName = optional($accounts->firstWhere('code', '2101'))->name ?? 'Hutang Usaha';
-        $defaultDpName = optional($accounts->firstWhere('code', '1107'))->name ?? 'Uang Muka Supplier';
+        $defaultDpName = optional($accounts->firstWhere('code', '1107'))->name ?? 'Uang Muka Pemasok';
     @endphp
     <div>
         <label class="block text-sm mb-1">Akun Hutang Default</label>
@@ -62,7 +62,7 @@
         </select>
     </div>
     <div>
-        <label class="block text-sm mb-1">Akun DP Supplier Default</label>
+        <label class="block text-sm mb-1">Akun DP Pemasok Default</label>
         <select name="account_dp_id" class="border rounded px-3 py-2 w-full">
             <option value="">— pakai default: 1107 {{ $defaultDpName }} —</option>
             @foreach($accounts as $a)

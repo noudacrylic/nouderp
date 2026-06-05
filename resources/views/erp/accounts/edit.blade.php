@@ -121,7 +121,7 @@
 
                         <div class="d-flex justify-content-between align-items-center">
                             <a href="/erp/accounting/accounts" class="btn btn-outline-secondary">
-                                Cancel
+                                Batal
                             </a>
                             <button type="submit" class="btn btn-primary px-5 shadow-sm">
                                 💾 Update Account

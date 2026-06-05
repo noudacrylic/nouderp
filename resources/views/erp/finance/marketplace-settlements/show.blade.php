@@ -23,7 +23,7 @@
             <span>✓ <b>{{ $linesSesuai }}</b> sesuai</span>
             @if($linesLebih > 0)<span class="text-red-700">⬆ <b>{{ $linesLebih }}</b> fee lebih besar</span>@endif
             @if($linesKurang > 0)<span class="text-blue-700">⬇ <b>{{ $linesKurang }}</b> fee lebih kecil</span>@endif
-            @if($unmatched > 0)<span class="text-amber-700">⚠ <b>{{ $unmatched }}</b> tidak match invoice</span>@endif
+            @if($unmatched > 0)<span class="text-amber-700">⚠ <b>{{ $unmatched }}</b> tidak match faktur</span>@endif
         </div>
         @if(abs($ms->total_fee_diff) > 0.01)
             <div class="text-xs text-amber-800 mt-1">
@@ -36,11 +36,11 @@
         @endif
         @if($unmatched > 0 && $matched > 0)
             <div class="mt-2 text-xs text-amber-900 bg-white border border-amber-200 rounded px-2 py-1.5">
-                💡 Submit akan men-jurnal <b>{{ $matched }} baris matched</b>. Sisa <b>{{ $unmatched }} unmatched</b> dipindah ke settlement baru (DRAFT) — akan auto-match saat invoice marketplace baru dibuat, atau klik <b>Retry Match</b>.
+                💡 Submit akan men-jurnal <b>{{ $matched }} baris matched</b>. Sisa <b>{{ $unmatched }} unmatched</b> dipindah ke settlement baru (DRAF) — akan auto-match saat faktur marketplace baru dibuat, atau klik <b>Retry Match</b>.
             </div>
         @elseif($unmatched > 0 && $matched === 0)
             <div class="mt-2 text-xs text-red-900 bg-white border border-red-200 rounded px-2 py-1.5">
-                ⚠ Belum ada line yang match. Tambahkan invoice utk customer ini dulu (sistem akan auto-match), atau klik <b>Retry Match</b>.
+                ⚠ Belum ada line yang match. Tambahkan faktur utk pelanggan ini dulu (sistem akan auto-match), atau klik <b>Retry Match</b>.
             </div>
         @endif
     </div>
@@ -57,10 +57,10 @@
             @if($matched > 0)
                 @php
                     $submitLabel = $unmatched > 0
-                        ? "✓ Submit {$matched} Matched (sisa {$unmatched} ke draft baru)"
+                        ? "✓ Submit {$matched} Matched (sisa {$unmatched} ke draf baru)"
                         : "✓ Submit Rekonsiliasi";
                     $confirmMsg = $unmatched > 0
-                        ? "Submit {$matched} baris matched? Sisa {$unmatched} unmatched akan dipindah ke settlement baru status DRAFT."
+                        ? "Submit {$matched} baris matched? Sisa {$unmatched} unmatched akan dipindah ke settlement baru status DRAF."
                         : "Submit rekonsiliasi {$ms->number}? Jurnal akan dibuat & settlement dipost.";
                 @endphp
                 <form method="POST" action="{{ route('finance.cash-bank.settlements.post', $ms->id) }}" class="inline" onsubmit="return confirm(@json($confirmMsg))">
@@ -74,7 +74,7 @@
                     <button class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-semibold" title="Re-run matching: cari customer_po_number lagi di Sales Order utk baris yg belum match">🔄 Retry Match</button>
                 </form>
             @endif
-            <form method="POST" action="{{ route('finance.cash-bank.settlements.destroy', $ms->id) }}" class="inline" onsubmit="return confirm('Hapus draft?')">
+            <form method="POST" action="{{ route('finance.cash-bank.settlements.destroy', $ms->id) }}" class="inline" onsubmit="return confirm('Hapus draf?')">
                 @csrf @method('DELETE')
                 <button class="bg-red-600 text-white px-3 py-1.5 rounded text-sm">Hapus</button>
             </form>
@@ -84,7 +84,7 @@
                 <button class="bg-red-600 text-white px-3 py-1.5 rounded text-sm">Void</button>
             </form>
         @endif
-        <a href="{{ route('finance.cash-bank.settlements.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← List</a>
+        <a href="{{ route('finance.cash-bank.settlements.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
     </div>
 </div>
 
@@ -93,7 +93,7 @@
         <div><div class="text-xs text-gray-500">Status</div><span class="px-2 py-0.5 rounded text-xs uppercase {{ $stCls }}">{{ $ms->status }}</span></div>
         <div><div class="text-xs text-gray-500">Marketplace</div>{{ $ms->marketplaceConfig->customer->name ?? '-' }}</div>
         <div><div class="text-xs text-gray-500">File Sumber</div>{{ $ms->source_filename ?? '-' }}</div>
-        <div><div class="text-xs text-gray-500">Journal</div>{{ $ms->journal_id ? '#'.$ms->journal_id : '-' }}</div>
+        <div><div class="text-xs text-gray-500">Jurnal</div>{{ $ms->journal_id ? '#'.$ms->journal_id : '-' }}</div>
         <div><div class="text-xs text-gray-500">Total Gross</div>{{ number_format($ms->total_gross, 0, ',', '.') }}</div>
         <div><div class="text-xs text-gray-500">Fee Aktual</div>{{ number_format($ms->total_fee_actual, 0, ',', '.') }}</div>
         <div><div class="text-xs text-gray-500">Fee Per Config</div>{{ number_format($ms->total_fee_config, 0, ',', '.') }}</div>
@@ -114,7 +114,7 @@
 {{-- ============ FILTER BAR ============ --}}
 <div class="bg-white rounded shadow p-3 mb-2 flex gap-2 items-center flex-wrap">
     <div class="flex-1 min-w-[200px]">
-        <input type="text" id="filter_search" placeholder="🔍 Cari Order Ref / Invoice..."
+        <input type="text" id="filter_search" placeholder="🔍 Cari Order Ref / Faktur..."
                class="w-full border rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none">
     </div>
     <div>
@@ -147,7 +147,7 @@
                 <th class="px-3 py-2 text-left">Marketplace</th>
                 <th class="px-3 py-2 text-left">Order Ref</th>
                 <th class="px-3 py-2 text-left">Tgl Settlement</th>
-                <th class="px-3 py-2 text-left">Invoice Match</th>
+                <th class="px-3 py-2 text-left">Faktur Match</th>
                 <th class="px-3 py-2 text-right">Gross</th>
                 <th class="px-3 py-2 text-right">Fee Aktual</th>
                 <th class="px-3 py-2 text-right">Fee Config</th>

@@ -6,7 +6,7 @@
 --}}
 @php
     $name = $name ?? 'q';
-    $placeholder = $placeholder ?? 'Cari nomor atau nama supplier...';
+    $placeholder = $placeholder ?? 'Cari nomor atau nama pemasok...';
 @endphp
 <div class="flex-1 min-w-[260px]">
     <label class="block text-xs text-gray-500 mb-1">Cari</label>

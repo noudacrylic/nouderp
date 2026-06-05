@@ -13,7 +13,7 @@
             <div class="relative">
                 <input type="text" id="supplierSearch"
                     class="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition"
-                    placeholder="Ketik nama / kode supplier..." autocomplete="off"
+                    placeholder="Ketik nama / kode pemasok..." autocomplete="off"
                     value="{{ $preselectedSupplier ? $preselectedSupplier->name . ' (' . $preselectedSupplier->code . ')' : '' }}"
                     {{ $isEdit ? 'readonly' : '' }}>
                 <input type="hidden" name="supplier_id" id="supplierId" value="{{ $preselectedSupplierId }}" required>
@@ -22,11 +22,11 @@
             </div>
             <div class="text-[10px] text-gray-500 mt-2 pl-1 space-y-0.5">
                 <div>
-                    Saldo Piutang Supplier: <span id="overpayBalance" class="font-bold text-purple-700">Rp 0</span>
+                    Saldo Piutang Pemasok: <span id="overpayBalance" class="font-bold text-purple-700">Rp 0</span>
                 </div>
                 <div class="text-gray-400">
                     Saldo DP (Uang Muka): <span id="dpBalance" class="font-bold text-blue-700">Rp 0</span>
-                    <span class="italic">— auto-apply ke invoice</span>
+                    <span class="italic">— auto-apply ke faktur</span>
                 </div>
             </div>
         </div>
@@ -50,7 +50,7 @@
                 <div class="flex items-center gap-2">
                     <span id="totalTagihan" class="text-lg font-black text-blue-950">Rp 0</span>
                     <button type="button" id="btnUseBalance"
-                        title="Kurangi total dengan saldo piutang supplier"
+                        title="Kurangi total dengan saldo piutang pemasok"
                         class="text-[10px] font-black uppercase tracking-wide bg-white border border-purple-200 text-purple-700 px-2 py-1 rounded-lg shadow-sm hover:bg-purple-700 hover:text-white transition active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed">
                         Pakai Saldo
                     </button>
@@ -61,21 +61,21 @@
                 <button type="button" id="btnClearUseBalanceTop" class="ml-2 underline text-purple-900 hover:text-pink-700">batalkan</button>
             </div>
             <div id="multiWarning" class="mt-1.5 text-[10px] text-orange-700 font-bold hidden">
-                ⚠ Multi-invoice: pembayaran wajib lunas penuh.
+                ⚠ Multi-faktur: pembayaran wajib lunas penuh.
             </div>
         </div>
 
         <div id="itemsContainer" class="space-y-2 max-h-[450px] overflow-y-auto pr-1 custom-scrollbar">
             <div class="text-center py-12 border-2 border-dashed rounded-xl bg-gray-50 border-gray-100 text-xs text-gray-400 italic font-bold">
-                Pilih supplier untuk memulai pembayaran
+                Pilih pemasok untuk memulai pembayaran
             </div>
         </div>
 
         <div id="dpModeNote" class="hidden">
             <div class="mb-3 text-center py-3 border-2 border-dashed rounded-xl bg-purple-50 border-purple-200 text-xs text-purple-700 italic font-bold">
-                Mode <b>Uang Muka (DP)</b> — pembayaran berdasar PO. Saldo DP nanti di-apply ke invoice.
+                Mode <b>Uang Muka (DP)</b> — pembayaran berdasar PO. Saldo DP nanti di-apply ke faktur.
             </div>
-            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 pl-1">PO Open Supplier (klik untuk auto-isi)</div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 pl-1">PO Open Pemasok (klik untuk auto-isi)</div>
             <div id="poList" class="space-y-2 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar"></div>
         </div>
     </div>
@@ -111,11 +111,11 @@
             </div>
 
             <div id="dpInfo" class="text-[10px] text-purple-700 font-bold hidden bg-purple-50 p-2 rounded-lg border border-purple-200 italic text-center mt-2">
-                Sisa <span id="dpInfoAmount">Rp 0</span> akan jadi DP supplier.
+                Sisa <span id="dpInfoAmount">Rp 0</span> akan jadi DP pemasok.
             </div>
 
             <div id="overpayInfo" class="text-[10px] text-pink-700 font-bold hidden bg-pink-50 p-2 rounded-lg border border-pink-200 italic text-center mt-2">
-                Kelebihan <span id="overpayInfoAmount">Rp 0</span> akan masuk Piutang Supplier (1108).
+                Kelebihan <span id="overpayInfoAmount">Rp 0</span> akan masuk Piutang Pemasok (1108).
             </div>
 
             <input type="hidden" name="overpay" id="overpayInput" value="0">
@@ -144,7 +144,7 @@
             <div class="flex gap-2 mb-3">
                 <button type="submit" name="_after_save" value=""
                     class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-3 rounded-xl text-xs font-black transition shadow active:scale-95 flex-1 uppercase">
-                    Draft
+                    Draf
                 </button>
                 <button type="submit" name="_after_save" value="post"
                     class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl text-xs font-black transition shadow-lg shadow-blue-200 active:scale-95 flex-1 uppercase">
@@ -152,7 +152,7 @@
                 </button>
                 <button type="submit" name="_after_save" value="print"
                     class="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-xl text-xs font-black transition shadow-lg shadow-green-200 active:scale-95 flex-1 uppercase">
-                    Print
+                    Cetak
                 </button>
             </div>
             <div class="text-center">
@@ -257,7 +257,7 @@
     function renderSupResults(list){
         supDropdown.innerHTML = '';
         if (!list.length){
-            supDropdown.innerHTML = '<div class="p-3 text-xs text-gray-400 italic">Tidak ada supplier.</div>';
+            supDropdown.innerHTML = '<div class="p-3 text-xs text-gray-400 italic">Tidak ada pemasok.</div>';
         } else {
             list.forEach(s => {
                 const div = document.createElement('div');
@@ -430,12 +430,12 @@
         itemsContainer.classList.remove('hidden');
 
         if (!supId.value){
-            itemsContainer.innerHTML = '<div class="text-center py-12 border-2 border-dashed rounded-xl bg-gray-50 border-gray-100 text-xs text-gray-400 italic font-bold">Pilih supplier untuk memulai pembayaran</div>';
+            itemsContainer.innerHTML = '<div class="text-center py-12 border-2 border-dashed rounded-xl bg-gray-50 border-gray-100 text-xs text-gray-400 italic font-bold">Pilih pemasok untuk memulai pembayaran</div>';
             updateTotal();
             return;
         }
         if (!openInvoices.length){
-            itemsContainer.innerHTML = '<div class="text-center py-12 italic text-gray-400 text-xs font-bold">Tidak ada invoice outstanding.</div>';
+            itemsContainer.innerHTML = '<div class="text-center py-12 italic text-gray-400 text-xs font-bold">Tidak ada faktur outstanding.</div>';
             updateTotal();
             return;
         }
@@ -602,7 +602,7 @@
     // ── QUICK FILL BUTTONS — pakai totalSetelahSaldo (sisa setelah pakai saldo) ──
     document.getElementById('btnFull').onclick = () => {
         const rows = getCheckedRows();
-        const label = currentMode === 'uang_muka' ? 'PO' : 'invoice';
+        const label = currentMode === 'uang_muka' ? 'PO' : 'faktur';
         if (!rows.length){ alert('Pilih ' + label + ' dulu.'); return; }
         amountInput.value = totalSetelahSaldo;
         amountInput.dataset.auto = '0';
@@ -611,7 +611,7 @@
 
     document.getElementById('btnHalf').onclick = () => {
         const rows = getCheckedRows();
-        const label = currentMode === 'uang_muka' ? 'PO' : 'invoice';
+        const label = currentMode === 'uang_muka' ? 'PO' : 'faktur';
         if (rows.length !== 1){ alert('Bayar 50% hanya untuk satu ' + label + '.'); return; }
         if (totalSetelahSaldo <= 0){ alert('Total sisa = 0.'); return; }
         amountInput.value = Math.ceil(totalSetelahSaldo / 2);
@@ -643,7 +643,7 @@
             });
             if (allocs.length > 1 && Math.abs(allocSum - totalDana) > 0.01){
                 e.preventDefault();
-                alert('Multi-invoice harus bayar penuh: total alokasi (' + fmt(allocSum) + ') ≠ dana (cash + saldo) (' + fmt(totalDana) + ').');
+                alert('Multi-faktur harus bayar penuh: total alokasi (' + fmt(allocSum) + ') ≠ dana (cash + saldo) (' + fmt(totalDana) + ').');
                 return;
             }
             if (allocSum > totalDana + 0.01){

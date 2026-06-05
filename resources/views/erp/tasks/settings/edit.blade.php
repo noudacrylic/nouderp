@@ -13,7 +13,7 @@
     @csrf @method('PATCH')
 
     <div>
-        <div class="text-sm font-semibold text-gray-800 mb-2">Otomasi Print</div>
+        <div class="text-sm font-semibold text-gray-800 mb-2">Otomasi Cetak</div>
         <p class="text-xs text-gray-500 mb-3">
             Saat Sales Order dibuat & memuat produk dengan flag <em>Butuh Printing</em>,
             task baru akan otomatis dibuat dan ditujukan ke user di bawah ini.

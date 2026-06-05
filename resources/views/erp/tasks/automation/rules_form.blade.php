@@ -182,7 +182,7 @@
         <div>
             <label class="block text-xs text-gray-500 mb-1">Prioritas</label>
             <select name="priority" class="w-full border rounded px-2 py-2 text-sm">
-                @foreach(['low' => 'Low', 'normal' => 'Normal', 'high' => 'High'] as $v => $lbl)
+                @foreach(['low' => 'Rendah', 'normal' => 'Normal', 'high' => 'Tinggi'] as $v => $lbl)
                     <option value="{{ $v }}" @selected(old('priority', $rule->priority ?? 'normal') === $v)>{{ $lbl }}</option>
                 @endforeach
             </select>

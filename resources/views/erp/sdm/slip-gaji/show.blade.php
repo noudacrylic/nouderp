@@ -13,7 +13,7 @@
                 <button class="border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded text-sm">Hitung Ulang</button>
             </form>
         @endif
-        <a href="{{ route('sdm.slip-gaji.print', $slip->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Print</a>
+        <a href="{{ route('sdm.slip-gaji.print', $slip->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Cetak</a>
         <a href="{{ route('sdm.slip-gaji.print', ['id' => $slip->id, 'pdf' => 1]) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">PDF</a>
         <a href="{{ route('sdm.periode-gaji.show', $slip->periode_id) }}" class="text-gray-600 px-3 py-1.5 text-sm">Kembali</a>
     </div>
