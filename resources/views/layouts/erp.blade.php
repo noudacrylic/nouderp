@@ -1178,6 +1178,68 @@
             }
         });
     </script>
+
+    {{-- ============================================================
+         FORMAT INPUT MATA UANG SERAGAM (global, semua modul)
+         Pasang class "rupiah-input" pada <input type="text"> mata uang:
+           - ketik → otomatis titik ribuan gaya Indonesia (1.000.000), tanpa desimal
+           - submit (native) → titik di-strip → backend terima angka polos
+           - delegation: berlaku utk input statis MAUPUN baris dinamis
+         window.cleanNumber("1.000.000") → 1000000 (dipakai script AJAX).
+         Backend tetap pakai helper clean_number() sbg jaring pengaman.
+       ============================================================ --}}
+    <script>
+    (function () {
+        function formatThousands(value) {
+            var digits = String(value == null ? '' : value).replace(/\D/g, '');
+            digits = digits.replace(/^0+(?=\d)/, ''); // buang leading zero
+            if (digits === '') return '';
+            return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        }
+
+        // Helper global: "1.000.000" / "Rp 1.000,5" → number
+        window.cleanNumber = function (v) {
+            if (v === null || v === undefined) return 0;
+            var s = String(v).replace(/\./g, '').replace(/[^0-9,\-]/g, '').replace(',', '.');
+            var n = parseFloat(s);
+            return isNaN(n) ? 0 : n;
+        };
+        window.formatThousands = formatThousands;
+
+        function formatAll(root) {
+            (root || document).querySelectorAll('.rupiah-input').forEach(function (el) {
+                if (el.value !== '') el.value = formatThousands(el.value);
+            });
+        }
+        document.addEventListener('DOMContentLoaded', function () { formatAll(document); });
+
+        // Format saat mengetik (input event, capture → kena elemen dinamis juga).
+        document.addEventListener('input', function (e) {
+            var el = e.target;
+            if (!el || !el.classList || !el.classList.contains('rupiah-input')) return;
+            var before = el.value.slice(0, el.selectionStart || 0);
+            var digitsBefore = (before.match(/\d/g) || []).length;
+            el.value = formatThousands(el.value);
+            // posisikan kursor setelah digit ke-(digitsBefore)
+            var pos = 0, seen = 0;
+            while (pos < el.value.length && seen < digitsBefore) {
+                if (/\d/.test(el.value.charAt(pos))) seen++;
+                pos++;
+            }
+            try { el.setSelectionRange(pos, pos); } catch (_) {}
+        }, true);
+
+        // Strip titik sebelum submit native → backend terima angka polos (anti (int)"1.000"=1).
+        document.addEventListener('submit', function (e) {
+            var form = e.target;
+            if (!form || !form.querySelectorAll) return;
+            form.querySelectorAll('.rupiah-input').forEach(function (input) {
+                input.value = String(input.value).replace(/\./g, '');
+            });
+        }, true);
+    })();
+    </script>
+
     {{-- Alpine.js dipakai oleh sidebar user-profile dropdown + beberapa halaman --}}
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     @yield('scripts')

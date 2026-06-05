@@ -11,38 +11,8 @@
             width: '100%'
         });
 
-        function formatRupiah(angka) {
-            let number_string = angka.replace(/[^,\d]/g, '').toString(),
-                split = number_string.split(','),
-                sisa = split[0].length % 3,
-                rupiah = split[0].substr(0, sisa),
-                ribuan = split[0].substr(sisa).match(/\d{3}/gi);
-
-            if (ribuan) {
-                let separator = sisa ? '.' : '';
-                rupiah += separator + ribuan.join('.');
-            }
-
-            return rupiah;
-        }
-
-        document.querySelectorAll('.rupiah-input').forEach(function (el) {
-            el.addEventListener('keyup', function () {
-                this.value = formatRupiah(this.value);
-            });
-            // Also format initially on load
-            if (this.value) {
-                this.value = formatRupiah(this.value);
-            }
-        });
-
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', function () {
-                this.querySelectorAll('.rupiah-input').forEach(input => {
-                    input.value = input.value.replace(/\./g, '');
-                });
-            });
-        });
+        // Format .rupiah-input kini ditangani GLOBAL di layout erp.blade.php
+        // (ketik→titik, submit→strip, window.cleanNumber). Tidak perlu lokal lagi.
     });
 
     function addUnitRow() {

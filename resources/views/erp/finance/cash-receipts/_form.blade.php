@@ -211,8 +211,8 @@ function renderGeneralRow(line){
             <input type="text" name="lines[][description]" value="${esc(line.description)}" class="border rounded px-2 py-1 w-full">
         </td>
         <td class="px-2 py-1 text-right">
-            <input type="number" step="0.01" min="0.01" name="lines[][amount]" value="${line.amount||''}"
-                   class="border rounded px-2 py-1 w-full text-right amount-input" required>
+            <input type="text" inputmode="numeric" name="lines[][amount]" value="${line.amount||''}"
+                   class="border rounded px-2 py-1 w-full text-right amount-input rupiah-input" required>
         </td>
         <td class="px-2 py-1 text-center">
             <button type="button" class="text-red-600 hover:text-red-800 btn-remove">×</button>
@@ -232,8 +232,8 @@ function renderLockedRow(line, lockedAcc){
             <input type="text" name="lines[][description]" value="${esc(line.description)}" class="border rounded px-2 py-1 w-full">
         </td>
         <td class="px-2 py-1 text-right">
-            <input type="number" step="0.01" min="0.01" name="lines[][amount]" value="${line.amount||''}"
-                   class="border rounded px-2 py-1 w-full text-right amount-input" required>
+            <input type="text" inputmode="numeric" name="lines[][amount]" value="${line.amount||''}"
+                   class="border rounded px-2 py-1 w-full text-right amount-input rupiah-input" required>
         </td>
         <td class="px-2 py-1 text-center">
             <button type="button" class="text-red-600 hover:text-red-800 btn-remove">×</button>
@@ -281,7 +281,7 @@ function fixLineNames(){
 
 function recalc(){
     let sum = 0;
-    linesBody.querySelectorAll('.amount-input').forEach(i => sum += parseFloat(i.value)||0);
+    linesBody.querySelectorAll('.amount-input').forEach(i => sum += window.cleanNumber(i.value)||0);
     grandTotalEl.textContent = fmt(sum);
 }
 
