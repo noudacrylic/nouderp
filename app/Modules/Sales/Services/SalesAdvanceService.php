@@ -15,7 +15,11 @@ class SalesAdvanceService
         DB::transaction(function () use ($advance) {
 
             $bank = Account::findOrFail($advance->bank_account_id);
-            $uangMuka = Account::where('code', '2102')->firstOrFail();
+            // CATATAN: service ini saat ini TIDAK dipakai (alur uang muka asli lewat
+            // CustomerPaymentService). Akun dibetulkan dari 2102 (PPN Masukan — salah,
+            // aset) ke 2105 Uang Muka Customer (liability) agar tidak jadi ranjau bila
+            // kelak diaktifkan.
+            $uangMuka = Account::where('code', \App\Enums\AccountCodeEnum::SALES_ADVANCE)->firstOrFail();
 
             $period = AccountingPeriod::where('year', date('Y', strtotime($advance->advance_date)))
                 ->where('month', date('m', strtotime($advance->advance_date)))
