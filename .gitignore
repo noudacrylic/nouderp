@@ -28,3 +28,7 @@ Thumbs.db
 /exel marketplace/*.xlsx
 /exel marketplace/*.xls
 /storage/backups
+
+# Test env (jangan commit, jangan sampai migrate kena live)
+.env.testing
+.env.*.local
