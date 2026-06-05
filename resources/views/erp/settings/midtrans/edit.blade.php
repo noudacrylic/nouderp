@@ -21,6 +21,22 @@
             </div>
         @endif
 
+        {{-- Webhook URL untuk di-paste ke Dashboard Midtrans --}}
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+            <h3 class="text-sm font-bold text-amber-800 mb-1">Payment Notification URL</h3>
+            <p class="text-xs text-amber-700 mb-2">
+                Paste ke <b>Midtrans Dashboard → Settings → Configuration → Payment Notification URL</b>.
+                URL ini otomatis mengikuti domain aplikasi (saat ini: <span class="font-mono">{{ parse_url(config('app.url'), PHP_URL_HOST) }}</span>).
+            </p>
+            <div class="flex gap-2">
+                <input type="text" readonly value="{{ route('midtrans.notify') }}"
+                       class="flex-1 border rounded px-3 py-2 font-mono text-xs bg-white" onclick="this.select()">
+                <button type="button"
+                        onclick="navigator.clipboard.writeText('{{ route('midtrans.notify') }}'); this.textContent='Tersalin!'; setTimeout(()=>this.textContent='Copy',1500)"
+                        class="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-sm font-semibold whitespace-nowrap">Copy</button>
+            </div>
+        </div>
+
         <form method="POST" action="{{ route('settings.midtrans.update') }}" class="space-y-8">
             @csrf
 
