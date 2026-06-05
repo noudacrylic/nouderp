@@ -18,11 +18,13 @@ class SalesOrderService
     {
         DB::transaction(function () use ($salesOrderId) {
 
-            // Eager load KEDUA relasi bundle sekaligus
+            // lockForUpdate: cek-status-draft + buat-reservasi harus atomik. Tanpa lock,
+            // dua confirm konkuren bisa sama-sama lolos cek draft → reservasi DOBEL.
+            // (Tidak ada hard-block availability: SO mendukung preorder/stok menyusul.)
             $so = SalesOrder::with([
                 'items.product.bundleItems',      // -> product_bundles (qty_required)
                 'items.product.bundleComponents', // -> bundle_components (qty)
-            ])->findOrFail($salesOrderId);
+            ])->lockForUpdate()->findOrFail($salesOrderId);
 
             if ($so->status !== SalesOrderStatus::DRAFT->value) {
                 throw new Exception("SO not in draft status.");

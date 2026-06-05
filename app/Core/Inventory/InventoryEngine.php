@@ -205,19 +205,29 @@ class InventoryEngine
 
     public function reserve($product, $warehouse, $qty, $soId)
     {
-        $available = $this->availableStock($product, $warehouse);
+        return DB::transaction(function () use ($product, $warehouse, $qty, $soId) {
 
-        if ($qty > $available) {
-            throw new \Exception("Stock tidak cukup untuk reservasi.");
-        }
+            // Lock baris stok utk serialisasi cek-lalu-reservasi (anti TOCTOU): tanpa ini
+            // dua reservasi konkuren bisa sama-sama lolos cek availability lalu over-reserve.
+            ProductStock::where('product_id', $product)
+                ->where('warehouse_id', $warehouse)
+                ->lockForUpdate()
+                ->first();
 
-        StockReservation::create([
-            'product_id' => $product,
-            'warehouse_id' => $warehouse,
-            'sales_order_id' => $soId,
-            'qty' => $qty,
-            'status' => 'active'
-        ]);
+            $available = $this->availableStock($product, $warehouse);
+
+            if ($qty > $available) {
+                throw new \Exception("Stock tidak cukup untuk reservasi.");
+            }
+
+            return StockReservation::create([
+                'product_id' => $product,
+                'warehouse_id' => $warehouse,
+                'sales_order_id' => $soId,
+                'qty' => $qty,
+                'status' => 'active'
+            ]);
+        });
     }
 
     /*
