@@ -641,7 +641,8 @@ class PurchaseReturnService
         $lines = JournalLine::where('journal_id', $journalId)->get();
         $debit = round($lines->sum('debit'), 2);
         $credit = round($lines->sum('credit'), 2);
-        if ($debit !== $credit) {
+        // Bandingkan dgn toleransi (float strict !== rawan false-positive).
+        if (abs($debit - $credit) > 0.005) {
             throw new \Exception("Journal not balanced: Dr=$debit Cr=$credit");
         }
     }
