@@ -18,13 +18,7 @@ class InventoryEngine
 
     public function availableStock(int $productId, ?int $warehouseId = null): float
     {
-        $query = InventoryLedger::where('product_id', $productId);
-
-        if ($warehouseId) {
-            $query->where('warehouse_id', $warehouseId);
-        }
-
-        $balance = $query->orderByDesc('id')->value('balance') ?? 0;
+        $balance = $this->latestBalance($productId, $warehouseId);
 
         $reserved = StockReservation::where('product_id', $productId)
             ->where('status', 'active')
@@ -40,13 +34,28 @@ class InventoryEngine
      */
     public function onHand(int $productId, ?int $warehouseId = null): float
     {
-        $query = InventoryLedger::where('product_id', $productId);
+        return $this->latestBalance($productId, $warehouseId);
+    }
 
+    /**
+     * Saldo ledger terakhir. Kolom `balance` adalah running-total PER (produk, gudang),
+     * jadi untuk lintas-gudang (warehouseId null) TIDAK boleh ambil baris terakhir saja —
+     * harus menjumlahkan saldo terakhir tiap gudang.
+     */
+    private function latestBalance(int $productId, ?int $warehouseId = null): float
+    {
         if ($warehouseId) {
-            $query->where('warehouse_id', $warehouseId);
+            return (float) (InventoryLedger::where('product_id', $productId)
+                ->where('warehouse_id', $warehouseId)
+                ->orderByDesc('id')->value('balance') ?? 0);
         }
 
-        return (float) ($query->orderByDesc('id')->value('balance') ?? 0);
+        $latestIds = InventoryLedger::where('product_id', $productId)
+            ->selectRaw('MAX(id) as id')
+            ->groupBy('warehouse_id')
+            ->pluck('id');
+
+        return (float) (InventoryLedger::whereIn('id', $latestIds)->sum('balance'));
     }
 
     /*
