@@ -851,7 +851,9 @@ class ProductionOrderService
                 ->where('source_id', $orderId)->get();
 
             foreach ($layers as $layer) {
-                if ((float) $layer->qty_remaining < (float) $layer->qty) {
+                // Kolom layer adalah qty_in (bukan qty) — sebelumnya membandingkan dengan
+                // properti null sehingga guard ini TIDAK PERNAH aktif & void bisa korup stok.
+                if ((float) $layer->qty_remaining < (float) $layer->qty_in) {
                     throw new Exception("Stok output sudah sebagian terpakai, void tidak bisa dilakukan.");
                 }
             }
