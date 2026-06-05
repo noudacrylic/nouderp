@@ -314,6 +314,21 @@ class SupplierPaymentService
         return DB::transaction(function () use ($payment) {
             $payment->load('allocations.invoice');
 
+            // GUARD: alokasi auto-DP dibuat oleh posting INVOICE (jurnal Dr 2101/Cr 1107
+            // ada di jurnal invoice, bukan jurnal payment ini). Void payment di sini tidak
+            // bisa membalik jurnal invoice tsb → akun 1107 jadi minus & GL korup. Reversal
+            // yang benar lewat VOID INVOICE (reverseAutoDpAllocations). Jadi blok di sini.
+            $autoDp = $payment->allocations->where('is_auto_dp', true);
+            if ($autoDp->isNotEmpty()) {
+                $invNumbers = $autoDp->map(fn ($a) => $a->invoice?->invoice_number)
+                    ->filter()->unique()->implode(', ');
+                throw new DomainException(
+                    "Tidak bisa void: DP payment ini sudah teralokasi otomatis ke invoice "
+                    . "({$invNumbers}). Void invoice tersebut terlebih dahulu — saldo DP akan "
+                    . "otomatis dikembalikan."
+                );
+            }
+
             // Rollback paid_amount/outstanding di invoice
             foreach ($payment->allocations as $alloc) {
                 $inv = $alloc->invoice;

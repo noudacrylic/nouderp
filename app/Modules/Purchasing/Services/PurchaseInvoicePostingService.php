@@ -314,11 +314,14 @@ class PurchaseInvoicePostingService
         $outstanding = (float) $invoice->outstanding_amount;
         if ($outstanding <= 0) return;
 
+        // lockForUpdate: cegah dua invoice yg di-post bersamaan sama-sama membaca
+        // remaining_amount lama lalu mengalokasikan DP yg sama (over-consume → 1107 minus).
         $dpPayments = SupplierPayment::where('supplier_id', $invoice->supplier_id)
             ->where('status', 'posted')
             ->where('remaining_amount', '>', 0)
             ->orderBy('payment_date')
             ->orderBy('id')
+            ->lockForUpdate()
             ->get();
 
         if ($dpPayments->isEmpty()) return;
