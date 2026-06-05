@@ -12,6 +12,7 @@ use App\Modules\SDM\Models\KebijakanSummaryValue;
 use App\Modules\SDM\Models\NationalHoliday;
 use App\Modules\SDM\Models\PeriodePenggajian;
 use App\Modules\SDM\Models\SlipGaji;
+use App\Modules\SDM\Services\PayrollBreakdownService;
 use App\Modules\SDM\Models\PayrollSetting;
 use App\Modules\SDM\Services\AttendanceImportService;
 use App\Modules\SDM\Services\KebijakanRuleEngine;
@@ -376,30 +377,10 @@ class AttendanceController extends Controller
 
     protected function resolveLemburJam(array $row, ?string $status, ?Attendance $att, ?string $otOut, ?string $regOut): float
     {
-        if ($att && $att->edited_manually && (float) $att->overtime_hours > 0) {
-            return (float) $att->overtime_hours;
-        }
-
-        // Libur = tidak ada kerja → 0 lembur (mis. hari libur dengan tukar ½ hari, scan-nya dikonsumsi swap).
-        if ($status === 'libur') return 0.0;
-
-        if ($status === 'lembur_setengah_hari') return 3.5;
-
-        // Tukar Hari di hari libur/off → diperlakukan hari kerja normal, jangan auto-set 7 jam lembur.
-        $isSwapped = $this->hasFullDaySwap($row);
-
-        if (! $isSwapped && ($status === 'lembur' || $row['is_off'] || $row['is_holiday'])) {
-            return ($att && ($att->on_work1 || $att->off_work1)) ? 7.0 : 0.0;
-        }
-
-        $off = $otOut ?? $regOut;
-        if (! $off) return 0;
-        $offMin = $this->toMinutes($off);
-
-        if ($offMin >= $this->toMinutes('20:00')) return 3.0;
-        if ($offMin >= $this->toMinutes('19:00')) return 2.0;
-        if ($offMin >= $this->toMinutes('17:00')) return 1.0;
-        return 0;
+        // Sumber tunggal: pakai logika di PayrollBreakdownService (lembur hari kerja =
+        // jam_masuk_lembur s/d scan keluar lembur − istirahat lembur) agar dashboard,
+        // slip show & slip cetak konsisten.
+        return PayrollBreakdownService::resolveLemburJam($row, $status, $att, $otOut, $regOut);
     }
 
     protected function paysFullDay(?string $status): bool

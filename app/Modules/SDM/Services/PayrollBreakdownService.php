@@ -291,14 +291,31 @@ class PayrollBreakdownService
             return ($att && ($att->on_work1 || $att->off_work1)) ? 7.0 : 0.0;
         }
 
-        $off = $otOut ?? $regOut;
-        if (! $off) return 0;
-        $offMin = static::toMinutes($off);
+        // Lembur HARI KERJA: durasi NYATA dari jam_masuk_lembur (setting jadwal) s/d
+        // scan keluar lembur (off_work2), DIKURANGI istirahat lembur yang beririsan.
+        // Hanya bila lembur dijadwalkan (has_lembur) & ada scan keluar lembur.
+        $sched = $row['schedule'] ?? null;
+        if (! $sched || ! $sched->has_lembur) return 0.0;
+        if (! $otOut) return 0.0;
 
-        if ($offMin >= static::toMinutes('20:00')) return 3.0;
-        if ($offMin >= static::toMinutes('19:00')) return 2.0;
-        if ($offMin >= static::toMinutes('17:00')) return 1.0;
-        return 0;
+        $startStr = $sched->jam_masuk_lembur
+            ? substr($sched->jam_masuk_lembur, 0, 5)
+            : ($sched->jam_pulang ? substr($sched->jam_pulang, 0, 5) : '16:00');
+
+        $startMin = static::toMinutes($startStr);
+        $outMin   = static::toMinutes($otOut);
+        if ($outMin <= $startMin) return 0.0;
+
+        $mins = $outMin - $startMin;
+
+        if ($sched->jam_istirahat_lembur_start && $sched->jam_istirahat_lembur_end) {
+            $bStart = static::toMinutes(substr($sched->jam_istirahat_lembur_start, 0, 5));
+            $bEnd   = static::toMinutes(substr($sched->jam_istirahat_lembur_end, 0, 5));
+            $overlap = max(0, min($outMin, $bEnd) - max($startMin, $bStart));
+            $mins -= $overlap;
+        }
+
+        return round(max(0, $mins) / 60, 2);
     }
 
     public static function paysFullDay(?string $status): bool
