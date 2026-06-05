@@ -78,7 +78,10 @@ class JournalPostingService
             foreach ($dto->lines as $line) {
                 $journal->lines()->create([
                     'account_id'       => $line->account_id,
-                    'customer_id'      => $line->customer_id,
+                    // CATATAN: kolom journal_lines.customer_id TIDAK ADA di skema (tak pernah
+                    // di-migrate). customer_id pada DTO selalu null & tak pernah dibaca, jadi
+                    // insert-nya dihapus — sebelumnya bikin SQL "Unknown column" yg memblok
+                    // SEMUA pemanggil (finalisasi produksi, sales return, opening balance, dll).
                     'debit'            => $line->debit,
                     'credit'           => $line->credit,
                     'description'      => $line->description,
