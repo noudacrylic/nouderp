@@ -107,7 +107,7 @@ class SalesReturnService
     {
         return DB::transaction(function () use ($dto, $existingReturnId) {
             $doc = $this->getDoc($dto);
-            $this->validatePosting($dto, $doc);
+            $this->validatePosting($dto, $doc, $existingReturnId);
             $totals = $this->calculateTotals($dto, $doc);
 
             if ($existingReturnId) {
@@ -374,7 +374,7 @@ class SalesReturnService
         throw new Exception('Either invoice_id atau sales_order_id harus diisi.');
     }
 
-    private function validatePosting(SalesReturnDTO $dto, $doc)
+    private function validatePosting(SalesReturnDTO $dto, $doc, ?int $existingReturnId = null)
     {
         $docType = $dto->invoice_id ? 'invoice' : 'so';
         $docStatus = $doc->status instanceof \BackedEnum ? $doc->status->value : (string) $doc->status;
@@ -409,12 +409,27 @@ class SalesReturnService
                 throw new Exception("Item ID {$item['invoice_item_id']} tidak ditemukan pada dokumen");
             }
 
-            if ($item['qty'] > $targetItem->qty) {
-                throw new Exception("Qty retur ({$item['qty']}) melebihi Qty dokumen ({$targetItem->qty})");
-            }
-
             if ($item['qty'] <= 0) {
                 throw new Exception('Qty retur harus lebih besar dari 0');
+            }
+
+            // Qty yang SUDAH diretur (posted) untuk item dokumen ini, kecuali retur yang
+            // sedang di-post. Cegah double-return: validasi pakai SISA, bukan qty penuh.
+            $alreadyReturned = (float) SalesReturnItem::where('reference_item_id', $item['invoice_item_id'])
+                ->whereHas('salesReturn', function ($q) use ($existingReturnId) {
+                    $q->where('status', 'posted');
+                    if ($existingReturnId) {
+                        $q->where('id', '!=', $existingReturnId);
+                    }
+                })
+                ->sum('qty');
+
+            $returnable = (float) $targetItem->qty - $alreadyReturned;
+            if ($item['qty'] > $returnable + 0.00001) {
+                throw new Exception(
+                    "Qty retur ({$item['qty']}) melebihi sisa yang bisa diretur ({$returnable}). "
+                    . "Qty dokumen: {$targetItem->qty}, sudah diretur: {$alreadyReturned}."
+                );
             }
         }
     }
