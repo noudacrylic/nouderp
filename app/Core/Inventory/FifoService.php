@@ -47,7 +47,7 @@ class FifoService
             ->get();
 
         foreach ($layers as $layer) {
-            if ($remaining <= 0) {
+            if ($remaining <= 0.00001) {
                 break;
             }
 
@@ -71,7 +71,8 @@ class FifoService
             $remaining -= $take;
         }
 
-        if ($remaining > 0) {
+        // Toleransi epsilon: sisa float micro-positif bukan kekurangan stok asli.
+        if ($remaining > 0.00001) {
             throw new Exception('Stock not enough for FIFO consume');
         }
 
@@ -93,7 +94,7 @@ class FifoService
             ->get();
 
         foreach ($layers as $layer) {
-            if ($remaining <= 0) {
+            if ($remaining <= 0.00001) {
                 break;
             }
 
@@ -117,7 +118,8 @@ class FifoService
             $remaining -= $take;
         }
 
-        if ($remaining > 0) {
+        // Toleransi epsilon: sisa float micro-positif bukan kekurangan stok asli.
+        if ($remaining > 0.00001) {
             throw new Exception('Stock not enough for FIFO move');
         }
     }

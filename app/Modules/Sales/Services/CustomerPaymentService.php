@@ -264,7 +264,8 @@ class CustomerPaymentService
             $totalCredit += $line->credit;
         }
 
-        if (round($totalDebit, 2) !== round($totalCredit, 2)) {
+        // Bandingkan dgn toleransi (float strict !== rawan false-positive).
+        if (abs(round($totalDebit, 2) - round($totalCredit, 2)) > 0.005) {
             throw new Exception("Journal not balanced: Debit " . number_format($totalDebit, 2) . " vs Credit " . number_format($totalCredit, 2));
         }
 

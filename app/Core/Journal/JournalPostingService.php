@@ -57,7 +57,8 @@ class JournalPostingService
                 }
             }
 
-            if (round($totalDebit, 4) !== round($totalCredit, 4)) {
+            // Bandingkan dgn toleransi (float strict !== rawan false-positive).
+            if (abs(round($totalDebit, 4) - round($totalCredit, 4)) > 0.00005) {
                 throw new DomainException("Journal not balanced.");
             }
 
