@@ -44,11 +44,14 @@ class JubelioStockSyncService
             ->limit($limit)
             ->get()
             ->each(function (Product $p) use (&$stats) {
+                // Lepas flag SEBELUM baca stok: bila ada mutasi stok saat push berlangsung,
+                // StockMovementObserver men-set pending=true lagi & tidak hilang tertimpa
+                // (anti lost-update). Bila push gagal, tandai ulang agar dicoba lagi.
+                $p->forceFill(['jubelio_sync_pending' => false])->save();
                 $r = $this->pushProduct($p, false);
                 $stats[$r]++;
-                // Lepas flag hanya bila sukses / memang tak perlu (skipped); biarkan bila gagal agar dicoba lagi.
-                if ($r !== 'failed') {
-                    $p->forceFill(['jubelio_sync_pending' => false])->save();
+                if ($r === 'failed') {
+                    $p->forceFill(['jubelio_sync_pending' => true])->save();
                 }
             });
 
@@ -70,10 +73,12 @@ class JubelioStockSyncService
             ->limit($limit)
             ->get()
             ->each(function (Product $p) use (&$stats) {
+                // Lepas flag sebelum push (anti lost-update, lihat pushPending); set ulang bila gagal.
+                $p->forceFill(['jubelio_sync_pending' => false])->save();
                 $r = $this->pushProduct($p, true);
                 $stats[$r]++;
-                if ($r !== 'failed') {
-                    $p->forceFill(['jubelio_sync_pending' => false])->save();
+                if ($r === 'failed') {
+                    $p->forceFill(['jubelio_sync_pending' => true])->save();
                 }
             });
 

@@ -215,7 +215,10 @@ class JubelioClient
                 if ($locationId !== null && (int) ($row['location_id'] ?? 0) !== $locationId) {
                     continue;
                 }
-                foreach (['available', 'available_qty', 'end_qty', 'qty_available', 'qty'] as $k) {
+                // Jangan pakai 'qty' generik sbg fallback: bisa qty ordered/reserved,
+                // bukan available → baseline reconcile salah → delta & adjustment salah.
+                // Return null bila tak ada field available spesifik (jangan menebak).
+                foreach (['available', 'available_qty', 'end_qty', 'qty_available'] as $k) {
                     if (isset($row[$k]) && is_numeric($row[$k])) {
                         return (float) $row[$k];
                     }
