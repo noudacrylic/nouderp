@@ -24,6 +24,7 @@ class InvoicePostingService
             'hpp'       => '5001', // HPP
             'inventory' => '1130', // Persediaan (Opsi 1)
             'ppn'       => '2103', // PPN Keluaran
+            'pph'       => '1109', // PPh 23 Dibayar Dimuka (aset/kredit pajak — dipotong customer)
             'titipan'   => '1203', // Titipan Ongkir
             'advance'   => '2105', // Uang Muka Customer
             'additional_revenue' => '4002', // Pendapatan Tambahan
@@ -315,6 +316,14 @@ class InvoicePostingService
         if ($invoice->ppn_amount > 0) {
             $ppnAccountId = $this->getAccountIdByCode($this->account('ppn'));
             $this->createJournalLine($invoice, $ppnAccountId, 'credit', $invoice->ppn_amount);
+        }
+
+        // PPh dipotong customer mengurangi kas yang diterima (grand_total sudah dikurangi
+        // PPh), namun nilainya adalah kredit pajak yang dapat ditagih → DEBIT aset
+        // "PPh Dibayar Dimuka". Tanpa baris ini jurnal tidak balance sebesar pph_amount.
+        if ($invoice->pph_amount > 0) {
+            $pphAccountId = $this->getAccountIdByCode($this->account('pph'));
+            $this->createJournalLine($invoice, $pphAccountId, 'debit', $invoice->pph_amount);
         }
 
         if ($invoice->additional_fee > 0) {

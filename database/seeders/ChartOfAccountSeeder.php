@@ -24,6 +24,8 @@ class ChartOfAccountSeeder extends Seeder
             ['code' => '1203', 'name' => 'Titipan Pengiriman', 'type' => 'asset', 'normal_balance' => 'credit', 'is_system' => 0],
             ['code' => '1107', 'name' => 'Uang Muka Supplier', 'type' => 'asset', 'normal_balance' => 'debit', 'is_system' => 1],
             ['code' => '1108', 'name' => 'Piutang Lebih Bayar Supplier', 'type' => 'asset', 'normal_balance' => 'debit', 'is_system' => 1, 'account_category' => 'receivable'],
+            // PPh yang dipotong customer atas penjualan = pajak dibayar dimuka (aset/kredit pajak), bukan hutang.
+            ['code' => '1109', 'name' => 'PPh 23 Dibayar Dimuka', 'type' => 'asset', 'normal_balance' => 'debit', 'is_system' => 1, 'account_category' => 'receivable'],
 
             // ===== LIABILITY =====
             ['code' => '2101', 'name' => 'Hutang Usaha', 'type' => 'liability', 'normal_balance' => 'credit', 'is_system' => 1],
