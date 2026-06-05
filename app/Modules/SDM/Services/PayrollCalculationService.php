@@ -97,7 +97,7 @@ class PayrollCalculationService
         // per-hari PayrollBreakdownService — sama persis dgn slip show & slip cetak, sehingga
         // angka yang DIBAYAR == angka yang DITAMPILKAN/DICETAK. Hari kerja ikut kalender
         // (jadwal - tanggal merah) konsisten dgn tampilan; lembur ikut jadwal & istirahat.
-        $amounts = $this->computeAmountsFromBuild($karyawan, $periode, $manual);
+        $amounts = $this->computeAmountsFromBuild($karyawan, $periode);
 
         // BPJS/Pajak fix dari master karyawan (bisa di-override per slip nanti via edit form)
         $bpjsKes = $slip->exists ? (float) $slip->bpjs_kesehatan_amount : 0.0;
@@ -190,10 +190,8 @@ class PayrollCalculationService
      * tunjangan (kolom + summary Kebijakan per-hari) semuanya konsisten dgn tampilan.
      * Pendapatan manual (bonus/THR/cuti) ditambahkan di atas bruto engine.
      */
-    protected function computeAmountsFromBuild(Karyawan $k, ?PeriodePenggajian $periode, array $manual): array
+    protected function computeAmountsFromBuild(Karyawan $k, ?PeriodePenggajian $periode): array
     {
-        $manualAdd = (float) $manual['bonus'] + (float) $manual['thr_amount'] + (float) $manual['cuti_unused_amount'];
-
         if (! $periode) {
             return [
                 'hari_kerja_periode'       => 0,
@@ -204,7 +202,7 @@ class PayrollCalculationService
                 'tunjangan_bulanan_amount' => 0,
                 'bonus_absen_amount'       => 0,
                 'total_jam_lembur'         => 0,
-                'subtotal'                 => round($manualAdd, 2),
+                'subtotal'                 => 0,
             ];
         }
 
@@ -232,7 +230,10 @@ class PayrollCalculationService
             'tunjangan_bulanan_amount' => round($summaryNet, 2),
             'bonus_absen_amount'       => 0,
             'total_jam_lembur'         => round((float) ($build['totalLemburJam'] ?? 0), 2),
-            'subtotal'                 => round($brutoEngine + $manualAdd, 2),
+            // Bonus/THR/cuti & komponen TIDAK lagi ditambahkan di sini — bonus/THR kini via
+            // Kebijakan summary (ikut brutoEngine & tampil di slip cetak). Komponen manual
+            // ditambah terpisah (total_komponen_earning) di total_gaji.
+            'subtotal'                 => round($brutoEngine, 2),
         ];
     }
 

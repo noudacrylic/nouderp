@@ -44,22 +44,10 @@
         </div>
     </div>
 
-    <div class="bg-white rounded shadow p-5 max-w-5xl">
-        <h2 class="font-semibold text-sm mb-3 border-b pb-2">Pendapatan Manual (selain Auto Engine)</h2>
-        <div class="grid grid-cols-3 gap-4">
-            <div>
-                <label class="block text-xs text-gray-500 mb-1">Bonus (Rp)</label>
-                <input type="text" name="bonus" value="{{ old('bonus', number_format((float)$slip->bonus, 0, ',', '.')) }}" class="border rounded px-3 py-2 w-full text-right">
-            </div>
-            <div>
-                <label class="block text-xs text-gray-500 mb-1">THR (Rp)</label>
-                <input type="text" name="thr_amount" value="{{ old('thr_amount', number_format((float)$slip->thr_amount, 0, ',', '.')) }}" class="border rounded px-3 py-2 w-full text-right">
-            </div>
-            <div>
-                <label class="block text-xs text-gray-500 mb-1">Cuti Tidak Terpakai (Rp)</label>
-                <input type="text" name="cuti_unused_amount" value="{{ old('cuti_unused_amount', number_format((float)$slip->cuti_unused_amount, 0, ',', '.')) }}" class="border rounded px-3 py-2 w-full text-right">
-            </div>
-        </div>
+    <div class="bg-blue-50 border border-blue-200 rounded p-3 max-w-5xl text-xs text-blue-800">
+        <b>Bonus, THR &amp; Cuti tidak terpakai</b> kini diinput lewat <b>Kebijakan → Summary</b>
+        (per-karyawan / sekali bayar) supaya ikut terhitung di pembayaran <i>dan</i> tampil di slip cetak.
+        Komponen tambahan tetap di bawah ini.
     </div>
 
     {{-- KOMPONEN TAMBAHAN (dynamic rows) --}}
