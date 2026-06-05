@@ -4,6 +4,7 @@
 <head>
     <title>Noud ERP</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    @include('layouts.partials._favicon')
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- CSS -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">

@@ -18,6 +18,7 @@
 <head>
     <meta charset="UTF-8">
     <title>{{ $printTitle ?? 'Print' }}</title>
+    @include('layouts.partials._favicon')
     <style>
         @if(!($pdfMode ?? false))
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;900&display=swap');
