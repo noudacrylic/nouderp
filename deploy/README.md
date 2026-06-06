@@ -35,7 +35,21 @@ sudo git clone <URL_REPO> /var/www/noud-erp && cd /var/www/noud-erp
 composer install --no-dev --optimize-autoloader
 cp .env.production.example .env      # lalu edit nilai DB & APP_URL
 php artisan key:generate
-php artisan migrate --seed           # COA, admin default, periode, gudang, customer
+
+# --- Pilihan A: cepat (ada DATA CONTOH) ---
+php artisan migrate --seed           # struktur DB + COA, admin (admin/admin123), periode, gudang
+#   ⚠ Seeder JUGA membuat 1 produk & 2 customer CONTOH (Kotak Saran, Suwandi/Shopee).
+#     Hapus dari UI setelah login bila mau bersih.
+
+# --- Pilihan B: bersih (TANPA produk/customer contoh) — disarankan utk produksi nyata ---
+# php artisan migrate
+# php artisan db:seed --class=ChartOfAccountSeeder
+# php artisan db:seed --class=UserSeeder
+# php artisan db:seed --class=WarehouseSeeder
+# php artisan db:seed --class=AccountingPeriodSeeder
+# php artisan db:seed --class=TaskCategorySeeder
+#   (produk & customer asli diimpor via Excel / diinput di UI)
+
 # Opsional bila pakai fitur terkait:
 # php artisan db:seed --class=ProductionAccountSeeder
 # php artisan db:seed --class=TaxSettingSeeder
