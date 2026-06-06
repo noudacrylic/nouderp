@@ -27,13 +27,10 @@
         </div>
 
         <div class="mt-12 text-end">
-            <form action="{{ route('inventory.products.finish', $product->id) }}" method="POST">
-                @csrf
-                <button type="submit"
-                    class="bg-green-600 text-white px-16 py-4 rounded-xl font-bold shadow-2xl hover:bg-green-700 active:transform active:scale-95 transition text-xl">
-                    Selesai & Aktifkan Produk
-                </button>
-            </form>
+            <a href="{{ list_url('inventory.products.index') }}"
+                class="back-to-index inline-block bg-gray-700 text-white px-12 py-3 rounded-xl font-bold shadow-lg hover:bg-gray-800 active:transform active:scale-95 transition">
+                Kembali ke Daftar Produk
+            </a>
         </div>
     </div>
 

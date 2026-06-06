@@ -63,15 +63,20 @@ if (!function_exists('current_module')) {
 
 if (!function_exists('submenu_url_is_action')) {
     /**
-     * Deteksi apakah sebuah URL adalah aksi/download (bukan halaman yang bisa dinavigasi),
-     * berdasarkan segmen terakhir path: template / export / import / pdf / print / download.
-     * Dipakai untuk menolak nilai `last_submenu` yang ter-poison oleh URL download.
+     * Deteksi apakah sebuah URL adalah aksi/download ATAU halaman cetak standalone (print shell
+     * tanpa sidebar) — bukan halaman bernavigasi. Dipakai untuk menolak nilai `last_submenu`
+     * yang ter-poison, supaya klik menu utama tidak nyangkut di halaman tanpa menu.
+     *
+     * Cek segmen terakhir path:
+     *   - berakhiran: template / export / import / pdf / download
+     *   - mengandung kata: print (print-bulk, print-resi-bulk) / resi / track  (halaman cetak/standalone)
      */
     function submenu_url_is_action(string $url): bool
     {
         $path = parse_url($url, PHP_URL_PATH) ?: '';
         $lastSeg = strtolower(basename($path));
-        return (bool) preg_match('/(?:^|[-_])(?:template|export|import|pdf|print|download)$/', $lastSeg);
+        return (bool) preg_match('/(?:^|[-_])(?:template|export|import|pdf|download)$/', $lastSeg)
+            || (bool) preg_match('/(?:^|[-_])(?:print|resi|track)(?:$|[-_])/', $lastSeg);
     }
 }
 

@@ -261,6 +261,44 @@ class SalesDeliveryController extends Controller
                 ->with('error', 'Belum ada resi untuk dicetak. Lakukan Booking Resi dulu.');
         }
 
+        [$origin, $dest] = $this->resiAddresses($delivery);
+
+        return view('erp.sales.deliveries.resi', compact('delivery', 'origin', 'dest'));
+    }
+
+    /** Cetak resi MASSAL (banyak label sekaligus) dari POS → Telah Diproses. */
+    public function printResiBulk(Request $request)
+    {
+        $ids = collect(explode(',', (string) $request->query('ids')))
+            ->map(fn ($v) => (int) trim($v))->filter()->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return redirect()->route('pos.fulfillment.telah-diproses')->with('error', 'Tidak ada resi yang dipilih untuk dicetak.');
+        }
+
+        $deliveries = SalesDelivery::with(['order.customer', 'invoice.customer', 'items.product'])
+            ->whereIn('id', $ids)
+            ->whereNotNull('tracking_number')
+            ->get()
+            ->sortBy(fn ($d) => $ids->search($d->id))
+            ->values();
+
+        if ($deliveries->isEmpty()) {
+            return redirect()->route('pos.fulfillment.telah-diproses')->with('error', 'Tidak ada resi yang bisa dicetak (belum ada nomor resi).');
+        }
+
+        // [delivery, origin, dest] per label.
+        $labels = $deliveries->map(fn ($d) => [
+            'delivery' => $d,
+            'addr'     => $this->resiAddresses($d),
+        ]);
+
+        return view('erp.sales.deliveries.resi-bulk', compact('labels'));
+    }
+
+    /** Bangun alamat pengirim/penerima untuk label resi. */
+    private function resiAddresses(SalesDelivery $delivery): array
+    {
         $warehouse = \App\Core\Inventory\Warehouse::find($delivery->warehouse_id);
         $profile   = \App\Models\BusinessProfile::instance();
         $customer  = $delivery->order?->customer ?: $delivery->invoice?->customer;
@@ -278,7 +316,7 @@ class SalesDeliveryController extends Controller
                 : '-',
         ];
 
-        return view('erp.sales.deliveries.resi', compact('delivery', 'origin', 'dest'));
+        return [$origin, $dest];
     }
 
     public function update(Request $request, $id)
@@ -314,171 +352,66 @@ class SalesDeliveryController extends Controller
     }
 
     /**
+     * Data ringkas untuk popup "Cek Ulang Biaya Pengiriman" sebelum generate resi
+     * (dipakai di POS → Pemrosesan Pesanan → Telah Diproses, juga reusable).
+     * Berat default = Σ(weight_gram × qty) item fisik; dimensi default dari SO/Invoice.
+     */
+    public function shipInfo($id)
+    {
+        $delivery = SalesDelivery::with(['order.customer', 'invoice.customer', 'items.product'])->findOrFail($id);
+        $src      = $delivery->order ?: $delivery->invoice;
+        $customer = $delivery->order?->customer ?: $delivery->invoice?->customer;
+
+        $defaultWeight = 0;
+        foreach ($delivery->items as $it) {
+            $p = $it->product;
+            if (!$p || in_array($p->sale_type, ['service', 'non_stock'], true)) continue;
+            $defaultWeight += (int) ($p->weight_gram ?? 0) * max(1, (int) ceil((float) $it->qty));
+        }
+
+        $courierCode = $src->shipping_courier_code ?? null;
+
+        return response()->json([
+            'delivery_number' => $delivery->delivery_number,
+            'courier_code'    => $courierCode,
+            'service_code'    => $src->shipping_service_code ?? null,
+            'courier_label'   => $courierCode ? (strtoupper($courierCode) . ' ' . ($src->shipping_service_name ?? '')) : null,
+            'mode'            => $delivery->delivery_method === 'instant' ? 'instant' : 'regular',
+            'warehouse_id'    => $delivery->warehouse_id,
+            'area'            => $customer?->biteship_area_id,
+            'dest_lat'        => ($customer && $customer->latitude  !== null) ? (float) $customer->latitude  : null,
+            'dest_lng'        => ($customer && $customer->longitude !== null) ? (float) $customer->longitude : null,
+            'weight_gram'     => max(1, $defaultWeight),
+            'package_length'  => (float) ($src->package_length ?? 0) ?: null,
+            'package_width'   => (float) ($src->package_width  ?? 0) ?: null,
+            'package_height'  => (float) ($src->package_height ?? 0) ?: null,
+            'is_ambil_toko'   => $delivery->delivery_method === 'ambil_toko',
+            'booked'          => $delivery->isBooked(),
+        ]);
+    }
+
+    /**
      * Fase 3 — Booking resi ke Biteship dari Surat Jalan.
      * Origin = gudang, tujuan = customer, kurir/layanan dari SO/Invoice, berat/dimensi dari produk.
      */
-    public function bookShipment(Request $request, $id, \App\Modules\Shipping\Providers\BiteshipProvider $biteship)
+    public function bookShipment(Request $request, $id, \App\Modules\Shipping\Services\ShipmentBookingService $booking)
     {
-        $delivery = SalesDelivery::with(['order.customer', 'invoice.customer', 'items.product'])->findOrFail($id);
+        $delivery = SalesDelivery::findOrFail($id);
 
-        if ($delivery->status !== 'posted') {
-            return back()->with('error', 'Surat Jalan harus diposting dulu sebelum booking resi.');
-        }
-        if ($delivery->delivery_method === 'ambil_toko') {
-            return back()->with('error', 'Surat Jalan Ambil di Toko tidak perlu booking kurir.');
-        }
-        if ($delivery->isBooked()) {
-            return back()->with('error', 'Surat Jalan ini sudah punya resi: ' . $delivery->tracking_number);
-        }
-        if (!$biteship->isReady()) {
-            return back()->with('error', 'Biteship belum aktif. Aktifkan di Settings → Integrasi → Biteship.');
-        }
-
-        // Sumber kurir: SO (utama) atau Invoice.
-        $src = $delivery->order ?: $delivery->invoice;
-        $courierCode = $src->shipping_courier_code ?? null;
-        if (!$courierCode) {
-            return back()->with('error', 'Kurir belum dipilih di SO. Pilih kurir lewat Cek Ongkir di Sales Order dulu.');
-        }
-
-        // service_code: dari simpanan, atau resolusi dari nama layanan (SO lama) + backfill.
-        $serviceCode = $src->shipping_service_code ?: $biteship->serviceCodeFor($courierCode, $src->shipping_service_name);
-        if (!$serviceCode) {
-            return back()->with('error', 'Kode layanan kurir tidak dikenali. Buka SO → pilih ulang kurir lewat Cek Ongkir, lalu coba booking lagi.');
-        }
-        if (empty($src->shipping_service_code)) {
-            $src->update(['shipping_service_code' => $serviceCode]);
-        }
-
-        $warehouse = \App\Core\Inventory\Warehouse::find($delivery->warehouse_id);
-        $profile   = \App\Models\BusinessProfile::instance();
-        $customer  = $delivery->order?->customer ?: $delivery->invoice?->customer;
-
-        if (!$warehouse || (empty($warehouse->biteship_area_id) && empty($warehouse->postal_code))) {
-            return back()->with('error', 'Gudang asal belum punya area/kode pos. Lengkapi di Inventory → Warehouse.');
-        }
-        if (!$customer || (empty($customer->biteship_area_id) && empty($customer->postal_code))) {
-            return back()->with('error', 'Alamat tujuan customer belum punya area/kode pos. Lengkapi alamat customer.');
-        }
-        $destPhone = $customer->recipient_phone ?: $customer->phone;
-        if (empty($destPhone)) {
-            return back()->with('error', 'No. HP penerima kosong. Lengkapi di alamat customer (Edit/Tambah Alamat di SO).');
-        }
-
-        $originPhone = $warehouse->contact_phone ?: ($profile->phone ?: $profile->whatsapp);
-        if (empty($originPhone)) {
-            return back()->with('error', "No. HP kontak gudang asal kosong. Lengkapi \"No. HP Kontak\" gudang \"{$warehouse->name}\" di Inventory → Warehouse → Edit (atau isi No. HP di Profil Bisnis).");
-        }
-        $originName = $warehouse->contact_name ?: $profile->name;
-
-        // Item paket: berat & dimensi dari master produk.
-        $items = [];
-        foreach ($delivery->items as $it) {
-            $p = $it->product;
-            if (!$p) continue;
-            if (in_array($p->sale_type, ['service', 'non_stock'], true)) continue;
-
-            $item = [
-                'name'        => $p->name,
-                'description' => (string) ($p->sku ?? ''),
-                'value'       => 0,
-                'quantity'    => max(1, (int) ceil((float) $it->qty)),
-                'weight'      => max(1, (int) ($p->weight_gram ?? 0)),
-            ];
-            if ((float) ($p->height_cm ?? 0) > 0) $item['height'] = (float) $p->height_cm;
-            if ((float) ($p->length_cm ?? 0) > 0) $item['length'] = (float) $p->length_cm;
-            if ((float) ($p->width_cm ?? 0)  > 0) $item['width']  = (float) $p->width_cm;
-
-            $items[] = $item;
-        }
-        if (empty($items)) {
-            return back()->with('error', 'Tidak ada item fisik untuk dikirim.');
-        }
-
-        // Bila SO/Invoice punya DIMENSI PAKET manual → kirim 1 item paket (berat total + dimensi itu),
-        // BUKAN dimensi per-produk. Supaya ongkir/kendaraan saat booking SAMA dengan cek ongkir.
-        $pkgL = (float) ($src->package_length ?? 0);
-        $pkgW = (float) ($src->package_width ?? 0);
-        $pkgH = (float) ($src->package_height ?? 0);
-        if ($pkgL > 0 || $pkgW > 0 || $pkgH > 0) {
-            $totalWeight = 0;
-            foreach ($items as $it) {
-                $totalWeight += ($it['weight'] ?? 0) * ($it['quantity'] ?? 1);
-            }
-            $pkgItem = [
-                'name'     => 'Paket ' . $delivery->delivery_number,
-                'value'    => 0,
-                'quantity' => 1,
-                'weight'   => max(1, (int) $totalWeight),
-            ];
-            if ($pkgL > 0) $pkgItem['length'] = $pkgL;
-            if ($pkgW > 0) $pkgItem['width']  = $pkgW;
-            if ($pkgH > 0) $pkgItem['height'] = $pkgH;
-            $items = [$pkgItem];
-        }
-
-        $collection = in_array($request->input('collection_method'), ['pickup', 'dropoff'], true)
-            ? $request->input('collection_method')
-            : $this->collectionDefault($courierCode);
-
-        $payload = array_filter([
-            'origin_contact_name'  => $originName,
-            'origin_contact_phone' => $originPhone,
-            'origin_address'       => $warehouse->address ?: $profile->address,
-            'origin_postal_code'   => $warehouse->postal_code ?: null,
-            'origin_area_id'       => $warehouse->biteship_area_id ?: null,
-
-            'destination_contact_name'  => $customer->name,
-            'destination_contact_phone' => $destPhone,
-            'destination_address'       => $customer->shipping_address ?: $customer->address,
-            'destination_postal_code'   => $customer->postal_code ?: null,
-            'destination_area_id'       => $customer->biteship_area_id ?: null,
-
-            // Koordinat (objek {latitude,longitude}) — wajib untuk kurir instant (Grab/GoSend/Lalamove).
-            'origin_coordinate'      => ($warehouse->latitude !== null && $warehouse->longitude !== null)
-                ? ['latitude' => (float) $warehouse->latitude, 'longitude' => (float) $warehouse->longitude] : null,
-            'destination_coordinate' => ($customer->latitude !== null && $customer->longitude !== null)
-                ? ['latitude' => (float) $customer->latitude, 'longitude' => (float) $customer->longitude] : null,
-
-            'courier_company' => $courierCode,
-            'courier_type'    => $serviceCode,
-            'delivery_type'   => 'now',
-            'order_note'      => 'SJ ' . $delivery->delivery_number . ' · ' . ($collection === 'dropoff' ? 'Drop off' : 'Pickup'),
-            'metadata'        => ['delivery_number' => $delivery->delivery_number, 'collection_method' => $collection],
-            'items'           => $items,
-        ], fn ($v) => $v !== null && $v !== '');
-
-        $result = $biteship->createOrder($payload);
-
-        if (!$result['success']) {
-            $delivery->update(['shipping_status' => 'failed', 'shipping_raw' => $result['raw'] ?? null]);
-            return back()->with('error', 'Booking resi gagal: ' . ($result['error'] ?? 'tidak diketahui'));
-        }
-
-        // Ongkir AKTUAL yang dipotong Biteship (price di response), bukan net customer.
-        $actualCost = (float) ($result['raw']['price'] ?? $src->shipping_gross ?? 0);
-
-        $delivery->update([
-            'shipping_provider'     => 'biteship',
-            'shipping_courier_code' => $courierCode,
-            'shipping_service_code' => $serviceCode,
-            'provider_order_id'     => $result['order_id'],
-            'tracking_number'       => $result['tracking_id'] ?: $delivery->tracking_number,
-            'courier_name'          => strtoupper($courierCode) . ' ' . ($src->shipping_service_name ?? $serviceCode),
-            'collection_method'     => $collection,
-            'shipping_status'       => 'booked',
-            'shipping_cost'         => $actualCost,
-            'shipping_raw'          => $result['raw'] ?? null,
+        $result = $booking->book($delivery, $request->input('collection_method'), [
+            'weight_gram'    => $request->input('weight_gram'),
+            'package_length' => $request->input('package_length'),
+            'package_width'  => $request->input('package_width'),
+            'package_height' => $request->input('package_height'),
         ]);
 
-        // Fase 5 — jurnal: Dr Titipan Ongkir / Cr Saldo Biteship (+ settle kalau invoice sudah ada).
-        try {
-            app(\App\Modules\Shipping\Services\ShippingAccountingService::class)->postBooking($delivery->fresh('order'));
-        } catch (\Throwable $e) {
-            return back()->with('error', 'Resi terbuat (' . $result['tracking_id'] . '), tetapi jurnal ongkir gagal: ' . $e->getMessage() . '. Cek akun Saldo Biteship di Pengaturan Ongkir.');
+        if ($result['level'] === 'success') {
+            return back()->with('success', 'Resi berhasil dibuat: ' . ($result['tracking'] ?: 'menunggu dari kurir') . '.');
         }
-
-        return back()->with('success', 'Resi berhasil dibuat: ' . ($result['tracking_id'] ?: 'menunggu dari kurir') . '.');
+        if ($result['level'] === 'warning') {
+            return back()->with('error', $result['message'] . ' Cek akun Saldo Biteship di Pengaturan Ongkir.');
+        }
+        return back()->with('error', 'Booking resi gagal — ' . $result['message']);
     }
 
     /**

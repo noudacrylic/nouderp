@@ -13,6 +13,41 @@
 
         // Format .rupiah-input kini ditangani GLOBAL di layout erp.blade.php
         // (ketik→titik, submit→strip, window.cleanNumber). Tidak perlu lokal lagi.
+
+        // ===== Peringatan perubahan belum disimpan =====
+        // Tiap section punya tombol Simpan sendiri. Jika user mengedit lalu klik
+        // "Kembali ke Daftar Produk" tanpa menyimpan, peringatkan dulu.
+        const setupForms = $('form');
+        const initialState = {};
+        let allowLeave = false;
+
+        function snapshotForms() {
+            setupForms.each(function (i) {
+                initialState[i] = $(this).serialize();
+            });
+        }
+
+        function hasUnsavedChanges() {
+            let dirty = false;
+            setupForms.each(function (i) {
+                if ($(this).serialize() !== initialState[i]) dirty = true;
+            });
+            return dirty;
+        }
+
+        // Ambil baseline setelah select2 & formatter on-load selesai.
+        setTimeout(snapshotForms, 300);
+
+        // Submit form mana pun = aksi simpan yang disengaja, jangan peringatkan.
+        setupForms.on('submit', function () { allowLeave = true; });
+
+        $('.back-to-index').on('click', function (e) {
+            if (!allowLeave && hasUnsavedChanges()) {
+                if (!confirm('Ada perubahan yang belum disimpan. Yakin ingin kembali tanpa menyimpan?')) {
+                    e.preventDefault();
+                }
+            }
+        });
     });
 
     function addUnitRow() {

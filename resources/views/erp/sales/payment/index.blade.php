@@ -3,7 +3,10 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">Pembayaran Pelanggan</h1>
-    <a href="{{ route('sales.payment.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Pembayaran</a>
+    <div class="flex gap-2">
+        <a href="{{ route('pos.fulfillment.belum-siap') }}" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm" title="Kembali ke Pemrosesan Pesanan (POS)">← Pemrosesan Pesanan</a>
+        <a href="{{ route('sales.payment.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Pembayaran</a>
+    </div>
 </div>
 
 @if(session('success'))

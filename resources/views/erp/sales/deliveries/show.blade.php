@@ -118,65 +118,7 @@
     </div>
 </div>
 
-{{-- BOOKING RESI (Biteship) --}}
-@php
-    $isAmbil = $delivery->delivery_method === 'ambil_toko';
-    $src = $delivery->order ?: $delivery->invoice;
-    $courierCode = $src->shipping_courier_code ?? null;
-    $serviceName = $src->shipping_service_name ?? null;
-    $serviceCode = $src->shipping_service_code ?? null;
-    $colDefault = 'pickup';
-    if ($courierCode) {
-        $cfg = \App\Models\ShippingSetting::for('biteship')->config['courier_collection'] ?? [];
-        $cm = $cfg[$courierCode] ?? 'pickup';
-        $colDefault = in_array($cm, ['pickup','dropoff'], true) ? $cm : 'pickup';
-    }
-@endphp
-@unless($isAmbil)
-<div class="bg-white rounded shadow p-4 text-sm mb-4">
-    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">🚚 Booking Resi (Biteship)</h2>
-    @if($delivery->isBooked())
-        <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-            <span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">RESI AKTIF</span>
-            <div><span class="text-gray-500">Kurir:</span> <b>{{ $delivery->courier_name }}</b></div>
-            <div><span class="text-gray-500">No. Resi:</span> <b class="font-mono">{{ $delivery->tracking_number ?: '—' }}</b>
-                @if($delivery->tracking_number) @include('erp.purchasing._partials.copy-btn', ['value' => $delivery->tracking_number]) @endif
-            </div>
-            <div><span class="text-gray-500">Order ID:</span> <span class="font-mono text-[11px]">{{ $delivery->provider_order_id }}</span></div>
-            <div><span class="text-gray-500">Ambil:</span> {{ $delivery->collection_method === 'dropoff' ? 'Antar ke gerai' : 'Dijemput kurir' }}</div>
-            <a href="{{ route('sales.deliveries.resi', $delivery->id) }}"
-               class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-xs font-bold">🏷️ Cetak Resi</a>
-            <a href="{{ route('sales.deliveries.track', $delivery->id) }}"
-               class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded text-xs font-bold">📦 Lacak Paket</a>
-        </div>
-    @elseif(!$isPosted)
-        <p class="text-gray-400 italic">Post Surat Jalan dulu sebelum booking resi.</p>
-    @elseif(!$courierCode)
-        <p class="text-amber-600">Kurir belum dipilih di Sales Order. Pilih kurir lewat <b>Cek Ongkir</b> di SO, lalu kembali ke sini untuk booking.</p>
-    @else
-        <form method="POST" action="{{ route('sales.deliveries.book', $delivery->id) }}"
-              class="flex flex-wrap items-end gap-3"
-              onsubmit="return confirm('Buat resi ke Biteship sekarang? Ini membuat order pengiriman nyata.')">
-            @csrf
-            <div>
-                <div class="text-gray-500 text-xs mb-1">Kurir terpilih (dari SO)</div>
-                <div class="font-bold">{{ strtoupper($courierCode) }} <span class="font-normal text-gray-500">{{ $serviceName }}</span></div>
-            </div>
-            <div>
-                <label class="block text-xs text-gray-500 mb-1">Cara Ambil Paket</label>
-                <select name="collection_method" class="border rounded px-3 py-2 text-sm bg-white">
-                    <option value="pickup"  {{ $colDefault === 'pickup'  ? 'selected' : '' }}>Dijemput kurir</option>
-                    <option value="dropoff" {{ $colDefault === 'dropoff' ? 'selected' : '' }}>Antar ke gerai</option>
-                </select>
-            </div>
-            <button class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm font-bold">📦 Booking Resi</button>
-        </form>
-        @if($delivery->shipping_status === 'failed')
-            <p class="text-red-500 text-xs mt-2">⚠ Booking terakhir gagal. Periksa alamat pelanggan / kurir lalu coba lagi.</p>
-        @endif
-    @endif
-</div>
-@endunless
+{{-- Booking & Cetak Resi dipindah ke POS → Pemrosesan Pesanan → Telah Diproses. --}}
 
 {{-- Tabel produk --}}
 <div class="bg-white rounded shadow overflow-x-auto mb-4">
@@ -219,16 +161,6 @@
            class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm inline-flex items-center gap-1">
             🖨️ Cetak Surat Jalan
         </a>
-        @if($delivery->isBooked())
-            <a href="{{ route('sales.deliveries.resi', $delivery->id) }}"
-               class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm inline-flex items-center gap-1">
-                🏷️ Cetak Resi
-            </a>
-            <a href="{{ route('sales.deliveries.track', $delivery->id) }}"
-               class="bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-2 rounded text-sm inline-flex items-center gap-1">
-                📦 Lacak Paket
-            </a>
-        @endif
         @if($delivery->canBeVoided())
             <form method="POST" action="{{ route('sales.deliveries.void', $delivery->id) }}" onsubmit="return confirm('Void Surat Jalan ini? Stok akan dikembalikan & jurnal dibatalkan.')">
                 @csrf

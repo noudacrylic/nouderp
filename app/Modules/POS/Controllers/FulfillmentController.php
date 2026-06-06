@@ -108,6 +108,38 @@ class FulfillmentController extends Controller
         return redirect()->route('pos.fulfillment.perlu-diproses')->with($flashKey, $msg);
     }
 
+    /**
+     * Generate resi MASSAL untuk beberapa Surat Jalan sekaligus (dari Telah Diproses).
+     * Tanpa cek berat/dimensi per-item — pakai default SO/produk. SJ yang gagal/sudah
+     * ber-resi/ambil-toko dilewati dengan keterangan.
+     */
+    public function bookBulk(Request $request, \App\Modules\Shipping\Services\ShipmentBookingService $booking)
+    {
+        $ids = collect($request->input('ids', []))
+            ->map(fn ($v) => (int) $v)->filter()->unique();
+
+        if ($ids->isEmpty()) {
+            return back()->with('error', 'Tidak ada Surat Jalan yang dipilih untuk dibuatkan resi.');
+        }
+
+        $ok = []; $warn = []; $err = [];
+        foreach ($ids as $id) {
+            $delivery = SalesDelivery::find($id);
+            if (!$delivery) { $err[] = "#{$id} (tidak ditemukan)"; continue; }
+            $res = $booking->book($delivery); // tanpa override → default SO
+            if ($res['level'] === 'success') { $ok[] = $res['tracking']; }
+            elseif ($res['level'] === 'warning') { $warn[] = $res['message']; }
+            else { $err[] = $res['message']; }
+        }
+
+        $msg = count($ok) . ' resi dibuat' . (count($ok) ? ' (' . implode(', ', $ok) . ')' : '') . '.';
+        if ($warn) $msg .= ' ' . count($warn) . ' perlu perhatian: ' . implode('; ', $warn) . '.';
+        if ($err)  $msg .= ' Dilewati ' . count($err) . ': ' . implode('; ', $err) . '.';
+
+        return redirect()->route('pos.fulfillment.telah-diproses')
+            ->with(count($ok) ? 'success' : 'error', $msg);
+    }
+
     /** Simpan Catatan Penjual (komunikasi CS ↔ packing) via AJAX dari kartu pemrosesan. */
     public function updateSellerNotes(Request $request, int $so): JsonResponse
     {

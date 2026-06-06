@@ -25,6 +25,8 @@
         </x-slot>
     </x-erp.document-layout>
 
+    @include('erp.sales.invoices.partials.shipping-info')
+
     @include('erp.sales._partials.relations-invoice')
 
     @include('erp.sales.payment._midtrans_modals')

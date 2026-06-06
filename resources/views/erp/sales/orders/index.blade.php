@@ -3,7 +3,10 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">Sales Order</h1>
-    <a href="{{ route('sales.orders.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah SO</a>
+    <div class="flex gap-2">
+        <a href="{{ route('pos.fulfillment.belum-siap') }}" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm" title="Kembali ke Pemrosesan Pesanan (POS)">← Pemrosesan Pesanan</a>
+        <a href="{{ route('sales.orders.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah SO</a>
+    </div>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">

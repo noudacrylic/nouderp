@@ -47,6 +47,13 @@ class ProductController extends Controller
             $query->where('sale_type', $request->type);
         }
 
+        // Filter: Dijual (is_sellable)
+        if ($request->sellable === 'yes') {
+            $query->where('is_sellable', 1);
+        } elseif ($request->sellable === 'no') {
+            $query->where(fn($q) => $q->where('is_sellable', 0)->orWhereNull('is_sellable'));
+        }
+
         $products = $query->orderBy('sale_type')
             ->orderBy('id', 'desc')
             ->get();
@@ -183,6 +190,16 @@ class ProductController extends Controller
         }
 
         return response()->json(['success' => true]);
+    }
+
+    /** Toggle flag "Dijual" (is_sellable) langsung dari halaman index produk. */
+    public function updateSellable(Request $request)
+    {
+        $product = Product::findOrFail($request->product_id);
+        $product->is_sellable = $request->boolean('is_sellable');
+        $product->save();
+
+        return response()->json(['success' => true, 'is_sellable' => (bool) $product->is_sellable]);
     }
 
     public function destroy($id)

@@ -17,7 +17,12 @@ class PeriodService
             ->first();
 
         if (!$period) {
-            throw new DomainException("Accounting period not found.");
+            // Auto-buat periode bila belum ada (mis. awal bulan & scheduler
+            // `period:ensure-current` belum jalan / cron belum diset). Supaya transaksi
+            // tidak gagal dengan "Accounting period not found.". Idempotent.
+            // Periode yang DISENGAJA ditutup tetap punya row → tidak ikut auto-buka,
+            // dan tetap diblok oleh cek status di bawah.
+            $period = $this->createPeriod($date->year, $date->month);
         }
 
         if ($period->status === 'closed') {

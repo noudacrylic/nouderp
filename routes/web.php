@@ -249,6 +249,7 @@ Route::get('/erp/api/customers/{id}/shipping', [CustomerController::class, 'ship
 Route::post('/erp/api/customers/{id}/shipping', [CustomerController::class, 'updateShipping']);
 Route::match(['get', 'post'], '/erp/api/shipping/rates', \App\Http\Controllers\Shipping\RatesController::class);
 Route::get('/erp/api/shipping/areas', \App\Http\Controllers\Shipping\AreaSearchController::class);
+Route::get('/erp/api/shipping/reverse-geocode', \App\Http\Controllers\Shipping\ReverseGeocodeController::class);
 Route::post('/erp/api/shipping/weight', \App\Http\Controllers\Shipping\WeightController::class);
 
 Route::get('/erp/api/quotation/{id}', function ($id) {
@@ -347,6 +348,7 @@ Route::prefix('erp/inventory')->group(function () {
     Route::get('/products/export', [ProductController::class, 'export'])->name('inventory.products.export');
     Route::get('/products/{id}/edit', [ProductController::class, 'edit'])->name('inventory.products.edit');
     Route::post('/products/update-price', [ProductController::class, 'updatePrice'])->name('products.updatePrice');
+    Route::post('/products/update-sellable', [ProductController::class, 'updateSellable'])->name('products.updateSellable');
     Route::delete('/products/{id}', [ProductController::class, 'destroy'])->name('inventory.products.destroy');
     Route::post('/products/{id}/archive', [ProductController::class, 'archive'])->name('inventory.products.archive');
     Route::get('/products/{product}/ledger', [StockLedgerController::class, 'index'])->name('inventory.products.ledger');
@@ -462,6 +464,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     // Cek Ongkir (standalone)
     Route::get('/cek-ongkir', [\App\Http\Controllers\Sales\CekOngkirController::class, 'index'])->name('cek-ongkir');
     Route::get('/cek-ongkir/areas', \App\Http\Controllers\Shipping\AreaSearchController::class)->name('cek-ongkir.areas');
+    Route::get('/cek-ongkir/resolve', \App\Http\Controllers\Shipping\ReverseGeocodeController::class)->name('cek-ongkir.resolve');
     Route::post('/cek-ongkir', [\App\Http\Controllers\Sales\CekOngkirController::class, 'check'])->name('cek-ongkir.check');
 
     // Promosi (CRUD + resolve AJAX untuk Kasir/form). resolve harus sebelum resource/{id}.
@@ -471,6 +474,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     // Cetak gabungan (harus sebelum resource/{id} agar tidak tertangkap wildcard)
     Route::get('/orders/print-bulk', [SalesOrderController::class, 'printBulk'])->name('orders.print-bulk');
     Route::get('/deliveries/print-bulk', [SalesDeliveryController::class, 'printBulk'])->name('deliveries.print-bulk');
+    Route::get('/deliveries/print-resi-bulk', [SalesDeliveryController::class, 'printResiBulk'])->name('deliveries.print-resi-bulk');
 
     Route::resource('orders', SalesOrderController::class);
     Route::get('/orders/from-quotation/{quotation}', [SalesOrderController::class, 'createFromQuotation'])->name('orders.createFromQuotation');
@@ -478,6 +482,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::post('/orders/{id}/post', [SalesOrderController::class, 'confirm'])->name('orders.post');
     Route::post('/orders/{id}/pickup', [SalesOrderController::class, 'pickup'])->name('orders.pickup');
     Route::post('/orders/{id}/pickup-date', [SalesOrderController::class, 'updatePickupDate'])->name('orders.pickup-date');
+    Route::post('/orders/{id}/update-shipping', [SalesOrderController::class, 'updateShipping'])->name('orders.update-shipping');
     Route::post('/orders/{id}/void', [SalesOrderController::class, 'void'])->name('orders.void');
     Route::get('/orders/{id}/print', [SalesOrderController::class, 'print'])->name('orders.print');
     Route::get('/orders/{id}/pdf', [SalesOrderController::class, 'downloadPdf'])->name('orders.pdf');
@@ -499,6 +504,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::put('deliveries/{delivery}', [SalesDeliveryController::class, 'update'])->name('deliveries.update');
     Route::delete('deliveries/{delivery}', [SalesDeliveryController::class, 'destroy'])->name('deliveries.destroy');
     Route::post('deliveries/{delivery}/post', [SalesDeliveryController::class, 'post'])->name('deliveries.post');
+    Route::get('deliveries/{id}/ship-info', [SalesDeliveryController::class, 'shipInfo'])->name('deliveries.ship-info');
     Route::post('deliveries/{id}/book', [SalesDeliveryController::class, 'bookShipment'])->name('deliveries.book');
     Route::get('deliveries/{id}/resi', [SalesDeliveryController::class, 'printResi'])->name('deliveries.resi');
     Route::get('deliveries/{id}/track', [SalesDeliveryController::class, 'trackShipment'])->name('deliveries.track');
@@ -520,6 +526,11 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
         '/invoices/excel-import',
         [\App\Http\Controllers\DebugInvoiceController::class, 'excelImport']
     )->name('invoices.excel-import.store');
+
+    Route::get(
+        '/invoices/print-bulk',
+        [\App\Http\Controllers\DebugInvoiceController::class, 'printBulk']
+    )->name('invoices.print-bulk');
 
     Route::get(
         '/invoices/{id}',
@@ -678,6 +689,7 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::get('/fulfillment/telah-diproses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'telahDiproses'])->name('fulfillment.telah-diproses');
     Route::post('/fulfillment/so/{so}/proses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'prosesPesanan'])->whereNumber('so')->name('fulfillment.proses');
     Route::post('/fulfillment/proses-bulk', [\App\Modules\POS\Controllers\FulfillmentController::class, 'prosesBulk'])->name('fulfillment.proses-bulk');
+    Route::post('/fulfillment/book-bulk', [\App\Modules\POS\Controllers\FulfillmentController::class, 'bookBulk'])->name('fulfillment.book-bulk');
     Route::post('/fulfillment/so/{so}/seller-notes', [\App\Modules\POS\Controllers\FulfillmentController::class, 'updateSellerNotes'])->whereNumber('so')->name('fulfillment.seller-notes');
 });
 

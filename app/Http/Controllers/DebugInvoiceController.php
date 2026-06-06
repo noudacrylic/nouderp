@@ -142,6 +142,37 @@ class DebugInvoiceController extends Controller
         return view('erp.sales.invoices.print', compact('invoice', 'profile'));
     }
 
+    /** Cetak MASSAL beberapa faktur sekaligus (dari POS → Telah Diproses). */
+    public function printBulk(Request $request)
+    {
+        $ids = collect(explode(',', (string) $request->query('ids')))
+            ->map(fn ($v) => (int) trim($v))->filter()->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return redirect()->route('sales.invoices.index')->with('error', 'Tidak ada faktur yang dipilih untuk dicetak.');
+        }
+
+        $invoices = \App\Models\SalesInvoice::with(['customer', 'items.product'])
+            ->whereIn('id', $ids)
+            ->get()
+            ->reject(fn ($inv) => $this->isVoidInvoice($inv))
+            ->sortBy(fn ($inv) => $ids->search($inv->id))
+            ->values();
+
+        if ($invoices->isEmpty()) {
+            return redirect()->route('sales.invoices.index')->with('error', 'Faktur terpilih tidak dapat dicetak (mungkin sudah di-void).');
+        }
+
+        foreach ($invoices as $inv) {
+            $this->ensurePaymentLink($inv);
+        }
+
+        $profile  = \App\Models\BusinessProfile::instance()->load('bankAccounts');
+        $indexUrl = route('pos.fulfillment.telah-diproses');
+
+        return view('erp.sales.invoices.print-bulk', compact('invoices', 'profile', 'indexUrl'));
+    }
+
     /**
      * Pastikan invoice punya link pembayaran Midtrans aktif (untuk QR di Print Invoice).
      * Hanya untuk invoice posted yang belum lunas. Cuma insert lokal (tanpa panggil API),

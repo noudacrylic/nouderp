@@ -26,6 +26,8 @@
 
     @include('erp.sales.orders.partials.pickup')
 
+    @include('erp.sales.orders.partials.shipping')
+
     @include('erp.sales._partials.relations-so')
 
     @if($so->status !== 'void')

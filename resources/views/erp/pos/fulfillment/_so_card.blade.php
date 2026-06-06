@@ -16,6 +16,13 @@
     $pickupDone       = $r['is_pickup'] && (($r['pickup_status'] ?? null) === 'picked_up');
     $fullyShipped     = $pickupDone || ($shipCount > 0 && $resiCount === $shipCount);
     $partlyShipped    = !$fullyShipped && $resiCount > 0;
+
+    // ID untuk aksi massal di tab "Telah Diproses".
+    $bulkInvoiceId = $r['invoice']->id ?? '';
+    $bulkSjIds     = $postedDeliveries->pluck('id')->implode(',');                                          // semua SJ posted (utk Cetak SJ)
+    $bulkResiIds   = $shipDeliveries->filter(fn ($d) => !empty($d->tracking_number))->pluck('id')->implode(','); // SJ ber-resi (utk Cetak Resi)
+    $bulkGenIds    = $shipDeliveries->filter(fn ($d) => empty($d->tracking_number))->pluck('id')->implode(',');  // SJ belum resi (utk Generate Resi)
+
     $qtyRow = function ($ln) use ($fmtQty) {
         $shipped = (float) $ln['shipped'];
         $remaining = (float) $ln['remaining'];
@@ -28,13 +35,19 @@
             . '</div>';
     };
 @endphp
-<div class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-indigo-400 shadow-md hover:shadow-lg transition-shadow p-4">
+<div class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-emerald-500 shadow-md hover:shadow-lg transition-shadow p-4">
     {{-- Header: nomor + kurir/ambil-toko + status/batas waktu --}}
-    <div class="flex items-center gap-2 flex-wrap">
+    <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 bg-emerald-100 rounded-t-xl border-b border-emerald-200">
         @if($mode === 'perlu_diproses')
             <input type="checkbox" class="js-bulk-check w-4 h-4 accent-indigo-600 cursor-pointer"
                    value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
                    data-lunas="{{ $r['is_lunas'] ? 1 : 0 }}" data-pickup="{{ $r['is_pickup'] ? 1 : 0 }}"
+                   title="Pilih untuk aksi massal">
+        @elseif($mode === 'telah_diproses')
+            <input type="checkbox" class="js-bulk-td w-4 h-4 accent-emerald-600 cursor-pointer"
+                   value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
+                   data-invoice="{{ $bulkInvoiceId }}" data-sj="{{ $bulkSjIds }}"
+                   data-resi="{{ $bulkResiIds }}" data-gen="{{ $bulkGenIds }}"
                    title="Pilih untuk aksi massal">
         @endif
         <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-700">SO</span>
@@ -178,8 +191,6 @@
                     @endif
                     <button type="submit" name="print_after" value="0" {{ $r['is_lunas'] ? '' : 'disabled' }}
                             class="px-3 py-1.5 rounded text-xs font-bold text-white {{ $r['is_lunas'] ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed' }}">✅ Proses</button>
-                    <button type="submit" name="print_after" value="1" {{ $r['is_lunas'] ? '' : 'disabled' }}
-                            class="px-3 py-1.5 rounded text-xs font-bold {{ $r['is_lunas'] ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed' }}">✅ Proses + Cetak Resi</button>
                 </form>
             </div>
         </div>
@@ -232,11 +243,9 @@
                                     <a href="{{ route('sales.deliveries.track', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🔎 Lacak</a>
                                 @else
-                                    <form action="{{ route('sales.deliveries.book', $d->id) }}" method="POST"
-                                          onsubmit="return confirm('Generate resi (booking kurir) untuk {{ $d->delivery_number }}?')">
-                                        @csrf
-                                        <button class="px-2.5 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">📮 Generate Resi</button>
-                                    </form>
+                                    <button type="button"
+                                            class="js-genresi px-2.5 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold"
+                                            data-id="{{ $d->id }}" data-number="{{ $d->delivery_number }}">📮 Generate Resi</button>
                                 @endif
                             @endif
                             <a href="{{ route('sales.deliveries.print', $d->id) }}"

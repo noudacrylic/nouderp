@@ -42,6 +42,10 @@ class RememberSubmenuUrl
         $name = $request->route()?->getName();
         if (!$name) return $response;
 
+        // Halaman cetak/standalone (print shell, resi, tracking, pdf) tidak punya sidebar —
+        // jangan dijadikan landing module, nanti klik menu utama nyangkut di sana.
+        if (submenu_url_is_action($request->fullUrl())) return $response;
+
         $key = $this->registry->resolveMenuKey($name);
         if (!$key || !str_contains($key, '.')) return $response;
 

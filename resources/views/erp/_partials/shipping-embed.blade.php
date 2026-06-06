@@ -157,9 +157,23 @@
             {{-- Titik lokasi (untuk kurir instant: Grab/GoSend/Lalamove) --}}
             <div>
                 <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Titik Lokasi <span class="text-gray-400 normal-case">(untuk kurir instant — opsional)</span></label>
-                <input type="text" id="addr_location_point" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                       placeholder="Paste link Google Maps atau 'lat,long' (mis. -7.79,110.36)">
-                <p class="text-[11px] text-gray-400 mt-0.5">Wajib jika mau pakai kurir <b>instant</b> (Grab/GoSend/Lalamove). Buka Google Maps → klik titik lokasi → Share → paste link-nya di sini.</p>
+                <div class="flex gap-2">
+                    <input type="text" id="addr_location_point" class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                           placeholder="Paste link Google Maps atau 'lat,long' (mis. -7.79,110.36)">
+                    <button type="button" id="addr_point_btn"
+                            class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap">📍 Peta</button>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-0.5">Wajib jika mau pakai kurir <b>instant</b> (Grab/GoSend/Lalamove). Paste link/koordinat lalu klik 📍 Peta — atau langsung klik / geser pin di peta.</p>
+
+                {{-- Peta interaktif: klik/geser pin atau cari alamat → koordinat ikut berubah. --}}
+                <div id="addr_map_wrap" class="mt-2 hidden">
+                    <div id="addr_map" class="w-full h-64 rounded-lg border border-gray-200 z-0"></div>
+                    <div class="flex items-center justify-between mt-1 gap-2">
+                        <span id="addr_map_hint" class="text-[11px] text-gray-400">Klik / geser pin atau cari alamat untuk menyetel titik.</span>
+                        <a id="addr_map_link" href="#" target="_blank" rel="noopener"
+                           class="text-[11px] text-blue-600 hover:underline whitespace-nowrap">Buka di Google Maps ↗</a>
+                    </div>
+                </div>
             </div>
 
             {{-- Auto-terisi dari pencarian area (tersembunyi) --}}
@@ -284,6 +298,10 @@
                 $id('cust_area_id').value  = d.biteship_area_id || '';
                 $id('cust_area_search').value = d.full_address || '';
                 $id('addr_location_point').value = d.location_point || '';
+                // Tampilkan peta jika sudah ada titik tersimpan.
+                const c = d.location_point ? parseLatLong(d.location_point) : null;
+                if (c){ showAddrMap(c.lat, c.lng); }
+                else { $id('addr_map_wrap').classList.add('hidden'); $id('addr_map_hint').textContent = 'Klik / geser pin atau cari alamat untuk menyetel titik.'; }
             }).catch(()=>{});
         $id('addrModal').classList.remove('hidden');
         $id('addrModal').classList.add('flex');
@@ -308,6 +326,97 @@
             headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':csrf},
             body: JSON.stringify(payload),
         }).then(r=>r.json()).then(d=>{ renderAddress(d); closeModal(); }).catch(()=>alert('Gagal menyimpan alamat.'));
+    }
+
+    // ---- Peta interaktif titik lokasi (Leaflet, dimuat on-demand) ----
+    let aMap = null, aMarker = null, aRgTimer = null;
+
+    function ensureLeaflet(cb){
+        if (window.L && window.L.Control && window.L.Control.Geocoder) { cb(); return; }
+        function css(href){ if(!document.querySelector('link[data-leaflet="'+href+'"]')){ const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; l.setAttribute('data-leaflet',href); document.head.appendChild(l);} }
+        css('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+        css('https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css');
+        function load(src, next){ const s=document.createElement('script'); s.src=src; s.onload=next; s.onerror=next; document.body.appendChild(s); }
+        const geo = function(){ load('https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js', cb); };
+        if (window.L) geo(); else load('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', geo);
+    }
+
+    function parseLatLong(s){
+        s = String(s||'').trim();
+        const L = '(-?\\d{1,3}\\.\\d+)';
+        const pats = [ new RegExp('!3d'+L+'!4d'+L), new RegExp('@'+L+','+L),
+                       new RegExp('[?&](?:q|ll|center|destination|daddr)='+L+','+L), new RegExp(L+'\\s*,\\s*'+L) ];
+        for (let i=0;i<pats.length;i++){ const m=s.match(pats[i]); if(m){ const lat=parseFloat(m[1]),lng=parseFloat(m[2]);
+            if(lat>=-90&&lat<=90&&lng>=-180&&lng<=180) return {lat:lat,lng:lng}; } }
+        return null;
+    }
+
+    function applyAddrPoint(lat, lng, recenter){
+        lat = Math.round(parseFloat(lat)*1e6)/1e6; lng = Math.round(parseFloat(lng)*1e6)/1e6;
+        if (isNaN(lat)||isNaN(lng)) return;
+        $id('addr_location_point').value = lat + ',' + lng;
+        destLat = lat; destLong = lng;
+        const ml = $id('addr_map_link'); if (ml) ml.href = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+        if (aMap && aMarker){ aMarker.setLatLng([lat,lng]); if (recenter) aMap.panTo([lat,lng]); }
+    }
+
+    function initAddrMap(lat, lng){
+        aMap = L.map('addr_map').setView([lat, lng], 16);
+        const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(aMap);
+        const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '© Esri' });
+        L.control.layers({ 'Peta': street, 'Satelit': sat }).addTo(aMap);
+        aMarker = L.marker([lat, lng], { draggable: true }).addTo(aMap);
+        aMarker.on('dragend', function(){ const p = aMarker.getLatLng(); onAddrPoint(p.lat, p.lng); });
+        aMap.on('click', function(e){ onAddrPoint(e.latlng.lat, e.latlng.lng); });
+        if (L.Control && L.Control.Geocoder){
+            L.Control.geocoder({ defaultMarkGeocode:false, placeholder:'Cari alamat / koordinat…', geocoder:L.Control.Geocoder.nominatim() })
+                .on('markgeocode', function(e){ const c=e.geocode.center; aMap.setView(c,17); onAddrPoint(c.lat,c.lng); }).addTo(aMap);
+        }
+        setTimeout(function(){ aMap.invalidateSize(); }, 80);
+    }
+
+    function showAddrMap(lat, lng){
+        lat = parseFloat(lat); lng = parseFloat(lng);
+        if (isNaN(lat)||isNaN(lng)) return;
+        $id('addr_map_wrap').classList.remove('hidden');
+        ensureLeaflet(function(){
+            if (!window.L){ $id('addr_map_hint').textContent = 'Peta gagal dimuat (cek koneksi). Koordinat tetap tersimpan.'; return; }
+            if (!aMap) initAddrMap(lat, lng);
+            applyAddrPoint(lat, lng, true);
+            setTimeout(function(){ if (aMap) aMap.invalidateSize(); }, 80);
+        });
+    }
+
+    // Klik / geser pin / cari → setel titik + refresh alamat & area (debounce).
+    function onAddrPoint(lat, lng){
+        applyAddrPoint(lat, lng, false);
+        $id('addr_map_hint').textContent = 'Memperbarui alamat…';
+        clearTimeout(aRgTimer);
+        aRgTimer = setTimeout(function(){ addrReverse(lat, lng); }, 600);
+    }
+
+    function addrReverse(lat, lng){
+        fetch('/erp/api/shipping/reverse-geocode?point=' + encodeURIComponent(lat + ',' + lng), {headers:{'Accept':'application/json'}})
+            .then(r=>r.json()).then(function(d){
+                if (!d.success){ $id('addr_map_hint').textContent = d.error || 'Gagal melacak alamat.'; return; }
+                // Isi area otomatis hanya jika belum dipilih (jangan timpa pilihan user).
+                if (d.area_id && !$id('cust_area_id').value){
+                    $id('cust_area_id').value = d.area_id;
+                    $id('cust_area_search').value = d.area_label || '';
+                    if (d.postal_code) $id('addr_postal').value = d.postal_code;
+                }
+                $id('addr_map_hint').textContent = d.address ? ('📍 ' + d.address) : 'Titik lokasi tersetel.';
+            }).catch(function(){ $id('addr_map_hint').textContent = 'Gagal melacak alamat.'; });
+    }
+
+    // Tombol 📍 Peta: parse isi field → tampilkan di peta + lacak alamat.
+    function showAddrPointFromInput(){
+        const p = ($id('addr_location_point').value || '').trim();
+        if (!p){ showAddrMap(-6.2, 106.816667); $id('addr_map_hint').textContent = 'Cari alamat atau klik di peta untuk menyetel titik.'; return; }
+        const c = parseLatLong(p);
+        if (!c){ $id('addr_map_hint').textContent = 'Koordinat tidak terbaca. Pakai "lat,long" atau link Google Maps.'; $id('addr_map_wrap').classList.remove('hidden'); return; }
+        showAddrMap(c.lat, c.lng);
+        addrReverse(c.lat, c.lng);
     }
 
     // ---- auto berat dari item produk ----
@@ -425,6 +534,11 @@
         $id('addr_close').addEventListener('click', closeModal);
         $id('addr_cancel').addEventListener('click', closeModal);
         $id('addr_save').addEventListener('click', saveAddress);
+        $id('addr_point_btn')?.addEventListener('click', showAddrPointFromInput);
+        $id('addr_location_point')?.addEventListener('change', function(){
+            const c = parseLatLong(this.value || '');
+            if (c) showAddrMap(c.lat, c.lng);
+        });
         $id('btn_cek_ongkir').addEventListener('click', cekOngkir);
         $id('shipping_gross_input').addEventListener('input', computeNet);
         $id('ship_disc_value').addEventListener('input', computeNet);

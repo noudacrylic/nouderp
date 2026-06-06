@@ -191,13 +191,35 @@ class SalesOrderController extends Controller
 
         $quotationId = $request->quotation_id ?? null;
 
+        // Prefill dari Cek Ongkir: customer + ongkir + dimensi + metode pengiriman.
+        $prefill = null;
+        if ($request->filled('customer_id') || $request->filled('shipping_courier_code') || $request->filled('shipping_gross')) {
+            $cust = $request->filled('customer_id') ? Customer::find($request->integer('customer_id')) : null;
+            $prefill = [
+                'customer_id'     => $cust?->id,
+                'customer_name'   => $cust?->name,
+                'delivery_method' => in_array($request->delivery_method, ['kurir', 'instant', 'ambil_toko'], true) ? $request->delivery_method : null,
+                'weight_gram'     => $request->integer('weight_gram') ?: null,
+                'shipping'        => [
+                    'gross'          => $request->input('shipping_gross'),
+                    'courier_code'   => $request->input('shipping_courier_code'),
+                    'service_code'   => $request->input('shipping_service_code'),
+                    'service_name'   => $request->input('shipping_service_name'),
+                    'package_length' => $request->input('package_length'),
+                    'package_width'  => $request->input('package_width'),
+                    'package_height' => $request->input('package_height'),
+                ],
+            ];
+        }
+
         return view('erp.sales.orders.create', compact(
             'customers',
             'products',
             'warehouses',
             'draftQuotations',
             'quotation',
-            'quotationId'
+            'quotationId',
+            'prefill'
         ));
     }
 
@@ -694,6 +716,67 @@ class SalesOrderController extends Controller
         $so->update(['pickup_date' => $data['pickup_date'] ?: null]);
 
         return back()->with('success', 'Tanggal pengambilan diperbarui.');
+    }
+
+    /**
+     * Edit cepat kurir & ongkir langsung dari halaman SO.
+     *
+     * Aman dilakukan pada SO yang sudah dikonfirmasi karena jurnal SO TIDAK
+     * menyentuh ongkir (baru di-settle saat Faktur). Karena itu hanya diizinkan
+     * selama SO belum punya Faktur (draft/posted) dan belum void. grand_total
+     * dihitung ulang secara delta — ganti komponen ongkir lama dengan yang baru.
+     */
+    public function updateShipping(Request $request, $id)
+    {
+        $so = SalesOrder::findOrFail($id);
+
+        if ($so->status === 'void') {
+            return back()->with('error', 'SO sudah void — pengiriman tidak bisa diubah.');
+        }
+
+        // Sudah ada Faktur (draft/posted) → ongkir terkunci di Faktur (sudah diposting).
+        $invoiced = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+            ->whereIn('status', ['posted', 'draft'])
+            ->exists();
+        if ($invoiced) {
+            return back()->with('error', 'SO sudah difaktur — kurir & ongkir tidak bisa diubah dari sini.');
+        }
+
+        if ($so->delivery_method === 'ambil_toko') {
+            return back()->with('error', 'SO ini metode Ambil di Toko — tidak ada ongkir kurir.');
+        }
+
+        // Hanya boleh berpindah antar mode kurir (kurir/instant). Pindah ke
+        // Ambil di Toko butuh booking code → lakukan lewat Edit SO.
+        $deliveryMethod = $request->input('delivery_method', $so->delivery_method);
+        if ($deliveryMethod === 'ambil_toko') {
+            return back()->with('error', 'Untuk mengubah ke Ambil di Toko, lakukan lewat Edit SO (perlu booking code).');
+        }
+        if (!in_array($deliveryMethod, ['kurir', 'instant'], true)) {
+            $deliveryMethod = $so->delivery_method;
+        }
+
+        $ship = $this->resolveShipping($request, $deliveryMethod);
+
+        // Recompute grand_total: buang ongkir lama, masukkan ongkir baru.
+        $grandTotal = (float) $so->grand_total - (float) $so->shipping_cost + $ship['net'];
+
+        $so->update([
+            'delivery_method'         => $deliveryMethod,
+            'shipping_cost'           => $ship['net'],
+            'shipping_gross'          => $ship['gross'],
+            'shipping_discount_type'  => $ship['disc_type'],
+            'shipping_discount_value' => $ship['disc_value'],
+            'shipping_courier_code'   => $ship['courier_code'],
+            'shipping_service_code'   => $ship['service_code'],
+            'shipping_service_name'   => $ship['service_name'],
+            'package_length'          => $ship['pkg_length'],
+            'package_width'           => $ship['pkg_width'],
+            'package_height'          => $ship['pkg_height'],
+            'grand_total'             => $grandTotal,
+        ]);
+
+        return back()->with('success', 'Kurir & ongkir berhasil diperbarui.');
     }
 
     public function void($id)

@@ -33,7 +33,35 @@
             <option value="all" @selected(request('status') == 'all')>Semua</option>
         </select>
     </div>
+
+    <div>
+        <label class="block text-xs text-gray-500 mb-1">Dijual</label>
+        <select name="sellable" class="filter-auto border rounded px-2 py-1.5">
+            <option value="">Semua</option>
+            <option value="yes" @selected(request('sellable') == 'yes')>Dijual</option>
+            <option value="no" @selected(request('sellable') == 'no')>Tidak Dijual</option>
+        </select>
+    </div>
 </form>
+
+{{-- Toggle "Dijual": CSS eksplisit (tidak bergantung Tailwind JIT/peer-checked yang tak tergenerate via CDN). --}}
+<style>
+    .sellable-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .sellable-switch {
+        position: relative; display: inline-block; flex: 0 0 auto;
+        width: 36px; height: 20px; border-radius: 9999px;
+        background: #d1d5db; transition: background .15s ease;
+    }
+    .sellable-switch::after {
+        content: ''; position: absolute; top: 2px; left: 2px;
+        width: 16px; height: 16px; border-radius: 9999px;
+        background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25);
+        transition: transform .15s ease;
+    }
+    .sellable-toggle:checked + .sellable-switch { background: #22c55e; }
+    .sellable-toggle:checked + .sellable-switch::after { transform: translateX(16px); }
+    .sellable-toggle:focus-visible + .sellable-switch { box-shadow: 0 0 0 3px rgba(34,197,94,.35); }
+</style>
 
 <div class="bg-white rounded shadow overflow-x-auto">
     <table class="w-full text-sm">
@@ -42,6 +70,7 @@
                 <th class="px-3 py-2 text-left">Produk</th>
                 <th class="px-3 py-2 text-left">Tipe</th>
                 <th class="px-3 py-2 text-center">Status</th>
+                <th class="px-3 py-2 text-center">Dijual</th>
                 <th class="px-3 py-2 text-left">Unit</th>
                 <th class="px-3 py-2 text-right">Harga Dasar</th>
                 <th class="px-3 py-2 text-center w-40">Aksi</th>
@@ -70,6 +99,13 @@
                         @else
                             <span class="px-2 py-0.5 rounded text-xs uppercase bg-gray-100 text-gray-500">Arsip</span>
                         @endif
+                    </td>
+                    <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
+                        <label class="inline-flex items-center gap-2 cursor-pointer select-none" title="Klik untuk ubah: muncul di Kasir/POS/Penawaran/SO/Faktur/Promosi atau tidak">
+                            <input type="checkbox" class="sellable-toggle" data-product-id="{{ $product->id }}" @checked($product->is_sellable)>
+                            <span class="sellable-switch"></span>
+                            <span class="sellable-label text-xs font-semibold {{ $product->is_sellable ? 'text-green-600' : 'text-gray-400' }}">{{ $product->is_sellable ? 'Dijual' : 'Tidak' }}</span>
+                        </label>
                     </td>
                     <td class="px-3 py-2 text-gray-600">{{ $product->base_unit ?? '-' }}</td>
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
@@ -102,7 +138,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="6" class="px-3 py-6 text-center text-gray-400">Belum ada produk.</td></tr>
+                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada produk.</td></tr>
             @endforelse
         </tbody>
     </table>
@@ -114,7 +150,7 @@
 
 @include('erp.purchasing._partials.list-scripts')
 
-@push('scripts_extra')
+@push('scripts')
 <script>
     function formatRupiah(angka) {
         let number_string = angka.replace(/[^,\d]/g, '').toString();
@@ -156,6 +192,34 @@
                         setTimeout(() => el.classList.remove('border-green-400', 'bg-green-50'), 800);
                     }
                 });
+        });
+    });
+
+    // Toggle "Dijual" (is_sellable) langsung dari index — tanpa buka edit.
+    document.querySelectorAll('.sellable-toggle').forEach(function (el) {
+        el.addEventListener('change', function () {
+            const on = this.checked;
+            const label = this.closest('label')?.querySelector('.sellable-label');
+            this.disabled = true;
+            fetch('/erp/inventory/products/update-sellable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                body: JSON.stringify({ product_id: this.dataset.productId, is_sellable: on ? 1 : 0 })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        if (label) {
+                            label.textContent = data.is_sellable ? 'Dijual' : 'Tidak';
+                            label.classList.toggle('text-green-600', data.is_sellable);
+                            label.classList.toggle('text-gray-400', !data.is_sellable);
+                        }
+                    } else {
+                        this.checked = !on; // gagal → kembalikan
+                    }
+                })
+                .catch(() => { this.checked = !on; })
+                .finally(() => { this.disabled = false; });
         });
     });
 </script>
