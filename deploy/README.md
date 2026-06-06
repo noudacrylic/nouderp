@@ -94,10 +94,36 @@ sudo ln -s /etc/nginx/sites-available/noud-erp /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-### 6. Domain + HTTPS (server on-premise)
-- DNS `A record` domain → **IP publik kantor** (jika IP dinamis, pakai DDNS: No-IP / Cloudflare DDNS).
-- **Port-forward router**: 80 & 443 → IP lokal server.
-- SSL: `sudo apt install -y certbot python3-certbot-nginx && sudo certbot --nginx -d erp.domainanda.com`
+### 6. Domain + HTTPS — **Cloudflare Tunnel (DIREKOMENDASIKAN utk on-premise)**
+Mengekspos server ke internet **tanpa port-forward / IP publik statis** (cloudflared konek keluar
+ke Cloudflare). SSL otomatis, cocok di belakang NAT / IP dinamis. Nginx cukup `listen 80;` lokal.
+```bash
+# Install cloudflared
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb
+sudo dpkg -i /tmp/cloudflared.deb
+
+cloudflared tunnel login            # buka URL yg muncul di browser → pilih domain noudakrilik.com
+cloudflared tunnel create noud-erp  # catat TUNNEL_ID + path file kredensial .json
+
+# /etc/cloudflared/config.yml :
+#   tunnel: <TUNNEL_ID>
+#   credentials-file: /root/.cloudflared/<TUNNEL_ID>.json
+#   ingress:
+#     - hostname: erp.noudakrilik.com
+#       service: http://localhost:80
+#     - service: http_status:404
+
+cloudflared tunnel route dns noud-erp erp.noudakrilik.com   # otomatis bikin CNAME di Cloudflare
+sudo cloudflared service install && sudo systemctl enable --now cloudflared
+```
+- Set `APP_URL=https://erp.noudakrilik.com` di `.env` (TrustProxies sudah `*`, Laravel deteksi HTTPS).
+- **Firewall**: TIDAK perlu buka 80/443 inbound — cukup `sudo ufw allow 22/tcp && sudo ufw enable`.
+- Dashboard Cloudflare → SSL/TLS mode: **Full** (koneksi via tunnel sudah terenkripsi).
+
+### 6b. Alternatif: domain langsung (port-forward + certbot)
+- DNS `A record` → IP publik kantor (IP dinamis → DDNS). Port-forward router 80 & 443 → IP lokal server.
+- SSL: `sudo apt install -y certbot python3-certbot-nginx && sudo certbot --nginx -d erp.noudakrilik.com`
+- Firewall: `sudo ufw allow 22,80,443/tcp && sudo ufw enable`
 
 ### 7. Mesin fingerprint (ZKTeco) — tetap di LAN
 Arahkan mesin ke **IP lokal server** (mis. `192.168.1.x`) port 80, endpoint `/iclock/*` (sudah dikecualikan CSRF). Se-LAN → tidak butuh internet.
