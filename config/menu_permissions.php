@@ -39,8 +39,8 @@ return [
         'children' => [
             'tasks.board'      => ['label' => 'Board',           'url' => '/erp/tasks',           'route_patterns' => ['tasks.index', 'tasks.move', 'tasks.status', 'tasks.create', 'tasks.store', 'tasks.show', 'tasks.edit', 'tasks.update', 'tasks.destroy', 'tasks.subtasks.*', 'tasks.visible_categories.*', 'tasks.assignee', 'tasks.priority', 'tasks.description', 'tasks.json', 'tasks.links.*', 'tasks.categories.store', 'tasks.categories.create', 'tasks.categories.edit', 'tasks.categories.update']],
             'tasks.list'       => ['label' => 'Daftar',          'url' => '/erp/tasks/list',      'route_patterns' => ['tasks.list']],
-            'tasks.automation' => ['label' => 'Otomasi',         'url' => '/erp/tasks/schedules', 'route_patterns' => ['tasks.schedules.*', 'tasks.automation.*'], 'role_gate' => ['super_admin', 'admin']],
-            'tasks.categories' => ['label' => 'Kategori',        'url' => '/erp/tasks/categories','route_patterns' => ['tasks.categories.*'], 'role_gate' => ['super_admin', 'admin']],
+            'tasks.automation' => ['label' => 'Otomasi',         'url' => '/erp/tasks/schedules', 'route_patterns' => ['tasks.schedules.*', 'tasks.automation.*']],
+            'tasks.categories' => ['label' => 'Kategori',        'url' => '/erp/tasks/categories','route_patterns' => ['tasks.categories.*']],
         ],
     ],
 
