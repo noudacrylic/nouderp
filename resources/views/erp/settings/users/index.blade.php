@@ -215,7 +215,7 @@
 
                     {{-- TAB PERMISSIONS --}}
                     <div x-show="tab === 'permissions'" class="p-6 space-y-3">
-                        <p class="text-xs text-gray-500 mb-2">Centang menu yang boleh diakses user ini. Menu Dashboard otomatis bisa diakses semua user.</p>
+                        <p class="text-xs text-gray-500 mb-2">Centang menu yang boleh diakses user ini. Menu <b>Dashboard</b> hanya untuk Super Admin &amp; Admin (berisi ringkasan data sensitif).</p>
 
                         @php
                             // Kumpulkan semua leaf keys (termasuk dept-specific) per group untuk "Centang Semua"

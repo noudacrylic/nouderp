@@ -25,6 +25,7 @@
     <div class="ml-auto flex items-center gap-2 flex-wrap">
         <button type="button" id="tdGenResi" class="text-xs px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">📮 Generate Resi</button>
         <button type="button" id="tdPrintResi" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Resi</button>
+        <button type="button" id="tdPrintLabel" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</button>
         <button type="button" id="tdPrintInv" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</button>
         <button type="button" id="tdPrintSj" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">📄 Cetak Surat Jalan</button>
         <button type="button" id="tdClear" class="text-xs px-2.5 py-1.5 rounded text-gray-400 hover:text-gray-600">Batal</button>
@@ -200,6 +201,7 @@
     const countEl   = document.getElementById('tdCount');
     const selectAll = document.getElementById('tdSelectAll');
     const resiBase  = @json(route('sales.deliveries.print-resi-bulk'));
+    const labelBase = @json(route('sales.deliveries.print-label-bulk'));
     const invBase   = @json(route('sales.invoices.print-bulk'));
     const sjBase    = @json(route('sales.deliveries.print-bulk'));
 
@@ -255,6 +257,8 @@
     }
     document.getElementById('tdPrintResi').addEventListener('click', () =>
         goPrint(resiBase, collect('resi'), 'Tidak ada resi pada pesanan terpilih (belum di-generate).'));
+    document.getElementById('tdPrintLabel').addEventListener('click', () =>
+        goPrint(labelBase, collect('gen'), 'Tidak ada pengiriman tanpa resi pada pesanan terpilih (yang ber-resi pakai Cetak Resi).'));
     document.getElementById('tdPrintInv').addEventListener('click', () =>
         goPrint(invBase, collect('invoice'), 'Tidak ada faktur pada pesanan terpilih.'));
     document.getElementById('tdPrintSj').addEventListener('click', () =>

@@ -161,6 +161,12 @@
            class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm inline-flex items-center gap-1">
             🖨️ Cetak Surat Jalan
         </a>
+        @if($delivery->delivery_method !== 'ambil_toko' && !$delivery->tracking_number)
+            <a href="{{ route('sales.deliveries.label', $delivery->id) }}"
+               class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded text-sm inline-flex items-center gap-1">
+                🏷️ Cetak Label
+            </a>
+        @endif
         @if($delivery->canBeVoided())
             <form method="POST" action="{{ route('sales.deliveries.void', $delivery->id) }}" onsubmit="return confirm('Void Surat Jalan ini? Stok akan dikembalikan & jurnal dibatalkan.')">
                 @csrf

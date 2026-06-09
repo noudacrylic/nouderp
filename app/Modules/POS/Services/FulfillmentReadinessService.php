@@ -111,10 +111,14 @@ class FulfillmentReadinessService
             $prodFinalized = $prodOrders->every(fn ($p) => $p->status === 'finalized');
         }
 
-        $hasInvoice = $so->invoices->isNotEmpty();
+        // Faktur DRAFT (belum diposting) dianggap TIDAK ADA di fulfillment — SO tetap
+        // diklasifikasi normal sesuai kesiapan. HANYA faktur DIPOSTING yang menandai
+        // SO "telah diproses". (Saat Proses, faktur draft yang ada akan diposting.)
+        $invStatus = fn ($i) => $i->status instanceof \App\Enums\InvoiceStatusEnum ? $i->status->value : (string) $i->status;
+        $postedInvoice = $so->invoices->first(fn ($i) => $invStatus($i) === 'posted');
 
         // Bucket (urut, mutually exclusive)
-        if ($hasInvoice) {
+        if ($postedInvoice) {
             $bucket = 'telah_diproses';
         } elseif ((!$isCustom && $hasPayment) || ($isCustom && $prodFinalized)) {
             $bucket = 'perlu_diproses';
@@ -178,7 +182,7 @@ class FulfillmentReadinessService
             'is_custom'   => $isCustom,
 
             'delivery'    => $this->deliveryBreakdown($so),
-            'invoice'     => $hasInvoice ? $so->invoices->first() : null,
+            'invoice'     => $postedInvoice,
             'deliveries'  => $so->deliveries,
         ];
     }

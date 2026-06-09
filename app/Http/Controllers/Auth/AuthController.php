@@ -12,7 +12,7 @@ class AuthController extends Controller
     public function showLogin()
     {
         if (Auth::check()) {
-            return redirect('/erp/dashboard');
+            return redirect(user_landing_url());
         }
         return view('auth.login');
     }
@@ -45,7 +45,7 @@ class AuthController extends Controller
         $user = Auth::user();
         $user->forceFill(['last_login_at' => now()])->save();
 
-        return redirect()->intended('/erp/dashboard');
+        return redirect()->intended(user_landing_url());
     }
 
     public function logout(Request $request)

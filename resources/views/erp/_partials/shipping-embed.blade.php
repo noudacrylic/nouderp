@@ -12,6 +12,7 @@
     $pkgH    = old('package_height', $m->package_height ?? '');
     $fmtDim  = fn ($v) => ($v !== '' && $v !== null && (float) $v > 0) ? rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.') : '';
     $pkDate  = old('pickup_date', ($m && $m->pickup_date) ? \Carbon\Carbon::parse($m->pickup_date)->format('Y-m-d') : '');
+    $manualCouriers = \App\Models\ManualCourier::active()->get(['code', 'name']);
 @endphp
 
 <div class="card p-4 shadow-sm border border-gray-100 h-full" id="shipping-embed">
@@ -81,6 +82,21 @@
         </div>
 
         <div id="ongkir_results" class="mt-2 border border-gray-100 rounded-lg divide-y divide-gray-50 max-h-52 overflow-y-auto hidden text-sm"></div>
+
+        {{-- Kurir manual (jasa kirim non-API) — selalu tersedia, ongkir diisi sendiri. --}}
+        @if($manualCouriers->isNotEmpty())
+        <div class="mt-2" id="manual_couriers_block">
+            <div class="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">
+                Atau Kurir Manual <span class="normal-case font-normal text-gray-400">— ongkir isi sendiri</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+                @foreach($manualCouriers as $mc)
+                    <button type="button" class="manual-courier-chip text-xs px-2.5 py-1 border border-gray-300 rounded-full text-gray-600 hover:bg-blue-50 hover:border-blue-300"
+                        data-code="{{ $mc->code }}" data-name="{{ $mc->name }}">{{ $mc->name }}</button>
+                @endforeach
+            </div>
+        </div>
+        @endif
 
         {{-- Ongkir & diskon --}}
         <div class="grid grid-cols-2 gap-3 mt-3">
@@ -519,6 +535,10 @@
             }).catch(()=>{ $id('ongkir_hint').textContent = 'Gagal cek ongkir.'; });
     }
 
+    function clearManualHighlight(){
+        document.querySelectorAll('.manual-courier-chip').forEach(c => c.classList.remove('bg-blue-100','border-blue-400','text-blue-700'));
+    }
+
     function pickCourier(row){
         $id('shipping_gross_input').value = fmt(num(row.dataset.price));
         $id('shipping_courier_code').value = row.dataset.code || '';
@@ -526,6 +546,22 @@
         $id('shipping_service_name').value = row.dataset.name || '';
         $id('ship_courier_picked').textContent = (row.dataset.code||'').toUpperCase() + ' · ' + (row.dataset.name||'');
         $id('ongkir_results').classList.add('hidden');
+        clearManualHighlight();
+        computeNet();
+    }
+
+    // Pilih kurir manual: set kurir, biarkan ongkir kosong/editable untuk diisi sendiri.
+    function pickManual(chip){
+        $id('shipping_courier_code').value = chip.dataset.code || '';
+        $id('shipping_service_code').value = '';
+        $id('shipping_service_name').value = chip.dataset.name || '';
+        $id('ship_courier_picked').textContent = (chip.dataset.name||'') + ' · ongkir manual';
+        $id('ongkir_results').classList.add('hidden');
+        clearManualHighlight();
+        chip.classList.add('bg-blue-100','border-blue-400','text-blue-700');
+        const gi = $id('shipping_gross_input');
+        if (num(gi.value) === 0){ gi.value = ''; }   // kosongkan agar jelas harus diisi
+        gi.focus(); gi.select();
         computeNet();
     }
 
@@ -546,8 +582,18 @@
         $id('delivery_method')?.addEventListener('change', applyMethod);
         document.addEventListener('click', function(e){
             const row = e.target.closest('.ongkir-row');
-            if (row) pickCourier(row);
+            if (row) { pickCourier(row); return; }
+            const chip = e.target.closest('.manual-courier-chip');
+            if (chip) pickManual(chip);
         });
+
+        // Tandai chip manual yang sedang terpilih (mis. saat edit / Invoice dari SO).
+        (function(){
+            const cur = ($id('shipping_courier_code')?.value || '').trim();
+            if (!cur) return;
+            const chip = document.querySelector('.manual-courier-chip[data-code="' + cur.replace(/"/g,'') + '"]');
+            if (chip) chip.classList.add('bg-blue-100','border-blue-400','text-blue-700');
+        })();
 
         // Auto berat dari item: hitung ulang saat item/qty/unit berubah.
         $id('ship_weight').addEventListener('input', function(){ weightManual = true; });

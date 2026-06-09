@@ -153,6 +153,12 @@ class SalesOrderController extends Controller
             ->where('status', 'posted')
             ->sum('grand_total');
 
+        // Kurir/ongkir hanya terkunci bila sudah ada faktur DIPOSTING (jurnal terbentuk).
+        // Faktur draft masih boleh diubah & disinkronkan.
+        $hasPostedInvoice = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+            ->where('status', 'posted')
+            ->exists();
+
         $delivery = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
             ->where('status', '!=', 'cancelled')
             ->first();
@@ -166,7 +172,8 @@ class SalesOrderController extends Controller
             'isPaid', 
             'delivery',
             'invoiceStatus',
-            'invoicedAmount'
+            'invoicedAmount',
+            'hasPostedInvoice'
         ));
     }
 
@@ -734,12 +741,12 @@ class SalesOrderController extends Controller
             return back()->with('error', 'SO sudah void — pengiriman tidak bisa diubah.');
         }
 
-        // Sudah ada Faktur (draft/posted) → ongkir terkunci di Faktur (sudah diposting).
-        $invoiced = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
-            ->whereIn('status', ['posted', 'draft'])
+        // Hanya terkunci bila ada Faktur DIPOSTING (jurnal terbentuk). Faktur draft masih boleh diubah.
+        $hasPostedInvoice = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+            ->where('status', 'posted')
             ->exists();
-        if ($invoiced) {
-            return back()->with('error', 'SO sudah difaktur — kurir & ongkir tidak bisa diubah dari sini.');
+        if ($hasPostedInvoice) {
+            return back()->with('error', 'SO sudah difaktur (diposting) — kurir & ongkir tidak bisa diubah dari sini. Void faktur dulu bila perlu mengubah.');
         }
 
         if ($so->delivery_method === 'ambil_toko') {
@@ -775,6 +782,28 @@ class SalesOrderController extends Controller
             'package_height'          => $ship['pkg_height'],
             'grand_total'             => $grandTotal,
         ]);
+
+        // Sinkronkan faktur DRAFT (belum diposting) agar kurir/ongkir konsisten ke Surat Jalan nanti.
+        $draftInvoices = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+            ->where('status', 'draft')
+            ->get();
+        foreach ($draftInvoices as $inv) {
+            $invGrand = (float) $inv->grand_total - (float) $inv->shipping_cost + $ship['net'];
+            $inv->update([
+                'delivery_method'         => $deliveryMethod,
+                'shipping_cost'           => $ship['net'],
+                'shipping_gross'          => $ship['gross'],
+                'shipping_discount_type'  => $ship['disc_type'],
+                'shipping_discount_value' => $ship['disc_value'],
+                'shipping_courier_code'   => $ship['courier_code'],
+                'shipping_service_code'   => $ship['service_code'],
+                'shipping_service_name'   => $ship['service_name'],
+                'package_length'          => $ship['pkg_length'],
+                'package_width'           => $ship['pkg_width'],
+                'package_height'          => $ship['pkg_height'],
+                'grand_total'             => $invGrand,
+            ]);
+        }
 
         return back()->with('success', 'Kurir & ongkir berhasil diperbarui.');
     }
@@ -887,6 +916,38 @@ class SalesOrderController extends Controller
         $profile = \App\Models\BusinessProfile::instance()->load('bankAccounts');
 
         return view('erp.sales.orders.print', compact('order', 'profile'));
+    }
+
+    /** Label pengiriman TANPA resi langsung dari SO (untuk order yang belum punya Surat Jalan). */
+    public function printLabel($id)
+    {
+        $order = SalesOrder::with(['customer', 'warehouse', 'items.product'])->findOrFail($id);
+
+        if (($order->delivery_method ?? 'kurir') === 'ambil_toko') {
+            return redirect()->route('sales.orders.show', $order->id)
+                ->with('error', 'Metode Ambil di Toko tidak perlu label pengiriman.');
+        }
+
+        $warehouse = $order->warehouse ?: Warehouse::find($order->warehouse_id);
+        $profile   = \App\Models\BusinessProfile::instance();
+        $customer  = $order->customer;
+
+        $origin = [
+            'name'    => $warehouse?->contact_name ?: $profile->name,
+            'phone'   => $warehouse?->contact_phone ?: ($profile->phone ?: $profile->whatsapp),
+            'address' => $warehouse
+                ? collect([$warehouse->address, $warehouse->city, $warehouse->province, $warehouse->postal_code])->filter()->implode(', ')
+                : collect([$profile->address, $profile->city, $profile->province, $profile->postal_code])->filter()->implode(', '),
+        ];
+        $dest = [
+            'name'    => $customer->name ?? '-',
+            'phone'   => $customer->recipient_phone ?? $customer->phone ?? '-',
+            'address' => $customer
+                ? (collect([$customer->shipping_address, $customer->district, $customer->city, $customer->province, $customer->postal_code])->filter()->implode(', ') ?: $customer->address)
+                : '-',
+        ];
+
+        return view('erp.sales.orders.label', compact('order', 'origin', 'dest'));
     }
 
     /**

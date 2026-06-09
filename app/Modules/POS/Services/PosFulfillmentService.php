@@ -35,8 +35,10 @@ class PosFulfillmentService
         if ($so->customer && $so->customer->is_marketplace) {
             throw new DomainException('Pesanan marketplace tidak diproses di modul ini (ditangani Jubelio).');
         }
-        if (SalesInvoice::where('sales_order_id', $so->id)->whereNotIn('status', ['void'])->exists()) {
-            throw new DomainException('Sales Order ini sudah memiliki invoice.');
+        // Faktur DIPOSTING → sudah benar-benar diproses. Faktur DRAFT TIDAK memblokir
+        // (ditangani di bawah: cukup diposting). Faktur draft dianggap "belum diproses".
+        if (SalesInvoice::where('sales_order_id', $so->id)->where('status', 'posted')->exists()) {
+            throw new DomainException('Sales Order ini sudah memiliki invoice yang diposting.');
         }
         $remaining = round((float) $so->grand_total - (float) $so->paid_amount, 2);
         if ($remaining > 0.01) {
@@ -55,6 +57,23 @@ class PosFulfillmentService
             if ($code === '' || $code !== strtoupper((string) $so->pickup_code)) {
                 throw new DomainException('Kode pengambilan (booking) salah atau kosong.');
             }
+        }
+
+        // Faktur DRAFT sudah ada (mis. dibuat manual) → cukup POSTING faktur itu; jangan
+        // buat faktur baru (qty_invoiced SO sudah terpakai). DP & ongkir dihitung saat posting.
+        $existingDraft = SalesInvoice::where('sales_order_id', $so->id)->where('status', 'draft')->first();
+        if ($existingDraft) {
+            return DB::transaction(function () use ($so, $existingDraft) {
+                SalesOrder::where('id', $so->id)->lockForUpdate()->first();
+                if (SalesInvoice::where('sales_order_id', $so->id)->where('status', 'posted')->exists()) {
+                    throw new DomainException('Sales Order ini sudah memiliki invoice yang diposting.');
+                }
+                if ($so->isPickup()) {
+                    $so->update(['pickup_status' => 'picked_up', 'picked_up_at' => now()]);
+                }
+                $this->postingService->post($existingDraft);
+                return $existingDraft;
+            });
         }
 
         // ── Build DTO dari SELURUH SO (sisa qty per baris) ──
@@ -103,6 +122,7 @@ class PosFulfillmentService
             // double-click tombol Proses / proses massal paralel (TOCTOU pada guard
             // exists() di atas yang berjalan tanpa lock).
             SalesOrder::where('id', $so->id)->lockForUpdate()->first();
+            // Re-cek di dalam lock (cegah double-invoice dari double-click / proses paralel).
             if (SalesInvoice::where('sales_order_id', $so->id)->whereNotIn('status', ['void'])->exists()) {
                 throw new DomainException('Sales Order ini sudah memiliki invoice.');
             }

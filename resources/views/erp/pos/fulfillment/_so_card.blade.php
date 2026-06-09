@@ -237,15 +237,29 @@
                         </div>
                         <div class="flex items-center gap-2 flex-wrap">
                             @if($d->delivery_method !== 'ambil_toko')
+                                @php $isManual = \App\Models\ManualCourier::isManualCode($d->shipping_courier_code); @endphp
                                 @if($d->tracking_number)
+                                    {{-- Sudah ada resi (Biteship) → cetak ulang resi & lacak --}}
                                     <a href="{{ route('sales.deliveries.resi', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Resi</a>
                                     <a href="{{ route('sales.deliveries.track', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🔎 Lacak</a>
-                                @else
+                                @elseif($isManual)
+                                    {{-- Kurir manual → cetak label tanpa resi --}}
+                                    <a href="{{ route('sales.deliveries.label', $d->id) }}"
+                                       class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</a>
+                                @elseif($d->shipping_courier_code)
+                                    {{-- Kurir Biteship → generate resi via API --}}
                                     <button type="button"
                                             class="js-genresi px-2.5 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold"
                                             data-id="{{ $d->id }}" data-number="{{ $d->delivery_number }}">📮 Generate Resi</button>
+                                @else
+                                    {{-- Kurir belum spesifik → tawarkan keduanya --}}
+                                    <button type="button"
+                                            class="js-genresi px-2.5 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold"
+                                            data-id="{{ $d->id }}" data-number="{{ $d->delivery_number }}">📮 Generate Resi</button>
+                                    <a href="{{ route('sales.deliveries.label', $d->id) }}"
+                                       class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</a>
                                 @endif
                             @endif
                             <a href="{{ route('sales.deliveries.print', $d->id) }}"
@@ -254,6 +268,14 @@
                     </div>
                 @endforeach
             </div>
+        @else
+            {{-- Belum ada Surat Jalan (mis. faktur masih draft) → tetap bisa cetak label dari SO. --}}
+            @unless($r['is_pickup'] ?? false)
+                <div class="mt-2 flex justify-end">
+                    <a href="{{ route('sales.orders.label', $r['id']) }}"
+                       class="text-xs px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</a>
+                </div>
+            @endunless
         @endif
     @endif
 </div>

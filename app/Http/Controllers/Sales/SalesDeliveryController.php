@@ -296,6 +296,50 @@ class SalesDeliveryController extends Controller
         return view('erp.sales.deliveries.resi-bulk', compact('labels'));
     }
 
+    /** Label pengiriman TANPA nomor resi (pengirim/penerima + barang) — untuk kurir manual. */
+    public function printLabel($id)
+    {
+        $delivery = SalesDelivery::with(['order.customer', 'invoice.customer', 'items.product'])->findOrFail($id);
+
+        if ($delivery->delivery_method === 'ambil_toko') {
+            return redirect()->route('sales.deliveries.show', $delivery->id)
+                ->with('error', 'Metode Ambil di Toko tidak perlu label pengiriman.');
+        }
+
+        [$origin, $dest] = $this->resiAddresses($delivery);
+
+        return view('erp.sales.deliveries.label', compact('delivery', 'origin', 'dest'));
+    }
+
+    /** Cetak label MASSAL tanpa resi (dari POS → Telah Diproses). */
+    public function printLabelBulk(Request $request)
+    {
+        $ids = collect(explode(',', (string) $request->query('ids')))
+            ->map(fn ($v) => (int) trim($v))->filter()->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return redirect()->route('pos.fulfillment.telah-diproses')->with('error', 'Tidak ada pengiriman yang dipilih untuk dicetak.');
+        }
+
+        $deliveries = SalesDelivery::with(['order.customer', 'invoice.customer', 'items.product'])
+            ->whereIn('id', $ids)
+            ->where('delivery_method', '!=', 'ambil_toko')
+            ->get()
+            ->sortBy(fn ($d) => $ids->search($d->id))
+            ->values();
+
+        if ($deliveries->isEmpty()) {
+            return redirect()->route('pos.fulfillment.telah-diproses')->with('error', 'Tidak ada label yang bisa dicetak.');
+        }
+
+        $labels = $deliveries->map(fn ($d) => [
+            'delivery' => $d,
+            'addr'     => $this->resiAddresses($d),
+        ]);
+
+        return view('erp.sales.deliveries.label-bulk', compact('labels'));
+    }
+
     /** Bangun alamat pengirim/penerima untuk label resi. */
     private function resiAddresses(SalesDelivery $delivery): array
     {

@@ -17,8 +17,9 @@
         ->pluck('tracking_number')
         ->filter()->unique()->values();
 
-    // Bisa diubah hanya selama belum difaktur & belum void (jurnal SO belum sentuh ongkir).
-    $shipEditable = ($so->status !== 'void') && (($invoiceStatus ?? 'not_invoiced') === 'not_invoiced');
+    // Bisa diubah selama belum void & belum ada faktur DIPOSTING. Faktur draft masih boleh
+    // (jurnal belum terbentuk) — perubahan ikut disinkronkan ke faktur draft.
+    $shipEditable = ($so->status !== 'void') && !($hasPostedInvoice ?? false);
 @endphp
 
 @unless($isPickup)
@@ -80,7 +81,7 @@
                     class="text-sm text-gray-500 hover:bg-gray-100 px-4 py-2 rounded-lg font-bold">
                     Batal
                 </button>
-                <span class="text-[11px] text-gray-400">Ongkir SO belum masuk jurnal — aman diubah selama belum difaktur.</span>
+                <span class="text-[11px] text-gray-400">Aman diubah selama faktur belum diposting — perubahan ikut ke faktur draft.</span>
             </div>
         </form>
         @endif

@@ -93,6 +93,13 @@ Route::prefix('erp')->group(function () {
         Route::get('/shipping/kiriminaja', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'kiriminaja'])->name('settings.shipping.kiriminaja');
         Route::post('/shipping/kiriminaja', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'updateKiriminaja'])->name('settings.shipping.kiriminaja.update');
 
+        // Jasa Kirim — kurir manual (ekspedisi non-API)
+        Route::get('/shipping-couriers', [\App\Http\Controllers\Settings\ManualCourierController::class, 'index'])->name('settings.shipping-couriers.index');
+        Route::post('/shipping-couriers', [\App\Http\Controllers\Settings\ManualCourierController::class, 'store'])->name('settings.shipping-couriers.store');
+        Route::put('/shipping-couriers/{manualCourier}', [\App\Http\Controllers\Settings\ManualCourierController::class, 'update'])->name('settings.shipping-couriers.update');
+        Route::post('/shipping-couriers/{manualCourier}/toggle', [\App\Http\Controllers\Settings\ManualCourierController::class, 'toggle'])->name('settings.shipping-couriers.toggle');
+        Route::delete('/shipping-couriers/{manualCourier}', [\App\Http\Controllers\Settings\ManualCourierController::class, 'destroy'])->name('settings.shipping-couriers.destroy');
+
         // User & Akses (super_admin & admin only — di-guard di controller)
         Route::resource('users', \App\Http\Controllers\Settings\UserController::class)
             ->names('settings.users')
@@ -475,6 +482,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::get('/orders/print-bulk', [SalesOrderController::class, 'printBulk'])->name('orders.print-bulk');
     Route::get('/deliveries/print-bulk', [SalesDeliveryController::class, 'printBulk'])->name('deliveries.print-bulk');
     Route::get('/deliveries/print-resi-bulk', [SalesDeliveryController::class, 'printResiBulk'])->name('deliveries.print-resi-bulk');
+    Route::get('/deliveries/print-label-bulk', [SalesDeliveryController::class, 'printLabelBulk'])->name('deliveries.print-label-bulk');
 
     Route::resource('orders', SalesOrderController::class);
     Route::get('/orders/from-quotation/{quotation}', [SalesOrderController::class, 'createFromQuotation'])->name('orders.createFromQuotation');
@@ -485,6 +493,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::post('/orders/{id}/update-shipping', [SalesOrderController::class, 'updateShipping'])->name('orders.update-shipping');
     Route::post('/orders/{id}/void', [SalesOrderController::class, 'void'])->name('orders.void');
     Route::get('/orders/{id}/print', [SalesOrderController::class, 'print'])->name('orders.print');
+    Route::get('/orders/{id}/label', [SalesOrderController::class, 'printLabel'])->name('orders.label');
     Route::get('/orders/{id}/pdf', [SalesOrderController::class, 'downloadPdf'])->name('orders.pdf');
     Route::post('/orders/{id}/cancel', [SalesOrderController::class, 'destroy'])->name('orders.cancel');
 
@@ -507,6 +516,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::get('deliveries/{id}/ship-info', [SalesDeliveryController::class, 'shipInfo'])->name('deliveries.ship-info');
     Route::post('deliveries/{id}/book', [SalesDeliveryController::class, 'bookShipment'])->name('deliveries.book');
     Route::get('deliveries/{id}/resi', [SalesDeliveryController::class, 'printResi'])->name('deliveries.resi');
+    Route::get('deliveries/{id}/label', [SalesDeliveryController::class, 'printLabel'])->name('deliveries.label');
     Route::get('deliveries/{id}/track', [SalesDeliveryController::class, 'trackShipment'])->name('deliveries.track');
     Route::post('deliveries/{delivery}/void', [SalesDeliveryController::class, 'void'])->name('deliveries.void');
     Route::get('deliveries/{delivery}/print', [SalesDeliveryController::class, 'print'])->name('deliveries.print');

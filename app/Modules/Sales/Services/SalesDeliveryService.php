@@ -67,15 +67,25 @@ class SalesDeliveryService
         // 3. Buat SJ + items (retry untuk nomor unik DOINV)
         for ($i = 0; $i < 5; $i++) {
             try {
+                // Salin info kurir dari faktur agar SJ mandiri (untuk cetak label / generate resi).
+                $method = $invoice->delivery_method ?: 'kurir';
+                $courierName = $method === 'ambil_toko'
+                    ? 'Ambil di Toko'
+                    : (trim(strtoupper((string) ($invoice->shipping_courier_code ?? '')) . ' ' . (string) ($invoice->shipping_service_name ?? '')) ?: null);
+
                 $delivery = SalesDelivery::create([
-                    'delivery_number' => NumberGeneratorService::generate('DOINV'),
-                    'invoice_id'      => $invoice->id,
-                    'sales_order_id'  => $invoice->sales_order_id ?? null,
-                    'reference_type'  => 'sales_invoice',
-                    'reference_id'    => $invoice->id,
-                    'warehouse_id'    => $invoice->warehouse_id,
-                    'delivery_date'   => $invoice->invoice_date,
-                    'status'          => 'draft',
+                    'delivery_number'       => NumberGeneratorService::generate('DOINV'),
+                    'invoice_id'            => $invoice->id,
+                    'sales_order_id'        => $invoice->sales_order_id ?? null,
+                    'reference_type'        => 'sales_invoice',
+                    'reference_id'          => $invoice->id,
+                    'warehouse_id'          => $invoice->warehouse_id,
+                    'delivery_date'         => $invoice->invoice_date,
+                    'delivery_method'       => $method,
+                    'courier_name'          => $courierName,
+                    'shipping_courier_code' => $method === 'ambil_toko' ? null : ($invoice->shipping_courier_code ?: null),
+                    'shipping_service_code' => $method === 'ambil_toko' ? null : ($invoice->shipping_service_code ?: null),
+                    'status'                => 'draft',
                 ]);
 
                 foreach ($toCreate as $pid => $row) {

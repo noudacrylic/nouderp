@@ -113,6 +113,26 @@ if (!function_exists('module_landing_url')) {
     }
 }
 
+if (!function_exists('user_landing_url')) {
+    /**
+     * URL landing setelah login / fallback. Dashboard utk super_admin/admin;
+     * user biasa (tak boleh Dashboard) → menu pertama yang ia punya akses.
+     */
+    function user_landing_url(): string
+    {
+        if (user_can_access('dashboard')) {
+            return url('/erp/dashboard');
+        }
+        foreach (array_keys(config('menu_permissions', [])) as $groupKey) {
+            if ($groupKey === 'dashboard') continue;
+            if (should_show_menu_group($groupKey)) {
+                return module_landing_url($groupKey);
+            }
+        }
+        return url('/erp/dashboard'); // fallback (user tanpa akses menu apa pun)
+    }
+}
+
 if (!function_exists('should_show_menu_group')) {
     /**
      * Cek apakah menu group (top-level) perlu di-render di sidebar.
