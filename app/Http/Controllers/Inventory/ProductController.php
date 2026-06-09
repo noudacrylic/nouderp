@@ -22,6 +22,36 @@ use App\Core\Inventory\InventoryEngine;
 
 class ProductController extends Controller
 {
+    /**
+     * Kolom file Excel produk — dipakai bersama oleh Template (kosong), Export (berisi data),
+     * dan dibaca balik oleh Import. Satu format saja supaya bisa round-trip (export → edit → import).
+     * Sengaja TIDAK memuat Stok (→ Saldo Awal), Status, Last Cost, Lead Time, Dibuat (read-only).
+     */
+    private const IMPORT_HEADERS = [
+        'SKU', 'Nama Produk', 'Tipe', 'Base Unit',
+        'Base Price (Rp)', 'Cost Price (Rp)',
+        'Berat (gram)', 'Panjang (cm)', 'Lebar (cm)', 'Tinggi (cm)',
+        'Bisa Dijual',
+    ];
+
+    /**
+     * Alias header yang diterima saat import (lowercase). Mendukung header ramah (Indonesia)
+     * dari hasil Export maupun nama teknis lama, sehingga file lama tetap bisa di-upload.
+     */
+    private const IMPORT_ALIASES = [
+        'sku'         => ['sku'],
+        'name'        => ['nama produk', 'name', 'nama', 'product name'],
+        'sale_type'   => ['tipe', 'sale_type', 'type', 'jenis'],
+        'base_unit'   => ['base unit', 'base_unit', 'satuan', 'unit'],
+        'base_price'  => ['base price (rp)', 'base_price', 'base price', 'harga jual', 'harga'],
+        'cost_price'  => ['cost price (rp)', 'cost_price', 'cost price', 'harga pokok', 'hpp'],
+        'weight_gram' => ['berat (gram)', 'weight_gram', 'berat gram', 'berat', 'weight'],
+        'length_cm'   => ['panjang (cm)', 'length_cm', 'panjang', 'length', 'p (cm)'],
+        'width_cm'    => ['lebar (cm)', 'width_cm', 'lebar', 'width', 'l (cm)'],
+        'height_cm'   => ['tinggi (cm)', 'height_cm', 'tinggi', 'height', 't (cm)'],
+        'is_sellable' => ['bisa dijual', 'is_sellable', 'dijual', 'sellable'],
+    ];
+
     public function index(Request $request)
     {
         $query = Product::query();
@@ -815,42 +845,46 @@ class ProductController extends Controller
         $sheet = $ss->getActiveSheet();
         $sheet->setTitle('Produk');
 
-        // Header
-        $sheet->fromArray(['sku', 'name', 'sale_type', 'base_unit', 'base_price', 'cost_price', 'weight_gram', 'is_sellable'], null, 'A1');
-        $sheet->getStyle('A1:H1')->getFont()->setBold(true);
-        $sheet->getStyle('A1:H1')->getFill()
+        // Header — SAMA PERSIS dengan kolom hasil Export, supaya bisa round-trip
+        // (export → edit → import lagi). Hanya kolom yang BISA diisi saat buat produk.
+        // Stok & Status TIDAK ada di sini: stok → Saldo Awal, status (arsip) → halaman edit.
+        $sheet->fromArray(self::IMPORT_HEADERS, null, 'A1');
+        $sheet->getStyle('A1:K1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:K1')->getFill()
             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
             ->getStartColor()->setRGB('FEF3C7');
 
-        // Contoh
+        // Contoh — baris diawali "CONTOH" supaya gampang dihapus, jelas ini bukan data riil.
         $sheet->fromArray([
-            ['MP-001',  'Contoh Produk Marketplace 1',  'ready',    'pcs', 50000,  30000,  500,  'Ya'],
-            ['MP-002',  'Contoh Produk Marketplace 2',  'ready',    'pcs', 75000,  45000,  1000, 'Ya'],
-            ['',        'Auto-SKU jika kolom A kosong',  'ready',    'pcs', 100000, 60000,  250,  'Ya'],
-            ['SRV-001', 'Contoh Jasa',                   'service',  'pcs', 25000,  0,      '',   'Ya'],
-            ['CMP-001', 'Contoh Komponen (tdk dijual)',  'ready',    'pcs', 0,      15000,  300,  'Tidak'],
+            ['CONTOH-001', 'Contoh Produk (hapus baris ini)', 'ready',    'pcs', 50000,  30000,  500, 20,  15,  5,  'Ya'],
+            ['',           'Auto-SKU jika kolom SKU kosong',   'ready',    'pcs', 100000, 60000,  250, '',  '',  '', 'Ya'],
+            ['CONTOH-SRV', 'Contoh Jasa',                      'service',  'pcs', 25000,  0,      '',  '',  '',  '', 'Ya'],
+            ['CONTOH-CMP', 'Contoh Komponen (tidak dijual)',   'ready',    'pcs', 0,      15000,  300, 10,  10,  3,  'Tidak'],
         ], null, 'A2');
 
         // Width
-        foreach (['A' => 18, 'B' => 40, 'C' => 14, 'D' => 12, 'E' => 14, 'F' => 14, 'G' => 14, 'H' => 12] as $col => $w) {
+        foreach (['A' => 18, 'B' => 42, 'C' => 12, 'D' => 12, 'E' => 16, 'F' => 16,
+                  'G' => 12, 'H' => 12, 'I' => 12, 'J' => 12, 'K' => 12] as $col => $w) {
             $sheet->getColumnDimension($col)->setWidth($w);
         }
-        $sheet->getStyle('E:G')->getNumberFormat()->setFormatCode('#,##0');
+        $sheet->getStyle('E:J')->getNumberFormat()->setFormatCode('#,##0');
 
         // Petunjuk
         $sheet->setCellValue('A8', 'Petunjuk:');
-        $sheet->setCellValue('A9', '- sku: kosongkan untuk auto-generate (PRD00xxx, dst sesuai sale_type)');
-        $sheet->setCellValue('A10', '- name: wajib');
-        $sheet->setCellValue('A11', '- sale_type: ready / preorder / bundle / service / non_stock. Default = ready');
-        $sheet->setCellValue('A12', '- base_unit: default "pcs"');
-        $sheet->setCellValue('A13', '- base_price: harga jual (Rp). Boleh kosong (default 0)');
-        $sheet->setCellValue('A14', '- cost_price: harga pokok / referensi pembelian (Rp). Boleh kosong');
-        $sheet->setCellValue('A15', '- weight_gram: berat satuan dalam GRAM (untuk ongkir). Boleh kosong');
-        $sheet->setCellValue('A16', '- is_sellable: Ya = dijual (muncul di Kasir/Penawaran/Faktur). Tidak = komponen/setengah jadi. Default = Ya');
-        $sheet->setCellValue('A17', '- Hapus contoh di atas sebelum isi data riil');
-        $sheet->setCellValue('A18', '- Stok awal & akun jurnal di-setup terpisah via halaman Setup Produk');
-        $sheet->getStyle('A7')->getFont()->setBold(true);
-        $sheet->getStyle('A7:A15')->getFont()->setItalic(true);
+        $sheet->setCellValue('A9',  '- SKU: kosongkan untuk auto-generate (PRD00xxx, dst sesuai Tipe). SKU yang sudah ada akan di-skip.');
+        $sheet->setCellValue('A10', '- Nama Produk: WAJIB diisi.');
+        $sheet->setCellValue('A11', '- Tipe: ready / preorder / bundle / service / non_stock. Default = ready.');
+        $sheet->setCellValue('A12', '- Base Unit: satuan dasar, default "pcs".');
+        $sheet->setCellValue('A13', '- Base Price (Rp): harga jual. Boleh kosong (default 0).');
+        $sheet->setCellValue('A14', '- Cost Price (Rp): harga pokok / referensi pembelian. Boleh kosong.');
+        $sheet->setCellValue('A15', '- Berat (gram): berat satuan dalam GRAM (untuk ongkir). Boleh kosong.');
+        $sheet->setCellValue('A16', '- Panjang / Lebar / Tinggi (cm): dimensi satuan untuk ongkir volumetrik. Opsional, boleh desimal.');
+        $sheet->setCellValue('A17', '- Bisa Dijual: Ya = muncul di Kasir/Penawaran/Faktur. Tidak = komponen/setengah jadi. Default = Ya.');
+        $sheet->setCellValue('A18', '- Hapus baris CONTOH di atas sebelum isi data riil.');
+        $sheet->setCellValue('A19', '- STOK AWAL diisi terpisah di menu Saldo Awal (bukan di file ini).');
+        $sheet->setCellValue('A20', '- Produk baru otomatis berstatus aktif. Untuk arsip, pakai halaman edit per produk.');
+        $sheet->getStyle('A8')->getFont()->setBold(true);
+        $sheet->getStyle('A9:A20')->getFont()->setItalic(true);
 
         $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss);
         return response()->streamDownload(function () use ($writer) {
@@ -896,26 +930,15 @@ class ProductController extends Controller
             ->get()
             ->keyBy(fn($r) => $r->product_id . '_' . $r->unit_name);
 
-        // Batch-load total stock per product (qty_on_hand di semua warehouse)
-        $stockMap = DB::table('product_stocks')
-            ->whereIn('product_id', $productIds)
-            ->select('product_id', DB::raw('SUM(qty_on_hand) as total'))
-            ->groupBy('product_id')
-            ->pluck('total', 'product_id');
-
         $ss = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $ss->getActiveSheet();
         $sheet->setTitle('Produk');
 
-        $headers = [
-            'SKU', 'Nama Produk', 'Tipe', 'Status', 'Base Unit',
-            'Base Price (Rp)', 'Cost Price (Rp)', 'Last Cost (Rp)',
-            'Total Stok', 'Preorder Stok', 'Lead Time (hari)', 'Dibuat',
-            'Berat (gram)', 'Bisa Dijual',
-        ];
-        $sheet->fromArray($headers, null, 'A1');
-        $sheet->getStyle('A1:N1')->getFont()->setBold(true);
-        $sheet->getStyle('A1:N1')->getFill()
+        // Header SAMA dengan template import → file ini bisa diedit lalu di-upload balik.
+        // Stok TIDAK diekspor di sini (lihat menu Saldo Awal); Status diatur via halaman edit.
+        $sheet->fromArray(self::IMPORT_HEADERS, null, 'A1');
+        $sheet->getStyle('A1:K1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:K1')->getFill()
             ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
             ->getStartColor()->setRGB('FEF3C7');
 
@@ -927,32 +950,26 @@ class ProductController extends Controller
             $sheet->setCellValue("A{$row}", $p->sku);
             $sheet->setCellValue("B{$row}", $p->name);
             $sheet->setCellValue("C{$row}", $p->sale_type);
-            $sheet->setCellValue("D{$row}", $p->is_active ? 'active' : 'archived');
-            $sheet->setCellValue("E{$row}", $p->base_unit ?? '');
-            $sheet->setCellValue("F{$row}", $basePrice);
-            $sheet->setCellValue("G{$row}", (float) ($p->cost_price ?? 0));
-            $sheet->setCellValue("H{$row}", (float) ($p->last_cost ?? 0));
-            $sheet->setCellValue("I{$row}", (float) ($stockMap[$p->id] ?? 0));
-            $sheet->setCellValue("J{$row}", (float) ($p->preorder_stock ?? 0));
-            $sheet->setCellValue("K{$row}", (int) ($p->lead_time_days ?? 0));
-            $sheet->setCellValue("L{$row}", $p->created_at ? $p->created_at->format('Y-m-d') : '');
-            $sheet->setCellValue("M{$row}", $p->weight_gram !== null ? (int) $p->weight_gram : '');
-            $sheet->setCellValue("N{$row}", $p->is_sellable ? 'Ya' : 'Tidak');
+            $sheet->setCellValue("D{$row}", $p->base_unit ?? '');
+            $sheet->setCellValue("E{$row}", $basePrice);
+            $sheet->setCellValue("F{$row}", (float) ($p->cost_price ?? 0));
+            $sheet->setCellValue("G{$row}", $p->weight_gram !== null ? (int) $p->weight_gram : '');
+            $sheet->setCellValue("H{$row}", $p->length_cm !== null ? (float) $p->length_cm : '');
+            $sheet->setCellValue("I{$row}", $p->width_cm !== null ? (float) $p->width_cm : '');
+            $sheet->setCellValue("J{$row}", $p->height_cm !== null ? (float) $p->height_cm : '');
+            $sheet->setCellValue("K{$row}", $p->is_sellable ? 'Ya' : 'Tidak');
             $row++;
         }
 
         // Column widths
-        foreach (['A' => 18, 'B' => 45, 'C' => 12, 'D' => 10, 'E' => 10,
-                  'F' => 16, 'G' => 16, 'H' => 16, 'I' => 12, 'J' => 12, 'K' => 14, 'L' => 12,
-                  'M' => 14, 'N' => 12] as $col => $w) {
+        foreach (['A' => 18, 'B' => 45, 'C' => 12, 'D' => 12, 'E' => 16, 'F' => 16,
+                  'G' => 12, 'H' => 12, 'I' => 12, 'J' => 12, 'K' => 12] as $col => $w) {
             $sheet->getColumnDimension($col)->setWidth($w);
         }
 
-        // Format kolom angka (Rp) dengan separator titik
+        // Format kolom angka (Rp / gram / cm) dengan separator titik
         $lastRow = max($row - 1, 2);
-        $sheet->getStyle("F2:I{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
-        $sheet->getStyle("J2:K{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
-        $sheet->getStyle("M2:M{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
+        $sheet->getStyle("E2:J{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
 
         $filename = 'produk-' . now()->format('Ymd-His') . '.xlsx';
         $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss);
@@ -982,20 +999,22 @@ class ProductController extends Controller
             return back()->with('error', 'File kosong atau cuma header (perlu minimal 1 baris data).');
         }
 
-        // Header normalize
+        // Header normalize — terima header ramah (hasil Export, mis. "Nama Produk") maupun
+        // nama teknis lama (mis. "name"). Kolom yang tak dikenal (Stok/Status/dll) diabaikan.
         $header = array_map(fn($v) => strtolower(trim((string) $v)), $rows[0]);
-        $idx = [
-            'sku'         => array_search('sku', $header, true),
-            'name'        => array_search('name', $header, true),
-            'sale_type'   => array_search('sale_type', $header, true),
-            'base_unit'   => array_search('base_unit', $header, true),
-            'base_price'  => array_search('base_price', $header, true),
-            'cost_price'  => array_search('cost_price', $header, true),
-            'weight_gram' => array_search('weight_gram', $header, true),
-            'is_sellable' => array_search('is_sellable', $header, true),
-        ];
+        $idx = [];
+        foreach (self::IMPORT_ALIASES as $field => $aliases) {
+            $idx[$field] = false;
+            foreach ($aliases as $alias) {
+                $found = array_search($alias, $header, true);
+                if ($found !== false) {
+                    $idx[$field] = $found;
+                    break;
+                }
+            }
+        }
         if ($idx['name'] === false) {
-            return back()->with('error', 'Header "name" wajib ada di kolom Excel.');
+            return back()->with('error', 'Kolom "Nama Produk" wajib ada di file Excel.');
         }
 
         $validTypes = ['ready', 'preorder', 'bundle', 'service', 'non_stock'];
@@ -1026,6 +1045,16 @@ class ProductController extends Controller
                     ? (int) round((float) clean_number($r[$idx['weight_gram']]))
                     : null;
 
+                // Dimensi satuan (cm) untuk ongkir volumetrik — opsional, boleh desimal.
+                $readDim = function ($field) use ($idx, $r) {
+                    if ($idx[$field] === false) return null;
+                    $raw = trim((string) ($r[$idx[$field]] ?? ''));
+                    return $raw !== '' ? (float) clean_number($raw) : null;
+                };
+                $lengthCm = $readDim('length_cm');
+                $widthCm  = $readDim('width_cm');
+                $heightCm = $readDim('height_cm');
+
                 // Bisa dijual — default TRUE. Terima: kosong/ya/yes/y/true/1/dijual = true; tidak/no/n/false/0 = false.
                 $isSellable = true;
                 if ($idx['is_sellable'] !== false) {
@@ -1054,6 +1083,9 @@ class ProductController extends Controller
                         'base_price'  => $basePrice,
                         'cost_price'  => $costPrice,
                         'weight_gram' => $weightGram,
+                        'length_cm'   => $lengthCm,
+                        'width_cm'    => $widthCm,
+                        'height_cm'   => $heightCm,
                         'is_sellable' => $isSellable,
                         'is_active'   => 1,
                     ]);

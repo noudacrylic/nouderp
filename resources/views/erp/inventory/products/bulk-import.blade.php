@@ -21,11 +21,13 @@
                 @endif
 
                 <div class="bg-blue-50 border border-blue-200 text-blue-800 px-3 py-3 rounded text-sm">
-                    <div class="font-semibold mb-1">📋 Format Excel (6 kolom):</div>
-                    <code class="block bg-white rounded px-2 py-1 text-xs font-mono">sku | name | sale_type | base_unit | base_price | cost_price</code>
-                    <div class="text-xs mt-2">
-                        Hanya <b>name</b> yang wajib. SKU kosong → auto-generate.
-                        Stok awal & akun jurnal di-setup terpisah lewat halaman <b>Setup Produk</b> per produk.
+                    <div class="font-semibold mb-1">📋 Format Excel (11 kolom):</div>
+                    <code class="block bg-white rounded px-2 py-1 text-xs font-mono">SKU | Nama Produk | Tipe | Base Unit | Base Price (Rp) | Cost Price (Rp) | Berat (gram) | Panjang (cm) | Lebar (cm) | Tinggi (cm) | Bisa Dijual</code>
+                    <div class="text-xs mt-2 space-y-1">
+                        <div>Hanya <b>Nama Produk</b> yang wajib. SKU kosong → auto-generate.</div>
+                        <div>📦 <b>Stok awal</b> diisi terpisah di menu <b>Saldo Awal</b> — bukan di file ini.</div>
+                        <div>Produk baru otomatis <b>aktif</b>; untuk arsip pakai halaman edit per produk.</div>
+                        <div class="text-blue-600">💡 Tips: klik <b>Export</b> di Daftar Produk untuk dapat file berisi data existing dengan format yang sama — edit lalu upload balik di sini.</div>
                     </div>
                 </div>
 
@@ -55,12 +57,15 @@
             <div class="border-t pt-3 text-xs text-gray-600 space-y-1.5">
                 <div class="font-semibold">Kolom Excel:</div>
                 <ul class="list-disc pl-4 space-y-1">
-                    <li><b>sku</b> (opsional) — kosongkan untuk auto-generate</li>
-                    <li><b>name</b> (wajib) — nama produk</li>
-                    <li><b>sale_type</b> — ready / preorder / bundle / service / non_stock (default: ready)</li>
-                    <li><b>base_unit</b> — satuan dasar (default: pcs)</li>
-                    <li><b>base_price</b> — harga jual (Rp)</li>
-                    <li><b>cost_price</b> — harga pokok / referensi pembelian (Rp)</li>
+                    <li><b>SKU</b> (opsional) — kosongkan untuk auto-generate</li>
+                    <li><b>Nama Produk</b> (wajib)</li>
+                    <li><b>Tipe</b> — ready / preorder / bundle / service / non_stock (default: ready)</li>
+                    <li><b>Base Unit</b> — satuan dasar (default: pcs)</li>
+                    <li><b>Base Price (Rp)</b> — harga jual</li>
+                    <li><b>Cost Price (Rp)</b> — harga pokok / referensi pembelian</li>
+                    <li><b>Berat (gram)</b> — berat satuan untuk ongkir</li>
+                    <li><b>Panjang / Lebar / Tinggi (cm)</b> — dimensi untuk ongkir volumetrik (opsional)</li>
+                    <li><b>Bisa Dijual</b> — Ya / Tidak (default: Ya)</li>
                 </ul>
             </div>
 
