@@ -625,7 +625,19 @@ class ProductController extends Controller
             ->when($request->boolean('exclude_bundle'), fn($qq) => $qq->where('sale_type', '!=', 'bundle'))
             // Konteks JUAL (Penawaran/SO/Faktur): hanya produk yang ditandai "Dijual".
             // Produksi/purchasing/warranty TIDAK kirim param ini → semua produk tampil.
-            ->when($request->boolean('sellable_only'), fn($qq) => $qq->where('is_sellable', true))
+            ->when($request->boolean('sellable_only'), function ($qq) {
+                $qq->where('is_sellable', true)
+                    // Guard: bundle TANPA komponen tidak boleh masuk transaksi jual —
+                    // fulfillment & HPP-nya gagal karena tidak ada komponen untuk dikonsumsi.
+                    // Komponen bisa di tabel bundle_components (utama) atau product_bundles (fallback).
+                    ->where(function ($w) {
+                        $w->where('sale_type', '!=', 'bundle')
+                          ->orWhereExists(fn($s) => $s->selectRaw('1')->from('bundle_components')
+                                ->whereColumn('bundle_components.bundle_product_id', 'products.id'))
+                          ->orWhereExists(fn($s) => $s->selectRaw('1')->from('product_bundles')
+                                ->whereColumn('product_bundles.bundle_product_id', 'products.id'));
+                    });
+            })
             ->where(function ($w) use ($q) {
                 $w->where('sku', 'like', "%$q%")
                   ->orWhere('name', 'like', "%$q%");

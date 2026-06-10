@@ -16,9 +16,18 @@
             clearTimeout(t);
             t = setTimeout(() => {
                 if (input.form) input.form.submit();
-            }, 400);
+            }, 600);
         });
     });
+
+    // Submit penuh me-reload halaman & menghilangkan fokus. Kembalikan fokus + kursor
+    // ke kotak pencarian yang sudah terisi, supaya user bisa lanjut mengetik tanpa klik ulang.
+    const activeSearch = document.querySelector('.search-live');
+    if (activeSearch && activeSearch.value) {
+        activeSearch.focus();
+        const len = activeSearch.value.length;
+        try { activeSearch.setSelectionRange(len, len); } catch (_) {}
+    }
 
     // Auto-submit untuk select / date filter (.filter-auto): submit langsung saat berubah
     document.querySelectorAll('.filter-auto').forEach(el => {

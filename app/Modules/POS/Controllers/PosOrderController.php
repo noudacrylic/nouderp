@@ -49,6 +49,14 @@ class PosOrderController extends Controller
         $rows = Product::query()
             ->where('is_active', true)
             ->where('is_sellable', true) // Kasir hanya tampilkan produk yang dijual.
+            // Guard: bundle tanpa komponen tidak boleh dijual (fulfillment/HPP gagal tanpa komponen).
+            ->where(function ($w) {
+                $w->where('sale_type', '!=', 'bundle')
+                  ->orWhereExists(fn ($s) => $s->selectRaw('1')->from('bundle_components')
+                        ->whereColumn('bundle_components.bundle_product_id', 'products.id'))
+                  ->orWhereExists(fn ($s) => $s->selectRaw('1')->from('product_bundles')
+                        ->whereColumn('product_bundles.bundle_product_id', 'products.id'));
+            })
             ->when($q !== '', fn ($query) => $query->where(fn ($w) =>
                 $w->where('name', 'like', "%{$q}%")->orWhere('sku', 'like', "%{$q}%")))
             ->orderBy('name')

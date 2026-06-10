@@ -79,6 +79,14 @@ class BundleService
             $qtyField = 'qty_required';
         }
 
+        // Guard: bundle tanpa komponen tidak boleh diproses — kalau dibiarkan, akan
+        // "mengirim" tanpa mengurangi stok komponen apa pun & tanpa HPP (diam-diam salah).
+        if ($components->isEmpty()) {
+            throw new \RuntimeException(
+                "Bundle (produk #{$bundleId}) belum punya komponen. Lengkapi komponen bundle sebelum diproses ke transaksi."
+            );
+        }
+
         $engine = app(InventoryEngine::class);
 
         foreach ($components as $c) {

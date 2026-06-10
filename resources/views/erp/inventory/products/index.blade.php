@@ -89,7 +89,17 @@
                         </div>
                     </td>
                     <td class="px-3 py-2">
-                        <span class="px-2 py-0.5 rounded text-xs uppercase bg-blue-50 text-blue-700">
+                        @php
+                            $typeBadge = match($product->sale_type) {
+                                'ready'     => 'bg-blue-100 text-blue-700',
+                                'bundle'    => 'bg-purple-100 text-purple-700',
+                                'preorder'  => 'bg-amber-100 text-amber-700',
+                                'service'   => 'bg-emerald-100 text-emerald-700',
+                                'non_stock' => 'bg-gray-100 text-gray-600',
+                                default     => 'bg-blue-50 text-blue-700',
+                            };
+                        @endphp
+                        <span class="px-2 py-0.5 rounded text-xs uppercase {{ $typeBadge }}">
                             {{ str_replace('_', ' ', $product->sale_type) }}
                         </span>
                     </td>

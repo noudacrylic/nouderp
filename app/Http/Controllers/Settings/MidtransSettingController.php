@@ -56,7 +56,7 @@ class MidtransSettingController extends Controller
 
         MidtransSetting::singleton()->update($data);
 
-        return redirect()->route('settings.midtrans.edit')
+        return redirect()->route('settings.integrations.index')
             ->with('success', 'Pengaturan Midtrans tersimpan.');
     }
 }

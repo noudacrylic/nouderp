@@ -2,6 +2,12 @@
 
 @section('content')
 <div class="max-w-4xl mx-auto py-4">
+    @if(session('success'))
+        <div class="bg-green-100 border border-green-300 text-green-700 px-3 py-2 rounded text-sm mb-4">
+            {{ session('success') }}
+        </div>
+    @endif
+
     <div class="mb-5">
         <h1 class="text-lg font-semibold text-gray-800">Integrasi</h1>
         <p class="text-sm text-gray-500 mt-0.5">Aplikasi pihak ketiga yang terhubung dengan Noud ERP. Klik <b>Konfigurasi</b> untuk mengatur kredensial tiap layanan.</p>

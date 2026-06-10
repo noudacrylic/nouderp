@@ -56,7 +56,7 @@ class JubelioSettingController extends Controller
 
         $setting->update($data);
 
-        return redirect()->route('settings.jubelio.edit')
+        return redirect()->route('settings.integrations.index')
             ->with('success', 'Pengaturan Jubelio tersimpan.');
     }
 

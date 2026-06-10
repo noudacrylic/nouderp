@@ -57,7 +57,7 @@ class ShippingSettingController extends Controller
             'config'        => $config,
         ]);
 
-        return redirect()->route('settings.shipping.biteship')
+        return redirect()->route('settings.integrations.index')
             ->with('success', 'Pengaturan Biteship tersimpan.');
     }
 
@@ -112,7 +112,7 @@ class ShippingSettingController extends Controller
             'config'        => $config,
         ]);
 
-        return redirect()->route('settings.shipping.kiriminaja')
+        return redirect()->route('settings.integrations.index')
             ->with('success', 'Pengaturan KiriminAja tersimpan.');
     }
 }
