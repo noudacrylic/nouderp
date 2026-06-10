@@ -70,6 +70,21 @@
                 <p class="text-xs text-gray-500 mt-2">Jangan aktifkan Production sebelum punya key production yang valid.</p>
             </div>
 
+            {{-- ===== Tampilan cara pembayaran di cetakan ===== --}}
+            <div>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Cara Pembayaran di Cetakan</h3>
+                <label class="inline-flex items-start gap-2 text-sm font-semibold text-gray-700">
+                    <input type="checkbox" name="show_payment_method" value="1" {{ old('show_payment_method', $setting->show_payment_method) ? 'checked' : '' }}
+                           class="rounded border-gray-300 mt-0.5">
+                    <span>Tampilkan pembayaran Midtrans di cetak Invoice/SO</span>
+                </label>
+                <p class="text-xs text-gray-500 mt-2">
+                    <b>Dicentang:</b> cetakan Faktur &amp; Pesanan menampilkan cara pembayaran Midtrans (link bayar + QR).
+                    <b>Tidak dicentang:</b> cetakan menampilkan <b>nomor rekening</b> untuk transfer manual.
+                    Biarkan <b>tidak dicentang</b> selama akun Midtrans masih dalam proses review bisnis.
+                </p>
+            </div>
+
             {{-- ===== Masa berlaku ===== --}}
             <div>
                 <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Masa Berlaku</h3>

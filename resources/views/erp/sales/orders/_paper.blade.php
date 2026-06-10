@@ -12,12 +12,14 @@
     $remaining      = max(0, $grandTotal - $paid);
     $hasNotes       = !empty(trim((string) $order->notes));
 
-    // Pembayaran: instruksi (dari Settings) + QR menuju link pembayaran online (bila ada & belum lunas).
+    // Pembayaran: tergantung setting Midtrans → cara bayar Midtrans (link+QR) ATAU nomor rekening.
+    $showMidtransPay = \App\Models\MidtransSetting::singleton()->show_payment_method;
     $payInstr   = trim((string) ($profile->payment_instructions ?? ''));
-    $payTrx     = $remaining > 0 ? $order->activePaymentLink() : null;
+    $payTrx     = ($showMidtransPay && $remaining > 0) ? $order->activePaymentLink() : null;
     $payUrl     = $payTrx ? url('/pay/' . $payTrx->link_token) : null;
     $qrSrc      = $payUrl ? 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=' . urlencode($payUrl) : null;
-    $showPayment = $remaining > 0 && ($payInstr !== '' || $payUrl);
+    $showPayment = $showMidtransPay && $remaining > 0 && ($payInstr !== '' || $payUrl);
+    $showBankAccounts = !$showMidtransPay && $remaining > 0;
 @endphp
 
 <article class="paper" data-label="{{ $order->order_number }}">
@@ -121,6 +123,10 @@
             <div style="font-size:8px; color:#94a3b8; margin-top:2px; line-height:1.25;">Arahkan kamera HP &mdash; membuka link bayar<br><b>(bukan kode QRIS)</b></div>
         </div>
     @endif
+</div>
+@elseif($showBankAccounts)
+<div style="margin-top:10px; border-top:1px solid #e2e8f0; padding-top:8px;">
+    @include('erp._partials.print-payment-accounts', ['profile' => $profile])
 </div>
 @endif
 

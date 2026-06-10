@@ -12,6 +12,7 @@ class MidtransSetting extends Model
         'client_key',
         'merchant_id',
         'is_production',
+        'show_payment_method',
         'link_expiry_days',
         'qris_expiry_minutes',
         'va_fee',
@@ -24,6 +25,7 @@ class MidtransSetting extends Model
 
     protected $casts = [
         'is_production' => 'boolean',
+        'show_payment_method' => 'boolean',
         'link_expiry_days' => 'integer',
         'qris_expiry_minutes' => 'integer',
         'va_fee' => 'decimal:2',
