@@ -7,12 +7,6 @@
        class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Bayar Gaji</a>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
-@if(session('error'))
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">{{ session('error') }}</div>
-@endif
 
 @php
     $bulanNama = [1=>'Jan',2=>'Feb',3=>'Mar',4=>'Apr',5=>'Mei',6=>'Jun',7=>'Jul',8=>'Agu',9=>'Sep',10=>'Okt',11=>'Nov',12=>'Des'];

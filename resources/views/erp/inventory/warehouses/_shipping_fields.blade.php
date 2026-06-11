@@ -1,4 +1,14 @@
-@php $w = $warehouse ?? null; @endphp
+@php
+    $w = $warehouse ?? null;
+    // Pemilih provider area: tampil hanya bila KiriminAja diaktifkan di Settings.
+    $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
+    $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
+    $areaProviders = [];
+    if ($kaOn) {
+        if ($btOn) $areaProviders['biteship'] = 'Biteship';
+        $areaProviders['kiriminaja'] = 'KiriminAja';
+    }
+@endphp
 
 <div class="space-y-3">
     <div>
@@ -25,11 +35,17 @@
         'id'             => 'wh_area',
         'url'            => route('inventory.warehouses.areas'),
         'hiddenName'     => 'biteship_area_id',
-        'label'          => 'Area Biteship (untuk ongkir akurat)',
+        'label'          => empty($areaProviders) ? 'Area Biteship (untuk ongkir akurat)' : 'Area Kurir (untuk ongkir akurat)',
         'value'          => old('biteship_area_id', $w?->biteship_area_id ?? ''),
-        'text'           => ($w?->biteship_area_id) ? $w->fullAddress() : '',
+        'text'           => ($w?->biteship_area_id || $w?->kiriminaja_area_id) ? $w->fullAddress() : '',
         'placeholder'    => 'Ketik kelurahan / kecamatan untuk cari area…',
         'postalTargetId' => 'wh_postal_code',
+        'providers'      => $areaProviders,
+        'providerNames'  => ['biteship' => 'biteship_area_id', 'kiriminaja' => 'kiriminaja_area_id'],
+        'providerValues' => [
+            'biteship'   => old('biteship_area_id', $w?->biteship_area_id ?? ''),
+            'kiriminaja' => old('kiriminaja_area_id', $w?->kiriminaja_area_id ?? ''),
+        ],
     ])
 
     <div class="grid grid-cols-3 gap-3">

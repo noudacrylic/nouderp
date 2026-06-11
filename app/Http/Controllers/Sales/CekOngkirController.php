@@ -25,6 +25,8 @@ class CekOngkirController extends Controller
         $data = $request->validate([
             'warehouse_id'          => 'required|exists:warehouses,id',
             'destination_area_id'   => 'nullable|string|max:255',
+            'destination_kiriminaja_id' => 'nullable|string|max:255',
+            'destination_provider'  => 'nullable|in:biteship,kiriminaja',
             'destination_label'     => 'nullable|string|max:255',
             'weight_gram'           => 'required|integer|min:1',
             'item_value'            => 'nullable|numeric|min:0',
@@ -43,6 +45,12 @@ class CekOngkirController extends Controller
         $hasCoord = ($data['destination_latitude'] ?? null) !== null
                  && ($data['destination_longitude'] ?? null) !== null;
 
+        // Provider tujuan (multi-provider). Area id KiriminAja (kecamatan) beda dgn area_id Biteship.
+        $provider = $data['destination_provider'] ?? null;
+        $destId   = $provider === 'kiriminaja'
+            ? ($data['destination_kiriminaja_id'] ?? null)
+            : ($data['destination_area_id'] ?? null);
+
         // Validasi tujuan sesuai mode.
         if ($mode === 'instant') {
             if (!$hasCoord) {
@@ -50,7 +58,7 @@ class CekOngkirController extends Controller
                     'Kurir instant butuh Titik Lokasi tujuan. Paste link Google Maps / koordinat lalu klik "Lacak Alamat".',
                 ]);
             }
-        } elseif (empty($data['destination_area_id'])) {
+        } elseif (empty($destId)) {
             return $this->render($data['warehouse_id'], $data, null, [
                 'Pilih alamat tujuan dari daftar pencarian (atau Lacak Alamat dari koordinat).',
             ]);
@@ -72,7 +80,8 @@ class CekOngkirController extends Controller
         }
 
         $dest = array_filter([
-            'destination_area_id'   => $data['destination_area_id'] ?? null,
+            'destination_area_id'       => $provider === 'kiriminaja' ? null : ($data['destination_area_id'] ?? null),
+            'destination_kiriminaja_id' => $provider === 'kiriminaja' ? ($data['destination_kiriminaja_id'] ?? null) : null,
             'destination_latitude'  => $hasCoord ? (float) $data['destination_latitude']  : null,
             'destination_longitude' => $hasCoord ? (float) $data['destination_longitude'] : null,
         ], fn ($v) => $v !== null && $v !== '');
@@ -87,10 +96,11 @@ class CekOngkirController extends Controller
             if (!empty($data[$f]) && (float) $data[$f] > 0) $item[$k] = (float) $data[$f];
         }
 
-        $result = $manager->rates($origin + $dest + [
-            'mode'  => $mode,
-            'items' => [$item],
-        ]);
+        $result = $manager->rates($origin + $dest + array_filter([
+            'mode'     => $mode,
+            'provider' => $provider,
+            'items'    => [$item],
+        ], fn ($v) => $v !== null));
 
         return $this->render($warehouse->id, $data, $result['rates'], $result['errors']);
     }

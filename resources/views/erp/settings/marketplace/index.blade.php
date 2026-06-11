@@ -17,15 +17,6 @@
     </div>
 
 
-    @if($errors->any())
-        <div class="bg-rose-50 border-l-4 border-rose-400 p-4 mb-8 rounded-r-xl">
-            <ul class="text-sm text-rose-700 list-disc list-inside">
-                @foreach($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
 
     <div class="bg-white rounded-2xl shadow-xl shadow-gray-100 overflow-hidden border border-gray-100">
         <table class="w-full text-left border-collapse">

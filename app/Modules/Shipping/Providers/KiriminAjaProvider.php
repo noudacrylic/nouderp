@@ -133,11 +133,16 @@ class KiriminAjaProvider implements ShippingProvider
             ? array_map('trim', explode(',', $couriers))
             : ($this->enabledCourierCodes() ?: array_keys(self::DEFAULT_COURIERS));
 
+        // Berat & nilai barang: utamakan flat (weight/item_value), fallback agregat dari items[].
+        $items     = $payload['items'] ?? [];
+        $sumWeight = collect($items)->sum(fn ($i) => (int) ($i['weight'] ?? 0) * max(1, (int) ($i['quantity'] ?? 1)));
+        $sumValue  = collect($items)->sum(fn ($i) => (float) ($i['value'] ?? 0) * max(1, (int) ($i['quantity'] ?? 1)));
+
         $body = [
             'origin'      => $origin,
             'destination' => $dest,
-            'weight'      => max(1, (int) ($payload['weight'] ?? 1000)),
-            'item_value'  => (int) ($payload['item_value'] ?? 0),
+            'weight'      => max(1, (int) ($payload['weight'] ?? ($sumWeight ?: 1000))),
+            'item_value'  => (int) ($payload['item_value'] ?? $sumValue),
             'insurance'   => (int) ($payload['insurance'] ?? 0),
             'courier'     => array_values($courierList),
         ];
@@ -171,8 +176,15 @@ class KiriminAjaProvider implements ShippingProvider
 
     private function ratesInstant(array $payload): array
     {
-        $o = $payload['origin'] ?? null;        // ['lat','long','address']
-        $d = $payload['destination'] ?? null;
+        // Terima bentuk nested ['lat','long','address'] ATAU flat (origin_latitude/dst dari payload cek-ongkir).
+        $o = $payload['origin'] ?? array_filter([
+            'lat'  => $payload['origin_latitude']  ?? null,
+            'long' => $payload['origin_longitude'] ?? null,
+        ], fn ($v) => $v !== null);
+        $d = $payload['destination'] ?? array_filter([
+            'lat'  => $payload['destination_latitude']  ?? null,
+            'long' => $payload['destination_longitude'] ?? null,
+        ], fn ($v) => $v !== null);
         if (empty($o['lat']) || empty($d['lat'])) {
             return ['success' => false, 'rates' => [], 'error' => 'Instant butuh koordinat lat/long asal & tujuan.'];
         }
@@ -284,15 +296,21 @@ class KiriminAjaProvider implements ShippingProvider
         }
     }
 
-    public function track(string $orderId): array
+    /**
+     * Tracking. Mode 'express' → POST tracking {order_id}; 'instant' → GET tracking/{orderId}.
+     * (Param $mode opsional agar tetap kompatibel dgn kontrak ShippingProvider::track.)
+     */
+    public function track(string $orderId, string $mode = 'express'): array
     {
         if (!$this->isReady()) {
             return ['success' => false, 'status' => null, 'history' => [], 'raw' => [], 'error' => 'KiriminAja belum dikonfigurasi.'];
         }
 
         try {
-            // Express: POST tracking {order_id}. (Instant pakai GET endpoint terpisah bila perlu.)
-            $res  = $this->http()->post(self::EP_TRACKING, ['order_id' => $orderId]);
+            // Instant: GET v4/instant/tracking/{orderId}. Express: POST tracking {order_id}.
+            $res = $mode === 'instant'
+                ? $this->http()->get(self::EP_TRACK_INSTANT . rawurlencode($orderId))
+                : $this->http()->post(self::EP_TRACKING, ['order_id' => $orderId]);
             $data = $res->json() ?? [];
             if (!$res->successful() || ($data['status'] ?? true) === false) {
                 return ['success' => false, 'status' => null, 'history' => [], 'raw' => $data, 'error' => $data['text'] ?? ('HTTP ' . $res->status())];
@@ -312,16 +330,29 @@ class KiriminAjaProvider implements ShippingProvider
         }
     }
 
-    public function cancel(string $orderId): array
+    /**
+     * Batalkan booking. Mode 'express' → POST v3/cancel_shipment {awb, reason} (query);
+     * 'instant' → DELETE v4/instant/pickup/void/{orderId}. Sesuai SDK resmi (awb + reason,
+     * BUKAN order_id). $orderId di sini = AWB/order id resi yang dibatalkan.
+     */
+    public function cancel(string $orderId, string $reason = 'Dibatalkan dari ERP', string $mode = 'express'): array
     {
         if (!$this->isReady()) {
             return ['success' => false, 'error' => 'KiriminAja belum dikonfigurasi.'];
         }
         try {
-            $res  = $this->http()->post(self::EP_CANCEL, ['order_id' => $orderId]);
+            if ($mode === 'instant') {
+                $res = $this->http()->delete(self::EP_CANCEL_INSTANT . rawurlencode($orderId));
+            } else {
+                // SDK: cancel_shipment dgn awb + reason sebagai query string.
+                $res = $this->http()->post(self::EP_CANCEL . '?' . http_build_query([
+                    'awb'    => $orderId,
+                    'reason' => $reason,
+                ]));
+            }
             $data = $res->json() ?? [];
             $ok   = $res->successful() && ($data['status'] ?? false) !== false;
-            return ['success' => $ok, 'raw' => $data, 'error' => $ok ? null : ($data['text'] ?? 'gagal')];
+            return ['success' => $ok, 'raw' => $data, 'error' => $ok ? null : ($data['text'] ?? $data['message'] ?? 'gagal')];
         } catch (\Throwable $e) {
             return ['success' => false, 'error' => $e->getMessage()];
         }

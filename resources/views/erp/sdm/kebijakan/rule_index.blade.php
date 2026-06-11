@@ -14,9 +14,6 @@
     <a href="{{ route('sdm.kebijakan.rule.create') }}" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-semibold">+ Rule Baru</a>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
 
 <div class="bg-white rounded shadow mb-4 p-4">
     <p class="text-sm text-gray-600">

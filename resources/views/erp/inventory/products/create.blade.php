@@ -20,13 +20,6 @@
 
             <div class="p-6 space-y-5">
 
-                @if ($errors->any())
-                    <div class="bg-red-50 border-l-4 border-red-400 text-red-700 text-sm rounded p-3 mb-3">
-                        @foreach ($errors->all() as $err)
-                            <div>{{ $err }}</div>
-                        @endforeach
-                    </div>
-                @endif
 
                 <div class="mb-3">
                     <label class="block text-sm font-medium mb-1">

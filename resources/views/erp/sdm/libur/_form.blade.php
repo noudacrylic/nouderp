@@ -1,10 +1,5 @@
 @php $libur = $libur ?? null; @endphp
 
-@if($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
-        <ul class="list-disc pl-5">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
-    </div>
-@endif
 
 <div class="bg-white rounded shadow p-5 max-w-2xl">
     <div class="grid grid-cols-2 gap-4">

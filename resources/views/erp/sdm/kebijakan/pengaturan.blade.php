@@ -7,9 +7,6 @@
     <h1 class="text-lg font-semibold">Pengaturan Akun &amp; Rate Payroll</h1>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
 @if(session('error') || $errors->any())
     <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
         @foreach($errors->all() as $e)<div>{{ $e }}</div>@endforeach

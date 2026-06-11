@@ -7,11 +7,21 @@
         <a href="{{ route('settings.shipping.biteship') }}" class="text-xs text-blue-600 hover:underline">⚙️ Setting Biteship</a>
     </div>
 
-    @php $biteship = \App\Models\ShippingSetting::for('biteship'); @endphp
-    @if(!$biteship->isConfigured())
+    @php
+        $biteship = \App\Models\ShippingSetting::for('biteship');
+        $kiriminaja = \App\Models\ShippingSetting::for('kiriminaja');
+        // Pemilih provider tujuan: tampil hanya bila KiriminAja diaktifkan.
+        $areaProviders = [];
+        if ($kiriminaja->is_enabled) {
+            if ($biteship->is_enabled) $areaProviders['biteship'] = 'Biteship';
+            $areaProviders['kiriminaja'] = 'KiriminAja';
+        }
+    @endphp
+    @if(!$biteship->isConfigured() && !$kiriminaja->isConfigured())
         <div class="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded mb-4 text-sm">
-            Biteship belum aktif / API key kosong. Isi dulu di
-            <a href="{{ route('settings.shipping.biteship') }}" class="font-bold underline">Settings → Biteship</a> agar ongkir bisa diambil.
+            Belum ada kurir aktif. Isi API key di
+            <a href="{{ route('settings.shipping.biteship') }}" class="font-bold underline">Settings → Biteship</a>
+            atau <a href="{{ route('settings.shipping.kiriminaja') }}" class="font-bold underline">KiriminAja</a> agar ongkir bisa diambil.
         </div>
     @endif
 
@@ -109,6 +119,13 @@
                     'provinceTargetId' => 'dest_province',
                     'cityTargetId'     => 'dest_city',
                     'districtTargetId' => 'dest_district',
+                    'providers'        => $areaProviders,
+                    'providerField'    => 'destination_provider',
+                    'providerNames'    => ['biteship' => 'destination_area_id', 'kiriminaja' => 'destination_kiriminaja_id'],
+                    'providerValues'   => [
+                        'biteship'   => $input['destination_area_id'] ?? '',
+                        'kiriminaja' => $input['destination_kiriminaja_id'] ?? '',
+                    ],
                 ])
                 <input type="hidden" name="destination_label" id="dest_label" value="{{ $input['destination_label'] ?? '' }}">
                 {{-- Detail alamat (utk simpan ke pelanggan saat Buat SO) --}}
@@ -383,14 +400,19 @@
     function reverseGeocode(lat, lng) {
         setHint(coordHint, 'Melacak alamat…', 'text-gray-400');
         resolveBtn.disabled = true;
-        fetch(@json(route('sales.cek-ongkir.resolve')) + '?point=' + encodeURIComponent(lat + ',' + lng),
+        // Provider tujuan terpilih (multi-provider) → resolve area di provider yang sama.
+        const provSel = document.getElementById('dest_area_provider_sel');
+        const prov = provSel ? provSel.value : 'biteship';
+        fetch(@json(route('sales.cek-ongkir.resolve')) + '?point=' + encodeURIComponent(lat + ',' + lng) + '&provider=' + encodeURIComponent(prov),
               { headers: { 'Accept': 'application/json' } })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 resolveBtn.disabled = false;
                 if (!d.success) { setHint(coordHint, d.error || 'Gagal melacak alamat.', 'text-red-500'); return; }
-                if (d.area_id && destId) {
-                    destId.value = d.area_id;
+                if (d.area_id) {
+                    if (destId) destId.value = d.area_id;
+                    const ph = document.getElementById('dest_area_' + prov + '_id');
+                    if (ph) ph.value = d.area_id;
                     if (destSearch) destSearch.value = d.area_label || '';
                     if (destLabel)  destLabel.value  = d.area_label || '';
                     setHint(destHint, 'Area terpilih ✓' + (d.postal_code ? ' · ' + d.postal_code : ''), 'text-green-600');
@@ -482,7 +504,8 @@
                 city:             $g('dest_city')?.value || '',
                 district:         $g('dest_district')?.value || '',
                 postal_code:      $g('dest_postal')?.value || '',
-                biteship_area_id: $g('dest_area_id')?.value || '',
+                biteship_area_id:   ($g('dest_area_biteship_id') || $g('dest_area_id'))?.value || '',
+                kiriminaja_area_id: $g('dest_area_kiriminaja_id')?.value || '',
                 location_point:   (latEl.value && longEl.value) ? (latEl.value + ',' + longEl.value) : '',
             };
         }
@@ -492,7 +515,7 @@
                 const cid = csId.value;
                 if (!cid){ reject('Pilih pelanggan dulu.'); return; }
                 const p = destPayload();
-                if (!p.biteship_area_id && !p.location_point){ reject('Belum ada area / titik tujuan. Cek ongkir dulu.'); return; }
+                if (!p.biteship_area_id && !p.kiriminaja_area_id && !p.location_point){ reject('Belum ada area / titik tujuan. Cek ongkir dulu.'); return; }
                 fetch('/erp/api/customers/' + cid + '/shipping', {method:'POST',
                     headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':pageCsrf()},
                     body: JSON.stringify(p)})

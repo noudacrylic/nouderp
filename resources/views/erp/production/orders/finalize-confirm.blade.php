@@ -17,9 +17,6 @@
         </a>
     </div>
 
-    @if($errors->any())
-        <div class="bg-red-50 border border-red-200 text-red-700 px-5 py-3 rounded-xl mb-4 text-sm font-medium">⚠ {{ $errors->first() }}</div>
-    @endif
 
     <form action="{{ route('production.orders.finalize', $order->id) }}" method="POST">
         @csrf

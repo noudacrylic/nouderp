@@ -13,6 +13,14 @@
     $fmtDim  = fn ($v) => ($v !== '' && $v !== null && (float) $v > 0) ? rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.') : '';
     $pkDate  = old('pickup_date', ($m && $m->pickup_date) ? \Carbon\Carbon::parse($m->pickup_date)->format('Y-m-d') : '');
     $manualCouriers = \App\Models\ManualCourier::active()->get(['code', 'name']);
+    // Pemilih provider area (tujuan customer): tampil hanya bila KiriminAja diaktifkan.
+    $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
+    $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
+    $areaProviders = [];
+    if ($kaOn) {
+        if ($btOn) $areaProviders['biteship'] = 'Biteship';
+        $areaProviders['kiriminaja'] = 'KiriminAja';
+    }
 @endphp
 
 <div class="card p-4 shadow-sm border border-gray-100 h-full" id="shipping-embed">
@@ -161,6 +169,8 @@
                 'provinceTargetId' => 'addr_province',
                 'cityTargetId'     => 'addr_city',
                 'districtTargetId' => 'addr_district',
+                'providers'        => $areaProviders,
+                'providerNames'    => ['biteship' => 'cust_area_biteship_unused', 'kiriminaja' => 'cust_area_kiriminaja_unused'],
             ])
             <p class="text-[11px] text-gray-400 -mt-1">Provinsi, kota, kecamatan & kode pos terisi otomatis dari pilihan di atas.</p>
 
@@ -219,8 +229,17 @@
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     // ---- state alamat customer terpilih ----
-    let area = ''; // biteship_area_id customer
+    let area = '';   // biteship_area_id customer
+    let areaKa = ''; // kiriminaja_area_id customer
     let destLat = null, destLong = null; // koordinat tujuan (untuk kurir instant)
+
+    // Baca area id per-provider dari popup (multi-provider) dengan fallback ke hidden tunggal lama.
+    function areaInput(prov){
+        return document.getElementById('cust_area_' + prov + '_id')
+            || (prov === 'biteship' ? document.getElementById('cust_area_id') : null);
+    }
+    function areaVal(prov){ const el = areaInput(prov); return el ? el.value : ''; }
+    function setAreaVal(prov, val){ const el = areaInput(prov); if (el) el.value = val || ''; }
 
     function currentCustomerId(){ return ($id('customer_id')?.value || '').trim(); }
 
@@ -276,7 +295,8 @@
 
     // ---- muat alamat customer ----
     function renderAddress(d){
-        area = d.biteship_area_id || '';
+        area   = d.biteship_area_id || '';
+        areaKa = d.kiriminaja_area_id || '';
         destLat  = (d.latitude != null && d.latitude !== '') ? d.latitude : null;
         destLong = (d.longitude != null && d.longitude !== '') ? d.longitude : null;
         $id('ship_addr_name').textContent = d.name || '—';
@@ -311,7 +331,9 @@
                 $id('addr_province').value = d.province || '';
                 $id('addr_district').value = d.district || '';
                 $id('addr_postal').value   = d.postal_code || '';
-                $id('cust_area_id').value  = d.biteship_area_id || '';
+                setAreaVal('biteship', d.biteship_area_id || '');
+                setAreaVal('kiriminaja', d.kiriminaja_area_id || '');
+                if ($id('cust_area_id')) $id('cust_area_id').value = d.biteship_area_id || d.kiriminaja_area_id || '';
                 $id('cust_area_search').value = d.full_address || '';
                 $id('addr_location_point').value = d.location_point || '';
                 // Tampilkan peta jika sudah ada titik tersimpan.
@@ -334,7 +356,8 @@
             province:         $id('addr_province').value,
             district:         $id('addr_district').value,
             postal_code:      $id('addr_postal').value,
-            biteship_area_id: $id('cust_area_id').value,
+            biteship_area_id: areaVal('biteship'),
+            kiriminaja_area_id: areaVal('kiriminaja'),
             location_point:   $id('addr_location_point').value,
         };
         fetch('/erp/api/customers/' + cid + '/shipping', {
@@ -416,8 +439,9 @@
             .then(r=>r.json()).then(function(d){
                 if (!d.success){ $id('addr_map_hint').textContent = d.error || 'Gagal melacak alamat.'; return; }
                 // Isi area otomatis hanya jika belum dipilih (jangan timpa pilihan user).
-                if (d.area_id && !$id('cust_area_id').value){
-                    $id('cust_area_id').value = d.area_id;
+                if (d.area_id && !areaVal('biteship')){
+                    setAreaVal('biteship', d.area_id);
+                    if ($id('cust_area_id')) $id('cust_area_id').value = d.area_id;
                     $id('cust_area_search').value = d.area_label || '';
                     if (d.postal_code) $id('addr_postal').value = d.postal_code;
                 }
@@ -470,7 +494,7 @@
     function cekOngkir(){
         const cid = currentCustomerId();
         if (!cid){ $id('ongkir_hint').textContent = 'Pilih customer dulu.'; return; }
-        if (!area){ $id('ongkir_hint').textContent = 'Alamat customer belum punya area. Klik Edit Alamat.'; return; }
+        if (!area && !areaKa){ $id('ongkir_hint').textContent = 'Alamat customer belum punya area. Klik Edit Alamat.'; return; }
 
         // mode kurir: 'instant' → hanya kurir instant; selain itu → kurir reguler (kecuali instant).
         const dm = $id('delivery_method')?.value || 'kurir';
@@ -483,7 +507,10 @@
         const wh = document.querySelector('[name="warehouse_id"]')?.value;
         const weight = $id('ship_weight').value || 1000;
         $id('ongkir_hint').textContent = 'Mengambil ongkir…';
-        const params = {warehouse_id: wh, destination_area_id: area, weight_gram: weight, mode: mode};
+        // Kirim id kedua provider bila ada; tiap provider pakai id-nya sendiri (bandingkan ongkir).
+        const params = {warehouse_id: wh, weight_gram: weight, mode: mode};
+        if (area)   params.destination_area_id = area;
+        if (areaKa) params.destination_kiriminaja_id = areaKa;
         // Koordinat tujuan → kurir instant (Grab/GoSend/Lalamove) ikut muncul.
         if (destLat != null && destLong != null){ params.destination_latitude = destLat; params.destination_longitude = destLong; }
         // Dimensi paket manual (volumetrik) → pilihan kendaraan instant yang tepat (Pickup utk barang besar).

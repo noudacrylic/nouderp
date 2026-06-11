@@ -22,11 +22,6 @@
     <a href="{{ route('tasks.automation.rules.index', ['automationType' => $type]) }}" class="text-sm text-gray-500">← Kembali</a>
 </div>
 
-@if ($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded mb-3 text-sm">
-        <ul class="list-disc pl-5">@foreach ($errors->all() as $err) <li>{{ $err }}</li> @endforeach</ul>
-    </div>
-@endif
 
 <form method="POST" action="{{ $action }}" class="bg-white rounded shadow p-4 space-y-4 max-w-3xl">
     @csrf

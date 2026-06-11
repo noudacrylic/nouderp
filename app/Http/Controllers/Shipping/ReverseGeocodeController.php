@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Shipping;
 
 use App\Http\Controllers\Controller;
-use App\Modules\Shipping\Providers\BiteshipProvider;
+use App\Modules\Shipping\ShippingManager;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -17,8 +17,9 @@ use Illuminate\Support\Facades\Log;
  */
 class ReverseGeocodeController extends Controller
 {
-    public function __invoke(Request $request, BiteshipProvider $biteship)
+    public function __invoke(Request $request, ShippingManager $manager)
     {
+        $biteship = $manager->provider($request->input('provider', 'biteship')) ?: $manager->provider('biteship');
         $point = trim((string) $request->input('point', ''));
         $coord = parse_lat_long($point);
 

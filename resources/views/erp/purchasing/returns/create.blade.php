@@ -20,16 +20,6 @@
     </div>
 
 
-    @if($errors->any())
-        <div class="bg-red-50 border border-red-200 text-red-700 px-5 py-3.5 rounded-xl mb-5">
-            <div class="font-bold text-sm mb-2">Validasi gagal:</div>
-            <ul class="list-disc pl-5 text-xs space-y-0.5">
-                @foreach($errors->all() as $err)
-                    <li>{{ $err }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
 
     <form id="returnForm" method="POST" action="{{ route('purchasing.returns.store') }}">
         @csrf

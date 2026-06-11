@@ -19,6 +19,7 @@ class Customer extends Model
         'postal_code',
         'recipient_phone',
         'biteship_area_id',
+        'kiriminaja_area_id',
         'latitude',
         'longitude',
         'customer_type',

@@ -74,11 +74,6 @@
             </div>
         @endif
 
-        @if(session('error'))
-            <div class="bg-red-50 border-l-4 border-red-400 p-4 rounded text-sm text-red-700 mb-4">
-                {{ session('error') }}
-            </div>
-        @endif
 
         @if(isset($order) && !empty($items))
             <div class="bg-white shadow rounded-lg overflow-hidden mb-6">

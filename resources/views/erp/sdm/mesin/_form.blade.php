@@ -1,10 +1,5 @@
 @php $machine = $machine ?? null; @endphp
 
-@if($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
-        <ul class="list-disc pl-5">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
-    </div>
-@endif
 
 <div class="space-y-6 max-w-3xl mx-auto">
     <div class="bg-white rounded shadow p-5">

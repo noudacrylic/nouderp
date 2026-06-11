@@ -1016,6 +1016,8 @@
                 @endif
             @endauth
 
+            @include('layouts.partials._flash')
+
             @yield('content')
         </div>
 

@@ -6,13 +6,6 @@
     <a href="{{ route('sdm.attendance.index', $att->periode_id) }}" class="text-gray-600 px-3 py-1.5 text-sm">Batal</a>
 </div>
 
-@if($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
-        <ul class="list-disc pl-5">
-            @foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach
-        </ul>
-    </div>
-@endif
 
 <form method="POST" action="{{ route('sdm.attendance.update', $att->id) }}" class="bg-white rounded shadow p-5 max-w-3xl">
     @csrf @method('PUT')

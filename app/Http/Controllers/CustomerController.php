@@ -111,6 +111,7 @@ class CustomerController extends Controller
             'district'         => 'nullable|string|max:100',
             'postal_code'      => 'nullable|string|max:10',
             'biteship_area_id' => 'nullable|string|max:100',
+            'kiriminaja_area_id' => 'nullable|string|max:100',
             // Titik lokasi (untuk kurir instant) — boleh link Google Maps atau "lat,long".
             'location_point'   => 'nullable|string|max:500',
         ]);
@@ -140,12 +141,13 @@ class CustomerController extends Controller
             'district'         => $c->district,
             'postal_code'      => $c->postal_code,
             'biteship_area_id' => $c->biteship_area_id,
+            'kiriminaja_area_id' => $c->kiriminaja_area_id,
             'latitude'         => $c->latitude,
             'longitude'        => $c->longitude,
             'location_point'   => ($c->latitude !== null && $c->longitude !== null) ? ($c->latitude . ',' . $c->longitude) : '',
             'has_coordinate'   => ($c->latitude !== null && $c->longitude !== null),
             'full_address'     => $line,
-            'has_area'         => !empty($c->biteship_area_id),
+            'has_area'         => !empty($c->biteship_area_id) || !empty($c->kiriminaja_area_id),
         ];
     }
 

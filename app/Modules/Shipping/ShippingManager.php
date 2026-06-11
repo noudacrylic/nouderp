@@ -42,6 +42,26 @@ class ShippingManager
         return count($this->activeProviders()) > 0;
     }
 
+    /** Label tampilan per provider (untuk pemilih area di form). */
+    public const LABELS = [
+        'biteship'   => 'Biteship',
+        'kiriminaja' => 'KiriminAja',
+    ];
+
+    /**
+     * Provider aktif sebagai [code => label] untuk pemilih area di form.
+     * Kosong = belum ada provider aktif (form jatuh ke mode 1-provider biteship).
+     * @return array<string,string>
+     */
+    public function activeProviderOptions(): array
+    {
+        $out = [];
+        foreach ($this->activeProviders() as $p) {
+            $out[$p->key()] = self::LABELS[$p->key()] ?? ucfirst($p->key());
+        }
+        return $out;
+    }
+
     /**
      * Cek ongkir gabungan dari semua provider aktif (dedup by provider+service).
      * @return array{success:bool, rates:array, errors:array<string>}
@@ -49,6 +69,13 @@ class ShippingManager
     public function rates(array $payload): array
     {
         $providers = $this->activeProviders();
+
+        // Filter ke satu provider bila diminta (mis. area tujuan spesifik milik provider tsb).
+        $only = $payload['provider'] ?? null;
+        if ($only) {
+            $providers = array_values(array_filter($providers, fn ($p) => $p->key() === $only));
+        }
+
         if (empty($providers)) {
             return ['success' => false, 'rates' => [], 'errors' => ['Belum ada kurir aktif. Aktifkan & isi API key di Settings → Integrasi.']];
         }

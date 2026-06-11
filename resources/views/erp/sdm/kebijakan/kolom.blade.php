@@ -8,17 +8,6 @@
     <h1 class="text-lg font-semibold">Kolom Akibat &amp; Baris Summary</h1>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
-@if(session('error'))
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">{{ session('error') }}</div>
-@endif
-@if($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
-        <ul class="list-disc pl-5">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
-    </div>
-@endif
 
 @php
     $kolomJson = $kolom->mapWithKeys(fn ($k) => [$k->id => [

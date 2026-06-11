@@ -435,9 +435,6 @@
     </div>
 </div>
 
-@if(session('success'))
-    <div class="mb-3 bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm">{{ session('success') }}</div>
-@endif
 
 @php
     // Helper: pilih warna teks (putih/hitam) berdasarkan luminance background.

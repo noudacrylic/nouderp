@@ -6,7 +6,6 @@
     <a href="{{ route('accounting.period.index') }}" class="text-gray-500 text-sm underline">← Kembali</a>
 </div>
 
-@if(session('error')) <div class="bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded mb-3 text-sm">{{ session('error') }}</div> @endif
 
 <div class="bg-blue-50 border border-blue-200 text-blue-800 px-3 py-2 rounded mb-3 text-sm">
     Penyusutan aset tetap berikut akan otomatis di-post sebelum periode ditutup. Periksa dulu, lalu klik <strong>Tutup Periode</strong> untuk konfirmasi.

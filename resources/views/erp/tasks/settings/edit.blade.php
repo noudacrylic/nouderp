@@ -5,9 +5,6 @@
     <h1 class="text-lg font-semibold">Pengaturan Task Manager</h1>
 </div>
 
-@if(session('success'))
-    <div class="mb-3 bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm">{{ session('success') }}</div>
-@endif
 
 <form method="POST" action="{{ route('tasks.settings.update') }}" class="bg-white rounded shadow p-4 space-y-4 max-w-2xl">
     @csrf @method('PATCH')

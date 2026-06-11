@@ -11,9 +11,6 @@
     <a href="{{ route('tasks.schedules.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Jadwal</a>
 </div>
 
-@if(session('success'))
-    <div class="mb-3 bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm">{{ session('success') }}</div>
-@endif
 
 <div class="bg-white rounded shadow overflow-x-auto">
     <table class="w-full text-sm">

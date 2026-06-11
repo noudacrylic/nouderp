@@ -28,11 +28,6 @@
     <a href="{{ route('sdm.kebijakan.rule.index') }}" class="text-sm text-gray-600 hover:text-gray-900">← Kembali</a>
 </div>
 
-@if($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
-        <ul class="list-disc pl-5">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
-    </div>
-@endif
 
 <form method="POST" action="{{ $isEdit ? route('sdm.kebijakan.rule.update', $rule->id) : route('sdm.kebijakan.rule.store') }}" class="space-y-5 max-w-5xl"
       x-data="ruleBuilder({

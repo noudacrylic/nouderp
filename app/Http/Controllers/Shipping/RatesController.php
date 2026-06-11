@@ -17,7 +17,8 @@ class RatesController extends Controller
     {
         $data = $request->validate([
             'warehouse_id'            => 'required|exists:warehouses,id',
-            'destination_area_id'     => 'required|string|max:100',
+            'destination_area_id'     => 'nullable|string|max:100|required_without_all:destination_kiriminaja_id,destination_latitude',
+            'destination_kiriminaja_id' => 'nullable|string|max:100',
             'weight_gram'             => 'nullable|integer|min:1',
             'item_value'              => 'nullable|numeric|min:0',
             // Koordinat tujuan (opsional) — wajib agar kurir instant muncul.
@@ -43,7 +44,8 @@ class RatesController extends Controller
         }
 
         $dest = array_filter([
-            'destination_area_id'   => $data['destination_area_id'],
+            'destination_area_id'       => $data['destination_area_id'] ?? null,
+            'destination_kiriminaja_id' => $data['destination_kiriminaja_id'] ?? null,
             'destination_latitude'  => isset($data['destination_latitude'])  ? (float) $data['destination_latitude']  : null,
             'destination_longitude' => isset($data['destination_longitude']) ? (float) $data['destination_longitude'] : null,
         ], fn ($v) => $v !== null && $v !== '');

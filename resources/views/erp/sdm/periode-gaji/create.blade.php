@@ -3,13 +3,6 @@
 @section('content')
 <h1 class="text-lg font-semibold mb-6">Periode Penggajian Baru</h1>
 
-@if($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
-        <ul class="list-disc pl-5">
-            @foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach
-        </ul>
-    </div>
-@endif
 
 <form method="POST" action="{{ route('sdm.periode-gaji.store') }}" class="bg-white rounded shadow p-5 max-w-lg">
     @csrf

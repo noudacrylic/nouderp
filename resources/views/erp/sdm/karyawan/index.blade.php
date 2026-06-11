@@ -6,12 +6,6 @@
     <a href="{{ route('sdm.karyawan.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Karyawan</a>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
-@if(session('error'))
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">{{ session('error') }}</div>
-@endif
 
 <form method="GET" id="filter-form" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     <div>

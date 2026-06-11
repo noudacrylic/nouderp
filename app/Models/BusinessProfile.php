@@ -14,6 +14,7 @@ class BusinessProfile extends Model
         'province',
         'postal_code',
         'biteship_area_id',
+        'kiriminaja_area_id',
         'phone',
         'whatsapp',
         'email',

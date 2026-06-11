@@ -8,14 +8,6 @@
     </div>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-100 border border-green-300 text-green-700 px-3 py-2 rounded mb-3 text-sm">{{ session('success') }}</div>
-@endif
-@if($errors->any())
-    <div class="bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded mb-3 text-sm">
-        @foreach($errors->all() as $e) <div>• {{ $e }}</div> @endforeach
-    </div>
-@endif
 
 <form method="POST" action="{{ route('settings.business-profile.update') }}" enctype="multipart/form-data">
     @csrf

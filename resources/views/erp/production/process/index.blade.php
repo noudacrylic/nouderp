@@ -14,24 +14,6 @@
      @open-catatan.window="catatan = $event.detail">
 
     {{-- Flash message (mis. gagal Mulai: belum scan check-in, di luar jam kerja, dll.) --}}
-    @if(session('error'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 8000)"
-             x-transition.opacity
-             class="mb-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
-            <span class="font-bold">✕</span>
-            <span class="text-sm flex-1">{{ session('error') }}</span>
-            <button type="button" @click="show = false" class="text-red-400 hover:text-red-600 font-bold">✕</button>
-        </div>
-    @endif
-    @if(session('success'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4000)"
-             x-transition.opacity
-             class="mb-4 flex items-start gap-3 bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl">
-            <span class="font-bold">✓</span>
-            <span class="text-sm flex-1">{{ session('success') }}</span>
-            <button type="button" @click="show = false" class="text-emerald-400 hover:text-emerald-600 font-bold">✕</button>
-        </div>
-    @endif
 
     {{-- Header --}}
     <div class="flex justify-between items-center mb-5">

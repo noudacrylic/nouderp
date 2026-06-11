@@ -22,16 +22,6 @@
         @if($errors->any() || session('error'))
             <div class="mb-5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
                 <div class="font-bold mb-1">Order produksi gagal disimpan:</div>
-                @if(session('error'))
-                    <div>{{ session('error') }}</div>
-                @endif
-                @if($errors->any())
-                    <ul class="list-disc list-inside mt-1">
-                        @foreach($errors->all() as $err)
-                            <li>{{ $err }}</li>
-                        @endforeach
-                    </ul>
-                @endif
                 <div class="text-[11px] text-red-500 mt-1.5">Data yang sudah diisi tetap dipertahankan di bawah.</div>
             </div>
         @endif

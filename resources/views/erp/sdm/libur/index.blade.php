@@ -8,9 +8,6 @@
     <a href="{{ route('sdm.libur.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Hari Libur</a>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-4 flex gap-2 text-sm items-center">
     <label class="text-gray-500">Tahun:</label>

@@ -9,9 +9,6 @@
     <a href="{{ route('sdm.periode-gaji.show', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700">Kembali ke Periode</a>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     <div>

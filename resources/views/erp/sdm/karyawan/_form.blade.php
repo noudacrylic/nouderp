@@ -64,13 +64,6 @@
     $dayNames = [1=>'Senin', 2=>'Selasa', 3=>'Rabu', 4=>'Kamis', 5=>'Jumat', 6=>'Sabtu', 0=>'Minggu'];
 @endphp
 
-@if($errors->any())
-    <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3 max-w-5xl mx-auto">
-        <ul class="list-disc pl-5">
-            @foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach
-        </ul>
-    </div>
-@endif
 
 <div class="max-w-5xl mx-auto" x-data="{ tab: (window.location.hash || '').replace('#','') || 'umum' }" x-init="$watch('tab', v => history.replaceState(null, '', v === 'umum' ? window.location.pathname + window.location.search : '#' + v))">
 

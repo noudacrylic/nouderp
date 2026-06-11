@@ -308,14 +308,32 @@ function bomForm() {
         },
         onFormSubmit(e) {
             this.submitError = '';
+            const fail = (msg) => { e.preventDefault(); this.submitError = msg; };
+
+            if (this.outputs.length === 0) {
+                return fail('Tambahkan minimal satu produk output.');
+            }
+            if (this.outputs.some(o => !o.product_id)) {
+                return fail('Masih ada baris output yang belum dipilih produknya.');
+            }
+            const mainCount = this.outputs.filter(o => o.output_type === 'main').length;
+            if (mainCount === 0) {
+                return fail('Harus ada satu produk Utama. Ubah salah satu baris output menjadi "Utama".');
+            }
+            if (mainCount > 1) {
+                return fail(`Produk Utama hanya boleh satu per BOM (saat ini ada ${mainCount}). Ubah sisanya menjadi "Sampingan".`);
+            }
             if (!this.outputsPercentageOk()) {
-                e.preventDefault();
-                this.submitError = `Total persentase output harus 100% (saat ini ${this.percentageTotal()}%).`;
+                return fail(`Total persentase output harus 100% (saat ini ${this.percentageTotal()}%).`);
             }
         },
 
         addMaterial() { this.materials.push({ product_id: null, productQuery: '', qty_per_cycle: 1, unit: '', results: [], showDrop: false }); },
-        addOutput()   { this.outputs.push({ product_id: null, productQuery: '', qty_per_cycle: 1, output_type: 'main', percentage: 100, results: [], showDrop: false }); },
+        addOutput()   {
+            // Produk utama hanya boleh 1 per BOM. Jika sudah ada baris utama, baris baru defaultnya Sampingan.
+            const hasMain = this.outputs.some(o => o.output_type === 'main');
+            this.outputs.push({ product_id: null, productQuery: '', qty_per_cycle: 1, output_type: hasMain ? 'by_product' : 'main', percentage: 100, results: [], showDrop: false });
+        },
         addStep()     { this.steps.push({ name: '', description: '', department_id: '', estimated_hours: '' }); },
 
         async searchProduct(idx, list) {

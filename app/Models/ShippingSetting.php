@@ -23,9 +23,9 @@ class ShippingSetting extends Model
     /** Default base URL per provider bila tidak di-set manual. */
     public const DEFAULT_BASE_URL = [
         'biteship'   => 'https://api.biteship.com',
-        // KiriminAja: sandbox=tdev, produksi=client. Default = produksi; KiriminAjaProvider
-        // otomatis pakai tdev saat is_production=false bila base_url tidak di-set manual.
-        'kiriminaja' => 'https://client.kiriminaja.com',
+        // KiriminAja: sandbox=tdev, produksi=client. Biarkan null → KiriminAjaProvider
+        // otomatis pilih tdev (sandbox) / client (produksi) sesuai is_production.
+        'kiriminaja' => null,
     ];
 
     /** Ambil (atau buat) baris setting untuk provider tertentu. */

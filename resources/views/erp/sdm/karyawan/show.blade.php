@@ -9,9 +9,6 @@
     </div>
 </div>
 
-@if(session('success'))
-    <div class="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">{{ session('success') }}</div>
-@endif
 
 <div class="grid grid-cols-2 gap-4 mb-4">
     <div class="bg-white rounded shadow p-4 text-sm">

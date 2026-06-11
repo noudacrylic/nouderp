@@ -6,6 +6,15 @@
       $targetSel — CSS selector input yang diisi nominal ongkir terpilih (mis. "input[name=shipping_cost]")
     Hasil pilih kurir → isi nominal ongkir ke $targetSel (+ dispatch 'input' agar Alpine x-model ikut).
 --}}
+@php
+    $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
+    $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
+    $areaProviders = [];
+    if ($kaOn) {
+        if ($btOn) $areaProviders['biteship'] = 'Biteship';
+        $areaProviders['kiriminaja'] = 'KiriminAja';
+    }
+@endphp
 <div class="border border-gray-200 rounded-xl p-3 bg-gray-50/50 space-y-3"
      id="ckw-root" data-cust="{{ $custId }}" data-wh="{{ $whId }}" data-target="{{ $targetSel ?? 'input[name=shipping_cost]' }}">
 
@@ -74,6 +83,8 @@
                 'provinceTargetId' => 'ckw_province',
                 'cityTargetId'     => 'ckw_city',
                 'districtTargetId' => 'ckw_district',
+                'providers'        => $areaProviders,
+                'providerNames'    => ['biteship' => 'ckw_area_biteship_unused', 'kiriminaja' => 'ckw_area_kiriminaja_unused'],
             ])
             <div>
                 <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Detail Alamat</label>
@@ -103,10 +114,18 @@
     const num = (v) => parseFloat(String(v).replace(/[^0-9.-]/g, '')) || 0;
     const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-    let area = '', destLat = null, destLong = null;
+    let area = '', areaKa = '', destLat = null, destLong = null;
+
+    function areaInput(prov){
+        return document.getElementById('ckw_area_' + prov + '_id')
+            || (prov === 'biteship' ? document.getElementById('ckw_area_id') : null);
+    }
+    function areaVal(prov){ const el = areaInput(prov); return el ? el.value : ''; }
+    function setAreaVal(prov, val){ const el = areaInput(prov); if (el) el.value = val || ''; }
 
     function renderAddr(d) {
         area = d.biteship_area_id || '';
+        areaKa = d.kiriminaja_area_id || '';
         destLat = (d.latitude != null && d.latitude !== '') ? d.latitude : null;
         destLong = (d.longitude != null && d.longitude !== '') ? d.longitude : null;
         $id('ckw_addr_name').textContent = d.name || '—';
@@ -132,7 +151,9 @@
                 $id('ckw_address').value = d.shipping_address || '';
                 $id('ckw_city').value = d.city || ''; $id('ckw_province').value = d.province || '';
                 $id('ckw_district').value = d.district || ''; $id('ckw_postal').value = d.postal_code || '';
-                $id('ckw_area_id').value = d.biteship_area_id || '';
+                setAreaVal('biteship', d.biteship_area_id || '');
+                setAreaVal('kiriminaja', d.kiriminaja_area_id || '');
+                if ($id('ckw_area_id')) $id('ckw_area_id').value = d.biteship_area_id || d.kiriminaja_area_id || '';
                 $id('ckw_area_search').value = d.full_address || '';
                 $id('ckw_point').value = d.location_point || '';
             }).catch(() => {});
@@ -143,7 +164,9 @@
         const payload = {
             recipient_phone: $id('ckw_phone').value, shipping_address: $id('ckw_address').value,
             city: $id('ckw_city').value, province: $id('ckw_province').value, district: $id('ckw_district').value,
-            postal_code: $id('ckw_postal').value, biteship_area_id: $id('ckw_area_id').value, location_point: $id('ckw_point').value,
+            postal_code: $id('ckw_postal').value,
+            biteship_area_id: areaVal('biteship'), kiriminaja_area_id: areaVal('kiriminaja'),
+            location_point: $id('ckw_point').value,
         };
         fetch('/erp/api/customers/' + cid + '/shipping', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
@@ -152,13 +175,15 @@
     }
 
     function cek() {
-        if (!area) { $id('ckw_hint').textContent = 'Alamat belum punya area. Klik Edit Alamat.'; return; }
+        if (!area && !areaKa) { $id('ckw_hint').textContent = 'Alamat belum punya area. Klik Edit Alamat.'; return; }
         const mode = $id('ckw_method').value === 'instant' ? 'instant' : 'regular';
         if (mode === 'instant' && (destLat == null || destLong == null)) {
             $id('ckw_hint').textContent = 'Kurir instant butuh Titik Lokasi. Klik Edit Alamat, isi Titik Lokasi.'; return;
         }
         $id('ckw_hint').textContent = 'Mengambil ongkir…';
-        const params = { warehouse_id: whId, destination_area_id: area, weight_gram: $id('ckw_weight').value || 1000, mode: mode };
+        const params = { warehouse_id: whId, weight_gram: $id('ckw_weight').value || 1000, mode: mode };
+        if (area)   params.destination_area_id = area;
+        if (areaKa) params.destination_kiriminaja_id = areaKa;
         if (destLat != null && destLong != null) { params.destination_latitude = destLat; params.destination_longitude = destLong; }
         const pl = num($id('ckw_pl').value), pw = num($id('ckw_pw').value), ph = num($id('ckw_ph').value);
         if (pl > 0) params.package_length = pl; if (pw > 0) params.package_width = pw; if (ph > 0) params.package_height = ph;

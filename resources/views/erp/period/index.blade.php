@@ -8,8 +8,6 @@
     </form>
 </div>
 
-@if(session('success')) <div class="bg-green-100 border border-green-300 text-green-700 px-3 py-2 rounded mb-3 text-sm">{{ session('success') }}</div> @endif
-@if(session('error')) <div class="bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded mb-3 text-sm">{{ session('error') }}</div> @endif
 
 <div class="bg-blue-50 border border-blue-200 text-blue-800 px-3 py-2 rounded mb-3 text-sm">
     Saat menutup periode, sistem otomatis menjalankan penyusutan aset tetap untuk periode tsb dan mengunci jurnal di periode itu (tidak bisa post baru / void existing).

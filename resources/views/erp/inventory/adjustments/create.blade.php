@@ -13,9 +13,6 @@
            class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Kembali</a>
     </div>
 
-    @if($errors->any())
-        <div class="bg-red-50 border border-red-200 text-red-700 px-5 py-3 rounded-xl mb-4 text-sm font-medium">⚠ {{ $errors->first() }}</div>
-    @endif
 
     <form method="POST" action="{{ route('inventory.adjustments.store') }}">
         @csrf
