@@ -326,6 +326,12 @@ function bomForm() {
             if (!this.outputsPercentageOk()) {
                 return fail(`Total persentase output harus 100% (saat ini ${this.percentageTotal()}%).`);
             }
+            // Produk tidak boleh jadi bahan baku sekaligus output (BOM sirkular).
+            const materialIds = this.materials.map(m => m.product_id).filter(Boolean);
+            const overlap = this.outputs.find(o => o.product_id && materialIds.includes(o.product_id));
+            if (overlap) {
+                return fail(`Produk "${overlap.productQuery}" ada di Bahan Baku sekaligus Output. Produk tidak boleh keduanya.`);
+            }
         },
 
         addMaterial() { this.materials.push({ product_id: null, productQuery: '', qty_per_cycle: 1, unit: '', results: [], showDrop: false }); },

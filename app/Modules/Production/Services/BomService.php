@@ -21,6 +21,7 @@ class BomService
             $autoProduction = (bool) ($data['auto_production'] ?? false);
 
             $this->assertOutputsValid($data['outputs'] ?? []);
+            $this->assertNoMaterialOutputOverlap($data['materials'] ?? [], $data['outputs'] ?? []);
             if ($autoProduction) {
                 $this->assertUniqueAutoProduction(null, $data['outputs'] ?? []);
             }
@@ -52,6 +53,7 @@ class BomService
             $autoProduction = (bool) ($data['auto_production'] ?? false);
 
             $this->assertOutputsValid($data['outputs'] ?? []);
+            $this->assertNoMaterialOutputOverlap($data['materials'] ?? [], $data['outputs'] ?? []);
             if ($autoProduction) {
                 $this->assertUniqueAutoProduction($bom->id, $data['outputs'] ?? []);
             }
@@ -136,6 +138,28 @@ class BomService
             $shown = rtrim(rtrim(number_format($totalPct, 2, '.', ''), '0'), '.');
             throw new Exception("Total persentase output harus 100% (saat ini {$shown}%).");
         }
+    }
+
+    /**
+     * Produk yang sama tidak boleh muncul sebagai bahan baku DAN output dalam satu BOM
+     * (mencegah BOM sirkular: produk dikonsumsi sebagai input sekaligus dihasilkan).
+     */
+    private function assertNoMaterialOutputOverlap(array $materials, array $outputs): void
+    {
+        $materialIds = collect($materials)->pluck('product_id')->filter()->map(fn($id) => (int) $id);
+        $outputIds   = collect($outputs)->pluck('product_id')->filter()->map(fn($id) => (int) $id);
+
+        $overlap = $materialIds->intersect($outputIds)->unique()->values();
+        if ($overlap->isEmpty()) {
+            return;
+        }
+
+        $names = Product::whereIn('id', $overlap)
+            ->get()
+            ->map(fn($p) => trim(($p->sku ? $p->sku . ' - ' : '') . $p->name))
+            ->implode(', ');
+
+        throw new Exception("Produk tidak boleh menjadi bahan baku sekaligus output dalam satu BOM: {$names}.");
     }
 
     /**
