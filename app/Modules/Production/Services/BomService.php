@@ -20,6 +20,7 @@ class BomService
         return DB::transaction(function () use ($data) {
             $autoProduction = (bool) ($data['auto_production'] ?? false);
 
+            $this->assertOutputsValid($data['outputs'] ?? []);
             if ($autoProduction) {
                 $this->assertUniqueAutoProduction(null, $data['outputs'] ?? []);
             }
@@ -50,6 +51,7 @@ class BomService
             $bom = Bom::findOrFail($id);
             $autoProduction = (bool) ($data['auto_production'] ?? false);
 
+            $this->assertOutputsValid($data['outputs'] ?? []);
             if ($autoProduction) {
                 $this->assertUniqueAutoProduction($bom->id, $data['outputs'] ?? []);
             }
@@ -106,6 +108,34 @@ class BomService
             $bom->update(['auto_production' => $value]);
             return $bom;
         });
+    }
+
+    /**
+     * Guard integritas output BOM (server-side, mirror validasi klien di create.blade.php).
+     * Berlaku untuk SEMUA BOM, bukan hanya yang auto-produksi:
+     *  - Produk utama wajib tepat 1 (distribusi biaya & skor mengandalkan satu output utama).
+     *  - Total persentase output wajib 100%.
+     */
+    private function assertOutputsValid(array $outputs): void
+    {
+        $outputs = array_values(array_filter($outputs, fn($o) => !empty($o['product_id'])));
+        if (count($outputs) === 0) {
+            throw new Exception('BOM harus memiliki minimal satu produk output.');
+        }
+
+        $mainCount = collect($outputs)->where('output_type', 'main')->count();
+        if ($mainCount === 0) {
+            throw new Exception('BOM harus memiliki tepat satu produk utama. Tandai salah satu output sebagai "Utama".');
+        }
+        if ($mainCount > 1) {
+            throw new Exception("Produk utama hanya boleh satu per BOM (saat ini ada {$mainCount}). Ubah sisanya menjadi \"Sampingan\".");
+        }
+
+        $totalPct = collect($outputs)->sum(fn($o) => (float) ($o['percentage'] ?? 0));
+        if (abs($totalPct - 100) > 0.01) {
+            $shown = rtrim(rtrim(number_format($totalPct, 2, '.', ''), '0'), '.');
+            throw new Exception("Total persentase output harus 100% (saat ini {$shown}%).");
+        }
     }
 
     /**
