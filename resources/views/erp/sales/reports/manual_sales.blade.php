@@ -5,12 +5,22 @@
 
     <div class="flex justify-between items-center mb-6">
         <div>
-            <h1 class="text-xl font-bold text-gray-800">Data Penjualan Manual</h1>
+            <h1 class="text-xl font-bold text-gray-800">Data Awal Penjualan</h1>
             <p class="text-xs text-gray-500 mt-0.5">Input penjualan historis untuk kalkulasi score BOM saat data SO belum lengkap.</p>
         </div>
         <a href="{{ route('sales.reports.product-sales') }}"
            class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Laporan Penjualan</a>
     </div>
+
+    @if(session('success'))
+        <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm mb-4">{{ session('success') }}</div>
+    @endif
+    @if(session('error') || $errors->any())
+        <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4">
+            {{ session('error') }}
+            @foreach ($errors->all() as $err)<div>• {{ $err }}</div>@endforeach
+        </div>
+    @endif
 
 
     <div class="grid grid-cols-12 gap-5">
@@ -26,15 +36,13 @@
                     @csrf
                     <div>
                         <label class="block text-xs font-bold text-gray-500 mb-1">Produk *</label>
-                        <select name="product_id" required
-                                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
-                            <option value="">— Pilih Produk —</option>
-                            @foreach($products as $p)
-                                <option value="{{ $p->id }}" {{ old('product_id') == $p->id ? 'selected' : '' }}>
-                                    {{ $p->sku }} – {{ $p->name }}
-                                </option>
-                            @endforeach
-                        </select>
+                        @include('erp._partials.product_search_select', [
+                            'products'    => $products,
+                            'name'        => 'product_id',
+                            'selected'    => old('product_id'),
+                            'placeholder' => '— Cari / pilih produk —',
+                            'includeAll'  => false,
+                        ])
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
@@ -67,6 +75,32 @@
                     <button type="submit"
                             class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-bold transition">
                         Simpan Data
+                    </button>
+                </form>
+            </div>
+
+            {{-- Import Excel --}}
+            <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-5 mt-5">
+                <h3 class="font-bold text-gray-700 mb-3 text-sm">📥 Import dari Excel</h3>
+                <p class="text-xs text-gray-500 mb-3">
+                    Unggah banyak baris sekaligus. Cocokkan produk lewat <b>SKU</b>. Data yang sudah ada
+                    (SKU + tahun + bulan sama) akan di-update otomatis.
+                </p>
+                <a href="{{ route('sales.reports.manual-sales.template') }}"
+                   class="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 mb-3">
+                    ⬇ Download template Excel
+                </a>
+                <form action="{{ route('sales.reports.manual-sales.import') }}" method="POST"
+                      enctype="multipart/form-data" class="space-y-3">
+                    @csrf
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 mb-1">File Excel <span class="text-red-500">*</span></label>
+                        <input type="file" name="file" accept=".xlsx,.xls,.csv" required
+                               class="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                    </div>
+                    <button type="submit"
+                            class="w-full border border-blue-600 text-blue-600 hover:bg-blue-50 py-2.5 rounded-xl text-sm font-bold transition">
+                        Upload & Import
                     </button>
                 </form>
             </div>
@@ -106,7 +140,7 @@
                         @empty
                             <tr>
                                 <td colspan="5" class="px-5 py-12 text-center text-gray-400">
-                                    Belum ada data penjualan manual.
+                                    Belum ada data awal penjualan.
                                 </td>
                             </tr>
                         @endforelse

@@ -206,8 +206,7 @@ return [
         'children' => [
             'reports.balance-sheet'    => ['label' => 'Neraca',                'url' => '/erp/accounting/reports/balance-sheet',    'route_patterns' => ['accounting.reports.balance-sheet']],
             'reports.income-statement' => ['label' => 'Laba Rugi',             'url' => '/erp/accounting/reports/income-statement', 'route_patterns' => ['accounting.reports.income-statement']],
-            'reports.product-sales'    => ['label' => 'Laporan Penjualan',     'url' => '/erp/sales/reports/product-sales',         'route_patterns' => ['sales.reports.product-sales']],
-            'reports.manual-sales'     => ['label' => 'Data Penjualan Manual', 'url' => '/erp/sales/reports/manual-sales',          'route_patterns' => ['sales.reports.manual-sales*']],
+            'reports.product-sales'    => ['label' => 'Laporan Penjualan',     'url' => '/erp/sales/reports/product-sales',         'route_patterns' => ['sales.reports.product-sales', 'sales.reports.manual-sales*']],
         ],
     ],
 
@@ -223,6 +222,7 @@ return [
             'settings.payment-fee'      => ['label' => 'Payment Fee',        'url' => '/erp/settings/payment-fee',      'route_patterns' => ['settings.payment-fee.*']],
             'settings.freight'          => ['label' => 'Pengaturan Ongkir',  'url' => '/erp/settings/freight',          'route_patterns' => ['settings.freight.*']],
             'settings.shipping-couriers'=> ['label' => 'Jasa Kirim',         'url' => '/erp/settings/shipping-couriers','route_patterns' => ['settings.shipping-couriers.*']],
+            'settings.production'       => ['label' => 'Pengaturan Produksi', 'url' => '/erp/production/settings',       'route_patterns' => ['production.settings', 'production.settings.update']],
             'settings.users'            => ['label' => 'User & Akses',       'url' => '/erp/settings/users',            'route_patterns' => ['settings.users.*'], 'role_gate' => ['super_admin', 'admin']],
         ],
     ],

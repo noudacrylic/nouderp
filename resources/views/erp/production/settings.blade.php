@@ -3,7 +3,7 @@
 @section('content')
 <div class="w-full px-6 py-4">
 
-    <div class="flex justify-between items-center mb-6">
+    <div class="max-w-xl mx-auto flex justify-between items-center mb-6">
         <div>
             <h1 class="text-xl font-bold text-gray-800">Pengaturan Produksi</h1>
             <p class="text-xs text-gray-500 mt-0.5">Konfigurasi kalkulasi Score BOM dan parameter produksi.</p>
@@ -13,48 +13,74 @@
     </div>
 
 
-    <div class="max-w-xl">
-        <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+    @if(session('success'))
+        <div class="max-w-xl mx-auto mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">{{ session('success') }}</div>
+    @endif
+    @if($errors->any())
+        <div class="max-w-xl mx-auto mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+            @foreach ($errors->all() as $err)<div>• {{ $err }}</div>@endforeach
+        </div>
+    @endif
+
+    @php
+        $curChoice = match($setting->score_period_mode ?? 'months') {
+            'week'  => 'week',
+            'range' => 'range',
+            default => (string) max(1, (int) ($setting->score_sales_period ?? 1)),
+        };
+        if (!in_array($curChoice, ['week','1','2','3','range'], true)) $curChoice = '1';
+    @endphp
+
+    <div class="max-w-xl mx-auto">
+        <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6"
+             x-data="{ choice: '{{ $curChoice }}' }">
             <h3 class="font-bold text-gray-700 mb-1 text-sm">Periode Penjualan untuk Kalkulasi Score</h3>
             <p class="text-xs text-gray-400 mb-5">
-                Score BOM = Demand + Bobot Stok. Demand dihitung dari total penjualan N bulan terakhir
+                Score BOM = Demand + Bobot Stok. Demand dihitung dari total penjualan pada periode terpilih
                 dibagi kapasitas produksi (Jumlah Siklus × Output Utama per Siklus).
             </p>
 
             <form action="{{ route('production.settings.update') }}" method="POST">
                 @csrf
 
-                <div class="space-y-3 mb-6">
-                    <label class="flex items-start gap-3 p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition"
-                           :class="period == 1 ? 'border-blue-400 bg-blue-50' : ''">
-                        <input type="radio" name="score_sales_period" value="1"
-                               {{ $setting->score_sales_period == 1 ? 'checked' : '' }}
-                               class="mt-0.5 accent-blue-600">
-                        <div>
-                            <div class="font-bold text-gray-700 text-sm">1 Bulan Terakhir</div>
-                            <div class="text-xs text-gray-400 mt-0.5">
-                                Data penjualan dari bulan ini saja. Lebih responsif terhadap perubahan permintaan terkini.
-                            </div>
-                        </div>
-                    </label>
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-500 mb-1">Periode penjualan</label>
+                    <select name="period_choice" x-model="choice"
+                            class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                        <option value="week">Mingguan (7 hari terakhir)</option>
+                        <option value="1">1 Bulan Terakhir</option>
+                        <option value="2">2 Bulan Terakhir</option>
+                        <option value="3">3 Bulan Terakhir</option>
+                        <option value="range">Rentang Tanggal (tetap)</option>
+                    </select>
+                </div>
 
-                    <label class="flex items-start gap-3 p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition">
-                        <input type="radio" name="score_sales_period" value="3"
-                               {{ $setting->score_sales_period == 3 ? 'checked' : '' }}
-                               class="mt-0.5 accent-blue-600">
-                        <div>
-                            <div class="font-bold text-gray-700 text-sm">3 Bulan Terakhir</div>
-                            <div class="text-xs text-gray-400 mt-0.5">
-                                Rata-rata 3 bulan ke belakang. Lebih stabil, cocok untuk produk dengan pola permintaan konsisten.
-                            </div>
-                        </div>
-                    </label>
+                {{-- Input rentang — muncul saat pilih "Rentang Tanggal" --}}
+                <div x-show="choice === 'range'" x-transition style="display:none" class="mb-4 grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Dari Tanggal</label>
+                        <input type="date" name="period_start"
+                               value="{{ optional($setting->score_period_start)->format('Y-m-d') }}"
+                               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Sampai Tanggal</label>
+                        <input type="date" name="period_end"
+                               value="{{ optional($setting->score_period_end)->format('Y-m-d') }}"
+                               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                    </div>
+                </div>
+
+                <div class="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 text-xs text-blue-700">
+                    <span x-show="choice === 'week'">📅 <b>Mingguan</b>: penjualan 7 hari terakhir (bergulir). Data awal penjualan ikut diproporsikan per jumlah hari.</span>
+                    <span x-show="choice !== 'week' && choice !== 'range'">📅 <b>Bulanan</b>: penjualan N bulan terakhir penuh (bergulir, selalu mengikuti bulan berjalan).</span>
+                    <span x-show="choice === 'range'">📅 <b>Rentang tetap</b>: periode membeku pada tanggal yang dipilih — tidak bergulir otomatis seiring waktu.</span>
                 </div>
 
                 <div class="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 mb-5 text-xs text-amber-700">
                     <strong>Rumus Score:</strong><br>
                     Kapasitas = Jumlah Siklus × Qty Output Utama per Siklus<br>
-                    Demand = Total Penjualan N Bulan / Kapasitas<br>
+                    Demand = Total Penjualan (SO + Data Awal) pada Periode / Kapasitas<br>
                     Bobot Stok: Minus +300 | Habis +200 | Menipis +100 | OK +0 | PreOrder +300<br>
                     <strong>Score = Demand + Bobot Stok</strong>
                 </div>
@@ -78,7 +104,7 @@
                 </form>
                 <a href="{{ route('sales.reports.manual-sales') }}"
                    class="block w-full border border-gray-200 text-gray-600 hover:bg-gray-50 py-2.5 rounded-xl text-sm font-semibold transition px-4">
-                    ✏ Input Data Penjualan Manual →
+                    ✏ Input Data Awal Penjualan →
                 </a>
             </div>
         </div>

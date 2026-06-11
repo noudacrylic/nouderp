@@ -10,7 +10,7 @@
         </div>
         <a href="{{ route('sales.reports.manual-sales') }}"
            class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">
-            Data Penjualan Manual →
+            Data Awal Penjualan →
         </a>
     </div>
 
@@ -27,16 +27,15 @@
             <input type="date" name="date_to" value="{{ request('date_to', $dateTo->format('Y-m-d')) }}"
                    class="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
         </div>
-        <div>
+        <div class="w-64">
             <label class="block text-xs font-bold text-gray-500 mb-1">Produk</label>
-            <select name="product_id" class="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
-                <option value="">— Semua Produk —</option>
-                @foreach($products as $p)
-                    <option value="{{ $p->id }}" {{ request('product_id') == $p->id ? 'selected' : '' }}>
-                        {{ $p->sku }} – {{ $p->name }}
-                    </option>
-                @endforeach
-            </select>
+            @include('erp._partials.product_search_select', [
+                'products'    => $products,
+                'name'        => 'product_id',
+                'selected'    => request('product_id'),
+                'placeholder' => '— Semua Produk —',
+                'includeAll'  => true,
+            ])
         </div>
         <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition">
             Tampilkan

@@ -680,6 +680,8 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::get('/reports/product-sales', [\App\Http\Controllers\Sales\SalesReportController::class, 'productSales'])->name('reports.product-sales');
     Route::get('/reports/manual-sales', [\App\Http\Controllers\Sales\ProductSalesManualController::class, 'index'])->name('reports.manual-sales');
     Route::post('/reports/manual-sales', [\App\Http\Controllers\Sales\ProductSalesManualController::class, 'store'])->name('reports.manual-sales.store');
+    Route::get('/reports/manual-sales/template', [\App\Http\Controllers\Sales\ProductSalesManualController::class, 'importTemplate'])->name('reports.manual-sales.template');
+    Route::post('/reports/manual-sales/import', [\App\Http\Controllers\Sales\ProductSalesManualController::class, 'import'])->name('reports.manual-sales.import');
     Route::delete('/reports/manual-sales/{id}', [\App\Http\Controllers\Sales\ProductSalesManualController::class, 'destroy'])->name('reports.manual-sales.destroy');
 });
 
@@ -869,6 +871,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('boms/{id}/clone', [\App\Modules\Production\Controllers\BomController::class, 'clone'])->name('boms.clone');
     Route::post('boms/{id}/toggle-auto', [\App\Modules\Production\Controllers\BomController::class, 'toggleAuto'])->name('boms.toggle-auto');
     Route::post('boms/run-auto', [\App\Modules\Production\Controllers\BomController::class, 'runAuto'])->name('boms.run-auto');
+    Route::post('boms/recalculate', [\App\Modules\Production\Controllers\BomController::class, 'recalculate'])->name('boms.recalculate');
     Route::get('ajax/bom-calculate', [\App\Modules\Production\Controllers\BomController::class, 'calculate'])->name('ajax.bom.calculate');
     Route::post('boms/preview-score', [\App\Modules\Production\Controllers\BomController::class, 'previewScore'])->name('boms.preview-score');
     Route::get('settings', [\App\Modules\Production\Controllers\BomController::class, 'settings'])->name('settings');

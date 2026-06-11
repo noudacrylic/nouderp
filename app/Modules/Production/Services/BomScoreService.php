@@ -28,19 +28,19 @@ class BomScoreService
 
         $kapasitas = $typicalCycles * $qtyPerCycle;
 
-        $period  = ProductionSetting::getSalesPeriod();
-        $from    = Carbon::now()->startOfMonth()->subMonths($period - 1);
+        [$from, $to] = $this->resolvePeriod();
 
-        // Penjualan dari SO confirmed
+        // Penjualan dari SO confirmed dalam rentang periode
         $soSales = SalesOrderItem::query()
             ->join('sales_orders', 'sales_orders.id', '=', 'sales_order_items.sales_order_id')
             ->where('sales_orders.status', 'confirmed')
             ->whereDate('sales_orders.order_date', '>=', $from)
+            ->whereDate('sales_orders.order_date', '<=', $to)
             ->where('sales_order_items.product_id', $product->id)
             ->sum('sales_order_items.qty');
 
-        // Penjualan manual dalam range bulan yang sama
-        $manualSales = $this->getManualSales($product->id, $from, $period);
+        // Data awal penjualan (per bulan), diproporsikan untuk bulan yang ter-overlap sebagian
+        $manualSales = $this->getManualSales($product->id, $from, $to);
 
         $totalSales = (float) $soSales + $manualSales;
         $demand     = ($kapasitas > 0) ? $totalSales / $kapasitas : 0;
@@ -50,24 +50,72 @@ class BomScoreService
         return round($demand + $bobot, 2);
     }
 
-    private function getManualSales(int $productId, Carbon $from, int $months): float
+    /**
+     * Tentukan rentang [from, to] kalkulasi score berdasarkan setting:
+     *   - week   : 7 hari terakhir (hari ini & 6 hari ke belakang)
+     *   - months : N bulan terakhir penuh (default, perilaku lama)
+     *   - range  : rentang tanggal tetap dari setting
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function resolvePeriod(): array
     {
-        $ranges = [];
-        for ($i = 0; $i < $months; $i++) {
-            $d = $from->copy()->addMonths($i);
-            $ranges[] = ['year' => $d->year, 'month' => $d->month];
+        $setting = ProductionSetting::first();
+        $mode    = $setting->score_period_mode ?? 'months';
+        $now     = Carbon::now();
+
+        if ($mode === 'week') {
+            return [$now->copy()->subDays(6)->startOfDay(), $now->copy()->endOfDay()];
         }
 
-        $total = 0;
-        foreach ($ranges as $r) {
-            $row = ProductSalesManual::where('product_id', $productId)
-                ->where('year', $r['year'])
-                ->where('month', $r['month'])
-                ->first();
-            if ($row) {
-                $total += (float) $row->qty;
-            }
+        if ($mode === 'range' && $setting?->score_period_start && $setting?->score_period_end) {
+            return [
+                $setting->score_period_start->copy()->startOfDay(),
+                $setting->score_period_end->copy()->endOfDay(),
+            ];
         }
+
+        // months (default)
+        $n = max(1, (int) ($setting->score_sales_period ?? 1));
+        return [$now->copy()->startOfMonth()->subMonths($n - 1), $now->copy()->endOfMonth()];
+    }
+
+    /**
+     * Jumlah data awal penjualan dalam rentang [from, to].
+     * Data disimpan per (tahun, bulan); bulan yang hanya ter-overlap sebagian
+     * (mis. mode mingguan) diproporsikan menurut jumlah hari yang tercakup.
+     */
+    private function getManualSales(int $productId, Carbon $from, Carbon $to): float
+    {
+        $total  = 0.0;
+        $cursor = $from->copy()->startOfMonth();
+
+        while ($cursor->lessThanOrEqualTo($to)) {
+            $monthStart = $cursor->copy()->startOfMonth();
+            $monthEnd   = $cursor->copy()->endOfMonth();
+
+            // Irisan bulan ini dengan rentang [from, to]
+            $overlapStart = $from->greaterThan($monthStart) ? $from : $monthStart;
+            $overlapEnd   = $to->lessThan($monthEnd) ? $to : $monthEnd;
+
+            if ($overlapStart->lessThanOrEqualTo($overlapEnd)) {
+                $row = ProductSalesManual::where('product_id', $productId)
+                    ->where('year', $cursor->year)
+                    ->where('month', $cursor->month)
+                    ->first();
+
+                if ($row) {
+                    $daysInMonth = $cursor->daysInMonth;
+                    $daysOverlap = $overlapStart->copy()->startOfDay()
+                        ->diffInDays($overlapEnd->copy()->startOfDay()) + 1;
+                    $ratio = $daysInMonth > 0 ? min(1, $daysOverlap / $daysInMonth) : 1;
+                    $total += (float) $row->qty * $ratio;
+                }
+            }
+
+            $cursor->addMonth();
+        }
+
         return $total;
     }
 

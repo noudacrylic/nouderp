@@ -208,8 +208,30 @@ class BomController extends Controller
 
     public function updateSettings(Request $request)
     {
-        $request->validate(['score_sales_period' => 'required|in:1,3']);
-        ProductionSetting::upsert((int) $request->score_sales_period);
+        // period_choice: week | 1 | 2 | 3 | range
+        $request->validate([
+            'period_choice' => 'required|in:week,1,2,3,range',
+            'period_start'  => 'required_if:period_choice,range|nullable|date',
+            'period_end'    => 'required_if:period_choice,range|nullable|date|after_or_equal:period_start',
+        ]);
+
+        $choice = $request->period_choice;
+
+        if ($choice === 'week') {
+            ProductionSetting::savePeriod('week');
+        } elseif ($choice === 'range') {
+            ProductionSetting::savePeriod('range', 1, $request->period_start, $request->period_end);
+        } else {
+            ProductionSetting::savePeriod('months', (int) $choice);
+        }
+
         return back()->with('success', 'Pengaturan produksi disimpan.');
+    }
+
+    /** Trigger manual: hitung ulang score semua BOM aktif (logic di BomScoreService). */
+    public function recalculate(BomScoreService $scoreService)
+    {
+        $scoreService->recalculateAll();
+        return back()->with('success', 'Score semua BOM berhasil dihitung ulang.');
     }
 }
