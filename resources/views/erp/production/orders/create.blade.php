@@ -749,6 +749,15 @@ function orderForm() {
                 document.querySelector('#outputAnchor')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 return;
             }
+            // Produk tidak boleh jadi bahan baku sekaligus output (produksi sirkular).
+            const materialIds = this.materials.map(m => m.product_id).filter(Boolean);
+            const overlap = this.outputs.find(o => o.product_id && materialIds.includes(o.product_id));
+            if (overlap) {
+                e.preventDefault();
+                this.submitError = `Produk "${overlap.productQuery}" ada di Material sekaligus Output. Produk tidak boleh keduanya.`;
+                document.querySelector('#outputAnchor')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
             // Biaya: baris yang ada nominalnya wajib lengkap (keterangan + Kas/Bank).
             const badCost = this.costs.some(c =>
                 (parseFloat(c.amount) > 0) && (!c.cash_account_id || !(c.description && String(c.description).trim())));

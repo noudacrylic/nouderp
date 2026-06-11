@@ -173,6 +173,17 @@ class ProductionOrderController extends Controller
                 return back()->withInput()
                     ->with('error', "Total persentase output harus 100%. Saat ini: {$shown}%.");
             }
+
+            // Produk tidak boleh jadi bahan baku sekaligus output (produksi sirkular).
+            $materialIds = collect($request->input('materials', []))->pluck('product_id')->filter()->map(fn($id) => (int) $id);
+            $outputIds   = $outputs->pluck('product_id')->filter()->map(fn($id) => (int) $id);
+            $overlap = $materialIds->intersect($outputIds)->unique()->values();
+            if ($overlap->isNotEmpty()) {
+                $names = \App\Core\Inventory\Product::whereIn('id', $overlap)->get()
+                    ->map(fn($p) => trim(($p->sku ? $p->sku . ' - ' : '') . $p->name))->implode(', ');
+                return back()->withInput()
+                    ->with('error', "Produk tidak boleh menjadi bahan baku sekaligus output dalam satu produksi: {$names}.");
+            }
         }
 
         if ($request->type === 'custom' && $request->filled('sales_order_id')) {
