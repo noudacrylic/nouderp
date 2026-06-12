@@ -280,11 +280,14 @@
 @endsection
 
 @php
-    $initMaterials = isset($bom) ? $bom->materials->map(function($m) {
-        return ['product_id' => $m->product_id, 'productQuery' => ($m->product?->sku ?? '') . ' - ' . ($m->product?->name ?? ''), 'qty_per_cycle' => $m->qty_per_cycle, 'unit' => $m->unit, 'results' => [], 'showDrop' => false];
+    // Tampilkan qty tanpa koma/nol berlebih: "1.0000" → "1", "1.5000" → "1.5".
+    // Supaya user tidak perlu hapus banyak nol saat edit input qty.
+    $fmtQty = fn($v) => $v === null ? '' : rtrim(rtrim(number_format((float) $v, 4, '.', ''), '0'), '.');
+    $initMaterials = isset($bom) ? $bom->materials->map(function($m) use ($fmtQty) {
+        return ['product_id' => $m->product_id, 'productQuery' => ($m->product?->sku ?? '') . ' - ' . ($m->product?->name ?? ''), 'qty_per_cycle' => $fmtQty($m->qty_per_cycle), 'unit' => $m->unit, 'results' => [], 'showDrop' => false];
     })->values()->all() : [];
-    $initOutputs = isset($bom) ? $bom->outputs->map(function($o) {
-        return ['product_id' => $o->product_id, 'productQuery' => ($o->product?->sku ?? '') . ' - ' . ($o->product?->name ?? ''), 'qty_per_cycle' => $o->qty_per_cycle, 'output_type' => $o->output_type, 'percentage' => $o->percentage, 'unit_percentage' => $o->unit_percentage, 'results' => [], 'showDrop' => false];
+    $initOutputs = isset($bom) ? $bom->outputs->map(function($o) use ($fmtQty) {
+        return ['product_id' => $o->product_id, 'productQuery' => ($o->product?->sku ?? '') . ' - ' . ($o->product?->name ?? ''), 'qty_per_cycle' => $fmtQty($o->qty_per_cycle), 'output_type' => $o->output_type, 'percentage' => $o->percentage, 'unit_percentage' => $o->unit_percentage, 'results' => [], 'showDrop' => false];
     })->values()->all() : [];
     $initSteps = isset($bom) ? $bom->steps->map(function($s) {
         return ['name' => $s->name, 'description' => $s->description, 'department_id' => $s->department_id, 'estimated_hours' => $s->estimated_hours];

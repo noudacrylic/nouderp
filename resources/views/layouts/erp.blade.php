@@ -651,6 +651,20 @@
             width: 100%;
         }
 
+        /* ── Responsive: di layar sempit (mis. multitasking split-screen / jendela
+           setengah layar), layout dua-kolom (grid-cols-12 + col-span-*) menumpuk
+           vertikal supaya kolom sebelah kanan turun ke bawah, bukan ter-gencet.
+           Hanya reset child level-1 dari grid-cols-12 di dalam .content; grid bertingkat
+           (grid-cols-2 dst untuk pasangan field) tidak terpengaruh. ── */
+        @media (max-width: 1024px) {
+            .content .grid.grid-cols-12 {
+                grid-template-columns: minmax(0, 1fr) !important;
+            }
+            .content .grid.grid-cols-12 > [class*="col-span-"] {
+                grid-column: auto !important;
+            }
+        }
+
         /* ── Trial: Top sub-menu tabs (untuk Sales dulu, kalau bagus rollout ke semua) ── */
         .submenu-tabs {
             display: flex;
