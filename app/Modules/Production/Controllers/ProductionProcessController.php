@@ -98,8 +98,10 @@ class ProductionProcessController extends Controller
             ->values()
             ->toArray();
 
+        $testingMode = \App\Models\ProductionSetting::isTestingMode();
+
         return view('erp.production.process.index', compact(
-            'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds'
+            'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode'
         ));
     }
 

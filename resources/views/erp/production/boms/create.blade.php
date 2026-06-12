@@ -136,10 +136,11 @@
                                     </template>
                                     <template x-if="o.output_type === 'by_product'">
                                         <select x-model="o.product_id" @change="selectByproduct(idx)"
+                                                x-init="$nextTick(() => { if (o.product_id) $el.value = String(o.product_id) })"
                                                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                             <option value="">— Pilih produk sampingan —</option>
                                             <template x-for="bp in byproducts" :key="bp.id">
-                                                <option :value="bp.id" x-text="bp.label"></option>
+                                                <option :value="String(bp.id)" x-text="bp.label"></option>
                                             </template>
                                         </select>
                                     </template>

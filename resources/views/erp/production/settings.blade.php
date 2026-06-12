@@ -102,6 +102,36 @@
                 </a>
             </div>
         </div>
+
+        {{-- Mode Testing --}}
+        <div class="bg-white border rounded-2xl shadow-sm p-5 {{ ($setting->testing_mode ?? false) ? 'border-amber-300' : 'border-gray-100' }}">
+            <form action="{{ route('production.settings.testing.update') }}" method="POST">
+                @csrf
+                <input type="hidden" name="testing_mode" value="0">
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <span class="flex-1">
+                        <span class="block font-bold text-gray-700 text-sm">Mode Testing</span>
+                        <span class="block text-[11px] text-gray-500 mt-1 leading-relaxed">
+                            Bila aktif, <b>Mulai</b> &amp; lanjut task <b>tidak butuh scan sidik jari</b>
+                            (lewati cek check-in &amp; jam kerja). Khusus uji coba alur produksi — matikan saat produksi nyata.
+                        </span>
+                    </span>
+                    {{-- Toggle switch (auto-submit saat diubah) --}}
+                    <span class="relative inline-flex items-center flex-shrink-0 mt-0.5">
+                        <input type="checkbox" name="testing_mode" value="1" class="sr-only peer"
+                               {{ ($setting->testing_mode ?? false) ? 'checked' : '' }}
+                               onchange="this.form.submit()">
+                        <span class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-amber-500 transition"></span>
+                        <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition peer-checked:translate-x-5"></span>
+                    </span>
+                </label>
+            </form>
+            @if($setting->testing_mode ?? false)
+                <div class="mt-3 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    ⚠ Mode testing AKTIF — task bisa dimulai tanpa scan. Jangan lupa matikan di produksi nyata.
+                </div>
+            @endif
+        </div>
       </div>
 
       {{-- Kolom kanan: Produk Sampingan (by-product) --}}

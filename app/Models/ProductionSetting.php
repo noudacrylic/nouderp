@@ -13,13 +13,21 @@ class ProductionSetting extends Model
         'score_period_mode',
         'score_period_start',
         'score_period_end',
+        'testing_mode',
     ];
 
     protected $casts = [
         'score_sales_period' => 'integer',
         'score_period_start' => 'date',
         'score_period_end'   => 'date',
+        'testing_mode'       => 'boolean',
     ];
+
+    /** Mode testing aktif → start/lanjut task tidak butuh scan sidik jari. */
+    public static function isTestingMode(): bool
+    {
+        return (bool) (static::first()?->testing_mode ?? false);
+    }
 
     public static function getSalesPeriod(): int
     {

@@ -288,6 +288,18 @@ class BomController extends Controller
         return back()->with('success', 'Pengaturan produksi disimpan.');
     }
 
+    /** Toggle mode testing produksi (start/lanjut task tanpa scan sidik jari). */
+    public function updateTestingMode(Request $request)
+    {
+        $setting = ProductionSetting::first() ?? new ProductionSetting(['score_sales_period' => 1]);
+        $setting->testing_mode = $request->boolean('testing_mode');
+        $setting->save();
+
+        return back()->with('success', $setting->testing_mode
+            ? 'Mode testing AKTIF — start/lanjut task tidak butuh scan sidik jari.'
+            : 'Mode testing dimatikan — scan sidik jari kembali diwajibkan.');
+    }
+
     /** Trigger manual: hitung ulang score semua BOM aktif (logic di BomScoreService). */
     public function recalculate(BomScoreService $scoreService)
     {

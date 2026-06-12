@@ -429,7 +429,8 @@ class ProductionOrderService
             $step = ProductionOrderStep::with('productionOrder')->lockForUpdate()->findOrFail($stepId);
             $order = $step->productionOrder;
 
-            $this->assertExecutorsReady($executorIds, strict: !$force);
+            $testing = \App\Models\ProductionSetting::isTestingMode();
+            $this->assertExecutorsReady($executorIds, strict: !$force, bypassReady: $testing);
 
             if (!in_array($order->status, ['confirmed', 'in_progress'])) {
                 throw new Exception('Order belum dikonfirmasi.');
@@ -479,7 +480,9 @@ class ProductionOrderService
                 'production_order_step_id' => $step->id,
                 'event_type'               => 'started',
                 'occurred_at'              => now(),
-                'notes'                    => $force ? 'Mulai via override manual (bypass scan)' : null,
+                'notes'                    => $force
+                                                ? 'Mulai via override manual (bypass scan)'
+                                                : ($testing ? 'Mulai via mode testing (bypass scan)' : null),
             ]);
 
             if (!empty($executorIds)) {
@@ -1307,10 +1310,16 @@ class ProductionOrderService
      *
      * Tetap throw kalau eksekutor tidak ter-link karyawan, tidak ada jadwal, atau libur — itu kondisi data fundamental yang harus dibetulkan sebelum mulai.
      */
-    private function assertExecutorsReady(array $executorIds, bool $strict = true): void
+    private function assertExecutorsReady(array $executorIds, bool $strict = true, bool $bypassReady = false): void
     {
         if (empty($executorIds)) {
             throw new Exception('Pilih minimal 1 eksekutor.');
+        }
+
+        // Mode testing: lewati semua cek kesiapan (scan, jam kerja, jadwal, link karyawan)
+        // supaya alur produksi bisa diuji tanpa fingerprint.
+        if ($bypassReady) {
+            return;
         }
 
         $resolver = app(ExecutorScheduleResolver::class);

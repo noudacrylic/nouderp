@@ -62,6 +62,12 @@
         </a>
     </div>
 
+    @if(!empty($testingMode))
+        <div class="mb-5 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-2.5 text-sm font-semibold">
+            🧪 <span>Mode Testing aktif — task bisa dimulai tanpa scan sidik jari. Matikan di <a href="{{ route('production.settings') }}" class="underline">Pengaturan Produksi</a> untuk produksi nyata.</span>
+        </div>
+    @endif
+
 
     {{-- Bulk bar penggabungan task (muncul saat ada kartu dipilih) --}}
     <div x-show="$store.merge.count > 0" x-cloak

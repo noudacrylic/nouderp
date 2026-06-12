@@ -222,7 +222,7 @@ return [
             'settings.payment-fee'      => ['label' => 'Payment Fee',        'url' => '/erp/settings/payment-fee',      'route_patterns' => ['settings.payment-fee.*']],
             'settings.freight'          => ['label' => 'Pengaturan Ongkir',  'url' => '/erp/settings/freight',          'route_patterns' => ['settings.freight.*']],
             'settings.shipping-couriers'=> ['label' => 'Jasa Kirim',         'url' => '/erp/settings/shipping-couriers','route_patterns' => ['settings.shipping-couriers.*']],
-            'settings.production'       => ['label' => 'Pengaturan Produksi', 'url' => '/erp/production/settings',       'route_patterns' => ['production.settings', 'production.settings.update', 'production.settings.byproducts.*']],
+            'settings.production'       => ['label' => 'Pengaturan Produksi', 'url' => '/erp/production/settings',       'route_patterns' => ['production.settings', 'production.settings.update', 'production.settings.byproducts.*', 'production.settings.testing.*']],
             'settings.users'            => ['label' => 'User & Akses',       'url' => '/erp/settings/users',            'route_patterns' => ['settings.users.*'], 'role_gate' => ['super_admin', 'admin']],
         ],
     ],
