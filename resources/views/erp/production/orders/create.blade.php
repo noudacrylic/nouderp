@@ -347,27 +347,45 @@
                             <div class="p-3 bg-gray-50 rounded-xl">
                                 <div class="flex gap-3 items-start">
                                     <div class="flex-1 relative" @click.outside="o.showDrop = false">
-                                        <input type="text" x-model="o.productQuery"
-                                               @input.debounce.300ms="searchProduct(idx, 'outputs')"
-                                               @focus="o.showDrop = true"
-                                               :readonly="o.fromSo"
-                                               :class="o.fromSo ? 'bg-purple-50 border-purple-200 text-purple-800 cursor-not-allowed' : 'bg-white border-gray-200'"
-                                               placeholder="Cari produk output..."
-                                               class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                                        {{-- Utama: free-search. Sampingan: dropdown terbatas daftar Pengaturan Produk Sampingan. --}}
+                                        <template x-if="o.output_type === 'main'">
+                                            <div>
+                                                <input type="text" x-model="o.productQuery"
+                                                       @input.debounce.300ms="searchProduct(idx, 'outputs')"
+                                                       @focus="o.showDrop = true"
+                                                       :readonly="o.fromSo"
+                                                       :class="o.fromSo ? 'bg-purple-50 border-purple-200 text-purple-800 cursor-not-allowed' : 'bg-white border-gray-200'"
+                                                       placeholder="Cari produk output..."
+                                                       class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                                                <div x-show="!o.fromSo && o.showDrop && o.results.length > 0"
+                                                     class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                                    <template x-for="p in o.results" :key="p.id">
+                                                        <div @click="selectProduct(idx, p, 'outputs')"
+                                                             class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                                            <span class="font-bold text-blue-600" x-text="p.sku"></span>
+                                                            <span class="text-gray-600 ml-1" x-text="p.name"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="o.output_type === 'by_product'">
+                                            <select x-model="o.product_id" @change="selectByproduct(idx)"
+                                                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                                <option value="">— Pilih produk sampingan —</option>
+                                                <template x-for="bp in byproducts" :key="bp.id">
+                                                    <option :value="bp.id" x-text="bp.label"></option>
+                                                </template>
+                                            </select>
+                                        </template>
                                         <input type="hidden" :name="`outputs[${idx}][product_id]`" :value="o.product_id">
                                         <input type="hidden" :name="`outputs[${idx}][label]`" :value="o.productQuery">
-                                        <div x-show="!o.fromSo && o.showDrop && o.results.length > 0"
-                                             class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
-                                            <template x-for="p in o.results" :key="p.id">
-                                                <div @click="selectProduct(idx, p, 'outputs')"
-                                                     class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
-                                                    <span class="font-bold text-blue-600" x-text="p.sku"></span>
-                                                    <span class="text-gray-600 ml-1" x-text="p.name"></span>
-                                                </div>
-                                            </template>
-                                        </div>
+                                        <input type="hidden" :name="`outputs[${idx}][unit_percentage]`" :value="o.unit_percentage ?? ''">
+                                        <p x-show="o.output_type === 'by_product' && byproducts.length === 0"
+                                           class="text-[10px] text-amber-600 mt-1">Belum ada produk sampingan terdaftar. Tambahkan di Pengaturan Produksi.</p>
                                     </div>
                                     <input type="number" :name="`outputs[${idx}][qty_planned]`" x-model="o.qty_planned"
+                                           @input="recalcPercentages()"
                                            min="0.0001" step="0.0001" placeholder="Qty"
                                            :class="o.fromSo && Number(o.qty_planned) > o.qty_remaining_so ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-200 bg-white'"
                                            class="w-24 border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -377,12 +395,10 @@
                                         <option value="main">Utama</option>
                                         <option value="by_product">Sampingan</option>
                                     </select>
-                                    {{-- Persentase distribusi biaya: semua output bisa diedit, total wajib 100% --}}
-                                    <input type="number" :name="`outputs[${idx}][percentage]`" x-model="o.percentage"
-                                           required min="0" max="100" step="0.01" placeholder="%"
-                                           :class="(o.percentage === '' || o.percentage === null) ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'"
-                                           class="w-24 border rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                           title="Persentase distribusi biaya — total semua output harus 100%">
+                                    {{-- Persentase otomatis (readonly): sampingan = unit% × qty/siklus, utama = sisa. --}}
+                                    <input type="number" :name="`outputs[${idx}][percentage]`" :value="o.percentage" readonly
+                                           title="Persentase otomatis dari Pengaturan Produk Sampingan"
+                                           class="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed">
                                     <button type="button" @click="removeOutput(idx)"
                                             class="p-2 text-red-400 hover:text-red-600 rounded-lg transition mt-0.5">✕</button>
                                 </div>
@@ -636,6 +652,7 @@ $bomOptions = $boms->map(fn ($b) => [
 ])->values();
 @endphp
 window.__poBoms = @json($bomOptions);
+window.__poByproducts = @json($byproductOptions ?? []);
 </script>
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script>
@@ -665,6 +682,7 @@ function orderForm() {
         bomResults: [],
         bomDrop: false,
         bomList: window.__poBoms || [],
+        byproducts: window.__poByproducts || [],
         cycles: 1,
         loading: false,
         description: '',
@@ -681,22 +699,53 @@ function orderForm() {
             // Hanya boleh 1 Utama. Output pertama = Utama; berikutnya otomatis Sampingan.
             const hasMain = this.outputs.some(o => o.output_type === 'main');
             this.outputs.push({
-                product_id: null, productQuery: '', qty_planned: 1,
+                product_id: '', productQuery: '', qty_planned: 1,
                 output_type: hasMain ? 'by_product' : 'main',
-                percentage: hasMain ? '' : 100,
+                percentage: hasMain ? 0 : 100, unit_percentage: null,
                 results: [], showDrop: false, fromSo: false
             });
+            this.recalcPercentages();
         },
         addStep()     { this.steps.push({ name: '', department_id: '', department_name: '' }); },
         addCost()     { this.costs.push({ description: '', amount: '', cash_account_id: '' }); },
 
-        // Hanya boleh 1 produk Utama; sisanya Sampingan. Persentase diatur manual (total harus 100%).
+        // ── Persentase otomatis: sampingan = unit% × (qty/siklus), utama = sisa (100 − Σ) ──
+        recalcPercentages() {
+            const cyc = parseFloat(this.cycles) || 1;
+            let sumBp = 0;
+            this.outputs.forEach(o => {
+                if (o.output_type === 'by_product') {
+                    const up  = parseFloat(o.unit_percentage) || 0;
+                    const qty = parseFloat(o.qty_planned) || 0;
+                    o.percentage = Math.round(up * (qty / cyc) * 10000) / 10000;
+                    sumBp += o.percentage;
+                }
+            });
+            const mainPct = Math.round((100 - sumBp) * 10000) / 10000;
+            this.outputs.forEach(o => {
+                if (o.output_type === 'main') { o.unit_percentage = null; o.percentage = mainPct; }
+            });
+        },
+        selectByproduct(idx) {
+            const o  = this.outputs[idx];
+            const bp = this.byproducts.find(b => String(b.id) === String(o.product_id));
+            o.unit_percentage = bp ? bp.unit_percentage : null;
+            o.productQuery = bp ? bp.label : '';
+            this.recalcPercentages();
+        },
+
+        // Hanya boleh 1 produk Utama; sisanya Sampingan. Persentase otomatis dari Pengaturan.
         onOutputTypeChange(idx) {
-            if (this.outputs[idx].output_type === 'main') {
+            const o = this.outputs[idx];
+            if (o.output_type === 'main') {
                 this.outputs.forEach((other, i) => {
                     if (i !== idx && other.output_type === 'main') other.output_type = 'by_product';
                 });
+                o.unit_percentage = null;
             }
+            // Reset produk saat pindah jenis agar tidak salah daftar.
+            o.product_id = ''; o.productQuery = ''; o.results = []; o.unit_percentage = null;
+            this.recalcPercentages();
         },
 
         removeOutput(idx) {
@@ -704,8 +753,7 @@ function orderForm() {
             if (this.outputs.length && !this.outputs.some(o => o.output_type === 'main')) {
                 this.outputs[0].output_type = 'main';
             }
-            // Jika tersisa tepat 1 output, otomatis 100%.
-            if (this.outputs.length === 1) this.outputs[0].percentage = 100;
+            this.recalcPercentages();
         },
 
         // ── Validasi total persentase output (harus 100%) ──
@@ -921,13 +969,15 @@ function orderForm() {
                 }
                 if (Array.isArray(old.outputs) && old.outputs.length) {
                     this.outputs = old.outputs.map(o => ({
-                        product_id: o.product_id || null,
+                        product_id: o.product_id || '',
                         productQuery: o.label || '',
                         qty_planned: o.qty_planned ?? 1,
                         output_type: o.output_type || 'by_product',
                         percentage: (o.percentage === null || o.percentage === undefined) ? '' : o.percentage,
+                        unit_percentage: (o.unit_percentage === null || o.unit_percentage === undefined || o.unit_percentage === '') ? null : o.unit_percentage,
                         results: [], showDrop: false, fromSo: false,
                     }));
+                    this.recalcPercentages();
                 }
                 if (Array.isArray(old.steps) && old.steps.length) {
                     this.steps = old.steps.map(s => ({ name: s.name || '', department_id: s.department_id || '', department_name: '' }));
@@ -937,6 +987,8 @@ function orderForm() {
                 }
             }
 
+            // Jumlah siklus berubah → hitung ulang % sampingan (basis per-siklus).
+            this.$watch('cycles', () => this.recalcPercentages());
             this.$watch('repairSource', () => this.clearRepairSource());
             this.$watch('type', (val) => {
                 if (val === 'repair') {
@@ -1021,8 +1073,10 @@ function orderForm() {
                     qty_planned: o.qty_planned,
                     output_type: o.output_type,
                     percentage: o.percentage ?? (o.output_type === 'main' ? 100 : ''),
+                    unit_percentage: o.unit_percentage ?? null,
                     results: [], showDrop: false
                 }));
+                this.recalcPercentages();
 
                 this.steps = (data.steps ?? []).map(s => ({
                     name: s.name,

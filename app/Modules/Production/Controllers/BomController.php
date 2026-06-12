@@ -10,6 +10,7 @@ use App\Modules\Production\Services\BomService;
 use App\Modules\Production\Services\BomScoreService;
 use App\Modules\Production\Services\AutoProductionService;
 use App\Models\ProductionSetting;
+use App\Modules\Production\Models\ProductionByproduct;
 use App\Core\Inventory\Product;
 
 class BomController extends Controller
@@ -72,7 +73,18 @@ class BomController extends Controller
     public function create()
     {
         $departments = Department::where('type', 'produksi')->where('is_active', true)->orderBy('name')->get();
-        return view('erp.production.boms.create', compact('departments'));
+        $byproductOptions = $this->byproductOptions();
+        return view('erp.production.boms.create', compact('departments', 'byproductOptions'));
+    }
+
+    /** Opsi produk sampingan untuk dropdown di form BOM/OP. */
+    private function byproductOptions(): array
+    {
+        return ProductionByproduct::with('product')->get()->map(fn($b) => [
+            'id'              => $b->product_id,
+            'label'           => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
+            'unit_percentage' => (float) $b->percentage,
+        ])->values()->all();
     }
 
     public function store(Request $request, BomService $service)
@@ -89,6 +101,7 @@ class BomController extends Controller
             'outputs.*.qty_per_cycle'   => 'required|numeric|min:0.0001',
             'outputs.*.output_type'     => 'required|in:main,by_product',
             'outputs.*.percentage'      => 'required|numeric|min:0|max:100',
+            'outputs.*.unit_percentage' => 'nullable|numeric|min:0|max:100',
         ]);
 
         try {
@@ -104,7 +117,8 @@ class BomController extends Controller
     {
         $bom = Bom::with(['materials.product', 'outputs.product', 'steps.department'])->findOrFail($id);
         $departments = Department::where('type', 'produksi')->where('is_active', true)->orderBy('name')->get();
-        return view('erp.production.boms.create', compact('bom', 'departments'));
+        $byproductOptions = $this->byproductOptions();
+        return view('erp.production.boms.create', compact('bom', 'departments', 'byproductOptions'));
     }
 
     public function update(Request $request, int $id, BomService $service)
@@ -121,6 +135,7 @@ class BomController extends Controller
             'outputs.*.qty_per_cycle'   => 'required|numeric|min:0.0001',
             'outputs.*.output_type'     => 'required|in:main,by_product',
             'outputs.*.percentage'      => 'required|numeric|min:0|max:100',
+            'outputs.*.unit_percentage' => 'nullable|numeric|min:0|max:100',
         ]);
 
         try {
@@ -203,7 +218,52 @@ class BomController extends Controller
     public function settings()
     {
         $setting = ProductionSetting::first() ?? new ProductionSetting(['score_sales_period' => 1]);
-        return view('erp.production.settings', compact('setting'));
+        $byproducts = ProductionByproduct::with('product')->get();
+        return view('erp.production.settings', compact('setting', 'byproducts'));
+    }
+
+    /**
+     * Simpan daftar Produk Sampingan (hapus-lalu-isi-ulang). Hanya produk ready stok
+     * yang boleh terdaftar. Persentase = % biaya per unit (basis 1 siklus).
+     */
+    public function updateByproductSettings(Request $request)
+    {
+        $request->validate([
+            'rows'              => 'nullable|array',
+            'rows.*.product_id' => 'required|exists:products,id',
+            'rows.*.percentage' => 'required|numeric|min:0|max:100',
+        ]);
+
+        $rows = collect($request->input('rows', []))
+            ->filter(fn($r) => !empty($r['product_id']));
+
+        // Validasi: semua produk wajib ready stok.
+        $productIds = $rows->pluck('product_id')->map(fn($id) => (int) $id);
+        if ($productIds->isNotEmpty()) {
+            $nonReady = Product::whereIn('id', $productIds)
+                ->where('sale_type', '!=', 'ready')
+                ->pluck('name');
+            if ($nonReady->isNotEmpty()) {
+                return back()->with('error', 'Hanya produk ready stok yang boleh jadi produk sampingan: ' . $nonReady->implode(', ') . '.');
+            }
+        }
+
+        // Cegah duplikat produk dalam satu submit.
+        if ($productIds->count() !== $productIds->unique()->count()) {
+            return back()->with('error', 'Ada produk sampingan yang terdaftar lebih dari satu kali.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($rows) {
+            ProductionByproduct::query()->delete();
+            foreach ($rows as $r) {
+                ProductionByproduct::create([
+                    'product_id' => (int) $r['product_id'],
+                    'percentage' => (float) $r['percentage'],
+                ]);
+            }
+        });
+
+        return back()->with('success', 'Daftar produk sampingan disimpan.');
     }
 
     public function updateSettings(Request $request)

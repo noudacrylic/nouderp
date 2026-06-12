@@ -101,16 +101,43 @@ class ProductionOrderService
                     ]);
                 }
 
-                // Sync outputs
-                foreach ($data['outputs'] ?? [] as $o) {
-                    if (empty($o['product_id']) || empty($o['qty_planned'])) continue;
-                    ProductionOrderOutput::create([
-                        'production_order_id' => $order->id,
-                        'product_id'          => $o['product_id'],
-                        'qty_planned'         => $o['qty_planned'],
-                        'output_type'         => $o['output_type'] ?? 'main',
-                        'percentage'          => $o['percentage'] ?? 100,
-                    ]);
+                // Sync outputs — persentase dihitung server-side dari master Produk Sampingan
+                // (otoritatif): sampingan = unit% × (qty/siklus), utama = sisa (100 − Σ).
+                $rawOutputs = array_values(array_filter(
+                    $data['outputs'] ?? [],
+                    fn($o) => !empty($o['product_id']) && !empty($o['qty_planned'])
+                ));
+                if ($rawOutputs) {
+                    $cycles = max(1e-9, (float) ($order->planned_cycles ?: 1));
+                    $byIds  = collect($rawOutputs)
+                        ->filter(fn($o) => ($o['output_type'] ?? 'main') === 'by_product')
+                        ->pluck('product_id')->map(fn($id) => (int) $id)->unique();
+                    $masters = \App\Modules\Production\Models\ProductionByproduct::whereIn('product_id', $byIds)
+                        ->get()->keyBy('product_id');
+
+                    $sumBp = 0.0;
+                    foreach ($rawOutputs as $k => $o) {
+                        if (($o['output_type'] ?? 'main') !== 'by_product') continue;
+                        $master  = $masters->get((int) $o['product_id']);
+                        $unitPct = $master ? (float) $master->percentage : (float) ($o['unit_percentage'] ?? 0);
+                        $pct     = round($unitPct * ((float) $o['qty_planned'] / $cycles), 4);
+                        $rawOutputs[$k]['unit_percentage'] = $unitPct;
+                        $rawOutputs[$k]['percentage']      = $pct;
+                        $sumBp += $pct;
+                    }
+                    $mainPct = round(100 - $sumBp, 4);
+
+                    foreach ($rawOutputs as $o) {
+                        $isMain = ($o['output_type'] ?? 'main') === 'main';
+                        ProductionOrderOutput::create([
+                            'production_order_id' => $order->id,
+                            'product_id'          => $o['product_id'],
+                            'qty_planned'         => $o['qty_planned'],
+                            'output_type'         => $o['output_type'] ?? 'main',
+                            'percentage'          => $isMain ? $mainPct : ($o['percentage'] ?? 0),
+                            'unit_percentage'     => $isMain ? null : ($o['unit_percentage'] ?? null),
+                        ]);
+                    }
                 }
             }
 
@@ -334,12 +361,19 @@ class ProductionOrderService
         $engine = app(InventoryEngine::class);
 
         foreach ($materials as $material) {
+            // Konsumsi hanya sisa yang belum terkonsumsi (mendukung material hasil merge
+            // yang sudah terkonsumsi sebagian: qty_consumed antara 0 dan qty_required).
+            $toConsume = (float) $material->qty_required - (float) $material->qty_consumed;
+            if ($toConsume <= 1e-9) {
+                continue;
+            }
+
             // Catat stock-out di inventory_ledgers (FifoService::consume tidak menyentuh ledger).
             $engine->ledger(
                 productId: $material->product_id,
                 warehouseId: $order->warehouse_id,
                 qtyIn: 0,
-                qtyOut: (float) $material->qty_required,
+                qtyOut: $toConsume,
                 type: 'production_material',
                 reference: $order->order_number,
                 notes: null,
@@ -349,7 +383,7 @@ class ProductionOrderService
             $cogs = $fifo->consume(
                 $material->product_id,
                 $order->warehouse_id,
-                $material->qty_required,
+                $toConsume,
                 'production_material',
                 $order->id
             );
@@ -685,7 +719,8 @@ class ProductionOrderService
             ->where('status', '!=', 'void')
             ->update(['status' => 'void', 'voided_at' => now()]);
 
-        $unconsumed = $order->materials->filter(fn($m) => (float) $m->qty_consumed <= 0);
+        // Material yang masih punya sisa belum dikonsumsi (termasuk sebagian, akibat merge).
+        $unconsumed = $order->materials->filter(fn($m) => (float) $m->qty_consumed < (float) $m->qty_required - 1e-9);
 
         if ($unconsumed->isNotEmpty()) {
             $engine = app(InventoryEngine::class);
@@ -696,7 +731,8 @@ class ProductionOrderService
                     (int) $material->product_id,
                     (int) $order->warehouse_id
                 );
-                $required = (float) $material->qty_required;
+                // Hanya butuh sisa yang belum dikonsumsi.
+                $required = (float) $material->qty_required - (float) $material->qty_consumed;
 
                 if ($available < $required) {
                     $insufficient[] = [
@@ -734,9 +770,9 @@ class ProductionOrderService
                 ->lockForUpdate()
                 ->findOrFail($orderId);
 
-            // Konsumsi tertunda: untuk preorder soft-confirmed atau retry dari pending,
-            // material yang belum dikonsumsi (qty_consumed = 0) di-FIFO sekarang.
-            $unconsumed = $order->materials->filter(fn($m) => (float) $m->qty_consumed <= 0);
+            // Konsumsi tertunda: untuk preorder soft-confirmed, retry dari pending, atau
+            // sisa material hasil merge (terkonsumsi sebagian) di-FIFO sekarang.
+            $unconsumed = $order->materials->filter(fn($m) => (float) $m->qty_consumed < (float) $m->qty_required - 1e-9);
             if ($unconsumed->isNotEmpty()) {
                 $this->consumeOrderMaterials($order, $unconsumed);
             }
@@ -749,6 +785,41 @@ class ProductionOrderService
 
             if ($totalOutputQty <= 0) {
                 throw new Exception('Qty output harus lebih dari 0.');
+            }
+
+            // ── Alokasi biaya output ──
+            // Bila order punya produk sampingan terdaftar (unit_percentage terisi), alokasi
+            // berbasis PERSENTASE: sampingan = (unit% × qty/siklus) dari WIP, utama menyerap sisa.
+            // Akibatnya kerusakan sampingan (qty turun) otomatis menambah HPP produk utama.
+            // Bila tidak ada sampingan (mayoritas / data lama), pertahankan alokasi rasio qty.
+            $cycles = max(1e-9, (float) ($order->planned_cycles ?: 1));
+            $hasByproduct = $order->outputs->contains(
+                fn($o) => $o->output_type === 'by_product' && $o->unit_percentage !== null
+            );
+
+            // Pra-hitung persentase per output (output_id => pct) untuk mode persentase.
+            $pctMap = [];
+            if ($hasByproduct) {
+                $sumBp = 0.0;
+                foreach ($actualOutputs as $out) {
+                    $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
+                    if (!$rec || $rec->output_type !== 'by_product') continue;
+                    $unitPct = (float) ($rec->unit_percentage ?? 0);
+                    $pct = round($unitPct * ((float) $out['qty_produced'] / $cycles), 4);
+                    $pctMap[$out['output_id']] = $pct;
+                    $sumBp += $pct;
+                }
+                if ($sumBp > 100 + 0.01) {
+                    $shown = rtrim(rtrim(number_format($sumBp, 4, '.', ''), '0'), '.');
+                    throw new Exception("Total persentase produk sampingan melebihi 100% ({$shown}%). Periksa qty hasil produksi.");
+                }
+                $mainPct = round(100 - $sumBp, 4);
+                foreach ($actualOutputs as $out) {
+                    $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
+                    if ($rec && $rec->output_type === 'main') {
+                        $pctMap[$out['output_id']] = $mainPct;
+                    }
+                }
             }
 
             $costPerUnit = $totalWipCost > 0 ? $totalWipCost / $totalOutputQty : 0;
@@ -764,15 +835,23 @@ class ProductionOrderService
                 if (!$outputRecord || $out['qty_produced'] <= 0) continue;
 
                 $qtyProduced = (float) $out['qty_produced'];
-                $itemCost    = $costPerUnit * $qtyProduced;
 
-                // Update qty_produced + percentage (jika dikoreksi admin) + variance_notes
+                // Mode persentase: biaya = pct% × WIP. Mode lama: rasio qty × costPerUnit.
+                if ($hasByproduct) {
+                    $pct      = (float) ($pctMap[$out['output_id']] ?? 0);
+                    $itemCost = $totalWipCost * $pct / 100;
+                } else {
+                    $pct      = null;
+                    $itemCost = $costPerUnit * $qtyProduced;
+                }
+
+                // Update qty_produced + percentage (hasil recalc otoritatif) + variance_notes
                 $updatePayload = [
                     'qty_produced'   => $qtyProduced,
                     'variance_notes' => $out['variance_notes'] ?? null,
                 ];
-                if (isset($out['percentage']) && $out['percentage'] !== '' && $out['percentage'] !== null) {
-                    $updatePayload['percentage'] = (float) $out['percentage'];
+                if ($pct !== null) {
+                    $updatePayload['percentage'] = $pct;
                 }
                 $outputRecord->update($updatePayload);
 
@@ -950,6 +1029,241 @@ class ProductionOrderService
         }
 
         $order->update(['status' => 'cancelled']);
+    }
+
+    /**
+     * Nomor langkah aktif sebuah OP (sesuai kartu di halaman Proses):
+     * step in_progress/paused, atau step pending pertama yang langkah sebelumnya sudah selesai.
+     * Null bila tidak ada langkah aktif yang valid.
+     */
+    public function activeStepNumber(ProductionOrder $o): ?int
+    {
+        $active = $o->steps->whereIn('status', ['in_progress', 'paused'])->sortBy('step_number')->first();
+        if ($active) {
+            return (int) $active->step_number;
+        }
+        foreach ($o->steps->sortBy('step_number') as $s) {
+            if ($s->status !== 'pending') {
+                continue;
+            }
+            $prev = $o->steps->firstWhere('step_number', $s->step_number - 1);
+            if ($prev === null || $prev->status === 'completed') {
+                return (int) $s->step_number;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Signature resep OP (dinormalisasi per-siklus) untuk menentukan "komponen sama persis".
+     * Dua OP bisa digabung hanya bila signature-nya identik.
+     */
+    public function componentSignature(ProductionOrder $o): string
+    {
+        $cycles = max((float) $o->planned_cycles, 1.0);
+
+        $mats = $o->materials
+            ->map(fn($m) => $m->product_id . ':' . (string) $m->unit . ':' . round((float) $m->qty_required / $cycles, 4))
+            ->sort()->values()->implode('|');
+
+        $outs = $o->outputs
+            ->map(fn($x) => $x->product_id . ':' . $x->output_type . ':' . round((float) $x->percentage, 2) . ':' . round((float) $x->qty_planned / $cycles, 4))
+            ->sort()->values()->implode('|');
+
+        $steps = $o->steps->sortBy('step_number')
+            ->map(fn($s) => (string) $s->department_id . ':' . trim((string) $s->name))
+            ->values()->implode('|');
+
+        return md5("{$o->type}#{$o->warehouse_id}#M{$mats}#O{$outs}#S{$steps}");
+    }
+
+    /**
+     * Apakah OP layak digabung (bukan repair, status aktif, belum pernah digabung,
+     * dan punya langkah aktif). Dipakai controller untuk menampilkan checkbox.
+     */
+    public function isMergeEligible(ProductionOrder $o): bool
+    {
+        return $o->type !== 'repair'
+            && in_array($o->status, ['confirmed', 'in_progress'], true)
+            && $o->merged_into_id === null
+            && $this->activeStepNumber($o) !== null;
+    }
+
+    /**
+     * Gabungkan beberapa task produksi (OP) menjadi satu task induk.
+     *
+     * Syarat: resep identik, gudang & tipe sama (bukan repair), status aktif
+     * (confirmed/in_progress), dan semua berada di langkah aktif yang sama.
+     * Boleh setelah WIP terbentuk — biaya WIP task yang diserap dipindah ke induk
+     * sehingga COGS output saat finalisasi tetap benar.
+     *
+     * @param  int[] $orderIds
+     * @return ProductionOrder  induk hasil gabungan
+     */
+    public function mergeOrders(array $orderIds): ProductionOrder
+    {
+        $orderIds = array_values(array_unique(array_map('intval', $orderIds)));
+        if (count($orderIds) < 2) {
+            throw new Exception('Pilih minimal 2 task untuk digabung.');
+        }
+
+        return DB::transaction(function () use ($orderIds) {
+            $orders = ProductionOrder::with(['materials', 'outputs', 'steps', 'bom'])
+                ->lockForUpdate()
+                ->whereIn('id', $orderIds)
+                ->get();
+
+            if ($orders->count() !== count($orderIds)) {
+                throw new Exception('Sebagian task tidak ditemukan.');
+            }
+
+            // 1) Guard kelayakan
+            foreach ($orders as $o) {
+                if ($o->type === 'repair') {
+                    throw new Exception("Task {$o->order_number} adalah Perbaikan dan tidak bisa digabung.");
+                }
+                if (!in_array($o->status, ['confirmed', 'in_progress'], true)) {
+                    throw new Exception("Task {$o->order_number} berstatus {$o->status_label} — hanya task aktif yang bisa digabung.");
+                }
+                if ($o->merged_into_id !== null) {
+                    throw new Exception("Task {$o->order_number} sudah pernah digabung.");
+                }
+            }
+
+            // 2) Langkah aktif harus sama
+            $stepNumbers = $orders->map(fn($o) => $this->activeStepNumber($o));
+            if ($stepNumbers->contains(null)) {
+                throw new Exception('Sebagian task tidak punya langkah aktif yang valid untuk digabung.');
+            }
+            if ($stepNumbers->unique()->count() > 1) {
+                throw new Exception('Task berada di langkah yang berbeda — hanya bisa digabung pada langkah yang sama.');
+            }
+
+            // 3) Resep identik
+            if ($orders->map(fn($o) => $this->componentSignature($o))->unique()->count() > 1) {
+                throw new Exception('Komponen task tidak sama persis — tidak bisa digabung.');
+            }
+
+            // 4) Pilih induk: progres (sedang dikerjakan/paused dulu) → effective_score → tertua
+            $progressRank = fn(ProductionOrder $o): int =>
+                $o->steps->whereIn('status', ['in_progress', 'paused'])->isNotEmpty() ? 1 : 0;
+
+            $induk = $orders->reduce(function ($best, $o) use ($progressRank) {
+                if ($best === null) {
+                    return $o;
+                }
+                $po = $progressRank($o);
+                $pb = $progressRank($best);
+                if ($po !== $pb) {
+                    return $po > $pb ? $o : $best;
+                }
+                if ((float) $o->effective_score !== (float) $best->effective_score) {
+                    return $o->effective_score > $best->effective_score ? $o : $best;
+                }
+                return $o->created_at < $best->created_at ? $o : $best;
+            }, null);
+
+            $children = $orders->reject(fn($o) => $o->id === $induk->id);
+
+            // 5-8) Serap tiap anak ke induk
+            foreach ($children as $child) {
+                // Qty header
+                $induk->planned_cycles = (float) $induk->planned_cycles + (float) $child->planned_cycles;
+                $induk->planned_qty    = (float) $induk->planned_qty + (float) $child->planned_qty;
+
+                // Materials (match product_id + unit) — resep identik dijamin ketemu
+                foreach ($child->materials as $cm) {
+                    $im = $induk->materials->first(
+                        fn($m) => $m->product_id == $cm->product_id && (string) $m->unit === (string) $cm->unit
+                    );
+                    if ($im) {
+                        $im->qty_required = (float) $im->qty_required + (float) $cm->qty_required;
+                        $im->qty_consumed = (float) $im->qty_consumed + (float) $cm->qty_consumed;
+                        $im->save();
+                    } else {
+                        $cm->production_order_id = $induk->id;
+                        $cm->save();
+                    }
+                }
+
+                // Outputs (match product_id + output_type)
+                foreach ($child->outputs as $co) {
+                    $io = $induk->outputs->first(
+                        fn($x) => $x->product_id == $co->product_id && $x->output_type === $co->output_type
+                    );
+                    if ($io) {
+                        $io->qty_planned = (float) $io->qty_planned + (float) $co->qty_planned;
+                        $io->save();
+                    } else {
+                        $co->production_order_id = $induk->id;
+                        $co->save();
+                    }
+                }
+
+                // 6) Pindah biaya WIP anak → induk (jurnal + penambahan bahan + biaya + ledger)
+                \App\Core\Journal\Journal::whereIn('reference_type', ['production_order_confirm', 'production_order_cost'])
+                    ->where('reference_id', $child->id)
+                    ->update(['reference_id' => $induk->id]);
+                \App\Core\Journal\JournalLine::whereIn('reference_type', ['production_order_confirm', 'production_order_cost'])
+                    ->where('reference_id', $child->id)
+                    ->update(['reference_id' => $induk->id]);
+                \App\Modules\Production\Models\ProductionMaterialAddition::where('production_order_id', $child->id)
+                    ->update(['production_order_id' => $induk->id]);
+                ProductionOrderCost::where('production_order_id', $child->id)
+                    ->update(['production_order_id' => $induk->id]);
+                \App\Models\InventoryLedger::where('transaction_type', 'production_material')
+                    ->where('transaction_id', $child->id)
+                    ->update(['transaction_id' => $induk->id]);
+
+                // 8) Tandai anak sebagai diserap
+                $child->status = 'merged';
+                $child->merged_into_id = $induk->id;
+                $child->save();
+            }
+
+            // 7) Skor/priority hasil = tertinggi (priority menang bila >= skor auto; selain itu auto)
+            $this->applyMergedScore($induk, $orders);
+
+            $induk->save();
+
+            return $induk->fresh(['materials', 'outputs', 'steps', 'mergedChildren']);
+        });
+    }
+
+    /**
+     * Tetapkan skor/priority induk = yang tertinggi dari semua OP yang digabung.
+     * Bila nilai priority >= skor auto tertinggi → pakai priority tertinggi;
+     * selain itu pakai mode auto (skor BOM).
+     */
+    private function applyMergedScore(ProductionOrder $induk, $orders): void
+    {
+        $map = ['low' => 0, 'medium' => 100, 'high' => 200, 'very_high' => 300];
+
+        $maxPriority = null;
+        $maxPriorityLevel = null;
+        $hasAuto = false;
+        $autoMax = 0.0;
+
+        foreach ($orders as $o) {
+            if ($o->score_type === 'priority') {
+                $v = $map[$o->priority_level] ?? 0;
+                if ($maxPriority === null || $v > $maxPriority) {
+                    $maxPriority = $v;
+                    $maxPriorityLevel = $o->priority_level;
+                }
+            } else {
+                $hasAuto = true;
+                $autoMax = max($autoMax, (float) $o->effective_score);
+            }
+        }
+
+        if ($maxPriority !== null && (!$hasAuto || $maxPriority >= $autoMax)) {
+            $induk->score_type = 'priority';
+            $induk->priority_level = $maxPriorityLevel;
+        } else {
+            $induk->score_type = 'auto';
+            $induk->priority_level = null;
+        }
     }
 
     private function getWipCost(int $orderId): float

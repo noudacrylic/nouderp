@@ -114,41 +114,60 @@
                         <template x-for="(o, idx) in outputs" :key="idx">
                             <div class="flex gap-3 items-start p-3 bg-gray-50 rounded-xl">
                                 <div class="flex-1 relative" @click.outside="o.showDrop = false">
-                                    <input type="text" x-model="o.productQuery"
-                                           @input.debounce.300ms="searchProduct(idx, 'outputs')"
-                                           @focus="o.showDrop = true"
-                                           placeholder="Cari produk output..."
-                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
-                                    <input type="hidden" :name="`outputs[${idx}][product_id]`" :value="o.product_id">
-                                    <div x-show="o.showDrop && o.results.length > 0"
-                                         class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
-                                        <template x-for="p in o.results" :key="p.id">
-                                            <div @click="selectProduct(idx, p, 'outputs')"
-                                                 class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
-                                                <span class="font-bold text-blue-600" x-text="p.sku"></span>
-                                                <span class="text-gray-600 ml-1" x-text="p.name"></span>
+                                    {{-- Utama: free-search semua produk. Sampingan: dropdown terbatas daftar Pengaturan. --}}
+                                    <template x-if="o.output_type === 'main'">
+                                        <div>
+                                            <input type="text" x-model="o.productQuery"
+                                                   @input.debounce.300ms="searchProduct(idx, 'outputs')"
+                                                   @focus="o.showDrop = true"
+                                                   placeholder="Cari produk output..."
+                                                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                            <div x-show="o.showDrop && o.results.length > 0"
+                                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                                <template x-for="p in o.results" :key="p.id">
+                                                    <div @click="selectProduct(idx, p, 'outputs')"
+                                                         class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                                        <span class="font-bold text-blue-600" x-text="p.sku"></span>
+                                                        <span class="text-gray-600 ml-1" x-text="p.name"></span>
+                                                    </div>
+                                                </template>
                                             </div>
-                                        </template>
-                                    </div>
+                                        </div>
+                                    </template>
+                                    <template x-if="o.output_type === 'by_product'">
+                                        <select x-model="o.product_id" @change="selectByproduct(idx)"
+                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                            <option value="">— Pilih produk sampingan —</option>
+                                            <template x-for="bp in byproducts" :key="bp.id">
+                                                <option :value="bp.id" x-text="bp.label"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <input type="hidden" :name="`outputs[${idx}][product_id]`" :value="o.product_id">
+                                    <input type="hidden" :name="`outputs[${idx}][unit_percentage]`" :value="o.unit_percentage ?? ''">
+                                    <p x-show="o.output_type === 'by_product' && byproducts.length === 0"
+                                       class="text-[10px] text-amber-600 mt-1">Belum ada produk sampingan terdaftar. Tambahkan di Pengaturan Produksi.</p>
                                 </div>
                                 <div class="w-24">
                                     <input type="number" :name="`outputs[${idx}][qty_per_cycle]`" x-model="o.qty_per_cycle"
+                                           @input="recalcPercentages()"
                                            min="0.0001" step="0.0001" placeholder="Qty/siklus"
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                 </div>
                                 <div class="w-28">
-                                    <select :name="`outputs[${idx}][output_type]`" x-model="o.output_type"
+                                    <select :name="`outputs[${idx}][output_type]`" x-model="o.output_type" @change="onTypeChange(idx)"
                                             class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                         <option value="main">Utama</option>
                                         <option value="by_product">Sampingan</option>
                                     </select>
                                 </div>
                                 <div class="w-20">
-                                    <input type="number" :name="`outputs[${idx}][percentage]`" x-model="o.percentage"
-                                           min="0" max="100" step="0.01" placeholder="%"
-                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                    {{-- Persentase otomatis (readonly): sampingan = unit% × qty, utama = sisa. --}}
+                                    <input type="number" :name="`outputs[${idx}][percentage]`" :value="o.percentage" readonly
+                                           title="Persentase otomatis dari Pengaturan Produk Sampingan"
+                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed">
                                 </div>
-                                <button type="button" @click="outputs.splice(idx, 1)"
+                                <button type="button" @click="outputs.splice(idx, 1); recalcPercentages()"
                                         class="p-2 text-red-400 hover:text-red-600 rounded-lg transition mt-0.5">✕</button>
                             </div>
                         </template>
@@ -264,7 +283,7 @@
         return ['product_id' => $m->product_id, 'productQuery' => ($m->product?->sku ?? '') . ' - ' . ($m->product?->name ?? ''), 'qty_per_cycle' => $m->qty_per_cycle, 'unit' => $m->unit, 'results' => [], 'showDrop' => false];
     })->values()->all() : [];
     $initOutputs = isset($bom) ? $bom->outputs->map(function($o) {
-        return ['product_id' => $o->product_id, 'productQuery' => ($o->product?->sku ?? '') . ' - ' . ($o->product?->name ?? ''), 'qty_per_cycle' => $o->qty_per_cycle, 'output_type' => $o->output_type, 'percentage' => $o->percentage, 'results' => [], 'showDrop' => false];
+        return ['product_id' => $o->product_id, 'productQuery' => ($o->product?->sku ?? '') . ' - ' . ($o->product?->name ?? ''), 'qty_per_cycle' => $o->qty_per_cycle, 'output_type' => $o->output_type, 'percentage' => $o->percentage, 'unit_percentage' => $o->unit_percentage, 'results' => [], 'showDrop' => false];
     })->values()->all() : [];
     $initSteps = isset($bom) ? $bom->steps->map(function($s) {
         return ['name' => $s->name, 'description' => $s->description, 'department_id' => $s->department_id, 'estimated_hours' => $s->estimated_hours];
@@ -279,10 +298,49 @@ function bomForm() {
         materials: @json($initMaterials),
         outputs: @json($initOutputs),
         steps: @json($initSteps),
+        byproducts: @json($byproductOptions ?? []),
         typicalCycles: {{ old('typical_cycles', $bom->typical_cycles ?? 1) }},
         liveScore: {{ isset($bom) && $bom->score ? $bom->score : 'null' }},
         scoreLoading: false,
         submitError: '',
+
+        init() { this.recalcPercentages(); },
+
+        // ── Persentase otomatis: sampingan = unit% × qty/siklus, utama = sisa (100 − Σ) ──
+        recalcPercentages() {
+            let sumBp = 0;
+            this.outputs.forEach(o => {
+                if (o.output_type === 'by_product') {
+                    const up  = parseFloat(o.unit_percentage) || 0;
+                    const qty = parseFloat(o.qty_per_cycle) || 0;
+                    o.percentage = Math.round(up * qty * 10000) / 10000;
+                    sumBp += o.percentage;
+                }
+            });
+            const mainPct = Math.round((100 - sumBp) * 10000) / 10000;
+            this.outputs.forEach(o => {
+                if (o.output_type === 'main') { o.unit_percentage = null; o.percentage = mainPct; }
+            });
+        },
+        // Pilih produk sampingan dari dropdown → set unit_percentage dari master.
+        selectByproduct(idx) {
+            const o  = this.outputs[idx];
+            const bp = this.byproducts.find(b => String(b.id) === String(o.product_id));
+            o.unit_percentage = bp ? bp.unit_percentage : null;
+            o.productQuery = bp ? bp.label : '';
+            this.recalcPercentages();
+        },
+        // Ganti tipe output: reset produk saat pindah jenis agar tidak salah daftar.
+        onTypeChange(idx) {
+            const o = this.outputs[idx];
+            if (o.output_type === 'by_product') {
+                o.product_id = ''; o.productQuery = ''; o.unit_percentage = null; o.results = [];
+            } else {
+                o.product_id = ''; o.productQuery = ''; o.unit_percentage = null; o.results = [];
+                this.refreshScore();
+            }
+            this.recalcPercentages();
+        },
 
         // ── Validasi total persentase output (wajib 100%, seperti Order Produksi) ──
         percentageTotal() {
@@ -338,7 +396,8 @@ function bomForm() {
         addOutput()   {
             // Produk utama hanya boleh 1 per BOM. Jika sudah ada baris utama, baris baru defaultnya Sampingan.
             const hasMain = this.outputs.some(o => o.output_type === 'main');
-            this.outputs.push({ product_id: null, productQuery: '', qty_per_cycle: 1, output_type: hasMain ? 'by_product' : 'main', percentage: 100, results: [], showDrop: false });
+            this.outputs.push({ product_id: '', productQuery: '', qty_per_cycle: 1, output_type: hasMain ? 'by_product' : 'main', percentage: hasMain ? 0 : 100, unit_percentage: null, results: [], showDrop: false });
+            this.recalcPercentages();
         },
         addStep()     { this.steps.push({ name: '', description: '', department_id: '', estimated_hours: '' }); },
 

@@ -76,6 +76,7 @@
                         'pending'     => 'bg-orange-100 text-orange-700',
                         'finalized'   => 'bg-green-100 text-green-700',
                         'cancelled'   => 'bg-gray-200 text-gray-500',
+                        'merged'      => 'bg-purple-100 text-purple-700',
                         default       => 'bg-gray-100 text-gray-500',
                     };
                 @endphp
@@ -113,7 +114,8 @@
                         @endif
                     </td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
-                        <span class="px-2 py-0.5 rounded text-xs uppercase {{ $statusCls }}">{{ $order->status_label }}</span>
+                        <span class="px-2 py-0.5 rounded text-xs uppercase {{ $statusCls }}"
+                              @if($order->status === 'merged' && $order->mergedInto) title="Digabung ke {{ $order->mergedInto->order_number }}" @endif>{{ $order->status_label }}</span>
                         @if(in_array($order->status, ['confirmed', 'in_progress']))
                             @php
                                 // Langkah yang sedang dikerjakan, atau langkah antre paling depan

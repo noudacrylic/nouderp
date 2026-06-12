@@ -79,21 +79,23 @@
     $isLastStep = (int) $step->step_number === (int) $totalSteps;
 
     $selesaiPayload = [
-        'step_id'      => $step->id,
-        'action_url'   => route('production.process.steps.complete', $step->id),
-        'is_last'      => $isLastStep,
-        'order_number' => $order->order_number,
+        'step_id'        => $step->id,
+        'action_url'     => route('production.process.steps.complete', $step->id),
+        'is_last'        => $isLastStep,
+        'order_number'   => $order->order_number,
+        'planned_cycles' => (float) ($order->planned_cycles ?: 1),
         'outputs'      => $isLastStep ? $order->outputs->map(function ($o) {
             $pct = (float) $o->percentage;
             return [
-                'id'             => $o->id,
-                'product_name'   => $o->product?->name ?? '—',
-                'product_sku'    => $o->product?->sku ?? '',
-                'output_type'    => $o->output_type,
-                'percentage'     => rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.'),
-                'qty_planned'    => (float) $o->qty_planned,
-                'qty_produced'   => (float) ($o->qty_produced ?? 0),
-                'variance_notes' => $o->variance_notes ?? '',
+                'id'              => $o->id,
+                'product_name'    => $o->product?->name ?? '—',
+                'product_sku'     => $o->product?->sku ?? '',
+                'output_type'     => $o->output_type,
+                'percentage'      => rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.'),
+                'unit_percentage' => $o->unit_percentage !== null ? (float) $o->unit_percentage : null,
+                'qty_planned'     => (float) $o->qty_planned,
+                'qty_produced'    => (float) ($o->qty_produced ?? 0),
+                'variance_notes'  => $o->variance_notes ?? '',
             ];
         })->values()->toArray() : [],
     ];
@@ -130,6 +132,22 @@
 
     {{-- Row 1: queue/step number + PRODUCT NAME · SKU + (sub) step name + PO + type --}}
     <div class="flex items-start gap-2 mb-1">
+        @if(!empty($order->merge_eligible))
+            {{-- Checkbox penggabungan task (hanya muncul bila layak digabung) --}}
+            <input type="checkbox"
+                   class="w-4 h-4 mt-1.5 rounded accent-indigo-600 flex-shrink-0 cursor-pointer"
+                   :checked="$store.merge.has({{ $order->id }})"
+                   @change="$store.merge.toggle({
+                       id: {{ $order->id }},
+                       sig: @js($order->merge_sig),
+                       step: {{ $order->merge_step }},
+                       number: @js($order->order_number),
+                       product: @js($displayName),
+                       qty: {{ (float) ($mainOut->qty_planned ?? 0) }},
+                       status: @js($order->status)
+                   })"
+                   title="Pilih untuk digabung dengan task berkomponen sama">
+        @endif
         @if($panel === 'pending' && isset($queueNumber))
             {{-- Nomor urutan antrean (prioritas) --}}
             <span class="w-7 h-7 rounded-full {{ $numColor }} flex items-center justify-center text-xs font-black flex-shrink-0 ring-2 ring-amber-300 mt-0.5">
@@ -154,6 +172,12 @@
                       title="Jumlah siklus produksi — produksi {{ $cycles }} kali">
                     🔁 {{ $cycles }}× Produksi
                 </span>
+                @if(!empty($order->mergedChildren) && $order->mergedChildren->count() > 0)
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-black bg-purple-100 text-purple-700 border border-purple-200"
+                          title="Hasil gabungan dari {{ $order->mergedChildren->count() }} task lain: {{ $order->mergedChildren->pluck('order_number')->implode(', ') }}">
+                        🔗 Gabungan ×{{ $order->mergedChildren->count() + 1 }}
+                    </span>
+                @endif
             </div>
 
             {{-- Catatan eksekusi (mis. "diambil Sabtu sore") — selalu bisa diedit, walau order sudah diposting --}}

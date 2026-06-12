@@ -876,6 +876,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('boms/preview-score', [\App\Modules\Production\Controllers\BomController::class, 'previewScore'])->name('boms.preview-score');
     Route::get('settings', [\App\Modules\Production\Controllers\BomController::class, 'settings'])->name('settings');
     Route::post('settings', [\App\Modules\Production\Controllers\BomController::class, 'updateSettings'])->name('settings.update');
+    Route::post('settings/byproducts', [\App\Modules\Production\Controllers\BomController::class, 'updateByproductSettings'])->name('settings.byproducts.update');
 
     // Production Orders
     Route::get('ajax/repair-sources', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'getRepairSources'])->name('ajax.repair-sources');
@@ -910,6 +911,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('process/steps/{id}/resume',   [\App\Modules\Production\Controllers\ProductionProcessController::class, 'resumeStep'])->name('process.steps.resume');
     Route::post('process/steps/{id}/complete', [\App\Modules\Production\Controllers\ProductionProcessController::class, 'completeStep'])->name('process.steps.complete');
     Route::post('process/orders/{id}/notes',   [\App\Modules\Production\Controllers\ProductionProcessController::class, 'updateNotes'])->name('process.orders.notes');
+    Route::post('process/orders/merge',        [\App\Modules\Production\Controllers\ProductionProcessController::class, 'mergeOrders'])->name('process.orders.merge');
 
     // Produksi selesai
     Route::get('completed', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'completed'])->name('completed.index');

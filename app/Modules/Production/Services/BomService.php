@@ -6,6 +6,7 @@ use App\Modules\Production\Models\Bom;
 use App\Modules\Production\Models\BomMaterial;
 use App\Modules\Production\Models\BomOutput;
 use App\Modules\Production\Models\BomStep;
+use App\Modules\Production\Models\ProductionByproduct;
 use App\Core\Inventory\Product;
 use App\Services\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
@@ -20,10 +21,13 @@ class BomService
         return DB::transaction(function () use ($data) {
             $autoProduction = (bool) ($data['auto_production'] ?? false);
 
-            $this->assertOutputsValid($data['outputs'] ?? []);
-            $this->assertNoMaterialOutputOverlap($data['materials'] ?? [], $data['outputs'] ?? []);
+            // Persentase output dihitung server-side dari master Produk Sampingan
+            // (otoritatif): sampingan = unit% × qty/siklus, utama = sisa.
+            $data['outputs'] = $this->applyByproductPercentages($data['outputs'] ?? []);
+            $this->assertOutputsValid($data['outputs']);
+            $this->assertNoMaterialOutputOverlap($data['materials'] ?? [], $data['outputs']);
             if ($autoProduction) {
-                $this->assertUniqueAutoProduction(null, $data['outputs'] ?? []);
+                $this->assertUniqueAutoProduction(null, $data['outputs']);
             }
 
             $bom = Bom::create([
@@ -52,10 +56,11 @@ class BomService
             $bom = Bom::findOrFail($id);
             $autoProduction = (bool) ($data['auto_production'] ?? false);
 
-            $this->assertOutputsValid($data['outputs'] ?? []);
-            $this->assertNoMaterialOutputOverlap($data['materials'] ?? [], $data['outputs'] ?? []);
+            $data['outputs'] = $this->applyByproductPercentages($data['outputs'] ?? []);
+            $this->assertOutputsValid($data['outputs']);
+            $this->assertNoMaterialOutputOverlap($data['materials'] ?? [], $data['outputs']);
             if ($autoProduction) {
-                $this->assertUniqueAutoProduction($bom->id, $data['outputs'] ?? []);
+                $this->assertUniqueAutoProduction($bom->id, $data['outputs']);
             }
 
             $bom->update([
@@ -110,6 +115,62 @@ class BomService
             $bom->update(['auto_production' => $value]);
             return $bom;
         });
+    }
+
+    /**
+     * Hitung persentase output secara otoritatif dari master Produk Sampingan.
+     *  - Sampingan: unit_percentage = persentase master (per unit/siklus);
+     *               percentage = unit_percentage × qty_per_cycle.
+     *  - Utama: unit_percentage = null; percentage = 100 − Σ sampingan.
+     * Produk sampingan wajib terdaftar di production_byproducts.
+     */
+    private function applyByproductPercentages(array $outputs): array
+    {
+        $outputs = array_values($outputs);
+
+        $byIds = collect($outputs)
+            ->filter(fn($o) => !empty($o['product_id']) && ($o['output_type'] ?? 'main') === 'by_product')
+            ->pluck('product_id')->map(fn($id) => (int) $id)->unique();
+
+        $masters = ProductionByproduct::whereIn('product_id', $byIds)->get()->keyBy('product_id');
+
+        $sumByproduct = 0.0;
+        foreach ($outputs as $i => $o) {
+            if (empty($o['product_id'])) continue;
+            if (($o['output_type'] ?? 'main') !== 'by_product') continue;
+
+            $pid    = (int) $o['product_id'];
+            $master = $masters->get($pid);
+            if (!$master) {
+                $p     = Product::find($pid);
+                $label = $p ? trim(($p->sku ? $p->sku . ' - ' : '') . $p->name) : "#$pid";
+                throw new Exception("Produk \"{$label}\" belum terdaftar sebagai Produk Sampingan di Pengaturan Produksi.");
+            }
+
+            $unitPct = (float) $master->percentage;
+            $qty     = (float) ($o['qty_per_cycle'] ?? 0);
+            $pct     = round($unitPct * $qty, 4);
+
+            $outputs[$i]['unit_percentage'] = $unitPct;
+            $outputs[$i]['percentage']      = $pct;
+            $sumByproduct += $pct;
+        }
+
+        if ($sumByproduct > 100 + 0.01) {
+            $shown = rtrim(rtrim(number_format($sumByproduct, 4, '.', ''), '0'), '.');
+            throw new Exception("Total persentase produk sampingan melebihi 100% (saat ini {$shown}%). Kurangi qty atau persentase sampingan.");
+        }
+
+        $mainPct = round(100 - $sumByproduct, 4);
+        foreach ($outputs as $i => $o) {
+            if (empty($o['product_id'])) continue;
+            if (($o['output_type'] ?? 'main') === 'main') {
+                $outputs[$i]['unit_percentage'] = null;
+                $outputs[$i]['percentage']      = $mainPct;
+            }
+        }
+
+        return $outputs;
     }
 
     /**
@@ -305,12 +366,13 @@ class BomService
         $bom = Bom::with('outputs.product')->findOrFail($bomId);
 
         return $bom->outputs->map(fn($o) => [
-            'product_id'   => $o->product_id,
-            'product_name' => $o->product?->name ?? '-',
-            'product_sku'  => $o->product?->sku ?? '-',
-            'qty_planned'  => round($o->qty_per_cycle * $cycles, 4),
-            'output_type'  => $o->output_type,
-            'percentage'   => $o->percentage,
+            'product_id'      => $o->product_id,
+            'product_name'    => $o->product?->name ?? '-',
+            'product_sku'     => $o->product?->sku ?? '-',
+            'qty_planned'     => round($o->qty_per_cycle * $cycles, 4),
+            'output_type'     => $o->output_type,
+            'percentage'      => $o->percentage,
+            'unit_percentage' => $o->unit_percentage,
         ])->values()->toArray();
     }
 
@@ -339,12 +401,13 @@ class BomService
             if (empty($o['product_id']) || empty($o['qty_per_cycle'])) continue;
 
             BomOutput::create([
-                'bom_id'        => $bom->id,
-                'product_id'    => $o['product_id'],
-                'qty_per_cycle' => $o['qty_per_cycle'],
-                'output_type'   => $o['output_type'] ?? 'main',
-                'percentage'    => $o['percentage'] ?? 100,
-                'notes'         => $o['notes'] ?? null,
+                'bom_id'          => $bom->id,
+                'product_id'      => $o['product_id'],
+                'qty_per_cycle'   => $o['qty_per_cycle'],
+                'output_type'     => $o['output_type'] ?? 'main',
+                'percentage'      => $o['percentage'] ?? 100,
+                'unit_percentage' => $o['unit_percentage'] ?? null,
+                'notes'           => $o['notes'] ?? null,
             ]);
         }
     }

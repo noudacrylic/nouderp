@@ -7,9 +7,38 @@
          selesai: null,
          mulai: null,
          catatan: null,
+         openSelesai(d) {
+             // Inisialisasi qty aktual = rencana bila belum diisi, lalu hitung % awal.
+             if (d && Array.isArray(d.outputs)) {
+                 d.outputs.forEach(o => {
+                     o.qty_produced = (parseFloat(o.qty_produced) > 0) ? parseFloat(o.qty_produced) : parseFloat(o.qty_planned);
+                 });
+             }
+             this.selesai = d;
+             this.recalcSelesai();
+         },
+         // Hitung ulang persentase biaya per output dari qty hasil produksi terbaru:
+         // sampingan = unit% × (qty/siklus), utama = sisa (100 − Σ). Kerusakan sampingan
+         // (qty turun) otomatis menambah beban produk utama.
+         recalcSelesai() {
+             if (!this.selesai || !Array.isArray(this.selesai.outputs)) return;
+             const cyc = parseFloat(this.selesai.planned_cycles) || 1;
+             let sumBp = 0;
+             this.selesai.outputs.forEach(o => {
+                 if (o.output_type === 'by_product') {
+                     const up  = parseFloat(o.unit_percentage) || 0;
+                     const qty = parseFloat(o.qty_produced) || 0;
+                     o.calc_percentage = Math.round(up * (qty / cyc) * 100) / 100;
+                     sumBp += o.calc_percentage;
+                 }
+             });
+             this.selesai.outputs.forEach(o => {
+                 if (o.output_type === 'main') o.calc_percentage = Math.round((100 - sumBp) * 100) / 100;
+             });
+         },
      }"
      @open-detail.window="detail = $event.detail"
-     @open-selesai.window="selesai = $event.detail"
+     @open-selesai.window="openSelesai($event.detail)"
      @open-mulai.window="mulai = $event.detail"
      @open-catatan.window="catatan = $event.detail">
 
@@ -33,6 +62,27 @@
         </a>
     </div>
 
+
+    {{-- Bulk bar penggabungan task (muncul saat ada kartu dipilih) --}}
+    <div x-show="$store.merge.count > 0" x-cloak
+         class="sticky top-0 z-30 mb-4 bg-white border border-indigo-200 rounded-xl px-4 py-2.5 shadow-sm flex items-center gap-3 flex-wrap">
+        <span class="text-sm font-bold text-indigo-700"><span x-text="$store.merge.count"></span> task dipilih</span>
+        <span x-show="$store.merge.mismatch" class="text-xs text-red-600 font-semibold">
+            ⚠️ Komponen / langkah berbeda — tidak bisa digabung.
+        </span>
+        <span x-show="!$store.merge.mismatch && $store.merge.count >= 2" class="text-xs text-gray-500">
+            Total qty gabungan: <strong x-text="$store.merge.combinedQty"></strong>
+        </span>
+        <div class="ml-auto flex items-center gap-2">
+            <button type="button"
+                    :disabled="!$store.merge.sigOk"
+                    @click="$store.merge.confirmOpen = true"
+                    :class="$store.merge.sigOk ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer' : 'bg-indigo-300 cursor-not-allowed'"
+                    class="text-xs px-4 py-1.5 rounded-lg text-white font-bold transition">🔗 Gabung</button>
+            <button type="button" @click="$store.merge.clear()"
+                    class="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">Batal</button>
+        </div>
+    </div>
 
     {{-- Banner: urutan antrean berubah --}}
     <div id="queue-changed-banner"
@@ -256,7 +306,8 @@
                         <p class="text-xs text-gray-600 leading-relaxed bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                             Ini langkah terakhir untuk
                             <b class="text-amber-800" x-text="selesai.order_number"></b>.
-                            Isi qty aktual, persentase cost, dan keterangan untuk tiap output.
+                            Isi <b>qty hasil produksi yang bisa digunakan</b> untuk tiap output. Persentase biaya dihitung otomatis —
+                            bila ada sampingan rusak, klik <b>Hitung Ulang Persentase</b> agar bebannya pindah ke produk utama.
                         </p>
 
                         <template x-for="(out, idx) in selesai.outputs" :key="out.id">
@@ -278,18 +329,16 @@
                                              x-text="Number(out.qty_planned).toLocaleString('id-ID', {minimumFractionDigits: 0, maximumFractionDigits: 2})"></div>
                                     </div>
                                     <div>
-                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Aktual *</label>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Terpakai *</label>
                                         <input type="number" step="0.01" min="0" required
+                                               x-model.number="out.qty_produced" @input="recalcSelesai()"
                                                :name="'outputs[' + idx + '][qty_produced]'"
-                                               :value="out.qty_produced > 0 ? out.qty_produced : out.qty_planned"
                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                     </div>
                                     <div>
-                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">% Cost *</label>
-                                        <input type="number" step="0.01" min="0" max="100" required
-                                               :name="'outputs[' + idx + '][percentage]'"
-                                               :value="out.percentage"
-                                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">% Biaya (otomatis)</label>
+                                        <div class="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm font-bold text-right bg-gray-100 text-gray-600"
+                                             x-text="(out.calc_percentage ?? 0) + '%'"></div>
                                     </div>
                                 </div>
 
@@ -305,6 +354,11 @@
                                 </div>
                             </div>
                         </template>
+
+                        <button type="button" @click="recalcSelesai()"
+                                class="w-full border border-green-300 text-green-700 hover:bg-green-50 py-2 rounded-xl text-xs font-bold transition">
+                            ↻ Hitung Ulang Persentase
+                        </button>
                     </div>
                 </template>
 
@@ -467,6 +521,63 @@
         </div>
     </div>
 
+    {{-- ===== MODAL: GABUNG TASK ===== --}}
+    <div x-show="$store.merge.confirmOpen" x-cloak
+         x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+         @click.self="$store.merge.confirmOpen = false">
+
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 class="font-black text-gray-800 text-sm">Gabungkan Task Produksi</h3>
+                <button type="button" @click="$store.merge.confirmOpen = false"
+                        class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center text-sm">✕</button>
+            </div>
+
+            <form method="POST" action="{{ route('production.process.orders.merge') }}" class="p-5">
+                @csrf
+                <template x-for="i in $store.merge.items" :key="i.id">
+                    <input type="hidden" name="ids[]" :value="i.id">
+                </template>
+
+                <p class="text-xs text-gray-500 mb-3">
+                    Task berikut akan digabung menjadi satu. Task lain diserap ke task induk
+                    (prioritas/progres tertinggi); semua harus berada di langkah yang sama.
+                </p>
+
+                <div class="space-y-1.5 mb-3 max-h-52 overflow-y-auto">
+                    <template x-for="i in $store.merge.items" :key="i.id">
+                        <div class="flex items-center justify-between gap-2 text-xs border border-gray-100 rounded-lg px-3 py-2">
+                            <span class="truncate"><strong x-text="i.number"></strong> · <span x-text="i.product"></span></span>
+                            <span class="text-gray-500 flex-shrink-0">qty <span x-text="i.qty"></span></span>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-800 mb-3">
+                    Total qty gabungan: <strong x-text="$store.merge.combinedQty"></strong>
+                </div>
+
+                <p x-show="$store.merge.hasInProgress"
+                   class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                    ⚠️ Ada task yang sedang dikerjakan. Task antre akan ikut masuk ke proses
+                    yang sedang berjalan pada langkah yang sama.
+                </p>
+
+                <div class="flex gap-2">
+                    <button type="submit"
+                            class="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition">
+                        🔗 Gabungkan
+                    </button>
+                    <button type="button" @click="$store.merge.confirmOpen = false"
+                            class="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 transition">
+                        Batal
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 </div>
 
 <style>
@@ -475,6 +586,34 @@
 @endsection
 
 @push('scripts')
+<script>
+    // Store penggabungan task — dipakai checkbox kartu, bulk bar, & modal konfirmasi.
+    document.addEventListener('alpine:init', () => {
+        Alpine.store('merge', {
+            items: [],
+            confirmOpen: false,
+            has(id) { return this.items.some(i => i.id === id); },
+            toggle(o) {
+                const idx = this.items.findIndex(i => i.id === o.id);
+                if (idx >= 0) this.items.splice(idx, 1); else this.items.push(o);
+            },
+            clear() { this.items = []; this.confirmOpen = false; },
+            get count() { return this.items.length; },
+            get sigOk() {
+                if (this.items.length < 2) return false;
+                const s = this.items[0].sig, st = this.items[0].step;
+                return this.items.every(i => i.sig === s && i.step === st);
+            },
+            get mismatch() { return this.items.length >= 2 && !this.sigOk; },
+            get combinedQty() {
+                return this.items.reduce((a, i) => a + (parseFloat(i.qty) || 0), 0);
+            },
+            get hasInProgress() {
+                return this.items.some(i => i.status === 'in_progress' || i.status === 'paused');
+            },
+        });
+    });
+</script>
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script>
 (function () {

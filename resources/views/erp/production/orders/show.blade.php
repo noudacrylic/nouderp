@@ -11,8 +11,12 @@
             </div>
             <h1 class="text-xl font-bold text-gray-800 flex items-center gap-3">
                 {{ $order->order_number }}
-                @php $sc = match($order->status) { 'draft'=>'bg-amber-100 text-amber-700 border-amber-200','confirmed'=>'bg-blue-100 text-blue-700 border-blue-200','in_progress'=>'bg-indigo-100 text-indigo-700 border-indigo-200','completed'=>'bg-green-100 text-green-700 border-green-200','pending'=>'bg-orange-100 text-orange-700 border-orange-200','finalized'=>'bg-emerald-100 text-emerald-700 border-emerald-200','cancelled'=>'bg-gray-100 text-gray-400 border-gray-200',default=>'bg-gray-100 text-gray-400 border-gray-200' }; @endphp
+                @php $sc = match($order->status) { 'draft'=>'bg-amber-100 text-amber-700 border-amber-200','confirmed'=>'bg-blue-100 text-blue-700 border-blue-200','in_progress'=>'bg-indigo-100 text-indigo-700 border-indigo-200','completed'=>'bg-green-100 text-green-700 border-green-200','pending'=>'bg-orange-100 text-orange-700 border-orange-200','finalized'=>'bg-emerald-100 text-emerald-700 border-emerald-200','cancelled'=>'bg-gray-100 text-gray-400 border-gray-200','merged'=>'bg-purple-100 text-purple-700 border-purple-200',default=>'bg-gray-100 text-gray-400 border-gray-200' }; @endphp
                 <span class="text-sm px-3 py-1 rounded-full font-black uppercase tracking-widest border {{ $sc }}">{{ $order->status_label }}</span>
+                @if($order->status === 'merged' && $order->mergedInto)
+                    <a href="{{ route('production.orders.show', $order->mergedInto->id) }}"
+                       class="text-xs text-purple-600 hover:underline font-semibold">→ digabung ke {{ $order->mergedInto->order_number }}</a>
+                @endif
                 @php $tc = match($order->type) { 'ready_stock'=>'bg-blue-100 text-blue-700','custom'=>'bg-purple-100 text-purple-700','repair'=>'bg-orange-100 text-orange-700' }; @endphp
                 <span class="text-xs px-2 py-1 rounded font-black {{ $tc }}">{{ $order->type_label }}</span>
             </h1>

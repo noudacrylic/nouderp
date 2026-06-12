@@ -6,11 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class BomOutput extends Model
 {
-    protected $fillable = ['bom_id', 'product_id', 'qty_per_cycle', 'output_type', 'percentage', 'notes'];
+    protected $fillable = ['bom_id', 'product_id', 'qty_per_cycle', 'output_type', 'percentage', 'unit_percentage', 'notes'];
 
     protected $casts = [
-        'qty_per_cycle' => 'decimal:4',
-        'percentage'    => 'decimal:2',
+        'qty_per_cycle'   => 'decimal:4',
+        'percentage'      => 'decimal:2',
+        'unit_percentage' => 'decimal:4',
     ];
 
     public function bom()

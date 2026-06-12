@@ -3,7 +3,7 @@
 @section('content')
 <div class="w-full px-6 py-4">
 
-    <div class="max-w-xl mx-auto flex justify-between items-center mb-6">
+    <div class="max-w-5xl mx-auto flex justify-between items-center mb-6">
         <div>
             <h1 class="text-xl font-bold text-gray-800">Pengaturan Produksi</h1>
             <p class="text-xs text-gray-500 mt-0.5">Konfigurasi kalkulasi Score BOM dan parameter produksi.</p>
@@ -23,7 +23,9 @@
         if (!in_array($curChoice, ['week','1','2','3','range'], true)) $curChoice = '1';
     @endphp
 
-    <div class="max-w-xl mx-auto">
+    <div class="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      {{-- Kolom kiri: Periode Score + Aksi Cepat --}}
+      <div class="space-y-4">
         <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6"
              x-data="{ choice: '{{ $curChoice }}' }">
             <h3 class="font-bold text-gray-700 mb-1 text-sm">Periode Penjualan untuk Kalkulasi Score</h3>
@@ -84,7 +86,7 @@
             </form>
         </div>
 
-        <div class="mt-4 bg-white border border-gray-100 rounded-2xl shadow-sm p-5">
+        <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-5">
             <h3 class="font-bold text-gray-700 mb-3 text-sm">Aksi Cepat</h3>
             <div class="space-y-2">
                 <form action="{{ route('production.boms.recalculate') }}" method="POST">
@@ -100,7 +102,106 @@
                 </a>
             </div>
         </div>
+      </div>
+
+      {{-- Kolom kanan: Produk Sampingan (by-product) --}}
+      <div>
+        @php
+            $initByproducts = ($byproducts ?? collect())->map(fn($b) => [
+                'product_id'   => $b->product_id,
+                'productQuery' => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
+                'percentage'   => rtrim(rtrim(number_format((float) $b->percentage, 4, '.', ''), '0'), '.'),
+                'results'      => [],
+                'showDrop'     => false,
+            ])->values()->all();
+        @endphp
+        <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6"
+             x-data="byproductSettings({{ Js::from($initByproducts) }})">
+            <div class="flex justify-between items-center mb-1">
+                <h3 class="font-bold text-gray-700 text-sm">Produk Sampingan</h3>
+                <button type="button" @click="addRow()"
+                        class="text-xs text-blue-600 font-bold hover:text-blue-700">+ Tambah</button>
+            </div>
+            <p class="text-xs text-gray-400 mb-4">
+                Daftar produk <b>ready stok</b> yang boleh menjadi output sampingan di BOM/OP, beserta
+                <b>% biaya per unit</b> (basis 1 siklus produksi). Persentase ini otomatis mengisi BOM/OP dan
+                menghitung HPP saat finalisasi.
+            </p>
+
+            <form action="{{ route('production.settings.byproducts.update') }}" method="POST">
+                @csrf
+                <div class="space-y-2">
+                    <template x-for="(r, idx) in rows" :key="idx">
+                        <div class="flex gap-2 items-start">
+                            <div class="flex-1 relative" @click.outside="r.showDrop = false">
+                                <input type="text" x-model="r.productQuery"
+                                       @input.debounce.300ms="search(idx)"
+                                       @focus="r.showDrop = true"
+                                       placeholder="Cari produk ready stok..."
+                                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                <input type="hidden" :name="`rows[${idx}][product_id]`" :value="r.product_id">
+                                <div x-show="r.showDrop && r.results.length > 0"
+                                     class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                    <template x-for="p in r.results" :key="p.id">
+                                        <div @click="select(idx, p)"
+                                             class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                            <span class="font-bold text-blue-600" x-text="p.sku"></span>
+                                            <span class="text-gray-600 ml-1" x-text="p.name"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="w-28 relative">
+                                <input type="number" :name="`rows[${idx}][percentage]`" x-model="r.percentage"
+                                       min="0" max="100" step="0.0001" placeholder="%"
+                                       class="w-full border border-gray-200 rounded-lg px-3 py-2 pr-7 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+                            </div>
+                            <button type="button" @click="rows.splice(idx, 1)"
+                                    class="p-2 text-red-400 hover:text-red-600 rounded-lg transition mt-0.5">✕</button>
+                        </div>
+                    </template>
+                    <div x-show="rows.length === 0" class="text-xs text-gray-400 text-center py-4">
+                        Belum ada produk sampingan. Klik "+ Tambah" untuk mendaftarkan.
+                    </div>
+                </div>
+
+                <button type="submit"
+                        class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-bold transition">
+                    Simpan Produk Sampingan
+                </button>
+            </form>
+        </div>
+      </div>
     </div>
 
 </div>
+
+@push('scripts')
+<script>
+function byproductSettings(init) {
+    return {
+        rows: init || [],
+        addRow() {
+            this.rows.push({ product_id: '', productQuery: '', percentage: '', results: [], showDrop: false });
+        },
+        search(idx) {
+            const r = this.rows[idx];
+            const q = (r.productQuery || '').trim();
+            if (q.length < 1) { r.results = []; return; }
+            fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}&ready_only=1`)
+                .then(res => res.json())
+                .then(data => { r.results = data; r.showDrop = true; });
+        },
+        select(idx, p) {
+            const r = this.rows[idx];
+            r.product_id = p.id;
+            r.productQuery = (p.sku ? p.sku + ' - ' : '') + p.name;
+            r.results = [];
+            r.showDrop = false;
+        },
+    };
+}
+</script>
+@endpush
 @endsection

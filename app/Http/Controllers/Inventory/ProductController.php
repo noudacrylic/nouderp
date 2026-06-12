@@ -623,6 +623,8 @@ class ProductController extends Controller
             ->with(['units' => fn($u) => $u->where('is_active', true)->orderBy('level')])
             // Konteks produksi (BOM): produk bundle tidak masuk produksi.
             ->when($request->boolean('exclude_bundle'), fn($qq) => $qq->where('sale_type', '!=', 'bundle'))
+            // Konteks Produk Sampingan: hanya barang jadi berstok (ready stok).
+            ->when($request->boolean('ready_only'), fn($qq) => $qq->where('sale_type', 'ready'))
             // Konteks JUAL (Penawaran/SO/Faktur): hanya produk yang ditandai "Dijual".
             // Produksi/purchasing/warranty TIDAK kirim param ini → semua produk tampil.
             ->when($request->boolean('sellable_only'), function ($qq) {

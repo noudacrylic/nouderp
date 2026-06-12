@@ -19,6 +19,8 @@ class ProductionProcessController extends Controller
         $base = fn() => ProductionOrderStep::with([
             'productionOrder.bom',
             'productionOrder.outputs.product',
+            'productionOrder.materials',
+            'productionOrder.mergedChildren',
             'productionOrder.salesOrder.items',
             'productionOrder.warehouse',
             'productionOrder.steps',
@@ -69,6 +71,21 @@ class ProductionProcessController extends Controller
 
         $pausedSteps = $base()->where('status', 'paused')
             ->orderBy('paused_at')->get();
+
+        // Tandai tiap kartu dengan info penggabungan (checkbox muncul bila eligible).
+        $svc = app(ProductionOrderService::class);
+        foreach ([$pendingSteps, $inProgressSteps, $pausedSteps] as $coll) {
+            foreach ($coll as $step) {
+                $o = $step->productionOrder;
+                if (!$o) {
+                    continue;
+                }
+                $eligible = $svc->isMergeEligible($o);
+                $o->merge_eligible = $eligible;
+                $o->merge_sig  = $eligible ? $svc->componentSignature($o) : null;
+                $o->merge_step = $eligible ? $svc->activeStepNumber($o) : null;
+            }
+        }
 
         $selectedDepartment = $departmentId ? Department::find($departmentId) : null;
 
@@ -260,5 +277,24 @@ class ProductionProcessController extends Controller
         $order->update(['notes' => $request->input('notes')]);
 
         return back()->with('success', 'Catatan order produksi diperbarui.');
+    }
+
+    /**
+     * Gabungkan 2+ task produksi menjadi satu (task lain diserap ke task induk).
+     */
+    public function mergeOrders(Request $request, ProductionOrderService $service)
+    {
+        $request->validate([
+            'ids'   => 'required|array|min:2',
+            'ids.*' => 'integer|exists:production_orders,id',
+        ]);
+
+        try {
+            $induk = $service->mergeOrders($request->input('ids'));
+            $n = count($request->input('ids'));
+            return back()->with('success', "{$n} task berhasil digabung ke {$induk->order_number}.");
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 }

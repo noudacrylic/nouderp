@@ -76,7 +76,13 @@ class ProductionOrderController extends Controller
               ->orWhereIn('account_category', ['cash', 'cash_equivalent']);
         })->where('is_active', true)->orderBy('code')->get();
 
-        return view('erp.production.orders.create', compact('boms', 'warehouses', 'defaultWarehouseId', 'salesOrders', 'departments', 'cashAccounts', 'lockWarehouse'));
+        $byproductOptions = \App\Modules\Production\Models\ProductionByproduct::with('product')->get()->map(fn($b) => [
+            'id'              => $b->product_id,
+            'label'           => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
+            'unit_percentage' => (float) $b->percentage,
+        ])->values();
+
+        return view('erp.production.orders.create', compact('boms', 'warehouses', 'defaultWarehouseId', 'salesOrders', 'departments', 'cashAccounts', 'lockWarehouse', 'byproductOptions'));
     }
 
     /**

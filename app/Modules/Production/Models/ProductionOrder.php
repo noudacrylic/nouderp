@@ -11,7 +11,7 @@ class ProductionOrder extends Model
         'planned_cycles', 'planned_qty', 'production_date',
         'repair_source_type', 'repair_source_ref', 'repair_source_id',
         'score_type', 'priority_level',
-        'status', 'created_via', 'finalized_at', 'notes', 'description', 'image_paths',
+        'status', 'created_via', 'merged_into_id', 'finalized_at', 'notes', 'description', 'image_paths',
     ];
 
     protected $casts = [
@@ -60,6 +60,18 @@ class ProductionOrder extends Model
     public function costs()
     {
         return $this->hasMany(ProductionOrderCost::class);
+    }
+
+    /** OP induk tempat OP ini diserap (hasil penggabungan task). */
+    public function mergedInto()
+    {
+        return $this->belongsTo(ProductionOrder::class, 'merged_into_id');
+    }
+
+    /** OP-OP lain yang diserap ke OP ini. */
+    public function mergedChildren()
+    {
+        return $this->hasMany(ProductionOrder::class, 'merged_into_id');
     }
 
     public function getEffectiveScoreAttribute(): float
@@ -115,6 +127,7 @@ class ProductionOrder extends Model
             'pending'     => 'Menunggu Stok',
             'finalized'   => 'Selesai',
             'cancelled'   => 'Dibatalkan',
+            'merged'      => 'Digabung',
             default       => ucfirst($this->status),
         };
     }
