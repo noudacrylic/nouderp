@@ -97,7 +97,7 @@ class BillingService
                 $targetAmount = 0;
                 if ($billing->billing_type === 'invoice' && $item->invoice) {
                     $inv = $item->invoice;
-                    $targetAmount = round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount, 2);
+                    $targetAmount = round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount);
                     
                     if ($targetAmount <= 0) continue;
                     $alloc = min($paymentForThisBilling, $targetAmount);
@@ -117,7 +117,7 @@ class BillingService
                 } 
                 elseif ($billing->billing_type === 'sales_order' && $item->salesOrder) {
                     $so = $item->salesOrder;
-                    $targetAmount = round($so->grand_total - $so->paid_amount, 2);
+                    $targetAmount = round($so->grand_total - $so->paid_amount);
 
                     if ($targetAmount <= 0) continue;
                     $alloc = min($paymentForThisBilling, $targetAmount);
@@ -150,7 +150,7 @@ class BillingService
         if ($billing->status !== BillingStatusEnum::VOID) {
             // Calculate total paid across all allocations for this billing
             $paid = (float) \App\Models\CustomerPaymentAllocation::where('billing_id', $billing->id)->sum('amount');
-            $remaining = round($billing->total_amount - $paid, 2);
+            $remaining = round($billing->total_amount - $paid);
 
             if ($remaining <= 0.01) {
                 $billing->status = BillingStatusEnum::PAID;

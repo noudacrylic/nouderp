@@ -99,32 +99,24 @@ class SalesInvoiceService
                     throw new Exception("Qty tidak boleh 0.");
                 }
 
-                $gross = round($itemDTO->qty * $itemDTO->unit_price, 2);
+                $gross = round($itemDTO->qty * $itemDTO->unit_price);
 
                 if ($itemDTO->discount_type === 'percent') {
                      $discountAmount = round(
-                         $gross * ($itemDTO->discount_value / 100),
-                         2
-                     );
+                         $gross * ($itemDTO->discount_value / 100));
                 } else {
                      // 🔥 FIXED: Diskon item nominal adalah PER UNIT
-                     $discountAmount = round($itemDTO->qty * $itemDTO->discount_value, 2);
+                     $discountAmount = round($itemDTO->qty * $itemDTO->discount_value);
                 }
 
                 $netBeforeTax = round(
-                    $gross - $discountAmount,
-                    2
-                );
+                    $gross - $discountAmount);
 
                 $ppnAmount = round(
-                    $netBeforeTax * ($itemDTO->ppn_percent / 100),
-                    2
-                );
+                    $netBeforeTax * ($itemDTO->ppn_percent / 100));
 
                 $pphAmount = round(
-                    $netBeforeTax * ($itemDTO->pph_percent / 100),
-                    2
-                );
+                    $netBeforeTax * ($itemDTO->pph_percent / 100));
 
                 $subtotal += $netBeforeTax;
                 $totalItemDiscount += $discountAmount;
@@ -155,29 +147,25 @@ class SalesInvoiceService
             if ($value > 0) {
                 if ($type === 'percent') {
                     $globalDiscountAmount = round(
-                        $subtotal * ($value / 100),
-                        2
-                    );
+                        $subtotal * ($value / 100));
                 } else {
                     // treat as nominal by default
-                    $globalDiscountAmount = $value;
+                    $globalDiscountAmount = round($value);
                 }
             }
 
-            $dpp = round($subtotal - $globalDiscountAmount, 2);
+            $dpp = round($subtotal - $globalDiscountAmount);
 
             // PPN Indonesia → dari DPP
-            $headerPPN = round($dpp * ($dto->ppn_percent / 100), 2);
-            $headerPPH = round($dpp * ($dto->pph_percent / 100), 2);
+            $headerPPN = round($dpp * ($dto->ppn_percent / 100));
+            $headerPPH = round($dpp * ($dto->pph_percent / 100));
 
             $grandTotal = round(
                 $dpp
                 + $headerPPN
                 - $headerPPH
                 + $dto->shipping_cost
-                + $dto->additional_fee,
-                2
-            );
+                + $dto->additional_fee);
 
             if ($grandTotal < 0) {
                 throw new Exception("Grand total tidak boleh negatif.");
@@ -189,11 +177,9 @@ class SalesInvoiceService
                 + $dto->shipping_cost
                 + $dto->additional_fee
                 + $headerPPN
-                - $headerPPH,
-                2
-            );
+                - $headerPPH);
 
-            if ($check !== round($grandTotal, 2)) {
+            if ($check !== round($grandTotal)) {
                 throw new Exception("Invoice draft calculation mismatch.");
             }
 
@@ -387,32 +373,24 @@ class SalesInvoiceService
                     throw new Exception("Qty tidak boleh 0.");
                 }
 
-                $gross = round($itemDTO->qty * $itemDTO->unit_price, 2);
+                $gross = round($itemDTO->qty * $itemDTO->unit_price);
 
                 if ($itemDTO->discount_type === 'percent') {
                       $discountAmount = round(
-                          $gross * ($itemDTO->discount_value / 100),
-                          2
-                      );
+                          $gross * ($itemDTO->discount_value / 100));
                  } else {
                       // 🔥 FIXED: Diskon item nominal adalah PER UNIT
-                      $discountAmount = round($itemDTO->qty * $itemDTO->discount_value, 2);
+                      $discountAmount = round($itemDTO->qty * $itemDTO->discount_value);
                  }
 
                 $netBeforeTax = round(
-                     $gross - $discountAmount,
-                     2
-                );
+                     $gross - $discountAmount);
 
                 $ppnAmount = round(
-                     $netBeforeTax * ($itemDTO->ppn_percent / 100),
-                     2
-                );
+                     $netBeforeTax * ($itemDTO->ppn_percent / 100));
 
                 $pphAmount = round(
-                     $netBeforeTax * ($itemDTO->pph_percent / 100),
-                     2
-                );
+                     $netBeforeTax * ($itemDTO->pph_percent / 100));
 
                 $subtotal += $netBeforeTax;
                 $totalItemDiscount += $discountAmount;
@@ -441,28 +419,24 @@ class SalesInvoiceService
             if ($value > 0) {
                  if ($type === 'percent') {
                      $globalDiscountAmount = round(
-                         $subtotal * ($value / 100),
-                         2
-                     );
+                         $subtotal * ($value / 100));
                  } else {
-                     $globalDiscountAmount = $value;
+                     $globalDiscountAmount = round($value);
                  }
             }
 
-            $dpp = round($subtotal - $globalDiscountAmount, 2);
+            $dpp = round($subtotal - $globalDiscountAmount);
 
             // PPN Indonesia → dari DPP
-            $headerPPN = round($dpp * ($dto->ppn_percent / 100), 2);
-            $headerPPH = round($dpp * ($dto->pph_percent / 100), 2);
+            $headerPPN = round($dpp * ($dto->ppn_percent / 100));
+            $headerPPH = round($dpp * ($dto->pph_percent / 100));
 
             $grandTotal = round(
                 $dpp
                 + $headerPPN
                 - $headerPPH
                 + $dto->shipping_cost
-                + $dto->additional_fee,
-                2
-            );
+                + $dto->additional_fee);
 
             if ($grandTotal < 0) {
                 throw new Exception("Grand total tidak boleh negatif.");
@@ -474,11 +448,9 @@ class SalesInvoiceService
                 + $dto->shipping_cost
                 + $dto->additional_fee
                 + $headerPPN
-                - $headerPPH,
-                2
-            );
+                - $headerPPH);
 
-            if ($check !== round($grandTotal, 2)) {
+            if ($check !== round($grandTotal)) {
                 throw new Exception("Invoice draft calculation mismatch.");
             }
 

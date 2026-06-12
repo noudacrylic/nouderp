@@ -66,6 +66,13 @@ class AutoProductionService
 
         $product = $mainOutput->product;
 
+        // Penentu ready vs preorder = sale_type produk utama. Produk preorder TIDAK
+        // diproduksi berdasarkan stok menipis — OP-nya hanya dibuat saat ada pesanan
+        // (DP di-post) via PreorderAutoProductionService. Scanner stok ini khusus produk ready.
+        if ($product->sale_type === 'preorder') {
+            return array_merge($base, ['reason' => "Produk {$product->sku} preorder — OP dibuat saat ada pesanan (DP), bukan dari stok menipis."]);
+        }
+
         $qtyOnHand = (float) ProductStock::where('product_id', $product->id)->sum('qty_on_hand');
         $minStock  = $product->min_stock !== null ? (float) $product->min_stock : null;
 

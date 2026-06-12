@@ -123,6 +123,7 @@ class QuotationController extends Controller
                 } else {
                     $rowTotal -= $discount;
                 }
+                $rowTotal = round($rowTotal); // bulatkan: tanpa koma
 
                 $unit = \App\Core\Inventory\ProductUnit::find($item['unit_id'] ?? null);
 
@@ -249,6 +250,7 @@ class QuotationController extends Controller
                 } else {
                     $rowTotal -= $discount;
                 }
+                $rowTotal = round($rowTotal); // bulatkan: tanpa koma
 
                 $unit = \App\Core\Inventory\ProductUnit::find($item['unit_id'] ?? null);
 
@@ -313,13 +315,14 @@ class QuotationController extends Controller
         foreach ($quotation->items as $item) {
             $qty       = (float) $item->qty;
             $unitPrice = (float) $item->unit_price;
-            $lineSubtotal = $qty * $unitPrice;
+            // Bulatkan ke rupiah penuh — hindari koma pada total akibat diskon persen.
+            $lineSubtotal = round($qty * $unitPrice);
 
             $discountValue = (float) $item->discount_value;
             if ($item->discount_type === 'percent') {
-                $lineDiscount = $lineSubtotal * ($discountValue / 100);
+                $lineDiscount = round($lineSubtotal * ($discountValue / 100));
             } else {
-                $lineDiscount = $discountValue;
+                $lineDiscount = round($discountValue);
             }
 
             $lineTotal = $lineSubtotal - $lineDiscount;
@@ -351,15 +354,15 @@ class QuotationController extends Controller
         $globalDiscountValue  = (float) ($quotation->global_discount_value ?? 0);
         $dpp = $subtotal - $totalItemDiscount;
         $globalDiscountAmount = $globalDiscountType === 'percent'
-            ? $dpp * ($globalDiscountValue / 100)
-            : $globalDiscountValue;
+            ? round($dpp * ($globalDiscountValue / 100))
+            : round($globalDiscountValue);
         $dpp -= $globalDiscountAmount;
 
         $ppnPercent = (float) ($quotation->ppn_percent ?? 0);
-        $ppnAmount  = $dpp * ($ppnPercent / 100);
+        $ppnAmount  = round($dpp * ($ppnPercent / 100));
         $shipping   = (float) ($quotation->shipping_charge ?? 0);
         $expense    = (float) (($quotation->service_charge ?? 0) + ($quotation->other_expense ?? 0));
-        $grandTotal = $dpp + $ppnAmount + $shipping + $expense;
+        $grandTotal = round($dpp + $ppnAmount + $shipping + $expense);
 
         $so->update([
             'subtotal'              => $subtotal,

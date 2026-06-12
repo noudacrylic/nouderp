@@ -422,6 +422,15 @@ document.addEventListener('DOMContentLoaded', function() {
         selectAll.indeterminate = checked.length > 0 && checked.length < boxes.length;
     }
 
+    // Format angka → tampilan Rupiah Indonesia, MEMPERTAHANKAN desimal (sen) bila ada.
+    // formatThousands global bersifat integer-only (membuang titik desimal) sehingga
+    // total bersen seperti 5.041.418,18 jadi 504.141.818 (100×). Helper ini memperbaikinya.
+    function fmtAmount(n) {
+        n = Number(n) || 0;
+        const hasFrac = Math.abs(n - Math.round(n)) > 1e-9;
+        return n.toLocaleString('id-ID', { minimumFractionDigits: hasFrac ? 2 : 0, maximumFractionDigits: 2 });
+    }
+
     // ── updateTotal — realtime, always resets saldo state ──────────────────
     // ⚠  Setiap kali checkbox berubah, saldo reset (user harus klik lagi)
     function updateTotal() {
@@ -442,12 +451,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (checked.length > 1) {
             warning.classList.remove('hidden');
             // Force amount to full for multi-doc
-            amountInput.value      = window.formatThousands(String(total));
+            amountInput.value      = fmtAmount(total);
             amountInput.dataset.auto = '1';
         } else {
             warning.classList.add('hidden');
             if (checked.length === 1 && (window.cleanNumber(amountInput.value) === 0 || amountInput.dataset.auto === '1')) {
-                amountInput.value      = window.formatThousands(String(total));
+                amountInput.value      = fmtAmount(total);
                 amountInput.dataset.auto = '1';
             }
         }
@@ -566,7 +575,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('total_tagihan').innerText = 'Rp ' + sisa.toLocaleString();
 
         // Fill amount
-        document.getElementById('amount').value      = window.formatThousands(String(sisa));
+        document.getElementById('amount').value      = fmtAmount(sisa);
         document.getElementById('amount').dataset.auto = '0';
 
         showSaldoInfo(saldoUsed, sisa);
@@ -576,7 +585,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── BAYAR PENUH ────────────────────────────────────────────────────────
     document.getElementById('btn_full').onclick = function() {
         const total = window.totalSetelahSaldo || 0;
-        document.getElementById('amount').value      = window.formatThousands(String(total));
+        document.getElementById('amount').value      = fmtAmount(total);
         document.getElementById('amount').dataset.auto = '0';
         updateNet();
     };
@@ -592,7 +601,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        document.getElementById('amount').value      = window.formatThousands(String(Math.ceil(total / 2)));
+        document.getElementById('amount').value      = fmtAmount(Math.ceil(total / 2));
         document.getElementById('amount').dataset.auto = '0';
         updateNet();
     };
@@ -621,6 +630,14 @@ document.addEventListener('DOMContentLoaded', function() {
         input.name  = 'item_details';
         input.value = JSON.stringify(itemData);
         this.appendChild(input);
+
+        // Normalisasi ke angka polos berdesimal (mis. "5041418.18") agar lolos validasi
+        // `numeric` di backend & mempertahankan sen. Strip titik global (capture) sudah jalan
+        // duluan, jadi di sini kita set ulang dari nilai bersih.
+        const amtField = document.getElementById('amount');
+        amtField.value = String(window.cleanNumber(amtField.value));
+        const feeField = document.getElementById('admin_fee');
+        if (feeField) feeField.value = String(window.cleanNumber(feeField.value));
 
         return true;
     };

@@ -44,6 +44,13 @@ class ProductionTimerSync
      */
     public function tick(Carbon $now): array
     {
+        // Mode testing: tidak ada scan sidik jari, sehingga rekonsiliasi jadwal akan
+        // menganggap semua eksekutor "tidak aktif" lalu langsung auto-pause task. Lewati
+        // total agar task tetap berjalan saat uji coba.
+        if (\App\Models\ProductionSetting::isTestingMode()) {
+            return ['paused' => 0, 'resumed' => 0, 'skipped' => 0, 'testing' => true];
+        }
+
         $paused = 0;
         $resumed = 0;
         $skipped = 0;

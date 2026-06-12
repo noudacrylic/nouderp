@@ -479,8 +479,9 @@
         renderSummary(result);
         
         // Update hidden inputs for form submission
-        if (document.getElementById('subtotal_input')) document.getElementById('subtotal_input').value = result.subtotal;
-        if (document.getElementById('grand_total_input')) document.getElementById('grand_total_input').value = result.grand_total;
+        // Bulatkan ke rupiah penuh agar tidak ada koma pada nilai yang disimpan.
+        if (document.getElementById('subtotal_input')) document.getElementById('subtotal_input').value = Math.round(result.subtotal);
+        if (document.getElementById('grand_total_input')) document.getElementById('grand_total_input').value = Math.round(result.grand_total);
     }
 
     function renderSummary(summary) {

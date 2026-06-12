@@ -343,17 +343,18 @@ class SalesOrderController extends Controller
                 $qty = (float) ($item['qty'] ?? 0);
                 $unitPrice = clean_number($item['unit_price'] ?? 0);
 
-                $lineSubtotal = $qty * $unitPrice;
+                // Bulatkan ke rupiah penuh — hindari koma pada total akibat diskon persen.
+                $lineSubtotal = round($qty * $unitPrice);
 
                 $discountType = $item['discount_type'] ?? 'nominal';
                 $discountValue = clean_number($item['discount_value'] ?? 0);
 
                 if ($discountType == 'percent') {
-                    $lineDiscount = $lineSubtotal * ($discountValue / 100);
+                    $lineDiscount = round($lineSubtotal * ($discountValue / 100));
                 } else {
                     // Diskon nominal = PER-UNIT (konsisten dgn SalesInvoiceService:111).
                     // Sebelumnya diperlakukan per-baris → total beda saat qty>1.
-                    $lineDiscount = $discountValue * $qty;
+                    $lineDiscount = round($discountValue * $qty);
                 }
 
                 $lineTotal = $lineSubtotal - $lineDiscount;
@@ -389,9 +390,9 @@ class SalesOrderController extends Controller
             $globalValue = clean_number($request->global_discount_value ?? 0);
 
             if ($globalType === 'percent') {
-                $globalDiscountAmount = $dpp * ($globalValue / 100);
+                $globalDiscountAmount = round($dpp * ($globalValue / 100));
             } else {
-                $globalDiscountAmount = $globalValue;
+                $globalDiscountAmount = round($globalValue);
             }
 
             $dpp = $dpp - $globalDiscountAmount;
@@ -403,10 +404,10 @@ class SalesOrderController extends Controller
             $ppnPercent = (float) ($request->ppn_percent ?? 0);
             $pphPercent = (float) ($request->pph_percent ?? 0);
 
-            $ppnAmount = $dpp * ($ppnPercent / 100);
-            $pphAmount = $dpp * ($pphPercent / 100);
+            $ppnAmount = round($dpp * ($ppnPercent / 100));
+            $pphAmount = round($dpp * ($pphPercent / 100));
 
-            $grandTotal = $dpp + $ppnAmount - $pphAmount + $shipping + $expense;
+            $grandTotal = round($dpp + $ppnAmount - $pphAmount + $shipping + $expense);
 
             $so->update([
                 'subtotal' => $subtotal,
@@ -504,17 +505,18 @@ class SalesOrderController extends Controller
                 $qty = (float) ($item['qty'] ?? 0);
                 $unitPrice = clean_number($item['unit_price'] ?? 0);
 
-                $lineSubtotal = $qty * $unitPrice;
+                // Bulatkan ke rupiah penuh — hindari koma pada total akibat diskon persen.
+                $lineSubtotal = round($qty * $unitPrice);
 
                 $discountType = $item['discount_type'] ?? 'nominal';
                 $discountValue = clean_number($item['discount_value'] ?? 0);
 
                 if ($discountType == 'percent') {
-                    $lineDiscount = $lineSubtotal * ($discountValue / 100);
+                    $lineDiscount = round($lineSubtotal * ($discountValue / 100));
                 } else {
                     // Diskon nominal = PER-UNIT (konsisten dgn SalesInvoiceService:111).
                     // Sebelumnya diperlakukan per-baris → total beda saat qty>1.
-                    $lineDiscount = $discountValue * $qty;
+                    $lineDiscount = round($discountValue * $qty);
                 }
 
                 $lineTotal = $lineSubtotal - $lineDiscount;
