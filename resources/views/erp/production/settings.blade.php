@@ -134,31 +134,46 @@
         </div>
       </div>
 
-      {{-- Kolom kanan: Produk Sampingan (by-product) --}}
-      <div>
+      {{-- Kolom kanan: Bahan Baku + Produk Sampingan (by-product) --}}
+      <div class="space-y-4">
         @php
+            $fmtDim = fn($v) => $v ? rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.') : '';
+            $initRawMaterials = ($rawMaterials ?? collect())->map(fn($m) => [
+                'product_id'   => $m->product_id,
+                'productQuery' => ($m->product?->sku ? $m->product->sku . ' - ' : '') . ($m->product?->name ?? '—'),
+                'panjang'      => $fmtDim($m->panjang),
+                'lebar'        => $fmtDim($m->lebar),
+                'results'      => [],
+                'showDrop'     => false,
+            ])->values()->all();
             $initByproducts = ($byproducts ?? collect())->map(fn($b) => [
                 'product_id'   => $b->product_id,
                 'productQuery' => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
                 'percentage'   => rtrim(rtrim(number_format((float) $b->percentage, 4, '.', ''), '0'), '.'),
+                'raw_material_product_id' => $b->raw_material_product_id,
+                'rawQuery'     => ($b->rawMaterial?->sku ? $b->rawMaterial->sku . ' - ' : '') . ($b->rawMaterial?->name ?? ''),
+                'panjang'      => $fmtDim($b->panjang),
+                'lebar'        => $fmtDim($b->lebar),
                 'results'      => [],
                 'showDrop'     => false,
+                'rawResults'   => [],
+                'rawDrop'      => false,
             ])->values()->all();
         @endphp
+
+        {{-- Bahan Baku (lembaran) + ukuran PxL — untuk Kalkulator Produk Custom --}}
         <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6"
-             x-data="byproductSettings({{ Js::from($initByproducts) }})">
+             x-data="rawMaterialSettings({{ Js::from($initRawMaterials) }})">
             <div class="flex justify-between items-center mb-1">
-                <h3 class="font-bold text-gray-700 text-sm">Produk Sampingan</h3>
+                <h3 class="font-bold text-gray-700 text-sm">Bahan Baku</h3>
                 <button type="button" @click="addRow()"
                         class="text-xs text-blue-600 font-bold hover:text-blue-700">+ Tambah</button>
             </div>
             <p class="text-xs text-gray-400 mb-4">
-                Daftar produk <b>ready stok</b> yang boleh menjadi output sampingan di BOM/OP, beserta
-                <b>% biaya per unit</b> (basis 1 siklus produksi). Persentase ini otomatis mengisi BOM/OP dan
-                menghitung HPP saat finalisasi.
+                Daftar produk <b>bahan baku</b> (lembaran) beserta ukuran lembar <b>Panjang × Lebar (cm)</b>.
+                Dipakai <b>Kalkulator Produk Custom</b> di OP untuk menghitung kebutuhan bahan baku.
             </p>
-
-            <form action="{{ route('production.settings.byproducts.update') }}" method="POST">
+            <form action="{{ route('production.settings.raw-materials.update') }}" method="POST">
                 @csrf
                 <div class="space-y-2">
                     <template x-for="(r, idx) in rows" :key="idx">
@@ -167,7 +182,7 @@
                                 <input type="text" x-model="r.productQuery"
                                        @input.debounce.300ms="search(idx)"
                                        @focus="r.showDrop = true"
-                                       placeholder="Cari produk ready stok..."
+                                       placeholder="Cari produk bahan baku..."
                                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                 <input type="hidden" :name="`rows[${idx}][product_id]`" :value="r.product_id">
                                 <div x-show="r.showDrop && r.results.length > 0"
@@ -181,14 +196,102 @@
                                     </template>
                                 </div>
                             </div>
-                            <div class="w-28 relative">
-                                <input type="number" :name="`rows[${idx}][percentage]`" x-model="r.percentage"
-                                       min="0" max="100" step="0.0001" placeholder="%"
-                                       class="w-full border border-gray-200 rounded-lg px-3 py-2 pr-7 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
-                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
-                            </div>
+                            <input type="number" :name="`rows[${idx}][panjang]`" x-model="r.panjang"
+                                   min="0" step="0.01" placeholder="P (cm)"
+                                   class="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                            <input type="number" :name="`rows[${idx}][lebar]`" x-model="r.lebar"
+                                   min="0" step="0.01" placeholder="L (cm)"
+                                   class="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                             <button type="button" @click="rows.splice(idx, 1)"
                                     class="p-2 text-red-400 hover:text-red-600 rounded-lg transition mt-0.5">✕</button>
+                        </div>
+                    </template>
+                    <div x-show="rows.length === 0" class="text-xs text-gray-400 text-center py-4">
+                        Belum ada bahan baku. Klik "+ Tambah" untuk mendaftarkan.
+                    </div>
+                </div>
+                <button type="submit"
+                        class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-bold transition">
+                    Simpan Bahan Baku
+                </button>
+            </form>
+        </div>
+        <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6"
+             x-data="byproductSettings({{ Js::from($initByproducts) }})">
+            <div class="flex justify-between items-center mb-1">
+                <h3 class="font-bold text-gray-700 text-sm">Produk Sampingan</h3>
+                <button type="button" @click="addRow()"
+                        class="text-xs text-blue-600 font-bold hover:text-blue-700">+ Tambah</button>
+            </div>
+            <p class="text-xs text-gray-400 mb-4">
+                Daftar produk <b>ready stok</b> yang boleh menjadi output sampingan di BOM/OP, beserta
+                <b>% biaya per unit</b> (basis 1 siklus produksi). Persentase ini otomatis mengisi BOM/OP dan
+                menghitung HPP saat finalisasi. <b>Bahan baku + PxL (cm)</b> (baris bawah) opsional — wajib bila
+                dipakai Kalkulator Produk Custom.
+            </p>
+
+            <form action="{{ route('production.settings.byproducts.update') }}" method="POST">
+                @csrf
+                <div class="space-y-2">
+                    <template x-for="(r, idx) in rows" :key="idx">
+                        <div class="border border-gray-100 rounded-xl p-2.5 space-y-2 bg-gray-50/40">
+                            {{-- Baris 1: produk sampingan + % biaya --}}
+                            <div class="flex gap-2 items-start">
+                                <div class="flex-1 relative" @click.outside="r.showDrop = false">
+                                    <input type="text" x-model="r.productQuery"
+                                           @input.debounce.300ms="search(idx)"
+                                           @focus="r.showDrop = true"
+                                           placeholder="Cari produk ready stok..."
+                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                    <input type="hidden" :name="`rows[${idx}][product_id]`" :value="r.product_id">
+                                    <div x-show="r.showDrop && r.results.length > 0"
+                                         class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                        <template x-for="p in r.results" :key="p.id">
+                                            <div @click="select(idx, p)"
+                                                 class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                                <span class="font-bold text-blue-600" x-text="p.sku"></span>
+                                                <span class="text-gray-600 ml-1" x-text="p.name"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                                <div class="w-24 relative">
+                                    <input type="number" :name="`rows[${idx}][percentage]`" x-model="r.percentage"
+                                           min="0" max="100" step="0.0001" placeholder="%"
+                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 pr-7 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+                                </div>
+                                <button type="button" @click="rows.splice(idx, 1)"
+                                        class="p-2 text-red-400 hover:text-red-600 rounded-lg transition mt-0.5">✕</button>
+                            </div>
+                            {{-- Baris 2: bahan baku + PxL kebutuhan (untuk Kalkulator Custom) --}}
+                            <div class="flex gap-2 items-start">
+                                <div class="flex-1 relative" @click.outside="r.rawDrop = false">
+                                    <input type="text" x-model="r.rawQuery"
+                                           @input.debounce.300ms="searchRaw(idx)"
+                                           @focus="r.rawDrop = true"
+                                           placeholder="Bahan baku (opsional)..."
+                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                    <input type="hidden" :name="`rows[${idx}][raw_material_product_id]`" :value="r.raw_material_product_id">
+                                    <div x-show="r.rawDrop && r.rawResults.length > 0"
+                                         class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                        <template x-for="p in r.rawResults" :key="p.id">
+                                            <div @click="selectRaw(idx, p)"
+                                                 class="px-3 py-2 text-sm hover:bg-emerald-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                                <span class="font-bold text-emerald-600" x-text="p.sku"></span>
+                                                <span class="text-gray-600 ml-1" x-text="p.name"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                                <input type="number" :name="`rows[${idx}][panjang]`" x-model="r.panjang"
+                                       min="0" step="0.01" placeholder="P (cm)"
+                                       class="w-20 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                <input type="number" :name="`rows[${idx}][lebar]`" x-model="r.lebar"
+                                       min="0" step="0.01" placeholder="L (cm)"
+                                       class="w-20 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                <span class="w-9"></span>
+                            </div>
                         </div>
                     </template>
                     <div x-show="rows.length === 0" class="text-xs text-gray-400 text-center py-4">
@@ -213,13 +316,56 @@ function byproductSettings(init) {
     return {
         rows: init || [],
         addRow() {
-            this.rows.push({ product_id: '', productQuery: '', percentage: '', results: [], showDrop: false });
+            this.rows.push({
+                product_id: '', productQuery: '', percentage: '', results: [], showDrop: false,
+                raw_material_product_id: '', rawQuery: '', panjang: '', lebar: '', rawResults: [], rawDrop: false,
+            });
         },
         search(idx) {
             const r = this.rows[idx];
             const q = (r.productQuery || '').trim();
             if (q.length < 1) { r.results = []; return; }
             fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}&ready_only=1`)
+                .then(res => res.json())
+                .then(data => { r.results = data; r.showDrop = true; });
+        },
+        select(idx, p) {
+            const r = this.rows[idx];
+            r.product_id = p.id;
+            r.productQuery = (p.sku ? p.sku + ' - ' : '') + p.name;
+            r.results = [];
+            r.showDrop = false;
+        },
+        // Bahan baku untuk produk sampingan (cari semua produk).
+        searchRaw(idx) {
+            const r = this.rows[idx];
+            const q = (r.rawQuery || '').trim();
+            if (q.length < 1) { r.rawResults = []; return; }
+            fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}`)
+                .then(res => res.json())
+                .then(data => { r.rawResults = data; r.rawDrop = true; });
+        },
+        selectRaw(idx, p) {
+            const r = this.rows[idx];
+            r.raw_material_product_id = p.id;
+            r.rawQuery = (p.sku ? p.sku + ' - ' : '') + p.name;
+            r.rawResults = [];
+            r.rawDrop = false;
+        },
+    };
+}
+
+function rawMaterialSettings(init) {
+    return {
+        rows: init || [],
+        addRow() {
+            this.rows.push({ product_id: '', productQuery: '', panjang: '', lebar: '', results: [], showDrop: false });
+        },
+        search(idx) {
+            const r = this.rows[idx];
+            const q = (r.productQuery || '').trim();
+            if (q.length < 1) { r.results = []; return; }
+            fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}`)
                 .then(res => res.json())
                 .then(data => { r.results = data; r.showDrop = true; });
         },

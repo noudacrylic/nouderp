@@ -287,6 +287,19 @@
                     </div>
                 </div>
 
+                {{-- Kalkulator Produk Custom (hanya tipe custom) --}}
+                <div x-show="type === 'custom'"
+                     class="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl shadow-sm p-4 flex items-center justify-between gap-3">
+                    <div>
+                        <h3 class="font-bold text-emerald-800 text-sm">🧮 Kalkulator Produk Custom</h3>
+                        <p class="text-[11px] text-emerald-600 mt-0.5">Hitung kebutuhan bahan baku dari potongan lembar; hasilnya menambah material, output &amp; deskripsi.</p>
+                    </div>
+                    <button type="button" @click="openCalc()"
+                            class="flex-shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition">
+                        Buka Kalkulator
+                    </button>
+                </div>
+
                 {{-- Material (disembunyikan untuk repair) --}}
                 <div x-show="type !== 'repair'" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <div class="flex justify-between items-center mb-4">
@@ -347,7 +360,7 @@
                             <div class="p-3 bg-gray-50 rounded-xl">
                                 <div class="flex gap-3 items-start">
                                     <div class="flex-1 relative" @click.outside="o.showDrop = false">
-                                        {{-- Utama: free-search. Sampingan: dropdown terbatas daftar Pengaturan Produk Sampingan. --}}
+                                        {{-- Utama: free-search. Sampingan: live-search terbatas daftar Pengaturan Produk Sampingan. --}}
                                         <template x-if="o.output_type === 'main'">
                                             <div>
                                                 <input type="text" x-model="o.productQuery"
@@ -370,14 +383,21 @@
                                             </div>
                                         </template>
                                         <template x-if="o.output_type === 'by_product'">
-                                            <select x-model="o.product_id" @change="selectByproduct(idx)"
-                                                    x-init="$nextTick(() => { if (o.product_id) $el.value = String(o.product_id) })"
-                                                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
-                                                <option value="">— Pilih produk sampingan —</option>
-                                                <template x-for="bp in byproducts" :key="bp.id">
-                                                    <option :value="String(bp.id)" x-text="bp.label"></option>
-                                                </template>
-                                            </select>
+                                            <div>
+                                                <input type="text" x-model="o.productQuery"
+                                                       @input="o.showDrop = true" @focus="o.showDrop = true"
+                                                       placeholder="Cari produk sampingan..."
+                                                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                                <div x-show="o.showDrop && filteredByproducts(o).length > 0"
+                                                     class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                                    <template x-for="bp in filteredByproducts(o)" :key="bp.id">
+                                                        <div @click="pickByproduct(idx, bp)"
+                                                             class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                                            <span class="text-gray-700" x-text="bp.label"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
                                         </template>
                                         <input type="hidden" :name="`outputs[${idx}][product_id]`" :value="o.product_id">
                                         <input type="hidden" :name="`outputs[${idx}][label]`" :value="o.productQuery">
@@ -629,6 +649,208 @@
 
         </div>
     </form>
+
+    {{-- ═══════════ MODAL: Kalkulator Produk Custom ═══════════ --}}
+    <style>[x-cloak]{display:none!important}</style>
+    <div x-show="calc.open" x-cloak
+         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
+         @keydown.escape.window="calc.open = false">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl my-6" @click.outside="calc.open = false">
+            {{-- Header --}}
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl z-10">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2">🧮 Kalkulator Produk Custom</h3>
+                <button type="button" @click="calc.open = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+
+            <div class="px-6 py-5 space-y-6">
+
+                {{-- ── A. Bahan Baku & Potongan ── --}}
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-bold text-gray-700 text-sm">1. Bahan Baku & Potongan</h4>
+                        <button type="button" @click="calcAddRow()"
+                                class="text-xs text-emerald-600 font-bold hover:text-emerald-700">+ Tambah Baris</button>
+                    </div>
+                    <div class="space-y-3">
+                        <template x-for="(row, ri) in calc.rows" :key="ri">
+                            <div class="border border-gray-200 rounded-xl p-3 bg-gray-50/60">
+                                {{-- Pilih bahan baku + jumlah + total --}}
+                                <div class="flex gap-2 items-start">
+                                    <div class="flex-1 relative" @click.outside="row.showDrop = false">
+                                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Bahan Baku</label>
+                                        <input type="text" x-model="row.rmQuery"
+                                               @input="row.showDrop = true" @focus="row.showDrop = true"
+                                               placeholder="Cari bahan baku terdaftar..."
+                                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                        <div x-show="row.showDrop && calcFilteredRaw(row).length > 0"
+                                             class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                            <template x-for="rm in calcFilteredRaw(row)" :key="rm.id">
+                                                <div @click="calcPickRaw(row, rm)"
+                                                     class="px-3 py-2 text-sm hover:bg-emerald-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                                    <span class="text-gray-700" x-text="rm.label"></span>
+                                                    <span class="text-[10px] text-gray-400 ml-1" x-text="calcFmt(rm.panjang)+'×'+calcFmt(rm.lebar)+' cm'"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p x-show="row.rmId" class="text-[10px] text-gray-500 mt-1">
+                                            Lembar: <b x-text="calcFmt(row.panjang)+' × '+calcFmt(row.lebar)+' cm'"></b>
+                                            · Harga/lembar: Rp <span x-text="Number(row.lastCost).toLocaleString('id-ID')"></span>
+                                        </p>
+                                    </div>
+                                    <div class="w-20">
+                                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Jumlah</label>
+                                        <input type="number" x-model="row.jumlah" min="0" step="1"
+                                               class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                    </div>
+                                    <div class="w-28">
+                                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Total B. Baku</label>
+                                        <div class="w-full border border-gray-100 rounded-lg px-2 py-2 text-sm text-center font-bold bg-emerald-50 text-emerald-700"
+                                             x-text="calcRowTotal(row)"></div>
+                                    </div>
+                                    <button type="button" @click="calcRemoveRow(ri)"
+                                            class="p-2 text-red-400 hover:text-red-600 mt-5">✕</button>
+                                </div>
+
+                                {{-- Potongan --}}
+                                <div class="mt-3 pl-1">
+                                    <div class="grid grid-cols-[1fr_1fr_1.4fr_auto] gap-2 text-[10px] font-bold text-gray-400 uppercase mb-1 pr-7">
+                                        <span>P (cm)</span><span>L (cm)</span><span>Keterangan</span><span></span>
+                                    </div>
+                                    <template x-for="(c, ci) in row.cuts" :key="ci">
+                                        <div class="grid grid-cols-[1fr_1fr_1.4fr_auto] gap-2 items-start mb-1.5">
+                                            <input type="number" x-model="c.P" min="0" step="0.01" placeholder="P"
+                                                   class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                            <input type="number" x-model="c.L" min="0" step="0.01" placeholder="L"
+                                                   class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                            <div class="flex gap-1">
+                                                <select x-model="c.ket"
+                                                        class="flex-1 border border-gray-200 rounded-lg px-1 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                                    <template x-for="k in calc.ketOptions" :key="k">
+                                                        <option :value="k" x-text="k"></option>
+                                                    </template>
+                                                </select>
+                                                <input type="text" x-show="c.ket === 'lainnya'" x-model="c.ketLain" placeholder="ket..."
+                                                       class="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                            </div>
+                                            <button type="button" @click="calcRemoveCut(row, ci)"
+                                                    class="p-1.5 text-red-300 hover:text-red-600">✕</button>
+                                        </div>
+                                    </template>
+                                    <div class="flex items-center justify-between mt-1">
+                                        <button type="button" @click="calcAddCut(row)"
+                                                class="text-[11px] text-emerald-600 font-bold hover:text-emerald-700">+ Tambah Potongan</button>
+                                        <span x-show="!calcCutSumOk(row)" class="text-[10px] text-red-500 font-semibold">
+                                            ⚠ Total panjang potongan melebihi panjang lembar (<span x-text="calcFmt(row.panjang)"></span> cm)
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="calc.rows.length === 0" class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-xl">
+                            Klik "+ Tambah Baris" untuk mulai menghitung kebutuhan bahan baku.
+                        </div>
+                    </div>
+                </div>
+
+                {{-- ── B. Produk Jadi ── --}}
+                <div>
+                    <h4 class="font-bold text-gray-700 text-sm mb-2">2. Produk Jadi</h4>
+                    {{-- Produk utama --}}
+                    <div class="flex gap-2 items-end mb-3">
+                        <div class="flex-1 relative" @click.outside="calc.main.showDrop = false">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                                Produk Utama
+                                <span x-show="calc.mainLinked" class="text-emerald-600 font-normal normal-case">· otomatis dari output</span>
+                            </label>
+                            <input type="text" x-model="calc.main.query"
+                                   @input.debounce.300ms="!calc.mainLinked && calcMainSearch()" @focus="!calc.mainLinked && (calc.main.showDrop = true)"
+                                   :readonly="calc.mainLinked"
+                                   placeholder="Cari produk utama..."
+                                   class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                   :class="calc.mainLinked ? 'bg-emerald-50 border-emerald-200 text-emerald-800 cursor-not-allowed' : 'bg-white border-gray-200'">
+                            <div x-show="!calc.mainLinked && calc.main.showDrop && calc.main.results.length > 0"
+                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                <template x-for="p in calc.main.results" :key="p.id">
+                                    <div @click="calcMainSelect(p)"
+                                         class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                        <span class="font-bold text-blue-600" x-text="p.sku"></span>
+                                        <span class="text-gray-600 ml-1" x-text="p.name"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                        <div class="w-20">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Jumlah</label>
+                            <input type="number" x-model="calc.main.qty" min="0" step="1"
+                                   :readonly="calc.mainLinked"
+                                   class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                   :class="calc.mainLinked ? 'bg-emerald-50 border-emerald-200 text-emerald-800 cursor-not-allowed' : 'bg-white'">
+                        </div>
+                        <div class="w-24">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Persentase</label>
+                            <div class="w-full border border-gray-100 rounded-lg px-2 py-2 text-sm text-center font-bold bg-gray-100 text-gray-600"
+                                 x-text="calcMainPct()+'%'"></div>
+                        </div>
+                    </div>
+                    {{-- Produk sampingan --}}
+                    <div class="flex gap-2 items-end mb-2">
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Tambah Sampingan</label>
+                            <select x-model="calc.bpPick"
+                                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                <option value="">— Pilih produk sampingan —</option>
+                                <template x-for="bp in byproducts" :key="bp.id">
+                                    <option :value="bp.id" x-text="bp.label" x-show="!calc.bps.some(b => String(b.id) === String(bp.id))"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <button type="button" @click="calcAddByproduct()"
+                                class="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 text-xs font-bold px-4 py-2.5 rounded-lg transition">+ Tambah</button>
+                    </div>
+                    <div class="space-y-1.5">
+                        <template x-for="(bp, bi) in calc.bps" :key="bp.id">
+                            <div class="flex gap-2 items-center bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                                <span class="flex-1 text-sm text-gray-700" x-text="bp.label"></span>
+                                <span class="text-[10px] text-gray-400" x-text="calcFmt(bp.panjang)+'×'+calcFmt(bp.lebar)+' cm'"></span>
+                                <div class="w-16">
+                                    <input type="number" x-model="bp.qty" min="0" step="1" placeholder="Qty"
+                                           class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                                </div>
+                                <span class="w-16 text-center text-sm font-bold"
+                                      :class="calcBpIncomplete(bp) ? 'text-red-500' : 'text-emerald-700'"
+                                      x-text="calcBpIncomplete(bp) ? '—' : (calcByproductPct(bp)+'%')"></span>
+                                <button type="button" @click="calcRemoveByproduct(bi)" class="text-red-400 hover:text-red-600">✕</button>
+                            </div>
+                        </template>
+                        <p x-show="calc.bps.some(bp => calcBpIncomplete(bp))" class="text-[10px] text-red-500">
+                            ⚠ Produk sampingan yang ditandai — lengkapi bahan baku & PxL-nya di Pengaturan Produksi.
+                        </p>
+                    </div>
+                </div>
+
+                {{-- ── C. Deskripsi (preview) ── --}}
+                <div>
+                    <h4 class="font-bold text-gray-700 text-sm mb-2">3. Deskripsi (otomatis)</h4>
+                    <pre class="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 whitespace-pre-wrap font-sans min-h-[2.5rem]"
+                         x-text="calcBuildDescription() || '— belum ada potongan —'"></pre>
+                </div>
+
+                <div x-show="calc.error" x-transition x-text="calc.error"
+                     class="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2"></div>
+            </div>
+
+            {{-- Footer --}}
+            <div class="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 sticky bottom-0 bg-white rounded-b-2xl">
+                <button type="button" @click="calc.open = false"
+                        class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2.5 rounded-xl text-sm font-semibold transition">Tutup</button>
+                <button type="button" @click="calcApply()"
+                        class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition">
+                    Terapkan ke Form
+                </button>
+            </div>
+        </div>
+    </div>
+
 </div>
 @endsection
 
@@ -661,6 +883,7 @@ $bomOptions = $boms->map(fn ($b) => [
 @endphp
 window.__poBoms = @json($bomOptions);
 window.__poByproducts = @json($byproductOptions ?? []);
+window.__poRawMaterials = @json($rawMaterialOptions ?? []);
 </script>
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script>
@@ -701,6 +924,19 @@ function orderForm() {
         costs: [],
         images: [],
         _fileList: [],
+
+        // ── Kalkulator Produk Custom ──
+        calc: {
+            open: false,
+            rawMaterials: window.__poRawMaterials || [],
+            ketOptions: ['tidak dilepas', 'lepas 1 sisi', 'lepas 2 sisi', 'non stock', 'lainnya'],
+            rows: [],
+            main: { product_id: '', query: '', qty: 1, results: [], showDrop: false },
+            mainLinked: false,   // produk utama diambil dari output yang sudah ada (mis. dari SO)
+            bps: [],
+            bpPick: '',
+            error: '',
+        },
 
         addMaterial() { this.materials.push({ product_id: null, productQuery: '', qty_required: 1, unit: '', unitOptions: [], results: [], showDrop: false }); },
         addOutput() {
@@ -752,6 +988,179 @@ function orderForm() {
                 o.percentage = Math.round((parseFloat(o.unit_percentage) || 0) * (qty / cyc) * 100) / 100;
             }
             this.recalcPercentages();
+        },
+        // Live-search produk sampingan: filter daftar terdaftar (Pengaturan) secara lokal.
+        filteredByproducts(o) {
+            const q = (o.productQuery || '').toLowerCase().trim();
+            if (!q) return this.byproducts;
+            return this.byproducts.filter(bp => (bp.label || '').toLowerCase().includes(q));
+        },
+        pickByproduct(idx, bp) {
+            const o = this.outputs[idx];
+            o.product_id = String(bp.id);
+            o.showDrop = false;
+            this.selectByproduct(idx);
+        },
+
+        // ───────── Kalkulator Produk Custom ─────────
+        openCalc() {
+            // Produk utama langsung diisi dari output utama yang sudah ada (mis. dari SO),
+            // supaya tidak perlu cari/isi ulang. Field jadi terkunci (mengikuti output).
+            const mainOut = this.outputs.find(o => o.output_type === 'main' && o.product_id);
+            if (mainOut) {
+                this.calc.main.product_id = mainOut.product_id;
+                this.calc.main.query      = mainOut.productQuery;
+                this.calc.main.qty        = mainOut.qty_planned;
+                this.calc.mainLinked      = true;
+            } else {
+                this.calc.mainLinked = false;
+            }
+            this.calc.open = true;
+        },
+        calcAddRow() {
+            this.calc.rows.push({
+                rmId: '', rmQuery: '', sku: '', panjang: 0, lebar: 0, lastCost: 0, baseUnit: '',
+                cuts: [{ P: '', L: '', ket: 'tidak dilepas', ketLain: '' }],
+                jumlah: 1, showDrop: false,
+            });
+        },
+        calcRemoveRow(i) { this.calc.rows.splice(i, 1); },
+        calcFilteredRaw(row) {
+            const q = (row.rmQuery || '').toLowerCase().trim();
+            if (!q) return this.calc.rawMaterials;
+            return this.calc.rawMaterials.filter(rm => (rm.label || '').toLowerCase().includes(q));
+        },
+        calcPickRaw(row, rm) {
+            row.rmId = rm.id; row.rmQuery = rm.label; row.sku = rm.sku;
+            row.panjang = rm.panjang; row.lebar = rm.lebar; row.lastCost = rm.last_cost; row.baseUnit = rm.base_unit;
+            row.showDrop = false;
+            // Lebar tiap potongan default = lebar lembar (boleh diubah).
+            row.cuts.forEach(c => { if (c.L === '' || c.L === null) c.L = rm.lebar; });
+        },
+        calcAddCut(row) { row.cuts.push({ P: '', L: row.lebar || '', ket: 'tidak dilepas', ketLain: '' }); },
+        calcRemoveCut(row, ci) { row.cuts.splice(ci, 1); },
+        calcRowArea(row) {
+            return (row.cuts || []).reduce((s, c) => s + (parseFloat(c.P) || 0) * (parseFloat(c.L) || 0), 0);
+        },
+        calcRowTotal(row) {
+            const sheet = (parseFloat(row.panjang) || 0) * (parseFloat(row.lebar) || 0);
+            if (sheet <= 0) return 0;
+            return Math.round(this.calcRowArea(row) / sheet * (parseFloat(row.jumlah) || 0) * 100) / 100;
+        },
+        calcCutSumOk(row) {
+            const sumP = (row.cuts || []).reduce((s, c) => s + (parseFloat(c.P) || 0), 0);
+            const P = parseFloat(row.panjang) || 0;
+            if (P <= 0 || sumP <= 0) return true; // belum lengkap → jangan ganggu
+            return sumP <= P + 0.01; // boleh kurang dari panjang lembar, tidak boleh lebih
+        },
+        calcTotalMaterialCost() {
+            return this.calc.rows.reduce((s, row) => s + this.calcRowTotal(row) * (parseFloat(row.lastCost) || 0), 0);
+        },
+        calcByproductPct(bp) {
+            const tmc = this.calcTotalMaterialCost();
+            const area = (parseFloat(bp.panjang) || 0) * (parseFloat(bp.lebar) || 0);
+            if (tmc <= 0 || bp.rm_area <= 0 || area <= 0) return 0;
+            const cost = area * (parseFloat(bp.qty) || 0) * ((parseFloat(bp.rm_last_cost) || 0) / bp.rm_area);
+            return Math.round(cost / tmc * 100 * 100) / 100;
+        },
+        calcMainPct() {
+            const sum = this.calc.bps.reduce((s, bp) => s + this.calcByproductPct(bp), 0);
+            return Math.round((100 - sum) * 100) / 100;
+        },
+        calcBpIncomplete(bp) {
+            return !(bp.rm_area > 0) || !((parseFloat(bp.panjang) || 0) > 0 && (parseFloat(bp.lebar) || 0) > 0);
+        },
+        calcMainSearch() {
+            const q = (this.calc.main.query || '').trim();
+            if (q.length < 2) { this.calc.main.results = []; return; }
+            fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}`)
+                .then(res => res.json())
+                .then(data => { this.calc.main.results = data; this.calc.main.showDrop = true; });
+        },
+        calcMainSelect(p) {
+            this.calc.main.product_id = p.id;
+            this.calc.main.query = (p.sku ? p.sku + ' - ' : '') + p.name;
+            this.calc.main.results = [];
+            this.calc.main.showDrop = false;
+        },
+        calcAddByproduct() {
+            const id = this.calc.bpPick;
+            if (!id) return;
+            if (this.calc.bps.some(b => String(b.id) === String(id))) { this.calc.bpPick = ''; return; }
+            const bp = this.byproducts.find(b => String(b.id) === String(id));
+            if (!bp) { this.calc.bpPick = ''; return; }
+            this.calc.bps.push({
+                id: bp.id, label: bp.label, qty: 1,
+                panjang: bp.panjang, lebar: bp.lebar, rm_area: bp.rm_area, rm_last_cost: bp.rm_last_cost,
+            });
+            this.calc.bpPick = '';
+        },
+        calcRemoveByproduct(i) { this.calc.bps.splice(i, 1); },
+        calcKetLabel(c) { return c.ket === 'lainnya' ? (c.ketLain || 'lainnya') : c.ket; },
+        calcFmt(v) {
+            const n = parseFloat(v) || 0;
+            return (Math.round(n * 100) / 100).toString();
+        },
+        calcBuildDescription() {
+            return this.calc.rows
+                .filter(row => row.rmId && (row.cuts || []).length)
+                .map(row => {
+                    const parts = row.cuts
+                        .filter(c => (parseFloat(c.P) || 0) > 0)
+                        .map(c => `${this.calcFmt(c.P)}x${this.calcFmt(c.L)} - ${this.calcKetLabel(c)}`)
+                        .join(', ');
+                    return `${row.sku || row.rmQuery} = ${parts} @ ${this.calcFmt(row.jumlah)} lembar`;
+                })
+                .join('\n');
+        },
+        calcApply() {
+            this.calc.error = '';
+            const rows = this.calc.rows.filter(r => r.rmId);
+            if (!rows.length) { this.calc.error = 'Pilih minimal satu bahan baku beserta potongannya.'; return; }
+            if (!this.calc.main.product_id) { this.calc.error = 'Pilih produk utama.'; return; }
+            if (rows.some(r => !this.calcCutSumOk(r))) {
+                this.calc.error = 'Total panjang potongan tidak boleh melebihi panjang lembar bahan baku.'; return;
+            }
+            if (this.calc.bps.some(bp => this.calcBpIncomplete(bp))) {
+                this.calc.error = 'Lengkapi PxL & bahan baku produk sampingan di Pengaturan agar persentase bisa dihitung.'; return;
+            }
+
+            // 1) Material (append)
+            rows.forEach(row => {
+                this.materials.push({
+                    product_id: row.rmId, productQuery: row.rmQuery,
+                    qty_required: this.calcRowTotal(row), unit: row.baseUnit,
+                    unitOptions: row.baseUnit ? [row.baseUnit] : [], results: [], showDrop: false,
+                });
+            });
+
+            // 2) Output (append): utama + sampingan.
+            //    Bila sudah ada output utama (mis. dari SO), pakai itu — jangan tambah utama baru.
+            const existingMain = this.outputs.find(o => o.output_type === 'main' && o.product_id);
+            if (!existingMain) {
+                this.outputs.push({
+                    product_id: this.calc.main.product_id, productQuery: this.calc.main.query,
+                    qty_planned: parseFloat(this.calc.main.qty) || 1,
+                    output_type: 'main',
+                    percentage: 0, unit_percentage: null, results: [], showDrop: false, fromSo: false,
+                });
+            }
+            this.calc.bps.forEach(bp => {
+                this.outputs.push({
+                    product_id: String(bp.id), productQuery: bp.label,
+                    qty_planned: parseFloat(bp.qty) || 1,
+                    output_type: 'by_product', percentage: this.calcByproductPct(bp),
+                    unit_percentage: null, results: [], showDrop: false, fromSo: false,
+                });
+            });
+            // Utama menyerap sisa (100 − Σ sampingan); logika no-BOM mempertahankan % sampingan.
+            this.recalcPercentages();
+
+            // 3) Deskripsi (append)
+            const desc = this.calcBuildDescription();
+            if (desc) this.description = this.description ? (this.description.trimEnd() + '\n' + desc) : desc;
+
+            this.calc.open = false;
         },
 
         // Hanya boleh 1 produk Utama; sisanya Sampingan. Persentase otomatis dari Pengaturan.

@@ -114,7 +114,7 @@
                         <template x-for="(o, idx) in outputs" :key="idx">
                             <div class="flex gap-3 items-start p-3 bg-gray-50 rounded-xl">
                                 <div class="flex-1 relative" @click.outside="o.showDrop = false">
-                                    {{-- Utama: free-search semua produk. Sampingan: dropdown terbatas daftar Pengaturan. --}}
+                                    {{-- Utama: free-search semua produk. Sampingan: live-search terbatas daftar Pengaturan. --}}
                                     <template x-if="o.output_type === 'main'">
                                         <div>
                                             <input type="text" x-model="o.productQuery"
@@ -135,14 +135,21 @@
                                         </div>
                                     </template>
                                     <template x-if="o.output_type === 'by_product'">
-                                        <select x-model="o.product_id" @change="selectByproduct(idx)"
-                                                x-init="$nextTick(() => { if (o.product_id) $el.value = String(o.product_id) })"
-                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
-                                            <option value="">— Pilih produk sampingan —</option>
-                                            <template x-for="bp in byproducts" :key="bp.id">
-                                                <option :value="String(bp.id)" x-text="bp.label"></option>
-                                            </template>
-                                        </select>
+                                        <div>
+                                            <input type="text" x-model="o.productQuery"
+                                                   @input="o.showDrop = true" @focus="o.showDrop = true"
+                                                   placeholder="Cari produk sampingan..."
+                                                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                            <div x-show="o.showDrop && filteredByproducts(o).length > 0"
+                                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                                                <template x-for="bp in filteredByproducts(o)" :key="bp.id">
+                                                    <div @click="pickByproduct(idx, bp)"
+                                                         class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                                        <span class="text-gray-700" x-text="bp.label"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
                                     </template>
                                     <input type="hidden" :name="`outputs[${idx}][product_id]`" :value="o.product_id">
                                     <input type="hidden" :name="`outputs[${idx}][unit_percentage]`" :value="o.unit_percentage ?? ''">
@@ -333,6 +340,18 @@ function bomForm() {
             o.unit_percentage = bp ? bp.unit_percentage : null;
             o.productQuery = bp ? bp.label : '';
             this.recalcPercentages();
+        },
+        // Live-search produk sampingan: filter daftar terdaftar (Pengaturan) secara lokal.
+        filteredByproducts(o) {
+            const q = (o.productQuery || '').toLowerCase().trim();
+            if (!q) return this.byproducts;
+            return this.byproducts.filter(bp => (bp.label || '').toLowerCase().includes(q));
+        },
+        pickByproduct(idx, bp) {
+            const o = this.outputs[idx];
+            o.product_id = String(bp.id);
+            o.showDrop = false;
+            this.selectByproduct(idx);
         },
         // Ganti tipe output: reset produk saat pindah jenis agar tidak salah daftar.
         onTypeChange(idx) {

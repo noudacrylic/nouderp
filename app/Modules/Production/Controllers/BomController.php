@@ -11,6 +11,7 @@ use App\Modules\Production\Services\BomScoreService;
 use App\Modules\Production\Services\AutoProductionService;
 use App\Models\ProductionSetting;
 use App\Modules\Production\Models\ProductionByproduct;
+use App\Modules\Production\Models\ProductionRawMaterial;
 use App\Core\Inventory\Product;
 
 class BomController extends Controller
@@ -218,8 +219,45 @@ class BomController extends Controller
     public function settings()
     {
         $setting = ProductionSetting::first() ?? new ProductionSetting(['score_sales_period' => 1]);
-        $byproducts = ProductionByproduct::with('product')->get();
-        return view('erp.production.settings', compact('setting', 'byproducts'));
+        $byproducts = ProductionByproduct::with(['product', 'rawMaterial'])->get();
+        $rawMaterials = ProductionRawMaterial::with('product')->get();
+        return view('erp.production.settings', compact('setting', 'byproducts', 'rawMaterials'));
+    }
+
+    /**
+     * Simpan daftar Bahan Baku lembaran + ukuran (PxL) (hapus-lalu-isi-ulang).
+     * Dipakai Kalkulator Produk Custom di OP.
+     */
+    public function updateRawMaterialSettings(Request $request)
+    {
+        $request->validate([
+            'rows'              => 'nullable|array',
+            'rows.*.product_id' => 'required|exists:products,id',
+            'rows.*.panjang'    => 'required|numeric|gt:0',
+            'rows.*.lebar'      => 'required|numeric|gt:0',
+        ]);
+
+        $rows = collect($request->input('rows', []))
+            ->filter(fn($r) => !empty($r['product_id']));
+
+        // Cegah duplikat produk dalam satu submit.
+        $productIds = $rows->pluck('product_id')->map(fn($id) => (int) $id);
+        if ($productIds->count() !== $productIds->unique()->count()) {
+            return back()->with('error', 'Ada bahan baku yang terdaftar lebih dari satu kali.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($rows) {
+            ProductionRawMaterial::query()->delete();
+            foreach ($rows as $r) {
+                ProductionRawMaterial::create([
+                    'product_id' => (int) $r['product_id'],
+                    'panjang'    => (float) $r['panjang'],
+                    'lebar'      => (float) $r['lebar'],
+                ]);
+            }
+        });
+
+        return back()->with('success', 'Daftar bahan baku disimpan.');
     }
 
     /**
@@ -229,9 +267,12 @@ class BomController extends Controller
     public function updateByproductSettings(Request $request)
     {
         $request->validate([
-            'rows'              => 'nullable|array',
-            'rows.*.product_id' => 'required|exists:products,id',
-            'rows.*.percentage' => 'required|numeric|min:0|max:100',
+            'rows'                          => 'nullable|array',
+            'rows.*.product_id'             => 'required|exists:products,id',
+            'rows.*.percentage'             => 'required|numeric|min:0|max:100',
+            'rows.*.raw_material_product_id' => 'nullable|exists:products,id',
+            'rows.*.panjang'                => 'nullable|numeric|gt:0',
+            'rows.*.lebar'                  => 'nullable|numeric|gt:0',
         ]);
 
         $rows = collect($request->input('rows', []))
@@ -257,8 +298,11 @@ class BomController extends Controller
             ProductionByproduct::query()->delete();
             foreach ($rows as $r) {
                 ProductionByproduct::create([
-                    'product_id' => (int) $r['product_id'],
-                    'percentage' => (float) $r['percentage'],
+                    'product_id'              => (int) $r['product_id'],
+                    'percentage'              => (float) $r['percentage'],
+                    'raw_material_product_id' => !empty($r['raw_material_product_id']) ? (int) $r['raw_material_product_id'] : null,
+                    'panjang'                 => isset($r['panjang']) && $r['panjang'] !== '' ? (float) $r['panjang'] : null,
+                    'lebar'                   => isset($r['lebar']) && $r['lebar'] !== '' ? (float) $r['lebar'] : null,
                 ]);
             }
         });

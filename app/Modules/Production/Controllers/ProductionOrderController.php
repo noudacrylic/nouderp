@@ -76,13 +76,37 @@ class ProductionOrderController extends Controller
               ->orWhereIn('account_category', ['cash', 'cash_equivalent']);
         })->where('is_active', true)->orderBy('code')->get();
 
-        $byproductOptions = \App\Modules\Production\Models\ProductionByproduct::with('product')->get()->map(fn($b) => [
-            'id'              => $b->product_id,
-            'label'           => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
-            'unit_percentage' => (float) $b->percentage,
+        // Master bahan baku (lembaran) + ukuran PxL + harga terbaru — untuk Kalkulator Produk Custom.
+        $rawMaterials = \App\Modules\Production\Models\ProductionRawMaterial::with('product')->get();
+        $rawMaterialOptions = $rawMaterials->map(fn($m) => [
+            'id'        => $m->product_id,
+            'sku'       => $m->product?->sku ?? '',
+            'label'     => ($m->product?->sku ? $m->product->sku . ' - ' : '') . ($m->product?->name ?? '—'),
+            'base_unit' => $m->product?->base_unit ?? '',
+            'panjang'   => (float) $m->panjang,
+            'lebar'     => (float) $m->lebar,
+            'last_cost' => (float) ($m->product?->last_cost ?: $m->product?->cost_price ?: 0),
         ])->values();
 
-        return view('erp.production.orders.create', compact('boms', 'warehouses', 'defaultWarehouseId', 'salesOrders', 'departments', 'cashAccounts', 'lockWarehouse', 'byproductOptions'));
+        // Index area lembar per produk bahan baku, untuk hitung harga-per-luas produk sampingan.
+        $rmByProduct = $rawMaterials->keyBy('product_id');
+
+        $byproductOptions = \App\Modules\Production\Models\ProductionByproduct::with(['product', 'rawMaterial'])->get()->map(function ($b) use ($rmByProduct) {
+            $rm       = $b->raw_material_product_id ? $rmByProduct->get($b->raw_material_product_id) : null;
+            $rmArea   = $rm ? ((float) $rm->panjang * (float) $rm->lebar) : 0.0;
+            $rmCost   = (float) ($b->rawMaterial?->last_cost ?: $b->rawMaterial?->cost_price ?: 0);
+            return [
+                'id'              => $b->product_id,
+                'label'           => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
+                'unit_percentage' => (float) $b->percentage,
+                'panjang'         => (float) $b->panjang,        // PxL kebutuhan produk sampingan
+                'lebar'           => (float) $b->lebar,
+                'rm_area'         => $rmArea,                    // luas lembar bahan baku sampingan
+                'rm_last_cost'    => $rmCost,                    // harga lembar bahan baku sampingan
+            ];
+        })->values();
+
+        return view('erp.production.orders.create', compact('boms', 'warehouses', 'defaultWarehouseId', 'salesOrders', 'departments', 'cashAccounts', 'lockWarehouse', 'byproductOptions', 'rawMaterialOptions'));
     }
 
     /**
