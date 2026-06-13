@@ -72,12 +72,20 @@
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">Persentase Cost (%) *</label>
+                                    @php
+                                        // Override manual hanya untuk sampingan pada order TANPA BOM & bukan Perbaikan
+                                        // (ukuran material beda → % beda). Dengan BOM/Perbaikan atau baris Utama → otomatis/terkunci.
+                                        $pctEditable = is_null($order->bom_id) && $order->type !== 'repair' && $out->output_type === 'by_product';
+                                    @endphp
+                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">
+                                        Persentase Cost (%) {!! $pctEditable ? '*' : '<span class="font-normal text-gray-400">(otomatis)</span>' !!}
+                                    </label>
                                     <input type="number"
                                            name="outputs[{{ $i }}][percentage]"
                                            value="{{ number_format($pctSaved, 2, '.', '') }}"
-                                           step="0.01" min="0" max="100" required
-                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
+                                           step="0.01" min="0" max="100" {{ $pctEditable ? 'required' : 'readonly' }}
+                                           title="{{ $pctEditable ? 'Bisa di-override karena order tanpa BOM' : 'Persentase otomatis (order ber-BOM / produk utama)' }}"
+                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 text-right {{ $pctEditable ? 'bg-white' : 'bg-gray-100 text-gray-600 cursor-not-allowed' }}">
                                 </div>
                             </div>
 

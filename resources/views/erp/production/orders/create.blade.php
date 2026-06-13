@@ -396,10 +396,17 @@
                                         <option value="main">Utama</option>
                                         <option value="by_product">Sampingan</option>
                                     </select>
-                                    {{-- Persentase otomatis (readonly): sampingan = unit% × qty/siklus, utama = sisa. --}}
-                                    <input type="number" :name="`outputs[${idx}][percentage]`" :value="o.percentage" readonly
-                                           title="Persentase otomatis dari Pengaturan Produk Sampingan"
-                                           class="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed">
+                                    {{-- Persentase: sampingan TANPA BOM bisa di-override manual (ukuran material beda → % beda).
+                                         DENGAN BOM atau baris Utama → otomatis & terkunci. --}}
+                                    <input type="number" :name="`outputs[${idx}][percentage]`" x-model="o.percentage"
+                                           @input="recalcPercentages()"
+                                           :readonly="o.output_type === 'main' || !!selectedBomId"
+                                           step="0.0001" min="0" max="100"
+                                           :title="(o.output_type === 'main' || selectedBomId) ? 'Persentase otomatis (terkunci)' : 'Bisa diisi manual karena tanpa BOM'"
+                                           :class="(o.output_type === 'main' || selectedBomId)
+                                               ? 'bg-gray-100 text-gray-600 cursor-not-allowed'
+                                               : 'bg-white text-gray-800'"
+                                           class="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400">
                                     <button type="button" @click="removeOutput(idx)"
                                             class="p-2 text-red-400 hover:text-red-600 rounded-lg transition mt-0.5">✕</button>
                                 </div>
@@ -710,16 +717,22 @@ function orderForm() {
         addStep()     { this.steps.push({ name: '', department_id: '', department_name: '' }); },
         addCost()     { this.costs.push({ description: '', amount: '', cash_account_id: '' }); },
 
-        // ── Persentase otomatis: sampingan = unit% × (qty/siklus), utama = sisa (100 − Σ) ──
+        // ── Persentase output: utama = sisa (100 − Σ sampingan). ──
+        //  • DENGAN BOM: sampingan = unit% × (qty/siklus), otomatis & terkunci.
+        //  • TANPA BOM: ukuran material bisa beda → sampingan diisi/di-override manual user;
+        //    di sini hanya hitung ulang utama, jangan timpa % sampingan yang diketik.
         recalcPercentages() {
             const cyc = parseFloat(this.cycles) || 1;
+            const usesBom = !!this.selectedBomId;
             let sumBp = 0;
             this.outputs.forEach(o => {
                 if (o.output_type === 'by_product') {
-                    const up  = parseFloat(o.unit_percentage) || 0;
-                    const qty = parseFloat(o.qty_planned) || 0;
-                    o.percentage = Math.round(up * (qty / cyc) * 10000) / 10000;
-                    sumBp += o.percentage;
+                    if (usesBom) {
+                        const up  = parseFloat(o.unit_percentage) || 0;
+                        const qty = parseFloat(o.qty_planned) || 0;
+                        o.percentage = Math.round(up * (qty / cyc) * 10000) / 10000;
+                    }
+                    sumBp += parseFloat(o.percentage) || 0;
                 }
             });
             const mainPct = Math.round((100 - sumBp) * 10000) / 10000;
@@ -732,6 +745,12 @@ function orderForm() {
             const bp = this.byproducts.find(b => String(b.id) === String(o.product_id));
             o.unit_percentage = bp ? bp.unit_percentage : null;
             o.productQuery = bp ? bp.label : '';
+            // Tanpa BOM: prefill saran % dari master (unit% × qty/siklus) sebagai titik awal — boleh diubah.
+            if (!this.selectedBomId) {
+                const cyc = parseFloat(this.cycles) || 1;
+                const qty = parseFloat(o.qty_planned) || 0;
+                o.percentage = Math.round((parseFloat(o.unit_percentage) || 0) * (qty / cyc) * 100) / 100;
+            }
             this.recalcPercentages();
         },
 
@@ -795,6 +814,13 @@ function orderForm() {
             if (!this.outputsPercentageOk()) {
                 e.preventDefault();
                 this.submitError = `Total persentase output harus 100% (saat ini ${this.percentageTotal()}%).`;
+                document.querySelector('#outputAnchor')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
+            // Tanpa BOM: % sampingan diisi manual — cegah totalnya melebihi 100% (utama jadi negatif).
+            if (this.outputs.some(o => (parseFloat(o.percentage) || 0) < 0)) {
+                e.preventDefault();
+                this.submitError = 'Total persentase produk sampingan melebihi 100% sehingga produk utama negatif. Kurangi persentase sampingan.';
                 document.querySelector('#outputAnchor')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 return;
             }

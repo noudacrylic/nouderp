@@ -101,30 +101,49 @@ class ProductionOrderService
                     ]);
                 }
 
-                // Sync outputs — persentase dihitung server-side dari master Produk Sampingan
-                // (otoritatif): sampingan = unit% × (qty/siklus), utama = sisa (100 − Σ).
+                // Sync outputs. Persentase output sampingan:
+                //  • DENGAN BOM: otoritatif dari master Produk Sampingan (fixed per-unit):
+                //    sampingan = unit% × (qty/siklus), unit_percentage disimpan → finalize recompute.
+                //  • TANPA BOM: ukuran material bisa beda sehingga persentase pasti beda untuk
+                //    sampingan yang sama → pakai persentase yang di-input/di-override user apa adanya,
+                //    unit_percentage = null sebagai sinyal "manual" (finalize hormati nilai ini).
+                //  Utama selalu = sisa (100 − Σ sampingan).
                 $rawOutputs = array_values(array_filter(
                     $data['outputs'] ?? [],
                     fn($o) => !empty($o['product_id']) && !empty($o['qty_planned'])
                 ));
                 if ($rawOutputs) {
-                    $cycles = max(1e-9, (float) ($order->planned_cycles ?: 1));
-                    $byIds  = collect($rawOutputs)
-                        ->filter(fn($o) => ($o['output_type'] ?? 'main') === 'by_product')
-                        ->pluck('product_id')->map(fn($id) => (int) $id)->unique();
-                    $masters = \App\Modules\Production\Models\ProductionByproduct::whereIn('product_id', $byIds)
-                        ->get()->keyBy('product_id');
+                    $usesBom = !empty($order->bom_id);
+                    $cycles  = max(1e-9, (float) ($order->planned_cycles ?: 1));
 
-                    $sumBp = 0.0;
-                    foreach ($rawOutputs as $k => $o) {
-                        if (($o['output_type'] ?? 'main') !== 'by_product') continue;
-                        $master  = $masters->get((int) $o['product_id']);
-                        $unitPct = $master ? (float) $master->percentage : (float) ($o['unit_percentage'] ?? 0);
-                        $pct     = round($unitPct * ((float) $o['qty_planned'] / $cycles), 4);
-                        $rawOutputs[$k]['unit_percentage'] = $unitPct;
-                        $rawOutputs[$k]['percentage']      = $pct;
-                        $sumBp += $pct;
+                    if ($usesBom) {
+                        $byIds  = collect($rawOutputs)
+                            ->filter(fn($o) => ($o['output_type'] ?? 'main') === 'by_product')
+                            ->pluck('product_id')->map(fn($id) => (int) $id)->unique();
+                        $masters = \App\Modules\Production\Models\ProductionByproduct::whereIn('product_id', $byIds)
+                            ->get()->keyBy('product_id');
+
+                        $sumBp = 0.0;
+                        foreach ($rawOutputs as $k => $o) {
+                            if (($o['output_type'] ?? 'main') !== 'by_product') continue;
+                            $master  = $masters->get((int) $o['product_id']);
+                            $unitPct = $master ? (float) $master->percentage : (float) ($o['unit_percentage'] ?? 0);
+                            $pct     = round($unitPct * ((float) $o['qty_planned'] / $cycles), 4);
+                            $rawOutputs[$k]['unit_percentage'] = $unitPct;
+                            $rawOutputs[$k]['percentage']      = $pct;
+                            $sumBp += $pct;
+                        }
+                    } else {
+                        // Tanpa BOM: hormati persentase manual; jangan timpa dari master.
+                        $sumBp = 0.0;
+                        foreach ($rawOutputs as $k => $o) {
+                            if (($o['output_type'] ?? 'main') !== 'by_product') continue;
+                            $rawOutputs[$k]['unit_percentage'] = null;
+                            $rawOutputs[$k]['percentage']      = round((float) ($o['percentage'] ?? 0), 4);
+                            $sumBp += $rawOutputs[$k]['percentage'];
+                        }
                     }
+
                     $mainPct = round(100 - $sumBp, 4);
 
                     foreach ($rawOutputs as $o) {
@@ -791,30 +810,39 @@ class ProductionOrderService
             }
 
             // ── Alokasi biaya output ──
-            // Bila order punya produk sampingan terdaftar (unit_percentage terisi), alokasi
-            // berbasis PERSENTASE: sampingan = (unit% × qty/siklus) dari WIP, utama menyerap sisa.
-            // Akibatnya kerusakan sampingan (qty turun) otomatis menambah HPP produk utama.
-            // Bila tidak ada sampingan (mayoritas / data lama), pertahankan alokasi rasio qty.
+            // Bila order punya produk sampingan, alokasi berbasis PERSENTASE dari WIP; utama menyerap sisa.
+            //  • DENGAN BOM (fixed per-unit): sampingan = unit% × (qty/siklus) → di-recompute dari qty
+            //    hasil produksi, sehingga kerusakan sampingan otomatis menambah HPP produk utama.
+            //  • TANPA BOM: ukuran material beda → persentase di-input/di-override manual operator;
+            //    pakai persentase yang dikirim (fallback ke nilai tersimpan di OP).
+            //  Bila tidak ada sampingan (mayoritas / data lama), pertahankan alokasi rasio qty.
             $cycles = max(1e-9, (float) ($order->planned_cycles ?: 1));
-            $hasByproduct = $order->outputs->contains(
-                fn($o) => $o->output_type === 'by_product' && $o->unit_percentage !== null
-            );
+            // Order Perbaikan tetap pakai alokasi rasio qty (tidak ada konsep % sampingan).
+            $usePctMode = $order->type !== 'repair'
+                && $order->outputs->contains(fn($o) => $o->output_type === 'by_product');
+            $bomFixed   = $order->bom_id !== null;
 
             // Pra-hitung persentase per output (output_id => pct) untuk mode persentase.
             $pctMap = [];
-            if ($hasByproduct) {
+            if ($usePctMode) {
                 $sumBp = 0.0;
                 foreach ($actualOutputs as $out) {
                     $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
                     if (!$rec || $rec->output_type !== 'by_product') continue;
-                    $unitPct = (float) ($rec->unit_percentage ?? 0);
-                    $pct = round($unitPct * ((float) $out['qty_produced'] / $cycles), 4);
+                    if ($bomFixed) {
+                        $unitPct = (float) ($rec->unit_percentage ?? 0);
+                        $pct = round($unitPct * ((float) $out['qty_produced'] / $cycles), 4);
+                    } else {
+                        $pct = (isset($out['percentage']) && $out['percentage'] !== '' && $out['percentage'] !== null)
+                            ? round((float) $out['percentage'], 4)
+                            : round((float) $rec->percentage, 4);
+                    }
                     $pctMap[$out['output_id']] = $pct;
                     $sumBp += $pct;
                 }
                 if ($sumBp > 100 + 0.01) {
                     $shown = rtrim(rtrim(number_format($sumBp, 4, '.', ''), '0'), '.');
-                    throw new Exception("Total persentase produk sampingan melebihi 100% ({$shown}%). Periksa qty hasil produksi.");
+                    throw new Exception("Total persentase produk sampingan melebihi 100% ({$shown}%). Periksa qty / persentase hasil produksi.");
                 }
                 $mainPct = round(100 - $sumBp, 4);
                 foreach ($actualOutputs as $out) {
@@ -840,7 +868,7 @@ class ProductionOrderService
                 $qtyProduced = (float) $out['qty_produced'];
 
                 // Mode persentase: biaya = pct% × WIP. Mode lama: rasio qty × costPerUnit.
-                if ($hasByproduct) {
+                if ($usePctMode) {
                     $pct      = (float) ($pctMap[$out['output_id']] ?? 0);
                     $itemCost = $totalWipCost * $pct / 100;
                 } else {

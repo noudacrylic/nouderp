@@ -8,28 +8,34 @@
          mulai: null,
          catatan: null,
          openSelesai(d) {
-             // Inisialisasi qty aktual = rencana bila belum diisi, lalu hitung % awal.
+             // Inisialisasi qty aktual = rencana bila belum diisi; seed % dari nilai tersimpan
+             // (dipakai mode tanpa BOM agar operator bisa override), lalu hitung % awal.
              if (d && Array.isArray(d.outputs)) {
                  d.outputs.forEach(o => {
                      o.qty_produced = (parseFloat(o.qty_produced) > 0) ? parseFloat(o.qty_produced) : parseFloat(o.qty_planned);
+                     if (o.calc_percentage === undefined) o.calc_percentage = parseFloat(o.percentage) || 0;
                  });
              }
              this.selesai = d;
              this.recalcSelesai();
          },
-         // Hitung ulang persentase biaya per output dari qty hasil produksi terbaru:
-         // sampingan = unit% × (qty/siklus), utama = sisa (100 − Σ). Kerusakan sampingan
-         // (qty turun) otomatis menambah beban produk utama.
+         // Hitung ulang persentase biaya per output. Utama = sisa (100 − Σ sampingan).
+         //  • DENGAN BOM: sampingan = unit% × (qty/siklus) — kerusakan sampingan otomatis pindah
+         //    bebannya ke produk utama.
+         //  • TANPA BOM: pertahankan % sampingan yang di-input operator (override manual).
          recalcSelesai() {
              if (!this.selesai || !Array.isArray(this.selesai.outputs)) return;
              const cyc = parseFloat(this.selesai.planned_cycles) || 1;
+             const manual = !!this.selesai.pct_manual;
              let sumBp = 0;
              this.selesai.outputs.forEach(o => {
                  if (o.output_type === 'by_product') {
-                     const up  = parseFloat(o.unit_percentage) || 0;
-                     const qty = parseFloat(o.qty_produced) || 0;
-                     o.calc_percentage = Math.round(up * (qty / cyc) * 100) / 100;
-                     sumBp += o.calc_percentage;
+                     if (!manual) {
+                         const up  = parseFloat(o.unit_percentage) || 0;
+                         const qty = parseFloat(o.qty_produced) || 0;
+                         o.calc_percentage = Math.round(up * (qty / cyc) * 100) / 100;
+                     }
+                     sumBp += parseFloat(o.calc_percentage) || 0;
                  }
              });
              this.selesai.outputs.forEach(o => {
@@ -100,15 +106,33 @@
         </button>
     </div>
 
-    {{-- 3-Panel Task Manager Layout --}}
-    <div style="display:grid; grid-template-columns:1fr 1fr; grid-template-rows:auto auto; gap:1rem; align-items:start;">
+    {{-- 3-Panel Task Manager Layout.
+         Di layar sempit (tab/hp/jendela di-minimize) panel kanan turun ke bawah supaya tetap terbaca. --}}
+    <style>
+        .process-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 1rem;
+            align-items: start;
+        }
+        .process-grid > .process-antre { grid-row: span 2; }
+        @media (max-width: 1024px) {
+            .process-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: none;
+            }
+            .process-grid > .process-antre { grid-row: auto; }
+        }
+    </style>
+    <div class="process-grid">
 
         {{-- PANEL KIRI: ANTRE --}}
-        <div style="grid-row: span 2;" class="bg-white border border-amber-100 rounded-2xl shadow-sm flex flex-col" style="min-height:300px;">
-            <div class="px-4 py-2.5 border-b border-amber-100 flex items-center gap-2 bg-amber-50 rounded-t-2xl">
-                <span class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"></span>
-                <h2 class="font-black text-amber-700 text-xs tracking-widest uppercase">Antre</h2>
-                <span class="ml-auto text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-black border border-amber-200">{{ $pendingSteps->count() }}</span>
+        <div class="process-antre bg-white border border-blue-100 rounded-2xl shadow-sm flex flex-col" style="min-height:300px;">
+            <div class="px-4 py-2.5 flex items-center gap-2 bg-blue-600 rounded-t-2xl">
+                <span class="w-2 h-2 rounded-full bg-white/90 flex-shrink-0"></span>
+                <h2 class="font-black text-white text-xs tracking-widest uppercase">Antre</h2>
+                <span class="ml-auto text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-black border border-white/30">{{ $pendingSteps->count() }}</span>
             </div>
             <div class="flex-1 overflow-y-auto p-2.5 space-y-2">
                 @forelse($pendingSteps as $step)
@@ -120,11 +144,11 @@
         </div>
 
         {{-- PANEL KANAN ATAS: SEDANG DIKERJAKAN --}}
-        <div class="bg-white border border-indigo-100 rounded-2xl shadow-sm">
-            <div class="px-4 py-2.5 border-b border-indigo-100 flex items-center gap-2 bg-indigo-50 rounded-t-2xl">
-                <span class="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0 animate-pulse"></span>
-                <h2 class="font-black text-indigo-700 text-xs tracking-widest uppercase">Sedang Dikerjakan</h2>
-                <span class="ml-auto text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-black border border-indigo-200">{{ $inProgressSteps->count() }}</span>
+        <div class="bg-white border border-green-100 rounded-2xl shadow-sm">
+            <div class="px-4 py-2.5 flex items-center gap-2 bg-green-600 rounded-t-2xl">
+                <span class="w-2 h-2 rounded-full bg-white flex-shrink-0 animate-pulse"></span>
+                <h2 class="font-black text-white text-xs tracking-widest uppercase">Sedang Dikerjakan</h2>
+                <span class="ml-auto text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-black border border-white/30">{{ $inProgressSteps->count() }}</span>
             </div>
             <div class="p-2.5 space-y-2">
                 @forelse($inProgressSteps as $step)
@@ -136,11 +160,11 @@
         </div>
 
         {{-- PANEL KANAN BAWAH: PENDING (PAUSED) --}}
-        <div class="bg-white border border-orange-100 rounded-2xl shadow-sm">
-            <div class="px-4 py-2.5 border-b border-orange-100 flex items-center gap-2 bg-orange-50 rounded-t-2xl">
-                <span class="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0"></span>
-                <h2 class="font-black text-orange-700 text-xs tracking-widest uppercase">Pending</h2>
-                <span class="ml-auto text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-black border border-orange-200">{{ $pausedSteps->count() }}</span>
+        <div class="bg-white border border-gray-200 rounded-2xl shadow-sm">
+            <div class="px-4 py-2.5 flex items-center gap-2 bg-gray-900 rounded-t-2xl">
+                <span class="w-2 h-2 rounded-full bg-white/90 flex-shrink-0"></span>
+                <h2 class="font-black text-white text-xs tracking-widest uppercase">Pending</h2>
+                <span class="ml-auto text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-black border border-white/30">{{ $pausedSteps->count() }}</span>
             </div>
             <div class="p-2.5 space-y-2">
                 @forelse($pausedSteps as $step)
@@ -312,8 +336,11 @@
                         <p class="text-xs text-gray-600 leading-relaxed bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                             Ini langkah terakhir untuk
                             <b class="text-amber-800" x-text="selesai.order_number"></b>.
-                            Isi <b>qty hasil produksi yang bisa digunakan</b> untuk tiap output. Persentase biaya dihitung otomatis —
-                            bila ada sampingan rusak, klik <b>Hitung Ulang Persentase</b> agar bebannya pindah ke produk utama.
+                            Isi <b>qty hasil produksi yang bisa digunakan</b> untuk tiap output.
+                            <span x-show="!selesai.pct_manual">Persentase biaya dihitung otomatis —
+                            bila ada sampingan rusak, klik <b>Hitung Ulang Persentase</b> agar bebannya pindah ke produk utama.</span>
+                            <span x-show="selesai.pct_manual">Order ini <b>tanpa BOM</b>, jadi persentase biaya tiap sampingan
+                            bisa <b>diisi manual</b> sesuai proporsi material; produk utama otomatis menyerap sisanya.</span>
                         </p>
 
                         <template x-for="(out, idx) in selesai.outputs" :key="out.id">
@@ -342,9 +369,23 @@
                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                     </div>
                                     <div>
-                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">% Biaya (otomatis)</label>
-                                        <div class="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm font-bold text-right bg-gray-100 text-gray-600"
-                                             x-text="(out.calc_percentage ?? 0) + '%'"></div>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">
+                                            % Biaya <span x-text="(selesai.pct_manual && out.output_type === 'by_product') ? '(manual)' : '(otomatis)'"></span>
+                                        </label>
+                                        {{-- Tanpa BOM + sampingan: input manual. Selain itu: tampil otomatis (terkunci). --}}
+                                        <template x-if="selesai.pct_manual && out.output_type === 'by_product'">
+                                            <input type="number" step="0.01" min="0" max="100"
+                                                   x-model.number="out.calc_percentage" @input="recalcSelesai()"
+                                                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                                        </template>
+                                        <template x-if="!(selesai.pct_manual && out.output_type === 'by_product')">
+                                            <div class="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm font-bold text-right bg-gray-100 text-gray-600"
+                                                 x-text="(out.calc_percentage ?? 0) + '%'"></div>
+                                        </template>
+                                        {{-- Submit % hanya untuk order tanpa BOM (operator override); order ber-BOM di-recompute backend. --}}
+                                        <template x-if="selesai.pct_manual">
+                                            <input type="hidden" :name="'outputs[' + idx + '][percentage]'" :value="out.calc_percentage">
+                                        </template>
                                     </div>
                                 </div>
 
@@ -361,7 +402,7 @@
                             </div>
                         </template>
 
-                        <button type="button" @click="recalcSelesai()"
+                        <button type="button" @click="recalcSelesai()" x-show="!selesai.pct_manual"
                                 class="w-full border border-green-300 text-green-700 hover:bg-green-50 py-2 rounded-xl text-xs font-bold transition">
                             ↻ Hitung Ulang Persentase
                         </button>

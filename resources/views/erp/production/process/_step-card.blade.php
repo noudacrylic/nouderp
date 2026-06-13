@@ -84,6 +84,9 @@
         'is_last'        => $isLastStep,
         'order_number'   => $order->order_number,
         'planned_cycles' => (float) ($order->planned_cycles ?: 1),
+        // Operator boleh override % sampingan hanya bila order TANPA BOM & bukan Perbaikan
+        // (ukuran material beda → % beda). Selain itu % otomatis/terkunci.
+        'pct_manual'     => $order->bom_id === null && $order->type !== 'repair',
         'outputs'      => $isLastStep ? $order->outputs->map(function ($o) {
             $pct = (float) $o->percentage;
             return [
