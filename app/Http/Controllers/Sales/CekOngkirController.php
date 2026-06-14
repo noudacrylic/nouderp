@@ -15,7 +15,7 @@ class CekOngkirController extends Controller
             'warehouses' => $this->originWarehouses(),
             'selectedWarehouseId' => Warehouse::defaultId(),
             'rates'  => null,
-            'errors' => [],
+            'ongkirErrors' => [],
             'input'  => [],
         ]);
     }
@@ -111,7 +111,7 @@ class CekOngkirController extends Controller
             'warehouses' => $this->originWarehouses(),
             'selectedWarehouseId' => $warehouseId,
             'rates'  => $rates,
-            'errors' => $errors,
+            'ongkirErrors' => $errors,
             'input'  => $input,
         ]);
     }

@@ -308,6 +308,8 @@
     $dpp = max(0, $subtotal - $discountGlobal);
     $ppn = $dpp * (((float) ($quotation->ppn_percent ?? 0)) / 100);
     $shipping = (float) ($quotation->shipping_charge ?? 0);
+    $shipGross = (float) ($quotation->shipping_gross ?? 0);
+    $shipDiscount = max(0, $shipGross - $shipping);
     $expense = (float) ($quotation->service_charge ?? 0) + (float) ($quotation->other_expense ?? 0);
     $hasNotes = !empty(trim($quotation->notes ?? ''));
 
@@ -425,8 +427,11 @@
         @if($ppn > 0)
             <div class="row"><span>PPN</span><span>{{ number_format($ppn, 0, ',', '.') }}</span></div>
         @endif
-        @if($shipping > 0)
-            <div class="row"><span>Ongkos Kirim</span><span>{{ number_format($shipping, 0, ',', '.') }}</span></div>
+        @if($shipping > 0 || $shipDiscount > 0)
+            <div class="row"><span>Ongkos Kirim</span><span>{{ number_format($shipDiscount > 0 ? $shipGross : $shipping, 0, ',', '.') }}</span></div>
+        @endif
+        @if($shipDiscount > 0)
+            <div class="row"><span>Diskon Ongkir</span><span class="neg">- {{ number_format($shipDiscount, 0, ',', '.') }}</span></div>
         @endif
         @if($expense > 0)
             <div class="row"><span>Biaya Lain</span><span>{{ number_format($expense, 0, ',', '.') }}</span></div>

@@ -4,6 +4,8 @@
     $ppnPercent     = (float) ($invoice->ppn_percent ?? 0);
     $ppn            = (float) ($invoice->ppn_amount ?? 0);
     $shipping       = (float) ($invoice->shipping_cost ?? 0);
+    $shipGross      = (float) ($invoice->shipping_gross ?? 0);
+    $shipDiscount   = max(0, $shipGross - $shipping);
     $expense        = (float) ($invoice->additional_fee ?? 0);
     $grandTotal     = (float) ($invoice->grand_total ?? 0);
     $paid           = (float) ($invoice->paid_amount ?? 0);
@@ -93,8 +95,11 @@
         @if($ppn > 0)
             <div class="row"><span>PPN ({{ rtrim(rtrim(number_format($ppnPercent, 2, ',', '.'), '0'), ',') }}%)</span><span>{{ number_format($ppn, 0, ',', '.') }}</span></div>
         @endif
-        @if($shipping > 0)
-            <div class="row"><span>Ongkos Kirim</span><span>{{ number_format($shipping, 0, ',', '.') }}</span></div>
+        @if($shipping > 0 || $shipDiscount > 0)
+            <div class="row"><span>Ongkos Kirim</span><span>{{ number_format($shipDiscount > 0 ? $shipGross : $shipping, 0, ',', '.') }}</span></div>
+        @endif
+        @if($shipDiscount > 0)
+            <div class="row"><span>Diskon Ongkir</span><span class="neg">- {{ number_format($shipDiscount, 0, ',', '.') }}</span></div>
         @endif
         @if($expense > 0)
             <div class="row"><span>Biaya Lain</span><span>{{ number_format($expense, 0, ',', '.') }}</span></div>

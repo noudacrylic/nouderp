@@ -203,9 +203,9 @@
 
     {{-- ══════════ KANAN: daftar ongkir saja ══════════ --}}
     <div>
-    @if(!empty($errors) && is_array($errors) && count($errors))
+    @if(!empty($ongkirErrors) && is_array($ongkirErrors) && count($ongkirErrors))
         <div class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded mb-4 text-sm">
-            @foreach($errors as $e) <div>{{ $e }}</div> @endforeach
+            @foreach($ongkirErrors as $e) <div>{{ $e }}</div> @endforeach
         </div>
     @endif
 

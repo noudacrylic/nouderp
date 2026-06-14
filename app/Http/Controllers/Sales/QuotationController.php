@@ -108,7 +108,7 @@ class QuotationController extends Controller
                 'service_charge' => clean_number($request->service_charge),
                 'other_expense' => clean_number($request->selling_expense),
                 'grand_total' => clean_number($request->grand_total),
-            ]);
+            ] + $this->shippingDetail($request));
 
             foreach ($request->items as $item) {
                 if (empty($item['product_id'])) continue;
@@ -233,7 +233,7 @@ class QuotationController extends Controller
                 'service_charge' => clean_number($request->service_charge),
                 'other_expense' => clean_number($request->selling_expense),
                 'grand_total' => clean_number($request->grand_total),
-            ]);
+            ] + $this->shippingDetail($request));
 
             SalesQuotationItem::where('quotation_id', $quotation->id)->delete();
 
@@ -288,6 +288,30 @@ class QuotationController extends Controller
         }
     }
 
+    /**
+     * Rincian ongkir dari kartu "Pengiriman & Ongkir" (shipping-embed).
+     * shipping_charge (net) sudah disimpan terpisah dari input #shipping (computeNet di embed).
+     * Saat Ambil di Toko, semua ongkir di-nol-kan agar konsisten dgn shipping_charge=0.
+     */
+    private function shippingDetail(Request $request): array
+    {
+        $pickup = $request->delivery_method === 'ambil_toko';
+        $dim = fn ($v) => ($v !== null && $v !== '' && (float) clean_number($v) > 0) ? (float) clean_number($v) : null;
+
+        return [
+            'shipping_gross'          => $pickup ? 0 : clean_number($request->shipping_gross),
+            'shipping_discount_type'  => in_array($request->shipping_discount_type, ['nominal', 'percent'], true) ? $request->shipping_discount_type : 'nominal',
+            'shipping_discount_value' => $pickup ? 0 : clean_number($request->shipping_discount_value),
+            'shipping_courier_code'   => $pickup ? null : ($request->shipping_courier_code ?: null),
+            'shipping_service_code'   => $pickup ? null : ($request->shipping_service_code ?: null),
+            'shipping_service_name'   => $pickup ? null : ($request->shipping_service_name ?: null),
+            'package_length'          => $dim($request->package_length),
+            'package_width'           => $dim($request->package_width),
+            'package_height'          => $dim($request->package_height),
+            'pickup_date'             => $pickup ? ($request->pickup_date ?: null) : null,
+        ];
+    }
+
     public function convertToSO($id)
     {
         $quotation = \App\Models\SalesQuotation::with('items')->findOrFail($id);
@@ -308,6 +332,7 @@ class QuotationController extends Controller
             'quotation_id'  => $quotation->id,
             'order_date'    => now()->toDateString(),
             'notes'         => $quotation->notes,
+            'delivery_method' => $quotation->delivery_method ?? 'kurir',
             'status'        => 'draft',
             'grand_total'   => 0, // Temporary, akan di-update setelah items dibuat
         ]);
@@ -373,6 +398,17 @@ class QuotationController extends Controller
             'ppn_percent'           => $ppnPercent,
             'ppn_amount'            => $ppnAmount,
             'shipping_cost'         => $shipping,
+            // Rincian ongkir (gross/diskon/kurir/dimensi) ikut terbawa dari Penawaran.
+            'shipping_gross'          => (float) ($quotation->shipping_gross ?? 0),
+            'shipping_discount_type'  => $quotation->shipping_discount_type ?? 'nominal',
+            'shipping_discount_value' => (float) ($quotation->shipping_discount_value ?? 0),
+            'shipping_courier_code'   => $quotation->shipping_courier_code,
+            'shipping_service_code'   => $quotation->shipping_service_code,
+            'shipping_service_name'   => $quotation->shipping_service_name,
+            'package_length'          => $quotation->package_length,
+            'package_width'           => $quotation->package_width,
+            'package_height'          => $quotation->package_height,
+            'pickup_date'             => $quotation->pickup_date,
             'selling_expense'       => $expense,
             'grand_total'           => $grandTotal,
         ]);

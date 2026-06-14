@@ -28,6 +28,16 @@ class SalesQuotation extends Model
         'ppn_percent',
         'pph_percent',
         'shipping_charge',
+        'shipping_gross',
+        'shipping_discount_type',
+        'shipping_discount_value',
+        'shipping_courier_code',
+        'shipping_service_code',
+        'shipping_service_name',
+        'package_length',
+        'package_width',
+        'package_height',
+        'pickup_date',
         'service_charge',
         'other_expense',
         'grand_total',
@@ -38,6 +48,7 @@ class SalesQuotation extends Model
 
     protected $casts = [
         'show_bank_account' => 'boolean',
+        'pickup_date' => 'date',
     ];
 
     public function items()

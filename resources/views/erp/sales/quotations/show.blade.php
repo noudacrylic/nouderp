@@ -126,6 +126,8 @@
                     'dpp' => $dpp,
                     'ppn' => $ppn,
                     'shipping' => $quotation->shipping_charge ?? 0,
+                    'shippingGross' => $quotation->shipping_gross ?? 0,
+                    'shippingDiscount' => max(0, (float) ($quotation->shipping_gross ?? 0) - (float) ($quotation->shipping_charge ?? 0)),
                     'expense' => ($quotation->service_charge ?? 0) + ($quotation->other_expense ?? 0),
                     'grandTotal' => $quotation->grand_total
                 ])

@@ -61,10 +61,22 @@
         </div>
         @endif
 
-        @if(($shipping ?? 0) > 0)
+        @php
+            $shipNet      = $shipping ?? 0;
+            $shipDiscount = $shippingDiscount ?? 0;
+            $shipGross    = ($shippingGross ?? 0) > 0 ? $shippingGross : $shipNet;
+        @endphp
+        @if($shipNet > 0 || $shipDiscount > 0)
         <div class="flex justify-between mb-2 text-gray-600">
             <span>Ongkos Kirim</span>
-            <span>{{ number_format($shipping) }}</span>
+            <span>{{ number_format($shipDiscount > 0 ? $shipGross : $shipNet) }}</span>
+        </div>
+        @endif
+
+        @if(($shipDiscount ?? 0) > 0)
+        <div class="flex justify-between mb-2 text-gray-500">
+            <span>Diskon Ongkir</span>
+            <span class="text-red-500">- {{ number_format($shipDiscount) }}</span>
         </div>
         @endif
 

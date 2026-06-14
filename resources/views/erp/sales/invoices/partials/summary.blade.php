@@ -68,10 +68,20 @@
             </div>
             @endif
 
-            @if($invoice->shipping_cost > 0)
+            @php
+                $invShipDiscount = max(0, (float) ($invoice->shipping_gross ?? 0) - (float) ($invoice->shipping_cost ?? 0));
+            @endphp
+            @if($invoice->shipping_cost > 0 || $invShipDiscount > 0)
             <div class="flex justify-between mb-2 text-gray-600">
                 <span>Ongkos Kirim</span>
-                <span>{{ number_format($invoice->shipping_cost) }}</span>
+                <span>{{ number_format($invShipDiscount > 0 ? $invoice->shipping_gross : $invoice->shipping_cost) }}</span>
+            </div>
+            @endif
+
+            @if($invShipDiscount > 0)
+            <div class="flex justify-between mb-2 text-gray-500">
+                <span>Diskon Ongkir</span>
+                <span class="text-red-500">- {{ number_format($invShipDiscount) }}</span>
             </div>
             @endif
 

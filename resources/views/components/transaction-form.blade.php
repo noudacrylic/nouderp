@@ -105,11 +105,11 @@
         </div>
 
         {{-- 2B. BOTTOM AREA --}}
-        @php $hasShip = in_array($type, ['sales_order', 'invoice'], true); @endphp
+        @php $hasShip = in_array($type, ['sales_order', 'invoice', 'quotation'], true); @endphp
         <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-stretch">
             {{-- CATATAN --}}
             <div class="{{ $hasShip ? 'md:col-span-3' : 'md:col-span-8' }}">
-                <div class="card p-4 shadow-sm border border-gray-100 h-full">
+                <div class="card p-4 shadow-sm border border-gray-100 h-full flex flex-col">
                     @if($type === 'quotation')
                         <div class="grid grid-cols-2 gap-3 mb-3">
                             <div>
@@ -127,7 +127,7 @@
                     <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Catatan Transaksi</label>
                     <textarea
                         name="notes"
-                        class="form-control w-full border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                        class="form-control w-full flex-1 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
                         placeholder="Tambahkan informasi / instruksi khusus..."
                         rows="{{ $hasShip ? 5 : 3 }}"
                         style="min-height: {{ $hasShip ? '120px' : '80px' }}; background-color: #fff !important;"
@@ -830,9 +830,19 @@
                 if (dmSel) { dmSel.value = data.delivery_method ?? 'kurir'; dmSel.dispatchEvent(new Event('change')); }
                 if (window.reloadShippingAddress) window.reloadShippingAddress();
 
-                // Financials
+                // Financials — bawa rincian ongkir (gross/diskon/kurir/dimensi) dari Penawaran.
                 if (window.setShippingDetail) {
-                    window.setShippingDetail({ gross: data.shipping_charge ?? 0, discount_type: 'nominal', discount_value: 0 });
+                    window.setShippingDetail({
+                        gross: data.shipping_gross ?? data.shipping_charge ?? 0,
+                        discount_type: data.shipping_discount_type ?? 'nominal',
+                        discount_value: data.shipping_discount_value ?? 0,
+                        courier_code: data.shipping_courier_code,
+                        service_code: data.shipping_service_code,
+                        service_name: data.shipping_service_name,
+                        package_length: data.package_length,
+                        package_width: data.package_width,
+                        package_height: data.package_height,
+                    });
                 } else if (document.getElementById('shipping')) {
                     document.getElementById('shipping').value = formatIDR(data.shipping_charge ?? 0);
                 }

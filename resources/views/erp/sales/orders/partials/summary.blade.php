@@ -16,6 +16,8 @@
     'dpp' => $dpp,
     'ppn' => $so->ppn_amount,
     'shipping' => $so->shipping_cost,
+    'shippingGross' => $so->shipping_gross,
+    'shippingDiscount' => max(0, (float) ($so->shipping_gross ?? 0) - (float) ($so->shipping_cost ?? 0)),
     'additionalFee' => $so->additional_fee,
     'grandTotal' => $so->grand_total,
     'advancePaid' => $advancePaid,

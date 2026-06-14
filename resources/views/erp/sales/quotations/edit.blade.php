@@ -67,8 +67,7 @@
                 class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
         </div>
 
-        <!-- Metode Pengiriman -->
-        @include('erp._partials.delivery-method-field', ['model' => $quotation ?? null, 'formAttr' => 'transactionForm'])
+        {{-- Metode Pengiriman kini ada di kartu "Pengiriman & Ongkir" (shipping-embed) di bawah. --}}
 
     </div>
 </div>
