@@ -1,7 +1,7 @@
 ﻿@extends('layouts.erp')
 
 @section('content')
-<div class="w-full px-6 py-4"
+<div class="w-full px-6 pt-1 pb-4"
      x-data="{
          detail: null,
          selesai: null,
@@ -51,7 +51,7 @@
     {{-- Flash message (mis. gagal Mulai: belum scan check-in, di luar jam kerja, dll.) --}}
 
     {{-- Header --}}
-    <div class="flex justify-between items-center mb-5">
+    <div class="flex justify-between items-center mb-3">
         <div>
             <h1 class="text-xl font-bold text-gray-800">Proses Produksi</h1>
             <p class="text-xs text-gray-500 mt-0.5">
@@ -111,15 +111,20 @@
     <style>
         .process-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            /* minmax(0,1fr): kolom tetap proporsional & tidak melar walau ada konten lebar
+               (nama produk/PO panjang). Tanpa ini, di layar tablet kolom kanan terdorong
+               keluar layar → panel "Sedang Dikerjakan" + timer ikut tak kelihatan. */
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
             grid-template-rows: auto auto;
             gap: 1rem;
             align-items: start;
         }
+        .process-grid > * { min-width: 0; }
         .process-grid > .process-antre { grid-row: span 2; }
-        @media (max-width: 1024px) {
+        /* Tablet & layar sempit: tumpuk jadi 1 kolom agar tiap kartu full-width & enak dibaca. */
+        @media (max-width: 1100px) {
             .process-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 grid-template-rows: none;
             }
             .process-grid > .process-antre { grid-row: auto; }

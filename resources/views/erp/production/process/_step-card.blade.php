@@ -204,7 +204,7 @@
     </div>
 
     {{-- Row 3: meta (executor for in_progress/paused, score for pending) --}}
-    <div class="flex items-center gap-2 mb-2.5 text-[10px] text-gray-400">
+    <div class="flex items-center gap-2 gap-y-1 flex-wrap mb-2.5 text-[10px] text-gray-400">
         @if($panel === 'pending')
             @if($order->score_type === 'priority')
                 @php

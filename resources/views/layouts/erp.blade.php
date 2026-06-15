@@ -720,6 +720,7 @@
               Pakai accent indigo supaya berbeda dari module tabs di atasnya. ── */
         .submenu-subtabs {
             margin-top: -0.5rem;
+            margin-bottom: 0.5rem;
             padding: 6px 12px;
             top: auto;
             position: static;
