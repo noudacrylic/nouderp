@@ -1,7 +1,8 @@
 @once
 <style>
-    /* Ukuran kertas: A6 (105 × 148 mm) — stiker thermal label. */
-    @page { size: A6; margin: 0; }
+    /* Ukuran kertas A6 (105 x 148 mm) diset via print shell lewat variabel pageSize = 'A6'
+       (di header view). Sengaja tidak deklarasi ukuran halaman di sini supaya tidak
+       bentrok dengan ukuran A4 default milik shell. */
 
     /* Override .paper dari print shell (yang default A4) khusus untuk label resi. */
     .resi-paper.paper {

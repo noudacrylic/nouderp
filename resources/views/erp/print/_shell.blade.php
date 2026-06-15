@@ -141,7 +141,7 @@
             }
             .paper + .paper { page-break-before: always; break-before: page; }
         }
-        @page { margin: 0; size: A4; }
+        @page { margin: 0; size: {{ $pageSize ?? 'A4' }}; }
     </style>
 </head>
 <body>

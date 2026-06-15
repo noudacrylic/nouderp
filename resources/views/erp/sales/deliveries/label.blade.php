@@ -1,6 +1,7 @@
 @extends('erp.print._shell', [
     'printTitle' => 'Label ' . $delivery->delivery_number,
     'indexUrl'   => route('pos.fulfillment.telah-diproses'),
+    'pageSize'   => 'A6',
 ])
 
 @section('papers')
