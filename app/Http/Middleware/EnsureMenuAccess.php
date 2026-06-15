@@ -64,6 +64,13 @@ class EnsureMenuAccess
         $menuKey = $this->registry->resolveMenuKey($name);
 
         if ($menuKey === null) {
+            // Route bantu (search, inline-create) bernama `{modul}.api.*` / `{modul}.ajax.*`.
+            // Tidak punya menu sendiri tapi dipakai DI DALAM halaman menu. Izinkan kalau user
+            // punya akses ke minimal satu menu di modul yang sama (mis. bisa pakai "Tambah
+            // Pemasok" / pencarian saat punya akses Purchase Order).
+            if ($this->isAuxiliaryRoute($name) && $this->canAccessModuleOf($name)) {
+                return $next($request);
+            }
             return $this->deny($request, "Akses ditolak (route '{$name}' tidak terdaftar di menu).");
         }
 
@@ -89,6 +96,25 @@ class EnsureMenuAccess
         }
 
         return $next($request);
+    }
+
+    /** Route bantu AJAX/API: punya segmen `api` atau `ajax` di namanya. */
+    private function isAuxiliaryRoute(string $name): bool
+    {
+        $segments = explode('.', $name);
+        return in_array('api', $segments, true) || in_array('ajax', $segments, true);
+    }
+
+    /** User punya akses ke minimal satu menu di modul (segmen pertama) route ini? */
+    private function canAccessModuleOf(string $name): bool
+    {
+        $module = explode('.', $name, 2)[0];
+        foreach ($this->registry->moduleKeys($module) as $key) {
+            if (user_can_access($key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function deny(Request $request, string $message): Response

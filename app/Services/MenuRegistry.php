@@ -58,6 +58,22 @@ class MenuRegistry
     }
 
     /**
+     * Leaf menu_key yang berada di bawah satu modul/group (mis. 'purchasing' →
+     * ['purchasing.suppliers','purchasing.orders',...]). Dipakai untuk mengizinkan
+     * route bantu (api/ajax) milik modul saat user punya akses ke salah satu menunya.
+     */
+    public function moduleKeys(string $module): array
+    {
+        $out = [];
+        foreach ($this->flat() as $key => $cfg) {
+            if ($key === $module || str_starts_with($key, $module . '.')) {
+                $out[] = $key;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Daftar divisi produksi (cached). Dipakai untuk dynamic children di Proses Produksi.
      */
     public function productionDepartments(): \Illuminate\Support\Collection
