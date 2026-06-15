@@ -48,7 +48,10 @@ class ProductionMaterialAdditionController extends Controller
     {
         $departmentId      = $request->get('department_id');
         $preSelectedStepId = $request->get('step_id');
-        $departments  = Department::orderBy('name')->get();
+        // Filter divisi: hanya divisi produksi yang aktif (penambahan bahan = konteks produksi).
+        $departments  = Department::where('type', 'produksi')
+            ->where('is_active', true)
+            ->orderBy('name')->get();
 
         // Tampilkan order steps yang in_progress atau paused (bukan antre murni)
         $activeSteps = ProductionOrderStep::with([
