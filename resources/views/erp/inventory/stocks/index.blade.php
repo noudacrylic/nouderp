@@ -5,7 +5,7 @@
     <h1 class="text-lg font-semibold">Stok</h1>
 </div>
 
-<form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
+<form method="GET" data-live-results="#list-results" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', ['name' => 'search', 'placeholder' => 'Cari SKU / nama produk...'])
 
     <div>
@@ -30,6 +30,7 @@
     </div>
 </form>
 
+<div id="list-results">
 <div class="bg-white rounded shadow overflow-x-auto">
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
@@ -97,6 +98,7 @@
 @if($stocks instanceof \Illuminate\Contracts\Pagination\Paginator)
     <div class="mt-3">{{ $stocks->links() }}</div>
 @endif
+</div>{{-- /#list-results --}}
 
 @include('erp.purchasing._partials.list-scripts')
 

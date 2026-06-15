@@ -10,7 +10,7 @@
     </div>
 </div>
 
-<form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
+<form method="GET" data-live-results="#list-results" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', ['name' => 'search', 'placeholder' => 'Cari SKU / nama produk...'])
 
     <div>
@@ -63,6 +63,7 @@
     .sellable-toggle:focus-visible + .sellable-switch { box-shadow: 0 0 0 3px rgba(34,197,94,.35); }
 </style>
 
+<div id="list-results">
 <div class="bg-white rounded shadow overflow-x-auto">
     <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b text-gray-600">
@@ -119,10 +120,20 @@
                     </td>
                     <td class="px-3 py-2 text-gray-600">{{ $product->base_unit ?? '-' }}</td>
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
-                        <span class="text-gray-500 text-xs">Rp</span>
-                        <input type="text" value="{{ number_format($product->display_price, 0, ',', '.') }}"
-                               data-product-id="{{ $product->id }}"
-                               class="price-inline rupiah-input w-24 border rounded px-2 py-1 text-right font-medium text-gray-900 focus:ring-2 focus:ring-blue-500">
+                        <div class="flex items-center justify-end gap-1">
+                            <span class="text-gray-500 text-xs">Rp</span>
+                            <input type="text" value="{{ number_format($product->display_price, 0, ',', '.') }}"
+                                   data-product-id="{{ $product->id }}"
+                                   class="price-inline rupiah-input w-24 border rounded px-2 py-1 text-right font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <button type="button"
+                                    class="price-save w-6 h-6 flex items-center justify-center rounded transition bg-gray-100 text-gray-500 hover:bg-blue-100 hover:text-blue-700"
+                                    title="Simpan harga (atau tekan Enter)">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 4h11l3 3v13a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 4v5h7V4M8 20v-6h8v6"/>
+                                </svg>
+                            </button>
+                        </div>
                     </td>
                     <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
                         <div class="flex gap-1 justify-center flex-wrap">
@@ -157,80 +168,101 @@
 @if($products instanceof \Illuminate\Contracts\Pagination\Paginator)
     <div class="mt-3">{{ $products->links() }}</div>
 @endif
+</div>{{-- /#list-results --}}
 
 @include('erp.purchasing._partials.list-scripts')
 
 @push('scripts')
 <script>
-    function formatRupiah(angka) {
-        let number_string = angka.replace(/[^,\d]/g, '').toString();
-        let split = number_string.split(',');
-        let sisa = split[0].length % 3;
-        let rupiah = split[0].substr(0, sisa);
-        let ribuan = split[0].substr(sisa).match(/\d{3}/gi);
-        if (ribuan) {
-            let separator = sisa ? '.' : '';
-            rupiah += separator + ribuan.join('.');
-        }
-        return rupiah;
+    // Handler di-delegasikan ke document agar tetap jalan untuk baris yang diganti
+    // via live-search AJAX (#list-results di-swap tanpa reload).
+    // Catatan: format ribuan ".rupiah-input" sudah ditangani formatter global di layout.
+
+    // ── Edit harga inline: simpan via tombol atau Enter (seperti min-stok di Stok) ──
+    const CHECK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
+
+    function savePrice(input) {
+        const wrap  = input.closest('div');
+        const btn   = wrap ? wrap.querySelector('.price-save') : null;
+        const price = window.cleanNumber ? window.cleanNumber(input.value) : input.value.replace(/\./g, '');
+        const origBtn = btn ? btn.innerHTML : '';
+
+        if (btn) btn.disabled = true;
+        fetch('/erp/inventory/products/update-price', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+            body: JSON.stringify({ product_id: input.dataset.productId, price: price })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    input.classList.add('border-green-400', 'bg-green-50');
+                    if (btn) {
+                        btn.classList.remove('bg-gray-100', 'text-gray-500', 'hover:bg-blue-100', 'hover:text-blue-700');
+                        btn.classList.add('bg-green-100', 'text-green-700');
+                        btn.innerHTML = CHECK_SVG;
+                        btn.title = 'Tersimpan';
+                    }
+                    setTimeout(() => {
+                        input.classList.remove('border-green-400', 'bg-green-50');
+                        if (btn) {
+                            btn.classList.add('bg-gray-100', 'text-gray-500', 'hover:bg-blue-100', 'hover:text-blue-700');
+                            btn.classList.remove('bg-green-100', 'text-green-700');
+                            btn.innerHTML = origBtn;
+                            btn.title = 'Simpan harga (atau tekan Enter)';
+                        }
+                    }, 1500);
+                } else if (btn) {
+                    btn.innerHTML = origBtn;
+                }
+            })
+            .catch(() => { if (btn) btn.innerHTML = origBtn; })
+            .finally(() => { if (btn) btn.disabled = false; });
     }
 
-    document.querySelectorAll('.rupiah-input').forEach(function (el) {
-        el.addEventListener('keyup', function () {
-            this.value = formatRupiah(this.value);
-        });
+    // Klik tombol simpan.
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.price-save');
+        if (!btn) return;
+        const input = btn.closest('div')?.querySelector('.price-inline');
+        if (input) savePrice(input);
     });
 
-    document.querySelectorAll('.price-inline').forEach(function (el) {
-        el.addEventListener('change', function () {
-            let price = this.value.replace(/\./g, '');
-            fetch('/erp/inventory/products/update-price', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                },
-                body: JSON.stringify({
-                    product_id: this.dataset.productId,
-                    price: price
-                })
-            })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        el.classList.add('border-green-400', 'bg-green-50');
-                        setTimeout(() => el.classList.remove('border-green-400', 'bg-green-50'), 800);
-                    }
-                });
-        });
+    // Enter di kotak harga → simpan (tanpa reload).
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        const input = e.target.closest('.price-inline');
+        if (!input) return;
+        e.preventDefault();
+        savePrice(input);
     });
 
     // Toggle "Dijual" (is_sellable) langsung dari index — tanpa buka edit.
-    document.querySelectorAll('.sellable-toggle').forEach(function (el) {
-        el.addEventListener('change', function () {
-            const on = this.checked;
-            const label = this.closest('label')?.querySelector('.sellable-label');
-            this.disabled = true;
-            fetch('/erp/inventory/products/update-sellable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
-                body: JSON.stringify({ product_id: this.dataset.productId, is_sellable: on ? 1 : 0 })
-            })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        if (label) {
-                            label.textContent = data.is_sellable ? 'Dijual' : 'Tidak';
-                            label.classList.toggle('text-green-600', data.is_sellable);
-                            label.classList.toggle('text-gray-400', !data.is_sellable);
-                        }
-                    } else {
-                        this.checked = !on; // gagal → kembalikan
+    document.addEventListener('change', function (e) {
+        const el = e.target.closest('.sellable-toggle');
+        if (!el) return;
+        const on = el.checked;
+        const label = el.closest('label')?.querySelector('.sellable-label');
+        el.disabled = true;
+        fetch('/erp/inventory/products/update-sellable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+            body: JSON.stringify({ product_id: el.dataset.productId, is_sellable: on ? 1 : 0 })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (label) {
+                        label.textContent = data.is_sellable ? 'Dijual' : 'Tidak';
+                        label.classList.toggle('text-green-600', data.is_sellable);
+                        label.classList.toggle('text-gray-400', !data.is_sellable);
                     }
-                })
-                .catch(() => { this.checked = !on; })
-                .finally(() => { this.disabled = false; });
-        });
+                } else {
+                    el.checked = !on; // gagal → kembalikan
+                }
+            })
+            .catch(() => { el.checked = !on; })
+            .finally(() => { el.disabled = false; });
     });
 </script>
 @endpush
