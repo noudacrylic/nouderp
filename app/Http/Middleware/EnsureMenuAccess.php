@@ -57,7 +57,11 @@ class EnsureMenuAccess
         $route = $request->route();
         $name = $route?->getName();
 
-        if (!$name) {
+        // Route tanpa nama (closure/helper AJAX). Catatan: saat `route:cache` aktif
+        // (produksi, via `php artisan optimize`), Laravel memberi nama auto `generated::xxx`
+        // ke route tanpa nama → `getName()` jadi non-null. Perlakukan itu sama dgn tanpa nama,
+        // jika tidak semua endpoint helper (mis. /erp/api/products/search) jadi 403 utk non-admin.
+        if (!$name || str_starts_with($name, 'generated::')) {
             return $next($request);
         }
 
