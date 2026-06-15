@@ -129,6 +129,7 @@ class PromosiController extends Controller
         // Sertakan harga jual (display_price) untuk pratinjau harga sebelum/sesudah diskon di form.
         // Eager-load prices agar tidak N+1.
         return Product::with(['prices' => fn ($q) => $q->orderBy('id')])
+            ->where('is_active', true)   // produk diarsipkan tidak bisa dipromosikan
             ->where('is_sellable', true) // promo hanya untuk produk yang dijual
             ->orderBy('name')
             ->get()

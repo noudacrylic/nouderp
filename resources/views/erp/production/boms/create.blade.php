@@ -70,8 +70,12 @@
                                            @input.debounce.300ms="searchProduct(idx, 'materials')"
                                            @focus="m.showDrop = true"
                                            placeholder="Cari produk bahan baku..."
-                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                                           :class="m.archived ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white'"
+                                           class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                                     <input type="hidden" :name="`materials[${idx}][product_id]`" :value="m.product_id">
+                                    <p x-show="m.archived" class="text-[10px] font-bold text-red-600 mt-1">
+                                        ⚠ Produk diarsipkan — tidak bisa dipakai. Ganti dengan produk aktif.
+                                    </p>
                                     <div x-show="m.showDrop && m.results.length > 0"
                                          class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
                                         <template x-for="p in m.results" :key="p.id">
@@ -153,6 +157,9 @@
                                     </template>
                                     <input type="hidden" :name="`outputs[${idx}][product_id]`" :value="o.product_id">
                                     <input type="hidden" :name="`outputs[${idx}][unit_percentage]`" :value="o.unit_percentage ?? ''">
+                                    <p x-show="o.archived" class="text-[10px] font-bold text-red-600 mt-1">
+                                        ⚠ Produk diarsipkan — tidak bisa dipakai. Ganti dengan produk aktif.
+                                    </p>
                                     <p x-show="o.output_type === 'by_product' && byproducts.length === 0"
                                        class="text-[10px] text-amber-600 mt-1">Belum ada produk sampingan terdaftar. Tambahkan di Pengaturan Produksi.</p>
                                 </div>
@@ -291,10 +298,10 @@
     // Supaya user tidak perlu hapus banyak nol saat edit input qty.
     $fmtQty = fn($v) => $v === null ? '' : rtrim(rtrim(number_format((float) $v, 4, '.', ''), '0'), '.');
     $initMaterials = isset($bom) ? $bom->materials->map(function($m) use ($fmtQty) {
-        return ['product_id' => $m->product_id, 'productQuery' => ($m->product?->sku ?? '') . ' - ' . ($m->product?->name ?? ''), 'qty_per_cycle' => $fmtQty($m->qty_per_cycle), 'unit' => $m->unit, 'results' => [], 'showDrop' => false];
+        return ['product_id' => $m->product_id, 'productQuery' => ($m->product?->sku ?? '') . ' - ' . ($m->product?->name ?? ''), 'qty_per_cycle' => $fmtQty($m->qty_per_cycle), 'unit' => $m->unit, 'archived' => $m->product && !$m->product->is_active, 'results' => [], 'showDrop' => false];
     })->values()->all() : [];
     $initOutputs = isset($bom) ? $bom->outputs->map(function($o) use ($fmtQty) {
-        return ['product_id' => $o->product_id, 'productQuery' => ($o->product?->sku ?? '') . ' - ' . ($o->product?->name ?? ''), 'qty_per_cycle' => $fmtQty($o->qty_per_cycle), 'output_type' => $o->output_type, 'percentage' => $o->percentage, 'unit_percentage' => $o->unit_percentage, 'results' => [], 'showDrop' => false];
+        return ['product_id' => $o->product_id, 'productQuery' => ($o->product?->sku ?? '') . ' - ' . ($o->product?->name ?? ''), 'qty_per_cycle' => $fmtQty($o->qty_per_cycle), 'output_type' => $o->output_type, 'percentage' => $o->percentage, 'unit_percentage' => $o->unit_percentage, 'archived' => $o->product && !$o->product->is_active, 'results' => [], 'showDrop' => false];
     })->values()->all() : [];
     $initSteps = isset($bom) ? $bom->steps->map(function($s) {
         return ['name' => $s->name, 'description' => $s->description, 'department_id' => $s->department_id, 'estimated_hours' => $s->estimated_hours];
@@ -350,6 +357,7 @@ function bomForm() {
         pickByproduct(idx, bp) {
             const o = this.outputs[idx];
             o.product_id = String(bp.id);
+            o.archived = false; // opsi sampingan sudah difilter hanya produk aktif
             o.showDrop = false;
             this.selectByproduct(idx);
         },
@@ -357,9 +365,9 @@ function bomForm() {
         onTypeChange(idx) {
             const o = this.outputs[idx];
             if (o.output_type === 'by_product') {
-                o.product_id = ''; o.productQuery = ''; o.unit_percentage = null; o.results = [];
+                o.product_id = ''; o.productQuery = ''; o.unit_percentage = null; o.archived = false; o.results = [];
             } else {
-                o.product_id = ''; o.productQuery = ''; o.unit_percentage = null; o.results = [];
+                o.product_id = ''; o.productQuery = ''; o.unit_percentage = null; o.archived = false; o.results = [];
                 this.refreshScore();
             }
             this.recalcPercentages();
@@ -407,6 +415,11 @@ function bomForm() {
             if (!this.outputsPercentageOk()) {
                 return fail(`Total persentase output harus 100% (saat ini ${this.percentageTotal()}%).`);
             }
+            // Produk diarsipkan tidak boleh dipakai — paksa user mengganti dulu.
+            const archived = [...this.materials, ...this.outputs].find(r => r.archived && r.product_id);
+            if (archived) {
+                return fail(`Produk "${archived.productQuery}" sudah diarsipkan dan tidak bisa dipakai. Ganti dengan produk aktif.`);
+            }
             // Produk tidak boleh jadi bahan baku sekaligus output (BOM sirkular).
             const materialIds = this.materials.map(m => m.product_id).filter(Boolean);
             const overlap = this.outputs.find(o => o.product_id && materialIds.includes(o.product_id));
@@ -415,11 +428,11 @@ function bomForm() {
             }
         },
 
-        addMaterial() { this.materials.push({ product_id: null, productQuery: '', qty_per_cycle: 1, unit: '', results: [], showDrop: false }); },
+        addMaterial() { this.materials.push({ product_id: null, productQuery: '', qty_per_cycle: 1, unit: '', archived: false, results: [], showDrop: false }); },
         addOutput()   {
             // Produk utama hanya boleh 1 per BOM. Jika sudah ada baris utama, baris baru defaultnya Sampingan.
             const hasMain = this.outputs.some(o => o.output_type === 'main');
-            this.outputs.push({ product_id: '', productQuery: '', qty_per_cycle: 1, output_type: hasMain ? 'by_product' : 'main', percentage: hasMain ? 0 : 100, unit_percentage: null, results: [], showDrop: false });
+            this.outputs.push({ product_id: '', productQuery: '', qty_per_cycle: 1, output_type: hasMain ? 'by_product' : 'main', percentage: hasMain ? 0 : 100, unit_percentage: null, archived: false, results: [], showDrop: false });
             this.recalcPercentages();
         },
         addStep()     { this.steps.push({ name: '', description: '', department_id: '', estimated_hours: '' }); },
@@ -436,6 +449,7 @@ function bomForm() {
         selectProduct(idx, p, list) {
             this[list][idx].product_id   = p.id;
             this[list][idx].productQuery = `${p.sku} - ${p.name}`;
+            this[list][idx].archived     = false; // search hanya kembalikan produk aktif
             this[list][idx].results      = [];
             this[list][idx].showDrop     = false;
             // Auto-isi satuan dengan satuan dasar produk saat bahan dipilih.

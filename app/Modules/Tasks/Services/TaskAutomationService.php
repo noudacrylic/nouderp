@@ -180,6 +180,7 @@ class TaskAutomationService
 
         $product = Product::find($productId);
         if (!$product) return 0;
+        if (!$product->is_active) return 0; // produk diarsipkan: tidak buat task restok
 
         $minStock = (float) ($product->min_stock ?? 0);
         if ($minStock <= 0) return 0;
@@ -213,6 +214,7 @@ class TaskAutomationService
         foreach ($byProduct as $productId => $productRules) {
             $product = $productRules->first()->product;
             if (!$product) continue;
+            if (!$product->is_active) continue; // produk diarsipkan: lewati
             $minStock = (float) ($product->min_stock ?? 0);
             if ($minStock <= 0) continue;
             $stock = (float) ($stockMap[$productId] ?? 0);

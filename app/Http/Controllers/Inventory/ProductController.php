@@ -620,6 +620,9 @@ class ProductController extends Controller
         $q = $request->q;
 
         $products = \App\Core\Inventory\Product::query()
+            // Produk diarsipkan (is_active=0) TIDAK boleh muncul di pencarian mana pun
+            // (jual, BOM, produksi, purchasing, warranty) → tidak bisa dipilih untuk transaksi baru.
+            ->where('is_active', 1)
             ->with(['units' => fn($u) => $u->where('is_active', true)->orderBy('level')])
             // Konteks produksi (BOM): produk bundle tidak masuk produksi.
             ->when($request->boolean('exclude_bundle'), fn($qq) => $qq->where('sale_type', '!=', 'bundle'))

@@ -14,6 +14,9 @@ class StockController extends Controller
     {
         $query = Product::query();
 
+        // Produk diarsipkan tidak ditampilkan di halaman Stok.
+        $query->where('is_active', 1);
+
         // SEARCH
         if ($request->search) {
             $query->where(function ($q) use ($request) {
