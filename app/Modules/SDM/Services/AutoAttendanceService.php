@@ -62,7 +62,7 @@ class AutoAttendanceService
         // Periode aktif untuk tanggal ini
         $periode = PeriodePenggajian::where('start_date', '<=', $date)
             ->where('end_date', '>=', $date)
-            ->whereIn('status', ['draft', 'imported'])
+            ->where('status', 'open')
             ->orderByDesc('id')
             ->first();
 

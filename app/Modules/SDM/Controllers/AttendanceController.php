@@ -53,6 +53,10 @@ class AttendanceController extends Controller
         $tahun  = (int) $request->input('tahun', $now->year);
         $karyawanId = (int) $request->input('karyawan_id', $karyawans->first()?->id ?? 0);
 
+        // Pastikan periode bulan berjalan selalu ada → jadi default & muncul di pemilih Periode.
+        app(\App\Modules\SDM\Services\PeriodePenggajianService::class)
+            ->ensureForMonth((int) $now->month, (int) $now->year);
+
         $karyawan = $karyawans->firstWhere('id', $karyawanId) ?? $karyawans->first();
 
         $startDate = Carbon::create($tahun, $bulan, 1)->startOfDay();
@@ -186,17 +190,15 @@ class AttendanceController extends Controller
             unset($row);
         }
 
-        // Daftar bulan untuk dropdown (12 bulan terakhir)
-        $bulanOptions = [];
-        $bc = $now->copy()->startOfMonth();
-        for ($i = 0; $i < 12; $i++) {
-            $bulanOptions[] = [
-                'bulan' => $bc->month,
-                'tahun' => $bc->year,
-                'label' => $bc->translatedFormat('F Y'),
-            ];
-            $bc->subMonth();
-        }
+        // Pemilih Periode: hanya periode yang sudah ada (terbaru dulu). Bulan berjalan
+        // dipastikan ada di atas, jadi selalu tampil sebagai default.
+        $bulanOptions = PeriodePenggajian::orderByDesc('tahun')->orderByDesc('bulan')
+            ->get(['bulan', 'tahun', 'label'])
+            ->map(fn ($p) => [
+                'bulan' => (int) $p->bulan,
+                'tahun' => (int) $p->tahun,
+                'label' => $p->label,
+            ])->all();
 
         // === Baris Summary (per-bulan-per-karyawan) ===
         $summaryRows   = KebijakanSummary::aktif()->ordered()->get();
@@ -547,19 +549,9 @@ class AttendanceController extends Controller
 
     protected function ensurePeriode(int $bulan, int $tahun): PeriodePenggajian
     {
-        $periode = PeriodePenggajian::where('bulan', $bulan)->where('tahun', $tahun)->first();
-        if ($periode) return $periode;
-
-        $start = Carbon::create($tahun, $bulan, 1);
-        return PeriodePenggajian::create([
-            'code'       => sprintf('PG-%04d%02d', $tahun, $bulan),
-            'bulan'      => $bulan,
-            'tahun'      => $tahun,
-            'label'      => $start->translatedFormat('F Y'),
-            'start_date' => $start->toDateString(),
-            'end_date'   => $start->copy()->endOfMonth()->toDateString(),
-            'status'     => 'draft',
-        ]);
+        // Satu sumber pembuatan periode (sama dengan cron & tombol manual).
+        return app(\App\Modules\SDM\Services\PeriodePenggajianService::class)
+            ->ensureForMonth($bulan, $tahun);
     }
 
     public function edit(int $periodeId, int $id)

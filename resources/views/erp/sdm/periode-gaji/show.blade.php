@@ -3,8 +3,7 @@
 @section('content')
 @php
     $colors = [
-        'draft'     => 'bg-gray-100 text-gray-600',
-        'imported'  => 'bg-blue-100 text-blue-700',
+        'open'      => 'bg-blue-100 text-blue-700',
         'finalized' => 'bg-green-100 text-green-700',
         'void'      => 'bg-red-100 text-red-700',
     ];
@@ -27,7 +26,7 @@
                 </h1>
                 <div class="text-xs text-gray-500 mt-1">
                     {{ $periode->start_date->format('d M Y') }} – {{ $periode->end_date->format('d M Y') }}
-                    <span class="ml-2 px-2 py-0.5 rounded {{ $colors[$periode->status] ?? '' }}">{{ $periode->status }}</span>
+                    <span class="ml-2 px-2 py-0.5 rounded {{ $colors[$periode->status] ?? '' }}">{{ $periode->status_label }}</span>
                 </div>
             </div>
         </button>
@@ -58,7 +57,7 @@
                     <a href="{{ route('sdm.periode-gaji.show', $p->id) }}"
                        class="flex items-center justify-between px-3 py-1.5 text-sm hover:bg-gray-50 {{ $p->id === $periode->id ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-700' }}">
                         <span>{{ $p->label }} <span class="text-gray-400 font-mono text-xs">({{ $p->code }})</span></span>
-                        <span class="text-[10px] px-1.5 py-0.5 rounded {{ $colors[$p->status] ?? '' }}">{{ $p->status }}</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded {{ $colors[$p->status] ?? '' }}">{{ $p->status_label }}</span>
                     </a>
                 @endforeach
             </div>
@@ -66,6 +65,13 @@
         </div>
     </div>
     <div class="flex items-center gap-2">
+        @if($periode->isOpen())
+            <form method="POST" action="{{ route('sdm.periode-gaji.generate-slips', $periode->id) }}"
+                  onsubmit="return confirm('Generate slip gaji dari data absensi untuk semua karyawan di periode ini?\nSlip yang sudah ada akan diperbarui sesuai absensi terkini.')">
+                @csrf
+                <button class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-semibold">⚙ Generate Slip</button>
+            </form>
+        @endif
         @if($slips->count())
             <a href="{{ route('sdm.attendance.index', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Rincian Kehadiran</a>
             <a href="{{ route('sdm.periode-gaji.print-all', $periode->id) }}" class="border px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-50">Cetak Semua</a>

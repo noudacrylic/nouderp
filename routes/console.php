@@ -15,6 +15,10 @@ Schedule::command('production:run-auto')->everyThirtyMinutes();
 Schedule::command('period:ensure-current')
     ->monthlyOn(1, '00:01')->name('ensure-current-period')->withoutOverlapping();
 
+// Periode penggajian/absensi — buat periode bulan berjalan otomatis tiap tanggal 1 jam 00:01
+Schedule::command('periode-gaji:ensure-current')
+    ->monthlyOn(1, '00:01')->name('ensure-current-payroll-period')->withoutOverlapping();
+
 // Auto-attendance batch — inject scan otomatis 3x sehari
 Schedule::call(fn() => app(\App\Modules\SDM\Services\AutoAttendanceService::class)->runBatch('check_in'))
     ->dailyAt('08:30')->name('sdm-auto-checkin')->withoutOverlapping();

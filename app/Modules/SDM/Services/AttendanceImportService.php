@@ -149,10 +149,9 @@ class AttendanceImportService
             $imported++;
         }
 
-        $periode->update([
-            'status'      => 'imported',
-            'imported_at' => now(),
-        ]);
+        // Excel hanya cadangan — periode tetap 'open'. Catat imported_at sebagai jejak audit
+        // (kapan terakhir Excel dipakai mengisi periode ini).
+        $periode->update(['imported_at' => now()]);
 
         $this->payroll->generateAllSlips($periode);
 

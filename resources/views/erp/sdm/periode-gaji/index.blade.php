@@ -32,13 +32,12 @@
                     <td class="px-3 py-2 text-center">
                         @php
                             $colors = [
-                                'draft'     => 'bg-gray-100 text-gray-600',
-                                'imported'  => 'bg-blue-100 text-blue-700',
+                                'open'      => 'bg-blue-100 text-blue-700',
                                 'finalized' => 'bg-green-100 text-green-700',
                                 'void'      => 'bg-red-100 text-red-700',
                             ];
                         @endphp
-                        <span class="text-xs px-2 py-0.5 rounded {{ $colors[$p->status] ?? 'bg-gray-100' }}">{{ $p->status }}</span>
+                        <span class="text-xs px-2 py-0.5 rounded {{ $colors[$p->status] ?? 'bg-gray-100' }}">{{ $p->status_label }}</span>
                     </td>
                     <td class="px-3 py-2 text-right">{{ rupiah($totals[$p->id] ?? 0) }}</td>
                     <td class="px-3 py-2">

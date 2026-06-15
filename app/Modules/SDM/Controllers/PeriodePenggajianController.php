@@ -6,6 +6,7 @@ use App\Modules\SDM\Models\PeriodePenggajian;
 use App\Modules\SDM\Models\SlipGaji;
 use App\Modules\SDM\Services\AttendanceImportService;
 use App\Modules\SDM\Services\PayrollCalculationService;
+use App\Modules\SDM\Services\PeriodePenggajianService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
@@ -27,6 +28,27 @@ class PeriodePenggajianController extends Controller
     public function create()
     {
         return view('erp.sdm.periode-gaji.create');
+    }
+
+    /** Halaman Pengaturan Periode (tab Absensi): info auto-create + tombol manual + daftar periode. */
+    public function settings()
+    {
+        $periodes = PeriodePenggajian::orderByDesc('tahun')->orderByDesc('bulan')->get();
+
+        $now           = Carbon::now();
+        $currentLabel  = $now->translatedFormat('F Y');
+        $currentExists = $periodes->contains(fn ($p) => (int) $p->bulan === $now->month && (int) $p->tahun === $now->year);
+
+        return view('erp.sdm.periode-gaji.settings', compact('periodes', 'currentLabel', 'currentExists'));
+    }
+
+    /** Trigger manual: buat periode bulan berjalan (logika sama dengan cron periode-gaji:ensure-current). */
+    public function ensureCurrentMonth(PeriodePenggajianService $service)
+    {
+        $now     = Carbon::now();
+        $periode = $service->ensureForMonth((int) $now->month, (int) $now->year);
+
+        return back()->with('success', "Periode {$periode->label} siap (status: {$periode->status}).");
     }
 
     public function store(Request $request)
@@ -56,7 +78,7 @@ class PeriodePenggajianController extends Controller
             'label'      => $label,
             'start_date' => $startDate->toDateString(),
             'end_date'   => $endDate->toDateString(),
-            'status'     => 'draft',
+            'status'     => 'open',
             'notes'      => $data['notes'] ?? null,
         ]);
 
@@ -74,20 +96,7 @@ class PeriodePenggajianController extends Controller
         $bulan = (int) $data['bulan'];
         $tahun = (int) $data['tahun'];
 
-        $periode = PeriodePenggajian::where('bulan', $bulan)->where('tahun', $tahun)->first();
-
-        if (! $periode) {
-            $startDate = Carbon::create($tahun, $bulan, 1);
-            $periode = PeriodePenggajian::create([
-                'code'       => sprintf('PG-%04d%02d', $tahun, $bulan),
-                'bulan'      => $bulan,
-                'tahun'      => $tahun,
-                'label'      => $startDate->translatedFormat('F Y'),
-                'start_date' => $startDate->toDateString(),
-                'end_date'   => $startDate->copy()->endOfMonth()->toDateString(),
-                'status'     => 'draft',
-            ]);
-        }
+        $periode = app(PeriodePenggajianService::class)->ensureForMonth($bulan, $tahun);
 
         return redirect()->route('sdm.periode-gaji.show', $periode->id);
     }
@@ -135,6 +144,27 @@ class PeriodePenggajianController extends Controller
         }
 
         return back()->with('success', $msg);
+    }
+
+    /** Generate/refresh slip gaji semua karyawan dari data absensi periode (tanpa Excel). */
+    public function generateSlips(int $id, PayrollCalculationService $payroll)
+    {
+        $periode = PeriodePenggajian::findOrFail($id);
+
+        if (! $periode->isOpen()) {
+            return back()->with('error', "Slip hanya bisa di-generate untuk periode berjalan (status sekarang: {$periode->status_label}).");
+        }
+
+        $count = \App\Modules\SDM\Models\Attendance::where('periode_id', $periode->id)
+            ->distinct()->count('karyawan_id');
+
+        if ($count === 0) {
+            return back()->with('error', 'Belum ada data absensi di periode ini — slip belum bisa dibuat.');
+        }
+
+        $payroll->generateAllSlips($periode);
+
+        return back()->with('success', "Slip gaji digenerate dari absensi untuk {$count} karyawan.");
     }
 
     public function finalize(int $id, PayrollCalculationService $payroll)

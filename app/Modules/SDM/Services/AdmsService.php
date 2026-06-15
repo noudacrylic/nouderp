@@ -182,11 +182,11 @@ class AdmsService
 
         $tanggal = $log->scan_at->toDateString();
 
-        $periode = PeriodePenggajian::whereDate('start_date', '<=', $tanggal)
-            ->whereDate('end_date', '>=', $tanggal)
-            ->whereIn('status', ['draft', 'imported'])
-            ->orderByDesc('id')
-            ->first();
+        // Pastikan periode bulan scan tersedia. Kalau belum ada (mis. awal bulan baru,
+        // periode belum dibuat manual), buat otomatis sebagai draft supaya scan langsung
+        // mengisi absensi — selaras pola auto-create periode akuntansi. Bila periode bulan
+        // itu sudah finalized/void, jangan tulis ke periode tertutup → bail.
+        $periode = $this->ensurePeriodeForDate($log->scan_at);
 
         if (! $periode) return null;
 
@@ -255,6 +255,16 @@ class AdmsService
         ]);
 
         return $att;
+    }
+
+    /**
+     * Pastikan periode penggajian untuk bulan tanggal scan tersedia.
+     * Belum ada → buat draft; finalized/void → null (periode tertutup).
+     * Logika dipusatkan di PeriodePenggajianService (dipakai juga cron & tombol manual).
+     */
+    protected function ensurePeriodeForDate(Carbon $date): ?PeriodePenggajian
+    {
+        return app(PeriodePenggajianService::class)->ensureForDate($date);
     }
 
     /**

@@ -44,9 +44,9 @@
 </style>
 <form method="GET" action="{{ route('sdm.absensi.index') }}" class="bg-white rounded shadow p-3 mb-4">
     <div class="flex flex-wrap items-end gap-3">
-        <div class="w-40">
-            <label class="block text-xs text-gray-500 mb-1">Bulan</label>
-            <select onchange="submitBulan(this)" class="filter-control border rounded px-2 w-full text-sm">
+        <div class="w-52">
+            <label class="block text-xs text-gray-500 mb-1">Periode</label>
+            <select id="periode-select" onchange="submitBulan(this)" class="filter-control border rounded px-2 w-full text-sm">
                 @foreach($bulanOptions as $opt)
                     <option value="{{ $opt['bulan'] }}-{{ $opt['tahun'] }}" @selected($opt['bulan'] == $bulan && $opt['tahun'] == $tahun)>{{ $opt['label'] }}</option>
                 @endforeach
@@ -413,6 +413,17 @@ document.addEventListener('DOMContentLoaded', () => {
             allowEmptyOption: false,
             maxOptions: 500,
             placeholder: 'Cari nama / staf code...',
+        });
+    }
+
+    // Pemilih Periode dengan live-search (default bulan berjalan, ketik untuk cari bulan lain)
+    const pel = document.getElementById('periode-select');
+    if (pel && window.TomSelect) {
+        new TomSelect(pel, {
+            create: false,
+            allowEmptyOption: false,
+            maxOptions: 1000,
+            placeholder: 'Cari periode... (mis. Juni 2026)',
         });
     }
 

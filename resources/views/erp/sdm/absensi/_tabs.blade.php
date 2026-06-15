@@ -1,6 +1,7 @@
 @php
-    $isAbsensi      = request()->routeIs('sdm.absensi.*') || request()->routeIs('sdm.attendance.*');
-    $isSlipGaji     = request()->routeIs('sdm.periode-gaji.*') || request()->routeIs('sdm.slip-gaji.*');
+    $isAbsensi       = request()->routeIs('sdm.absensi.*') || request()->routeIs('sdm.attendance.*');
+    $isPeriodeSetting = request()->routeIs('sdm.periode-gaji.settings');
+    $isSlipGaji      = (request()->routeIs('sdm.periode-gaji.*') && ! $isPeriodeSetting) || request()->routeIs('sdm.slip-gaji.*');
     $isIzin         = request()->routeIs('sdm.izin.*');
     $isSp           = request()->routeIs('sdm.sp.*');
     $isIzinSanksi   = $isIzin || $isSp;
@@ -38,6 +39,10 @@
     <a href="{{ route('sdm.periode-gaji.index') }}"
        class="px-3 py-2 whitespace-nowrap {{ $isSlipGaji ? 'border-b-2 border-blue-600 text-blue-600 font-semibold' : 'text-gray-600 hover:text-gray-900' }}">
         Slip Gaji
+    </a>
+    <a href="{{ route('sdm.periode-gaji.settings') }}"
+       class="px-3 py-2 whitespace-nowrap {{ $isPeriodeSetting ? 'border-b-2 border-blue-600 text-blue-600 font-semibold' : 'text-gray-600 hover:text-gray-900' }}">
+        Periode
     </a>
 </div>
 

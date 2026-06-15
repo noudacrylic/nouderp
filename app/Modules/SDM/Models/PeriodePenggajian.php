@@ -40,12 +40,18 @@ class PeriodePenggajian extends Model
 
     public function canBeFinalized(): bool
     {
-        return $this->status === 'imported' && $this->slipGajis()->count() > 0;
+        return $this->status === 'open' && $this->slipGajis()->count() > 0;
     }
 
+    /** Impor Excel hanya untuk periode berjalan (open); finalized/void terkunci. */
     public function canImport(): bool
     {
-        return in_array($this->status, ['draft', 'imported'], true);
+        return $this->status === 'open';
+    }
+
+    public function isOpen(): bool
+    {
+        return $this->status === 'open';
     }
 
     public function isFinalized(): bool
@@ -56,5 +62,16 @@ class PeriodePenggajian extends Model
     public function isVoid(): bool
     {
         return $this->status === 'void';
+    }
+
+    /** Label tampilan status. open=Berjalan, finalized=Final, void=Void. */
+    public function getStatusLabelAttribute(): string
+    {
+        return match ($this->status) {
+            'open'      => 'Berjalan',
+            'finalized' => 'Final',
+            'void'      => 'Void',
+            default     => ucfirst((string) $this->status),
+        };
     }
 }

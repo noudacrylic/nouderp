@@ -125,9 +125,12 @@ Route::prefix('erp/sdm')->name('sdm.')->group(function () {
     Route::get('periode-gaji/create', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'create'])->name('periode-gaji.create');
     Route::post('periode-gaji', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'store'])->name('periode-gaji.store');
     Route::match(['get', 'post'], 'periode-gaji/open-or-create', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'openOrCreate'])->name('periode-gaji.open-or-create');
+    Route::get('periode-gaji/settings', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'settings'])->name('periode-gaji.settings');
+    Route::post('periode-gaji/ensure-current', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'ensureCurrentMonth'])->name('periode-gaji.ensure-current');
     Route::get('periode-gaji/{id}', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'show'])->name('periode-gaji.show');
     Route::delete('periode-gaji/{id}', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'destroy'])->name('periode-gaji.destroy');
     Route::post('periode-gaji/{id}/upload-excel', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'uploadExcel'])->name('periode-gaji.upload');
+    Route::post('periode-gaji/{id}/generate-slips', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'generateSlips'])->name('periode-gaji.generate-slips');
     Route::post('periode-gaji/{id}/finalize', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'finalize'])->name('periode-gaji.finalize');
     Route::post('periode-gaji/{id}/void', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'void'])->name('periode-gaji.void');
     Route::get('periode-gaji/{id}/print-all', [\App\Modules\SDM\Controllers\PeriodePenggajianController::class, 'printAll'])->name('periode-gaji.print-all');
