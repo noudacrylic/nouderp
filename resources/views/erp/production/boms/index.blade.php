@@ -32,6 +32,7 @@
                 <th class="px-3 py-2 text-center">Material</th>
                 <th class="px-3 py-2 text-center">Output</th>
                 <th class="px-3 py-2 text-center">Langkah</th>
+                <th class="px-3 py-2 text-center">Siklus</th>
                 <th class="px-3 py-2 text-center">Skor</th>
                 <th class="px-3 py-2 text-center">Auto</th>
                 <th class="px-3 py-2 text-center w-40">Aksi</th>
@@ -48,6 +49,15 @@
                     <td class="px-3 py-2 text-center">{{ $bom->materials_count }}</td>
                     <td class="px-3 py-2 text-center">{{ $bom->outputs_count }}</td>
                     <td class="px-3 py-2 text-center">{{ $bom->steps_count }}</td>
+                    <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
+                        <form method="POST" action="{{ route('production.boms.update-cycles', $bom->id) }}" class="inline">
+                            @csrf
+                            <input type="number" name="typical_cycles" min="1" value="{{ $bom->typical_cycles ?? 1 }}"
+                                   onchange="this.form.submit()"
+                                   title="Ubah jumlah siklus, lalu tekan Enter atau klik di luar untuk menyimpan"
+                                   class="w-16 text-center border border-gray-200 rounded px-1 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                        </form>
+                    </td>
                     <td class="px-3 py-2 text-center font-medium">{{ number_format($bom->score, 2) }}</td>
                     <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
                         <form method="POST" action="{{ route('production.boms.toggle-auto', $bom->id) }}" class="inline">
@@ -74,7 +84,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">Belum ada BOM.</td></tr>
+                <tr><td colspan="9" class="px-3 py-6 text-center text-gray-400">Belum ada BOM.</td></tr>
             @endforelse
         </tbody>
     </table>

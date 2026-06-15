@@ -870,6 +870,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::delete('boms/{id}', [\App\Modules\Production\Controllers\BomController::class, 'destroy'])->name('boms.destroy');
     Route::post('boms/{id}/clone', [\App\Modules\Production\Controllers\BomController::class, 'clone'])->name('boms.clone');
     Route::post('boms/{id}/toggle-auto', [\App\Modules\Production\Controllers\BomController::class, 'toggleAuto'])->name('boms.toggle-auto');
+    Route::post('boms/{id}/update-cycles', [\App\Modules\Production\Controllers\BomController::class, 'updateCycles'])->name('boms.update-cycles');
     Route::post('boms/run-auto', [\App\Modules\Production\Controllers\BomController::class, 'runAuto'])->name('boms.run-auto');
     Route::post('boms/recalculate', [\App\Modules\Production\Controllers\BomController::class, 'recalculate'])->name('boms.recalculate');
     Route::get('ajax/bom-calculate', [\App\Modules\Production\Controllers\BomController::class, 'calculate'])->name('ajax.bom.calculate');

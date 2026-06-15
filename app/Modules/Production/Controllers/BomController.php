@@ -51,6 +51,18 @@ class BomController extends Controller
         }
     }
 
+    public function updateCycles(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'typical_cycles' => 'required|integer|min:1',
+        ]);
+
+        $bom = Bom::findOrFail($id);
+        $bom->update(['typical_cycles' => $data['typical_cycles']]);
+
+        return back()->with('success', "Jumlah siklus BOM {$bom->bom_number} diperbarui menjadi {$data['typical_cycles']}.");
+    }
+
     public function runAuto(AutoProductionService $auto)
     {
         $results = $auto->runAll();
@@ -81,11 +93,14 @@ class BomController extends Controller
     /** Opsi produk sampingan untuk dropdown di form BOM/OP. */
     private function byproductOptions(): array
     {
-        return ProductionByproduct::with('product')->get()->map(fn($b) => [
-            'id'              => $b->product_id,
-            'label'           => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
-            'unit_percentage' => (float) $b->percentage,
-        ])->values()->all();
+        return ProductionByproduct::with('product')->get()
+            // Produk sampingan yang produknya diarsipkan tidak boleh jadi opsi baru.
+            ->filter(fn($b) => $b->product && $b->product->is_active)
+            ->map(fn($b) => [
+                'id'              => $b->product_id,
+                'label'           => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
+                'unit_percentage' => (float) $b->percentage,
+            ])->values()->all();
     }
 
     public function store(Request $request, BomService $service)
