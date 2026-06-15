@@ -314,10 +314,10 @@
 
         <div x-show="selesai !== null"
              x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
-             class="bg-white rounded-2xl shadow-xl w-full overflow-hidden"
-             :class="selesai && selesai.is_last ? 'max-w-lg' : 'max-w-sm'">
+             class="bg-white rounded-2xl shadow-xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+             :class="selesai && selesai.is_last ? 'max-w-3xl' : 'max-w-sm'">
 
-            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
                 <h3 class="font-black text-gray-800 text-sm">
                     <span x-show="!(selesai && selesai.is_last)">Konfirmasi Selesai</span>
                     <span x-show="selesai && selesai.is_last">Konfirmasi Hasil Produksi</span>
@@ -327,8 +327,11 @@
             </div>
 
             {{-- Form action is set dynamically via Alpine x-bind --}}
-            <form id="form-selesai" method="POST" class="p-5" :action="selesai ? selesai.action_url : '#'">
+            <form id="form-selesai" method="POST" class="flex flex-col min-h-0 flex-1" :action="selesai ? selesai.action_url : '#'">
                 @csrf
+
+                {{-- Badan modal yang bisa di-scroll (header & tombol tetap di tempat) --}}
+                <div class="p-5 overflow-y-auto flex-1 min-h-0">
 
                 {{-- Default copy untuk langkah biasa --}}
                 <p class="text-sm text-gray-600 mb-4" x-show="!(selesai && selesai.is_last)">
@@ -360,31 +363,32 @@
 
                                 <input type="hidden" :name="'outputs[' + idx + '][output_id]'" :value="out.id">
 
-                                <div class="grid grid-cols-3 gap-2">
-                                    <div>
+                                {{-- Target/Qty/% + Keterangan dalam satu baris (wrap di layar sempit) agar kartu lebih ringkas. --}}
+                                <div class="flex flex-wrap gap-2 items-end">
+                                    <div class="w-16">
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">Target</label>
-                                        <div class="text-sm font-bold text-gray-600 bg-white border border-gray-100 rounded-lg px-3 py-2 text-right"
+                                        <div class="text-sm font-bold text-gray-600 bg-white border border-gray-100 rounded-lg px-2 py-2 text-right"
                                              x-text="Number(out.qty_planned).toLocaleString('id-ID', {minimumFractionDigits: 0, maximumFractionDigits: 2})"></div>
                                     </div>
-                                    <div>
+                                    <div class="w-24">
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Terpakai *</label>
                                         <input type="number" step="0.01" min="0" required
                                                x-model.number="out.qty_produced" @input="recalcSelesai()"
                                                :name="'outputs[' + idx + '][qty_produced]'"
-                                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
+                                               class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                     </div>
-                                    <div>
+                                    <div class="w-24">
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">
-                                            % Biaya <span x-text="(selesai.pct_manual && out.output_type === 'by_product') ? '(manual)' : '(otomatis)'"></span>
+                                            % Biaya <span x-text="(selesai.pct_manual && out.output_type === 'by_product') ? '(man)' : '(oto)'"></span>
                                         </label>
                                         {{-- Tanpa BOM + sampingan: input manual. Selain itu: tampil otomatis (terkunci). --}}
                                         <template x-if="selesai.pct_manual && out.output_type === 'by_product'">
                                             <input type="number" step="0.01" min="0" max="100"
                                                    x-model.number="out.calc_percentage" @input="recalcSelesai()"
-                                                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                                                   class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm font-bold text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400">
                                         </template>
                                         <template x-if="!(selesai.pct_manual && out.output_type === 'by_product')">
-                                            <div class="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm font-bold text-right bg-gray-100 text-gray-600"
+                                            <div class="w-full border border-gray-100 rounded-lg px-2 py-2 text-sm font-bold text-right bg-gray-100 text-gray-600"
                                                  x-text="(out.calc_percentage ?? 0) + '%'"></div>
                                         </template>
                                         {{-- Submit % hanya untuk order tanpa BOM (operator override); order ber-BOM di-recompute backend. --}}
@@ -392,17 +396,16 @@
                                             <input type="hidden" :name="'outputs[' + idx + '][percentage]'" :value="out.calc_percentage">
                                         </template>
                                     </div>
-                                </div>
-
-                                <div class="mt-2">
-                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">
-                                        Keterangan <span class="font-normal text-gray-400">(audit — penyebab selisih, kondisi material)</span>
-                                    </label>
-                                    <input type="text"
-                                           :name="'outputs[' + idx + '][variance_notes]'"
-                                           :value="out.variance_notes"
-                                           placeholder="cth: 1 pcs cacat saat cutting, lembar akrilik tipis..."
-                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 bg-white">
+                                    <div class="flex-1 min-w-[150px]">
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">
+                                            Keterangan <span class="font-normal text-gray-400">(opsional — penyebab selisih)</span>
+                                        </label>
+                                        <input type="text"
+                                               :name="'outputs[' + idx + '][variance_notes]'"
+                                               :value="out.variance_notes"
+                                               placeholder="cth: 1 pcs cacat saat cutting..."
+                                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 bg-white">
+                                    </div>
                                 </div>
                             </div>
                         </template>
@@ -414,12 +417,16 @@
                     </div>
                 </template>
 
-                <div class="mb-4">
+                <div class="mb-1">
                     <label class="block text-xs font-bold text-gray-600 mb-1.5">Catatan (opsional)</label>
                     <textarea name="notes" rows="2" placeholder="Catatan pengerjaan..."
                               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none"></textarea>
                 </div>
-                <div class="flex gap-2">
+
+                </div>{{-- /badan modal scrollable --}}
+
+                {{-- Footer tombol — selalu terlihat (tidak ikut ter-scroll) --}}
+                <div class="p-5 pt-3 border-t border-gray-100 flex gap-2 flex-shrink-0">
                     <button type="submit"
                             class="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-xl transition">
                         ✓ Konfirmasi Selesai
