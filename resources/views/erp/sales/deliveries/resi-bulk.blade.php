@@ -1,7 +1,7 @@
 @extends('erp.print._shell', [
     'printTitle' => 'Cetak ' . count($labels) . ' Resi',
     'indexUrl'   => route('pos.fulfillment.telah-diproses'),
-    'pageSize'   => 'A6',
+    'pageSize'   => '100mm 150mm',
 ])
 
 @section('papers')

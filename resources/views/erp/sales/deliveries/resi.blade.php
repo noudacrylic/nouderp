@@ -1,7 +1,7 @@
 @extends('erp.print._shell', [
     'printTitle' => 'Resi ' . $delivery->tracking_number,
     'indexUrl'   => route('pos.fulfillment.telah-diproses'),
-    'pageSize'   => 'A6',
+    'pageSize'   => '100mm 150mm',
 ])
 
 @section('papers')

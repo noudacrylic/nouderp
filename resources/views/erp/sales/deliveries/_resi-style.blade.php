@@ -1,13 +1,13 @@
 @once
 <style>
-    /* Ukuran kertas A6 (105 x 148 mm) diset via print shell lewat variabel pageSize = 'A6'
-       (di header view). Sengaja tidak deklarasi ukuran halaman di sini supaya tidak
-       bentrok dengan ukuran A4 default milik shell. */
+    /* Ukuran kertas label thermal 100 x 150 mm — diset via print shell lewat variabel
+       pageSize = '100mm 150mm' (di header view). Sengaja tidak deklarasi ukuran halaman
+       di sini supaya tidak bentrok dengan ukuran A4 default milik shell. */
 
     /* Override .paper dari print shell (yang default A4) khusus untuk label resi. */
     .resi-paper.paper {
-        width: 105mm;
-        min-height: 148mm;
+        width: 100mm;
+        min-height: 150mm;
         padding: 4mm;
         display: flex; flex-direction: column; align-items: stretch; gap: 0;
     }
@@ -36,7 +36,7 @@
     .resi-label .rmeta { display: flex; justify-content: space-between; font-size: 9px; color: #555; margin-top: 6px; }
 
     @media print {
-        .resi-paper.paper { width: 105mm; min-height: 148mm; padding: 3mm; box-shadow: none; }
+        .resi-paper.paper { width: 100mm; min-height: 150mm; padding: 3mm; box-shadow: none; }
         .resi-label { max-width: 100%; }
     }
 </style>
