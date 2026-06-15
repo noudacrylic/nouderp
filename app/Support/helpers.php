@@ -69,14 +69,14 @@ if (!function_exists('submenu_url_is_action')) {
      *
      * Cek segmen terakhir path:
      *   - berakhiran: template / export / import / pdf / download
-     *   - mengandung kata: print (print-bulk, print-resi-bulk) / resi / track  (halaman cetak/standalone)
+     *   - mengandung kata: print (print-bulk, print-resi-bulk) / resi / track / label  (halaman cetak/standalone)
      */
     function submenu_url_is_action(string $url): bool
     {
         $path = parse_url($url, PHP_URL_PATH) ?: '';
         $lastSeg = strtolower(basename($path));
         return (bool) preg_match('/(?:^|[-_])(?:template|export|import|pdf|download)$/', $lastSeg)
-            || (bool) preg_match('/(?:^|[-_])(?:print|resi|track)(?:$|[-_])/', $lastSeg);
+            || (bool) preg_match('/(?:^|[-_])(?:print|resi|track|label)(?:$|[-_])/', $lastSeg);
     }
 }
 
