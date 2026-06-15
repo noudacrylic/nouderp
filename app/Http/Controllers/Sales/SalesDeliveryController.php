@@ -826,6 +826,12 @@ class SalesDeliveryController extends Controller
         if ($nodePath) $bs->setNodeBinary($nodePath);
         if ($npmPath)  $bs->setNpmBinary($npmPath);
 
+        // Tanpa ini puppeteer cari Chrome di cache default HOME (kosong di server) → 500.
+        // Path absolut Chrome di-set via env pool php-fpm (lihat SlipGajiController).
+        if ($chromePath = env('BROWSERSHOT_CHROME_PATH')) {
+            $bs->setChromePath($chromePath);
+        }
+
         $pdf = $bs->pdf();
         $filename = 'SuratJalan_' . preg_replace('/[^A-Za-z0-9_-]/', '_', $delivery->delivery_number) . '.pdf';
 
