@@ -137,4 +137,31 @@ class ProductionOrder extends Model
         return $this->steps->where('status', 'in_progress')->first()
             ?? $this->steps->where('status', 'pending')->first();
     }
+
+    /**
+     * Boleh dibatalkan?
+     *  • Draft   → selalu (belum ada konsumsi stok).
+     *  • Dikonfirmasi → hanya selama BELUM dikerjakan: semua langkah masih
+     *    antre (pending) & belum ada yang mulai (started_at null). Begitu langkah
+     *    pertama mulai dikerjakan, tidak bisa lagi (material/WIP sudah jalan).
+     *  Tidak berlaku untuk order hasil/sumber penggabungan task.
+     */
+    public function canBeCancelled(): bool
+    {
+        if ($this->status === 'draft') {
+            return true;
+        }
+
+        if ($this->status !== 'confirmed') {
+            return false;
+        }
+
+        if ($this->merged_into_id !== null || $this->mergedChildren()->exists()) {
+            return false;
+        }
+
+        return $this->steps->every(
+            fn ($s) => $s->status === 'pending' && $s->started_at === null
+        );
+    }
 }

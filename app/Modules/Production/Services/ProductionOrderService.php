@@ -1051,15 +1051,139 @@ class ProductionOrderService
         });
     }
 
-    public function cancel(int $orderId): void
+    /**
+     * Batalkan order produksi.
+     *  • Draft        → tandai cancelled (belum ada konsumsi stok).
+     *  • Dikonfirmasi → hanya bila BELUM dikerjakan (semua langkah masih antre).
+     *    Material yang sudah dikeluarkan saat konfirmasi dikembalikan ke stok
+     *    (FIFO + ledger) dan dibuat jurnal balik Dr. Persediaan / Cr. WIP.
+     *
+     * @return bool  true bila ada material yang dikembalikan ke stok.
+     */
+    public function cancel(int $orderId): bool
     {
-        $order = ProductionOrder::findOrFail($orderId);
+        return DB::transaction(function () use ($orderId) {
+            $order = ProductionOrder::with(['materials', 'steps', 'mergedChildren'])
+                ->lockForUpdate()
+                ->findOrFail($orderId);
 
-        if (!in_array($order->status, ['draft'])) {
-            throw new Exception('Hanya order berstatus draft yang dapat dibatalkan. Order yang sudah dikonfirmasi tidak dapat dibatalkan karena stok sudah dikeluarkan.');
+            if ($order->status === 'draft') {
+                $order->update(['status' => 'cancelled']);
+                return false;
+            }
+
+            if ($order->status !== 'confirmed') {
+                throw new Exception('Hanya order berstatus draft atau yang sudah dikonfirmasi tapi belum dikerjakan yang dapat dibatalkan.');
+            }
+
+            // Guard penggabungan: order hasil/sumber merge tidak bisa dibatalkan di sini.
+            if ($order->merged_into_id !== null || $order->mergedChildren->isNotEmpty()) {
+                throw new Exception('Order ini terkait penggabungan task — batalkan lewat alur penggabungan, bukan di sini.');
+            }
+
+            // Guard "masih antre": begitu satu langkah mulai dikerjakan, batal tidak boleh.
+            $started = $order->steps->first(
+                fn ($s) => $s->status !== 'pending' || $s->started_at !== null
+            );
+            if ($started) {
+                throw new Exception('Order sudah mulai dikerjakan (langkah ' . $started->step_number . ' tidak lagi antre) — tidak bisa dibatalkan.');
+            }
+
+            $restored = $this->reverseConfirmConsumption($order);
+
+            $order->update(['status' => 'cancelled']);
+
+            return $restored;
+        });
+    }
+
+    /**
+     * Kembalikan material yang dikonsumsi saat konfirmasi ke stok dan balik jurnal WIP.
+     * Dipakai saat membatalkan order yang sudah dikonfirmasi tapi belum dikerjakan.
+     *
+     * @return bool  true bila ada material yang benar-benar dikembalikan.
+     */
+    private function reverseConfirmConsumption(ProductionOrder $order): bool
+    {
+        $consumed = $order->materials->filter(fn ($m) => (float) $m->qty_consumed > 1e-9);
+        if ($consumed->isEmpty()) {
+            // Preorder soft-confirm: material belum pernah dikonsumsi, tidak ada yang dibalik.
+            return false;
         }
 
-        $order->update(['status' => 'cancelled']);
+        $debitCode = $order->type === 'repair'
+            ? AccountCodeEnum::INVENTORY_REPAIR
+            : AccountCodeEnum::INVENTORY;
+
+        $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
+        $inventoryAccount = Account::where('code', $debitCode)->firstOrFail();
+
+        $fifo          = app(FifoService::class);
+        $totalRestored = 0.0;
+
+        // Kelompokkan per produk (mendukung beberapa baris material dengan produk sama).
+        foreach ($consumed->groupBy('product_id') as $productId => $rows) {
+            $qty = (float) $rows->sum('qty_consumed');
+            if ($qty <= 1e-9) {
+                continue;
+            }
+
+            // Biaya konsumsi aktual saat konfirmasi (FIFO) → harga pokok pengembalian.
+            $layers = \App\Models\InventoryCostLayer::where('product_id', $productId)
+                ->where('reference_type', 'production_material')
+                ->where('reference_id', $order->id)
+                ->whereNotNull('qty_out')
+                ->get();
+            $consumedQty  = (float) $layers->sum('qty_out');
+            $consumedCost = (float) $layers->sum(fn ($l) => (float) $l->qty_out * (float) $l->unit_cost);
+            $unitCost     = $consumedQty > 1e-9 ? $consumedCost / $consumedQty : 0.0;
+
+            // Stok kembali ke gudang: layer FIFO baru + ledger qtyIn.
+            $fifo->stockIn(
+                productId:     (int) $productId,
+                warehouseId:   (int) $order->warehouse_id,
+                type:          'production_cancel',
+                reference:     $order->order_number,
+                qty:           $qty,
+                cost:          $unitCost,
+                transactionId: $order->id
+            );
+
+            $totalRestored += $qty * $unitCost;
+        }
+
+        // Reset penanda konsumsi agar konsisten dengan stok yang sudah dikembalikan.
+        foreach ($consumed as $m) {
+            $m->update(['qty_consumed' => 0]);
+        }
+
+        // Jurnal balik (reversing entry): Dr. Persediaan / Cr. WIP. Jurnal konfirmasi
+        // dibiarkan tetap posted sebagai jejak audit — keduanya saling meniadakan.
+        if ($totalRestored > 1e-9) {
+            app(JournalPostingService::class)->post(new JournalEntryDTO(
+                date:             now()->format('Y-m-d'),
+                reference_type:   'production_order_cancel',
+                reference_id:     $order->id,
+                description:      "Batal Order Produksi - {$order->order_number}",
+                lines: [
+                    new JournalLineDTO(
+                        account_id:  $inventoryAccount->id,
+                        debit:       (float) $totalRestored,
+                        credit:      0,
+                        description: 'Material kembali ke persediaan'
+                    ),
+                    new JournalLineDTO(
+                        account_id:  $wipAccount->id,
+                        debit:       0,
+                        credit:      (float) $totalRestored,
+                        description: 'Balik WIP dari pembatalan order'
+                    ),
+                ],
+                reference_number: $order->order_number
+            ));
+        }
+
+        return true;
     }
 
     /**

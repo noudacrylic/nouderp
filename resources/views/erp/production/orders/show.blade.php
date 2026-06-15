@@ -599,6 +599,19 @@
                                 <span class="block text-[11px] font-semibold text-indigo-100 mt-0.5">→ Divisi {{ $activeStep->department->name }}</span>
                             @endif
                         </a>
+
+                        @if($order->status === 'confirmed' && $order->canBeCancelled())
+                            <form action="{{ route('production.orders.cancel', $order->id) }}" method="POST"
+                                  onsubmit="return confirm('Batalkan order ini?\nOrder masih antre di langkah pertama. Material yang sudah dikeluarkan akan dikembalikan ke stok dan jurnal WIP dibalik.')">
+                                @csrf
+                                <button type="submit" class="w-full border border-red-200 text-red-600 hover:bg-red-50 py-2.5 rounded-xl text-sm font-semibold transition">
+                                    Batalkan Order
+                                </button>
+                            </form>
+                            <p class="text-[11px] text-gray-400 leading-snug">
+                                Bisa dibatalkan selama masih antre di langkah pertama. Begitu produksi mulai dikerjakan, opsi ini hilang.
+                            </p>
+                        @endif
                     @endif
                 </div>
             </div>

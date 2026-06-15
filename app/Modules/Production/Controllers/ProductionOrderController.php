@@ -309,8 +309,11 @@ class ProductionOrderController extends Controller
     public function cancel(int $id, ProductionOrderService $service)
     {
         try {
-            $service->cancel($id);
-            return back()->with('success', 'Order produksi dibatalkan.');
+            $restored = $service->cancel($id);
+            $msg = $restored
+                ? 'Order produksi dibatalkan. Material dikembalikan ke stok & jurnal WIP dibalik.'
+                : 'Order produksi dibatalkan.';
+            return back()->with('success', $msg);
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }
