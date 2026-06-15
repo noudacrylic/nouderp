@@ -188,6 +188,12 @@ class WarehouseController extends Controller
         return back()->with('success', 'Warehouse archived');
     }
 
+    public function restore($id)
+    {
+        Warehouse::findOrFail($id)->update(['is_active' => 1]);
+        return back()->with('success', 'Gudang diaktifkan kembali.');
+    }
+
     public function destroy($id)
     {
         $warehouse = Warehouse::findOrFail($id);

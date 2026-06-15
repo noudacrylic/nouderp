@@ -22,7 +22,62 @@ class CustomerController extends Controller
             ->paginate(20)
             ->withQueryString();
 
+        // Customer yang sudah dipakai di transaksi → hanya bisa diarsipkan, tak bisa dihapus.
+        $usedIds = $this->usedCustomerIds($customers->pluck('id')->all());
+        foreach ($customers as $c) {
+            $c->is_used = in_array((int) $c->id, $usedIds, true);
+        }
+
         return view('erp.master.customers.index', compact('customers'));
+    }
+
+    /** ID customer yang sudah dipakai di transaksi mana pun (penawaran/SO/faktur/retur/garansi/DP/lebih-bayar). */
+    private function usedCustomerIds(array $ids): array
+    {
+        if (empty($ids)) return [];
+
+        $tables = [
+            'sales_quotations', 'sales_orders', 'sales_invoices', 'sales_returns',
+            'warranty_orders', 'sales_advances', 'customer_overpayments',
+        ];
+
+        $merged = [];
+        foreach ($tables as $t) {
+            if (! \Illuminate\Support\Facades\Schema::hasTable($t)) continue;
+            $merged = array_merge(
+                $merged,
+                \DB::table($t)->whereIn('customer_id', $ids)->pluck('customer_id')->all()
+            );
+        }
+
+        return array_values(array_unique(array_map('intval', array_filter($merged, fn ($v) => $v !== null))));
+    }
+
+    /** Arsipkan customer (nonaktif) — aman walau sudah dipakai transaksi. */
+    public function archive($id)
+    {
+        Customer::findOrFail($id)->update(['is_active' => 0]);
+        return back()->with('success', 'Customer diarsipkan (nonaktif).');
+    }
+
+    /** Aktifkan kembali customer yang diarsipkan. */
+    public function restore($id)
+    {
+        Customer::findOrFail($id)->update(['is_active' => 1]);
+        return back()->with('success', 'Customer diaktifkan kembali.');
+    }
+
+    /** Hapus permanen — HANYA bila customer belum dipakai di transaksi mana pun. */
+    public function destroy($id)
+    {
+        $customer = Customer::findOrFail($id);
+
+        if (! empty($this->usedCustomerIds([(int) $id]))) {
+            return back()->with('error', 'Customer tidak bisa dihapus karena sudah dipakai di transaksi. Gunakan Arsipkan.');
+        }
+
+        $customer->delete();
+        return back()->with('success', 'Customer dihapus permanen.');
     }
 
     public function create()

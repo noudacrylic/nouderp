@@ -146,6 +146,16 @@ class KaryawanController extends Controller
         return back()->with('success', 'Karyawan diarsipkan.');
     }
 
+    public function restore(int $id)
+    {
+        Karyawan::findOrFail($id)->update([
+            'is_active'   => true,
+            'resign_date' => null,
+        ]);
+
+        return back()->with('success', 'Karyawan diaktifkan kembali.');
+    }
+
     public function searchByDepartment(int $deptId)
     {
         $karyawans = Karyawan::where('department_id', $deptId)

@@ -43,13 +43,33 @@ class SupplierController extends Controller
             ->groupBy('supplier_id')
             ->pluck('total', 'supplier_id');
 
+        // Pemasok yang sudah dipakai di transaksi → hanya bisa diarsipkan, tidak bisa dihapus.
+        $usedIds = $this->usedSupplierIds($suppliers->pluck('id')->all());
+
         foreach ($suppliers as $s) {
             $s->ap_outstanding  = (float) ($apMap[$s->id] ?? 0);
             $s->dp_balance      = (float) ($dpMap[$s->id] ?? 0);
             $s->overpay_balance = (float) ($overpayMap[$s->id] ?? 0);
+            $s->is_used         = in_array((int) $s->id, $usedIds, true);
         }
 
         return view('erp.purchasing.suppliers.index', compact('suppliers'));
+    }
+
+    /** ID pemasok yang sudah dipakai di transaksi mana pun (PO/faktur/retur/pembayaran/lebih-bayar). */
+    private function usedSupplierIds(array $ids): array
+    {
+        if (empty($ids)) return [];
+
+        $merged = array_merge(
+            \DB::table('purchase_orders')->whereIn('supplier_id', $ids)->pluck('supplier_id')->all(),
+            \DB::table('purchase_invoices')->whereIn('supplier_id', $ids)->pluck('supplier_id')->all(),
+            \DB::table('purchase_returns')->whereIn('supplier_id', $ids)->pluck('supplier_id')->all(),
+            \DB::table('supplier_payments')->whereIn('supplier_id', $ids)->pluck('supplier_id')->all(),
+            \DB::table('supplier_overpayments')->whereIn('supplier_id', $ids)->pluck('supplier_id')->all(),
+        );
+
+        return array_values(array_unique(array_map('intval', $merged)));
     }
 
     public function create()
@@ -121,11 +141,31 @@ class SupplierController extends Controller
         return view('erp.purchasing.suppliers.show', compact('supplier'));
     }
 
+    /** Arsipkan pemasok (nonaktif) — tetap aman walau sudah dipakai transaksi. */
+    public function archive($id)
+    {
+        Supplier::findOrFail($id)->update(['is_active' => 0]);
+        return back()->with('success', 'Pemasok diarsipkan (nonaktif).');
+    }
+
+    /** Aktifkan kembali pemasok yang diarsipkan. */
+    public function restore($id)
+    {
+        Supplier::findOrFail($id)->update(['is_active' => 1]);
+        return back()->with('success', 'Pemasok diaktifkan kembali.');
+    }
+
+    /** Hapus permanen — HANYA bila pemasok belum dipakai di transaksi mana pun. */
     public function destroy($id)
     {
         $supplier = Supplier::findOrFail($id);
-        $supplier->update(['is_active' => 0]);
-        return back()->with('success', 'Supplier dinonaktifkan.');
+
+        if (! empty($this->usedSupplierIds([(int) $id]))) {
+            return back()->with('error', 'Pemasok tidak bisa dihapus karena sudah dipakai di transaksi. Gunakan Arsipkan.');
+        }
+
+        $supplier->delete();
+        return back()->with('success', 'Pemasok dihapus permanen.');
     }
 
     public function search(Request $request)

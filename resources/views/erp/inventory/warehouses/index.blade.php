@@ -39,7 +39,12 @@
                     <td class="px-3 py-2 text-right">{{ number_format($warehouse->stock_total ?? 0, 2) }}</td>
                     <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
                         <div class="flex gap-1 justify-center flex-wrap flex-row-reverse">
-                            @if($warehouse->is_used)
+                            @if(!$warehouse->is_active)
+                                <form method="POST" action="{{ route('inventory.warehouses.restore', $warehouse->id) }}">
+                                    @csrf
+                                    <button class="bg-green-600 text-white px-2 py-1 rounded text-xs">Restore</button>
+                                </form>
+                            @elseif($warehouse->is_used)
                                 <form method="POST" action="{{ route('inventory.warehouses.archive', $warehouse->id) }}"
                                       onsubmit="return confirm('Archive gudang {{ $warehouse->name }}?')">
                                     @csrf

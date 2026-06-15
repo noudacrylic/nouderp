@@ -86,7 +86,13 @@
                     </td>
                     <td class="px-3 py-2 text-right">
                         <div class="flex gap-1 flex-row-reverse flex-nowrap">
-                            @if($k->canBeDeleted())
+                            @if(!$k->is_active)
+                                <form method="POST" action="{{ route('sdm.karyawan.restore', $k->id) }}" class="inline"
+                                      onsubmit="return confirm('Aktifkan kembali karyawan ini?')">
+                                    @csrf
+                                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs">Restore</button>
+                                </form>
+                            @elseif($k->canBeDeleted())
                                 <form method="POST" action="{{ route('sdm.karyawan.destroy', $k->id) }}" class="inline"
                                       onsubmit="return confirm('Hapus permanen karyawan {{ $k->name }}? Tindakan ini tidak dapat dibatalkan.')">
                                     @csrf

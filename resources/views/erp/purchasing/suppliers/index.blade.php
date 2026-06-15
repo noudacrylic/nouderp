@@ -31,6 +31,7 @@
                 <th class="px-3 py-2 text-right w-32" title="Saldo Piutang Lebih Bayar Pemasok (1108) — bisa dipakai via Gunakan Saldo">Piutang (1108)</th>
                 <th class="px-3 py-2 text-center w-20">Status</th>
                 <th class="px-3 py-2 text-left w-20">Rincian</th>
+                <th class="px-3 py-2 text-center w-24">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -63,9 +64,31 @@
                     <td class="px-3 py-2">
                         <a href="{{ route('purchasing.suppliers.show', $s->id) }}" class="text-gray-600">Rincian</a>
                     </td>
+                    <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
+                        <div class="flex gap-1 justify-center flex-wrap">
+                            @if(!$s->is_active)
+                                <form method="POST" action="{{ route('purchasing.suppliers.restore', $s->id) }}" class="inline">
+                                    @csrf
+                                    <button class="bg-green-600 text-white px-2 py-1 rounded text-xs">Restore</button>
+                                </form>
+                            @elseif($s->is_used)
+                                <form method="POST" action="{{ route('purchasing.suppliers.archive', $s->id) }}" class="inline"
+                                      onsubmit="return confirm('Arsipkan pemasok ini? (nonaktif, tetap tersimpan)')">
+                                    @csrf
+                                    <button class="bg-yellow-500 text-white px-2 py-1 rounded text-xs" title="Sudah dipakai transaksi — hanya bisa diarsipkan">Archive</button>
+                                </form>
+                            @else
+                                <form method="POST" action="{{ route('purchasing.suppliers.destroy', $s->id) }}" class="inline"
+                                      onsubmit="return confirm('Hapus pemasok ini secara permanen? Tidak bisa dibatalkan.')">
+                                    @csrf @method('DELETE')
+                                    <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
+                                </form>
+                            @endif
+                        </div>
+                    </td>
                 </tr>
             @empty
-                <tr><td colspan="10" class="px-3 py-6 text-center text-gray-400">Belum ada pemasok.</td></tr>
+                <tr><td colspan="11" class="px-3 py-6 text-center text-gray-400">Belum ada pemasok.</td></tr>
             @endforelse
         </tbody>
         @if($suppliers->count())
@@ -75,7 +98,7 @@
                     <td class="px-3 py-2 text-right text-red-700">{{ number_format($totalAp, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-right text-blue-700">{{ number_format($totalDp, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-right text-purple-800">{{ number_format($totalOverpay, 0, ',', '.') }}</td>
-                    <td colspan="2"></td>
+                    <td colspan="3"></td>
                 </tr>
             </tfoot>
         @endif

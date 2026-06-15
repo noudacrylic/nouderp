@@ -26,6 +26,7 @@
                 <th class="px-3 py-2 text-right w-36" title="Saldo Lebih Bayar Customer — bisa dipakai sebagai potongan invoice">Saldo Kredit</th>
                 <th class="px-3 py-2 text-center w-20">Status</th>
                 <th class="px-3 py-2 text-left w-20">Detail</th>
+                <th class="px-3 py-2 text-center w-24">Aksi</th>
             </tr>
         </thead>
         <tbody>
@@ -58,9 +59,31 @@
                     <td class="px-3 py-2">
                         <a href="{{ route('customers.show', $c->id) }}" class="text-gray-600">Detail</a>
                     </td>
+                    <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
+                        <div class="flex gap-1 justify-center flex-wrap">
+                            @if(!$c->is_active)
+                                <form method="POST" action="{{ route('customers.restore', $c->id) }}" class="inline">
+                                    @csrf
+                                    <button class="bg-green-600 text-white px-2 py-1 rounded text-xs">Restore</button>
+                                </form>
+                            @elseif($c->is_used)
+                                <form method="POST" action="{{ route('customers.archive', $c->id) }}" class="inline"
+                                      onsubmit="return confirm('Arsipkan customer ini? (nonaktif, tetap tersimpan)')">
+                                    @csrf
+                                    <button class="bg-yellow-500 text-white px-2 py-1 rounded text-xs" title="Sudah dipakai transaksi — hanya bisa diarsipkan">Archive</button>
+                                </form>
+                            @else
+                                <form method="POST" action="{{ route('customers.destroy', $c->id) }}" class="inline"
+                                      onsubmit="return confirm('Hapus customer ini secara permanen? Tidak bisa dibatalkan.')">
+                                    @csrf @method('DELETE')
+                                    <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
+                                </form>
+                            @endif
+                        </div>
+                    </td>
                 </tr>
             @empty
-                <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">Belum ada customer.</td></tr>
+                <tr><td colspan="9" class="px-3 py-6 text-center text-gray-400">Belum ada customer.</td></tr>
             @endforelse
         </tbody>
         @if($customers->count())
@@ -68,7 +91,7 @@
                 <tr>
                     <td colspan="5" class="px-3 py-2 text-right uppercase tracking-widest text-[10px]">Total</td>
                     <td class="px-3 py-2 text-right text-green-700">{{ number_format($totalCredit, 0, ',', '.') }}</td>
-                    <td colspan="2"></td>
+                    <td colspan="3"></td>
                 </tr>
             </tfoot>
         @endif

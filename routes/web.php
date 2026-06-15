@@ -116,6 +116,7 @@ Route::prefix('erp')->group(function () {
 // SDM Module
 Route::prefix('erp/sdm')->name('sdm.')->group(function () {
     Route::post('karyawan/{id}/archive', [\App\Modules\SDM\Controllers\KaryawanController::class, 'archive'])->name('karyawan.archive');
+    Route::post('karyawan/{id}/restore', [\App\Modules\SDM\Controllers\KaryawanController::class, 'restore'])->name('karyawan.restore');
     Route::resource('karyawan', \App\Modules\SDM\Controllers\KaryawanController::class);
 
     // Absensi dashboard — per-karyawan per-bulan dengan kolom gaji/lembur/tunjangan.
@@ -236,6 +237,8 @@ Route::get('/erp/api/karyawan/except-department/{deptId}', [\App\Modules\SDM\Con
 
 Route::prefix('erp/master')->group(function () {
     Route::resource('customers', CustomerController::class);
+    Route::post('customers/{id}/archive', [CustomerController::class, 'archive'])->name('customers.archive');
+    Route::post('customers/{id}/restore', [CustomerController::class, 'restore'])->name('customers.restore');
 });
 
 Route::get('/erp/api/customers/search', [CustomerController::class, 'search']);
@@ -349,6 +352,7 @@ Route::prefix('erp/inventory')->group(function () {
     Route::put('/warehouses/{id}', [WarehouseController::class, 'update'])->name('inventory.warehouses.update');
     Route::delete('/warehouses/{id}', [WarehouseController::class, 'destroy'])->name('inventory.warehouses.destroy');
     Route::post('/warehouses/{id}/archive', [WarehouseController::class, 'archive'])->name('inventory.warehouses.archive');
+    Route::post('/warehouses/{id}/restore', [WarehouseController::class, 'restore'])->name('inventory.warehouses.restore');
     Route::get('/warehouses/{id}/ledger', [WarehouseController::class, 'ledger'])->name('inventory.warehouses.ledger');
     Route::get('/warehouse-stock', [WarehouseController::class, 'warehouseStock'])->name('inventory.warehouses.stock');
 
@@ -724,6 +728,8 @@ Route::prefix('erp/purchasing')->name('purchasing.')->group(function () {
     Route::get('suppliers/{id}/edit', [\App\Modules\Purchasing\Controllers\SupplierController::class, 'edit'])->name('suppliers.edit');
     Route::put('suppliers/{id}', [\App\Modules\Purchasing\Controllers\SupplierController::class, 'update'])->name('suppliers.update');
     Route::delete('suppliers/{id}', [\App\Modules\Purchasing\Controllers\SupplierController::class, 'destroy'])->name('suppliers.destroy');
+    Route::post('suppliers/{id}/archive', [\App\Modules\Purchasing\Controllers\SupplierController::class, 'archive'])->name('suppliers.archive');
+    Route::post('suppliers/{id}/restore', [\App\Modules\Purchasing\Controllers\SupplierController::class, 'restore'])->name('suppliers.restore');
 
     // Purchase Orders
     Route::get('orders', [\App\Modules\Purchasing\Controllers\PurchaseOrderController::class, 'index'])->name('orders.index');
