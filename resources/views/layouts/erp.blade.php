@@ -953,6 +953,13 @@
                 </a>
                 @endif
 
+                {{-- ================= PANDUAN ================= --}}
+                @if(should_show_menu_group('panduan'))
+                <a href="/erp/panduan" class="menu-single {{ request()->is('erp/panduan*') ? 'active' : '' }}" data-tip="Panduan">
+                    <span class="menu-icon" style="font-size:20px;display:flex;align-items:center;justify-content:center;">📖</span><span class="menu-label">&nbsp;Panduan</span>
+                </a>
+                @endif
+
                 {{-- ================= SETTINGS ================= --}}
                 @if(should_show_menu_group('settings'))
                 <a href="{{ module_landing_url('settings') }}" class="menu-single {{ request()->is('erp/settings/*') ? 'active' : '' }}" data-tip="Pengaturan">

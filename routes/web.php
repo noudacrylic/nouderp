@@ -53,6 +53,9 @@ Route::prefix('erp')->group(function () {
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/dashboard/chart', [\App\Http\Controllers\DashboardController::class, 'chartData'])->name('dashboard.chart');
 
+    // Panduan penggunaan in-app (semua user yang login)
+    Route::get('/panduan', [\App\Http\Controllers\PanduanController::class, 'index'])->name('panduan.index');
+
     // Marketplace Settings
     Route::prefix('settings')->group(function () {
         Route::get('/inventory', [\App\Http\Controllers\Inventory\InventorySettingController::class, 'edit'])

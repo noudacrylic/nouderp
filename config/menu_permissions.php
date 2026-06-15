@@ -210,6 +210,14 @@ return [
         ],
     ],
 
+    'panduan' => [
+        'label' => 'Panduan',
+        'icon' => '📖',
+        'always_visible' => true,
+        'url' => '/erp/panduan',
+        'route_patterns' => ['panduan.*'],
+    ],
+
     'settings' => [
         'label' => 'Settings',
         'icon' => '⚙️',
