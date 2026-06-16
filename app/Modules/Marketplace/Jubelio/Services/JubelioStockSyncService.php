@@ -5,6 +5,7 @@ namespace App\Modules\Marketplace\Jubelio\Services;
 use App\Core\Inventory\InventoryEngine;
 use App\Core\Inventory\Product;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
+use App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -96,12 +97,22 @@ class JubelioStockSyncService
         $itemId = $this->resolveItemId($product);
         if (!$itemId) {
             Log::warning('Jubelio stok: produk tanpa item Jubelio', ['product' => $product->id, 'sku' => $product->sku]);
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::SKIP, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => 'Produk belum ter-match ke item Jubelio (SKU tidak ditemukan). Jalankan pencocokan produk.',
+            ]);
             return 'skipped';
         }
 
         $locationId = $product->jubelio_location_id ?: $setting->default_location_id;
         if (!$locationId) {
             Log::warning('Jubelio stok: location_id belum diatur', ['product' => $product->id]);
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::SKIP, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => 'Location ID Jubelio belum diatur (Settings → Jubelio).',
+            ]);
             return 'skipped';
         }
 
@@ -140,10 +151,22 @@ class JubelioStockSyncService
 
         if (!$resp['success']) {
             Log::warning('Jubelio stok: adjustment gagal', ['product' => $product->id, 'delta' => $delta, 'error' => $resp['error']]);
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::FAIL, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => $resp['error'] ?: 'Gagal mengirim penyesuaian stok ke Jubelio.',
+                'meta'       => ['delta' => $delta, 'available' => $available],
+            ]);
             return 'failed';
         }
 
         $product->forceFill(['jubelio_synced_qty' => $available])->save();
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::OK, $product->name, [
+            'reference'  => $product->sku,
+            'product_id' => $product->id,
+            'message'    => ($reconcile ? 'Rekonsiliasi' : 'Push') . ' stok: ' . ($delta > 0 ? '+' : '') . rtrim(rtrim(number_format($delta, 4, '.', ''), '0'), '.') . ' → tersedia ' . rtrim(rtrim(number_format($available, 4, '.', ''), '0'), '.'),
+            'meta'       => ['delta' => $delta, 'available' => $available, 'mode' => $reconcile ? 'reconcile' : 'push'],
+        ]);
         return 'pushed';
     }
 

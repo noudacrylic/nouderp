@@ -85,6 +85,7 @@ Route::prefix('erp')->group(function () {
 
         // Integrasi marketplace — Jubelio
         Route::get('/jubelio', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'edit'])->name('settings.jubelio.edit');
+        Route::get('/jubelio/history', [\App\Http\Controllers\Settings\JubelioSyncLogController::class, 'index'])->name('settings.jubelio.history');
         Route::post('/jubelio', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'update'])->name('settings.jubelio.update');
         Route::post('/jubelio/test', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'testConnection'])->name('settings.jubelio.test');
         Route::post('/jubelio/channel-map', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'storeChannelMap'])->name('settings.jubelio.channel-map.store');

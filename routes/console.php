@@ -39,3 +39,6 @@ Schedule::command('jubelio:push-stock')->everyFiveMinutes()->name('jubelio-push-
 Schedule::command('jubelio:reconcile-stock')->everyTwoHours()->name('jubelio-reconcile-stock')->withoutOverlapping();
 // Jubelio harga — push perubahan harga tiap 15 menit (promo tetap diatur di Jubelio).
 Schedule::command('jubelio:push-prices')->everyFifteenMinutes()->name('jubelio-push-prices')->withoutOverlapping();
+// Jubelio riwayat sinkron — buang log lebih lama dari 90 hari (jejak audit, bukan sumber kebenaran).
+Schedule::call(fn() => \App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog::where('created_at', '<', now()->subDays(90))->delete())
+    ->dailyAt('02:30')->name('jubelio-prune-sync-logs');

@@ -2,7 +2,12 @@
 
 @section('content')
 <div class="max-w-4xl mx-auto">
-    <a href="{{ route('settings.integrations.index') }}" class="inline-block text-xs text-blue-600 hover:underline mb-3">← Integrasi</a>
+    <div class="flex items-center justify-between mb-3">
+        <a href="{{ route('settings.integrations.index') }}" class="inline-block text-xs text-blue-600 hover:underline">← Integrasi</a>
+        <a href="{{ route('settings.jubelio.history') }}" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline">
+            Riwayat Sinkron →
+        </a>
+    </div>
     <div class="bg-white shadow rounded-lg border p-6">
         <h2 class="text-xl font-bold text-gray-800 mb-2">Pengaturan Jubelio</h2>
         <p class="text-sm text-gray-500 mb-6">

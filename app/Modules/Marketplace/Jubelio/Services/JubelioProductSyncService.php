@@ -3,6 +3,7 @@
 namespace App\Modules\Marketplace\Jubelio\Services;
 
 use App\Core\Inventory\Product;
+use App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -93,6 +94,11 @@ class JubelioProductSyncService
         // Pastikan item_id & item_group_id tersedia.
         if (!$product->jubelio_item_id || !$product->jubelio_item_group_id) {
             if (!$this->matchProduct($product)) {
+                JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::SKIP, $product->name, [
+                    'reference'  => $product->sku,
+                    'product_id' => $product->id,
+                    'message'    => 'Produk belum ter-match ke item Jubelio (SKU tidak ditemukan).',
+                ]);
                 return 'skipped';
             }
             $product->refresh();
@@ -103,6 +109,11 @@ class JubelioProductSyncService
 
         $price = (float) $product->display_price;
         if ($price <= 0) {
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::SKIP, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => 'Harga utama produk belum diatur (0).',
+            ]);
             return 'skipped';
         }
 
@@ -114,8 +125,20 @@ class JubelioProductSyncService
 
         if (!$resp['success']) {
             Log::warning('Jubelio harga: push gagal', ['product' => $product->id, 'error' => $resp['error']]);
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::FAIL, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => $resp['error'] ?: 'Gagal mengirim harga ke Jubelio.',
+                'meta'       => ['price' => $price],
+            ]);
             return 'failed';
         }
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::OK, $product->name, [
+            'reference'  => $product->sku,
+            'product_id' => $product->id,
+            'message'    => 'Harga utama dikirim: ' . number_format($price, 0, ',', '.'),
+            'meta'       => ['price' => $price],
+        ]);
         return 'pushed';
     }
 

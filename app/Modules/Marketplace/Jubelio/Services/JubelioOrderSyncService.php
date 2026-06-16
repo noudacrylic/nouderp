@@ -12,6 +12,7 @@ use App\Models\MarketplaceConfig;
 use App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap;
 use App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
+use App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesOrderItem;
 use App\Modules\Sales\Services\CustomerPaymentService;
@@ -108,6 +109,11 @@ class JubelioOrderSyncService
         if (!empty($detail['is_canceled'])) {
             $link->last_status = 'canceled';
             $link->save();
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::SKIP, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $jubelioSoId), [
+                'reference'             => $link->jubelio_salesorder_no,
+                'jubelio_salesorder_id' => $jubelioSoId,
+                'message'               => 'Pesanan dibatalkan di Jubelio — tangani manual bila SO sudah dibuat.',
+            ]);
             return $link;
         }
 
@@ -196,6 +202,11 @@ class JubelioOrderSyncService
                 $created = $this->createReturnDraft($link, $rows);
                 if ($created) {
                     $stats['created']++;
+                    JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Retur pesanan ' . ($link->jubelio_salesorder_no ?: $soId), [
+                        'reference'             => $link->jubelio_salesorder_no,
+                        'jubelio_salesorder_id' => $soId,
+                        'message'               => 'Draft Retur Penjualan dibuat (menunggu cek barang).',
+                    ]);
                 } else {
                     // Tak ada draft dibuat (SO hilang / item tak terpetakan) → lepas klaim
                     // agar bisa dicoba lagi nanti.
@@ -305,6 +316,13 @@ class JubelioOrderSyncService
             // Persist progres tahap A di dalam transaksi agar konsisten dengan SO yang dibuat.
             $link->last_error = null;
             $link->save();
+
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+                'reference'             => $link->jubelio_salesorder_no,
+                'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'               => 'Sales Order ' . $so->order_number . ' dibuat + DP diposting' . ($store ? " ({$store})" : ''),
+                'meta'                  => ['sales_order_id' => $so->id, 'grand_total' => (float) $so->grand_total],
+            ]);
         });
     }
 
@@ -353,6 +371,11 @@ class JubelioOrderSyncService
         }
         $link->sj_created = true;
         $link->save();
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+            'reference'             => $link->jubelio_salesorder_no,
+            'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+            'message'               => 'Surat Jalan dibuat untuk SO ' . $so->order_number . ' (stok keluar).',
+        ]);
     }
 
     // ───────────────────────────── Tahap C: Invoice ─────────────────────────────
@@ -431,6 +454,12 @@ class JubelioOrderSyncService
         $link->invoice_posted = true;
         $link->jubelio_invoice_id = $detail['invoice_id'] ?? null;
         $link->save();
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+            'reference'             => $link->jubelio_salesorder_no,
+            'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+            'message'               => 'Invoice ' . ($invoice->invoice_number ?? '') . ' dibuat & diposting untuk SO ' . $so->order_number . '.',
+            'meta'                  => ['invoice_id' => $invoice->id ?? null],
+        ]);
     }
 
     // ───────────────────────────── Retur draft ─────────────────────────────
@@ -603,6 +632,11 @@ class JubelioOrderSyncService
     {
         $link->last_error = $msg;
         $link->save();
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::FAIL, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+            'reference'             => $link->jubelio_salesorder_no,
+            'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+            'message'               => $msg,
+        ]);
         Log::warning('Jubelio order belum dapat diproses', ['id' => $link->jubelio_salesorder_id, 'reason' => $msg]);
     }
 }
