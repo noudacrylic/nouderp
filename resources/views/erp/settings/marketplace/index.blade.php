@@ -129,12 +129,19 @@
             {{-- Platform Selection --}}
             <div>
                 <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Pilih Platform (Pelanggan)</label>
-                <select name="customer_id" required class="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-5 py-4 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-bold text-slate-700 outline-none">
-                    <option value="" disabled selected>-- Pilih Pelanggan --</option>
-                    @foreach($customers as $customer)
-                        <option value="{{ $customer->id }}">{{ $customer->name }}</option>
-                    @endforeach
-                </select>
+                <div class="flex gap-2 items-center">
+                    <select name="customer_id" id="mpCustomer" required class="flex-1 bg-slate-50 border-2 border-slate-50 rounded-2xl px-5 py-4 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-bold text-slate-700 outline-none">
+                        <option value="" disabled selected>-- Pilih / ketik toko --</option>
+                        @foreach($customers as $customer)
+                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                        @endforeach
+                    </select>
+                    <button type="button" id="btnFindStore"
+                            class="shrink-0 px-3 py-2 border border-indigo-500 text-indigo-600 rounded-lg text-xs font-semibold hover:bg-indigo-50 whitespace-nowrap disabled:opacity-60">
+                        Cari Toko
+                    </button>
+                </div>
+                <p class="text-xs text-slate-400 mt-1.5 ml-1" id="mpStoreHint">Pilih pelanggan yang sudah ada, klik "Cari Toko Jubelio" untuk menarik daftar toko, atau ketik nama toko baru → otomatis dibuat sebagai pelanggan marketplace + dipetakan.</p>
             </div>
 
             {{-- Fee Configuration --}}
@@ -186,7 +193,7 @@
                 </div>
             </div>
 
-            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-200 transition-all transform hover:scale-[1.02] active:scale-95 tracking-widest uppercase text-sm">
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl shadow-md shadow-indigo-100 transition-all active:scale-95 text-sm">
                 Inisialisasi Platform
             </button>
         </form>
@@ -256,8 +263,8 @@
                 </label>
             </div>
 
-            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-200 transition-all font-mono tracking-widest uppercase">
-                SIMPAN PERUBAHAN
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl shadow-md shadow-indigo-100 transition-all active:scale-95 text-sm">
+                Simpan Perubahan
             </button>
         </form>
     </div>
@@ -269,18 +276,73 @@
 </style>
 
 <script>
+    // Live-search untuk pilih pelanggan & akun (TomSelect sudah dimuat global di layout).
+    const mpTom = {};
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('#addModal select, #editModal select').forEach(function (el) {
+            const opts = {
+                create: false,
+                maxItems: 1,
+                dropdownParent: 'body',
+                placeholder: (el.options[0] && !el.options[0].value) ? el.options[0].text : 'Cari…',
+            };
+            // Pelanggan: boleh ketik nama toko baru → nilai "new:<nama>" (dibuat saat Simpan).
+            if (el.id === 'mpCustomer') {
+                opts.create = (input) => ({ value: 'new:' + input.trim(), text: input.trim() + ' (buat baru)' });
+                opts.createOnBlur = true;
+            }
+            const ts = new TomSelect(el, opts);
+            if (el.id) mpTom[el.id] = ts;
+        });
+
+        // Tombol "Cari Toko Jubelio": tarik daftar toko & tambahkan sebagai opsi "buat baru".
+        document.getElementById('btnFindStore')?.addEventListener('click', async function () {
+            const btn = this, hint = document.getElementById('mpStoreHint'), ts = mpTom['mpCustomer'];
+            if (!ts) return;
+            btn.disabled = true; const label = btn.textContent; btn.textContent = 'Mencari…';
+            try {
+                const res = await fetch('{{ route('settings.marketplace.stores') }}', { headers: { 'Accept': 'application/json' } });
+                const data = await res.json();
+                if (!data.success) { hint.textContent = data.message || 'Gagal mengambil toko.'; hint.className = 'text-xs text-red-500 mt-1.5 ml-1'; return; }
+                const stores = data.stores || [];
+                // Nama pelanggan yang sudah jadi opsi (buang sufiks keterangan) untuk hindari duplikat.
+                const existing = new Set(Object.values(ts.options).map(o => (o.text || '').toLowerCase().replace(/\s*\(.*\)$/, '')));
+                let added = 0;
+                stores.forEach(name => {
+                    if (existing.has(name.toLowerCase())) return;
+                    ts.addOption({ value: 'new:' + name, text: name + ' (toko Jubelio — buat baru)' });
+                    added++;
+                });
+                ts.refreshOptions(false);
+                if (!stores.length) { hint.textContent = 'Jubelio tidak mengembalikan toko apa pun.'; hint.className = 'text-xs text-red-500 mt-1.5 ml-1'; return; }
+                hint.textContent = stores.length + ' toko Jubelio dimuat (' + added + ' baru) — pilih satu lalu lengkapi akun & Simpan.';
+                hint.className = 'text-xs text-green-600 mt-1.5 ml-1';
+                ts.open();
+            } catch (e) {
+                hint.textContent = 'Error: ' + e.message; hint.className = 'text-xs text-red-500 mt-1.5 ml-1';
+            } finally {
+                btn.disabled = false; btn.textContent = label;
+            }
+        });
+    });
+
+    function setMpSelect(id, val) {
+        if (mpTom[id]) mpTom[id].setValue(val, true);
+        else document.getElementById(id).value = val;
+    }
+
     function openEditModal(id, percent, fixed, active, hold_id, fee_id, wallet_id) {
         const form = document.getElementById('editForm');
         form.action = `/erp/settings/marketplace/${id}`;
         document.getElementById('edit_percent').value = percent;
         document.getElementById('edit_fixed').value = fixed;
         document.getElementById('edit_active').checked = active;
-        
-        // Account mappings
-        document.getElementById('edit_hold_id').value = hold_id;
-        document.getElementById('edit_fee_id').value = fee_id;
-        document.getElementById('edit_wallet_id').value = wallet_id;
-        
+
+        // Account mappings (lewat instance TomSelect agar tampilannya ikut ter-update).
+        setMpSelect('edit_hold_id', hold_id);
+        setMpSelect('edit_fee_id', fee_id);
+        setMpSelect('edit_wallet_id', wallet_id);
+
         document.getElementById('editModal').classList.remove('hidden');
     }
 </script>

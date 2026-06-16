@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Settings;
 
+use App\Core\Accounting\Account;
 use App\Core\Inventory\Warehouse;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\MarketplaceConfig;
 use App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
@@ -19,9 +21,15 @@ class JubelioSettingController extends Controller
         $warehouses = Warehouse::orderBy('name')->get();
         // Customer marketplace untuk fallback nama pelanggan.
         $marketplaceCustomers = Customer::where('is_marketplace', true)->orderBy('name')->get();
-        $channelMaps = JubelioChannelMap::with('customer')->orderBy('store')->get();
+        // Pemetaan toko + konfigurasi akuntansi marketplace (digabung di satu tempat).
+        $channelMaps = JubelioChannelMap::with([
+            'customer.marketplace.holdAccount',
+            'customer.marketplace.feeAccount',
+            'customer.marketplace.walletAccount',
+        ])->orderBy('store')->get();
+        $accounts = Account::orderBy('code')->get();
 
-        return view('erp.settings.jubelio.edit', compact('setting', 'warehouses', 'marketplaceCustomers', 'channelMaps'));
+        return view('erp.settings.jubelio.edit', compact('setting', 'warehouses', 'marketplaceCustomers', 'channelMaps', 'accounts'));
     }
 
     public function update(Request $request)
@@ -123,20 +131,76 @@ class JubelioSettingController extends Controller
         return response()->json(['success' => true, 'locations' => $locations]);
     }
 
-    /** Pemetaan nama toko/channel Jubelio → customer marketplace ERP. */
+    /**
+     * Langkah 1 — Pemetaan toko Jubelio → customer marketplace (tanpa akuntansi).
+     * customer_id boleh berupa id existing ATAU "new:<nama>" (auto-buat customer marketplace).
+     * Potongan & akun diisi terpisah per-baris (lihat saveMarketplaceConfig).
+     */
     public function storeChannelMap(Request $request)
     {
         $data = $request->validate([
             'store'       => 'required|string|max:255',
-            'customer_id' => 'required|exists:customers,id',
+            'customer_id' => 'required|string',
         ]);
+
+        // Resolusi customer: id existing atau "new:<nama>" → buat baru bertipe marketplace.
+        $raw = trim($data['customer_id']);
+        if (str_starts_with($raw, 'new:')) {
+            $name = trim(substr($raw, 4));
+            if ($name === '') {
+                return back()->withErrors(['customer_id' => 'Nama customer kosong.'])->withInput();
+            }
+            $customer = Customer::firstOrCreate(
+                ['name' => $name],
+                ['code' => 'CUST-' . time(), 'customer_type' => 'marketplace', 'is_marketplace' => true, 'is_active' => true]
+            );
+            $customer->forceFill(['customer_type' => 'marketplace', 'is_marketplace' => true])->save();
+        } else {
+            $customer = ctype_digit($raw) ? Customer::find((int) $raw) : null;
+            if (!$customer) {
+                return back()->withErrors(['customer_id' => 'Customer tidak valid.'])->withInput();
+            }
+            if (!$customer->is_marketplace) {
+                $customer->forceFill(['is_marketplace' => true])->save();
+            }
+        }
 
         JubelioChannelMap::updateOrCreate(
             ['store' => trim($data['store'])],
-            ['customer_id' => $data['customer_id'], 'is_active' => true]
+            ['customer_id' => $customer->id, 'is_active' => true]
         );
 
-        return back()->with('success', 'Pemetaan toko Jubelio tersimpan.');
+        return back()->with('success', 'Pemetaan toko tersimpan. Lengkapi potongan & akun di baris pemetaan.');
+    }
+
+    /**
+     * Langkah 2 — Konfigurasi akuntansi marketplace untuk satu customer (potongan + akun).
+     * Diisi per-baris setelah pemetaan toko ada. Ketiga akun wajib (alur DP/saldo ditahan).
+     */
+    public function saveMarketplaceConfig(Request $request)
+    {
+        $data = $request->validate([
+            'customer_id'                => 'required|exists:customers,id',
+            'admin_fee_percent'          => 'nullable|numeric|min:0',
+            'admin_fee_fixed'            => 'nullable|numeric|min:0',
+            'account_receivable_hold_id' => 'required|exists:accounts,id',
+            'account_fee_id'             => 'required|exists:accounts,id',
+            'account_wallet_id'          => 'required|exists:accounts,id',
+        ]);
+
+        MarketplaceConfig::updateOrCreate(
+            ['customer_id' => $data['customer_id']],
+            [
+                'admin_fee_percent'          => $data['admin_fee_percent'] ?? 0,
+                'admin_fee_fixed'            => $data['admin_fee_fixed'] ?? 0,
+                'account_receivable_hold_id' => $data['account_receivable_hold_id'],
+                'account_fee_id'             => $data['account_fee_id'],
+                'account_wallet_id'          => $data['account_wallet_id'],
+                'is_active'                  => true,
+            ]
+        );
+
+        return back()->with('success', 'Potongan & akun marketplace tersimpan.');
     }
 
     public function destroyChannelMap($id)

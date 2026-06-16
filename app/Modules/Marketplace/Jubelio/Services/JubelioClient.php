@@ -197,6 +197,16 @@ class JubelioClient
     }
 
     /**
+     * Daftar toko/channel Jubelio (untuk pemetaan store → customer marketplace).
+     * Respons: { data: [ {channel_id, store_id, store_name, ...} ] }.
+     * store_name di sini = field 'store_name' yang muncul di detail order → kunci routing.
+     */
+    public function getStores(int $page = 1, int $pageSize = 100): array
+    {
+        return $this->get('/marketplace/store/', ['page' => $page, 'pageSize' => $pageSize]);
+    }
+
+    /**
      * Stok available item di sebuah lokasi (untuk rekonsiliasi absolut).
      * Mengembalikan float|null (null bila tak dapat ditentukan dari respons).
      */

@@ -5,23 +5,45 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\MarketplaceConfig;
 use App\Models\Customer;
+use App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap;
+use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
+use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use Illuminate\Http\Request;
 
 class MarketplaceConfigController extends Controller
 {
+    /** Ambil daftar toko Jubelio untuk pilihan platform (dipanggil via fetch dari modal). */
+    public function fetchStores(JubelioClient $client)
+    {
+        if (!JubelioSetting::singleton()->isConfigured()) {
+            return response()->json(['success' => false, 'message' => 'Integrasi Jubelio belum dikonfigurasi (Settings → Jubelio).'], 422);
+        }
+
+        $resp = $client->getStores();
+        if (!$resp['success']) {
+            return response()->json(['success' => false, 'message' => 'Gagal mengambil toko dari Jubelio: ' . ($resp['error'] ?? 'tidak diketahui')], 502);
+        }
+
+        $rows = $resp['data']['data'] ?? (is_array($resp['data']) ? $resp['data'] : []);
+        $stores = collect($rows)
+            ->map(fn ($r) => trim((string) ($r['store_name'] ?? '')))
+            ->filter()
+            ->unique()
+            ->values();
+
+        return response()->json(['success' => true, 'stores' => $stores]);
+    }
+
     public function index()
     {
-        $configs = MarketplaceConfig::with('customer', 'holdAccount', 'feeAccount', 'walletAccount')->get();
-        $customers = Customer::all();
-        $accounts = \App\Core\Accounting\Account::orderBy('code')->get();
-
-        return view('erp.settings.marketplace.index', compact('configs', 'customers', 'accounts'));
+        // Konfigurasi marketplace kini digabung ke Settings → Jubelio (Pemetaan Toko + Akun).
+        return redirect()->route('settings.jubelio.edit');
     }
 
     public function store(Request $request)
     {
         $request->validate([
-            'customer_id' => 'required|exists:customers,id|unique:marketplace_configs,customer_id',
+            'customer_id' => 'required|string',
             'admin_fee_percent' => 'nullable|numeric|min:0',
             'admin_fee_fixed' => 'nullable|numeric|min:0',
             'account_receivable_hold_id' => 'required|exists:accounts,id',
@@ -29,8 +51,43 @@ class MarketplaceConfigController extends Controller
             'account_wallet_id' => 'required|exists:accounts,id',
         ]);
 
+        $raw = trim((string) $request->customer_id);
+
+        // Nilai "new:<store_name>" → buat customer marketplace baru + petakan channel
+        // (store_name HARUS persis nama toko Jubelio agar pesanan masuk ter-route ke customer ini).
+        if (str_starts_with($raw, 'new:')) {
+            $name = trim(substr($raw, 4));
+            if ($name === '') {
+                return back()->withErrors(['customer_id' => 'Nama toko/pelanggan kosong.'])->withInput();
+            }
+
+            $customer = Customer::firstOrCreate(
+                ['name' => $name],
+                ['code' => 'CUST-' . time(), 'customer_type' => 'marketplace', 'is_marketplace' => true, 'is_active' => true]
+            );
+            // Pastikan flag marketplace walau customer sudah ada sebelumnya dengan tipe lain.
+            $customer->forceFill(['customer_type' => 'marketplace', 'is_marketplace' => true])->save();
+
+            // Pemetaan toko Jubelio → customer (kunci routing pesanan). Pakai nama sebagai store.
+            JubelioChannelMap::updateOrCreate(
+                ['store' => $name],
+                ['customer_id' => $customer->id, 'is_active' => true]
+            );
+
+            $customerId = $customer->id;
+        } else {
+            if (!ctype_digit($raw) || !Customer::whereKey($raw)->exists()) {
+                return back()->withErrors(['customer_id' => 'Pelanggan tidak valid.'])->withInput();
+            }
+            $customerId = (int) $raw;
+        }
+
+        if (MarketplaceConfig::where('customer_id', $customerId)->exists()) {
+            return back()->withErrors(['customer_id' => 'Pelanggan ini sudah punya konfigurasi marketplace.'])->withInput();
+        }
+
         MarketplaceConfig::create([
-            'customer_id' => $request->customer_id,
+            'customer_id' => $customerId,
             'admin_fee_percent' => $request->admin_fee_percent ?? 0,
             'admin_fee_fixed' => $request->admin_fee_fixed ?? 0,
             'account_receivable_hold_id' => $request->account_receivable_hold_id,
@@ -39,7 +96,7 @@ class MarketplaceConfigController extends Controller
             'is_active' => true,
         ]);
 
-        Customer::where('id', $request->customer_id)->update(['is_marketplace' => true]);
+        Customer::where('id', $customerId)->update(['is_marketplace' => true]);
 
         return back()->with('success', 'Konfigurasi Marketplace berhasil dibuat.');
     }

@@ -1,7 +1,7 @@
 @extends('layouts.erp')
 
 @section('content')
-<div class="max-w-4xl mx-auto">
+<div class="max-w-5xl mx-auto">
     <div class="flex items-center justify-between mb-3">
         <a href="{{ route('settings.integrations.index') }}" class="inline-block text-xs text-blue-600 hover:underline">← Integrasi</a>
         <a href="{{ route('settings.jubelio.history') }}" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline">
@@ -183,51 +183,138 @@
 
     {{-- ===== Pemetaan Toko → Customer Marketplace ===== --}}
     <div class="bg-white shadow rounded-lg border p-6 mt-5">
-        <h3 class="text-base font-bold text-gray-800 mb-1">Pemetaan Toko Jubelio → Customer</h3>
-        <p class="text-sm text-gray-500 mb-4">
-            Pesanan dari toko/channel tertentu di Jubelio akan dibuatkan SO atas nama customer marketplace yang dipetakan di sini.
+        <h3 class="text-base font-bold text-gray-800 mb-1">Pemetaan Toko Jubelio → Customer &amp; Akuntansi Marketplace</h3>
+        <p class="text-sm text-gray-500 mb-5">
+            Petakan tiap toko/channel Jubelio ke customer marketplace, lalu atur biaya admin &amp; akunnya.
             Toko yang belum dipetakan memakai <b>Customer Marketplace Fallback</b> di atas.
         </p>
 
-        <form method="POST" action="{{ route('settings.jubelio.channel-map.store') }}" class="flex flex-wrap items-end gap-3 mb-4">
+        {{-- Langkah 1: petakan toko → customer (tambah satu per satu, jadi baris di Langkah 2) --}}
+        <form method="POST" action="{{ route('settings.jubelio.channel-map.store') }}" class="mb-6 bg-slate-50 border rounded-lg p-5">
             @csrf
-            <div class="flex-1 min-w-[180px]">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Nama Toko / Channel (di Jubelio)</label>
-                <input type="text" name="store" required class="w-full border rounded px-3 py-2 text-sm" placeholder="mis. Shopee Noud Acrylic">
+            <div class="flex items-center justify-between mb-3">
+                <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Langkah 1 · Petakan Toko → Customer</div>
+                <span class="text-[11px] text-slate-400">Tambah satu per satu — bisa banyak toko</span>
             </div>
-            <div class="flex-1 min-w-[180px]">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Customer Marketplace ERP</label>
-                <select name="customer_id" required class="w-full border rounded px-3 py-2 text-sm">
-                    <option value="">— pilih —</option>
-                    @foreach($marketplaceCustomers as $c)
-                        <option value="{{ $c->id }}">{{ $c->name }}</option>
-                    @endforeach
-                </select>
+            <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Nama Toko / Channel (di Jubelio)</label>
+                        <div class="flex gap-2 items-center">
+                            <select name="store" id="jbStore" required class="flex-1 border rounded px-3 py-2 text-sm">
+                                <option value="" disabled selected>— pilih / ketik toko —</option>
+                            </select>
+                            <button type="button" id="jbFindStore" class="shrink-0 px-3 py-2 border border-blue-600 text-blue-600 rounded text-xs font-semibold hover:bg-blue-50 whitespace-nowrap disabled:opacity-60">Cari Toko</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Customer Marketplace ERP</label>
+                        <select name="customer_id" id="jbCustomer" required class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="" disabled selected>— pilih / ketik nama baru —</option>
+                            @foreach($marketplaceCustomers as $c)
+                                <option value="{{ $c->id }}">{{ $c->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+                <button class="shrink-0 h-[38px] bg-blue-600 text-white px-5 rounded font-semibold text-sm hover:bg-blue-700 whitespace-nowrap">+ Tambah Toko</button>
             </div>
-            <button class="bg-blue-600 text-white px-4 py-2 rounded font-semibold text-sm">Tambah / Perbarui</button>
+            <p class="text-xs text-gray-400 mt-3" id="jbStoreHint">Klik "Cari Toko" untuk menarik daftar toko Jubelio, atau ketik nama toko/customer baru → otomatis dibuat. Potongan &amp; akun diisi di Langkah 2.</p>
         </form>
 
+        {{-- Langkah 2: potongan & akun per baris --}}
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
+            Langkah 2 · Potongan &amp; Akun (per toko)
+            @if(!$channelMaps->isEmpty())<span class="text-slate-400 font-normal normal-case">— {{ $channelMaps->count() }} toko</span>@endif
+        </div>
         @if($channelMaps->isEmpty())
-            <p class="text-xs text-gray-400">Belum ada pemetaan toko.</p>
+            <div class="text-xs text-gray-400 border border-dashed rounded-lg py-6 text-center">Belum ada toko. Tambahkan di Langkah 1 — tiap toko muncul sebagai baris di sini.</div>
         @else
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-xs uppercase text-gray-400 border-b">
                         <th class="py-2">Toko Jubelio</th>
                         <th class="py-2">Customer ERP</th>
-                        <th class="py-2 w-16"></th>
+                        <th class="py-2">Biaya</th>
+                        <th class="py-2">Akun (Hold / Fee / Wallet)</th>
+                        <th class="py-2 w-28 text-right">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($channelMaps as $map)
+                        @php $cfg = $map->customer->marketplace ?? null; @endphp
                         <tr class="border-b border-gray-50">
                             <td class="py-2 font-medium text-gray-700">{{ $map->store }}</td>
                             <td class="py-2 text-gray-600">{{ $map->customer->name ?? '—' }}</td>
-                            <td class="py-2 text-right">
+                            <td class="py-2 text-gray-600">
+                                @if($cfg)
+                                    {{ rtrim(rtrim(number_format($cfg->admin_fee_percent, 2, '.', ''), '0'), '.') }}%
+                                    + Rp{{ number_format($cfg->admin_fee_fixed, 0, ',', '.') }}
+                                @else
+                                    <span class="text-amber-500">belum diatur</span>
+                                @endif
+                            </td>
+                            <td class="py-2 text-xs text-gray-500">
+                                @if($cfg)
+                                    {{ $cfg->holdAccount->code ?? '?' }} / {{ $cfg->feeAccount->code ?? '?' }} / {{ $cfg->walletAccount->code ?? '?' }}
+                                @else
+                                    <span class="text-gray-300">—</span>
+                                @endif
+                            </td>
+                            <td class="py-2 text-right whitespace-nowrap">
+                                <button type="button" class="text-xs text-blue-600 hover:underline jb-toggle-cfg" data-target="cfg-{{ $map->id }}">
+                                    {{ $cfg ? 'Ubah Akun' : 'Atur Akun' }}
+                                </button>
                                 <form method="POST" action="{{ route('settings.jubelio.channel-map.destroy', $map->id) }}"
-                                      onsubmit="return confirm('Hapus pemetaan ini?')">
+                                      class="inline" onsubmit="return confirm('Hapus pemetaan ini?')">
                                     @csrf @method('DELETE')
-                                    <button class="text-xs text-red-500 hover:underline">Hapus</button>
+                                    <button class="text-xs text-red-500 hover:underline ml-2">Hapus</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {{-- Editor inline potongan & akun (tersembunyi sampai "Atur/Ubah Akun") --}}
+                        <tr id="cfg-{{ $map->id }}" class="hidden bg-slate-50/70">
+                            <td colspan="5" class="px-2 py-3">
+                                <form method="POST" action="{{ route('settings.jubelio.marketplace-config.store') }}"
+                                      class="flex flex-wrap items-end gap-3">
+                                    @csrf
+                                    <input type="hidden" name="customer_id" value="{{ $map->customer_id }}">
+                                    <div class="w-24">
+                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Biaya (%)</label>
+                                        <input type="number" step="0.01" min="0" name="admin_fee_percent" value="{{ $cfg->admin_fee_percent ?? 0 }}" class="w-full border rounded px-2 py-1.5 text-sm">
+                                    </div>
+                                    <div class="w-28">
+                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Biaya (Rp)</label>
+                                        <input type="number" step="1" min="0" name="admin_fee_fixed" value="{{ $cfg->admin_fee_fixed ?? 0 }}" class="w-full border rounded px-2 py-1.5 text-sm">
+                                    </div>
+                                    <div class="min-w-[160px]">
+                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Akun Hold (Aset)</label>
+                                        <select name="account_receivable_hold_id" required class="w-full border rounded px-2 py-1.5 text-sm">
+                                            <option value="">— pilih —</option>
+                                            @foreach($accounts->where('type', 'asset') as $a)
+                                                <option value="{{ $a->id }}" @selected(($cfg->account_receivable_hold_id ?? null) == $a->id)>{{ $a->code }} - {{ $a->name }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div class="min-w-[160px]">
+                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Akun Fee (Beban)</label>
+                                        <select name="account_fee_id" required class="w-full border rounded px-2 py-1.5 text-sm">
+                                            <option value="">— pilih —</option>
+                                            @foreach($accounts->where('type', 'expense') as $a)
+                                                <option value="{{ $a->id }}" @selected(($cfg->account_fee_id ?? null) == $a->id)>{{ $a->code }} - {{ $a->name }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div class="min-w-[160px]">
+                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Akun Wallet (Aset)</label>
+                                        <select name="account_wallet_id" required class="w-full border rounded px-2 py-1.5 text-sm">
+                                            <option value="">— pilih —</option>
+                                            @foreach($accounts->where('type', 'asset') as $a)
+                                                <option value="{{ $a->id }}" @selected(($cfg->account_wallet_id ?? null) == $a->id)>{{ $a->code }} - {{ $a->name }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <button class="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm font-semibold hover:bg-emerald-700">Simpan</button>
                                 </form>
                             </td>
                         </tr>
@@ -272,6 +359,69 @@ document.getElementById('btnFindLocation')?.addEventListener('click', async func
     } finally {
         btn.disabled = false; btn.textContent = label;
     }
+});
+</script>
+
+<script>
+// Langkah 1 (toko→customer): live-search TomSelect + Cari Toko. Langkah 2: toggle editor akun.
+document.addEventListener('DOMContentLoaded', function () {
+    const ts = {};
+    ['jbStore', 'jbCustomer'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const opts = { create: false, maxItems: 1, dropdownParent: 'body',
+            placeholder: (el.options[0] && !el.options[0].value) ? el.options[0].text : 'Cari…' };
+        if (id === 'jbStore') {
+            // Toko: nilai = nama toko apa adanya (boleh ketik baru).
+            opts.create = (input) => ({ value: input.trim(), text: input.trim() });
+            opts.createOnBlur = true;
+        } else {
+            // Customer: ketik nama baru → "new:<nama>" (dibuat saat Simpan).
+            opts.create = (input) => ({ value: 'new:' + input.trim(), text: input.trim() + ' (buat baru)' });
+            opts.createOnBlur = true;
+        }
+        ts[id] = new TomSelect(el, opts);
+    });
+
+    // Saat toko dipilih/diketik & customer masih kosong → tawarkan customer = nama toko.
+    ts['jbStore']?.on('change', function (val) {
+        const cust = ts['jbCustomer'];
+        if (!val || !cust || cust.getValue()) return;
+        cust.addOption({ value: 'new:' + val, text: val + ' (buat baru)' });
+        cust.refreshOptions(false);
+        cust.setValue('new:' + val, true);
+    });
+
+    // Tombol "Cari Toko": tarik daftar toko Jubelio → jadi opsi di jbStore.
+    document.getElementById('jbFindStore')?.addEventListener('click', async function () {
+        const btn = this, hint = document.getElementById('jbStoreHint'), store = ts['jbStore'];
+        if (!store) return;
+        btn.disabled = true; const label = btn.textContent; btn.textContent = 'Mencari…';
+        try {
+            const res = await fetch('{{ route('settings.marketplace.stores') }}', { headers: { 'Accept': 'application/json' } });
+            const data = await res.json();
+            if (!data.success) { hint.textContent = data.message || 'Gagal mengambil toko.'; hint.className = 'text-xs text-red-500'; return; }
+            const stores = data.stores || [];
+            stores.forEach(name => store.addOption({ value: name, text: name + ' (Jubelio)' }));
+            store.refreshOptions(false);
+            if (!stores.length) { hint.textContent = 'Jubelio tidak mengembalikan toko apa pun.'; hint.className = 'text-xs text-red-500'; return; }
+            hint.textContent = stores.length + ' toko Jubelio dimuat — pilih satu lalu Tambah / Perbarui.';
+            hint.className = 'text-xs text-green-600';
+            store.open();
+        } catch (e) {
+            hint.textContent = 'Error: ' + e.message; hint.className = 'text-xs text-red-500';
+        } finally {
+            btn.disabled = false; btn.textContent = label;
+        }
+    });
+
+    // Langkah 2: buka/tutup editor potongan & akun per baris.
+    document.querySelectorAll('.jb-toggle-cfg').forEach(function (b) {
+        b.addEventListener('click', function () {
+            const row = document.getElementById(b.dataset.target);
+            if (row) row.classList.toggle('hidden');
+        });
+    });
 });
 </script>
 @endpush

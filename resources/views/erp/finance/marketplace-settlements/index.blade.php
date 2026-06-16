@@ -13,7 +13,7 @@
 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
     <h1 class="text-lg font-semibold">Settlement Marketplace</h1>
     <div class="flex gap-2 flex-wrap">
-        <a href="{{ route('settings.marketplace.index') }}" class="bg-gray-600 text-white px-3 py-2 rounded text-sm">⚙ Marketplace Config</a>
+        <a href="{{ route('settings.jubelio.edit') }}" class="bg-gray-600 text-white px-3 py-2 rounded text-sm">⚙ Marketplace Config</a>
         <a href="{{ route('finance.cash-bank.settlements.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Upload Settlement</a>
     </div>
 </div>
@@ -44,7 +44,7 @@
     @if($settlementStatuses->isEmpty())
         <div class="text-center text-gray-400 text-sm py-4">
             Belum ada Marketplace Config aktif.
-            <a href="{{ route('settings.marketplace.index') }}" class="text-blue-600 underline">Atur sekarang</a>
+            <a href="{{ route('settings.jubelio.edit') }}" class="text-blue-600 underline">Atur sekarang</a>
         </div>
     @else
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">

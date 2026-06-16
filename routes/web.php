@@ -64,6 +64,7 @@ Route::prefix('erp')->group(function () {
             ->name('settings.inventory.update');
 
         Route::get('/marketplace', [\App\Http\Controllers\Settings\MarketplaceConfigController::class, 'index'])->name('settings.marketplace.index');
+        Route::get('/marketplace/stores', [\App\Http\Controllers\Settings\MarketplaceConfigController::class, 'fetchStores'])->name('settings.marketplace.stores');
         Route::post('/marketplace', [\App\Http\Controllers\Settings\MarketplaceConfigController::class, 'store'])->name('settings.marketplace.store');
         Route::put('/marketplace/{id}', [\App\Http\Controllers\Settings\MarketplaceConfigController::class, 'update'])->name('settings.marketplace.update');
         Route::delete('/marketplace/{id}', [\App\Http\Controllers\Settings\MarketplaceConfigController::class, 'destroy'])->name('settings.marketplace.destroy');
@@ -91,6 +92,7 @@ Route::prefix('erp')->group(function () {
         Route::post('/jubelio/test', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'testConnection'])->name('settings.jubelio.test');
         Route::post('/jubelio/reconcile', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'reconcileStock'])->name('settings.jubelio.reconcile');
         Route::post('/jubelio/channel-map', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'storeChannelMap'])->name('settings.jubelio.channel-map.store');
+        Route::post('/jubelio/marketplace-config', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'saveMarketplaceConfig'])->name('settings.jubelio.marketplace-config.store');
         Route::delete('/jubelio/channel-map/{id}', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'destroyChannelMap'])->name('settings.jubelio.channel-map.destroy');
 
         // Integrasi kurir — Biteship

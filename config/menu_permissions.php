@@ -225,8 +225,7 @@ return [
         'children' => [
             'settings.business-profile' => ['label' => 'Profil Bisnis',      'url' => '/erp/settings/business-profile', 'route_patterns' => ['settings.business-profile.*']],
             'settings.inventory'        => ['label' => 'Inventory Settings', 'url' => '/erp/settings/inventory',        'route_patterns' => ['settings.inventory', 'settings.inventory.update']],
-            'settings.marketplace'      => ['label' => 'Marketplace Config', 'url' => '/erp/settings/marketplace',      'route_patterns' => ['settings.marketplace.*']],
-            'settings.integrations'     => ['label' => 'Integrasi',          'url' => '/erp/settings/integrations',     'route_patterns' => ['settings.integrations.*', 'settings.midtrans.*', 'settings.shipping.biteship*']],
+            'settings.integrations'     => ['label' => 'Integrasi',          'url' => '/erp/settings/integrations',     'route_patterns' => ['settings.integrations.*', 'settings.midtrans.*', 'settings.shipping.biteship*', 'settings.jubelio.*', 'settings.marketplace.*']],
             'settings.payment-fee'      => ['label' => 'Payment Fee',        'url' => '/erp/settings/payment-fee',      'route_patterns' => ['settings.payment-fee.*']],
             'settings.freight'          => ['label' => 'Pengaturan Ongkir',  'url' => '/erp/settings/freight',          'route_patterns' => ['settings.freight.*']],
             'settings.shipping-couriers'=> ['label' => 'Jasa Kirim',         'url' => '/erp/settings/shipping-couriers','route_patterns' => ['settings.shipping-couriers.*']],
