@@ -42,6 +42,26 @@
             @endforeach
         </div>
 
+        {{-- Sinkronisasi manual: reconcile stok sekarang (logika sama dgn cron 2-jam) --}}
+        <div class="bg-sky-50 border border-sky-200 rounded-lg p-4 mb-6 flex items-center justify-between gap-4">
+            <div>
+                <h3 class="text-sm font-bold text-sky-800 mb-1">Cek &amp; Samakan Stok Sekarang</h3>
+                <p class="text-xs text-sky-700">
+                    Membaca stok aktual di Jubelio lalu mengoreksi selisihnya (ERP menang) — sama dengan
+                    rekonsiliasi otomatis tiap 2 jam, tapi langsung. Hasilnya tercatat di <b>Riwayat Sinkron</b>.
+                    Untuk banyak produk bisa butuh beberapa saat.
+                </p>
+            </div>
+            <form method="POST" action="{{ route('settings.jubelio.reconcile') }}"
+                  onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Menyamakan…';">
+                @csrf
+                <button type="submit"
+                        class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded text-sm font-semibold whitespace-nowrap disabled:opacity-60">
+                    Cek &amp; Samakan
+                </button>
+            </form>
+        </div>
+
         <form method="POST" action="{{ route('settings.jubelio.update') }}" class="space-y-8">
             @csrf
 

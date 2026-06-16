@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
+use App\Modules\Marketplace\Jubelio\Services\JubelioStockSyncService;
 use Illuminate\Http\Request;
 
 class JubelioSettingController extends Controller
@@ -69,6 +70,26 @@ class JubelioSettingController extends Controller
             return back()->with('success', 'Koneksi Jubelio berhasil — token diperbarui.');
         }
         return back()->withErrors(['jubelio' => 'Koneksi gagal: ' . $result['error']]);
+    }
+
+    /**
+     * Cek & samakan stok sekarang (reconcile manual). Memanggil service yang sama
+     * dengan cron jubelio:reconcile-stock — membaca stok aktual Jubelio (GET) lalu
+     * mengoreksi selisihnya. Hasil per-produk tercatat di Riwayat Sinkron.
+     */
+    public function reconcileStock(JubelioStockSyncService $stock)
+    {
+        if (!JubelioSetting::singleton()->isConfigured()) {
+            return back()->withErrors(['jubelio' => 'Integrasi Jubelio belum dikonfigurasi (isi kredensial & uji koneksi dulu).']);
+        }
+
+        @set_time_limit(300); // reconcile membaca stok per-produk dari Jubelio; beri waktu cukup.
+        $stats = $stock->reconcileAll();
+
+        return back()->with('success', sprintf(
+            'Cek & samakan stok selesai — %d dikoreksi, %d sudah sama, %d gagal. Lihat detail di Riwayat Sinkron.',
+            $stats['pushed'], $stats['skipped'], $stats['failed']
+        ));
     }
 
     /** Pemetaan nama toko/channel Jubelio → customer marketplace ERP. */
