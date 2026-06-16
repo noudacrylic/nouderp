@@ -35,7 +35,7 @@ class JubelioStockSyncService
      */
     public function pushPending(int $limit = 200): array
     {
-        $stats = ['pushed' => 0, 'skipped' => 0, 'failed' => 0];
+        $stats = ['pushed' => 0, 'skipped' => 0, 'skipped_unmatched' => 0, 'failed' => 0];
         if (!$this->client->isReady()) {
             return $stats;
         }
@@ -65,7 +65,7 @@ class JubelioStockSyncService
      */
     public function reconcileAll(int $limit = 1000): array
     {
-        $stats = ['pushed' => 0, 'skipped' => 0, 'failed' => 0];
+        $stats = ['pushed' => 0, 'skipped' => 0, 'skipped_unmatched' => 0, 'failed' => 0];
         if (!$this->client->isReady()) {
             return $stats;
         }
@@ -88,7 +88,9 @@ class JubelioStockSyncService
 
     /**
      * Dorong stok satu produk ke Jubelio.
-     * @return 'pushed'|'skipped'|'failed'
+     * @return 'pushed'|'skipped'|'skipped_unmatched'|'failed'
+     *   - 'skipped'           : stok sudah sama (delta≈0), tidak perlu adjustment.
+     *   - 'skipped_unmatched' : tidak bisa diproses (belum ter-match / location belum diatur).
      */
     public function pushProduct(Product $product, bool $reconcile): string
     {
@@ -102,7 +104,7 @@ class JubelioStockSyncService
                 'product_id' => $product->id,
                 'message'    => 'Produk belum ter-match ke item Jubelio (SKU tidak ditemukan). Jalankan pencocokan produk.',
             ]);
-            return 'skipped';
+            return 'skipped_unmatched';
         }
 
         $locationId = $product->jubelio_location_id ?: $setting->default_location_id;
@@ -113,7 +115,7 @@ class JubelioStockSyncService
                 'product_id' => $product->id,
                 'message'    => 'Location ID Jubelio belum diatur (Settings → Jubelio).',
             ]);
-            return 'skipped';
+            return 'skipped_unmatched';
         }
 
         $available = round($this->inventory->availableStock($product->id), 4);
@@ -180,14 +182,23 @@ class JubelioStockSyncService
             return null;
         }
         $resp = $this->client->getItemBySku($product->sku);
-        if (!$resp['success']) {
+        if (!$resp['success'] || !is_array($resp['data'])) {
             return null;
         }
-        $data = $resp['data'];
-        $itemId = $data['item_id'] ?? ($data['items'][0]['item_id'] ?? null);
-        if ($itemId) {
-            $product->forceFill(['jubelio_item_id' => (int) $itemId])->save();
-            return (int) $itemId;
+        // Respons by-sku/by-id adalah objek ITEM-GROUP; variasi ada di product_skus[].
+        // Cocokkan baris yang item_code-nya == SKU produk (case-insensitive, trim),
+        // bukan ambil indeks [0] (satu group bisa banyak variasi/SKU berbeda).
+        $skus = $resp['data']['product_skus'] ?? null;
+        if (is_array($skus)) {
+            $needle = mb_strtolower(trim($product->sku));
+            foreach ($skus as $row) {
+                $code = mb_strtolower(trim((string) ($row['item_code'] ?? '')));
+                if ($code !== '' && $code === $needle && isset($row['item_id'])) {
+                    $itemId = (int) $row['item_id'];
+                    $product->forceFill(['jubelio_item_id' => $itemId])->save();
+                    return $itemId;
+                }
+            }
         }
         return null;
     }

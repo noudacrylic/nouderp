@@ -86,10 +86,41 @@ class JubelioSettingController extends Controller
         @set_time_limit(300); // reconcile membaca stok per-produk dari Jubelio; beri waktu cukup.
         $stats = $stock->reconcileAll();
 
-        return back()->with('success', sprintf(
-            'Cek & samakan stok selesai — %d dikoreksi, %d sudah sama, %d gagal. Lihat detail di Riwayat Sinkron.',
+        $unmatched = $stats['skipped_unmatched'] ?? 0;
+        $msg = sprintf(
+            'Cek & samakan stok selesai — %d dikoreksi, %d sudah sama, %d gagal.',
             $stats['pushed'], $stats['skipped'], $stats['failed']
-        ));
+        );
+        if ($unmatched > 0) {
+            // Jangan campur "belum ter-match / location belum diatur" ke dalam "sudah sama"
+            // (menyesatkan). Arahkan user melihat Riwayat Sinkron untuk produk tersebut.
+            $msg .= sprintf(' %d produk dilewati (belum ter-match / location belum diatur) — cek Riwayat Sinkron.', $unmatched);
+            return back()->with('warning', $msg);
+        }
+
+        return back()->with('success', $msg . ' Lihat detail di Riwayat Sinkron.');
+    }
+
+    /** Ambil daftar lokasi Jubelio untuk dropdown Location ID (dipanggil via fetch dari form). */
+    public function fetchLocations(JubelioClient $client)
+    {
+        if (!JubelioSetting::singleton()->isConfigured()) {
+            return response()->json(['success' => false, 'message' => 'Integrasi Jubelio belum dikonfigurasi (isi kredensial & uji koneksi dulu).'], 422);
+        }
+
+        $resp = $client->getLocations();
+        if (!$resp['success']) {
+            return response()->json(['success' => false, 'message' => 'Gagal mengambil lokasi dari Jubelio: ' . ($resp['error'] ?? 'tidak diketahui')], 502);
+        }
+
+        // getLocations() mengembalikan respons mentah Jubelio { data: [...] } di key 'data'.
+        $rows = $resp['data']['data'] ?? (is_array($resp['data']) ? $resp['data'] : []);
+        $locations = collect($rows)->map(fn ($r) => [
+            'id'   => (int) ($r['location_id'] ?? 0),
+            'name' => $r['location_name'] ?? $r['name'] ?? ('Lokasi ' . ($r['location_id'] ?? '?')),
+        ])->values();
+
+        return response()->json(['success' => true, 'locations' => $locations]);
     }
 
     /** Pemetaan nama toko/channel Jubelio → customer marketplace ERP. */

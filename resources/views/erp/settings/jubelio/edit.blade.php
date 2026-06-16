@@ -117,8 +117,23 @@
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Location ID Jubelio (stok)</label>
-                        <input type="number" name="default_location_id" value="{{ old('default_location_id', $setting->default_location_id) }}"
-                               class="w-full border rounded px-3 py-2 text-sm" placeholder="mis. 2">
+                        <div class="flex gap-2">
+                            <select name="default_location_id" id="jubelioLocation"
+                                    class="flex-1 border rounded px-3 py-2 text-sm" data-current="{{ old('default_location_id', $setting->default_location_id) }}">
+                                @if(old('default_location_id', $setting->default_location_id) !== null && old('default_location_id', $setting->default_location_id) !== '')
+                                    <option value="{{ old('default_location_id', $setting->default_location_id) }}" selected>
+                                        Tersimpan: {{ old('default_location_id', $setting->default_location_id) }}
+                                    </option>
+                                @else
+                                    <option value="">— klik "Cari Lokasi" —</option>
+                                @endif
+                            </select>
+                            <button type="button" id="btnFindLocation"
+                                    class="px-3 py-2 border border-blue-600 text-blue-600 rounded text-sm font-semibold hover:bg-blue-50 whitespace-nowrap disabled:opacity-60">
+                                Cari Lokasi
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1" id="jubelioLocationHint">Klik "Cari Lokasi" untuk menarik daftar lokasi dari Jubelio.</p>
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Customer Marketplace Fallback</label>
@@ -223,3 +238,40 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+document.getElementById('btnFindLocation')?.addEventListener('click', async function () {
+    const btn = this;
+    const select = document.getElementById('jubelioLocation');
+    const hint = document.getElementById('jubelioLocationHint');
+    const current = select.dataset.current;
+    btn.disabled = true; const label = btn.textContent; btn.textContent = 'Mencari…';
+    try {
+        const res = await fetch('{{ route('settings.jubelio.locations') }}', { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (!data.success) { hint.textContent = data.message || 'Gagal mengambil lokasi.'; hint.className = 'text-xs text-red-500 mt-1'; return; }
+        const locs = data.locations || [];
+        select.innerHTML = '';
+        if (!locs.length) { select.innerHTML = '<option value="">(tidak ada lokasi)</option>'; hint.textContent = 'Jubelio tidak mengembalikan lokasi apa pun.'; hint.className = 'text-xs text-red-500 mt-1'; return; }
+        locs.forEach(l => {
+            const opt = document.createElement('option');
+            opt.value = l.id; opt.textContent = l.name + ' (id ' + l.id + ')';
+            if (String(l.id) === String(current)) opt.selected = true;
+            select.appendChild(opt);
+        });
+        if (locs.length === 1) {
+            select.value = locs[0].id;
+            hint.textContent = 'Hanya 1 lokasi: "' + locs[0].name + '" terpilih otomatis. Jangan lupa Simpan.';
+        } else {
+            hint.textContent = locs.length + ' lokasi ditemukan — pilih salah satu lalu Simpan.';
+        }
+        hint.className = 'text-xs text-green-600 mt-1';
+    } catch (e) {
+        hint.textContent = 'Error: ' + e.message; hint.className = 'text-xs text-red-500 mt-1';
+    } finally {
+        btn.disabled = false; btn.textContent = label;
+    }
+});
+</script>
+@endpush

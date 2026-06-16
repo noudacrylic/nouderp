@@ -190,10 +190,10 @@ class JubelioClient
         return $this->get('/inventory/items/' . $itemId);
     }
 
-    /** Daftar lokasi/gudang Jubelio. */
-    public function getLocations(): array
+    /** Daftar lokasi/gudang Jubelio. Respons: { data: [ {location_id, location_name, ...} ] }. */
+    public function getLocations(int $page = 1, int $pageSize = 100): array
     {
-        return $this->get('/inventory/locations/');
+        return $this->get('/locations/', ['page' => $page, 'pageSize' => $pageSize]);
     }
 
     /**
@@ -206,29 +206,20 @@ class JubelioClient
         if (!$resp['success'] || !is_array($resp['data'])) {
             return null;
         }
-        $data = $resp['data'];
 
-        // Beberapa kemungkinan bentuk respons stok per lokasi.
-        $candidates = $data['stocks'] ?? $data['locations'] ?? $data['items'] ?? null;
-        if (is_array($candidates)) {
-            foreach ($candidates as $row) {
-                if ($locationId !== null && (int) ($row['location_id'] ?? 0) !== $locationId) {
+        // Respons by-id adalah objek ITEM-GROUP; stok per-variasi ada di product_skus[].
+        // Setup single-location: end_qty = stok di lokasi satu-satunya. Cocokkan baris
+        // yang item_id-nya == $itemId; return null bila tak ketemu (jangan menebak).
+        $skus = $resp['data']['product_skus'] ?? null;
+        if (is_array($skus)) {
+            foreach ($skus as $row) {
+                if ((int) ($row['item_id'] ?? 0) !== $itemId) {
                     continue;
                 }
-                // Jangan pakai 'qty' generik sbg fallback: bisa qty ordered/reserved,
-                // bukan available → baseline reconcile salah → delta & adjustment salah.
-                // Return null bila tak ada field available spesifik (jangan menebak).
-                foreach (['available', 'available_qty', 'end_qty', 'qty_available'] as $k) {
-                    if (isset($row[$k]) && is_numeric($row[$k])) {
-                        return (float) $row[$k];
-                    }
+                if (isset($row['end_qty']) && is_numeric($row['end_qty'])) {
+                    return (float) $row['end_qty'];
                 }
-            }
-        }
-
-        foreach (['available', 'available_qty', 'end_qty', 'qty_available'] as $k) {
-            if (isset($data[$k]) && is_numeric($data[$k])) {
-                return (float) $data[$k];
+                return null;
             }
         }
 

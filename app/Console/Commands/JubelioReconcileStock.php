@@ -23,7 +23,8 @@ class JubelioReconcileStock extends Command
         }
 
         $stats = $sync->reconcileAll();
-        $this->info("Jubelio reconcile-stock: dikoreksi {$stats['pushed']}, sudah sama {$stats['skipped']}, gagal {$stats['failed']}.");
+        $unmatched = $stats['skipped_unmatched'] ?? 0;
+        $this->info("Jubelio reconcile-stock: dikoreksi {$stats['pushed']}, sudah sama {$stats['skipped']}, dilewati(belum match/location) {$unmatched}, gagal {$stats['failed']}.");
         return self::SUCCESS;
     }
 }

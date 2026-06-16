@@ -23,7 +23,8 @@ class JubelioPushStock extends Command
         }
 
         $stats = $sync->pushPending();
-        $this->info("Jubelio push-stock: didorong {$stats['pushed']}, dilewati {$stats['skipped']}, gagal {$stats['failed']}.");
+        $unmatched = $stats['skipped_unmatched'] ?? 0;
+        $this->info("Jubelio push-stock: didorong {$stats['pushed']}, sudah sama {$stats['skipped']}, dilewati(belum match/location) {$unmatched}, gagal {$stats['failed']}.");
         return self::SUCCESS;
     }
 }
