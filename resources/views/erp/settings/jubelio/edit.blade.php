@@ -1,6 +1,13 @@
 @extends('layouts.erp')
 
 @section('content')
+@php
+    $accLabel = function ($id) use ($accounts) {
+        if (!$id) return '';
+        $a = $accounts->firstWhere('id', $id);
+        return $a ? "{$a->code} — {$a->name}" : '';
+    };
+@endphp
 <div class="max-w-5xl mx-auto">
     <div class="flex items-center justify-between mb-3">
         <a href="{{ route('settings.integrations.index') }}" class="inline-block text-xs text-blue-600 hover:underline">← Integrasi</a>
@@ -287,32 +294,35 @@
                                         <label class="block text-[11px] font-semibold text-gray-500 mb-1">Biaya (Rp)</label>
                                         <input type="number" step="1" min="0" name="admin_fee_fixed" value="{{ $cfg->admin_fee_fixed ?? 0 }}" class="w-full border rounded px-2 py-1.5 text-sm">
                                     </div>
-                                    <div class="min-w-[160px]">
-                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Akun Hold (Aset)</label>
-                                        <select name="account_receivable_hold_id" required class="w-full border rounded px-2 py-1.5 text-sm">
-                                            <option value="">— pilih —</option>
-                                            @foreach($accounts->where('type', 'asset') as $a)
-                                                <option value="{{ $a->id }}" @selected(($cfg->account_receivable_hold_id ?? null) == $a->id)>{{ $a->code }} - {{ $a->name }}</option>
-                                            @endforeach
-                                        </select>
+                                    <div class="min-w-[200px]">
+                                        @include('erp.fixed-assets.categories._account_picker', [
+                                            'name' => 'account_receivable_hold_id',
+                                            'label' => 'Akun Hold (Aset)',
+                                            'required' => true,
+                                            'value' => $cfg->account_receivable_hold_id ?? null,
+                                            'displayValue' => $accLabel($cfg->account_receivable_hold_id ?? null),
+                                            'searchTypes' => 'asset',
+                                        ])
                                     </div>
-                                    <div class="min-w-[160px]">
-                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Akun Fee (Beban)</label>
-                                        <select name="account_fee_id" required class="w-full border rounded px-2 py-1.5 text-sm">
-                                            <option value="">— pilih —</option>
-                                            @foreach($accounts->where('type', 'expense') as $a)
-                                                <option value="{{ $a->id }}" @selected(($cfg->account_fee_id ?? null) == $a->id)>{{ $a->code }} - {{ $a->name }}</option>
-                                            @endforeach
-                                        </select>
+                                    <div class="min-w-[200px]">
+                                        @include('erp.fixed-assets.categories._account_picker', [
+                                            'name' => 'account_fee_id',
+                                            'label' => 'Akun Fee (Beban)',
+                                            'required' => true,
+                                            'value' => $cfg->account_fee_id ?? null,
+                                            'displayValue' => $accLabel($cfg->account_fee_id ?? null),
+                                            'searchTypes' => 'expense',
+                                        ])
                                     </div>
-                                    <div class="min-w-[160px]">
-                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Akun Wallet (Aset)</label>
-                                        <select name="account_wallet_id" required class="w-full border rounded px-2 py-1.5 text-sm">
-                                            <option value="">— pilih —</option>
-                                            @foreach($accounts->where('type', 'asset') as $a)
-                                                <option value="{{ $a->id }}" @selected(($cfg->account_wallet_id ?? null) == $a->id)>{{ $a->code }} - {{ $a->name }}</option>
-                                            @endforeach
-                                        </select>
+                                    <div class="min-w-[200px]">
+                                        @include('erp.fixed-assets.categories._account_picker', [
+                                            'name' => 'account_wallet_id',
+                                            'label' => 'Akun Wallet (Aset)',
+                                            'required' => true,
+                                            'value' => $cfg->account_wallet_id ?? null,
+                                            'displayValue' => $accLabel($cfg->account_wallet_id ?? null),
+                                            'searchTypes' => 'asset',
+                                        ])
                                     </div>
                                     <button class="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm font-semibold hover:bg-emerald-700">Simpan</button>
                                 </form>
@@ -424,5 +434,79 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 });
+</script>
+
+{{-- Live-search akun (Akun Hold / Fee / Wallet) — pola sama dgn _account_picker --}}
+<style>
+.acc-pick { position: relative; }
+.acc-pick-dropdown { position: absolute; left: 0; right: 0; top: 100%; background: #fff; border: 1px solid #d1d5db; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 30; max-height: 240px; overflow-y: auto; display: none; }
+.acc-pick-dropdown.show { display: block; }
+.acc-pick-dropdown .item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
+.acc-pick-dropdown .item:hover { background: #eff6ff; }
+.acc-pick-dropdown .item .code { font-family: monospace; font-size: 11px; color: #2563eb; font-weight: bold; }
+.acc-pick-dropdown .item .name { color: #1f2937; }
+.acc-pick-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #9ca3af; font-size: 18px; }
+.acc-pick-clear:hover { color: #ef4444; }
+</style>
+<script>
+(function () {
+    const SEARCH_URL = "{{ route('accounts.search') }}";
+    document.querySelectorAll('.acc-pick').forEach(function (wrap) {
+        const input = wrap.querySelector('.acc-pick-input');
+        const hidden = wrap.querySelector('.acc-pick-id');
+        const dropdown = wrap.querySelector('.acc-pick-dropdown');
+        const clearBtn = wrap.querySelector('.acc-pick-clear');
+        const types = (wrap.dataset.types || '').split(',').map(s => s.trim()).filter(Boolean);
+        let timer;
+
+        async function doSearch(q) {
+            const params = new URLSearchParams();
+            if (q) params.append('q', q);
+            types.forEach(t => params.append('types[]', t));
+            try {
+                const res = await fetch(`${SEARCH_URL}?${params.toString()}`);
+                const list = await res.json();
+                renderResults(list);
+            } catch (e) { console.error(e); }
+        }
+
+        function renderResults(list) {
+            dropdown.innerHTML = '';
+            if (!list.length) {
+                dropdown.innerHTML = '<div class="item text-gray-400">Tidak ada akun cocok.</div>';
+            } else {
+                list.forEach(a => {
+                    const div = document.createElement('div');
+                    div.className = 'item';
+                    div.innerHTML = `<div class="code">${a.code}</div><div class="name">${a.name}</div>`;
+                    div.addEventListener('click', () => {
+                        hidden.value = a.id;
+                        input.value = `${a.code} — ${a.name}`;
+                        dropdown.classList.remove('show');
+                    });
+                    dropdown.appendChild(div);
+                });
+            }
+            dropdown.classList.add('show');
+        }
+
+        input.addEventListener('input', () => {
+            hidden.value = '';
+            clearTimeout(timer);
+            timer = setTimeout(() => doSearch(input.value.trim()), 200);
+        });
+        input.addEventListener('focus', () => { doSearch(input.value.trim()); });
+        document.addEventListener('click', (e) => {
+            if (!wrap.contains(e.target)) dropdown.classList.remove('show');
+        });
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                hidden.value = '';
+                input.value = '';
+                input.focus();
+            });
+        }
+    });
+})();
 </script>
 @endpush
