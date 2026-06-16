@@ -24,11 +24,24 @@ class MarketplaceConfigController extends Controller
             return response()->json(['success' => false, 'message' => 'Gagal mengambil toko dari Jubelio: ' . ($resp['error'] ?? 'tidak diketahui')], 502);
         }
 
+        // channel_id → nama marketplace (lihat tabel "Channels" di spec Jubelio).
+        $channels = [
+            1 => 'Internal', 2 => 'Bukalapak', 4 => 'Lazada', 8 => 'Zalora', 16 => 'Elevenia',
+            32 => 'Blibli', 64 => 'Shopee', 128 => 'Tokopedia', 512 => 'Blanja', 2048 => 'Zilingo',
+            4096 => 'JD', 65536 => 'Akulaku', 131072 => 'Webstore', 262144 => 'Dealpos',
+            524288 => 'Jubelio POS', 1048576 => 'Shopify', 131076 => 'TikTok',
+        ];
+
         $rows = $resp['data']['data'] ?? (is_array($resp['data']) ? $resp['data'] : []);
         $stores = collect($rows)
-            ->map(fn ($r) => trim((string) ($r['store_name'] ?? '')))
-            ->filter()
-            ->unique()
+            ->map(fn ($r) => [
+                // value yang disimpan = store_name PERSIS (kunci routing pesanan), jangan diubah.
+                'name'    => trim((string) ($r['store_name'] ?? '')),
+                // label marketplace hanya untuk tampilan, bantu bedakan Shopee/Tokopedia/TikTok.
+                'channel' => $channels[(int) ($r['channel_id'] ?? 0)] ?? null,
+            ])
+            ->filter(fn ($s) => $s['name'] !== '')
+            ->unique('name')
             ->values();
 
         return response()->json(['success' => true, 'stores' => $stores]);

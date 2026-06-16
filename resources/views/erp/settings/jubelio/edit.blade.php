@@ -402,7 +402,8 @@ document.addEventListener('DOMContentLoaded', function () {
             const data = await res.json();
             if (!data.success) { hint.textContent = data.message || 'Gagal mengambil toko.'; hint.className = 'text-xs text-red-500'; return; }
             const stores = data.stores || [];
-            stores.forEach(name => store.addOption({ value: name, text: name + ' (Jubelio)' }));
+            // value = nama toko PERSIS (kunci routing); label tambah marketplace biar jelas.
+            stores.forEach(s => store.addOption({ value: s.name, text: s.channel ? (s.name + ' — ' + s.channel) : s.name }));
             store.refreshOptions(false);
             if (!stores.length) { hint.textContent = 'Jubelio tidak mengembalikan toko apa pun.'; hint.className = 'text-xs text-red-500'; return; }
             hint.textContent = stores.length + ' toko Jubelio dimuat — pilih satu lalu Tambah / Perbarui.';
