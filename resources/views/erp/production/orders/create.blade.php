@@ -277,7 +277,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-gray-500 mb-1">Jumlah Siklus</label>
-                                <input type="number" name="planned_cycles" x-model="cycles" @change="loadBom()"
+                                <input type="number" name="planned_cycles" x-model="cycles"
                                        min="0.0001" step="0.0001" value="1"
                                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                             </div>
@@ -976,6 +976,24 @@ function orderForm() {
                 if (o.output_type === 'main') { o.unit_percentage = null; o.percentage = mainPct; }
             });
         },
+
+        // Skala qty material & output mengikuti Jumlah Siklus — SINKRON (tanpa fetch async).
+        // Hanya baris yang berasal dari BOM (punya _perCycle) yang di-skala; baris tambahan
+        // manual dibiarkan. Dipanggil dari $watch('cycles') agar qty selalu sinkron dengan
+        // nilai siklus yang akan ter-submit (mencegah desync planned_cycles vs qty).
+        applyCycles() {
+            const cyc = parseFloat(this.cycles) || 0;
+            if (this.selectedBomId && cyc > 0) {
+                const round4 = (n) => Math.round(n * 10000) / 10000;
+                this.materials.forEach(m => {
+                    if (m._perCycle != null) m.qty_required = round4(m._perCycle * cyc);
+                });
+                this.outputs.forEach(o => {
+                    if (o._perCycle != null) o.qty_planned = round4(o._perCycle * cyc);
+                });
+            }
+            this.recalcPercentages();
+        },
         selectByproduct(idx) {
             const o  = this.outputs[idx];
             const bp = this.byproducts.find(b => String(b.id) === String(o.product_id));
@@ -1209,6 +1227,12 @@ function orderForm() {
         },
         onFormSubmit(e) {
             this.submitError = '';
+            // Jangan submit selagi data BOM sedang dimuat — qty material/output belum final.
+            if (this.loading) {
+                e.preventDefault();
+                this.submitError = 'Data BOM masih dimuat. Tunggu sebentar lalu simpan lagi.';
+                return;
+            }
             // Order perbaikan tidak pakai outputs[] biasa.
             if (this.type === 'repair') return;
 
@@ -1423,8 +1447,8 @@ function orderForm() {
                 }
             }
 
-            // Jumlah siklus berubah → hitung ulang % sampingan (basis per-siklus).
-            this.$watch('cycles', () => this.recalcPercentages());
+            // Jumlah siklus berubah → skala qty material/output (sinkron) + hitung ulang % sampingan.
+            this.$watch('cycles', () => this.applyCycles());
             this.$watch('repairSource', () => this.clearRepairSource());
             this.$watch('type', (val) => {
                 if (val === 'repair') {
@@ -1494,13 +1518,19 @@ function orderForm() {
                 const res = await fetch(`/erp/production/ajax/bom-calculate?bom_id=${this.selectedBomId}&cycles=${this.cycles}`);
                 const data = await res.json();
 
+                // Simpan basis per-siklus (qty pada saat dimuat ÷ siklus saat itu) agar perubahan
+                // "Jumlah Siklus" bisa men-skala qty SECARA SINKRON di klien — bukan lewat fetch async
+                // yang bisa kalah cepat dengan submit (akar bug: cycles & qty desync).
+                const loadedCyc = parseFloat(this.cycles) || 1;
+
                 this.materials = data.materials.map(m => ({
                     product_id: m.product_id,
                     productQuery: `${m.product_sku} - ${m.product_name}`,
                     qty_required: m.qty_required,
                     unit: m.unit ?? '',
                     unitOptions: (m.units ?? (m.unit ? [m.unit] : [])),
-                    results: [], showDrop: false
+                    results: [], showDrop: false,
+                    _perCycle: (parseFloat(m.qty_required) || 0) / loadedCyc,
                 }));
 
                 this.outputs = data.outputs.map(o => ({
@@ -1510,7 +1540,8 @@ function orderForm() {
                     output_type: o.output_type,
                     percentage: o.percentage ?? (o.output_type === 'main' ? 100 : ''),
                     unit_percentage: o.unit_percentage ?? null,
-                    results: [], showDrop: false
+                    results: [], showDrop: false,
+                    _perCycle: (parseFloat(o.qty_planned) || 0) / loadedCyc,
                 }));
                 this.recalcPercentages();
 
