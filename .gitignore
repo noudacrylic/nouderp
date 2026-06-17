@@ -32,3 +32,7 @@ Thumbs.db
 # Test env (jangan commit, jangan sampai migrate kena live)
 .env.testing
 .env.*.local
+
+# Artefak lokal sesi debug (backup impor DB server, recovery mysql)
+/_*.sql
+/_quarantine_*/
