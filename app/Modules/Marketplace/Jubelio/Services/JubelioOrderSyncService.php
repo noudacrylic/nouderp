@@ -231,7 +231,8 @@ class JubelioOrderSyncService
 
         $store      = $this->storeName($detail);
         $storeId    = (int) ($detail['store_id'] ?? 0) ?: null;
-        $customerId = JubelioChannelMap::resolveCustomerId($store, $storeId) ?: $setting->default_customer_id;
+        $channelId  = (int) ($detail['channel_id'] ?? 0) ?: null;
+        $customerId = JubelioChannelMap::resolveCustomerId($store, $storeId, $channelId) ?: $setting->default_customer_id;
         $warehouseId = $setting->default_warehouse_id;
 
         if (!$customerId || !$warehouseId) {
@@ -260,13 +261,12 @@ class JubelioOrderSyncService
             $shipping   = (float) ($detail['shipping_cost'] ?? 0);
             $grandTotal = (float) ($detail['grand_total'] ?? ($subtotal + $shipping));
 
-            // Rekonsiliasi: selisih marketplace (subtotal+ongkir − grand_total Jubelio).
-            // diff + = potongan marketplace (biaya admin/layanan: service_fee + processing_fee
-            //          dll) → DICATAT sbg marketplace_fee, dibukukan ke akun fee saat invoice
-            //          (BUKAN diskon penjualan). diff − = biaya tambahan dibebankan ke order.
-            $diff = round($subtotal + $shipping - $grandTotal, 2);
-            $marketplaceFee = $diff > 0 ? $diff : 0.0;
-            $expense        = $diff < 0 ? -$diff : 0.0;
+            // Rekonsiliasi potongan marketplace (lihat resolveMarketplaceFee): bila Jubelio
+            // tidak melaporkan potongan (mis. TikTok Tokopedia), pakai estimasi dari setting.
+            $fees           = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, $customerId);
+            $grandTotal     = $fees['grand_total'];
+            $marketplaceFee = $fees['fee'];
+            $expense        = $fees['expense'];
 
             $so = SalesOrder::create([
                 'order_number'          => NumberGeneratorService::forCustomer('SO', $customerId, $poNumber),
@@ -433,9 +433,10 @@ class JubelioOrderSyncService
 
         // Rekonsiliasi grand_total (sama seperti SO): potongan marketplace → marketplace_fee
         // (dibukukan ke akun fee saat posting), bukan diskon. Selisih − = biaya tambahan.
-        $diff = round($subtotal + $shipping - $grandTotal, 2);
-        $marketplaceFee = $diff > 0 ? $diff : 0.0;
-        $additionalFee  = $diff < 0 ? -$diff : 0.0;
+        // Tanpa potongan dari Jubelio → estimasi dari setting (resolveMarketplaceFee).
+        $fees           = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, $so->customer_id);
+        $marketplaceFee = $fees['fee'];
+        $additionalFee  = $fees['expense'];
 
         $dto = new SalesInvoiceDTO(
             sales_order_id: $so->id,
@@ -613,6 +614,41 @@ class JubelioOrderSyncService
             }
         }
         return array_is_list($data) ? $data : [];
+    }
+
+    /**
+     * Tentukan potongan/biaya marketplace dari selisih nilai pesanan vs grand_total Jubelio.
+     *
+     *  diff = (subtotal + ongkir) − grand_total
+     *   • diff > 0 → Jubelio MELAPORKAN potongan (biaya admin/layanan) → marketplace_fee.
+     *   • diff < 0 → ada biaya tambahan dibebankan ke order → additional_fee/expense.
+     *   • diff = 0 → Jubelio TIDAK melaporkan potongan (mis. TikTok Tokopedia). Pakai
+     *               ESTIMASI dari setting integrasi (MarketplaceConfig: admin_fee_percent +
+     *               admin_fee_fixed) sbg marketplace_fee, lalu turunkan grand_total agar
+     *               DP/hold = nilai bersih. Selisih estimasi vs aktual direkonsiliasi nanti
+     *               saat settlement (akun fee_diff).
+     *
+     * @return array{fee: float, expense: float, grand_total: float}
+     */
+    private function resolveMarketplaceFee(float $subtotal, float $shipping, float $grandTotal, int $customerId): array
+    {
+        $diff    = round($subtotal + $shipping - $grandTotal, 2);
+        $fee     = $diff > 0 ? $diff : 0.0;
+        $expense = $diff < 0 ? -$diff : 0.0;
+
+        if ($fee <= 0 && $expense <= 0) {
+            $config = MarketplaceConfig::where('customer_id', $customerId)->where('is_active', true)->first();
+            if ($config) {
+                $est = round(($subtotal + $shipping) * (float) ($config->admin_fee_percent ?? 0) / 100
+                           + (float) ($config->admin_fee_fixed ?? 0), 2);
+                if ($est > 0) {
+                    $fee        = $est;
+                    $grandTotal = round($subtotal + $shipping - $est, 2);
+                }
+            }
+        }
+
+        return ['fee' => $fee, 'expense' => $expense, 'grand_total' => $grandTotal];
     }
 
     private function storeName(array $detail): ?string

@@ -6,6 +6,7 @@ INPUT:
 
 YANG HARUS KAMU LAKUKAN:
 1. Auto-deteksi marketplace tiap baris (shopee / tiktok / lazada / blibli / tokopedia / dll). Kalau tidak yakin, tanya saya.
+   PENTING: TikTok & Tokopedia kini satu sumber (merger) — pakai SATU label "tiktok_tokopedia" untuk keduanya, jangan dipisah.
 2. Identifikasi kolom yang berisi:
    - Nomor pesanan / Order ID / Order SN / No. Pesanan
    - Tanggal settlement / release date / dana cair / payout date
@@ -22,12 +23,12 @@ OUTPUT: Excel/CSV 1 sheet, header WAJIB di row 1, persis 4 kolom ini:
 | marketplace | order_ref | settlement_date | net_amount |
 |-------------|-----------|-----------------|------------|
 | shopee      | 240511XXX | 2026-05-11      | 119500     |
-| tiktok      | 583902464109085851 | 2026-05-12 | 50511 |
+| tiktok_tokopedia | 583902464109085851 | 2026-05-12 | 50511 |
 | lazada      | 2689408799183236 | 2026-05-11 | 24328     |
 | ...         | ...       | ...             | ...        |
 
 ATURAN OUTPUT:
-- Kolom "marketplace": nilai literal lowercase — "shopee" / "tiktok" / "lazada" / "blibli" / "tokopedia" (sesuai sumber). Boleh campur multi-marketplace di file output yang sama.
+- Kolom "marketplace": nilai literal lowercase — "shopee" / "tiktok_tokopedia" / "lazada" / "blibli" (sesuai sumber; TikTok & Tokopedia DIGABUNG jadi "tiktok_tokopedia"). Boleh campur multi-marketplace di file output yang sama.
 - Kolom "order_ref": nomor pesanan asli marketplace, apa adanya (huruf/angka).
 - Kolom "settlement_date": format YYYY-MM-DD.
 - Kolom "net_amount": angka bulat, tanpa pemisah ribuan, tanpa simbol mata uang. Boleh negatif untuk refund net.

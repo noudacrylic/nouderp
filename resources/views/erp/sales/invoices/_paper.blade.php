@@ -7,6 +7,7 @@
     $shipGross      = (float) ($invoice->shipping_gross ?? 0);
     $shipDiscount   = max(0, $shipGross - $shipping);
     $expense        = (float) ($invoice->additional_fee ?? 0);
+    $marketplaceFee = (float) ($invoice->marketplace_fee ?? 0);
     $grandTotal     = (float) ($invoice->grand_total ?? 0);
     $paid           = (float) ($invoice->paid_amount ?? 0);
     $remaining      = max(0, $grandTotal - $paid);
@@ -103,6 +104,9 @@
         @endif
         @if($expense > 0)
             <div class="row"><span>Biaya Lain</span><span>{{ number_format($expense, 0, ',', '.') }}</span></div>
+        @endif
+        @if($marketplaceFee > 0)
+            <div class="row"><span>Biaya Admin Marketplace</span><span class="neg">- {{ number_format($marketplaceFee, 0, ',', '.') }}</span></div>
         @endif
         <hr>
         <div class="grand"><span>Grand Total</span><span>Rp {{ number_format($grandTotal, 0, ',', '.') }}</span></div>

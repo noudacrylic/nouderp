@@ -27,16 +27,28 @@ class JubelioChannelMap extends Model
 
     /**
      * Cari customer_id untuk sebuah toko Jubelio.
-     * Utamakan store_id (kunci unik & stabil — store_name bisa bentrok antar channel,
-     * mis. Shopee & Tokopedia sama-sama "Noud Acrylic Shop"); fallback ke nama toko.
-     * Kolom `store` menyimpan store_id (sbg string) atau nama; cocokkan keduanya.
+     * Urutan: store_id (paling spesifik) → channel → nama toko.
+     *
+     * Pencocokan channel (token `channel:<channel_id>`) sengaja diutamakan di atas
+     * nama toko supaya beberapa toko dari satu channel — mis. TikTok & Tokopedia yang
+     * kini satu sumber tapi prefix store_name berbeda — selalu ter-route ke satu customer,
+     * dan tidak tertukar dgn channel lain yang kebetulan store_name-nya sama
+     * (mis. Shopee & Tokopedia sama-sama "Noud Acrylic Shop").
+     * Kolom `store` menyimpan store_id (sbg string), `channel:<id>`, atau nama toko.
      */
-    public static function resolveCustomerId(?string $store, ?int $storeId = null): ?int
+    public static function resolveCustomerId(?string $store, ?int $storeId = null, ?int $channelId = null): ?int
     {
         $q = static::where('is_active', true);
 
         if ($storeId) {
             $id = (clone $q)->where('store', (string) $storeId)->value('customer_id');
+            if ($id) {
+                return $id;
+            }
+        }
+
+        if ($channelId) {
+            $id = (clone $q)->where('store', 'channel:' . $channelId)->value('customer_id');
             if ($id) {
                 return $id;
             }

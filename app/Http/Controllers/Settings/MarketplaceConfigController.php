@@ -27,9 +27,10 @@ class MarketplaceConfigController extends Controller
         // channel_id → nama marketplace (lihat tabel "Channels" di spec Jubelio).
         $channels = [
             1 => 'Internal', 2 => 'Bukalapak', 4 => 'Lazada', 8 => 'Zalora', 16 => 'Elevenia',
-            32 => 'Blibli', 64 => 'Shopee', 128 => 'Tokopedia', 512 => 'Blanja', 2048 => 'Zilingo',
+            // TikTok & Tokopedia kini satu sumber (merger) → label digabung jadi "TikTok Tokopedia".
+            32 => 'Blibli', 64 => 'Shopee', 128 => 'TikTok Tokopedia', 512 => 'Blanja', 2048 => 'Zilingo',
             4096 => 'JD', 65536 => 'Akulaku', 131072 => 'Webstore', 262144 => 'Dealpos',
-            524288 => 'Jubelio POS', 1048576 => 'Shopify', 131076 => 'TikTok',
+            524288 => 'Jubelio POS', 1048576 => 'Shopify', 131076 => 'TikTok Tokopedia',
         ];
 
         $rows = $resp['data']['data'] ?? (is_array($resp['data']) ? $resp['data'] : []);
