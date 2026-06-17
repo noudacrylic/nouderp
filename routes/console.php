@@ -19,13 +19,12 @@ Schedule::command('period:ensure-current')
 Schedule::command('periode-gaji:ensure-current')
     ->monthlyOn(1, '00:01')->name('ensure-current-payroll-period')->withoutOverlapping();
 
-// Auto-attendance batch — inject scan otomatis 3x sehari
-Schedule::call(fn() => app(\App\Modules\SDM\Services\AutoAttendanceService::class)->runBatch('check_in'))
-    ->dailyAt('08:30')->name('sdm-auto-checkin')->withoutOverlapping();
-Schedule::call(fn() => app(\App\Modules\SDM\Services\AutoAttendanceService::class)->runBatch('check_out'))
-    ->dailyAt('16:30')->name('sdm-auto-checkout')->withoutOverlapping();
-Schedule::call(fn() => app(\App\Modules\SDM\Services\AutoAttendanceService::class)->runBatch('lembur'))
-    ->dailyAt('20:30')->name('sdm-auto-lembur')->withoutOverlapping();
+// Auto-attendance batch DINONAKTIFKAN (2026-06-17): jam absensi WAJIB 100% dari log
+// fingerprint asli (via AdmsService::mergeIntoAttendance). Auto-inject dulu memfabrikasi
+// jam masuk 08:00 / pulang 16:00 / lembur 20:00 untuk karyawan tanpa scan — termasuk di hari
+// libur nasional (16:00 "pulang" padahal tak ada scan) sehingga absensi TIDAK sesuai log.
+// Hari kerja tanpa scan kini tampil kosong; izin/sakit/cuti/lupa-absen diisi manual HRD
+// lewat dropdown status / Upload Excel. Lihat AutoAttendanceService (kini tak terjadwal).
 
 // Task Manager — generate scheduled tasks setiap 5 menit
 Schedule::call(fn() => app(\App\Modules\Tasks\Services\TaskAutomationService::class)->runScheduled())

@@ -9,6 +9,11 @@ use App\Modules\SDM\Models\PeriodePenggajian;
 use Carbon\Carbon;
 
 /**
+ * ⚠️ TIDAK LAGI TERJADWAL sejak 2026-06-17 (lihat routes/console.php).
+ * Jam absensi WAJIB 100% dari log fingerprint asli. Memfabrikasi jam masuk/pulang/lembur
+ * membuat absensi tidak sesuai log (mis. "pulang 16:00" di hari libur tanpa scan).
+ * Kelas dipertahankan utk referensi/utilitas manual; JANGAN dijadwalkan ulang.
+ *
  * Auto-inject scan untuk semua karyawan aktif berdasarkan jadwal:
  *  - Batch CHECK_IN  (08:00) → jalan jam 08:30 oleh scheduler
  *  - Batch CHECK_OUT (16:00) → jalan jam 16:30
