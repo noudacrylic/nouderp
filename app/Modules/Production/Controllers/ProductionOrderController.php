@@ -387,6 +387,28 @@ class ProductionOrderController extends Controller
         }
     }
 
+    /**
+     * Edit hasil finalisasi (koreksi salah input): balik + terapkan ulang qty output baru
+     * secara atomik. FIFO & jurnal ikut teredit. Order tetap berstatus 'finalized'.
+     */
+    public function editFinalize(Request $request, int $id, ProductionOrderService $service)
+    {
+        $request->validate([
+            'outputs'                  => 'required|array|min:1',
+            'outputs.*.output_id'      => 'required|integer',
+            'outputs.*.qty_produced'   => 'required|numeric|min:0',
+            'outputs.*.percentage'     => 'nullable|numeric|min:0|max:100',
+            'outputs.*.variance_notes' => 'nullable|string|max:500',
+        ]);
+
+        try {
+            $service->editFinalization($id, $request->outputs);
+            return back()->with('success', 'Finalisasi diperbarui. Stok output (FIFO) & jurnal sudah disesuaikan dengan qty baru.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
     public function storeStep(Request $request, int $id, ProductionOrderService $service)
     {
         $request->validate([

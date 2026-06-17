@@ -956,98 +956,152 @@ class ProductionOrderService
                 throw new Exception('Hanya order yang sudah difinalisasi yang dapat di-void.');
             }
 
-            // Cek stok belum dikonsumsi downstream
-            $layers = StockLayer::where('source_type', 'production_order')
-                ->where('source_id', $orderId)->get();
-
-            foreach ($layers as $layer) {
-                // Kolom layer adalah qty_in (bukan qty) — sebelumnya membandingkan dengan
-                // properti null sehingga guard ini TIDAK PERNAH aktif & void bisa korup stok.
-                if ((float) $layer->qty_remaining < (float) $layer->qty_in) {
-                    throw new Exception("Stok output sudah sebagian terpakai, void tidak bisa dilakukan.");
-                }
-            }
-
-            // Self-heal: kalau order pernah di-void sebelumnya (lalu di-finalize ulang dan sekarang
-            // di-void lagi), tandai jurnal void yang lama sebagai 'void' supaya pengecekan
-            // double-posting tidak memblokir penulisan jurnal balik baru.
-            \App\Core\Journal\Journal::where('reference_type', 'production_order_void')
-                ->where('reference_id', $orderId)
-                ->where('status', '!=', 'void')
-                ->update(['status' => 'void', 'voided_at' => now()]);
-
-            // Jurnal balik: Dr. WIP / Cr. Persediaan
-            $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
-            $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
-
-            // Hanya jurnal finalisasi yang masih AKTIF (status posted) yang dihitung,
-            // supaya kalau order ini sebelumnya pernah finalize-void-finalize, kita reverse
-            // amount dari finalize yang aktif saja — bukan akumulasi semua history.
-            $inventoryCost = (float) \App\Core\Journal\JournalLine::where('account_id', $inventoryAccount->id)
-                ->whereHas('journal', fn($q) => $q->where('reference_type', 'production_order_finalize')
-                    ->where('reference_id', $orderId)
-                    ->where('status', 'posted'))
-                ->sum('debit');
-
-            if ($inventoryCost > 0) {
-                app(JournalPostingService::class)->post(new JournalEntryDTO(
-                    date:             now()->format('Y-m-d'),
-                    reference_type:   'production_order_void',
-                    reference_id:     $order->id,
-                    description:      "Void Produksi - {$order->order_number}",
-                    lines: [
-                        new JournalLineDTO(
-                            account_id:  $wipAccount->id,
-                            debit:       $inventoryCost,
-                            credit:      0,
-                            description: 'Balik WIP dari void produksi'
-                        ),
-                        new JournalLineDTO(
-                            account_id:  $inventoryAccount->id,
-                            debit:       0,
-                            credit:      $inventoryCost,
-                            description: 'Balik persediaan dari void produksi'
-                        ),
-                    ],
-                    reference_number: $order->order_number
-                ));
-            }
-
-            // Tulis balancing qty_out ke inventory_ledgers untuk tiap output yang sebelumnya stockIn,
-            // supaya saldo & product_stocks.qty_on_hand kembali ke kondisi sebelum finalisasi.
-            // (Hanya hapus StockLayer saja tidak cukup — FIFO dan ledger adalah dua sumber yang terpisah.)
-            $engine = app(InventoryEngine::class);
-            foreach ($order->outputs as $out) {
-                $qty = (float) ($out->qty_produced ?? 0);
-                if ($qty <= 0) continue;
-                $engine->ledger(
-                    productId:     (int) $out->product_id,
-                    warehouseId:   (int) $order->warehouse_id,
-                    qtyIn:         0,
-                    qtyOut:        $qty,
-                    type:          'production_order_void',
-                    reference:     $order->order_number,
-                    notes:         null,
-                    transactionId: $order->id
-                );
-            }
-
-            // Hapus stock layers FIFO untuk output ini (cost layer ikut hilang).
-            StockLayer::where('source_type', 'production_order')
-                ->where('source_id', $orderId)->delete();
-
-            // Tandai journal finalisasi yang lama sebagai 'void' supaya pengecekan
-            // double-posting tidak memblokir saat admin re-finalize.
-            \App\Core\Journal\Journal::where('reference_type', 'production_order_finalize')
-                ->where('reference_id', $orderId)
-                ->where('status', '!=', 'void')
-                ->update(['status' => 'void', 'voided_at' => now()]);
+            $this->reverseFinalizationInternal($order);
 
             // Reset order ke 'pending' agar admin bisa re-finalize tanpa menerobos ulang ke antrean step.
             // - Output qty_produced & variance_notes TIDAK direset → kerja operator dipertahankan.
             // - Last step TIDAK dibalik ke pending → step memang sudah selesai dikerjakan.
             // Yang dibatalkan oleh void hanyalah finalisasi (FIFO stockIn + jurnal closing WIP), bukan kerja produksinya.
             $order->update(['status' => 'pending', 'finalized_at' => null]);
+        });
+    }
+
+    /**
+     * Balik (reverse) efek finalisasi pada FIFO & jurnal — TANPA mengubah status order.
+     * Dipakai oleh void() (lalu set 'pending') dan editFinalization() (lalu re-apply finalize).
+     *
+     * Yang dibalik: jurnal Dr.WIP/Cr.Persediaan, balancing qty_out ledger, hapus StockLayer
+     * output, dan tandai jurnal finalisasi lama 'void'. Material yang sudah dikonsumsi TIDAK
+     * disentuh (WIP basis tetap), sehingga re-apply mengalokasikan ulang biaya WIP yang sama.
+     *
+     * Guard: bila stok output sudah sebagian terpakai downstream → throw (tidak bisa dibalik).
+     * Asumsi: $order sudah di-lockForUpdate dengan relasi outputs.
+     */
+    private function reverseFinalizationInternal(ProductionOrder $order): void
+    {
+        $orderId = $order->id;
+
+        // Cek stok belum dikonsumsi downstream
+        $layers = StockLayer::where('source_type', 'production_order')
+            ->where('source_id', $orderId)->get();
+
+        foreach ($layers as $layer) {
+            // Kolom layer adalah qty_in (bukan qty) — sebelumnya membandingkan dengan
+            // properti null sehingga guard ini TIDAK PERNAH aktif & void bisa korup stok.
+            if ((float) $layer->qty_remaining < (float) $layer->qty_in) {
+                throw new Exception("Stok output sudah sebagian terpakai sehingga finalisasi tidak bisa dibalik/diedit. Batalkan dulu dokumen yang memakai stok ini.");
+            }
+        }
+
+        // Self-heal: kalau order pernah di-void sebelumnya (lalu di-finalize ulang dan sekarang
+        // di-void lagi), tandai jurnal void yang lama sebagai 'void' supaya pengecekan
+        // double-posting tidak memblokir penulisan jurnal balik baru.
+        \App\Core\Journal\Journal::where('reference_type', 'production_order_void')
+            ->where('reference_id', $orderId)
+            ->where('status', '!=', 'void')
+            ->update(['status' => 'void', 'voided_at' => now()]);
+
+        // Jurnal balik: Dr. WIP / Cr. Persediaan
+        $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
+        $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
+
+        // Hanya jurnal finalisasi yang masih AKTIF (status posted) yang dihitung,
+        // supaya kalau order ini sebelumnya pernah finalize-void-finalize, kita reverse
+        // amount dari finalize yang aktif saja — bukan akumulasi semua history.
+        $inventoryCost = (float) \App\Core\Journal\JournalLine::where('account_id', $inventoryAccount->id)
+            ->whereHas('journal', fn($q) => $q->where('reference_type', 'production_order_finalize')
+                ->where('reference_id', $orderId)
+                ->where('status', 'posted'))
+            ->sum('debit');
+
+        if ($inventoryCost > 0) {
+            app(JournalPostingService::class)->post(new JournalEntryDTO(
+                date:             now()->format('Y-m-d'),
+                reference_type:   'production_order_void',
+                reference_id:     $order->id,
+                description:      "Void Produksi - {$order->order_number}",
+                lines: [
+                    new JournalLineDTO(
+                        account_id:  $wipAccount->id,
+                        debit:       $inventoryCost,
+                        credit:      0,
+                        description: 'Balik WIP dari void produksi'
+                    ),
+                    new JournalLineDTO(
+                        account_id:  $inventoryAccount->id,
+                        debit:       0,
+                        credit:      $inventoryCost,
+                        description: 'Balik persediaan dari void produksi'
+                    ),
+                ],
+                reference_number: $order->order_number
+            ));
+        }
+
+        // Tulis balancing qty_out ke inventory_ledgers untuk tiap output yang sebelumnya stockIn,
+        // supaya saldo & product_stocks.qty_on_hand kembali ke kondisi sebelum finalisasi.
+        // (Hanya hapus StockLayer saja tidak cukup — FIFO dan ledger adalah dua sumber yang terpisah.)
+        $engine = app(InventoryEngine::class);
+        foreach ($order->outputs as $out) {
+            $qty = (float) ($out->qty_produced ?? 0);
+            if ($qty <= 0) continue;
+            $engine->ledger(
+                productId:     (int) $out->product_id,
+                warehouseId:   (int) $order->warehouse_id,
+                qtyIn:         0,
+                qtyOut:        $qty,
+                type:          'production_order_void',
+                reference:     $order->order_number,
+                notes:         null,
+                transactionId: $order->id
+            );
+        }
+
+        // Hapus stock layers FIFO untuk output ini (cost layer ikut hilang).
+        StockLayer::where('source_type', 'production_order')
+            ->where('source_id', $orderId)->delete();
+
+        // Tandai journal finalisasi yang lama sebagai 'void' supaya pengecekan
+        // double-posting tidak memblokir saat admin re-finalize.
+        \App\Core\Journal\Journal::where('reference_type', 'production_order_finalize')
+            ->where('reference_id', $orderId)
+            ->where('status', '!=', 'void')
+            ->update(['status' => 'void', 'voided_at' => now()]);
+    }
+
+    /**
+     * Edit hasil finalisasi: balik efek lama lalu terapkan ulang dengan qty/persentase output
+     * baru — ATOMIK. FIFO (layer + ledger) DAN jurnal ikut teredit dalam satu transaksi:
+     * reversal lama + posting finalisasi baru. finalize() di dalam berjalan sebagai savepoint,
+     * sehingga bila apa pun gagal seluruh edit (termasuk reversal) ikut di-rollback dan data
+     * finalisasi lama tetap utuh.
+     *
+     * Status tetap 'finalized'. Biaya WIP yang dikapitalisasi tidak berubah (material sudah
+     * dikonsumsi) — hanya dialokasikan ulang ke qty output baru.
+     */
+    public function editFinalization(int $orderId, array $actualOutputs): void
+    {
+        DB::transaction(function () use ($orderId, $actualOutputs) {
+            $order = ProductionOrder::with(['outputs', 'steps'])
+                ->lockForUpdate()
+                ->findOrFail($orderId);
+
+            if ($order->status !== 'finalized') {
+                throw new Exception('Hanya order yang sudah difinalisasi yang dapat diedit.');
+            }
+
+            // 1) Balik efek finalisasi lama (jurnal reversal + ledger qty_out + hapus FIFO layer).
+            //    Guard di dalam: bila output sudah terpakai downstream → throw → rollback.
+            $this->reverseFinalizationInternal($order);
+
+            // 2) Set 'pending' agar finalize() menerima order untuk re-apply.
+            //    Material sudah terkonsumsi sejak finalisasi awal → tak ada pre-flight stok terpicu.
+            $order->update(['status' => 'pending', 'finalized_at' => null]);
+
+            // 3) Terapkan ulang dengan output baru. finalize() membuka transaksi sendiri
+            //    (savepoint dalam transaksi ini) → FIFO stockIn baru + jurnal finalisasi baru +
+            //    status kembali 'finalized'. Bila gagal, transaksi luar ini ikut di-rollback.
+            $this->finalize($orderId, $actualOutputs);
         });
     }
 

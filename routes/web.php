@@ -910,6 +910,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::get('orders/{id}/finalize-confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'finalizeConfirm'])->name('orders.finalize-confirm');
     Route::post('orders/{id}/finalize', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'finalize'])->name('orders.finalize');
     Route::post('orders/{id}/void', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'void'])->name('orders.void');
+    Route::post('orders/{id}/edit-finalize', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'editFinalize'])->name('orders.edit-finalize');
     Route::post('orders/{id}/steps', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'storeStep'])->name('orders.steps.store');
     Route::post('orders/{id}/steps/add', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'addStep'])->name('orders.steps.add');
     Route::delete('orders/{id}/steps/{stepId}', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'deleteStep'])->name('orders.steps.delete');

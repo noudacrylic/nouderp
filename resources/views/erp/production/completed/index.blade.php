@@ -1,7 +1,27 @@
 ﻿@extends('layouts.erp')
 
 @section('content')
-<div class="w-full px-6 py-4">
+@php
+    // Data per order utk modal Edit Finalisasi (qty/%/keterangan output yg bisa dikoreksi).
+    $editData = $finalized->mapWithKeys(fn($o) => [$o->id => [
+        'id'           => $o->id,
+        'order_number' => $o->order_number,
+        'action'       => route('production.orders.edit-finalize', $o->id),
+        // % cost bisa di-override manual hanya utk order TANPA BOM & bukan Perbaikan.
+        'pct_manual'   => is_null($o->bom_id) && $o->type !== 'repair',
+        'outputs'      => $o->outputs->map(fn($out) => [
+            'output_id'      => $out->id,
+            'name'           => $out->product?->name ?? '—',
+            'sku'            => $out->product?->sku ?? '',
+            'output_type'    => $out->output_type,
+            'qty_planned'    => (float) $out->qty_planned,
+            'qty_produced'   => (float) ($out->qty_produced ?? 0),
+            'percentage'     => (float) $out->percentage,
+            'variance_notes' => $out->variance_notes ?? '',
+        ])->values(),
+    ]]);
+@endphp
+<div class="w-full px-6 py-4" x-data="finalizeEditor()">
 
     <div class="flex justify-between items-center mb-6">
         <div>
@@ -176,14 +196,13 @@
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right">
-                        <form action="{{ route('production.orders.void', $order->id) }}" method="POST"
-                              onsubmit="return confirm('Void produksi ini? Stok output akan dibalik dan jurnal reversal akan diposting. Langkah terakhir akan kembali ke antrean.')">
-                            @csrf
-                            <button type="submit"
-                                    class="px-2 py-1 border border-red-200 text-red-500 hover:bg-red-50 text-xs font-bold rounded transition">
-                                Void
-                            </button>
-                        </form>
+                        {{-- Edit = koreksi salah input finalisasi. Balik + terapkan ulang qty output
+                             secara atomik; FIFO & jurnal ikut teredit. Order tetap "selesai". --}}
+                        <button type="button"
+                                @click.stop="openEdit({{ $order->id }})"
+                                class="px-2 py-1 border border-blue-200 text-blue-600 hover:bg-blue-50 text-xs font-bold rounded transition">
+                            Edit
+                        </button>
                     </td>
                 </tr>
                 @empty
@@ -199,7 +218,122 @@
         </table>
     </div>
 
+    {{-- ───────── Modal Edit Finalisasi (koreksi salah input) ───────── --}}
+    <div x-show="show" x-cloak
+         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 py-10 px-4"
+         @keydown.escape.window="close()" style="display:none;">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-auto" @click.outside="close()">
+            <template x-if="current">
+                <form :action="current.action" method="POST">
+                    @csrf
+                    {{-- Header --}}
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                        <div>
+                            <h2 class="font-bold text-gray-800">Edit Hasil Finalisasi</h2>
+                            <p class="text-xs text-gray-500 mt-0.5">
+                                <span class="font-bold text-blue-600" x-text="current.order_number"></span>
+                                · koreksi qty output — stok (FIFO) &amp; jurnal otomatis disesuaikan
+                            </p>
+                        </div>
+                        <button type="button" @click="close()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+                    </div>
+
+                    {{-- Outputs --}}
+                    <div class="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+                        <template x-for="(o, idx) in current.outputs" :key="o.output_id">
+                            <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50">
+                                <input type="hidden" :name="`outputs[${idx}][output_id]`" :value="o.output_id">
+
+                                <div class="flex items-center gap-2 mb-3 flex-wrap">
+                                    <span class="font-bold text-gray-800 text-sm" x-text="o.name"></span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded font-black"
+                                          :class="o.output_type === 'main' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'"
+                                          x-text="o.output_type === 'main' ? 'UTAMA' : 'SAMPINGAN'"></span>
+                                    <span class="text-xs text-gray-400" x-text="o.sku"></span>
+                                </div>
+
+                                <div class="grid grid-cols-3 gap-3">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Target</label>
+                                        <div class="text-sm font-bold text-gray-600 bg-gray-100 rounded-lg px-3 py-2 text-right"
+                                             x-text="Number(o.qty_planned).toFixed(2)"></div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Aktual *</label>
+                                        <input type="number" :name="`outputs[${idx}][qty_produced]`"
+                                               x-model="o.qty_produced" step="0.01" min="0" required
+                                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white text-right">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">
+                                            Persentase Cost (%)
+                                            <span class="font-normal text-gray-400" x-show="!pctEditable(o)">(otomatis)</span>
+                                        </label>
+                                        <input type="number" :name="`outputs[${idx}][percentage]`"
+                                               x-model="o.percentage" step="0.01" min="0" max="100"
+                                               :required="pctEditable(o)" :readonly="!pctEditable(o)"
+                                               :class="pctEditable(o) ? 'bg-white' : 'bg-gray-100 text-gray-600 cursor-not-allowed'"
+                                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 text-right">
+                                    </div>
+                                </div>
+
+                                <div class="mt-3">
+                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">
+                                        Keterangan <span class="font-normal text-gray-400">(audit — penyebab selisih)</span>
+                                    </label>
+                                    <input type="text" :name="`outputs[${idx}][variance_notes]`"
+                                           x-model="o.variance_notes"
+                                           placeholder="cth: 1 pcs cacat saat cutting..."
+                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white text-gray-700">
+                                </div>
+                            </div>
+                        </template>
+
+                        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 leading-snug">
+                            Menyimpan akan <b>membalik</b> finalisasi lama lalu <b>menerapkan ulang</b> dengan qty di atas —
+                            stok output (FIFO) dan jurnal otomatis disesuaikan. Tidak bisa diedit bila stok output sudah terpakai
+                            di Surat Jalan/transaksi lain (batalkan dokumen tersebut dulu).
+                        </div>
+                    </div>
+
+                    {{-- Footer --}}
+                    <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100">
+                        <button type="button" @click="close()"
+                                class="px-4 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl transition">
+                            Batal
+                        </button>
+                        <button type="submit"
+                                onclick="return confirm('Simpan perubahan finalisasi? Stok (FIFO) & jurnal akan disesuaikan dengan qty baru.')"
+                                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition shadow-sm">
+                            Simpan Perubahan
+                        </button>
+                    </div>
+                </form>
+            </template>
+        </div>
+    </div>
+
 </div>
+
+<script>
+    window.__finalizeEdit = @json($editData);
+    function finalizeEditor() {
+        return {
+            show: false,
+            current: null,
+            openEdit(id) {
+                const src = (window.__finalizeEdit || {})[id];
+                if (!src) return;
+                // Clone dalam supaya editan di modal tidak mengubah data sumber sebelum disimpan.
+                this.current = JSON.parse(JSON.stringify(src));
+                this.show = true;
+            },
+            close() { this.show = false; this.current = null; },
+            // % cost hanya bisa di-override manual utk sampingan pada order TANPA BOM & bukan Perbaikan.
+            pctEditable(o) { return !!this.current?.pct_manual && o.output_type === 'by_product'; },
+        };
+    }
+</script>
 
 @include('erp.purchasing._partials.list-scripts')
 @endsection
