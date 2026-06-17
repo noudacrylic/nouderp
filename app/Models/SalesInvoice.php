@@ -33,6 +33,7 @@ class SalesInvoice extends Model
         'package_width',
         'package_height',
         'additional_fee',
+        'marketplace_fee',
         'subtotal',
         'discount_total',
         'dpp',

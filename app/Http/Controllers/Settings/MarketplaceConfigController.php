@@ -35,13 +35,15 @@ class MarketplaceConfigController extends Controller
         $rows = $resp['data']['data'] ?? (is_array($resp['data']) ? $resp['data'] : []);
         $stores = collect($rows)
             ->map(fn ($r) => [
-                // value yang disimpan = store_name PERSIS (kunci routing pesanan), jangan diubah.
+                // value yang disimpan = store_id (kunci routing pesanan yg UNIK & stabil;
+                // store_name bisa bentrok antar channel, mis. Shopee & Tokopedia sama persis).
+                'id'      => (int) ($r['store_id'] ?? 0),
                 'name'    => trim((string) ($r['store_name'] ?? '')),
                 // label marketplace hanya untuk tampilan, bantu bedakan Shopee/Tokopedia/TikTok.
                 'channel' => $channels[(int) ($r['channel_id'] ?? 0)] ?? null,
             ])
-            ->filter(fn ($s) => $s['name'] !== '')
-            ->unique('name')
+            ->filter(fn ($s) => $s['id'] > 0)
+            ->unique('id')
             ->values();
 
         return response()->json(['success' => true, 'stores' => $stores]);

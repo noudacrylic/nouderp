@@ -230,7 +230,8 @@ class JubelioOrderSyncService
         $setting = $this->setting();
 
         $store      = $this->storeName($detail);
-        $customerId = JubelioChannelMap::resolveCustomerId($store) ?: $setting->default_customer_id;
+        $storeId    = (int) ($detail['store_id'] ?? 0) ?: null;
+        $customerId = JubelioChannelMap::resolveCustomerId($store, $storeId) ?: $setting->default_customer_id;
         $warehouseId = $setting->default_warehouse_id;
 
         if (!$customerId || !$warehouseId) {
@@ -259,10 +260,12 @@ class JubelioOrderSyncService
             $shipping   = (float) ($detail['shipping_cost'] ?? 0);
             $grandTotal = (float) ($detail['grand_total'] ?? ($subtotal + $shipping));
 
-            // Rekonsiliasi: selisih dilipat ke diskon global (jika +) atau biaya tambahan (jika -)
-            // agar grand_total SO == grand_total Jubelio (DP menutup penuh).
+            // Rekonsiliasi: selisih marketplace (subtotal+ongkir − grand_total Jubelio).
+            // diff + = potongan marketplace (biaya admin/layanan: service_fee + processing_fee
+            //          dll) → DICATAT sbg marketplace_fee, dibukukan ke akun fee saat invoice
+            //          (BUKAN diskon penjualan). diff − = biaya tambahan dibebankan ke order.
             $diff = round($subtotal + $shipping - $grandTotal, 2);
-            $globalDiscount = $diff > 0 ? $diff : 0.0;
+            $marketplaceFee = $diff > 0 ? $diff : 0.0;
             $expense        = $diff < 0 ? -$diff : 0.0;
 
             $so = SalesOrder::create([
@@ -275,12 +278,13 @@ class JubelioOrderSyncService
                 'notes'                 => 'Pesanan Jubelio' . ($store ? " ({$store})" : '') . ' — ' . $poNumber,
                 'status'                => SalesOrderStatus::DRAFT->value,
                 'subtotal'              => $subtotal,
-                'discount_total'        => $globalDiscount,
+                'discount_total'        => 0,
                 'global_discount_type'  => 'nominal',
-                'global_discount_value' => $globalDiscount,
-                'global_discount_amount'=> $globalDiscount,
+                'global_discount_value' => 0,
+                'global_discount_amount'=> 0,
                 'shipping_cost'         => $shipping,
                 'additional_fee'        => $expense,
+                'marketplace_fee'       => $marketplaceFee,
                 'grand_total'           => $grandTotal,
             ]);
 
@@ -427,9 +431,10 @@ class JubelioOrderSyncService
             return;
         }
 
-        // Rekonsiliasi grand_total (sama seperti SO) agar advance menutup penuh.
+        // Rekonsiliasi grand_total (sama seperti SO): potongan marketplace → marketplace_fee
+        // (dibukukan ke akun fee saat posting), bukan diskon. Selisih − = biaya tambahan.
         $diff = round($subtotal + $shipping - $grandTotal, 2);
-        $globalDiscount = $diff > 0 ? $diff : 0.0;
+        $marketplaceFee = $diff > 0 ? $diff : 0.0;
         $additionalFee  = $diff < 0 ? -$diff : 0.0;
 
         $dto = new SalesInvoiceDTO(
@@ -438,7 +443,7 @@ class JubelioOrderSyncService
             warehouse_id: $so->warehouse_id,
             invoice_date: now()->toDateString(),
             global_discount_type: 'nominal',
-            global_discount_value: $globalDiscount,
+            global_discount_value: 0,
             ppn_percent: 0,
             pph_percent: 0,
             shipping_cost: $shipping,
@@ -446,6 +451,7 @@ class JubelioOrderSyncService
             advance_applied: 0, // dihitung otomatis oleh createDraft dari SalesAdvance
             notes: 'Invoice otomatis Jubelio ' . $so->customer_po_number,
             items: $items,
+            marketplace_fee: $marketplaceFee,
         );
 
         $invoice = $this->invoiceService->createDraft($dto);
@@ -527,7 +533,9 @@ class JubelioOrderSyncService
             if ($itemId <= 0 || $qty <= 0) {
                 continue;
             }
-            $product = $this->resolveProduct($itemId);
+            // Baris pesanan Jubelio sudah membawa item_code (SKU varian) langsung.
+            $skuHint = $it['item_code'] ?? $it['sku'] ?? null;
+            $product = $this->resolveProduct($itemId, $skuHint);
             if (!$product) {
                 return null; // ada item tak dikenal → batalkan
             }
@@ -548,19 +556,24 @@ class JubelioOrderSyncService
     }
 
     /** item_id Jubelio → Product ERP (cache di products.jubelio_item_id; fallback via SKU). */
-    private function resolveProduct(int $itemId): ?Product
+    private function resolveProduct(int $itemId, ?string $skuHint = null): ?Product
     {
         $product = Product::where('jubelio_item_id', $itemId)->first();
         if ($product) {
             return $product;
         }
 
-        $resp = $this->client->getItem($itemId);
-        if (!$resp['success']) {
-            return null;
+        // 1) SKU dari baris pesanan (Jubelio sudah mengirim item_code di item order).
+        $sku = trim((string) ($skuHint ?? '')) ?: null;
+
+        // 2) Fallback: ambil item-group; SKU varian ada di product_skus[], BUKAN di top-level.
+        if (!$sku) {
+            $resp = $this->client->getItem($itemId);
+            if (!$resp['success']) {
+                return null;
+            }
+            $sku = $this->extractSku($resp['data'], $itemId);
         }
-        $data = $resp['data'];
-        $sku = $data['item_code'] ?? $data['sku'] ?? ($data['items'][0]['item_code'] ?? null);
         if (!$sku) {
             return null;
         }
@@ -569,6 +582,20 @@ class JubelioOrderSyncService
             $product->forceFill(['jubelio_item_id' => $itemId])->save();
         }
         return $product;
+    }
+
+    /** SKU varian dari respons item-group Jubelio: utamakan baris product_skus[] yang item_id-nya cocok. */
+    private function extractSku(array $data, int $itemId): ?string
+    {
+        if (!empty($data['product_skus']) && is_array($data['product_skus'])) {
+            foreach ($data['product_skus'] as $row) {
+                if ((int) ($row['item_id'] ?? 0) === $itemId) {
+                    return $row['item_code'] ?? null;
+                }
+            }
+            return $data['product_skus'][0]['item_code'] ?? null;
+        }
+        return $data['item_code'] ?? $data['sku'] ?? null;
     }
 
     private function rows($data): array

@@ -47,6 +47,7 @@ class SalesOrder extends Model
         'package_height',
         'shipping_settled',
         'additional_fee',
+        'marketplace_fee',
 
         'grand_total',
         'paid_amount',

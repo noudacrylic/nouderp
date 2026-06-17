@@ -160,12 +160,16 @@ class SalesInvoiceService
             $headerPPN = round($dpp * ($dto->ppn_percent / 100));
             $headerPPH = round($dpp * ($dto->pph_percent / 100));
 
+            // Biaya admin marketplace mengurangi piutang/payout (bukan diskon penjualan).
+            $marketplaceFee = round((float) $dto->marketplace_fee, 2);
+
             $grandTotal = round(
                 $dpp
                 + $headerPPN
                 - $headerPPH
                 + $dto->shipping_cost
-                + $dto->additional_fee);
+                + $dto->additional_fee
+                - $marketplaceFee);
 
             if ($grandTotal < 0) {
                 throw new Exception("Grand total tidak boleh negatif.");
@@ -176,6 +180,7 @@ class SalesInvoiceService
                 - $globalDiscountAmount
                 + $dto->shipping_cost
                 + $dto->additional_fee
+                - $marketplaceFee
                 + $headerPPN
                 - $headerPPH);
 
@@ -229,6 +234,7 @@ class SalesInvoiceService
 
                 'shipping_cost' => $dto->shipping_cost,
                 'additional_fee' => $dto->additional_fee,
+                'marketplace_fee' => $marketplaceFee,
 
                 'grand_total' => $grandTotal,
                 'advance_applied' => $advanceApplied,
@@ -431,12 +437,16 @@ class SalesInvoiceService
             $headerPPN = round($dpp * ($dto->ppn_percent / 100));
             $headerPPH = round($dpp * ($dto->pph_percent / 100));
 
+            // Biaya admin marketplace mengurangi piutang/payout (bukan diskon penjualan).
+            $marketplaceFee = round((float) $dto->marketplace_fee, 2);
+
             $grandTotal = round(
                 $dpp
                 + $headerPPN
                 - $headerPPH
                 + $dto->shipping_cost
-                + $dto->additional_fee);
+                + $dto->additional_fee
+                - $marketplaceFee);
 
             if ($grandTotal < 0) {
                 throw new Exception("Grand total tidak boleh negatif.");
@@ -447,6 +457,7 @@ class SalesInvoiceService
                 - $globalDiscountAmount
                 + $dto->shipping_cost
                 + $dto->additional_fee
+                - $marketplaceFee
                 + $headerPPN
                 - $headerPPH);
 
@@ -496,6 +507,7 @@ class SalesInvoiceService
 
                 'shipping_cost' => $dto->shipping_cost,
                 'additional_fee' => $dto->additional_fee,
+                'marketplace_fee' => $marketplaceFee,
 
                 'grand_total' => $grandTotal,
                 'advance_applied' => $advanceApplied,

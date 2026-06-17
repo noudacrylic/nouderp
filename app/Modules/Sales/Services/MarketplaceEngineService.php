@@ -54,67 +54,39 @@ class MarketplaceEngineService
                 return;
             }
 
-            // 🔢 3. HITUNG FEE (Rumus sesuai blueprint)
-            $percentFee = (float) $invoice->grand_total * ($config->admin_fee_percent / 100);
-            $fixedFee   = (float) $config->admin_fee_fixed;
-
-            $fee = round($percentFee + $fixedFee, 2);
-
             // 🎯 ambil akun dari config (DINAMIS - TIDAK HARDCODE)
             $holdAccount   = $config->account_receivable_hold_id;
-            $feeAccount    = $config->account_fee_id;
             $walletAccount = $config->account_wallet_id;
 
-            // =========================================================================
-            // NB: Menggunakan reference_type yang unik agar tidak menabrak journal utama 
-            // di JournalPostingService yang memblokir reference_id/type ganda.
-            // =========================================================================
+            // Biaya admin marketplace TIDAK lagi dihitung pakai estimasi (admin_fee_percent/
+            // admin_fee_fixed). Fee AKTUAL per order sudah dibukukan sbg beban di jurnal utama
+            // invoice (InvoicePostingService::postRevenue → akun account_fee_id), sehingga
+            // grand_total invoice = payout marketplace = saldo yang masuk ke Hold dari DP.
+            // Engine ini cukup memindahkan seluruh saldo ditahan (Hold) → Wallet marketplace.
 
-            // 🧾 JURNAL 1: FEE MARKETPLACE
-            $dto1 = new JournalEntryDTO(
+            // 🧾 SETTLEMENT: PINDAH SALDO DITAHAN → WALLET
+            $payout = (float) $invoice->grand_total;
+
+            $dto = new JournalEntryDTO(
                 date: $invoice->invoice_date,
-                reference_type: 'sales_invoice_fee', // Unik agar tidak bentrok dengan journal invoice
-                reference_id: $invoice->id,
-                description: 'Marketplace Fee - Invoice ' . $invoice->invoice_number,
-                lines: [
-                    new JournalLineDTO(
-                        account_id: $feeAccount,
-                        debit: $fee,
-                        credit: 0
-                    ),
-                    new JournalLineDTO(
-                        account_id: $holdAccount,
-                        debit: 0,
-                        credit: $fee
-                    ),
-                ]
-            );
-
-            app(JournalPostingService::class)->post($dto1);
-
-            // 🧾 JURNAL 2: PINDAH KE WALLET (SETTLEMENT)
-            $net = (float) $invoice->grand_total - $fee;
-
-            $dto2 = new JournalEntryDTO(
-                date: $invoice->invoice_date,
-                reference_type: 'sales_invoice_settlement', // Unik
+                reference_type: 'sales_invoice_settlement', // Unik agar tak bentrok journal invoice utama
                 reference_id: $invoice->id,
                 description: 'Marketplace Settlement - ' . $invoice->invoice_number,
                 lines: [
                     new JournalLineDTO(
                         account_id: $walletAccount,
-                        debit: $net,
+                        debit: $payout,
                         credit: 0
                     ),
                     new JournalLineDTO(
                         account_id: $holdAccount,
                         debit: 0,
-                        credit: $net
+                        credit: $payout
                     ),
                 ]
             );
 
-            app(JournalPostingService::class)->post($dto2);
+            app(JournalPostingService::class)->post($dto);
 
             // 🔒 4. TANDAI SUDAH DIPROSES
             $invoice->update([

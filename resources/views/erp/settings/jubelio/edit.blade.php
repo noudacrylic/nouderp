@@ -226,7 +226,7 @@
                 </div>
                 <button class="shrink-0 h-[38px] bg-blue-600 text-white px-5 rounded font-semibold text-sm hover:bg-blue-700 whitespace-nowrap">+ Tambah Toko</button>
             </div>
-            <p class="text-xs text-gray-400 mt-3" id="jbStoreHint">Klik "Cari Toko" untuk menarik daftar toko Jubelio, atau ketik nama toko/customer baru → otomatis dibuat. Potongan &amp; akun diisi di Langkah 2.</p>
+            <p class="text-xs text-gray-400 mt-3" id="jbStoreHint">Klik "Cari Toko" lalu <b>pilih toko dari daftar</b> — pemetaan dikunci ke <b>store_id</b> Jubelio (unik per toko, supaya Shopee &amp; Tokopedia yang namanya sama tidak tertukar). Customer baru dibuat otomatis. Potongan &amp; akun diisi di Langkah 2.</p>
         </form>
 
         {{-- Langkah 2: potongan & akun per baris --}}
@@ -251,7 +251,7 @@
                     @foreach($channelMaps as $map)
                         @php $cfg = $map->customer->marketplace ?? null; @endphp
                         <tr class="border-b border-gray-50">
-                            <td class="py-2 font-medium text-gray-700">{{ $map->store }}</td>
+                            <td class="py-2 font-medium text-gray-700">{{ ctype_digit((string) $map->store) ? 'Toko #' . $map->store : $map->store }}</td>
                             <td class="py-2 text-gray-600">{{ $map->customer->name ?? '—' }}</td>
                             <td class="py-2 text-gray-600">
                                 @if($cfg)
@@ -393,13 +393,15 @@ document.addEventListener('DOMContentLoaded', function () {
         ts[id] = new TomSelect(el, opts);
     });
 
-    // Saat toko dipilih/diketik & customer masih kosong → tawarkan customer = nama toko.
+    // Saat toko dipilih & customer masih kosong → tawarkan customer = NAMA toko (bukan store_id).
     ts['jbStore']?.on('change', function (val) {
         const cust = ts['jbCustomer'];
         if (!val || !cust || cust.getValue()) return;
-        cust.addOption({ value: 'new:' + val, text: val + ' (buat baru)' });
+        const opt = ts['jbStore'].options[val] || {};
+        const nm = opt.name || opt.text || val;
+        cust.addOption({ value: 'new:' + nm, text: nm + ' (buat baru)' });
         cust.refreshOptions(false);
-        cust.setValue('new:' + val, true);
+        cust.setValue('new:' + nm, true);
     });
 
     // Tombol "Cari Toko": tarik daftar toko Jubelio → jadi opsi di jbStore.
@@ -412,8 +414,13 @@ document.addEventListener('DOMContentLoaded', function () {
             const data = await res.json();
             if (!data.success) { hint.textContent = data.message || 'Gagal mengambil toko.'; hint.className = 'text-xs text-red-500'; return; }
             const stores = data.stores || [];
-            // value = nama toko PERSIS (kunci routing); label tambah marketplace biar jelas.
-            stores.forEach(s => store.addOption({ value: s.name, text: s.channel ? (s.name + ' — ' + s.channel) : s.name }));
+            // value = store_id (kunci routing UNIK; store_name bisa bentrok antar channel).
+            // label: nama + marketplace + #store_id biar mudah dibedakan.
+            stores.forEach(s => store.addOption({
+                value: String(s.id),
+                name: s.name,
+                text: (s.channel ? (s.name + ' — ' + s.channel) : s.name) + ' (#' + s.id + ')',
+            }));
             store.refreshOptions(false);
             if (!stores.length) { hint.textContent = 'Jubelio tidak mengembalikan toko apa pun.'; hint.className = 'text-xs text-red-500'; return; }
             hint.textContent = stores.length + ' toko Jubelio dimuat — pilih satu lalu Tambah / Perbarui.';

@@ -159,7 +159,7 @@ class JubelioClient
     /** Pesanan siap diproses gudang (sudah dibayar). */
     public function listReadyToProcess(int $page = 1, int $pageSize = 50): array
     {
-        return $this->get('/wms/sales/orders/ready-to-process', ['page' => $page, 'pageSize' => $pageSize]);
+        return $this->get('/wms/sales/orders/ready-to-process/', ['page' => $page, 'pageSize' => $pageSize]);
     }
 
     /** Pesanan selesai/diterima customer. */

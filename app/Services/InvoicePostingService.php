@@ -313,6 +313,22 @@ class InvoicePostingService
             $this->createJournalLine($invoice, $discountAccount, 'debit', $invoice->global_discount_amount);
         }
 
+        // Biaya admin/layanan marketplace: pendapatan tetap diakui penuh (Cr 4001 = subtotal),
+        // potongan marketplace dibukukan sbg BEBAN ke akun fee yang dimapping (DEBIT),
+        // BUKAN diskon penjualan. Tanpa akun fee → fallback ke akun diskon agar tetap balance.
+        if ($invoice->marketplace_fee > 0) {
+            $feeAccountId = \App\Models\MarketplaceConfig::where('customer_id', $invoice->customer_id)
+                ->where('is_active', true)
+                ->value('account_fee_id');
+            if (!$feeAccountId) {
+                \Illuminate\Support\Facades\Log::warning('InvoicePosting: marketplace_fee tanpa account_fee_id — fallback ke akun diskon', [
+                    'invoice' => $invoice->id, 'customer' => $invoice->customer_id, 'fee' => (float) $invoice->marketplace_fee,
+                ]);
+                $feeAccountId = $discountAccount;
+            }
+            $this->createJournalLine($invoice, $feeAccountId, 'debit', $invoice->marketplace_fee);
+        }
+
         if ($invoice->ppn_amount > 0) {
             $ppnAccountId = $this->getAccountIdByCode($this->account('ppn'));
             $this->createJournalLine($invoice, $ppnAccountId, 'credit', $invoice->ppn_amount);

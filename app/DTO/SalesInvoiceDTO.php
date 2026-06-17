@@ -21,6 +21,9 @@ class SalesInvoiceDTO
         public readonly float $advance_applied,
         public readonly ?string $notes,
 
+        /** Biaya layanan/admin marketplace — dibukukan ke akun fee saat posting (bukan diskon). */
+        public readonly float $marketplace_fee = 0.0,
+
         /** @var SalesInvoiceItemDTO[] */
         public readonly array $items,
     ) {
