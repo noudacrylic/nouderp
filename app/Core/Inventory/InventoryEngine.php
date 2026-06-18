@@ -160,24 +160,49 @@ class InventoryEngine
                 throw new \Exception("Opening ledger tidak ditemukan.");
             }
 
+            // Ubah qty saldo awal. Saldo awal boleh diubah berkali-kali.
             $ledger->qty_in = $qty;
             $ledger->qty_out = 0;
-            $ledger->balance = $qty;
             $ledger->save();
 
-            ProductStock::updateOrCreate(
-                [
-                    'product_id' => $productId,
-                    'warehouse_id' => $warehouseId
-                ],
-                [
-                    'qty_on_hand' => $qty
-                ]
-            );
-
+            // Sesuaikan layer FIFO saldo awal (qty & harga), pertahankan yang sudah terpakai.
             app(FifoService::class)
                 ->updateOpeningLayer($productId, $warehouseId, $qty, $cost, $transactionId);
+
+            // Hitung ulang saldo berjalan SEMUA transaksi produk+gudang ini (kronologis),
+            // supaya perubahan saldo awal mengalir ke baris-baris setelahnya & stok akhir.
+            $this->recomputeBalances($productId, $warehouseId);
         });
+    }
+
+    /**
+     * Hitung ulang kolom `balance` semua baris ledger (kronologis) untuk satu produk+gudang,
+     * lalu sinkronkan stok akhir ke ProductStock. Dipakai setelah saldo awal diubah.
+     */
+    public function recomputeBalances($productId, $warehouseId): float
+    {
+        $rows = \App\Models\InventoryLedger::where('product_id', $productId)
+            ->where('warehouse_id', $warehouseId)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $running = 0.0;
+        foreach ($rows as $row) {
+            $running += (float) $row->qty_in - (float) $row->qty_out;
+            if ((float) $row->balance !== $running) {
+                $row->balance = $running;
+                $row->save();
+            }
+        }
+
+        ProductStock::updateOrCreate(
+            ['product_id' => $productId, 'warehouse_id' => $warehouseId],
+            ['qty_on_hand' => $running]
+        );
+
+        return $running;
     }
 
     /*

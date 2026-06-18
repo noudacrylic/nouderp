@@ -8,7 +8,7 @@
             <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                 <div class="md:col-span-3">
                     <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Opening Qty</label>
-                    <input type="number" step="0.0001" name="opening_qty" value="{{ format_number($openingQty ?? 0) }}"
+                    <input type="number" step="0.0001" name="opening_qty" value="{{ qty_value($openingQty ?? 0) }}"
                         class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
                 </div>
 

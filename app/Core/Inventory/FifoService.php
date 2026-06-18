@@ -145,7 +145,8 @@ class FifoService
 
     public function updateOpeningLayer($productId, $warehouseId, $qty, $cost, $transactionId)
     {
-        // 1. Update StockLayer
+        // 1. Update StockLayer — pertahankan qty yang SUDAH terkonsumsi (mis. terjual dari
+        //    layer opening). qty_sisa baru = qty_baru − qty_terpakai. Tidak boleh < terpakai.
         $layer = StockLayer::where([
             'product_id' => $productId,
             'warehouse_id' => $warehouseId,
@@ -154,13 +155,17 @@ class FifoService
         ])->first();
 
         if ($layer) {
+            $consumed = (float) $layer->qty_in - (float) $layer->qty_remaining;
+            if ((float) $qty + 1e-9 < $consumed) {
+                throw new Exception('Saldo awal tidak bisa dikurangi di bawah jumlah yang sudah terpakai (' . rtrim(rtrim(number_format($consumed, 4, '.', ''), '0'), '.') . ').');
+            }
             $layer->qty_in = $qty;
-            $layer->qty_remaining = $qty;
+            $layer->qty_remaining = max(0, (float) $qty - $consumed);
             $layer->unit_cost = $cost;
             $layer->save();
         }
 
-        // 2. Update InventoryCostLayer
+        // 2. Update InventoryCostLayer — pertahankan saldo yang sudah terpakai juga.
         $costLayer = InventoryCostLayer::where([
             'product_id' => $productId,
             'reference_type' => 'opening',
@@ -168,8 +173,9 @@ class FifoService
         ])->first();
 
         if ($costLayer) {
+            $consumedC = (float) $costLayer->qty_in - (float) $costLayer->qty_balance;
             $costLayer->qty_in = $qty;
-            $costLayer->qty_balance = $qty;
+            $costLayer->qty_balance = max(0, (float) $qty - $consumedC);
             $costLayer->unit_cost = $cost;
             $costLayer->save();
         }

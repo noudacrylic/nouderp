@@ -779,8 +779,12 @@ class ProductController extends Controller
             // USE CENTRALIZED ENGINE
             $engine = app(\App\Core\Inventory\InventoryEngine::class);
             
+            // Cek per gudang: saldo awal boleh diubah berkali-kali (update bila sudah ada
+            // di gudang tsb, buat baru bila belum) — tanpa cek gudang, ganti gudang bisa
+            // melempar "Opening ledger tidak ditemukan".
             $exists = \App\Models\InventoryLedger::where([
                 'product_id' => $product->id,
+                'warehouse_id' => $warehouse_id,
                 'transaction_type' => 'opening',
                 'transaction_id' => $product->id
             ])->exists();
