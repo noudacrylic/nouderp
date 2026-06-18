@@ -271,17 +271,15 @@ class ProductController extends Controller
             'type' => 'required'
         ];
 
-        // Service & non_stock wajib pakai auto-SKU (di form, checkbox di-disable & SKU input di-disable
-        // → keduanya tidak ikut ter-submit). Force di server agar tidak salah minta SKU manual.
-        $forceAutoSku = in_array($request->input('type'), ['service', 'non_stock'], true);
-
-        if (!$request->auto_sku && !$forceAutoSku) {
+        // Semua tipe (termasuk service & non_stock) boleh penomoran manual.
+        // Default form: checkbox auto-SKU di-centang, tapi user bisa uncheck utk isi SKU manual.
+        if (!$request->auto_sku) {
             $rules['sku'] = 'required|unique:products,sku';
         }
 
         $request->validate($rules);
 
-        if ($request->auto_sku || $forceAutoSku) {
+        if ($request->auto_sku) {
             $sku = $this->generateSku($request->type);
         } else {
             $sku = $request->sku;

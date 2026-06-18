@@ -86,6 +86,14 @@
 
 @section('scripts')
     <script>
+        // Sinkronkan status awal input SKU mengikuti checkbox (default tercentang).
+        (function () {
+            let autoSku = document.getElementById('auto_sku');
+            let sku = document.getElementById('sku');
+            sku.disabled = autoSku.checked;
+            if (autoSku.checked) sku.value = '';
+        })();
+
         document.getElementById('auto_sku').addEventListener('change', function () {
             let sku = document.getElementById('sku');
             if (this.checked) {
@@ -100,18 +108,13 @@
             let autoSku = document.getElementById('auto_sku');
             let sku = document.getElementById('sku');
 
-            if (this.value === 'service' || this.value === 'non_stock') {
-                // Service & non_stock wajib auto-SKU (tidak ada manual SKU di tipe ini).
-                autoSku.checked = true;
-                autoSku.disabled = true;
-                sku.disabled = true;
-                sku.value = '';
-            } else {
-                // Tipe lain: pertahankan pilihan user; hanya re-enable & sync state SKU input.
-                autoSku.disabled = false;
-                sku.disabled = autoSku.checked;
-                if (autoSku.checked) sku.value = '';
-            }
+            // Service & non_stock: default penomoran otomatis.
+            // Tipe lain (ready/preorder/bundle): default SKU manual (menyesuaikan marketplace).
+            // Keduanya tetap bisa di-ubah user setelahnya.
+            autoSku.checked = (this.value === 'service' || this.value === 'non_stock');
+            autoSku.disabled = false;
+            sku.disabled = autoSku.checked;
+            if (autoSku.checked) sku.value = '';
         });
     </script>
 @endsection
