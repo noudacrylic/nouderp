@@ -134,13 +134,14 @@
                                         </td>
                                         <td class="p-2 text-right text-gray-500">
                                             <span class="system-qty">{{ format_qty($item->system_qty) }}</span>
+                                            {{-- value untuk input/JS: machine-readable (titik desimal, tanpa pemisah ribuan) --}}
                                             <input type="hidden" name="items[{{ $idx }}][system]" class="system-value"
-                                                value="{{ format_qty($item->system_qty) }}">
+                                                value="{{ qty_value($item->system_qty) }}">
                                         </td>
                                         <td class="p-2">
                                             <input type="number" step="0.0001" name="items[{{ $idx }}][actual]"
                                                 class="w-full border rounded px-2 py-2 text-right actual-input" required
-                                                value="{{ format_qty($item->actual_qty) }}">
+                                                value="{{ qty_value($item->actual_qty) }}">
                                         </td>
                                         <td class="p-2 text-right font-bold diff-qty">
                                             {{ format_qty($item->diff_qty) }}

@@ -371,6 +371,7 @@ Route::prefix('erp/inventory')->group(function () {
     Route::get('/products/{id}/edit', [ProductController::class, 'edit'])->name('inventory.products.edit');
     Route::post('/products/update-price', [ProductController::class, 'updatePrice'])->name('products.updatePrice');
     Route::post('/products/update-sellable', [ProductController::class, 'updateSellable'])->name('products.updateSellable');
+    Route::post('/products/update-jubelio', [ProductController::class, 'updateSyncJubelio'])->name('products.updateSyncJubelio');
     Route::delete('/products/{id}', [ProductController::class, 'destroy'])->name('inventory.products.destroy');
     Route::post('/products/{id}/archive', [ProductController::class, 'archive'])->name('inventory.products.archive');
     Route::get('/products/{product}/ledger', [StockLedgerController::class, 'index'])->name('inventory.products.ledger');

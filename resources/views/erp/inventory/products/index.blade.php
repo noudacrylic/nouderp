@@ -61,6 +61,23 @@
     .sellable-toggle:checked + .sellable-switch { background: #22c55e; }
     .sellable-toggle:checked + .sellable-switch::after { transform: translateX(16px); }
     .sellable-toggle:focus-visible + .sellable-switch { box-shadow: 0 0 0 3px rgba(34,197,94,.35); }
+
+    /* Toggle "Jubelio" (sync_to_jubelio) — sama struktur, warna indigo agar beda dari Dijual. */
+    .jubelio-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .jubelio-switch {
+        position: relative; display: inline-block; flex: 0 0 auto;
+        width: 36px; height: 20px; border-radius: 9999px;
+        background: #d1d5db; transition: background .15s ease;
+    }
+    .jubelio-switch::after {
+        content: ''; position: absolute; top: 2px; left: 2px;
+        width: 16px; height: 16px; border-radius: 9999px;
+        background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25);
+        transition: transform .15s ease;
+    }
+    .jubelio-toggle:checked + .jubelio-switch { background: #6366f1; }
+    .jubelio-toggle:checked + .jubelio-switch::after { transform: translateX(16px); }
+    .jubelio-toggle:focus-visible + .jubelio-switch { box-shadow: 0 0 0 3px rgba(99,102,241,.35); }
 </style>
 
 <div id="list-results">
@@ -72,6 +89,7 @@
                 <th class="px-3 py-2 text-left">Tipe</th>
                 <th class="px-3 py-2 text-center">Status</th>
                 <th class="px-3 py-2 text-center">Dijual</th>
+                <th class="px-3 py-2 text-center">Jubelio</th>
                 <th class="px-3 py-2 text-left">Unit</th>
                 <th class="px-3 py-2 text-right">Harga Dasar</th>
                 <th class="px-3 py-2 text-center w-40">Aksi</th>
@@ -118,6 +136,13 @@
                             <span class="sellable-label text-xs font-semibold {{ $product->is_sellable ? 'text-green-600' : 'text-gray-400' }}">{{ $product->is_sellable ? 'Dijual' : 'Tidak' }}</span>
                         </label>
                     </td>
+                    <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
+                        <label class="inline-flex items-center gap-2 cursor-pointer select-none" title="Klik untuk ubah: sinkron stok &amp; harga produk ini ke Jubelio">
+                            <input type="checkbox" class="jubelio-toggle" data-product-id="{{ $product->id }}" @checked($product->sync_to_jubelio)>
+                            <span class="jubelio-switch"></span>
+                            <span class="jubelio-label text-xs font-semibold {{ $product->sync_to_jubelio ? 'text-indigo-600' : 'text-gray-400' }}">{{ $product->sync_to_jubelio ? 'Sinkron' : 'Tidak' }}</span>
+                        </label>
+                    </td>
                     <td class="px-3 py-2 text-gray-600">{{ $product->base_unit ?? '-' }}</td>
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex items-center justify-end gap-1">
@@ -159,7 +184,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada produk.</td></tr>
+                <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">Belum ada produk.</td></tr>
             @endforelse
         </tbody>
     </table>
@@ -256,6 +281,34 @@
                         label.textContent = data.is_sellable ? 'Dijual' : 'Tidak';
                         label.classList.toggle('text-green-600', data.is_sellable);
                         label.classList.toggle('text-gray-400', !data.is_sellable);
+                    }
+                } else {
+                    el.checked = !on; // gagal → kembalikan
+                }
+            })
+            .catch(() => { el.checked = !on; })
+            .finally(() => { el.disabled = false; });
+    });
+
+    // Toggle "Jubelio" (sync_to_jubelio) langsung dari index — tanpa buka edit.
+    document.addEventListener('change', function (e) {
+        const el = e.target.closest('.jubelio-toggle');
+        if (!el) return;
+        const on = el.checked;
+        const label = el.closest('label')?.querySelector('.jubelio-label');
+        el.disabled = true;
+        fetch('/erp/inventory/products/update-jubelio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+            body: JSON.stringify({ product_id: el.dataset.productId, sync_to_jubelio: on ? 1 : 0 })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (label) {
+                        label.textContent = data.sync_to_jubelio ? 'Sinkron' : 'Tidak';
+                        label.classList.toggle('text-indigo-600', data.sync_to_jubelio);
+                        label.classList.toggle('text-gray-400', !data.sync_to_jubelio);
                     }
                 } else {
                     el.checked = !on; // gagal → kembalikan

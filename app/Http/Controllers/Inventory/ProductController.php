@@ -232,6 +232,16 @@ class ProductController extends Controller
         return response()->json(['success' => true, 'is_sellable' => (bool) $product->is_sellable]);
     }
 
+    /** Toggle flag "Sinkron ke Jubelio" langsung dari index produk (tanpa buka edit). */
+    public function updateSyncJubelio(Request $request)
+    {
+        $product = Product::findOrFail($request->product_id);
+        $product->sync_to_jubelio = $request->boolean('sync_to_jubelio');
+        $product->save();
+
+        return response()->json(['success' => true, 'sync_to_jubelio' => (bool) $product->sync_to_jubelio]);
+    }
+
     public function destroy($id)
     {
         $product = Product::findOrFail($id);

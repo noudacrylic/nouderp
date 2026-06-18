@@ -17,6 +17,27 @@ if (!function_exists('format_qty')) {
 }
 
 
+if (!function_exists('qty_value')) {
+
+    /**
+     * Nilai qty untuk ATRIBUT value input <input type="number"> / HTML5.
+     * Desimal pakai titik, TANPA pemisah ribuan (machine-readable), trailing zero dibuang.
+     *
+     * PENTING: jangan pakai format_qty() di input number — format_qty() memakai titik
+     * sebagai pemisah ribuan (mis. 1009 → "1.009"), dan browser akan menafsirkannya
+     * sebagai desimal (1.009) sehingga perhitungan salah.
+     */
+    function qty_value($number)
+    {
+        if ($number === null || $number === '') {
+            return '0';
+        }
+
+        return rtrim(rtrim(number_format((float) $number, 4, '.', ''), '0'), '.') ?: '0';
+    }
+}
+
+
 if (!function_exists('format_money')) {
 
     function format_money($number)
