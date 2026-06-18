@@ -12,6 +12,9 @@
     let manualShip = false;
     let voucher = '';
     let progShip = false; // guard saat set shipping secara programatik
+    // Diskon ongkir promo hanya diterapkan saat buat SO/Penawaran baru. Di faktur & semua mode
+    // edit, diskon ongkir DIWARISI dari dokumen sumber (SO) — promo tidak boleh menimpanya.
+    const allowShip = (window.__promoAllowShipping !== false);
 
     // ── Kumpulkan item dari DOM ──
     function itemsFromDom() {
@@ -93,7 +96,7 @@
     }
 
     function setShipping(sh) {
-        if (manualShip || isPickup()) return;
+        if (!allowShip || manualShip || isPickup()) return;
         const typeEl = document.getElementById('ship_disc_type');
         const valEl = document.getElementById('ship_disc_value');
         if (!typeEl || !valEl) return;

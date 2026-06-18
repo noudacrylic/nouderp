@@ -73,10 +73,14 @@ class PromotionService
         return $result;
     }
 
-    /** Diskon ongkir bertingkat. Diskon dihitung atas shipping_gross. */
-    public function resolveShippingDiscount(float $subtotal, float $shippingGross, ?string $voucherCode = null): ?array
+    /**
+     * Diskon ongkir bertingkat. Diskon dihitung atas shipping_gross.
+     * Bila promo punya daftar produk, ambang tier dihitung HANYA dari subtotal produk
+     * terdaftar (produk lain di faktur diabaikan). Tanpa daftar = seluruh subtotal.
+     */
+    public function resolveShippingDiscount(float $subtotal, float $shippingGross, ?string $voucherCode = null, array $items = []): ?array
     {
-        return $this->resolveTier('shipping', $subtotal, $shippingGross, $voucherCode);
+        return $this->resolveTier('shipping', $subtotal, $shippingGross, $voucherCode, $items);
     }
 
     /** Diskon berdasarkan total belanja (mengisi diskon global). Diskon dihitung atas subtotal. */
@@ -111,14 +115,14 @@ class PromotionService
 
         return [
             'item_discounts'  => $this->resolveItemDiscounts($items, $voucher),
-            'shipping'        => $this->resolveShippingDiscount($subtotal, $shippingGross, $voucher),
+            'shipping'        => $this->resolveShippingDiscount($subtotal, $shippingGross, $voucher, $items),
             'cart_total'      => $this->resolveCartTotalDiscount($subtotal, $voucher),
         ];
     }
 
     // ───────────────────────── internal ─────────────────────────
 
-    private function resolveTier(string $type, float $subtotal, float $base, ?string $voucherCode): ?array
+    private function resolveTier(string $type, float $subtotal, float $base, ?string $voucherCode, array $items = []): ?array
     {
         $promos = $this->candidates($type, $voucherCode);
         if ($promos->isEmpty()) {
@@ -129,9 +133,21 @@ class PromotionService
         $bestAmt = -1.0;
         $bestTier = null;
         foreach ($promos as $promo) {
-            // tier tertinggi yang min_spend-nya <= subtotal
+            // Subtotal yang dipakai untuk mencocokkan ambang tier. Bila promo punya daftar produk
+            // (khusus shipping), hanya produk terdaftar yang dihitung — produk lain di faktur diabaikan.
+            $effSubtotal = $subtotal;
+            $pids = $promo->productIds();
+            if ($type === 'shipping' && !empty($pids)) {
+                $effSubtotal = 0.0;
+                foreach ($items as $it) {
+                    if (in_array((int) ($it['product_id'] ?? 0), $pids, true)) {
+                        $effSubtotal += (float) ($it['qty'] ?? 1) * (float) ($it['unit_price'] ?? 0);
+                    }
+                }
+            }
+            // tier tertinggi yang min_spend-nya <= subtotal efektif
             $tier = $promo->tiers
-                ->filter(fn ($t) => $subtotal >= (float) $t->min_spend)
+                ->filter(fn ($t) => $effSubtotal >= (float) $t->min_spend)
                 ->sortByDesc('min_spend')
                 ->first();
             if (!$tier) {

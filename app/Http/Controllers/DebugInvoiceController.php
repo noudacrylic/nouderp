@@ -449,6 +449,7 @@ class DebugInvoiceController extends Controller
             clean_number($request->selling_expense),
             clean_number($request->advance_applied),
             $request->notes,
+            0, // marketplace_fee
             $items
         );
 
@@ -836,6 +837,7 @@ class DebugInvoiceController extends Controller
             clean_number($request->selling_expense),
             clean_number($request->advance_applied),
             $request->notes,
+            0, // marketplace_fee
             $items
         );
 
@@ -1138,7 +1140,7 @@ class DebugInvoiceController extends Controller
                 }
                 $dto = new SalesInvoiceDTO(
                     $so->id, $shopeeCustomer->id, $defaultWarehouse->id, $date,
-                    'nominal', 0, 0, 0, $shippingTotal, 0, 0, $notes, $items,
+                    'nominal', 0, 0, 0, $shippingTotal, 0, 0, $notes, 0, $items,
                 );
 
                 $invoice = $service->createDraft($dto);

@@ -284,7 +284,7 @@ class BomController extends Controller
         $request->validate([
             'rows'                          => 'nullable|array',
             'rows.*.product_id'             => 'required|exists:products,id',
-            'rows.*.percentage'             => 'required|numeric|min:0|max:100',
+            'rows.*.percentage'             => 'nullable|numeric|min:0|max:100',
             'rows.*.raw_material_product_id' => 'nullable|exists:products,id',
             'rows.*.panjang'                => 'nullable|numeric|gt:0',
             'rows.*.lebar'                  => 'nullable|numeric|gt:0',
@@ -293,14 +293,14 @@ class BomController extends Controller
         $rows = collect($request->input('rows', []))
             ->filter(fn($r) => !empty($r['product_id']));
 
-        // Validasi: semua produk wajib ready stok.
+        // Validasi: produk sampingan harus ready stok ATAU custom/preorder.
         $productIds = $rows->pluck('product_id')->map(fn($id) => (int) $id);
         if ($productIds->isNotEmpty()) {
-            $nonReady = Product::whereIn('id', $productIds)
-                ->where('sale_type', '!=', 'ready')
+            $invalid = Product::whereIn('id', $productIds)
+                ->whereNotIn('sale_type', ['ready', 'preorder'])
                 ->pluck('name');
-            if ($nonReady->isNotEmpty()) {
-                return back()->with('error', 'Hanya produk ready stok yang boleh jadi produk sampingan: ' . $nonReady->implode(', ') . '.');
+            if ($invalid->isNotEmpty()) {
+                return back()->with('error', 'Hanya produk ready stok atau custom/preorder yang boleh jadi produk sampingan: ' . $invalid->implode(', ') . '.');
             }
         }
 
@@ -314,7 +314,8 @@ class BomController extends Controller
             foreach ($rows as $r) {
                 ProductionByproduct::create([
                     'product_id'              => (int) $r['product_id'],
-                    'percentage'              => (float) $r['percentage'],
+                    // Kosong = tidak ada % default → wajib diisi manual saat OP.
+                    'percentage'              => isset($r['percentage']) && $r['percentage'] !== '' ? (float) $r['percentage'] : null,
                     'raw_material_product_id' => !empty($r['raw_material_product_id']) ? (int) $r['raw_material_product_id'] : null,
                     'panjang'                 => isset($r['panjang']) && $r['panjang'] !== '' ? (float) $r['panjang'] : null,
                     'lebar'                   => isset($r['lebar']) && $r['lebar'] !== '' ? (float) $r['lebar'] : null,

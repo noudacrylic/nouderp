@@ -176,7 +176,7 @@ class SalesReturnController extends Controller
             'return_date'       => 'required|date',
             'items'             => 'required|array|min:1',
             'items.*.invoice_item_id' => 'required|integer', 
-            'items.*.qty'       => 'required|numeric|min:0.0001',
+            'items.*.qty'       => 'required|numeric|min:0',
             'items.*.condition' => 'required|in:good,damaged,repair',
         ]);
 

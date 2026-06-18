@@ -149,7 +149,7 @@
             $initByproducts = ($byproducts ?? collect())->map(fn($b) => [
                 'product_id'   => $b->product_id,
                 'productQuery' => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
-                'percentage'   => rtrim(rtrim(number_format((float) $b->percentage, 4, '.', ''), '0'), '.'),
+                'percentage'   => $b->percentage === null ? '' : rtrim(rtrim(number_format((float) $b->percentage, 4, '.', ''), '0'), '.'),
                 'raw_material_product_id' => $b->raw_material_product_id,
                 'rawQuery'     => ($b->rawMaterial?->sku ? $b->rawMaterial->sku . ' - ' : '') . ($b->rawMaterial?->name ?? ''),
                 'panjang'      => $fmtDim($b->panjang),
@@ -224,10 +224,11 @@
                         class="text-xs text-blue-600 font-bold hover:text-blue-700">+ Tambah</button>
             </div>
             <p class="text-xs text-gray-400 mb-4">
-                Daftar produk <b>ready stok</b> yang boleh menjadi output sampingan di BOM/OP, beserta
+                Daftar produk <b>ready stok</b> atau <b>custom/preorder</b> yang boleh menjadi output sampingan di BOM/OP, beserta
                 <b>% biaya per unit</b> (basis 1 siklus produksi). Persentase ini otomatis mengisi BOM/OP dan
-                menghitung HPP saat finalisasi. <b>Bahan baku + PxL (cm)</b> (baris bawah) opsional — wajib bila
-                dipakai Kalkulator Produk Custom.
+                menghitung HPP saat finalisasi. <b>% boleh dikosongi</b> — artinya tidak ada nilai default
+                sehingga di OP wajib diisi manual (komposisi/ukuran sering beda per order). <b>Bahan baku + PxL (cm)</b>
+                (baris bawah) opsional — wajib bila dipakai Kalkulator Produk Custom.
             </p>
 
             <form action="{{ route('production.settings.byproducts.update') }}" method="POST">
@@ -241,7 +242,7 @@
                                     <input type="text" x-model="r.productQuery"
                                            @input.debounce.300ms="search(idx)"
                                            @focus="r.showDrop = true"
-                                           placeholder="Cari produk ready stok..."
+                                           placeholder="Cari produk ready stok / custom..."
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                     <input type="hidden" :name="`rows[${idx}][product_id]`" :value="r.product_id">
                                     <div x-show="r.showDrop && r.results.length > 0"
@@ -325,7 +326,7 @@ function byproductSettings(init) {
             const r = this.rows[idx];
             const q = (r.productQuery || '').trim();
             if (q.length < 1) { r.results = []; return; }
-            fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}&ready_only=1`)
+            fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}&byproduct_only=1`)
                 .then(res => res.json())
                 .then(data => { r.results = data; r.showDrop = true; });
         },

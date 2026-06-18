@@ -41,14 +41,24 @@ class WarrantyOrderController extends Controller
             'type'         => 'required|in:repair',
             'items'        => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
-            'items.*.qty'        => 'required|numeric|min:0.0001',
+            'items.*.qty'        => 'required|numeric|min:0',
         ]);
 
+        // Form mengirim semua baris (item dari faktur yang tak diperbaiki ber-qty 0) — buang
+        // baris qty 0 sebelum disimpan, supaya validasi tidak menolaknya & tak ada item hantu.
+        $items = collect($request->input('items', []))
+            ->filter(fn ($i) => (float) ($i['qty'] ?? 0) > 0)
+            ->values()
+            ->all();
+        if (empty($items)) {
+            return back()->with('error', 'Tidak ada item dengan qty yang valid.')->withInput();
+        }
+
         try {
-            $warranty = $service->create($request->only([
+            $warranty = $service->create(array_merge($request->only([
                 'customer_id', 'invoice_id', 'sales_order_id', 'warehouse_id',
-                'warranty_date', 'type', 'issue_description', 'notes', 'items',
-            ]));
+                'warranty_date', 'type', 'issue_description', 'notes',
+            ]), ['items' => $items]));
 
             if ($request->form_status === 'post') {
                 $service->receive($warranty->id);
@@ -131,14 +141,23 @@ class WarrantyOrderController extends Controller
             'type'         => 'required|in:repair',
             'items'        => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
-            'items.*.qty'        => 'required|numeric|min:0.0001',
+            'items.*.qty'        => 'required|numeric|min:0',
         ]);
 
+        // Buang baris qty 0 (item faktur yang tak diperbaiki) sebelum simpan.
+        $items = collect($request->input('items', []))
+            ->filter(fn ($i) => (float) ($i['qty'] ?? 0) > 0)
+            ->values()
+            ->all();
+        if (empty($items)) {
+            return back()->with('error', 'Tidak ada item dengan qty yang valid.')->withInput();
+        }
+
         try {
-            $service->update($id, $request->only([
+            $service->update($id, array_merge($request->only([
                 'customer_id', 'invoice_id', 'sales_order_id', 'warehouse_id',
-                'warranty_date', 'type', 'issue_description', 'notes', 'items',
-            ]));
+                'warranty_date', 'type', 'issue_description', 'notes',
+            ]), ['items' => $items]));
 
             return redirect(list_url('sales.warranty.index'))
                 ->with('success', 'Garansi berhasil diperbarui.');

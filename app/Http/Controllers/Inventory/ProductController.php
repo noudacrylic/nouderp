@@ -628,6 +628,8 @@ class ProductController extends Controller
             ->when($request->boolean('exclude_bundle'), fn($qq) => $qq->where('sale_type', '!=', 'bundle'))
             // Konteks Produk Sampingan: hanya barang jadi berstok (ready stok).
             ->when($request->boolean('ready_only'), fn($qq) => $qq->where('sale_type', 'ready'))
+            // Konteks Produk Sampingan (longgar): barang jadi ready stok ATAU custom/preorder.
+            ->when($request->boolean('byproduct_only'), fn($qq) => $qq->whereIn('sale_type', ['ready', 'preorder']))
             // Konteks JUAL (Penawaran/SO/Faktur): hanya produk yang ditandai "Dijual".
             // Produksi/purchasing/warranty TIDAK kirim param ini → semua produk tampil.
             ->when($request->boolean('sellable_only'), function ($qq) {

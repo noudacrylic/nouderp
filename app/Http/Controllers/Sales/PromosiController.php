@@ -222,5 +222,13 @@ class PromosiController extends Controller
                 'discount_value' => $value,
             ]);
         }
+
+        // Shipping: daftar produk pembatas ambang (opsional). Kosong = berlaku atas seluruh subtotal.
+        if ($promo->type === 'shipping') {
+            $ids = array_unique(array_filter($data['product_ids'] ?? []));
+            foreach ($ids as $pid) {
+                $promo->products()->create(['product_id' => (int) $pid]);
+            }
+        }
     }
 }

@@ -114,6 +114,7 @@ class PosFulfillmentService
             (float) ($so->additional_fee ?? 0),
             0, // advance_applied dihitung ulang dari sales_advances posted
             $so->notes,
+            0, // marketplace_fee (POS bukan marketplace)
             $items,
         );
 

@@ -420,10 +420,10 @@
                                          DENGAN BOM atau baris Utama → otomatis & terkunci. --}}
                                     <input type="number" :name="`outputs[${idx}][percentage]`" x-model="o.percentage"
                                            @input="recalcPercentages()"
-                                           :readonly="o.output_type === 'main' || !!selectedBomId"
+                                           :readonly="o.output_type === 'main' || (!!selectedBomId && !isManualByproduct(o))"
                                            step="0.0001" min="0" max="100"
-                                           :title="(o.output_type === 'main' || selectedBomId) ? 'Persentase otomatis (terkunci)' : 'Bisa diisi manual karena tanpa BOM'"
-                                           :class="(o.output_type === 'main' || selectedBomId)
+                                           :title="(o.output_type === 'main' || (selectedBomId && !isManualByproduct(o))) ? 'Persentase otomatis (terkunci)' : 'Isi persentase manual'"
+                                           :class="(o.output_type === 'main' || (selectedBomId && !isManualByproduct(o)))
                                                ? 'bg-gray-100 text-gray-600 cursor-not-allowed'
                                                : 'bg-white text-gray-800'"
                                            class="w-24 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -957,13 +957,20 @@ function orderForm() {
         //  • DENGAN BOM: sampingan = unit% × (qty/siklus), otomatis & terkunci.
         //  • TANPA BOM: ukuran material bisa beda → sampingan diisi/di-override manual user;
         //    di sini hanya hitung ulang utama, jangan timpa % sampingan yang diketik.
+        // Output sampingan dianggap "manual" (persentase wajib diisi sendiri) bila
+        // produk sampingan tsb tidak punya % default di Pengaturan Produksi (unit_percentage kosong).
+        isManualByproduct(o) {
+            return o.output_type === 'by_product'
+                && (o.unit_percentage === null || o.unit_percentage === undefined || o.unit_percentage === '');
+        },
         recalcPercentages() {
             const cyc = parseFloat(this.cycles) || 1;
             const usesBom = !!this.selectedBomId;
             let sumBp = 0;
             this.outputs.forEach(o => {
                 if (o.output_type === 'by_product') {
-                    if (usesBom) {
+                    // Auto-hitung hanya bila pakai BOM DAN ada % master; selain itu hormati input manual.
+                    if (usesBom && !this.isManualByproduct(o)) {
                         const up  = parseFloat(o.unit_percentage) || 0;
                         const qty = parseFloat(o.qty_planned) || 0;
                         o.percentage = Math.round(up * (qty / cyc) * 10000) / 10000;
@@ -999,8 +1006,11 @@ function orderForm() {
             const bp = this.byproducts.find(b => String(b.id) === String(o.product_id));
             o.unit_percentage = bp ? bp.unit_percentage : null;
             o.productQuery = bp ? bp.label : '';
-            // Tanpa BOM: prefill saran % dari master (unit% × qty/siklus) sebagai titik awal — boleh diubah.
-            if (!this.selectedBomId) {
+            if (this.isManualByproduct(o)) {
+                // Tidak ada % default → kosongkan agar user wajib mengisi manual.
+                o.percentage = '';
+            } else if (!this.selectedBomId) {
+                // Tanpa BOM tapi punya % master: prefill saran (unit% × qty/siklus) — boleh diubah.
                 const cyc = parseFloat(this.cycles) || 1;
                 const qty = parseFloat(o.qty_planned) || 0;
                 o.percentage = Math.round((parseFloat(o.unit_percentage) || 0) * (qty / cyc) * 100) / 100;

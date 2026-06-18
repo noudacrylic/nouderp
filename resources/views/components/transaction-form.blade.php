@@ -1222,4 +1222,11 @@
     }
 </script>
 
+@php
+    // Diskon ongkir promo HANYA dihitung saat membuat SO/Penawaran baru (di sinilah promo
+    // diputuskan untuk customer). Faktur & semua mode edit WAJIB mewarisi diskon ongkir dari
+    // dokumen sumber (SO) — jangan dihitung ulang dari promo.
+    $promoAllowShipping = ($type !== 'invoice') && (strtoupper($method) === 'POST');
+@endphp
+<script>window.__promoAllowShipping = {{ $promoAllowShipping ? 'true' : 'false' }};</script>
 @include('erp.sales._partials.promo-form-script')

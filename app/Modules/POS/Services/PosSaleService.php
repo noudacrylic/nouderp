@@ -80,6 +80,7 @@ class PosSaleService
             0,                                          // additional_fee
             0,                                          // advance_applied
             $data['notes'] ?? null,
+            0,                                          // marketplace_fee (POS bukan marketplace)
             $items,
         );
 

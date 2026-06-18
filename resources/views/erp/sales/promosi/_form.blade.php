@@ -13,6 +13,10 @@
         : [['min_spend' => '', 'discount_type' => 'nominal', 'discount_value' => '']]);
 @endphp
 
+<style>
+    /* Kolom khusus mode item (preview diskon) — disembunyikan saat dipakai untuk shipping. */
+    #product_card.mode-ship .col-itemonly { display: none; }
+</style>
 
 <form method="POST" action="{{ $action }}" class="space-y-4">
     @csrf
@@ -95,41 +99,59 @@
         </div>
     </div>
 
+    {{-- Slot tempat kartu produk saat tipe = item (di bawah panel item). --}}
+    <div id="item_slot"></div>
+
     {{-- ───────── Panel TIER (shipping & cart_total) ───────── --}}
     <div class="bg-white rounded shadow p-4 space-y-3 text-sm promo-panel" data-panel="tier" style="{{ in_array($type, ['shipping','cart_total']) ? '' : 'display:none' }}">
         <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tingkatan Diskon (berdasarkan total belanja)</h2>
         <p class="text-[11px] text-gray-400">Tier yang dipakai = ambang (min belanja) tertinggi yang terpenuhi. Nominal = potongan flat.</p>
-        <div id="tier_rows" class="space-y-2">
-            @foreach($tiers as $i => $t)
-                <div class="tier-row flex items-end gap-2">
-                    <div class="flex-1 max-w-xs">
-                        <label class="block text-[11px] text-gray-500 mb-1">Min. Belanja (Rp)</label>
-                        <input type="text" name="tiers[{{ $i }}][min_spend]" value="{{ $t['min_spend'] ?? '' }}" class="w-full border rounded px-3 py-2" placeholder="50000">
-                    </div>
-                    <div class="w-32">
-                        <label class="block text-[11px] text-gray-500 mb-1">Jenis</label>
-                        <select name="tiers[{{ $i }}][discount_type]" class="w-full border rounded px-2 py-2 bg-white">
-                            <option value="nominal" @selected(($t['discount_type'] ?? 'nominal')==='nominal')>Nominal</option>
-                            <option value="percent" @selected(($t['discount_type'] ?? '')==='percent')>Persen</option>
-                        </select>
-                    </div>
-                    <div class="w-32">
-                        <label class="block text-[11px] text-gray-500 mb-1">Nilai</label>
-                        <input type="text" name="tiers[{{ $i }}][discount_value]" value="{{ $t['discount_value'] ?? '' }}" class="w-full border rounded px-3 py-2" placeholder="5000">
-                    </div>
-                    <button type="button" class="tier-remove text-red-600 hover:bg-red-50 rounded px-2 py-2" title="Hapus">&times;</button>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {{-- Kiri: daftar tingkatan --}}
+            <div>
+                <div id="tier_rows" class="space-y-2">
+                    @foreach($tiers as $i => $t)
+                        <div class="tier-row flex items-end gap-2">
+                            <div class="flex-1 max-w-xs">
+                                <label class="block text-[11px] text-gray-500 mb-1">Min. Belanja (Rp)</label>
+                                <input type="text" name="tiers[{{ $i }}][min_spend]" value="{{ $t['min_spend'] ?? '' }}" class="w-full border rounded px-3 py-2" placeholder="50000">
+                            </div>
+                            <div class="w-32">
+                                <label class="block text-[11px] text-gray-500 mb-1">Jenis</label>
+                                <select name="tiers[{{ $i }}][discount_type]" class="w-full border rounded px-2 py-2 bg-white">
+                                    <option value="nominal" @selected(($t['discount_type'] ?? 'nominal')==='nominal')>Nominal</option>
+                                    <option value="percent" @selected(($t['discount_type'] ?? '')==='percent')>Persen</option>
+                                </select>
+                            </div>
+                            <div class="w-32">
+                                <label class="block text-[11px] text-gray-500 mb-1">Nilai</label>
+                                <input type="text" name="tiers[{{ $i }}][discount_value]" value="{{ $t['discount_value'] ?? '' }}" class="w-full border rounded px-3 py-2" placeholder="5000">
+                            </div>
+                            <button type="button" class="tier-remove text-red-600 hover:bg-red-50 rounded px-2 py-2" title="Hapus">&times;</button>
+                        </div>
+                    @endforeach
                 </div>
-            @endforeach
+                <button type="button" id="tier_add" class="text-blue-600 hover:underline text-sm font-semibold mt-2">+ Tambah tingkat</button>
+            </div>
+            {{-- Kanan: kartu produk pindah ke sini saat tipe = shipping. --}}
+            <div id="ship_slot"></div>
         </div>
-        <button type="button" id="tier_add" class="text-blue-600 hover:underline text-sm font-semibold">+ Tambah tingkat</button>
     </div>
 
-    {{-- ───────── Pilih Produk (di bawah, pola add item) ───────── --}}
-    <div class="bg-white rounded shadow p-4 space-y-3 text-sm promo-panel" data-panel="item-products" style="{{ ($type==='item' && !$appliesAll) ? '' : 'display:none' }}">
+    {{-- ───────── Kartu Produk (movable: bawah utk item, samping tier utk shipping) ───────── --}}
+    <div id="product_card" class="bg-white rounded shadow p-4 space-y-3 text-sm" style="display:none">
         <div class="flex items-center justify-between">
-            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Produk Sasaran &amp; Pratinjau Harga</h2>
+            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <span class="title-item">Produk Sasaran &amp; Pratinjau Harga</span>
+                <span class="title-ship hidden">Produk yang Dihitung untuk Ambang Ongkir</span>
+            </h2>
             <span class="text-xs text-gray-500"><span id="sel_count">0</span> produk dipilih</span>
         </div>
+
+        <p class="title-ship hidden text-[11px] text-amber-600">
+            Diskon ongkir hanya dihitung dari <b>total belanja produk di daftar ini</b>. Produk lain di faktur
+            diabaikan. <b>Kosong = berlaku atas seluruh belanja.</b>
+        </p>
 
         {{-- Tambah produk (dropdown, bisa pilih banyak) --}}
         <div class="relative" id="add_wrap">
@@ -148,8 +170,8 @@
                         <th class="text-left px-3 py-2 w-32">SKU</th>
                         <th class="text-left px-3 py-2">Nama Produk</th>
                         <th class="text-right px-3 py-2 w-32">Harga</th>
-                        <th class="text-right px-3 py-2 w-28">Diskon</th>
-                        <th class="text-right px-3 py-2 w-32">Harga Setelah</th>
+                        <th class="text-right px-3 py-2 w-28 col-itemonly">Diskon</th>
+                        <th class="text-right px-3 py-2 w-32 col-itemonly">Harga Setelah</th>
                         <th class="w-8"></th>
                     </tr>
                 </thead>
@@ -177,34 +199,45 @@
     const panels = document.querySelectorAll('.promo-panel');
     const discTypeEl = document.getElementById('item_disc_type');
     const discValEl = document.getElementById('item_disc_value');
+    const productCard = document.getElementById('product_card');
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const rupiah = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
     const num = v => parseFloat(String(v ?? '').replace(/[^\d.-]/g, '')) || 0;
 
-    // ── Tampilkan panel sesuai tipe ──
+    // ── Tampilkan panel sesuai tipe + pindahkan kartu produk ──
     function syncLayout() {
         const t = typeSel.value;
         const isItem = t === 'item';
+        const isShip = t === 'shipping';
         panels.forEach(p => {
             const w = p.dataset.panel;
             let show = false;
             if (w === 'item') show = isItem;
             else if (w === 'tier') show = (t === 'shipping' || t === 'cart_total');
-            else if (w === 'item-products') show = isItem && !allChk.checked;
             p.style.display = show ? '' : 'none';
         });
+
+        // Kartu produk: untuk item (jika tidak "semua produk") ATAU untuk shipping.
+        const showCard = (isItem && !allChk.checked) || isShip;
+        productCard.style.display = showCard ? '' : 'none';
+        if (showCard) {
+            const slot = document.getElementById(isShip ? 'ship_slot' : 'item_slot');
+            if (productCard.parentElement !== slot) slot.appendChild(productCard);
+            productCard.classList.toggle('mode-ship', isShip);
+            productCard.querySelectorAll('.title-item').forEach(e => e.classList.toggle('hidden', isShip));
+            productCard.querySelectorAll('.title-ship').forEach(e => e.classList.toggle('hidden', !isShip));
+        }
     }
     typeSel.addEventListener('change', syncLayout);
     allChk.addEventListener('change', syncLayout);
-    syncLayout();
 
     // Voucher toggle
     const vChk = document.getElementById('promo_is_voucher');
     const vWrap = document.getElementById('voucher_code_wrap');
     vChk.addEventListener('change', () => vWrap.classList.toggle('hidden', !vChk.checked));
 
-    // ── Tabel produk + pratinjau diskon ──
+    // ── Tabel produk + pratinjau diskon (kolom diskon hanya relevan utk item) ──
     function discountFor(price) {
         const dt = discTypeEl.value;
         const dv = num(discValEl.value);
@@ -224,8 +257,8 @@
                 <td class="px-3 py-2 font-mono text-[11px] text-gray-500">${esc(p.sku || '-')}<input type="hidden" name="product_ids[]" value="${p.id}"></td>
                 <td class="px-3 py-2">${esc(p.name)}</td>
                 <td class="px-3 py-2 text-right text-gray-500">${rupiah(p.price)}</td>
-                <td class="px-3 py-2 text-right text-rose-600">- ${rupiah(disc)}</td>
-                <td class="px-3 py-2 text-right font-semibold text-gray-800">${rupiah(after)}</td>
+                <td class="px-3 py-2 text-right text-rose-600 col-itemonly">- ${rupiah(disc)}</td>
+                <td class="px-3 py-2 text-right font-semibold text-gray-800 col-itemonly">${rupiah(after)}</td>
                 <td class="px-3 py-2 text-center"><button type="button" class="row-del text-gray-300 hover:text-red-500" title="Hapus">&times;</button></td>
             </tr>`);
         });
@@ -282,6 +315,7 @@
     // Pre-fill saat edit
     PRESELECTED.forEach(id => { if (byId[id]) added.set(id, byId[id]); });
     renderTable();
+    syncLayout();
 
     // ── Tier rows add/remove ──
     const rows = document.getElementById('tier_rows');

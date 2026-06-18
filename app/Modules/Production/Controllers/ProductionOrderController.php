@@ -12,6 +12,7 @@ use App\Modules\Production\Models\ProductionOrderStep;
 use App\Modules\Production\Services\ProductionOrderService;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesReturn;
+use App\Models\SalesInvoice;
 use App\Models\WarrantyOrder;
 use App\Models\InventoryAdjustment;
 use App\Core\Inventory\Warehouse;
@@ -98,7 +99,8 @@ class ProductionOrderController extends Controller
             return [
                 'id'              => $b->product_id,
                 'label'           => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
-                'unit_percentage' => (float) $b->percentage,
+                // null = belum diatur → di OP wajib diisi manual (tidak otomatis/terkunci).
+                'unit_percentage' => $b->percentage === null ? null : (float) $b->percentage,
                 'panjang'         => (float) $b->panjang,        // PxL kebutuhan produk sampingan
                 'lebar'           => (float) $b->lebar,
                 'rm_area'         => $rmArea,                    // luas lembar bahan baku sampingan
@@ -604,15 +606,20 @@ class ProductionOrderController extends Controller
             ->groupBy('product_id')
             ->map(fn($g) => collect($g)->sum(fn($r) => (float) ($r['qty_planned'] ?? 0)));
 
-        foreach ($newByProduct as $productId => $newQty) {
-            $soItem = $so->items->firstWhere('product_id', (int) $productId);
-            if (!$soItem) continue;
+        // Produk custom bisa muncul di beberapa baris SO dgn product_id sama → batas = TOTAL qty
+        // semua baris produk tsb (bukan hanya baris pertama).
+        $orderedByProduct = $so->items->groupBy('product_id')->map(fn($g) => (float) $g->sum('qty'));
 
-            $ordered = (float) $soItem->qty;
+        foreach ($newByProduct as $productId => $newQty) {
+            $pid = (int) $productId;
+            if (!$orderedByProduct->has($pid)) continue;
+
+            $ordered = (float) $orderedByProduct->get($pid);
             $planned = (float) ($existing[$productId] ?? 0);
             $after   = $planned + (float) $newQty;
 
             if ($after > $ordered + 0.0001) {
+                $soItem = $so->items->firstWhere('product_id', $pid);
                 $sku  = $soItem->product?->sku ?? '#'.$productId;
                 $sisa = max(0, $ordered - $planned);
                 return "Output untuk {$sku} melebihi batas SO. Dipesan: ".rtrim(rtrim(number_format($ordered, 4, '.', ''), '0'), '.').
@@ -661,17 +668,31 @@ class ProductionOrderController extends Controller
             ->get()
             ->keyBy(fn($r) => $r->so_id . '-' . $r->product_id);
 
+        // SO yang sudah punya faktur (selain void) dianggap selesai → jangan ditampilkan.
+        $invoicedSoIds = SalesInvoice::whereIn('sales_order_id', $soIds)
+            ->whereNotIn('status', ['void'])
+            ->pluck('sales_order_id')
+            ->flip();
+
         $results = $salesOrders->map(function ($so) use ($plannedByPair) {
+            // Gabung per product_id: produk custom bisa muncul di beberapa baris SO dgn nama beda
+            // tapi 1 product_id. Produksi dilacak per product_id, jadi qty & sisa harus diakumulasi
+            // per produk (kalau tidak, produksi sebagian salah hitung / SO salah disembunyikan).
             $items = $so->items
                 ->filter(fn($i) => $i->product && $i->product->sale_type === 'preorder')
-                ->map(function ($item) use ($so, $plannedByPair) {
-                    $ordered = (float) $item->qty;
-                    $key     = $so->id . '-' . $item->product_id;
+                ->groupBy('product_id')
+                ->map(function ($group) use ($so, $plannedByPair) {
+                    $first   = $group->first();
+                    $ordered = (float) $group->sum('qty');
+                    $key     = $so->id . '-' . $first->product_id;
                     $planned = (float) ($plannedByPair[$key]->planned ?? 0);
+                    // Gabung nama yang diinput di SO (utamakan description, fallback nama master).
+                    $name = $group->map(fn($i) => $i->description ?: $i->product->name)
+                        ->filter()->unique()->implode(' + ');
                     return [
-                        'product_id'    => $item->product_id,
-                        'sku'           => $item->product->sku,
-                        'name'          => $item->product->name,
+                        'product_id'    => $first->product_id,
+                        'sku'           => $first->product->sku,
+                        'name'          => $name !== '' ? $name : $first->product->name,
                         'qty_ordered'   => $ordered,
                         'qty_planned'   => $planned,
                         'qty_remaining' => max(0, round($ordered - $planned, 4)),
@@ -688,7 +709,10 @@ class ProductionOrderController extends Controller
                 'items'         => $items,
             ];
         })
-        ->filter(fn($so) => count($so['items']) > 0)
+        // Sembunyikan SO yang sudah ada fakturnya, atau sudah selesai diproduksi
+        // (tidak ada item preorder dengan sisa qty yang belum diproduksi).
+        ->filter(fn($so) => ! $invoicedSoIds->has($so['id']))
+        ->filter(fn($so) => collect($so['items'])->contains(fn($i) => $i['qty_remaining'] > 0))
         ->values();
 
         return response()->json($results);

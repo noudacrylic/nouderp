@@ -126,8 +126,15 @@ class ProductionOrderService
                         $sumBp = 0.0;
                         foreach ($rawOutputs as $k => $o) {
                             if (($o['output_type'] ?? 'main') !== 'by_product') continue;
-                            $master  = $masters->get((int) $o['product_id']);
-                            $unitPct = $master ? (float) $master->percentage : (float) ($o['unit_percentage'] ?? 0);
+                            $master = $masters->get((int) $o['product_id']);
+                            // Master tanpa % default (null/tak terdaftar) → manual: hormati persentase user.
+                            if (!$master || $master->percentage === null) {
+                                $rawOutputs[$k]['unit_percentage'] = null;
+                                $rawOutputs[$k]['percentage']      = round((float) ($o['percentage'] ?? 0), 4);
+                                $sumBp += $rawOutputs[$k]['percentage'];
+                                continue;
+                            }
+                            $unitPct = (float) $master->percentage;
                             $pct     = round($unitPct * ((float) $o['qty_planned'] / $cycles), 4);
                             $rawOutputs[$k]['unit_percentage'] = $unitPct;
                             $rawOutputs[$k]['percentage']      = $pct;
@@ -829,8 +836,10 @@ class ProductionOrderService
                 foreach ($actualOutputs as $out) {
                     $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
                     if (!$rec || $rec->output_type !== 'by_product') continue;
-                    if ($bomFixed) {
-                        $unitPct = (float) ($rec->unit_percentage ?? 0);
+                    // BOM dgn % master → recompute dari qty. Sampingan manual (unit_percentage null)
+                    // tetap hormati persentase tersimpan/dikirim meski order pakai BOM.
+                    if ($bomFixed && $rec->unit_percentage !== null) {
+                        $unitPct = (float) $rec->unit_percentage;
                         $pct = round($unitPct * ((float) $out['qty_produced'] / $cycles), 4);
                     } else {
                         $pct = (isset($out['percentage']) && $out['percentage'] !== '' && $out['percentage'] !== null)

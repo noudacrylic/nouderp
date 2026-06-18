@@ -61,7 +61,15 @@ class InventoryAdjustmentController extends Controller
     public function edit($id)
     {
         $adjustment = InventoryAdjustment::with('items.product')->findOrFail($id);
-        $products = Product::all();
+        // Sama dgn create: hanya ready & custom/preorder. Tetap sertakan produk yang sudah
+        // terpilih di draft ini agar pilihan lama tidak hilang dari dropdown.
+        $existingIds = $adjustment->items->pluck('product_id')->filter()->all();
+        $products = Product::where(function ($q) use ($existingIds) {
+                $q->whereIn('sale_type', ['ready', 'preorder']);
+                if ($existingIds) {
+                    $q->orWhereIn('id', $existingIds);
+                }
+            })->orderBy('name')->get();
         $warehouses = Warehouse::all();
 
         return view('erp.inventory.adjustments.edit', compact('adjustment', 'products', 'warehouses'));
@@ -69,7 +77,9 @@ class InventoryAdjustmentController extends Controller
 
     public function create()
     {
-        $products        = Product::all();
+        // Penyesuaian stok hanya untuk barang berstok fisik: ready stok & custom/preorder.
+        // Bundle (komponen virtual), jasa, non-stock tidak punya stok untuk di-opname.
+        $products        = Product::whereIn('sale_type', ['ready', 'preorder'])->orderBy('name')->get();
         $warehouses      = Warehouse::all();
         $incomeAccounts  = \App\Core\Accounting\Account::where('type', 'revenue')->where('is_active', true)->orderBy('code')->get();
         $expenseAccounts = \App\Core\Accounting\Account::where('type', 'expense')->where('is_active', true)->orderBy('code')->get();
