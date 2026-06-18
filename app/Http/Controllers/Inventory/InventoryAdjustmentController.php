@@ -271,6 +271,27 @@ class InventoryAdjustmentController extends Controller
         $engine = app(InventoryEngine::class);
         $fifo = app(FifoService::class);
 
+        // Guard: pastikan layer FIFO cukup untuk semua pengurangan sebelum posting,
+        // supaya stok kurang memunculkan pesan jelas, bukan Exception 500 di tengah transaksi.
+        $stokKurang = [];
+        foreach ($adjustment->items as $item) {
+            $diff = $item->actual_qty - $item->system_qty;
+            if ($diff >= 0) continue;
+            $perlu = abs($diff);
+            $tersedia = (float) StockLayer::where('product_id', $item->product_id)
+                ->where('warehouse_id', $adjustment->warehouse_id)
+                ->where('qty_remaining', '>', 0)
+                ->sum('qty_remaining');
+            if ($tersedia + 0.00001 < $perlu) {
+                $stokKurang[] = ($item->product->name ?? ('Produk #' . $item->product_id))
+                    . " (perlu {$perlu}, stok FIFO {$tersedia})";
+            }
+        }
+        if (!empty($stokKurang)) {
+            return back()->with('error', 'Stok FIFO tidak cukup untuk posting opname: '
+                . implode('; ', $stokKurang) . '. Periksa/segarkan data stok produk tersebut.');
+        }
+
         DB::transaction(function () use ($adjustment, $setting, $period, $engine, $fifo, $gainAccountId, $lossAccountId) {
 
             $totalGain = 0;
