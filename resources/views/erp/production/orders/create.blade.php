@@ -277,7 +277,8 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-gray-500 mb-1">Jumlah Siklus</label>
-                                <input type="number" name="planned_cycles" x-model="cycles"
+                                <input type="text" inputmode="decimal" name="planned_cycles" x-model="cycles"
+                                       @input="cycles = String(cycles).replace(',', '.').replace(/[^0-9.]/g,'')"
                                        min="0.0001" step="0.0001" value="1"
                                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                             </div>
@@ -330,7 +331,8 @@
                                         </template>
                                     </div>
                                 </div>
-                                <input type="number" :name="`materials[${idx}][qty_required]`" x-model="m.qty_required"
+                                <input type="text" inputmode="decimal" :name="`materials[${idx}][qty_required]`" x-model="m.qty_required"
+                                       @input="m.qty_required = String(m.qty_required).replace(',', '.').replace(/[^0-9.]/g,'')"
                                        min="0.0001" step="0.0001" placeholder="Qty"
                                        class="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                 {{-- Satuan: auto base_unit saat pilih produk, tetap bisa pilih satuan lain --}}
@@ -405,8 +407,8 @@
                                         <p x-show="o.output_type === 'by_product' && byproducts.length === 0"
                                            class="text-[10px] text-amber-600 mt-1">Belum ada produk sampingan terdaftar. Tambahkan di Pengaturan Produksi.</p>
                                     </div>
-                                    <input type="number" :name="`outputs[${idx}][qty_planned]`" x-model="o.qty_planned"
-                                           @input="recalcPercentages()"
+                                    <input type="text" inputmode="decimal" :name="`outputs[${idx}][qty_planned]`" x-model="o.qty_planned"
+                                           @input="o.qty_planned = String(o.qty_planned).replace(',', '.').replace(/[^0-9.]/g,''); recalcPercentages()"
                                            min="0.0001" step="0.0001" placeholder="Qty"
                                            :class="o.fromSo && Number(o.qty_planned) > o.qty_remaining_so ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-200 bg-white'"
                                            class="w-24 border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -418,8 +420,8 @@
                                     </select>
                                     {{-- Persentase: sampingan TANPA BOM bisa di-override manual (ukuran material beda → % beda).
                                          DENGAN BOM atau baris Utama → otomatis & terkunci. --}}
-                                    <input type="number" :name="`outputs[${idx}][percentage]`" x-model="o.percentage"
-                                           @input="recalcPercentages()"
+                                    <input type="text" inputmode="decimal" :name="`outputs[${idx}][percentage]`" x-model="o.percentage"
+                                           @input="o.percentage = String(o.percentage).replace(',', '.').replace(/[^0-9.]/g,''); recalcPercentages()"
                                            :readonly="o.output_type === 'main' || (!!selectedBomId && !isManualByproduct(o))"
                                            step="0.0001" min="0" max="100"
                                            :title="(o.output_type === 'main' || (selectedBomId && !isManualByproduct(o))) ? 'Persentase otomatis (terkunci)' : 'Isi persentase manual'"
