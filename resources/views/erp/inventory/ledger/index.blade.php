@@ -63,15 +63,15 @@
             <div class="flex items-center gap-5">
                 <div class="text-right">
                     <div class="text-[11px] uppercase tracking-wide text-gray-400">Masuk</div>
-                    <div class="text-base font-bold text-green-600">{{ number_format($ledgers->sum('qty_in'), 2) }}</div>
+                    <div class="text-base font-bold text-green-600">{{ format_qty($ledgers->sum('qty_in')) }}</div>
                 </div>
                 <div class="text-right">
                     <div class="text-[11px] uppercase tracking-wide text-gray-400">Keluar</div>
-                    <div class="text-base font-bold text-red-600">{{ number_format($ledgers->sum('qty_out'), 2) }}</div>
+                    <div class="text-base font-bold text-red-600">{{ format_qty($ledgers->sum('qty_out')) }}</div>
                 </div>
                 <div class="text-right">
                     <div class="text-[11px] uppercase tracking-wide text-gray-400">Saldo</div>
-                    <div class="text-base font-bold text-blue-600">{{ number_format($ledgers->last()?->balance ?? 0, 2) }}</div>
+                    <div class="text-base font-bold text-blue-600">{{ format_qty($ledgers->last()?->balance ?? 0) }}</div>
                 </div>
             </div>
         </div>
@@ -138,19 +138,19 @@
                                 {{ optional($ledger->warehouse)->name ?? '—' }}
                             </td>
                             <td class="px-3 py-2 text-right font-semibold {{ $ledger->qty_in > 0 ? 'text-green-600' : 'text-gray-300' }}">
-                                {{ $ledger->qty_in > 0 ? '+' . number_format($ledger->qty_in, 2) : '—' }}
+                                {{ $ledger->qty_in > 0 ? '+' . format_qty($ledger->qty_in) : '—' }}
                             </td>
                             <td class="px-3 py-2 text-right font-semibold {{ $ledger->qty_out > 0 ? 'text-red-600' : 'text-gray-300' }}">
-                                {{ $ledger->qty_out > 0 ? '−' . number_format($ledger->qty_out, 2) : '—' }}
+                                {{ $ledger->qty_out > 0 ? '−' . format_qty($ledger->qty_out) : '—' }}
                             </td>
                             <td class="px-3 py-2 text-right font-mono text-xs {{ $ledger->hpp_per_unit !== null ? 'text-gray-700' : 'text-gray-300' }}">
-                                {{ $ledger->hpp_per_unit !== null ? number_format($ledger->hpp_per_unit, 2) : '—' }}
+                                {{ $ledger->hpp_per_unit !== null ? format_money($ledger->hpp_per_unit) : '—' }}
                             </td>
                             <td class="px-3 py-2 text-right font-mono text-xs {{ $ledger->hpp_total !== null ? 'text-gray-800 font-semibold' : 'text-gray-300' }}">
-                                {{ $ledger->hpp_total !== null ? number_format($ledger->hpp_total, 2) : '—' }}
+                                {{ $ledger->hpp_total !== null ? format_money($ledger->hpp_total) : '—' }}
                             </td>
                             <td class="px-3 py-2 text-right font-bold text-gray-800">
-                                {{ number_format($ledger->balance, 2) }}
+                                {{ format_qty($ledger->balance) }}
                             </td>
                         </tr>
                     @empty

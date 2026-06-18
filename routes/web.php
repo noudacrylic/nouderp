@@ -922,6 +922,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::get('material-additions', [\App\Modules\Production\Controllers\ProductionMaterialAdditionController::class, 'index'])->name('material-additions.index');
     Route::get('material-additions/create', [\App\Modules\Production\Controllers\ProductionMaterialAdditionController::class, 'create'])->name('material-additions.create');
     Route::post('material-additions', [\App\Modules\Production\Controllers\ProductionMaterialAdditionController::class, 'store'])->name('material-additions.store');
+    Route::post('material-additions/{id}/void', [\App\Modules\Production\Controllers\ProductionMaterialAdditionController::class, 'void'])->name('material-additions.void');
 
     // Proses produksi (eksekusi per divisi)
     Route::get('process',[\App\Modules\Production\Controllers\ProductionProcessController::class, 'index'])->name('process.index');

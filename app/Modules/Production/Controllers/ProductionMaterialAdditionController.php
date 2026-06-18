@@ -241,4 +241,120 @@ class ProductionMaterialAdditionController extends Controller
         return redirect(route('production.process.index', array_filter(['department_id' => $redirectDeptId])))
             ->with('success', 'Penambahan bahan berhasil dicatat dan stok telah dikurangi.');
     }
+
+    /**
+     * Void penambahan bahan: kembalikan stok ke gudang & balik jurnal WIP.
+     * Hanya boleh selagi order masih dikerjakan (in_progress) — setelah selesai/finalisasi
+     * biaya bahan sudah masuk barang jadi sehingga tidak bisa dibatalkan dari sini.
+     */
+    public function void($id)
+    {
+        $addition = ProductionMaterialAddition::with(['items', 'costs', 'productionOrder'])->findOrFail($id);
+
+        if ($addition->isVoided()) {
+            return back()->with('error', 'Penambahan bahan ini sudah dibatalkan.');
+        }
+
+        $order = $addition->productionOrder;
+        if (!$order || $order->status !== 'in_progress') {
+            return back()->with('error', 'Tidak bisa membatalkan: pengerjaan produksi sudah selesai atau difinalisasi. Void hanya bisa selagi order masih dikerjakan.');
+        }
+
+        DB::transaction(function () use ($addition, $order) {
+            $fifo   = app(FifoService::class);
+            $engine = app(InventoryEngine::class);
+            $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
+            $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
+
+            $totalMaterialCost = 0.0;
+
+            foreach ($addition->items as $item) {
+                // Biaya FIFO yang dulu dikonsumsi untuk item ini (dari cost-layer qty_out).
+                $consumed = \App\Models\InventoryCostLayer::where('reference_type', 'production_material_addition')
+                    ->where('reference_id', $addition->id)
+                    ->where('product_id', $item->product_id)
+                    ->get();
+                $qtyOut  = (float) $consumed->sum('qty_out');
+                $costOut = (float) $consumed->sum(fn($c) => (float) $c->qty_out * (float) $c->unit_cost);
+                $restoreQty = $qtyOut > 0 ? $qtyOut : (float) $item->qty_requested;
+                $unitCost   = $qtyOut > 0 ? ($costOut / $qtyOut) : 0.0;
+
+                // Kembalikan stok: ledger qty_in + layer FIFO baru pada biaya konsumsi semula.
+                $engine->ledger(
+                    productId: $item->product_id,
+                    warehouseId: $order->warehouse_id,
+                    qtyIn: $restoreQty,
+                    qtyOut: 0,
+                    type: 'production_material_addition_void',
+                    reference: $addition->addition_number,
+                    notes: null,
+                    transactionId: $addition->id
+                );
+                $fifo->createLayer($item->product_id, $order->warehouse_id, $restoreQty, $unitCost, 'production_material_addition_void', $addition->id);
+
+                $totalMaterialCost += $costOut;
+            }
+
+            // Jurnal balik bahan: Dr. Persediaan / Cr. WIP
+            if ($totalMaterialCost > 0) {
+                app(JournalPostingService::class)->post(new JournalEntryDTO(
+                    date:           now()->format('Y-m-d'),
+                    reference_type: 'production_material_addition_void',
+                    reference_id:   $addition->id,
+                    description:    "Batal Tambah Bahan - {$addition->addition_number} ({$order->order_number})",
+                    lines: [
+                        new JournalLineDTO(
+                            account_id:  $inventoryAccount->id,
+                            debit:       (float) $totalMaterialCost,
+                            credit:      0,
+                            description: 'Balik persediaan dari batal tambah bahan'
+                        ),
+                        new JournalLineDTO(
+                            account_id:  $wipAccount->id,
+                            debit:       0,
+                            credit:      (float) $totalMaterialCost,
+                            description: 'Balik WIP dari batal tambah bahan'
+                        ),
+                    ],
+                    reference_number: $addition->addition_number
+                ));
+            }
+
+            // Jurnal balik biaya kas (jika ada): Dr. Kas / Cr. WIP
+            $costs = $addition->costs;
+            if ($costs->isNotEmpty()) {
+                $costTotal = 0.0;
+                $lines = [];
+                foreach ($costs->groupBy('cash_account_id') as $cashAccId => $items) {
+                    $subtotal   = (float) $items->sum('amount');
+                    $costTotal += $subtotal;
+                    $lines[] = new JournalLineDTO(
+                        account_id:  (int) $cashAccId,
+                        debit:       (float) $subtotal,
+                        credit:      0,
+                        description: 'Balik kas dari batal biaya produksi'
+                    );
+                }
+                $lines[] = new JournalLineDTO(
+                    account_id:  $wipAccount->id,
+                    debit:       0,
+                    credit:      (float) $costTotal,
+                    description: 'Balik WIP dari batal biaya produksi'
+                );
+
+                app(JournalPostingService::class)->post(new JournalEntryDTO(
+                    date:             now()->format('Y-m-d'),
+                    reference_type:   'production_cost_addition_void',
+                    reference_id:     $addition->id,
+                    description:      "Batal Biaya Produksi - {$addition->addition_number} ({$order->order_number})",
+                    lines:            $lines,
+                    reference_number: $addition->addition_number
+                ));
+            }
+
+            $addition->update(['voided_at' => now()]);
+        });
+
+        return back()->with('success', 'Penambahan bahan dibatalkan. Stok dikembalikan & jurnal WIP dibalik.');
+    }
 }

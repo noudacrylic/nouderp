@@ -282,7 +282,7 @@
         fetch('/erp/inventory/product-stock-adjustment?product_id=' + productId + '&warehouse_id=' + warehouseId)
             .then(r => r.json())
             .then(data => {
-                row.find('.system-qty').text(data.qty);
+                row.find('.system-qty').text(fmtQty(data.qty));
                 row.find('.system-value').val(data.qty);
                 calculateDiff(row[0]);
             })
@@ -293,12 +293,17 @@
         calculateDiff($(this).closest('tr')[0]);
     });
 
+    // Format qty ala Indonesia: koma desimal, titik ribuan, desimal tampil hanya bila ada.
+    function fmtQty(n) {
+        return (parseFloat(n) || 0).toLocaleString('id-ID', { maximumFractionDigits: 4 });
+    }
+
     function calculateDiff(row) {
         const system = parseFloat(row.querySelector('.system-value').value) || 0;
         const actual = parseFloat(row.querySelector('.actual-input').value) || 0;
         const diff   = actual - system;
         const el     = row.querySelector('.diff-qty');
-        el.innerText = diff === 0 ? '0' : (diff > 0 ? '+' : '') + diff.toFixed(4).replace(/\.?0+$/, '');
+        el.innerText = diff === 0 ? '0' : (diff > 0 ? '+' : '') + fmtQty(diff);
         el.style.color = diff < 0 ? '#ef4444' : diff > 0 ? '#22c55e' : '#374151';
     }
 </script>
