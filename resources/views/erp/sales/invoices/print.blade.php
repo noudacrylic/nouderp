@@ -11,3 +11,7 @@
 @include('erp.sales.invoices._paper', ['invoice' => $invoice, 'profile' => $profile])
 
 @endsection
+
+@section('toolbar-extra')
+    @include('erp._partials.print-signature-toggle')
+@endsection

@@ -158,6 +158,21 @@
         .signature-block .sig-name { font-weight: 700; text-decoration: underline; }
         .signature-block .sig-title { color: #475569; font-size: 11px; }
 
+        /* Toggle sertakan tanda tangan / nama (kelas dipasang di <body>). Nama
+           disembunyikan tapi garis bawah dipertahankan untuk tanda tangan manual. */
+        body.no-sig .signature-block .sig-img { visibility: hidden; }
+        body.no-name .signature-block .sig-name {
+            color: transparent; text-decoration: none; border-bottom: 1px solid #0f172a;
+        }
+        .sig-toggle {
+            display: flex; align-items: center; gap: 8px;
+            margin-top: 4px; padding: 9px 12px;
+            background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px;
+            font-size: 12px; font-weight: 600; color: #334155; cursor: pointer;
+            user-select: none;
+        }
+        .sig-toggle input { width: 16px; height: 16px; cursor: pointer; margin: 0; }
+
         .toolbar {
             background: #fff;
             border-left: 1px solid #cbd5e1;
@@ -516,6 +531,14 @@
     <button type="button" class="btn-print" onclick="triggerPrint()">🖨️ Cetak</button>
     <a class="btn-pdf" href="{{ route('sales.quotations.pdf', $quotation->id) }}" id="btnSavePdf">💾 Simpan PDF</a>
     <a class="btn-exit" href="{{ route('sales.quotations.index') }}">⨯ Keluar</a>
+    <label class="sig-toggle">
+        <input type="checkbox" checked onchange="document.body.classList.toggle('no-sig', !this.checked)">
+        Sertakan tanda tangan
+    </label>
+    <label class="sig-toggle">
+        <input type="checkbox" checked onchange="document.body.classList.toggle('no-name', !this.checked)">
+        Sertakan nama
+    </label>
 </aside>
 
 </div>{{-- /shell --}}

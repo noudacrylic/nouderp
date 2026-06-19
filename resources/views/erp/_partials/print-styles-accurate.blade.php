@@ -93,4 +93,14 @@
     .sig-section .sig-img { height: 70px; max-width: 220px; display: block; margin: 4px 0; }
     .sig-section .sig-name { font-weight: 700; text-decoration: underline; color: #0f172a; }
     .sig-section .sig-title { color: #475569; font-size: 11px; }
+
+    /* Toggle "Sertakan tanda tangan / nama" (kelas dipasang di <body> oleh toolbar):
+       tanda tangan disembunyikan tapi ruang dipertahankan; nama disembunyikan tapi
+       GARIS bawahnya dipertahankan (untuk tanda tangan/nama tulis tangan). */
+    body.no-sig .sig-img { visibility: hidden; }
+    body.no-name .sig-name {
+        color: transparent;
+        text-decoration: none;
+        border-bottom: 1px solid #0f172a;
+    }
 </style>
