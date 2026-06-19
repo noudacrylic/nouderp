@@ -160,6 +160,7 @@
         <a class="btn-pdf" href="{{ $pdfUrl }}">💾 Simpan PDF</a>
     @endif
     <a class="btn-exit" href="{{ $indexUrl }}">⨯ Keluar</a>
+    @yield('toolbar-extra')
 </aside>
 
 </div>
