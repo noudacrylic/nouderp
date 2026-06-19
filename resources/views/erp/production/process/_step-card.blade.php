@@ -171,6 +171,12 @@
                 <a href="{{ route('production.orders.show', $order->id) }}"
                    class="text-[11px] font-bold text-blue-600 hover:underline">{{ $order->order_number }}</a>
                 <span class="text-[10px] px-1.5 py-0.5 rounded font-black {{ $tc }}">{{ strtoupper($order->type_label) }}</span>
+                @if($order->bom)
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold bg-teal-50 text-teal-700 border border-teal-100"
+                          title="BOM: {{ $order->bom->bom_number }}{{ filled($order->bom->name) ? ' — '.$order->bom->name : '' }}">
+                        📋 {{ filled($order->bom->name) ? $order->bom->name : $order->bom->bom_number }}
+                    </span>
+                @endif
                 <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md font-black bg-indigo-600 text-white shadow-sm"
                       title="Jumlah siklus produksi — produksi {{ $cycles }} kali">
                     🔁 {{ $cycles }}× Produksi
