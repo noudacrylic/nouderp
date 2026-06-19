@@ -741,6 +741,41 @@
             box-shadow: 0 1px 3px rgba(79, 70, 229, 0.4);
         }
 
+        /* Badge jumlah pada subtab (mis. Perlu Diproses / Pembatalan). */
+        .submenu-tabs .tab .subtab-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            margin-left: 6px;
+            border-radius: 9px;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            background: #2563eb;
+            color: #fff;
+            vertical-align: middle;
+        }
+        .submenu-tabs .tab.active .subtab-badge {
+            background: #ffffff;
+            color: #2563eb;
+        }
+        .submenu-tabs .tab .subtab-badge.subtab-badge-alert {
+            background: #dc2626;
+            color: #fff;
+            animation: subtabPulse 1.6s ease-in-out infinite;
+        }
+        .submenu-tabs .tab.active .subtab-badge.subtab-badge-alert {
+            background: #ffffff;
+            color: #dc2626;
+        }
+        @keyframes subtabPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
+            50%      { box-shadow: 0 0 0 4px rgba(220, 38, 38, 0); }
+        }
+
         @media (max-width: 700px) {
             .submenu-tabs { flex-direction: column; align-items: flex-start; gap: 8px; }
             .submenu-tabs-label { border-right: none; border-bottom: 1px solid #e5e7eb; padding: 0 0 6px 4px; width: 100%; }

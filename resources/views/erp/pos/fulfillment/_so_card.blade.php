@@ -2,6 +2,9 @@
 @php
     $r = $row;
     $mode = $mode ?? 'perlu_diproses';
+    // "Telah Diproses", "Dikirim" & "Selesai" berbagi tampilan footer/pengiriman yang sama.
+    $isDone  = in_array($mode, ['telah_diproses', 'dikirim', 'selesai'], true);
+    $isFinal = $mode === 'selesai';
     $deadline = $r['deadline'] ?? null;
     $lines = $r['delivery']['lines'] ?? [];
     $maxShow = 3;
@@ -43,7 +46,8 @@
                    value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
                    data-lunas="{{ $r['is_lunas'] ? 1 : 0 }}" data-pickup="{{ $r['is_pickup'] ? 1 : 0 }}"
                    title="Pilih untuk aksi massal">
-        @elseif($mode === 'telah_diproses')
+        @elseif($mode === 'telah_diproses' && empty($r['is_marketplace']))
+            {{-- Aksi massal Telah Diproses (Cetak SJ/Generate Resi Biteship) tak berlaku utk marketplace. --}}
             <input type="checkbox" class="js-bulk-td w-4 h-4 accent-emerald-600 cursor-pointer"
                    value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
                    data-invoice="{{ $bulkInvoiceId }}" data-sj="{{ $bulkSjIds }}"
@@ -51,22 +55,50 @@
                    title="Pilih untuk aksi massal">
         @endif
         <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-700">SO</span>
+        @if(!empty($r['is_marketplace']))
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">🛒 {{ $r['channel'] }}</span>
+        @endif
         <span class="js-copy font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $r['number'] }}" title="Klik untuk salin nomor">{{ $r['number'] }}</span>
-        @if(!empty($r['delivery_display']))
+        @php
+            // Untuk pesanan marketplace, tampilkan nama kurir Jubelio (mis. "J&T REG",
+            // "Grab Instant") bila ada — lebih informatif daripada label generik "Kurir".
+            $courierLabel = (!empty($r['is_marketplace']) && !empty($r['shipper']))
+                ? $r['shipper']
+                : ($r['delivery_display'] ?? null);
+        @endphp
+        @if(!empty($courierLabel))
             <span class="px-2 py-0.5 rounded text-[10px] font-bold {{ $r['is_pickup'] ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700' }}">
-                {{ $r['is_pickup'] ? '🏬' : '🚚' }} {{ $r['delivery_display'] }}
+                {{ $r['is_pickup'] ? '🏬' : '🚚' }} {{ $courierLabel }}
             </span>
+        @endif
+        @if(!empty($r['j_is_instant']))
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-700 ring-1 ring-orange-300"
+                  title="Pesanan instant courier — proses & serahkan ke kurir segera">⚡ INSTANT</span>
         @endif
         @if($mode === 'belum_siap' && !empty($r['reason']))
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500">⏳ {{ $r['reason'] }}</span>
+        @elseif($isFinal)
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-green-600 text-white">✓ SELESAI</span>
+        @elseif($mode === 'dikirim')
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-sky-600 text-white">🚚 DIKIRIM</span>
         @elseif($mode === 'telah_diproses')
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700">✓ DIPROSES</span>
         @endif
-        @if($mode === 'telah_diproses' && $fullyShipped)
+        @if($mode === 'telah_diproses' && in_array($r['resi_state'] ?? null, ['belum_cetak', 'sudah_cetak'], true))
+            {{-- Penanda status cetak resi (resi sudah di-generate) --}}
+            @if(($r['resi_state'] ?? null) === 'sudah_cetak')
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">🖨 Sudah dicetak</span>
+            @else
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-100 text-yellow-700">🖨 Belum dicetak</span>
+            @endif
+        @elseif($mode === 'telah_diproses' && ($r['resi_state'] ?? null) === 'belum_generate')
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700">⚙ Belum di-generate</span>
+        @endif
+        @if($isDone && $fullyShipped)
             <span class="ml-auto text-xs whitespace-nowrap text-green-600 font-semibold">
                 ✓ {{ $pickupDone ? 'Sudah diambil' : 'Sudah dikirim' }}
             </span>
-        @elseif($mode === 'telah_diproses' && $partlyShipped)
+        @elseif($isDone && $partlyShipped)
             <span class="ml-auto text-xs whitespace-nowrap text-sky-600 font-semibold">
                 🚚 Sebagian dikirim ({{ $resiCount }}/{{ $shipCount }})
             </span>
@@ -166,7 +198,28 @@
     </div>
 
     {{-- ───────── Footer aksi (berbeda per tab) ───────── --}}
-    @if($mode === 'perlu_diproses')
+    @if($mode === 'perlu_diproses' && !empty($r['is_marketplace']))
+        {{-- Marketplace: satu tombol Proses menjalankan rantai Jubelio (picking → faktur → resi). --}}
+        <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
+            <a href="{{ route('sales.orders.print', $r['id']) }}"
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
+            @if(($r['wms_stage'] ?? 'belum') !== 'belum')
+                <span class="text-[11px] px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-semibold">⏳ {{ $r['wms_stage_label'] }} — bisa lanjutkan</span>
+            @endif
+            <div class="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                <form action="{{ route('pos.fulfillment.proses', $r['id']) }}" method="POST"
+                      onsubmit="return confirm('Jalankan proses Jubelio untuk {{ $r['number'] }}? (picking → faktur → resi otomatis)')">
+                    @csrf
+                    <button type="submit" name="print_after" value="0"
+                            class="px-3 py-1.5 rounded text-xs font-bold text-white bg-purple-600 hover:bg-purple-700">🛒 Proses Pesanan</button>
+                </form>
+            </div>
+        </div>
+        @if(!empty($r['wms_error']))
+            <p class="text-[11px] text-red-600 mt-1 text-right">Gagal sebelumnya: {{ $r['wms_error'] }}</p>
+        @endif
+
+    @elseif($mode === 'perlu_diproses')
         <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
             <a href="{{ route('sales.orders.print', $r['id']) }}"
                class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
@@ -213,7 +266,43 @@
             <span class="ml-auto text-[11px] text-gray-400 italic">Otomatis pindah ke "Perlu Diproses" saat syarat terpenuhi.</span>
         </div>
 
-    @elseif($mode === 'telah_diproses')
+    @elseif($isDone && !empty($r['is_marketplace']))
+        {{-- Marketplace: cetak resi & faktur dari Jubelio (label resmi kurir marketplace). --}}
+        <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
+            <a href="{{ route('sales.orders.print', $r['id']) }}"
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
+            @if($mode === 'telah_diproses' && empty($r['tracking_no']))
+                {{-- Resi belum terbit (AWB gagal/pending) → jalankan ulang rantai Proses. --}}
+                <form action="{{ route('pos.fulfillment.proses', $r['id']) }}" method="POST"
+                      onsubmit="return confirm('Generate ulang resi untuk {{ $r['number'] }}? (lanjutkan rantai Jubelio)')">
+                    @csrf
+                    <button type="submit" name="print_after" value="0"
+                            class="text-xs px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white font-bold">🔄 Generate Ulang</button>
+                </form>
+            @else
+                <a href="{{ route('pos.fulfillment.jubelio-resi', $r['id']) }}"
+                   class="text-xs px-3 py-1.5 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 font-semibold">🏷️ Cetak Resi</a>
+            @endif
+            <a href="{{ route('pos.fulfillment.jubelio-faktur', $r['id']) }}"
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</a>
+            @if(!empty($r['tracking_no']))
+                <span class="text-xs text-green-600 font-semibold ml-1">
+                    Resi: <span class="js-copy cursor-pointer hover:underline" data-copy="{{ $r['tracking_no'] }}" title="Klik untuk salin resi">{{ $r['tracking_no'] }}</span>
+                    @if(!empty($r['shipper']))<span class="text-gray-500 font-normal">· {{ $r['shipper'] }}</span>@endif
+                </span>
+                {{-- Toggle manual status cetak --}}
+                <form action="{{ route('pos.fulfillment.toggle-printed', $r['id']) }}" method="POST" class="ml-auto">
+                    @csrf
+                    <button type="submit"
+                            class="text-[11px] px-2 py-1 rounded border {{ !empty($r['resi_printed']) ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50' : 'border-gray-300 text-gray-500 hover:bg-gray-50' }} font-semibold"
+                            title="Tandai/batal status cetak resi">
+                        {{ !empty($r['resi_printed']) ? '✓ Sudah dicetak' : 'Tandai dicetak' }}
+                    </button>
+                </form>
+            @endif
+        </div>
+
+    @elseif($isDone)
         @php
             $deliveries = ($r['deliveries'] ?? collect())->filter(fn ($d) => $d->status === 'posted');
         @endphp

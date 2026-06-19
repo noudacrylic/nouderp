@@ -20,7 +20,12 @@ use App\Modules\Marketplace\Jubelio\Observers\ProductPriceObserver as JubelioPro
 
 class AppServiceProvider extends ServiceProvider
 {
-    public function register(): void {}
+    public function register(): void
+    {
+        // Memoized per-request (soRows/warrantyRows). Singleton agar controller & partial
+        // tab (badge jumlah) berbagi instance → tidak query dobel.
+        $this->app->singleton(\App\Modules\POS\Services\FulfillmentReadinessService::class);
+    }
 
     public function boot(): void
     {

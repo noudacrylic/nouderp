@@ -24,6 +24,11 @@ class JubelioSyncOrders extends Command
 
         $stats = $sync->syncOrders();
         $this->info("Jubelio sync-orders selesai: diproses {$stats['processed']}, error {$stats['errors']}.");
+
+        // Tarik juga permintaan pembatalan dari pembeli (tab "Pembatalan").
+        $cancel = $sync->syncCancellationRequests();
+        $this->info("Permintaan batal: ditandai {$cancel['flagged']}, dibersihkan {$cancel['cleared']}.");
+
         return self::SUCCESS;
     }
 }

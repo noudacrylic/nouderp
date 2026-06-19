@@ -44,9 +44,17 @@ class JubelioSettingController extends Controller
             'default_warehouse_id' => 'nullable|exists:warehouses,id',
             'default_location_id'  => 'nullable|integer',
             'default_customer_id'  => 'nullable|exists:customers,id',
+            'wms_picker_email'     => 'nullable|email|max:255',
         ]);
 
         $setting = JubelioSetting::singleton();
+
+        // Email picker WMS disimpan di config JSON (dipakai rantai fulfillment picklist).
+        $pickerEmail = $data['wms_picker_email'] ?? null;
+        unset($data['wms_picker_email']);
+        $config = $setting->config ?? [];
+        $config['wms_picker_email'] = $pickerEmail ?: null;
+        $data['config'] = $config;
 
         // Jangan timpa password dengan kosong (form tidak menampilkan password tersimpan).
         if (empty($data['password'])) {

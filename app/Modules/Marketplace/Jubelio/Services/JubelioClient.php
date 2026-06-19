@@ -168,6 +168,83 @@ class JubelioClient
         return $this->get('/sales/orders/completed/', ['page' => $page, 'pageSize' => $pageSize]);
     }
 
+    /** Pesanan yang PEMBELI minta batalkan (request cancel dari marketplace). */
+    public function listRequestCancel(int $page = 1, int $pageSize = 100): array
+    {
+        return $this->get('/wms/sales/orders/request-cancel/', ['page' => $page, 'pageSize' => $pageSize]);
+    }
+
+    // ─────────────────── Fulfillment WMS (pick → pack → faktur → resi) ───────────────────
+    // Rantai untuk memproses pesanan marketplace dari ERP, semuanya keyed salesorder_id.
+    // Lihat spec "Fulfill Orders (Pick,Pack,Ship)" di dokumentasi Jubelio.
+
+    /** Pindahkan order 'ready to process' → 'ready to pick'. Body: {salesorder_ids:[id]}. */
+    public function postReadyToPick(array $salesOrderIds): array
+    {
+        return $this->post('/wms/sales/ready-to-pick', ['salesorder_ids' => array_values($salesOrderIds)]);
+    }
+
+    /** Info staff WMS by email/NIK → {employee_id (email), name, nik}. Untuk validasi picker. */
+    public function getEmployee(string $nikOrEmail): array
+    {
+        return $this->get('/wms/employee/' . rawurlencode($nikOrEmail));
+    }
+
+    /**
+     * Daftar item yang harus dipick untuk SO tertentu. Body key = "ids" (bukan salesorder_ids).
+     * Respons: ARRAY baris {salesorder_id, salesorder_detail_id, item_id, location_id (-1=pusat),
+     * qty_ordered (string), bundle_item_id, end_qty, ...}.
+     */
+    public function postItemsToPick(array $salesOrderIds): array
+    {
+        return $this->post('/sales/picklists/items-to-pick', ['ids' => array_values($salesOrderIds)]);
+    }
+
+    /**
+     * Buat picklist sekaligus tandai selesai (varian auto-complete). Kirim picklist_id:0,
+     * is_completed:true, qty_picked=qty_ordered. Respons: {status, data:{picks:[...], invalidSO:[]}}.
+     */
+    public function postPicklistAutoComplete(array $payload): array
+    {
+        return $this->post('/wms/sales/picklists/', $payload);
+    }
+
+    /** Tandai order selesai packing / ready to ship. Body: {ids:[salesorder_id]}. */
+    public function postPacklistMarkComplete(array $salesOrderIds): array
+    {
+        return $this->post('/wms/sales/packlist/mark-as-complete/', ['ids' => array_values($salesOrderIds)]);
+    }
+
+    /** Buat faktur Jubelio dari SO. Body: {salesorder_id}. Respons: {status, id}. */
+    public function postCreateInvoice(int $salesOrderId): array
+    {
+        return $this->post('/sales/packlists/create-invoice', ['salesorder_id' => $salesOrderId]);
+    }
+
+    /**
+     * Minta resi/AWB ke kurir marketplace. Body: {salesorder_id}.
+     * Respons sukses: {salesorder_id, shipper, tracking_no, ...}. Gagal 400: {message}.
+     */
+    public function requestAwb(int $salesOrderId): array
+    {
+        return $this->post('/sales/request-awb-order/', ['salesorder_id' => $salesOrderId]);
+    }
+
+    /**
+     * URL label resi (report Jubelio) untuk dicetak. Respons: {status, url, title}.
+     * Catatan: serialisasi query `ids[]=` — Jubelio mengharapkan key array tanpa indeks.
+     */
+    public function getShippingLabelUrl(int $salesOrderId): array
+    {
+        return $this->get('/reports/shipping-label/', ['ids[]' => $salesOrderId]);
+    }
+
+    /** URL faktur (report Jubelio) untuk dicetak, pakai invoice id dari create-invoice. */
+    public function getInvoiceReportUrl(int $invoiceId): array
+    {
+        return $this->get('/reports/invoice', ['ids[]' => $invoiceId]);
+    }
+
     // ───────────────────────────── Retur ─────────────────────────────
 
     /** Retur belum diproses (untuk dibuat draft di ERP). */

@@ -105,6 +105,20 @@ class JubelioOrderSyncService
         $link->jubelio_salesorder_no = $detail['salesorder_no'] ?? $link->jubelio_salesorder_no;
         $link->store = $this->storeName($detail) ?: $link->store;
 
+        // Info kurir dari pesanan (nama layanan + flag instant) — ditarik lebih awal agar
+        // operator bisa lihat kurir & tandai pesanan instant di "Pemrosesan Pesanan",
+        // sebelum diproses. Nama kurir hanya diisi bila belum ada (resi/AWB lebih otoritatif).
+        if (empty($link->shipper)) {
+            $link->shipper = $this->extractShipper($detail) ?: $link->shipper;
+        }
+        $link->is_instant_courier = $this->isInstantCourier($detail, $link->shipper);
+
+        // Ringkasan pesanan untuk kartu info "Belum Siap" (pesanan belum jadi SO/belum dibayar).
+        $link->snap_customer    = trim((string) ($detail['customer_name'] ?? $detail['contact_name'] ?? '')) ?: $link->snap_customer;
+        $link->snap_grand_total = (float) ($detail['grand_total'] ?? $link->snap_grand_total);
+        $link->snap_item_count  = is_array($detail['items'] ?? null) ? count($detail['items']) : $link->snap_item_count;
+        $link->snap_order_date  = $this->orderDate($detail);
+
         // Pesanan dibatalkan → catat & berhenti (tidak auto-void SO; tangani manual).
         if (!empty($detail['is_canceled'])) {
             $link->last_status = 'canceled';
@@ -217,6 +231,98 @@ class JubelioOrderSyncService
                 JubelioOrderLink::where('id', $link->id)->update(['return_created' => false]);
                 $stats['skipped']++;
                 Log::error('Jubelio createReturnDraft error', ['salesorder_id' => $soId, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Tarik daftar pesanan yang PEMBELI minta batalkan dari Jubelio, lalu tandai
+     * flag `cancel_requested` (+ alasan) pada link yang cocok. Permintaan yang sudah
+     * ditarik kembali (tak lagi di daftar) dibersihkan flag-nya. SO TIDAK auto-void —
+     * keputusan batal tetap manual lewat tab "Pembatalan".
+     */
+    public function syncCancellationRequests(): array
+    {
+        $stats = ['flagged' => 0, 'cleared' => 0];
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        // Kumpulkan semua permintaan batal (id → alasan).
+        $reasons = [];
+        $page = 1;
+        do {
+            $resp = $this->client->listRequestCancel($page, 100);
+            if (!$resp['success']) {
+                break;
+            }
+            $rows = $this->rows($resp['data']);
+            foreach ($rows as $row) {
+                $id = (int) ($row['salesorder_id'] ?? 0);
+                if ($id > 0) {
+                    $reasons[$id] = trim((string) ($row['cancel_reason'] ?? $row['cancel_reason_detail'] ?? $row['note'] ?? '')) ?: null;
+                }
+            }
+            $page++;
+        } while (count($rows) >= 100 && $page <= 40);
+
+        // Set flag pada link yang diminta batal.
+        foreach ($reasons as $jubelioSoId => $reason) {
+            $link = JubelioOrderLink::where('jubelio_salesorder_id', $jubelioSoId)->first();
+            if (!$link) {
+                continue;
+            }
+            if (!$link->cancel_requested) {
+                $link->cancel_requested_at = now();
+            }
+            $link->cancel_requested = true;
+            $link->cancel_reason = $reason;
+            $link->save();
+            $stats['flagged']++;
+        }
+
+        // Bersihkan flag pada link yang TAK lagi di daftar (permintaan ditarik / sudah ditangani).
+        $stillRequested = array_keys($reasons);
+        $stale = JubelioOrderLink::where('cancel_requested', true)
+            ->when($stillRequested, fn ($q) => $q->whereNotIn('jubelio_salesorder_id', $stillRequested))
+            ->get();
+        foreach ($stale as $link) {
+            $link->forceFill(['cancel_requested' => false, 'cancel_reason' => null, 'cancel_requested_at' => null])->save();
+            $stats['cleared']++;
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Segarkan status pesanan yang BELUM jadi SO (belum dibayar / gagal resolve item).
+     * Yang sudah dibayar akan otomatis dibuat SO-nya; yang dibatalkan ditandai. Dipakai
+     * tombol manual "Tarik Pesanan Baru" sebagai cadangan webhook.
+     *
+     * @return array{refreshed:int, promoted:int}
+     */
+    public function refreshPendingLinks(): array
+    {
+        $stats = ['refreshed' => 0, 'promoted' => 0];
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        $links = JubelioOrderLink::whereNull('sales_order_id')
+            ->where('last_status', '!=', 'canceled')
+            ->get();
+
+        foreach ($links as $link) {
+            try {
+                $fresh = $this->syncOrderById((int) $link->jubelio_salesorder_id);
+                $stats['refreshed']++;
+                if ($fresh && $fresh->sales_order_id) {
+                    $stats['promoted']++; // sudah dibayar → jadi SO
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Jubelio refreshPending error', ['id' => $link->jubelio_salesorder_id, 'error' => $e->getMessage()]);
             }
         }
 
@@ -658,6 +764,60 @@ class JubelioOrderSyncService
     {
         $s = $detail['store_name'] ?? $detail['store'] ?? $detail['source_name'] ?? null;
         return $s ? trim((string) $s) : null;
+    }
+
+    /**
+     * Nama kurir/layanan kirim dari pesanan Jubelio (mis. "J&T REG", "Grab Instant").
+     * Cek beberapa kemungkinan key di level pesanan, lalu fallback ke baris item
+     * (beberapa respons WMS menaruh shipper per-item).
+     */
+    private function extractShipper(array $detail): ?string
+    {
+        foreach (['shipper', 'courier', 'courier_name', 'shipping_provider', 'shipping_provider_type'] as $k) {
+            $v = trim((string) ($detail[$k] ?? ''));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+        foreach ((array) ($detail['items'] ?? $detail['order_items'] ?? []) as $it) {
+            $v = trim((string) ($it['shipper'] ?? ''));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Apakah pesanan memakai instant courier. Utamakan flag eksplisit Jubelio
+     * (is_instant_courier, bisa berupa bool / "true" / 1), fallback deteksi dari
+     * nama kurir (gosend/grab/instant/sameday/sicepat instant).
+     */
+    private function isInstantCourier(array $detail, ?string $shipper = null): bool
+    {
+        $flag = $detail['is_instant_courier'] ?? null;
+        if ($flag === null) {
+            foreach ((array) ($detail['items'] ?? $detail['order_items'] ?? []) as $it) {
+                if (array_key_exists('is_instant_courier', $it)) {
+                    $flag = $it['is_instant_courier'];
+                    break;
+                }
+            }
+        }
+        if ($flag !== null) {
+            return filter_var($flag, FILTER_VALIDATE_BOOLEAN);
+        }
+
+        $name = strtolower(trim((string) ($shipper ?? $this->extractShipper($detail) ?? '')));
+        if ($name === '') {
+            return false;
+        }
+        foreach (['instant', 'gosend', 'gojek', 'grab', 'sameday', 'same day'] as $kw) {
+            if (str_contains($name, $kw)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isPaid(array $d): bool

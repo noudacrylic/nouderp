@@ -154,6 +154,13 @@
                         </select>
                         <p class="text-xs text-gray-400 mt-1">Dipakai bila nama toko Jubelio belum dipetakan ke customer marketplace tertentu.</p>
                     </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Email Picker WMS</label>
+                        <input type="email" name="wms_picker_email"
+                               value="{{ old('wms_picker_email', $setting->config['wms_picker_email'] ?? '') }}"
+                               class="w-full border rounded px-3 py-2 text-sm" placeholder="staff@gudang.com">
+                        <p class="text-xs text-gray-400 mt-1">Email staff gudang terdaftar di Jubelio (WMS). Dipakai sebagai picker saat "Proses Pesanan" marketplace membuat picking list otomatis.</p>
+                    </div>
                 </div>
             </div>
 

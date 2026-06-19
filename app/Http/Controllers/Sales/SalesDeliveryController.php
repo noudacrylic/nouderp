@@ -261,6 +261,11 @@ class SalesDeliveryController extends Controller
                 ->with('error', 'Belum ada resi untuk dicetak. Lakukan Booking Resi dulu.');
         }
 
+        // Tandai sudah dicetak (sekali) — untuk filter & pindah ke "Selesai" H+1.
+        if (!$delivery->resi_printed_at) {
+            $delivery->forceFill(['resi_printed_at' => now()])->save();
+        }
+
         [$origin, $dest] = $this->resiAddresses($delivery);
 
         return view('erp.sales.deliveries.resi', compact('delivery', 'origin', 'dest'));
@@ -286,6 +291,13 @@ class SalesDeliveryController extends Controller
         if ($deliveries->isEmpty()) {
             return redirect()->route('pos.fulfillment.telah-diproses')->with('error', 'Tidak ada resi yang bisa dicetak (belum ada nomor resi).');
         }
+
+        // Tandai sudah dicetak (sekali) — untuk filter & pindah ke "Selesai" H+1.
+        $deliveries->each(function ($d) {
+            if (!$d->resi_printed_at) {
+                $d->forceFill(['resi_printed_at' => now()])->save();
+            }
+        });
 
         // [delivery, origin, dest] per label.
         $labels = $deliveries->map(fn ($d) => [

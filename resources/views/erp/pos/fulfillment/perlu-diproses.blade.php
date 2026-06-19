@@ -9,10 +9,7 @@
 </div>
 
 
-<form method="GET" class="mb-3">
-    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan…"
-           class="border rounded px-3 py-2 text-sm w-72">
-</form>
+@include('erp.pos.fulfillment._filters', ['couriers' => $couriers])
 
 {{-- Bar aksi massal (muncul saat ≥1 pesanan dicentang) --}}
 <div id="bulkBar" class="hidden sticky top-0 z-20 mb-3 bg-white border border-indigo-200 rounded-xl shadow-sm px-3 py-2 flex items-center gap-3 flex-wrap">
@@ -23,7 +20,6 @@
     <div class="ml-auto flex items-center gap-2 flex-wrap">
         <button type="button" id="bulkPrintSo" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</button>
         <button type="button" id="bulkProses" class="text-xs px-3 py-1.5 rounded border border-green-300 text-green-700 hover:bg-green-50 font-semibold">✅ Proses</button>
-        <button type="button" id="bulkProsesResi" class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">✅ Proses + Resi</button>
         <button type="button" id="bulkClear" class="text-xs px-2.5 py-1.5 rounded text-gray-400 hover:text-gray-600">Batal</button>
     </div>
 </div>
@@ -57,7 +53,7 @@
 @include('erp.pos.fulfillment._copy_js')
 
 <script>
-// Aksi massal: pilih beberapa pesanan lalu Cetak SO / Proses / Proses + Resi sekaligus.
+// Aksi massal: pilih beberapa pesanan lalu Cetak SO / Proses sekaligus.
 (function () {
     const bar = document.getElementById('bulkBar');
     if (!bar) return;
@@ -96,7 +92,7 @@
         window.location.href = printBase + '?ids=' + ids.join(',');
     });
 
-    function submitProses(printAfter) {
+    function submitProses() {
         const sel = selected();
         if (!sel.length) return;
         const notLunas = sel.filter(c => c.dataset.lunas !== '1').length;
@@ -104,10 +100,9 @@
         let warn = '';
         if (notLunas) warn += `\n• ${notLunas} belum lunas akan dilewati.`;
         if (pickup)   warn += `\n• ${pickup} ambil-di-toko butuh kode booking (proses satu-per-satu).`;
-        if (!confirm(`Proses ${sel.length} pesanan${printAfter ? ' + cetak resi' : ''}?${warn}`)) return;
+        if (!confirm(`Proses ${sel.length} pesanan?${warn}`)) return;
 
         const form = document.getElementById('bulkProsesForm');
-        document.getElementById('bulkPrintAfter').value = printAfter ? '1' : '0';
         const box = document.getElementById('bulkIdsContainer');
         box.innerHTML = '';
         sel.forEach(c => {
@@ -118,8 +113,7 @@
         form.submit();
     }
 
-    document.getElementById('bulkProses').addEventListener('click', () => submitProses(false));
-    document.getElementById('bulkProsesResi').addEventListener('click', () => submitProses(true));
+    document.getElementById('bulkProses').addEventListener('click', () => submitProses());
 })();
 </script>
 @endsection

@@ -4,15 +4,12 @@
 <div class="flex items-center justify-between mb-3">
     <div>
         <h1 class="text-lg font-semibold">Telah Diproses</h1>
-        <p class="text-xs text-gray-500">Pesanan yang sudah punya faktur / sudah dikirim. Generate resi, cetak Surat Jalan & faktur di sini.</p>
+        <p class="text-xs text-gray-500">Sudah diproses, menunggu penyelesaian: generate resi (non-marketplace) / transaksi marketplace selesai. Setelah resi terbit atau transaksi selesai → pindah ke "Selesai".</p>
     </div>
 </div>
 
 
-<form method="GET" class="mb-3">
-    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan…"
-           class="border rounded px-3 py-2 text-sm w-72">
-</form>
+@include('erp.pos.fulfillment._filters', ['couriers' => $couriers])
 
 {{-- Bar aksi massal (muncul saat ≥1 pesanan dicentang) — tanpa cek berat/dimensi, berdasarkan SO. --}}
 <div id="tdBulkBar" class="hidden sticky top-0 z-20 mb-3 bg-white border border-emerald-200 rounded-xl shadow-sm px-3 py-2 flex items-center gap-3 flex-wrap">

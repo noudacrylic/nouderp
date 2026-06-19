@@ -25,11 +25,13 @@ class SalesDelivery extends Model
         'delivery_date',
         'courier_name',
         'tracking_number',
+        'resi_printed_at',
         'status'
     ];
 
     protected $casts = [
-        'shipping_raw' => 'array',
+        'shipping_raw'    => 'array',
+        'resi_printed_at' => 'datetime',
     ];
 
     public function isBooked(): bool

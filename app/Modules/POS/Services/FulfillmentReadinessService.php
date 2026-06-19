@@ -21,12 +21,33 @@ class FulfillmentReadinessService
     private ?Collection $soRows = null;
     private ?Collection $warrantyRows = null;
 
-    /** Ambil baris untuk satu bucket (SO + garansi tergabung), opsional filter pencarian. */
-    public function bucket(string $bucket, ?string $search = null): Collection
+    /**
+     * Ambil baris untuk satu bucket (SO + garansi tergabung).
+     * @param array{channel?:string,courier?:string} $filters  channel: 'marketplace'|'non'; courier: nama kurir
+     */
+    public function bucket(string $bucket, ?string $search = null, array $filters = []): Collection
     {
-        $rows = $this->soRows()->concat($this->warrantyRows())
+        $rows = $this->soRows()->concat($this->warrantyRows())->concat($this->mpPendingRows())
             ->where('bucket', $bucket)
             ->reject(fn ($r) => $r['archived'] ?? false); // sembunyikan yg sudah dikirim/diambil > 3 hari
+
+        // Filter channel: marketplace vs non-marketplace.
+        $channel = $filters['channel'] ?? null;
+        if ($channel === 'marketplace') {
+            $rows = $rows->filter(fn ($r) => !empty($r['is_marketplace']));
+        } elseif ($channel === 'non') {
+            $rows = $rows->filter(fn ($r) => empty($r['is_marketplace']));
+        }
+
+        // Filter kurir (cocok persis nama kurir/layanan).
+        if ($courier = trim((string) ($filters['courier'] ?? ''))) {
+            $rows = $rows->filter(fn ($r) => ($r['courier'] ?? null) === $courier);
+        }
+
+        // Filter status resi (khusus "Telah Diproses").
+        if ($resi = trim((string) ($filters['resi'] ?? ''))) {
+            $rows = $rows->filter(fn ($r) => ($r['resi_state'] ?? null) === $resi);
+        }
 
         if ($search = trim((string) $search)) {
             $needle = mb_strtolower($search);
@@ -38,16 +59,91 @@ class FulfillmentReadinessService
         return $rows->sortByDesc('date_sort')->values();
     }
 
+    /** Daftar kurir unik yang ada di sebuah bucket (untuk dropdown filter). */
+    public function courierOptions(string $bucket): Collection
+    {
+        return $this->soRows()->concat($this->warrantyRows())->concat($this->mpPendingRows())
+            ->where('bucket', $bucket)
+            ->reject(fn ($r) => $r['archived'] ?? false)
+            ->pluck('courier')
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
+    }
+
     /** Hitung jumlah per-bucket (untuk badge tab). Baris terarsip tidak dihitung. */
     public function counts(): array
     {
-        $all = $this->soRows()->concat($this->warrantyRows())
+        $all = $this->soRows()->concat($this->warrantyRows())->concat($this->mpPendingRows())
             ->reject(fn ($r) => $r['archived'] ?? false);
         return [
             'belum_siap'     => $all->where('bucket', 'belum_siap')->count(),
             'perlu_diproses' => $all->where('bucket', 'perlu_diproses')->count(),
             'telah_diproses' => $all->where('bucket', 'telah_diproses')->count(),
+            'dikirim'        => $all->where('bucket', 'dikirim')->count(),
+            'selesai'        => $all->where('bucket', 'selesai')->count(),
+            'pembatalan'     => $this->pembatalanQuery()->count(),
         ];
+    }
+
+    // ───────────── Pembatalan (marketplace) ─────────────
+
+    /** Query dasar: link marketplace yang diminta batal pembeli ATAU SO-nya sudah di-void/cancel. */
+    private function pembatalanQuery()
+    {
+        return \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::query()
+            ->whereNotNull('sales_order_id')
+            ->where(function ($q) {
+                $q->where('cancel_requested', true)
+                  ->orWhereHas('salesOrder', fn ($s) => $s->whereIn('status', ['void', 'cancelled']));
+            });
+    }
+
+    /**
+     * Baris untuk tab "Pembatalan": pesanan marketplace yang (a) pembeli minta batal,
+     * atau (b) SO-nya sudah di-void/cancel. Opsional filter pencarian.
+     */
+    public function pembatalanRows(?string $search = null): Collection
+    {
+        $links = $this->pembatalanQuery()
+            ->with(['salesOrder' => fn ($q) => $q->with('customer:id,name,phone')])
+            ->get();
+
+        $rows = $links->map(function ($link) {
+            $so = $link->salesOrder;
+            if (!$so) {
+                return null;
+            }
+            $isVoid = in_array($so->status, ['void', 'cancelled'], true);
+
+            return [
+                'id'             => $so->id,
+                'number'         => $so->order_number,
+                'jubelio_no'     => $link->jubelio_salesorder_no,
+                'customer'       => $so->customer->name ?? '-',
+                'phone'          => $so->customer->phone ?? null,
+                'channel'        => $link->store ?: 'Marketplace',
+                'grand_total'    => (float) $so->grand_total,
+                'date'           => $so->order_date,
+                'date_sort'      => (string) ($link->cancel_requested_at ?? $so->updated_at ?? $so->order_date ?? $so->created_at),
+                'state'          => $isVoid ? 'void' : 'requested',
+                'cancel_reason'  => $link->cancel_reason,
+                'requested_at'   => $link->cancel_requested_at,
+                'invoice_posted' => (bool) $link->invoice_posted,
+                'sj_created'     => (bool) $link->sj_created,
+            ];
+        })->filter();
+
+        if ($search = trim((string) $search)) {
+            $needle = mb_strtolower($search);
+            $rows = $rows->filter(fn ($r) =>
+                str_contains(mb_strtolower($r['number']), $needle) ||
+                str_contains(mb_strtolower((string) $r['jubelio_no']), $needle) ||
+                str_contains(mb_strtolower($r['customer']), $needle));
+        }
+
+        return $rows->sortByDesc('date_sort')->values();
     }
 
     // ───────────── Sales Order ─────────────
@@ -56,9 +152,19 @@ class FulfillmentReadinessService
     {
         if ($this->soRows !== null) return $this->soRows;
 
+        // SO toko biasa (non-marketplace) SEPERTI biasa, DITAMBAH SO marketplace yang punya
+        // link Jubelio (dibuat oleh sinkron pesanan) agar bisa diproses via rantai WMS.
+        $linkedSoIds = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::whereNotNull('sales_order_id')
+            ->pluck('sales_order_id')->all();
+
         $orders = SalesOrder::query()
             ->where('status', 'confirmed')
-            ->whereHas('customer', fn ($q) => $q->where('is_marketplace', false))
+            ->where(function ($q) use ($linkedSoIds) {
+                $q->whereHas('customer', fn ($c) => $c->where('is_marketplace', false));
+                if ($linkedSoIds) {
+                    $q->orWhereIn('id', $linkedSoIds);
+                }
+            })
             ->with([
                 'customer:id,name,is_marketplace,phone,address,shipping_address,city',
                 'items', 'items.product:id,name,sku,sale_type,lead_time_days',
@@ -75,14 +181,18 @@ class FulfillmentReadinessService
             ->get(['sales_order_id', 'status'])
             ->groupBy('sales_order_id');
 
-        $this->soRows = $orders->map(function (SalesOrder $so) use ($prodBySo) {
-            return $this->buildSoRow($so, $prodBySo->get($so->id));
+        // Link Jubelio per-SO (untuk bucketing & badge channel pesanan marketplace).
+        $linksBySo = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::whereIn('sales_order_id', $soIds)
+            ->get()->keyBy('sales_order_id');
+
+        $this->soRows = $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo) {
+            return $this->buildSoRow($so, $prodBySo->get($so->id), $linksBySo->get($so->id));
         });
 
         return $this->soRows;
     }
 
-    private function buildSoRow(SalesOrder $so, ?Collection $prodOrders): array
+    private function buildSoRow(SalesOrder $so, ?Collection $prodOrders, ?\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link = null): array
     {
         $grand    = (float) $so->grand_total;
         $paid     = (float) $so->paid_amount;
@@ -118,32 +228,69 @@ class FulfillmentReadinessService
         $postedInvoice = $so->invoices->first(fn ($i) => $invStatus($i) === 'posted');
 
         // Bucket (urut, mutually exclusive)
-        if ($postedInvoice) {
-            $bucket = 'telah_diproses';
+        if ($link) {
+            // Marketplace mengikuti status Jubelio:
+            //  completed (invoice_posted)            → Selesai
+            //  shipped (sj_created) / fallback cetak → Dikirim
+            //  sudah diproses (AWB diminta)          → Telah Diproses (cetak resi / generate ulang)
+            //  sudah dibayar (DP)                    → Perlu Diproses
+            if ($link->invoice_posted) {
+                $bucket = 'selesai';
+            } elseif ($link->sj_created || $this->mpShippedFallback($link)) {
+                $bucket = 'dikirim';
+            } elseif ($link->awb_requested) {
+                $bucket = 'telah_diproses';
+            } elseif ($link->dp_posted) {
+                $bucket = 'perlu_diproses';
+            } else {
+                $bucket = 'belum_siap';
+            }
+        } elseif ($postedInvoice) {
+            // Non-marketplace sudah diproses: masih perlu generate resi → telah diproses;
+            // sudah ber-resi / tak perlu resi (ambil toko, kurir manual) → selesai.
+            $bucket = $this->shipmentFinalized($so) ? 'selesai' : 'telah_diproses';
         } elseif ((!$isCustom && $hasPayment) || ($isCustom && $prodFinalized)) {
             $bucket = 'perlu_diproses';
         } else {
             $bucket = 'belum_siap';
         }
 
-        // Arsip: pesanan yang sudah dikirim (resi tergenerate) / sudah diambil > 3 hari lalu
-        // disembunyikan dari "Telah Diproses" (dokumen tetap dapat diakses via modul Sales).
+        // Arsip: pesanan yang SUDAH SELESAI > 3 hari lalu disembunyikan dari tab "Selesai"
+        // (dokumen tetap dapat diakses via modul Sales). "Telah Diproses" = status antara,
+        // tidak diarsipkan agar yang menunggu resi/penyelesaian selalu terlihat.
         $archived = false;
-        if ($bucket === 'telah_diproses') {
-            $shippedAt = $this->shippedAt($so);
-            $archived = $shippedAt !== null && $shippedAt->lt(now()->subDays(3));
+        if ($bucket === 'selesai') {
+            $invDate = $postedInvoice
+                ? \Carbon\Carbon::parse($postedInvoice->invoice_date ?? $postedInvoice->created_at)
+                : null;
+            $completedAt = $link
+                ? ($link->wms_completed_at ?? $invDate)
+                : ($this->shippedAt($so) ?? $invDate);
+            $archived = $completedAt !== null && $completedAt->lt(now()->subDays(3));
         }
 
         // Alasan (belum_siap)
         $reason = null;
         if ($bucket === 'belum_siap') {
-            if ($isCustom && !$prodFinalized) {
+            if ($link) {
+                $reason = 'Menunggu pembayaran marketplace';
+            } elseif ($isCustom && !$prodFinalized) {
                 $reason = 'Produksi belum selesai';
             } elseif (!$hasPayment) {
                 $reason = 'Menunggu pembayaran / DP';
             } else {
                 $reason = 'Belum siap diproses';
             }
+        }
+
+        $deliveryDisplay = $so->isPickup()
+            ? 'Ambil di Toko'
+            : ($so->shipping_service_name ?: ($so->shipping_courier_code ? strtoupper($so->shipping_courier_code) : $so->deliveryMethodLabel()));
+
+        // Status resi (untuk filter di "Telah Diproses"): belum_generate / belum_cetak / sudah_cetak.
+        $resiState = null;
+        if ($bucket === 'telah_diproses') {
+            $resiState = $link ? $this->mpResiState($link) : $this->nonMpResiState($so);
         }
 
         return [
@@ -162,9 +309,9 @@ class FulfillmentReadinessService
             'seller_notes'  => $so->seller_notes,
             'phone'         => $so->customer->phone ?? null,
             'address'       => $this->shortAddress($so->customer),
-            'delivery_display' => $so->isPickup()
-                ? 'Ambil di Toko'
-                : ($so->shipping_service_name ?: ($so->shipping_courier_code ? strtoupper($so->shipping_courier_code) : $so->deliveryMethodLabel())),
+            'delivery_display' => $deliveryDisplay,
+            // Kurir untuk filter: marketplace pakai nama shipper Jubelio bila ada.
+            'courier'       => $link ? ($link->shipper ?: 'Marketplace') : $deliveryDisplay,
             'deadline'     => $deadline,
             'is_overdue'   => $isOverdue,
 
@@ -184,6 +331,21 @@ class FulfillmentReadinessService
             'delivery'    => $this->deliveryBreakdown($so),
             'invoice'     => $postedInvoice,
             'deliveries'  => $so->deliveries,
+
+            // Status resi (filter "Telah Diproses") + tanda cetak
+            'resi_state'     => $resiState,
+            'resi_printed'   => $link ? (bool) $link->resi_printed_at : $this->nonMpAllPrinted($so),
+
+            // Marketplace (rantai WMS Jubelio)
+            'is_marketplace' => (bool) $link,
+            'channel'        => $link ? ($link->store ?: 'Marketplace') : null,
+            'wms_stage'      => $link?->wmsStage(),
+            'wms_stage_label'=> $link?->wmsStageLabel(),
+            'wms_error'      => $link?->wms_last_error,
+            'tracking_no'    => $link?->tracking_no,
+            'shipper'        => $link?->shipper,
+            'j_is_instant'   => (bool) ($link?->is_instant_courier),
+            'j_link'         => $link,
         ];
     }
 
@@ -206,6 +368,71 @@ class FulfillmentReadinessService
         return $ship
             ->map(fn ($d) => \Carbon\Carbon::parse($d->delivery_date ?? $d->updated_at ?? $d->created_at))
             ->max();
+    }
+
+    /**
+     * Pengiriman SO (non-marketplace) sudah final? → masuk "Selesai", bukan "Telah Diproses".
+     *  - Ambil di toko / kurir manual (tak perlu generate resi) → final saat diproses.
+     *  - Kurir Biteship → final hanya bila resi sudah di-generate, sudah DICETAK, dan dicetak
+     *    sebelum hari ini (pindah ke Selesai mulai hari berikutnya — masih bisa cetak ulang
+     *    di hari yang sama). Selaras dengan "00:01 hari berikutnya masuk Selesai".
+     */
+    private function shipmentFinalized(SalesOrder $so): bool
+    {
+        if ($so->isPickup()) {
+            return true;
+        }
+        $ship = $so->deliveries->filter(fn ($d) => $d->status === 'posted' && $d->delivery_method !== 'ambil_toko');
+        if ($ship->isEmpty()) {
+            return false;
+        }
+        $today = now()->startOfDay();
+        foreach ($ship as $d) {
+            if (\App\Models\ManualCourier::isManualCode($d->shipping_courier_code)) {
+                continue; // kurir manual: tak perlu resi
+            }
+            if (empty($d->tracking_number)) return false;                        // belum di-generate
+            if (empty($d->resi_printed_at)) return false;                        // belum dicetak
+            if (\Carbon\Carbon::parse($d->resi_printed_at)->gte($today)) return false; // dicetak hari ini → tunggu H+1
+        }
+
+        return true;
+    }
+
+    /** Status resi marketplace (untuk filter): belum_generate / belum_cetak / sudah_cetak. */
+    private function mpResiState(\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link): string
+    {
+        return empty($link->tracking_no) ? 'belum_generate'
+            : (empty($link->resi_printed_at) ? 'belum_cetak' : 'sudah_cetak');
+    }
+
+    /** Status resi non-marketplace (Biteship) untuk filter "Telah Diproses". */
+    private function nonMpResiState(SalesOrder $so): ?string
+    {
+        $ship = $so->deliveries->filter(fn ($d) =>
+            $d->status === 'posted' && $d->delivery_method !== 'ambil_toko'
+            && !\App\Models\ManualCourier::isManualCode($d->shipping_courier_code));
+        if ($ship->isEmpty()) {
+            return 'belum_generate'; // belum ada SJ kurir API → masih perlu generate
+        }
+        if ($ship->contains(fn ($d) => empty($d->tracking_number)))     return 'belum_generate';
+        if ($ship->contains(fn ($d) => empty($d->resi_printed_at)))     return 'belum_cetak';
+        return 'sudah_cetak';
+    }
+
+    /** Semua SJ kurir API non-marketplace sudah dicetak? (untuk badge "sudah dicetak"). */
+    private function nonMpAllPrinted(SalesOrder $so): bool
+    {
+        $ship = $so->deliveries->filter(fn ($d) =>
+            $d->status === 'posted' && $d->delivery_method !== 'ambil_toko'
+            && !\App\Models\ManualCourier::isManualCode($d->shipping_courier_code));
+        return $ship->isNotEmpty() && $ship->every(fn ($d) => !empty($d->resi_printed_at));
+    }
+
+    /** Fallback marketplace ke "Dikirim" bila Jubelio belum lapor shipped: resi dicetak + H+1. */
+    private function mpShippedFallback(\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link): bool
+    {
+        return $link->resi_printed_at && $link->resi_printed_at->lt(now()->startOfDay());
     }
 
     /** Alamat ringkas customer untuk kartu (shipping_address diutamakan), + kota. */
@@ -273,13 +500,13 @@ class FulfillmentReadinessService
 
         $this->warrantyRows = $warranties->map(function (WarrantyOrder $w) {
             $bucket = match ($w->status) {
-                'shipped'  => 'telah_diproses',
+                'shipped'  => 'selesai',       // garansi terkirim = selesai
                 'repaired' => 'perlu_diproses',
                 default    => 'belum_siap', // received | posted
             };
 
-            // Garansi yang sudah dikirim > 3 hari lalu diarsipkan dari "Telah Diproses".
-            $archived = $bucket === 'telah_diproses'
+            // Garansi yang sudah dikirim > 3 hari lalu diarsipkan dari "Selesai".
+            $archived = $bucket === 'selesai'
                 && $w->status === 'shipped'
                 && \Carbon\Carbon::parse($w->updated_at)->lt(now()->subDays(3));
 
@@ -296,9 +523,54 @@ class FulfillmentReadinessService
                 'status'       => $w->status,
                 'status_label' => $w->status_label,
                 'delivery'     => $w->delivery,
+                'is_marketplace' => false,
+                'courier'        => null,
             ];
         });
 
         return $this->warrantyRows;
+    }
+
+    // ───────────── Pesanan marketplace belum jadi SO (belum dibayar) ─────────────
+
+    private ?Collection $mpPendingRows = null;
+
+    /**
+     * Kartu info pesanan marketplace yang BELUM jadi SO ERP (belum dibayar / gagal resolve
+     * item). Ditarik dari link Jubelio bersnapshot, sales_order_id masih kosong & belum
+     * dibatalkan. Read-only — masuk bucket "belum_siap" agar tim aware ada order masuk.
+     */
+    private function mpPendingRows(): Collection
+    {
+        if ($this->mpPendingRows !== null) return $this->mpPendingRows;
+
+        $links = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::query()
+            ->whereNull('sales_order_id')
+            ->where('last_status', '!=', 'canceled')
+            ->get();
+
+        $this->mpPendingRows = $links->map(function ($link) {
+            $reason = $link->last_error ?: 'Menunggu pembayaran marketplace';
+
+            return [
+                'kind'        => 'mp_pending',
+                'id'          => $link->id,
+                'number'      => $link->jubelio_salesorder_no ?: ('JBL-' . $link->jubelio_salesorder_id),
+                'customer'    => $link->snap_customer ?: '-',
+                'date'        => $link->snap_order_date,
+                'date_sort'   => (string) ($link->snap_order_date ?? $link->updated_at ?? $link->created_at),
+                'bucket'      => 'belum_siap',
+                'reason'      => $reason,
+                'archived'    => false,
+                'is_marketplace' => true,
+                'channel'        => $link->store ?: 'Marketplace',
+                'courier'        => $link->shipper ?: 'Marketplace',
+                'grand_total'    => (float) ($link->snap_grand_total ?? 0),
+                'item_count'     => (int) ($link->snap_item_count ?? 0),
+                'jubelio_no'     => $link->jubelio_salesorder_no,
+            ];
+        });
+
+        return $this->mpPendingRows;
     }
 }

@@ -79,6 +79,14 @@
     }
 @endphp
 @if($activeChild && user_can_access($activeChildKey))
+    @php
+        // Badge jumlah pada subtab (mis. Pemrosesan Pesanan: Perlu Diproses & Pembatalan)
+        // agar tim packing langsung aware. Hitung sekali; service di-singleton (memoized).
+        $subtabBadges = [];
+        if ($activeChildKey === 'pos.fulfillment') {
+            $subtabBadges = app(\App\Modules\POS\Services\FulfillmentReadinessService::class)->counts();
+        }
+    @endphp
     <div class="submenu-tabs submenu-subtabs" data-module="{{ $module }}">
         <div class="submenu-tabs-label">{{ $activeChild['label'] }}</div>
         <div class="submenu-tabs-list">
@@ -88,8 +96,15 @@
                     foreach ($st['route_patterns'] ?? [] as $p) {
                         if (\Illuminate\Support\Str::is($p, $currentRouteName)) { $stActive = true; break; }
                     }
+                    $badgeCount = isset($st['badge']) ? (int) ($subtabBadges[$st['badge']] ?? 0) : 0;
+                    $badgeAlert = ($st['badge_style'] ?? null) === 'alert';
                 @endphp
-                <a href="{{ $st['url'] }}" class="tab {{ $stActive ? 'active' : '' }}">{{ $st['label'] }}</a>
+                <a href="{{ $st['url'] }}" class="tab {{ $stActive ? 'active' : '' }}">
+                    {{ $st['label'] }}
+                    @if($badgeCount > 0)
+                        <span class="subtab-badge {{ $badgeAlert ? 'subtab-badge-alert' : '' }}">{{ $badgeCount }}</span>
+                    @endif
+                </a>
             @endforeach
         </div>
     </div>
