@@ -64,9 +64,9 @@ class JubelioFulfillmentService
             if (!$this->claim($link, 'j_picklist_done')) {
                 return $this->result($link, false, 'Pesanan sedang diproses oleh proses lain.');
             }
-            $items = $this->buildPicklistItems($soId);
+            $items = $this->buildPicklistItems($soId, $pickErr);
             if ($items === null) {
-                return $this->release($link, 'j_picklist_done', 'Gagal mengambil daftar item untuk picking dari Jubelio.');
+                return $this->release($link, 'j_picklist_done', 'Gagal mengambil daftar item untuk picking dari Jubelio: ' . ($pickErr ?: 'tidak diketahui') . '. Klik "Proses" lagi untuk mengulang.');
             }
             if (empty($items)) {
                 return $this->release($link, 'j_picklist_done', 'Tidak ada item yang bisa dipick untuk pesanan ini.');
@@ -108,9 +108,9 @@ class JubelioFulfillmentService
             if (!$this->claim($link, 'j_invoice_done')) {
                 return $this->result($link, false, 'Pesanan sedang diproses oleh proses lain.');
             }
-            $res = $this->client->postCreateInvoice($soId);
+            $res = $this->postCreateInvoiceWithRetry($soId);
             if (!$res['success']) {
-                return $this->release($link, 'j_invoice_done', "Gagal membuat faktur Jubelio: {$res['error']}");
+                return $this->release($link, 'j_invoice_done', "Gagal membuat faktur Jubelio: {$res['error']}. Klik \"Proses\" lagi untuk melanjutkan (faktur tidak akan dobel).");
             }
             $invId = (int) (data_get($res, 'data.id') ?: 0);
             $link->forceFill(['j_invoice_id' => $invId ?: null])->save();
@@ -123,7 +123,7 @@ class JubelioFulfillmentService
             }
             $res = $this->client->requestAwb($soId);
             if (!$res['success']) {
-                return $this->release($link, 'awb_requested', "Gagal meminta resi (AWB): {$res['error']}");
+                return $this->release($link, 'awb_requested', "Faktur sudah dibuat, tetapi AWB/resi belum terbentuk: {$res['error']}. Klik \"Proses\" lagi untuk membentuk AWB (langkah sebelumnya tidak diulang).");
             }
             $tracking = data_get($res, 'data.tracking_no');
             $shipper  = data_get($res, 'data.shipper');
@@ -157,10 +157,11 @@ class JubelioFulfillmentService
      * Ambil daftar item picking dari Jubelio & susun jadi payload picklist auto-complete.
      * Mengembalikan null bila API gagal, [] bila tak ada item.
      */
-    private function buildPicklistItems(int $soId): ?array
+    private function buildPicklistItems(int $soId, ?string &$error = null): ?array
     {
         $res = $this->client->postItemsToPick([$soId]);
         if (!$res['success']) {
+            $error = $res['error'] ?? ('HTTP ' . ($res['status'] ?? '?'));
             return null;
         }
         $rows = is_array($res['data']) ? $res['data'] : [];
@@ -187,6 +188,32 @@ class JubelioFulfillmentService
         }
 
         return $items;
+    }
+
+    /**
+     * Buat faktur Jubelio dengan retry pada error transien. Jubelio kadang balas 5xx bila
+     * create-invoice dipanggil tepat setelah "mark-as-complete packing" (server belum tuntas
+     * memproses packlist). Endpoint ini IDEMPOTEN — mengulang tidak membuat faktur dobel
+     * (mengembalikan invoice id yang sama). Hanya retry pada 5xx / timeout (status 0);
+     * 4xx = penolakan permanen, jangan diulang.
+     */
+    private function postCreateInvoiceWithRetry(int $soId, int $attempts = 3): array
+    {
+        $res = ['success' => false, 'status' => 0, 'data' => null, 'error' => 'tidak dipanggil'];
+        for ($i = 1; $i <= $attempts; $i++) {
+            $res = $this->client->postCreateInvoice($soId);
+            if ($res['success']) {
+                return $res;
+            }
+            $status = (int) ($res['status'] ?? 0);
+            if ($status >= 400 && $status < 500) {
+                break; // penolakan permanen — percuma diulang
+            }
+            if ($i < $attempts) {
+                usleep(1_500_000); // jeda 1,5 dtk sebelum percobaan berikutnya
+            }
+        }
+        return $res;
     }
 
     private function pickerEmail(): ?string

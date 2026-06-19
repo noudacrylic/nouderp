@@ -208,7 +208,7 @@ class JubelioClient
      */
     public function postItemsToPick(array $salesOrderIds): array
     {
-        return $this->post('/sales/picklists/items-to-pick', ['ids' => array_values($salesOrderIds)]);
+        return $this->post('/sales/picklists/items-to-pick/', ['ids' => array_values($salesOrderIds)]);
     }
 
     /**
