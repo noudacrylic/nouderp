@@ -140,8 +140,8 @@
             <div class="md:col-span-5">
                 @include('erp._partials.shipping-embed', [
                     'model' => $model ?? null,
-                    // Sales Order baru default "Ambil di Toko"; transaksi lain tetap "Kurir".
-                    'defaultMethod' => (($type ?? '') === 'sales_order' ? 'ambil_toko' : 'kurir'),
+                    // Transaksi penjualan baru (Penawaran/SO/Invoice) default "Ambil di Toko".
+                    'defaultMethod' => (in_array($type ?? '', ['sales_order', 'invoice', 'quotation'], true) ? 'ambil_toko' : 'kurir'),
                 ])
             </div>
             @endif
