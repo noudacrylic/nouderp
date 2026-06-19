@@ -95,12 +95,8 @@
     .sig-section .sig-title { color: #475569; font-size: 11px; }
 
     /* Toggle "Sertakan tanda tangan / nama" (kelas dipasang di <body> oleh toolbar):
-       tanda tangan disembunyikan tapi ruang dipertahankan; nama disembunyikan tapi
-       GARIS bawahnya dipertahankan (untuk tanda tangan/nama tulis tangan). */
+       keduanya disembunyikan dengan visibility agar RUANG-nya tetap (untuk tanda
+       tangan/nama tulis tangan), tanpa garis. */
     body.no-sig .sig-img { visibility: hidden; }
-    body.no-name .sig-name {
-        color: transparent;
-        text-decoration: none;
-        border-bottom: 1px solid #0f172a;
-    }
+    body.no-name .sig-name { visibility: hidden; }
 </style>

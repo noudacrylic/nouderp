@@ -158,12 +158,10 @@
         .signature-block .sig-name { font-weight: 700; text-decoration: underline; }
         .signature-block .sig-title { color: #475569; font-size: 11px; }
 
-        /* Toggle sertakan tanda tangan / nama (kelas dipasang di <body>). Nama
-           disembunyikan tapi garis bawah dipertahankan untuk tanda tangan manual. */
+        /* Toggle sertakan tanda tangan / nama (kelas dipasang di <body>). Disembunyikan
+           dengan visibility agar ruangnya tetap untuk tanda tangan/nama manual, tanpa garis. */
         body.no-sig .signature-block .sig-img { visibility: hidden; }
-        body.no-name .signature-block .sig-name {
-            color: transparent; text-decoration: none; border-bottom: 1px solid #0f172a;
-        }
+        body.no-name .signature-block .sig-name { visibility: hidden; }
         .sig-toggle {
             display: flex; align-items: center; gap: 8px;
             margin-top: 4px; padding: 9px 12px;
