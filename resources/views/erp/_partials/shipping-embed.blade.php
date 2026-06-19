@@ -1,6 +1,8 @@
 @php
-    /** Kartu Pengiriman embed untuk SO/Invoice. Param: $model (so/invoice, boleh null). */
+    /** Kartu Pengiriman embed untuk SO/Invoice. Param: $model (so/invoice, boleh null),
+     *  $defaultMethod (metode pengiriman default untuk transaksi BARU; default 'kurir'). */
     $m = $model ?? null;
+    $defaultMethod = $defaultMethod ?? 'kurir';
     $sgGross = old('shipping_gross', $m->shipping_gross ?? 0);
     $sdType  = old('shipping_discount_type', $m->shipping_discount_type ?? 'nominal');
     $sdVal   = old('shipping_discount_value', $m->shipping_discount_value ?? 0);
@@ -34,7 +36,7 @@
         <select name="delivery_method" id="delivery_method"
             class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
             @foreach(\App\Modules\Sales\Models\SalesOrder::DELIVERY_METHODS as $val => $label)
-                <option value="{{ $val }}" {{ old('delivery_method', $m->delivery_method ?? 'kurir') == $val ? 'selected' : '' }}>{{ $label }}</option>
+                <option value="{{ $val }}" {{ old('delivery_method', $m->delivery_method ?? $defaultMethod) == $val ? 'selected' : '' }}>{{ $label }}</option>
             @endforeach
         </select>
     </div>

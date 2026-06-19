@@ -138,7 +138,11 @@
             {{-- PENGIRIMAN & ONGKIR (hanya SO + Invoice) --}}
             @if($hasShip)
             <div class="md:col-span-5">
-                @include('erp._partials.shipping-embed', ['model' => $model ?? null])
+                @include('erp._partials.shipping-embed', [
+                    'model' => $model ?? null,
+                    // Sales Order baru default "Ambil di Toko"; transaksi lain tetap "Kurir".
+                    'defaultMethod' => (($type ?? '') === 'sales_order' ? 'ambil_toko' : 'kurir'),
+                ])
             </div>
             @endif
 
