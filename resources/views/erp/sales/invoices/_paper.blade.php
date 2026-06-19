@@ -9,8 +9,12 @@
     $expense        = (float) ($invoice->additional_fee ?? 0);
     $marketplaceFee = (float) ($invoice->marketplace_fee ?? 0);
     $grandTotal     = (float) ($invoice->grand_total ?? 0);
+    // Uang muka/DP (advance_applied) + pembayaran langsung (paid_amount) = total terbayar.
+    // Sisa = grand_total − keduanya (sama dengan accessor remaining_amount).
+    $advanceApplied = (float) ($invoice->advance_applied ?? 0);
     $paid           = (float) ($invoice->paid_amount ?? 0);
-    $remaining      = max(0, $grandTotal - $paid);
+    $totalSettled   = $advanceApplied + $paid;
+    $remaining      = max(0, round($grandTotal - $totalSettled, 2));
     $hasNotes       = !empty(trim((string) ($invoice->notes ?? '')));
 
     // Pembayaran: tergantung setting Midtrans → cara bayar Midtrans (link+QR) ATAU nomor rekening.
@@ -110,9 +114,14 @@
         @endif
         <hr>
         <div class="grand"><span>Grand Total</span><span>Rp {{ number_format($grandTotal, 0, ',', '.') }}</span></div>
-        @if($paid > 0)
+        @if($totalSettled > 0)
             <hr>
-            <div class="row paid"><span>Sudah Dibayar</span><span>{{ number_format($paid, 0, ',', '.') }}</span></div>
+            @if($advanceApplied > 0)
+                <div class="row paid"><span>Uang Muka</span><span>{{ number_format($advanceApplied, 0, ',', '.') }}</span></div>
+            @endif
+            @if($paid > 0)
+                <div class="row paid"><span>Pembayaran</span><span>{{ number_format($paid, 0, ',', '.') }}</span></div>
+            @endif
             <div class="row remaining"><span>Sisa</span><span>Rp {{ number_format($remaining, 0, ',', '.') }}</span></div>
         @endif
     </div>
