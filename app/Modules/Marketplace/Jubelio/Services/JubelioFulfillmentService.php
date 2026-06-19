@@ -145,6 +145,24 @@ class JubelioFulfillmentService
             }
         }
 
+        // Step 5b — resi sering terbit BELAKANGAN (kurir async): AWB sudah diminta tapi nomor
+        // resi belum tercatat (step 5 dilewati karena awb_requested sudah true). Tarik ulang
+        // dari detail order Jubelio agar klik "Generate Ulang" menangkap resi yang sudah keluar.
+        if ($link->awb_requested && empty($link->tracking_no)) {
+            $od       = $this->client->getOrder($soId);
+            $tracking = data_get($od, 'data.tracking_no') ?: data_get($od, 'data.tracking_number');
+            if (!empty($tracking)) {
+                $link->forceFill([
+                    'tracking_no'      => $tracking,
+                    'shipper'          => data_get($od, 'data.shipper') ?: $link->shipper,
+                    'wms_last_error'   => null,
+                    'wms_completed_at' => now(),
+                ])->save();
+            } else {
+                return $this->result($link, true, "Pesanan {$ref} diproses. Resi belum terbit dari kurir — coba lagi beberapa saat.");
+            }
+        }
+
         JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, "Fulfillment {$ref}", [
             'reference' => $ref, 'jubelio_salesorder_id' => $soId,
             'message'   => 'Picking → faktur → resi selesai. Resi: ' . ($link->tracking_no ?: '-'),

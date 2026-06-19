@@ -113,6 +113,19 @@ class JubelioOrderSyncService
         }
         $link->is_instant_courier = $this->isInstantCourier($detail, $link->shipper);
 
+        // Resi/AWB sering terbit BELAKANGAN (kurir async): pesanan yang sudah kita proses
+        // (awb_requested) bisa berakhir tanpa tracking_no bila saat request-awb resi belum
+        // keluar. request-awb TIDAK pernah dipanggil ulang (flag), jadi tangkap nomornya
+        // begitu tersedia di detail Jubelio agar order tak macet di "belum generate resi" —
+        // dgn begini cron 5 menit menyelesaikannya sendiri tanpa klik manual.
+        $tn = trim((string) ($detail['tracking_no'] ?? $detail['tracking_number'] ?? ''));
+        if ($tn !== '' && empty($link->tracking_no)) {
+            $link->tracking_no = $tn;
+            if ($link->awb_requested && empty($link->wms_completed_at)) {
+                $link->wms_completed_at = now();
+            }
+        }
+
         // Ringkasan pesanan untuk kartu info "Belum Siap" (pesanan belum jadi SO/belum dibayar).
         $link->snap_customer    = trim((string) ($detail['customer_name'] ?? $detail['contact_name'] ?? '')) ?: $link->snap_customer;
         $link->snap_grand_total = (float) ($detail['grand_total'] ?? $link->snap_grand_total);
