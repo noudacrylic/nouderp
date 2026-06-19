@@ -162,6 +162,17 @@ class JubelioClient
         return $this->get('/wms/sales/orders/ready-to-process/', ['page' => $page, 'pageSize' => $pageSize]);
     }
 
+    /**
+     * SEMUA pesanan (paid + belum bayar + dll). Dipakai untuk menarik pesanan yang BELUM
+     * DIBAYAR (channel_status "Unpaid"/"Pending") agar tampil di "Belum Siap" — endpoint
+     * ready-to-process hanya memuat yang sudah dibayar. Filter is_paid TIDAK didukung server
+     * (ditolak 400), jadi penyaringan dilakukan di sisi pemanggil.
+     */
+    public function listAllOrders(int $page = 1, int $pageSize = 50): array
+    {
+        return $this->get('/sales/orders/', ['page' => $page, 'pageSize' => $pageSize]);
+    }
+
     /** Pesanan selesai/diterima customer. */
     public function listCompleted(int $page = 1, int $pageSize = 50): array
     {

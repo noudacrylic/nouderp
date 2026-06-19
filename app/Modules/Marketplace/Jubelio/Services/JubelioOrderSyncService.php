@@ -121,7 +121,8 @@ class JubelioOrderSyncService
 
         // Pesanan dibatalkan di Jubelio → auto-void SO bila aman (belum ada faktur/SJ);
         // bila sudah ada faktur/SJ → tandai untuk ditangani manual (tab Pembatalan).
-        if (!empty($detail['is_canceled'])) {
+        if ($this->isCanceled($detail)) {
+            $link->cancel_reason = $this->cancelReason($detail) ?: $link->cancel_reason;
             $this->cancelOrderFromJubelio($link);
             return $link;
         }
@@ -136,7 +137,10 @@ class JubelioOrderSyncService
         // TAHAP B & C — SJ & Invoice. Keduanya murni DB → bungkus dalam satu transaksi
         // dgn lockForUpdate pada baris link + re-cek flag, supaya webhook & cron tidak
         // memproses tahap yang sama bersamaan (SJ/Invoice dobel → stok keluar dobel).
-        $needB = $link->sales_order_id && $this->isShipped($detail)   && !$link->sj_created;
+        // SJ (stok keluar) dibuat saat resi/AWB sudah TERBIT di Jubelio (hasResi) — bukan saat
+        // benar-benar dikirim — karena pada titik itu barang sudah dipick/dipack. Timing ini
+        // sama dgn perilaku lama (dulu isShipped menyala pada tracking_no), jadi stok tak berubah.
+        $needB = $link->sales_order_id && $this->hasResi($detail)     && !$link->sj_created;
         $needC = $link->sales_order_id && $this->isCompleted($detail) && !$link->invoice_posted;
         if ($needB || $needC) {
             DB::transaction(function () use ($link, $detail) {
@@ -145,7 +149,7 @@ class JubelioOrderSyncService
                     return;
                 }
 
-                if ($this->isShipped($detail) && !$locked->sj_created) {
+                if ($this->hasResi($detail) && !$locked->sj_created) {
                     $this->ensureDelivery($locked);
                 }
                 if ($locked->sales_order_id && $this->isCompleted($detail) && !$locked->invoice_posted) {
@@ -318,6 +322,94 @@ class JubelioOrderSyncService
                 }
             } catch (\Throwable $e) {
                 Log::warning('Jubelio refreshPending error', ['id' => $link->jubelio_salesorder_id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Tarik pesanan marketplace yang BELUM DIBAYAR (is_paid=false & belum batal) → buat/refresh
+     * link pending (sales_order_id NULL) lewat jalur kanonik syncOrderById, agar tampil sebagai
+     * kartu info di tab "Belum Siap". Endpoint ready-to-process hanya memuat yang sudah dibayar,
+     * jadi tanpa pass ini pesanan menunggu-bayar tak pernah terlihat di ERP. Begitu dibayar,
+     * tahap A (ready-to-process) otomatis mempromosikannya jadi SO.
+     *
+     * @return array{seen:int, pending:int, errors:int}
+     */
+    public function syncUnpaidOrders(): array
+    {
+        $stats = ['seen' => 0, 'pending' => 0, 'errors' => 0];
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        $page = 1;
+        do {
+            $resp = $this->client->listAllOrders($page, 50);
+            if (!$resp['success']) {
+                break;
+            }
+            $rows = $this->rows($resp['data']);
+            foreach ($rows as $row) {
+                $stats['seen']++;
+                // Hanya proses yang BELUM dibayar & belum batal — sisanya ditangani jalur lain.
+                if (!empty($row['is_paid']) || $this->isCanceled($row)) {
+                    continue;
+                }
+                $id = (int) ($row['salesorder_id'] ?? 0);
+                if ($id <= 0) {
+                    continue;
+                }
+                try {
+                    $link = $this->syncOrderById($id);
+                    if ($link && !$link->sales_order_id) {
+                        $stats['pending']++;
+                    }
+                } catch (\Throwable $e) {
+                    $stats['errors']++;
+                    Log::warning('Jubelio syncUnpaid error', ['id' => $id, 'error' => $e->getMessage()]);
+                }
+            }
+            $page++;
+        } while (count($rows) >= 50 && $page <= 40); // batas aman
+
+        return $stats;
+    }
+
+    /**
+     * Cek-ulang pesanan marketplace yang masih "in-flight" (sudah jadi SO, belum di-invoice
+     * & SO belum void) terhadap detail terkini Jubelio. Menutup celah penting: pesanan yang
+     * DIBATALKAN di channel hilang dari daftar ready-to-process & completed, sehingga
+     * syncOrders() tak pernah melihatnya lagi → pembatalan pasca-bayar tak terdeteksi dan
+     * SO/DP menggantung. Idempotent (lewat syncOrderById; auto-void bila aman, atau tandai
+     * manual bila sudah ada Faktur/SJ).
+     *
+     * @return array{checked:int, canceled:int, errors:int}
+     */
+    public function reconcileActiveOrders(): array
+    {
+        $stats = ['checked' => 0, 'canceled' => 0, 'errors' => 0];
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        $links = JubelioOrderLink::whereNotNull('sales_order_id')
+            ->where('invoice_posted', false)
+            ->whereNotIn('last_status', ['canceled', 'completed'])
+            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
+            ->get();
+
+        foreach ($links as $link) {
+            try {
+                $fresh = $this->syncOrderById((int) $link->jubelio_salesorder_id);
+                $stats['checked']++;
+                if ($fresh && $fresh->last_status === 'canceled') {
+                    $stats['canceled']++;
+                }
+            } catch (\Throwable $e) {
+                $stats['errors']++;
+                Log::warning('Jubelio reconcileActive error', ['id' => $link->jubelio_salesorder_id, 'error' => $e->getMessage()]);
             }
         }
 
@@ -938,14 +1030,71 @@ class JubelioOrderSyncService
         return false;
     }
 
+    /**
+     * Pesanan dibatalkan di Jubelio. Penting: pembatalan dari sisi MARKETPLACE/channel
+     * (mis. SPX/Shopee batal otomatis) TIDAK menyalakan flag `is_canceled` — yang terisi
+     * justru channel_status/wms_status/internal_status = "CANCELED" + internal_cancel_date.
+     * Flag `is_canceled` hanya menyala saat dokumen di-void manual di Jubelio. Cek semua.
+     */
+    private function isCanceled(array $d): bool
+    {
+        if (!empty($d['is_canceled']) || !empty($d['internal_cancel_date'])) {
+            return true;
+        }
+        foreach (['channel_status', 'wms_status', 'internal_status'] as $k) {
+            $v = strtoupper(trim((string) ($d[$k] ?? '')));
+            if ($v === 'CANCELED' || $v === 'CANCELLED') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Alasan pembatalan dari berbagai field Jubelio (channel vs internal). */
+    private function cancelReason(array $d): ?string
+    {
+        foreach (['cancel_reason_detail', 'cancel_reason', 'mp_cancel_reason'] as $k) {
+            $v = trim((string) ($d[$k] ?? ''));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+        return null;
+    }
+
     private function isPaid(array $d): bool
     {
         return !empty($d['is_paid']) || !empty($d['payment_date']);
     }
 
+    /**
+     * Resi/AWB sudah TERBIT di Jubelio (pesanan dipick/dipack — status "PROCESSED"/"Ready To
+     * Ship"). Ini BUKAN tanda sudah dikirim: Jubelio membuat nomor resi (tn_created_date) saat
+     * diproses, jauh sebelum diserahkan ke kurir. Dipakai untuk membuat Surat Jalan & menandai
+     * "Telah Diproses".
+     */
+    private function hasResi(array $d): bool
+    {
+        return !empty($d['tn_created_date']) || !empty($d['tracking_number']) || !empty($d['tracking_no']);
+    }
+
+    /**
+     * Pesanan BENAR-BENAR sudah diserahkan ke jasa kirim / dalam pengiriman. Patokan andal =
+     * status Jubelio: internal_status SHIPPED/DELIVERED atau channel_status SHIPPED/IN_TRANSIT/
+     * DELIVERED. CATATAN: `is_shipped` sering NULL & resi (tracking_no) terbit terlalu dini saat
+     * diproses, jadi keduanya TIDAK dipakai sebagai pemicu utama (hanya shipped_date sbg cadangan).
+     */
     private function isShipped(array $d): bool
     {
-        return !empty($d['is_shipped']) || !empty($d['tracking_no']) || !empty($d['shipped_date']);
+        $in = strtoupper(trim((string) ($d['internal_status'] ?? '')));
+        if (in_array($in, ['SHIPPED', 'DELIVERED'], true)) {
+            return true;
+        }
+        $ch = strtoupper(trim((string) ($d['channel_status'] ?? '')));
+        if (in_array($ch, ['SHIPPED', 'IN_TRANSIT', 'IN TRANSIT', 'DELIVERED'], true)) {
+            return true;
+        }
+        return !empty($d['shipped_date']) || filter_var($d['is_shipped'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 
     private function isCompleted(array $d): bool
@@ -957,7 +1106,8 @@ class JubelioOrderSyncService
     private function statusLabel(array $d): string
     {
         if ($this->isCompleted($d)) return 'completed';
-        if ($this->isShipped($d))   return 'shipped';
+        if ($this->isShipped($d))   return 'shipped';   // benar-benar diserahkan ke kurir
+        if ($this->hasResi($d))     return 'processed';  // resi terbit, belum diserahkan → Telah Diproses
         if ($this->isPaid($d))      return 'paid';
         return 'pending';
     }

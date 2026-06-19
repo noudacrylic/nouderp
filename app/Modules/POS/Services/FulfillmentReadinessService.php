@@ -233,18 +233,22 @@ class FulfillmentReadinessService
 
         // Bucket (urut, mutually exclusive)
         if ($link) {
-            //  completed (invoice_posted)               → Selesai
-            //  KITA proses (awb_requested): cetak resi  → Telah Diproses; resi dicetak + H+1 → Dikirim.
-            //     (status "shipped" Jubelio menyala terlalu dini saat AWB/mark-complete, jadi TIDAK
-            //      dipakai untuk pesanan yang kita proses sendiri — pakai jejak cetak resi.)
-            //  dikirim langsung via Jubelio (sj_created, tanpa proses WMS) → Dikirim.
-            //  sudah dibayar (DP)                       → Perlu Diproses.
+            //  completed (invoice_posted)                  → Selesai
+            //  KITA proses (awb_requested): cetak resi     → Telah Diproses; resi dicetak + H+1 → Dikirim.
+            //     (status Jubelio menyala terlalu dini, jadi pesanan yang kita proses sendiri
+            //      pakai jejak cetak resi, bukan status Jubelio.)
+            //  diproses langsung di Jubelio:
+            //     last_status 'shipped' (benar-benar diserahkan ke kurir)  → Dikirim.
+            //     resi terbit tapi belum diserahkan ('processed' / sj_created) → Telah Diproses.
+            //  sudah dibayar (DP)                          → Perlu Diproses.
             if ($link->invoice_posted) {
                 $bucket = 'selesai';
             } elseif ($link->awb_requested) {
                 $bucket = $this->mpHandedOver($link) ? 'dikirim' : 'telah_diproses';
-            } elseif ($link->sj_created) {
+            } elseif ($link->last_status === 'shipped') {
                 $bucket = 'dikirim';
+            } elseif ($link->last_status === 'processed' || $link->sj_created) {
+                $bucket = 'telah_diproses';
             } elseif ($link->dp_posted) {
                 $bucket = 'perlu_diproses';
             } else {

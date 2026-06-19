@@ -29,6 +29,15 @@ class JubelioSyncOrders extends Command
         $cancel = $sync->syncCancellationRequests();
         $this->info("Permintaan batal: ditandai {$cancel['flagged']}, dibersihkan {$cancel['cleared']}.");
 
+        // Cek-ulang pesanan in-flight: tangkap pembatalan channel pasca-bayar yang sudah
+        // hilang dari daftar ready/completed (auto-void bila aman, atau tandai manual).
+        $recon = $sync->reconcileActiveOrders();
+        $this->info("Rekonsiliasi aktif: dicek {$recon['checked']}, dibatalkan {$recon['canceled']}, error {$recon['errors']}.");
+
+        // Tarik pesanan belum-dibayar → kartu info di tab "Belum Siap".
+        $unpaid = $sync->syncUnpaidOrders();
+        $this->info("Belum dibayar: pending {$unpaid['pending']} dari {$unpaid['seen']} pesanan, error {$unpaid['errors']}.");
+
         return self::SUCCESS;
     }
 }
