@@ -233,17 +233,18 @@ class FulfillmentReadinessService
 
         // Bucket (urut, mutually exclusive)
         if ($link) {
-            // Marketplace mengikuti status Jubelio:
-            //  completed (invoice_posted)            → Selesai
-            //  shipped (sj_created) / fallback cetak → Dikirim
-            //  sudah diproses (AWB diminta)          → Telah Diproses (cetak resi / generate ulang)
-            //  sudah dibayar (DP)                    → Perlu Diproses
+            //  completed (invoice_posted)               → Selesai
+            //  KITA proses (awb_requested): cetak resi  → Telah Diproses; resi dicetak + H+1 → Dikirim.
+            //     (status "shipped" Jubelio menyala terlalu dini saat AWB/mark-complete, jadi TIDAK
+            //      dipakai untuk pesanan yang kita proses sendiri — pakai jejak cetak resi.)
+            //  dikirim langsung via Jubelio (sj_created, tanpa proses WMS) → Dikirim.
+            //  sudah dibayar (DP)                       → Perlu Diproses.
             if ($link->invoice_posted) {
                 $bucket = 'selesai';
-            } elseif ($link->sj_created || $this->mpShippedFallback($link)) {
-                $bucket = 'dikirim';
             } elseif ($link->awb_requested) {
-                $bucket = 'telah_diproses';
+                $bucket = $this->mpHandedOver($link) ? 'dikirim' : 'telah_diproses';
+            } elseif ($link->sj_created) {
+                $bucket = 'dikirim';
             } elseif ($link->dp_posted) {
                 $bucket = 'perlu_diproses';
             } else {
@@ -433,8 +434,12 @@ class FulfillmentReadinessService
         return $ship->isNotEmpty() && $ship->every(fn ($d) => !empty($d->resi_printed_at));
     }
 
-    /** Fallback marketplace ke "Dikirim" bila Jubelio belum lapor shipped: resi dicetak + H+1. */
-    private function mpShippedFallback(\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link): bool
+    /**
+     * Marketplace dianggap sudah diserahkan ke kurir → "Dikirim" mulai H+1 setelah resi
+     * DICETAK. Resi dicetak hari ini tetap di "Telah Diproses" (masih bisa cetak ulang /
+     * batal serah). Tidak memakai status "shipped" Jubelio karena menyala terlalu dini.
+     */
+    private function mpHandedOver(\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link): bool
     {
         return $link->resi_printed_at && $link->resi_printed_at->lt(now()->startOfDay());
     }

@@ -69,6 +69,42 @@ class JubelioFulfillmentBucketingTest extends TestCase
         $this->assertSame('JX123', $row['tracking_no']);
     }
 
+    public function test_processed_order_printed_today_stays_in_telah_diproses(): void
+    {
+        // Kita proses sendiri (awb_requested) + resi dicetak HARI INI → tetap di Telah Diproses,
+        // walau status shipped Jubelio (sj_created) sudah menyala. Belum boleh ke Dikirim.
+        $so = $this->marketplaceSo([
+            'awb_requested' => true, 'tracking_no' => 'JX1', 'sj_created' => true,
+            'resi_printed_at' => now(),
+        ]);
+
+        $svc = app(FulfillmentReadinessService::class);
+        $this->assertNotNull($svc->bucket('telah_diproses')->firstWhere('id', $so->id));
+        $this->assertNull($svc->bucket('dikirim')->firstWhere('id', $so->id));
+    }
+
+    public function test_processed_order_printed_yesterday_moves_to_dikirim(): void
+    {
+        $so = $this->marketplaceSo([
+            'awb_requested' => true, 'tracking_no' => 'JX1', 'sj_created' => true,
+            'resi_printed_at' => now()->subDay(),
+        ]);
+
+        $svc = app(FulfillmentReadinessService::class);
+        $this->assertNull($svc->bucket('telah_diproses')->firstWhere('id', $so->id));
+        $this->assertNotNull($svc->bucket('dikirim')->firstWhere('id', $so->id));
+    }
+
+    public function test_jubelio_direct_shipped_without_processing_goes_to_dikirim(): void
+    {
+        // Dikirim langsung lewat Jubelio (sj_created) tanpa proses WMS di ERP → Dikirim.
+        $so = $this->marketplaceSo(['sj_created' => true]);
+
+        $svc = app(FulfillmentReadinessService::class);
+        $this->assertNotNull($svc->bucket('dikirim')->firstWhere('id', $so->id));
+        $this->assertNull($svc->bucket('perlu_diproses')->firstWhere('id', $so->id));
+    }
+
     public function test_unpaid_marketplace_order_is_belum_siap(): void
     {
         $so = $this->marketplaceSo(['dp_posted' => false]);
