@@ -6,6 +6,7 @@ use App\Core\Inventory\InventoryEngine;
 use App\Core\Inventory\Product;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog;
+use App\Services\BundleService;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -27,6 +28,7 @@ class JubelioStockSyncService
     public function __construct(
         protected JubelioClient $client,
         protected InventoryEngine $inventory,
+        protected BundleService $bundles,
     ) {}
 
     /**
@@ -118,7 +120,12 @@ class JubelioStockSyncService
             return 'skipped_unmatched';
         }
 
-        $available = round($this->inventory->availableStock($product->id), 4);
+        // Bundle tidak punya stok ledger sendiri — stok tersedianya dihitung dari komponen
+        // (min floor(stok_komponen − reservasi / qty_per_bundle)), pakai BundleService yang
+        // sama dgn POS & halaman Stok. Tanpa ini, availableStock() bundle = 0 → Jubelio salah.
+        $available = $product->sale_type === 'bundle'
+            ? (float) $this->bundles->getBundleStock($product->id)
+            : round($this->inventory->availableStock($product->id), 4);
 
         // Baseline untuk hitung delta.
         $baseline = $product->jubelio_synced_qty !== null ? (float) $product->jubelio_synced_qty : null;

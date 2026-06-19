@@ -28,19 +28,32 @@ class InventoryLedgerObserver
             return;
         }
 
-        // Hanya produk yang ditandai sinkron ke Jubelio.
-        $syncFlag = Product::where('id', $ledger->product_id)->value('sync_to_jubelio');
-        if (!$syncFlag) {
-            return;
-        }
-
-        // Loop prevention: penjualan dari SO Jubelio jangan dipantulkan balik.
+        // Loop prevention: penjualan dari SO Jubelio jangan dipantulkan balik
+        // (berlaku jg utk komponen bundle yg dikirim saat bundle terjual di Jubelio).
         if ($ledger->transaction_type === 'sale' && $this->isJubelioSale((int) $ledger->transaction_id)) {
             return;
         }
 
-        // Tandai pending (update langsung tanpa memicu event model → tidak rekursif).
-        Product::where('id', $ledger->product_id)->update(['jubelio_sync_pending' => true]);
+        // 1. Produk yang stoknya berubah, bila ditandai sinkron.
+        //    (update langsung tanpa memicu event model → tidak rekursif).
+        if (Product::where('id', $ledger->product_id)->value('sync_to_jubelio')) {
+            Product::where('id', $ledger->product_id)->update(['jubelio_sync_pending' => true]);
+        }
+
+        // 2. Bundle yang MEMUAT produk ini sebagai komponen — stok tersedia bundle
+        //    dihitung dari komponen, jadi ikut berubah. Komponen sendiri belum tentu
+        //    sync_to_jubelio, tapi bundle-nya bisa; tandai bundle yang disinkron.
+        $bundleIds = \App\Core\Inventory\BundleComponent::where('component_product_id', $ledger->product_id)
+            ->pluck('bundle_product_id');
+        if ($bundleIds->isEmpty()) {
+            $bundleIds = \App\Core\Inventory\ProductBundle::where('component_product_id', $ledger->product_id)
+                ->pluck('bundle_product_id');
+        }
+        if ($bundleIds->isNotEmpty()) {
+            Product::whereIn('id', $bundleIds)
+                ->where('sync_to_jubelio', true)
+                ->update(['jubelio_sync_pending' => true]);
+        }
     }
 
     private function isJubelioSale(int $deliveryId): bool
