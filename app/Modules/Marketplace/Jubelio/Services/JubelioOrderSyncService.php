@@ -639,11 +639,14 @@ class JubelioOrderSyncService
         if ($fee <= 0 && $expense <= 0) {
             $config = MarketplaceConfig::where('customer_id', $customerId)->where('is_active', true)->first();
             if ($config) {
+                // Bulatkan estimasi ke rupiah penuh: grand_total disimpan sebagai bilangan
+                // bulat (createDraft membulatkan), jadi fee dgn pecahan sen (mis. 5555.41)
+                // membuat jurnal invoice tak balance sebesar pecahannya. Rupiah tak bersen.
                 $est = round(($subtotal + $shipping) * (float) ($config->admin_fee_percent ?? 0) / 100
-                           + (float) ($config->admin_fee_fixed ?? 0), 2);
+                           + (float) ($config->admin_fee_fixed ?? 0), 0);
                 if ($est > 0) {
                     $fee        = $est;
-                    $grandTotal = round($subtotal + $shipping - $est, 2);
+                    $grandTotal = round($subtotal + $shipping - $est, 0);
                 }
             }
         }
@@ -685,7 +688,12 @@ class JubelioOrderSyncService
     {
         $raw = $d['transaction_date'] ?? $d['created_date'] ?? null;
         try {
-            return $raw ? \Carbon\Carbon::parse($raw)->toDateString() : now()->toDateString();
+            // Jubelio mengirim waktu dalam UTC (akhiran "Z"). Konversi ke zona app (WIB)
+            // dulu sebelum ambil tanggal — tanpa ini, order yg masuk 17:00–23:59 WIB
+            // (= hari sebelumnya dalam UTC) tercatat mundur 1 hari.
+            return $raw
+                ? \Carbon\Carbon::parse($raw)->timezone(config('app.timezone'))->toDateString()
+                : now()->toDateString();
         } catch (\Throwable) {
             return now()->toDateString();
         }
