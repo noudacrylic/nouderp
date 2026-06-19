@@ -23,7 +23,8 @@
 <div class="space-y-4">
     @forelse($rows as $row)
         @php
-            $isVoid = $row['state'] === 'void';
+            $isVoid    = $row['state'] === 'void';
+            $isJblCancel = $row['state'] === 'jubelio_canceled';
             $borderColor = $isVoid ? 'border-l-gray-400' : 'border-l-red-500';
         @endphp
         <div class="bg-white rounded-xl border border-gray-300 border-l-4 {{ $borderColor }} shadow-md p-4">
@@ -34,6 +35,8 @@
                 <span class="js-copy font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $row['number'] }}" title="Klik untuk salin nomor">{{ $row['number'] }}</span>
                 @if($isVoid)
                     <span class="px-2 py-0.5 rounded text-[10px] font-black bg-gray-200 text-gray-700">✗ DIBATALKAN (VOID)</span>
+                @elseif($isJblCancel)
+                    <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 ring-1 ring-red-300" title="Dibatalkan di Jubelio — SO masih aktif, perlu void manual">⛔ DIBATALKAN DI JUBELIO</span>
                 @else
                     <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 ring-1 ring-red-300">⛔ PEMBELI MINTA BATAL</span>
                 @endif
@@ -58,10 +61,12 @@
                 <div class="space-y-1.5 lg:pl-6 lg:border-l lg:border-gray-100">
                     @unless($isVoid)
                         <div class="text-[13px]">
-                            <div class="text-gray-400 font-semibold mb-0.5">📝 Alasan Pembeli</div>
+                            <div class="text-gray-400 font-semibold mb-0.5">{{ $isJblCancel ? '📝 Keterangan' : '📝 Alasan Pembeli' }}</div>
                             <div class="text-gray-700 whitespace-pre-line break-words">{{ $row['cancel_reason'] ?: '— (tidak disebutkan)' }}</div>
                         </div>
-                        @if($row['requested_at'])
+                        @if($isJblCancel)
+                            <div class="text-[11px] text-amber-600 font-semibold">Sudah ada Faktur/Surat Jalan — void manual: batalkan dokumen turunannya dulu lewat "Lihat SO".</div>
+                        @elseif($row['requested_at'])
                             <div class="text-[11px] text-gray-400">Diminta {{ \Carbon\Carbon::parse($row['requested_at'])->format('d M Y H:i') }}</div>
                         @endif
                     @endunless

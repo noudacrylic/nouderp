@@ -119,15 +119,10 @@ class JubelioOrderSyncService
         $link->snap_item_count  = is_array($detail['items'] ?? null) ? count($detail['items']) : $link->snap_item_count;
         $link->snap_order_date  = $this->orderDate($detail);
 
-        // Pesanan dibatalkan → catat & berhenti (tidak auto-void SO; tangani manual).
+        // Pesanan dibatalkan di Jubelio → auto-void SO bila aman (belum ada faktur/SJ);
+        // bila sudah ada faktur/SJ → tandai untuk ditangani manual (tab Pembatalan).
         if (!empty($detail['is_canceled'])) {
-            $link->last_status = 'canceled';
-            $link->save();
-            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::SKIP, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $jubelioSoId), [
-                'reference'             => $link->jubelio_salesorder_no,
-                'jubelio_salesorder_id' => $jubelioSoId,
-                'message'               => 'Pesanan dibatalkan di Jubelio — tangani manual bila SO sudah dibuat.',
-            ]);
+            $this->cancelOrderFromJubelio($link);
             return $link;
         }
 
@@ -327,6 +322,129 @@ class JubelioOrderSyncService
         }
 
         return $stats;
+    }
+
+    /**
+     * Pesanan dibatalkan di Jubelio → batalkan di ERP.
+     *  - Belum ada SO / SO sudah void → cukup catat.
+     *  - Sudah ada Faktur/Surat Jalan aktif → JANGAN auto-void (berisiko stok/akuntansi);
+     *    tandai agar ditangani manual di tab Pembatalan.
+     *  - Aman (hanya DP/belum dikirim) → void DP + void SO otomatis.
+     *
+     * Logika void mengikuti SalesOrderController::void & PaymentController::void (sumber kebenaran).
+     */
+    private function cancelOrderFromJubelio(JubelioOrderLink $link): void
+    {
+        $ref = $link->jubelio_salesorder_no ?: (string) $link->jubelio_salesorder_id;
+        $link->last_status = 'canceled';
+
+        $so = $link->sales_order_id ? SalesOrder::find($link->sales_order_id) : null;
+
+        if (!$so || in_array($so->status, ['void', 'cancelled'], true)) {
+            $link->save();
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . $ref, [
+                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'   => 'Dibatalkan di Jubelio (tidak ada SO aktif untuk di-void).',
+            ]);
+            return;
+        }
+
+        // Guard: ada Faktur/Surat Jalan aktif → jangan auto-void.
+        $activeInvoice = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])->exists();
+        $activeDelivery = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])->exists();
+        if ($activeInvoice || $activeDelivery) {
+            $link->last_error = 'Dibatalkan di Jubelio, tetapi sudah ada Faktur/Surat Jalan — perlu void manual.';
+            $link->save();
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::FAIL, 'Pesanan ' . $ref, [
+                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'   => 'Batal di Jubelio tapi sudah ada Faktur/SJ — tangani manual di tab Pembatalan.',
+            ]);
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($so, $link) {
+                // 1. Void DP/uang muka (bila ada) — mirror PaymentController::void.
+                if ($link->customer_payment_id) {
+                    $payment = \App\Models\CustomerPayment::with('allocations.salesOrder')->find($link->customer_payment_id);
+                    if ($payment && $payment->status === 'posted') {
+                        $this->voidAdvancePaymentInternal($payment);
+                    }
+                }
+
+                // 2. Void SO — mirror SalesOrderController::void (subset aman: tanpa Faktur/SJ aktif).
+                \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)->update(['status' => 'cancelled']);
+                $this->cancelAutoPreorderProductions($so);
+                $so->status = 'void';
+                $so->save();
+
+                if ($so->quotation_id) {
+                    $stillRef = SalesOrder::where('quotation_id', $so->quotation_id)
+                        ->whereNotIn('status', ['void', 'cancelled'])->where('id', '!=', $so->id)->exists();
+                    if (!$stillRef) {
+                        \App\Models\SalesQuotation::where('id', $so->quotation_id)
+                            ->where('status', 'converted')->update(['status' => 'draft']);
+                    }
+                }
+
+                $link->save();
+            });
+
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . $ref, [
+                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'   => "SO {$so->order_number} di-void otomatis (dibatalkan di Jubelio).",
+            ]);
+        } catch (\Throwable $e) {
+            $link->last_error = 'Gagal auto-void: ' . $e->getMessage();
+            $link->save();
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::FAIL, 'Pesanan ' . $ref, [
+                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'   => 'Gagal auto-void SO: ' . $e->getMessage() . ' — tangani manual.',
+            ]);
+            Log::error('Jubelio cancelOrder auto-void gagal', ['id' => $link->jubelio_salesorder_id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /** Void DP/uang muka (mirror PaymentController::void). Dipanggil di dalam transaksi. */
+    private function voidAdvancePaymentInternal(\App\Models\CustomerPayment $payment): void
+    {
+        foreach ($payment->allocations as $alloc) {
+            if ($alloc->salesOrder) {
+                $alloc->salesOrder->paid_amount = max(0, (float) $alloc->salesOrder->paid_amount - (float) $alloc->amount);
+                $alloc->salesOrder->save();
+            }
+            if ($alloc->invoice) {
+                $alloc->invoice->paid_amount = max(0, (float) $alloc->invoice->paid_amount - (float) $alloc->amount);
+                $alloc->invoice->save();
+            }
+        }
+
+        // Saldo lebih bayar yang dibuat payment ini tak boleh sudah terpakai transaksi lain.
+        $customerId = $payment->customer_id;
+        $balance = (float) \App\Models\CustomerOverpayment::where('customer_id', $customerId)->sum('amount');
+        $thisNet = (float) \App\Models\CustomerOverpayment::where('customer_id', $customerId)
+            ->where('reference', $payment->payment_number)->sum('amount');
+        if (($balance - $thisNet) < -0.01) {
+            throw new \Exception('Saldo lebih bayar dari DP ini sudah terpakai transaksi lain — batalkan transaksi itu dulu.');
+        }
+        \App\Models\CustomerOverpayment::where('reference', $payment->payment_number)->delete();
+        \App\Modules\Sales\Models\SalesAdvance::where('advance_number', 'ADV-' . $payment->payment_number)->delete();
+        \App\Core\Journal\Journal::where('reference_type', 'customer_payment')
+            ->where('reference_id', $payment->id)->update(['status' => 'void', 'voided_at' => now()]);
+
+        $payment->status = 'void';
+        $payment->save();
+    }
+
+    /** PO produksi auto-preorder draft → cancel (mirror SalesOrderController). */
+    private function cancelAutoPreorderProductions(SalesOrder $so): void
+    {
+        \App\Modules\Production\Models\ProductionOrder::where('sales_order_id', $so->id)
+            ->where('created_via', 'auto_preorder')
+            ->where('status', 'draft')
+            ->update(['status' => 'cancelled']);
     }
 
     // ───────────────────────────── Tahap A: SO + DP ─────────────────────────────

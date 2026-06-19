@@ -96,6 +96,7 @@ class FulfillmentReadinessService
             ->whereNotNull('sales_order_id')
             ->where(function ($q) {
                 $q->where('cancel_requested', true)
+                  ->orWhere('last_status', 'canceled')   // dibatalkan di Jubelio (auto-void / perlu manual)
                   ->orWhereHas('salesOrder', fn ($s) => $s->whereIn('status', ['void', 'cancelled']));
             });
     }
@@ -116,6 +117,9 @@ class FulfillmentReadinessService
                 return null;
             }
             $isVoid = in_array($so->status, ['void', 'cancelled'], true);
+            // State: void (sudah dibatalkan) > jubelio_canceled (batal di Jubelio, SO masih aktif
+            // → perlu void manual) > requested (pembeli minta batal).
+            $state = $isVoid ? 'void' : ($link->last_status === 'canceled' ? 'jubelio_canceled' : 'requested');
 
             return [
                 'id'             => $so->id,
@@ -127,8 +131,8 @@ class FulfillmentReadinessService
                 'grand_total'    => (float) $so->grand_total,
                 'date'           => $so->order_date,
                 'date_sort'      => (string) ($link->cancel_requested_at ?? $so->updated_at ?? $so->order_date ?? $so->created_at),
-                'state'          => $isVoid ? 'void' : 'requested',
-                'cancel_reason'  => $link->cancel_reason,
+                'state'          => $state,
+                'cancel_reason'  => $state === 'jubelio_canceled' ? ($link->last_error ?: 'Dibatalkan di Jubelio') : $link->cancel_reason,
                 'requested_at'   => $link->cancel_requested_at,
                 'invoice_posted' => (bool) $link->invoice_posted,
                 'sj_created'     => (bool) $link->sj_created,
