@@ -131,9 +131,28 @@
                 🏬 Ambil {{ \Carbon\Carbon::parse($r['pickup_date'])->format('d M Y') }}{{ $pickupOverdue ? ' (lewat)' : '' }}
             </span>
         @elseif($deadline)
-            <span class="ml-auto text-xs whitespace-nowrap {{ $r['is_overdue'] ? 'text-red-600 font-bold' : 'text-gray-500' }}">
-                ⏱ Batas kirim {{ $deadline->format('d M Y') }}{{ $r['is_overdue'] ? ' (lewat)' : '' }}
-            </span>
+            @php
+                // Marketplace: deadline punya jam (mis. 23:59) → tampilkan tgl+jam + hitungan mundur.
+                // Non-marketplace: deadline tengah malam (00:00) → cukup tanggal seperti semula.
+                $hasTime = $deadline->format('H:i') !== '00:00';
+                $mins = (int) \Carbon\Carbon::now()->diffInMinutes($deadline, false); // <0 = sudah lewat
+                $abs  = abs($mins);
+                $cd   = $abs >= 1440 ? intdiv($abs, 1440) . ' hari'
+                      : ($abs >= 60 ? intdiv($abs, 60) . ' jam' : max(1, $abs) . ' mnt');
+                $countdown = $r['is_overdue'] ? "lewat {$cd}" : "{$cd} lagi";
+                $urgent = !$r['is_overdue'] && $mins <= 720; // < 12 jam → tandai mendesak
+                $cls = $r['is_overdue'] ? 'text-red-600 font-bold'
+                     : ($urgent ? 'text-amber-700 font-semibold' : 'text-gray-500');
+            @endphp
+            @if($hasTime)
+                <span class="ml-auto text-xs whitespace-nowrap {{ $cls }}" title="Batas kirim {{ $deadline->format('d M Y H:i') }} WIB">
+                    ⏱ Batas kirim {{ $deadline->format('d M') }} {{ $deadline->format('H:i') }} · {{ $countdown }}
+                </span>
+            @else
+                <span class="ml-auto text-xs whitespace-nowrap {{ $r['is_overdue'] ? 'text-red-600 font-bold' : 'text-gray-500' }}">
+                    ⏱ Batas kirim {{ $deadline->format('d M Y') }}{{ $r['is_overdue'] ? ' (lewat)' : '' }}
+                </span>
+            @endif
         @endif
     </div>
 

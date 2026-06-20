@@ -223,18 +223,24 @@ class FulfillmentReadinessService
 
         $isCustom = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder');
 
-        // Batas waktu kirim: ready stock = order_date + 1 hari; preorder = order_date +
+        // Batas waktu kirim. Order marketplace: pakai batas kirim ASLI dari Jubelio (due_date),
+        // bukan estimasi lokal. Lainnya: ready stock = order_date + 1 hari; preorder = order_date +
         // lead_time_days terbesar dari item preorder (minimal 1 hari).
-        $leadDays = 1;
-        if ($isCustom) {
-            foreach ($so->items as $i) {
-                if (optional($i->product)->sale_type === 'preorder') {
-                    $leadDays = max($leadDays, (int) ($i->product->lead_time_days ?? 0));
+        if ($link && $link->mp_due_date) {
+            $deadline  = $link->mp_due_date;
+            $isOverdue = $deadline->isPast();
+        } else {
+            $leadDays = 1;
+            if ($isCustom) {
+                foreach ($so->items as $i) {
+                    if (optional($i->product)->sale_type === 'preorder') {
+                        $leadDays = max($leadDays, (int) ($i->product->lead_time_days ?? 0));
+                    }
                 }
             }
+            $deadline  = $so->order_date ? \Carbon\Carbon::parse($so->order_date)->addDays($leadDays) : null;
+            $isOverdue = $deadline ? $deadline->lt(\Carbon\Carbon::today()) : false;
         }
-        $deadline  = $so->order_date ? \Carbon\Carbon::parse($so->order_date)->addDays($leadDays) : null;
-        $isOverdue = $deadline ? $deadline->lt(\Carbon\Carbon::today()) : false;
 
         // Finalized: ada minimal 1 OP non-cancelled & SEMUA finalized.
         $prodFinalized = false;

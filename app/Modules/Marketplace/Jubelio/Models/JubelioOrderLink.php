@@ -40,6 +40,7 @@ class JubelioOrderLink extends Model
         'snap_grand_total',
         'snap_item_count',
         'snap_order_date',
+        'mp_due_date',
         'j_label_url',
         'j_faktur_url',
         'wms_last_error',
@@ -63,6 +64,7 @@ class JubelioOrderLink extends Model
         'snap_grand_total'    => 'float',
         'snap_item_count'     => 'integer',
         'snap_order_date'     => 'date',
+        'mp_due_date'         => 'datetime',
         'wms_completed_at'    => 'datetime',
         'resi_printed_at'     => 'datetime',
     ];

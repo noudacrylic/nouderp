@@ -180,6 +180,8 @@ class JubelioOrderSyncService
         $link->snap_grand_total = (float) ($detail['grand_total'] ?? $link->snap_grand_total);
         $link->snap_item_count  = is_array($detail['items'] ?? null) ? count($detail['items']) : $link->snap_item_count;
         $link->snap_order_date  = $this->orderDate($detail);
+        // Batas kirim (ship-by) marketplace — jangan timpa dgn null bila detail tak menyertakannya.
+        $link->mp_due_date      = $this->dueDate($detail) ?: $link->mp_due_date;
 
         // Pesanan dibatalkan di Jubelio → auto-void SO bila aman (belum ada faktur/SJ);
         // bila sudah ada faktur/SJ → tandai untuk ditangani manual (tab Pembatalan).
@@ -1189,6 +1191,23 @@ class JubelioOrderSyncService
                 : now()->toDateString();
         } catch (\Throwable) {
             return now()->toDateString();
+        }
+    }
+
+    /**
+     * Batas kirim (ship-by) marketplace dari `due_date` order Jubelio. Jubelio mengirim UTC
+     * (akhiran "Z") → konversi ke zona app (WIB). null bila tak ada.
+     */
+    private function dueDate(array $d): ?\Carbon\Carbon
+    {
+        $raw = $d['due_date'] ?? null;
+        if (empty($raw)) {
+            return null;
+        }
+        try {
+            return \Carbon\Carbon::parse($raw)->timezone(config('app.timezone'));
+        } catch (\Throwable) {
+            return null;
         }
     }
 
