@@ -243,11 +243,16 @@ class JubelioClient
 
     /**
      * URL label resi (report Jubelio) untuk dicetak. Respons: {status, url, title}.
-     * Catatan: serialisasi query `ids[]=` — Jubelio mengharapkan key array tanpa indeks.
+     * Terima 1 id ATAU banyak id (cetak resi gabungan) — endpoint menerima ids[] jamak.
+     * Catatan: serialisasi query `ids[]=` — Jubelio mengharapkan key array tanpa indeks
+     * (ids[]=1&ids[]=2), bukan berindeks (ids[0]=), sehingga query dibangun manual.
      */
-    public function getShippingLabelUrl(int $salesOrderId): array
+    public function getShippingLabelUrl(int|array $salesOrderIds): array
     {
-        return $this->get('/reports/shipping-label/', ['ids[]' => $salesOrderId]);
+        $ids = array_values(array_filter(array_map('intval', (array) $salesOrderIds)));
+        $qs  = implode('&', array_map(fn ($id) => 'ids[]=' . $id, $ids));
+
+        return $this->request('GET', '/reports/shipping-label/', ['query' => $qs]);
     }
 
     /** URL faktur (report Jubelio) untuk dicetak, pakai invoice id dari create-invoice. */

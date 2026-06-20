@@ -89,6 +89,55 @@ class JubelioOrderSyncService
     }
 
     /**
+     * Backfill catatan pembeli untuk SO marketplace LAMA yang notes-nya masih berisi teks
+     * identitas auto ("Pesanan Jubelio … — …"). Tarik ulang field "note" dari Jubelio lalu
+     * timpa. Hanya menyentuh SO ber-pola lama agar catatan yang sudah diedit manual aman.
+     *
+     * @return array{scanned:int, updated:int, cleared:int, skipped:int, errors:int}
+     */
+    public function backfillBuyerNotes(): array
+    {
+        $stats = ['scanned' => 0, 'updated' => 0, 'cleared' => 0, 'skipped' => 0, 'errors' => 0];
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        $links = JubelioOrderLink::whereNotNull('sales_order_id')
+            ->whereNotNull('jubelio_salesorder_id')
+            ->with('salesOrder')
+            ->get();
+
+        foreach ($links as $link) {
+            $stats['scanned']++;
+            $so = $link->salesOrder;
+
+            // Lewati bila tak ada SO atau notes sudah bukan pola auto lama (jangan timpa
+            // catatan pembeli yang sudah benar / yang diedit manual oleh CS).
+            if (!$so || !str_starts_with((string) $so->notes, 'Pesanan Jubelio')) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            $resp = $this->client->getOrder((int) $link->jubelio_salesorder_id);
+            if (!$resp['success']) {
+                $stats['errors']++;
+                Log::warning('Backfill catatan pembeli: getOrder gagal', [
+                    'so'  => $so->id,
+                    'jbl' => $link->jubelio_salesorder_id,
+                    'error' => $resp['error'] ?? null,
+                ]);
+                continue;
+            }
+
+            $note = trim((string) (data_get($resp, 'data.note') ?? '')) ?: null;
+            $so->update(['notes' => $note]);
+            $note === null ? $stats['cleared']++ : $stats['updated']++;
+        }
+
+        return $stats;
+    }
+
+    /**
      * Proses 1 pesanan Jubelio berdasarkan ID: ambil detail lalu jalankan tahap
      * yang sesuai status. Idempotent.
      */
@@ -604,7 +653,10 @@ class JubelioOrderSyncService
                 'warehouse_id'          => $warehouseId,
                 'delivery_method'       => 'kurir',
                 'order_date'            => $this->orderDate($detail),
-                'notes'                 => 'Pesanan Jubelio' . ($store ? " ({$store})" : '') . ' — ' . $poNumber,
+                // Catatan pembeli ASLI dari Jubelio (field "note", mis. "Tlg packingan aman ya").
+                // Kosongkan bila pembeli tak menulis catatan — jangan isi teks identitas pesanan
+                // (channel & nomor PO sudah tampil di kartu + tersimpan di customer_po_number).
+                'notes'                 => trim((string) ($detail['note'] ?? '')) ?: null,
                 'status'                => SalesOrderStatus::DRAFT->value,
                 'subtotal'              => $subtotal,
                 'discount_total'        => 0,

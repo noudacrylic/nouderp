@@ -53,12 +53,26 @@
                    data-invoice="{{ $bulkInvoiceId }}" data-sj="{{ $bulkSjIds }}"
                    data-resi="{{ $bulkResiIds }}" data-gen="{{ $bulkGenIds }}"
                    title="Pilih untuk aksi massal">
+        @elseif($mode === 'telah_diproses' && !empty($r['tracking_no']))
+            {{-- Marketplace yang sudah ber-resi → aksi massal Cetak Resi gabungan (report Jubelio). --}}
+            <input type="checkbox" class="js-bulk-td w-4 h-4 accent-emerald-600 cursor-pointer"
+                   value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
+                   data-mp="1" data-so="{{ $r['id'] }}"
+                   title="Pilih untuk cetak resi massal">
         @endif
         <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-700">SO</span>
         @if(!empty($r['is_marketplace']))
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">🛒 {{ $r['channel'] }}</span>
         @endif
-        <span class="js-copy font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $r['number'] }}" title="Klik untuk salin nomor">{{ $r['number'] }}</span>
+        @php
+            // Nomor untuk disalin: pesanan marketplace buang prefix channel (mis. "SP-"/"TT-")
+            // sebelum tanda '-' pertama → tersalin nomor pesanan marketplace mentah saja
+            // (untuk dicari di dashboard seller). SO non-marketplace disalin utuh.
+            $copyNumber = (!empty($r['is_marketplace']) && str_contains($r['number'], '-'))
+                ? \Illuminate\Support\Str::after($r['number'], '-')
+                : $r['number'];
+        @endphp
+        <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $r['number'] }}</span>
         @php
             // Untuk pesanan marketplace, tampilkan nama kurir Jubelio (mis. "J&T REG",
             // "Grab Instant") bila ada — lebih informatif daripada label generik "Kurir".

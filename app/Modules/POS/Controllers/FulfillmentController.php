@@ -267,6 +267,45 @@ class FulfillmentController extends Controller
         return redirect()->away($url);
     }
 
+    /**
+     * Cetak resi marketplace MASSAL: gabungkan beberapa pesanan marketplace menjadi SATU URL
+     * report Jubelio (endpoint shipping-label menerima ids[] jamak → 1 PDF banyak label).
+     * Tandai tiap pesanan "sudah dicetak" lalu navigasi SAME-TAB. SO tanpa link/resi dilewati.
+     */
+    public function cetakResiJubelioBulk(Request $request, JubelioClient $client)
+    {
+        $ids = collect(explode(',', (string) $request->query('so', '')))
+            ->map(fn ($v) => (int) trim($v))->filter()->unique();
+
+        if ($ids->isEmpty()) {
+            return back()->with('error', 'Tidak ada pesanan marketplace yang dipilih untuk cetak resi.');
+        }
+
+        $links = JubelioOrderLink::whereIn('sales_order_id', $ids)
+            ->whereNotNull('tracking_no')->where('tracking_no', '!=', '')
+            ->get()
+            ->filter(fn ($l) => (int) $l->jubelio_salesorder_id > 0);
+
+        if ($links->isEmpty()) {
+            return back()->with('error', 'Pesanan terpilih belum punya resi yang terbit untuk dicetak.');
+        }
+
+        $res = $client->getShippingLabelUrl($links->pluck('jubelio_salesorder_id')->map(fn ($v) => (int) $v)->all());
+        $url = data_get($res, 'data.url');
+        if (!$res['success'] || !$url) {
+            return back()->with('error', 'Gagal mengambil label resi gabungan Jubelio: ' . ($res['error'] ?? 'URL tidak tersedia'));
+        }
+
+        // Tandai sudah dicetak (sekali per pesanan), konsisten dengan cetak resi satuan.
+        foreach ($links as $link) {
+            if (!$link->resi_printed_at) {
+                $link->forceFill(['resi_printed_at' => now()])->save();
+            }
+        }
+
+        return redirect()->away($url);
+    }
+
     /** Cetak faktur Jubelio (report), same-tab. Pakai j_invoice_id (fallback jubelio_invoice_id). */
     public function cetakFakturJubelio(int $so, JubelioClient $client)
     {

@@ -12,7 +12,7 @@
 @include('erp.pos.fulfillment._filters', ['couriers' => $couriers])
 
 {{-- Bar aksi massal (muncul saat ≥1 pesanan dicentang) --}}
-<div id="bulkBar" class="hidden sticky top-0 z-20 mb-3 bg-white border border-indigo-200 rounded-xl shadow-sm px-3 py-2 flex items-center gap-3 flex-wrap">
+<div id="bulkBar" class="hidden z-40 mb-3 bg-white border border-indigo-200 rounded-xl shadow-md px-3 py-2 flex items-center gap-3 flex-wrap">
     <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
         <input type="checkbox" id="bulkSelectAll" class="w-4 h-4 accent-indigo-600"> Pilih semua
     </label>
@@ -51,6 +51,7 @@
 @include('erp.sales.payment._midtrans_modals')
 @include('erp.pos.fulfillment._seller_notes_js')
 @include('erp.pos.fulfillment._copy_js')
+@include('erp.pos.fulfillment._bulk_sticky_js', ['barId' => 'bulkBar'])
 
 <script>
 // Aksi massal: pilih beberapa pesanan lalu Cetak SO / Proses sekaligus.

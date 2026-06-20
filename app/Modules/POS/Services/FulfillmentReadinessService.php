@@ -56,7 +56,9 @@ class FulfillmentReadinessService
                 str_contains(mb_strtolower($r['customer']), $needle));
         }
 
-        return $rows->sortByDesc('date_sort')->values();
+        // Terbaru di atas. order_date sering tanggal-saja (tanpa jam) → pesanan setanggal
+        // seri; pakai id menurun sebagai tiebreaker (id lebih besar = dibuat lebih baru).
+        return $rows->sortByDesc(fn ($r) => [(string) $r['date_sort'], $r['id'] ?? 0])->values();
     }
 
     /** Daftar kurir unik yang ada di sebuah bucket (untuk dropdown filter). */
@@ -147,7 +149,8 @@ class FulfillmentReadinessService
                 str_contains(mb_strtolower($r['customer']), $needle));
         }
 
-        return $rows->sortByDesc('date_sort')->values();
+        // Terbaru di atas; tiebreaker id menurun untuk pesanan setanggal (lihat bucket()).
+        return $rows->sortByDesc(fn ($r) => [(string) $r['date_sort'], $r['id'] ?? 0])->values();
     }
 
     // ───────────── Sales Order ─────────────

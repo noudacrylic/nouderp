@@ -8,7 +8,8 @@
         <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase {{ $isSo ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700' }}">
             {{ $isSo ? 'SO' : 'Garansi' }}
         </span>
-        <span class="js-copy font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $row['number'] }}" title="Klik untuk salin nomor">{{ $row['number'] }}</span>
+        @php $copyNumber = (!empty($row['is_marketplace']) && str_contains($row['number'], '-')) ? \Illuminate\Support\Str::after($row['number'], '-') : $row['number']; @endphp
+        <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor">{{ $row['number'] }}</span>
         @if($isSo && $row['is_pickup'])
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">🏬 AMBIL DI TOKO</span>
         @endif

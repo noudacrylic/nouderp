@@ -12,7 +12,7 @@
 @include('erp.pos.fulfillment._filters', ['couriers' => $couriers])
 
 {{-- Bar aksi massal (muncul saat ≥1 pesanan dicentang) — tanpa cek berat/dimensi, berdasarkan SO. --}}
-<div id="tdBulkBar" class="hidden sticky top-0 z-20 mb-3 bg-white border border-emerald-200 rounded-xl shadow-sm px-3 py-2 flex items-center gap-3 flex-wrap">
+<div id="tdBulkBar" class="hidden z-40 mb-3 bg-white border border-emerald-200 rounded-xl shadow-md px-3 py-2 flex items-center gap-3 flex-wrap">
     <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
         <input type="checkbox" id="tdSelectAll" class="w-4 h-4 accent-emerald-600"> Pilih semua
     </label>
@@ -59,6 +59,7 @@
 
 @include('erp.pos.fulfillment._seller_notes_js')
 @include('erp.pos.fulfillment._copy_js')
+@include('erp.pos.fulfillment._bulk_sticky_js', ['barId' => 'tdBulkBar'])
 
 {{-- ===== POPUP GENERATE RESI: cek ulang berat & dimensi + ongkir ===== --}}
 <div id="gr_modal" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-black/40 p-4">
@@ -199,9 +200,14 @@
     const labelBase = @json(route('sales.deliveries.print-label-bulk'));
     const invBase   = @json(route('sales.invoices.print-bulk'));
     const sjBase    = @json(route('sales.deliveries.print-bulk'));
+    const mpResiBase = @json(route('pos.fulfillment.jubelio-resi-bulk'));
 
     const checks = () => Array.from(document.querySelectorAll('.js-bulk-td'));
     const selected = () => checks().filter(c => c.checked);
+
+    // Tombol berbasis Surat Jalan (Biteship/manual) tak berlaku utk marketplace → sembunyikan
+    // saat seluruh pilihan adalah pesanan marketplace.
+    function setShown(id, show) { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !show); }
 
     function refresh() {
         const sel = selected();
@@ -209,6 +215,8 @@
         countEl.textContent = sel.length + ' dipilih';
         const all = checks();
         selectAll.checked = all.length > 0 && sel.length === all.length;
+        const hasNp = sel.some(c => c.dataset.mp !== '1');
+        ['tdGenResi', 'tdPrintLabel', 'tdPrintInv', 'tdPrintSj'].forEach(id => setShown(id, hasNp));
     }
 
     // Kumpulkan ID dari atribut data (comma-separated) lintas card terpilih, dedupe.
@@ -250,8 +258,20 @@
         if (!ids.length) { alert(emptyMsg); return; }
         window.location.href = base + '?ids=' + ids.join(',');
     }
-    document.getElementById('tdPrintResi').addEventListener('click', () =>
-        goPrint(resiBase, collect('resi'), 'Tidak ada resi pada pesanan terpilih (belum di-generate).'));
+    // Cetak Resi: marketplace → URL report Jubelio gabungan; non-marketplace → label Biteship.
+    document.getElementById('tdPrintResi').addEventListener('click', function () {
+        const mpSo = new Set(), npResi = new Set();
+        selected().forEach(c => {
+            if (c.dataset.mp === '1') { if (c.dataset.so) mpSo.add(c.dataset.so); }
+            else (c.dataset.resi || '').split(',').forEach(v => { v = v.trim(); if (v) npResi.add(v); });
+        });
+        if (mpSo.size && npResi.size) {
+            alert('Pilih hanya pesanan marketplace ATAU non-marketplace untuk cetak resi bersamaan (format labelnya berbeda).');
+            return;
+        }
+        if (mpSo.size) { window.location.href = mpResiBase + '?so=' + Array.from(mpSo).join(','); return; }
+        goPrint(resiBase, Array.from(npResi), 'Tidak ada resi pada pesanan terpilih (belum di-generate).');
+    });
     document.getElementById('tdPrintLabel').addEventListener('click', () =>
         goPrint(labelBase, collect('gen'), 'Tidak ada pengiriman tanpa resi pada pesanan terpilih (yang ber-resi pakai Cetak Resi).'));
     document.getElementById('tdPrintInv').addEventListener('click', () =>
