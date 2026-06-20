@@ -116,36 +116,55 @@ class JubelioFulfillmentService
             $link->forceFill(['j_invoice_id' => $invId ?: null])->save();
         }
 
-        // Step 5 — minta resi/AWB.
+        // Step 5 — dapatkan resi/AWB.
         if (!$link->awb_requested) {
             if (!$this->claim($link, 'awb_requested')) {
                 return $this->result($link, false, 'Pesanan sedang diproses oleh proses lain.');
             }
-            $res = $this->client->requestAwb($soId);
-            if (!$res['success']) {
-                return $this->release($link, 'awb_requested', "Faktur sudah dibuat, tetapi AWB/resi belum terbentuk: {$res['error']}. Klik \"Proses\" lagi untuk membentuk AWB (langkah sebelumnya tidak diulang).");
+
+            // 5a. Channel via agregator kurir Jubelio (Shopee/Tokopedia/dll): request-awb langsung
+            //     mengembalikan nomor resi.
+            $res      = $this->client->requestAwb($soId);
+            $tracking = null;
+            $shipper  = null;
+
+            if ($res['success']) {
+                $tracking = data_get($res, 'data.tracking_no');
+                $shipper  = data_get($res, 'data.shipper');
+            } else {
+                // 5b. Channel yang menerbitkan resi SENDIRI (mis. TikTok `use_tiktok_label`): request-awb
+                //     ditolak "Kurir tidak di support". Picu pembuatan label (setara klik "Cetak Resi" di
+                //     Seller Center) — ini yang membuat marketplace menerbitkan resi — lalu baca resinya
+                //     dari detail order (andal; endpoint shipments mengosongkan baris setelah resi terbit).
+                $hasShipment = !empty(data_get($this->client->getShipmentAwb([$soId]), 'data.0'));
+                $label       = $this->client->getShippingLabelUrl($soId);
+                [$tracking, $shipper] = $this->trackingFromOrder($soId);
+
+                // Tak ada resi, tak ada shipment, label pun gagal → bukan order channel-issued: gagal nyata.
+                if ($tracking === null && !$hasShipment && !$label['success']) {
+                    return $this->release($link, 'awb_requested', "Faktur sudah dibuat, tetapi AWB/resi belum terbentuk: {$res['error']}. Klik \"Proses\" lagi untuk membentuk AWB (langkah sebelumnya tidak diulang).");
+                }
             }
-            $tracking = data_get($res, 'data.tracking_no');
-            $shipper  = data_get($res, 'data.shipper');
+
             $link->forceFill([
                 'tracking_no'      => $tracking ?: null,
-                'shipper'          => $shipper ?: null,
+                'shipper'          => $shipper ?: $link->shipper,
                 'wms_last_error'   => null,
                 'wms_completed_at' => $tracking ? now() : null,
             ])->save();
 
             if (empty($tracking)) {
-                // AWB diminta tapi resi belum keluar (mis. kurir belum siap) — biarkan flag
-                // tetap true; user bisa cek lagi nanti via Cetak Resi/print yang ambil URL.
+                // Resi marketplace kadang terbit async setelah label dipicu — biarkan flag tetap true;
+                // step 5c + cron self-heal menangkapnya begitu Jubelio selesai sync dari channel.
                 JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, "Fulfillment {$ref}", [
                     'reference' => $ref, 'jubelio_salesorder_id' => $soId,
-                    'message'   => 'Picking→faktur→AWB selesai; nomor resi belum tersedia dari kurir.',
+                    'message'   => 'Picking→faktur→label selesai; resi sedang diterbitkan marketplace.',
                 ]);
-                return $this->result($link, true, "Pesanan {$ref} diproses. Resi belum terbit dari kurir — coba Cetak Resi beberapa saat lagi.");
+                return $this->result($link, true, "Pesanan {$ref} diproses. Resi sedang diterbitkan marketplace — akan masuk otomatis (cron) atau klik Cetak Resi sebentar lagi.");
             }
         }
 
-        // Step 5b — resi sering terbit BELAKANGAN (kurir async): AWB sudah diminta tapi nomor
+        // Step 5c — resi sering terbit BELAKANGAN (channel async): AWB sudah diproses tapi nomor
         // resi belum tercatat (step 5 dilewati karena awb_requested sudah true). Tarik ulang
         // dari detail order Jubelio agar klik "Generate Ulang" menangkap resi yang sudah keluar.
         if ($link->awb_requested && empty($link->tracking_no)) {
@@ -232,6 +251,22 @@ class JubelioFulfillmentService
             }
         }
         return $res;
+    }
+
+    /**
+     * Resi + shipper dari detail order Jubelio. tracking null bila resi belum terbit.
+     * Dipakai setelah memicu label: detail order adalah sumber resi yang andal (endpoint WMS
+     * shipments mengosongkan baris begitu resi terbit & order keluar dari antrian "ready to ship").
+     *
+     * @return array{0:?string, 1:?string} [tracking_no, shipper]
+     */
+    private function trackingFromOrder(int $soId): array
+    {
+        $d  = $this->client->getOrder($soId)['data'] ?? [];
+        $tn = trim((string) ($d['tracking_no'] ?? $d['tracking_number'] ?? ''));
+        $sh = trim((string) ($d['shipper'] ?? ''));
+
+        return [$tn !== '' ? $tn : null, $sh ?: null];
     }
 
     private function pickerEmail(): ?string

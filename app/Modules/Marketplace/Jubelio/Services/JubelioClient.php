@@ -242,6 +242,17 @@ class JubelioClient
     }
 
     /**
+     * Ambil data shipment + resi order WMS (TANPA "request" ke kurir agregator). Cocok untuk
+     * channel yang menerbitkan resi sendiri (mis. TikTok `use_tiktok_label`) — endpoint ini TIDAK
+     * menolak "Kurir tidak di support". Body: {ids:[salesorder_id]}.
+     * Respons: array baris {salesorder_id, tracking_no, shipper, shipment_no, channel_status, ...}.
+     */
+    public function getShipmentAwb(array $salesOrderIds): array
+    {
+        return $this->post('/wms/sales/shipments/orders/', ['ids' => array_values($salesOrderIds)]);
+    }
+
+    /**
      * URL label resi (report Jubelio) untuk dicetak. Respons: {status, url, title}.
      * Terima 1 id ATAU banyak id (cetak resi gabungan) — endpoint menerima ids[] jamak.
      * Catatan: serialisasi query `ids[]=` — Jubelio mengharapkan key array tanpa indeks
