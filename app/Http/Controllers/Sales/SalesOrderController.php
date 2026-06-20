@@ -810,6 +810,74 @@ class SalesOrderController extends Controller
         return back()->with('success', 'Kurir & ongkir berhasil diperbarui.');
     }
 
+    /**
+     * Hapus SO yang masih draft. SO yang sudah di-POST (confirmed) tidak boleh
+     * dihapus — gunakan Void agar jejak akuntansi tetap terjaga.
+     */
+    public function destroy($id)
+    {
+        $so = SalesOrder::findOrFail($id);
+
+        if ($so->status !== 'draft') {
+            return back()->with('error', 'Hanya SO draft yang bisa dihapus. SO yang sudah di-POST gunakan Void.');
+        }
+
+        // ── Guard defensif: tolak hapus bila (entah bagaimana) sudah ada dokumen turunan ──
+        $activeInvoice = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->first();
+        if ($activeInvoice) {
+            return back()->with('error', "SO tidak bisa dihapus: masih ada Invoice {$activeInvoice->invoice_number} aktif.");
+        }
+
+        $activeDelivery = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->first();
+        if ($activeDelivery) {
+            return back()->with('error', "SO tidak bisa dihapus: masih ada Surat Jalan {$activeDelivery->delivery_number} aktif.");
+        }
+
+        $activePayment = \App\Models\CustomerPaymentAllocation::where('sales_order_id', $so->id)
+            ->whereHas('payment', fn($q) => $q->where('status', 'posted'))
+            ->with('payment')
+            ->first();
+        if ($activePayment) {
+            $payNum = $activePayment->payment->payment_number ?? '#' . $activePayment->customer_payment_id;
+            return back()->with('error', "SO tidak bisa dihapus: masih ada Payment {$payNum} aktif.");
+        }
+
+        $orderNumber = $so->order_number;
+
+        DB::transaction(function () use ($so) {
+            // Lepas reservasi stok (draft normalnya belum ada, tapi aman bila ada).
+            \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)
+                ->update(['status' => 'cancelled']);
+
+            // Batalkan PO produksi auto-preorder yang masih draft.
+            $this->cancelAutoPreorderProductions($so);
+
+            // Kembalikan Quotation sumber ke draft agar bisa di-convert ulang.
+            if ($so->quotation_id) {
+                $stillReferenced = SalesOrder::where('quotation_id', $so->quotation_id)
+                    ->whereNotIn('status', ['void', 'cancelled'])
+                    ->where('id', '!=', $so->id)
+                    ->exists();
+                if (!$stillReferenced) {
+                    SalesQuotation::where('id', $so->quotation_id)
+                        ->where('status', 'converted')
+                        ->update(['status' => 'draft']);
+                }
+            }
+
+            // Hapus child records lalu SO (items cascade, advances tanpa FK → hapus manual).
+            $so->advances()->delete();
+            $so->delete();
+        });
+
+        return redirect()->route('sales.orders.index')
+            ->with('success', "SO {$orderNumber} berhasil dihapus");
+    }
+
     public function void($id)
     {
         $so = SalesOrder::findOrFail($id);
