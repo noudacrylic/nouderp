@@ -27,11 +27,23 @@
     $bulkGenIds    = $shipDeliveries->filter(fn ($d) => empty($d->tracking_number))->pluck('id')->implode(',');  // SJ belum resi (utk Generate Resi)
 
     $qtyRow = function ($ln) use ($fmtQty) {
+        $isService = !empty($ln['is_service']);
         $shipped = (float) $ln['shipped'];
         $remaining = (float) $ln['remaining'];
+        $nameCell = '<span class="flex-1 text-gray-700">' . e($ln['name'])
+            . ($isService ? '<span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-100 text-violet-700 align-middle">JASA</span>' : '')
+            . ($ln['sku'] ? '<span class="text-gray-400"> · ' . e($ln['sku']) . '</span>' : '') . '</span>';
+        if ($isService) {
+            // Jasa/non-stok: tampil di daftar tapi tak dikirim → kolom Dikirim/Belum kosong.
+            return '<div class="flex items-start px-3 py-1.5 border-t border-gray-200">'
+                . $nameCell
+                . '<span class="w-16 text-right text-gray-700">' . $fmtQty($ln['ordered']) . '</span>'
+                . '<span class="w-16 text-right text-gray-300">—</span>'
+                . '<span class="w-16 text-right text-gray-300">—</span>'
+                . '</div>';
+        }
         return '<div class="flex items-start px-3 py-1.5 border-t border-gray-200">'
-            . '<span class="flex-1 text-gray-700">' . e($ln['name'])
-            . ($ln['sku'] ? '<span class="text-gray-400"> · ' . e($ln['sku']) . '</span>' : '') . '</span>'
+            . $nameCell
             . '<span class="w-16 text-right text-gray-700">' . $fmtQty($ln['ordered']) . '</span>'
             . '<span class="w-16 text-right ' . ($shipped > 0 ? 'text-green-600' : 'text-gray-400') . '">' . $fmtQty($shipped) . '</span>'
             . '<span class="w-16 text-right ' . ($remaining > 0 ? 'text-amber-600 font-semibold' : 'text-gray-400') . '">' . $fmtQty($remaining) . '</span>'
@@ -65,12 +77,9 @@
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">🛒 {{ $r['channel'] }}</span>
         @endif
         @php
-            // Nomor untuk disalin: pesanan marketplace buang prefix channel (mis. "SP-"/"TT-")
-            // sebelum tanda '-' pertama → tersalin nomor pesanan marketplace mentah saja
-            // (untuk dicari di dashboard seller). SO non-marketplace disalin utuh.
-            $copyNumber = (!empty($r['is_marketplace']) && str_contains($r['number'], '-'))
-                ? \Illuminate\Support\Str::after($r['number'], '-')
-                : $r['number'];
+            // Nomor untuk disalin (lihat marketplace_copy_number): TikTok/Tokopedia ambil
+            // bagian tengah di antara '-'; marketplace lain buang prefix; non-MP utuh.
+            $copyNumber = marketplace_copy_number($r['number'], !empty($r['is_marketplace']));
         @endphp
         <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $r['number'] }}</span>
         @php

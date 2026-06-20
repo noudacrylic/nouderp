@@ -105,6 +105,31 @@ if (!function_exists('list_url')) {
     }
 }
 
+if (!function_exists('marketplace_copy_number')) {
+
+    /**
+     * Nomor yang disalin saat tim klik nomor pesanan di Pemrosesan Pesanan.
+     *
+     * Pesanan marketplace memakai nomor ber-prefix channel. Tujuannya menyalin
+     * NOMOR PESANAN MARKETPLACE mentah saja (yang dicari di dashboard seller):
+     *   • TikTok & Tokopedia → format `PREFIX-NOMOR-SUFFIX` (≥2 tanda '-') →
+     *     ambil bagian TENGAH di antara '-' pertama dan '-' terakhir.
+     *   • Marketplace lain (mis. Shopee) → format `PREFIX-NOMOR` (1 tanda '-') →
+     *     ambil bagian setelah '-' pertama (buang prefix saja).
+     * SO non-marketplace disalin utuh.
+     */
+    function marketplace_copy_number(?string $number, bool $isMarketplace = true): string
+    {
+        $number = (string) $number;
+        if (!$isMarketplace || !str_contains($number, '-')) {
+            return $number;
+        }
+        return substr_count($number, '-') >= 2
+            ? \Illuminate\Support\Str::between($number, '-', '-')
+            : \Illuminate\Support\Str::after($number, '-');
+    }
+}
+
 if (!function_exists('clean_number')) {
 
     function clean_number($string)

@@ -16,7 +16,7 @@
 </div>
 
 <form method="GET" class="mb-3">
-    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan…"
+    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan / produk / SKU…"
            class="border rounded px-3 py-2 text-sm w-72">
 </form>
 
@@ -32,7 +32,7 @@
             <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 {{ $isVoid ? 'bg-gray-100 border-gray-200' : 'bg-red-50 border-red-100' }} rounded-t-xl border-b">
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-700">SO</span>
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">🛒 {{ $row['channel'] }}</span>
-                @php $copyNumber = str_contains($row['number'], '-') ? \Illuminate\Support\Str::after($row['number'], '-') : $row['number']; @endphp
+                @php $copyNumber = marketplace_copy_number($row['number'], true); @endphp
                 <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $row['number'] }}</span>
                 @if($isVoid)
                     <span class="px-2 py-0.5 rounded text-[10px] font-black bg-gray-200 text-gray-700">✗ DIBATALKAN (VOID)</span>

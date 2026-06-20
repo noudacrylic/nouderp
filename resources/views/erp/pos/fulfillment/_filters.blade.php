@@ -1,7 +1,7 @@
 {{-- Filter bar pemrosesan pesanan. Param: $couriers (Collection nama kurir). --}}
 <form method="GET" class="mb-3 flex items-center gap-2 flex-wrap">
-    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan…"
-           class="border rounded px-3 py-2 text-sm w-64">
+    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nomor / pelanggan / produk / SKU…"
+           class="border rounded px-3 py-2 text-sm w-72">
 
     <select name="channel" onchange="this.form.submit()" class="border rounded px-3 py-2 text-sm bg-white">
         <option value="">Semua Channel</option>

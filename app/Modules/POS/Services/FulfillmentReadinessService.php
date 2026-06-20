@@ -51,9 +51,18 @@ class FulfillmentReadinessService
 
         if ($search = trim((string) $search)) {
             $needle = mb_strtolower($search);
-            $rows = $rows->filter(fn ($r) =>
-                str_contains(mb_strtolower($r['number']), $needle) ||
-                str_contains(mb_strtolower($r['customer']), $needle));
+            $rows = $rows->filter(function ($r) use ($needle) {
+                if (str_contains(mb_strtolower((string) ($r['number'] ?? '')), $needle)) return true;
+                if (str_contains(mb_strtolower((string) ($r['customer'] ?? '')), $needle)) return true;
+                // Cocokkan juga nama produk / SKU pada baris pesanan (khusus SO; baris garansi/
+                // marketplace-pending tak punya rincian produk).
+                $lines = is_array($r['delivery'] ?? null) ? ($r['delivery']['lines'] ?? []) : [];
+                foreach ($lines as $ln) {
+                    if (str_contains(mb_strtolower((string) ($ln['name'] ?? '')), $needle)) return true;
+                    if (str_contains(mb_strtolower((string) ($ln['sku'] ?? '')), $needle)) return true;
+                }
+                return false;
+            });
         }
 
         // Terbaru di atas. order_date sering tanggal-saja (tanpa jam) → pesanan setanggal
@@ -110,7 +119,7 @@ class FulfillmentReadinessService
     public function pembatalanRows(?string $search = null): Collection
     {
         $links = $this->pembatalanQuery()
-            ->with(['salesOrder' => fn ($q) => $q->with('customer:id,name,phone')])
+            ->with(['salesOrder' => fn ($q) => $q->with(['customer:id,name,phone', 'items.product:id,name,sku'])])
             ->get();
 
         $rows = $links->map(function ($link) {
@@ -138,6 +147,10 @@ class FulfillmentReadinessService
                 'requested_at'   => $link->cancel_requested_at,
                 'invoice_posted' => (bool) $link->invoice_posted,
                 'sj_created'     => (bool) $link->sj_created,
+                // Teks produk (nama + SKU) untuk pencarian.
+                'product_search' => $so->items->map(fn ($si) =>
+                    trim(($si->description ?: ($si->product->name ?? '')) . ' ' . ($si->product->sku ?? '')))
+                    ->implode(' | '),
             ];
         })->filter();
 
@@ -146,7 +159,8 @@ class FulfillmentReadinessService
             $rows = $rows->filter(fn ($r) =>
                 str_contains(mb_strtolower($r['number']), $needle) ||
                 str_contains(mb_strtolower((string) $r['jubelio_no']), $needle) ||
-                str_contains(mb_strtolower($r['customer']), $needle));
+                str_contains(mb_strtolower($r['customer']), $needle) ||
+                str_contains(mb_strtolower((string) $r['product_search']), $needle));
         }
 
         // Terbaru di atas; tiebreaker id menurun untuk pesanan setanggal (lihat bucket()).
@@ -477,27 +491,41 @@ class FulfillmentReadinessService
         $lines = [];
         $anyShipped = false;
         $allFull = true;
+        $anyShippable = false;
         foreach ($so->items as $si) {
             $product = $si->product;
-            if ($product && in_array($product->sale_type ?? null, ['service', 'non_stock'], true)) {
-                continue; // jasa/non-stok tidak dikirim
-            }
+            // Jasa/non-stok tetap ditampilkan agar lengkap, tapi tidak dihitung
+            // sebagai barang yang harus dikirim (tak memengaruhi status pengiriman).
+            $isService = $product && in_array($product->sale_type ?? null, ['service', 'non_stock'], true);
             $expected = (float) $si->qty * (float) ($si->conversion_to_base ?? 1);
+            if ($isService) {
+                $lines[] = [
+                    'name'       => $si->description ?: ($product->name ?? '-'),
+                    'sku'        => $product->sku ?? null,
+                    'ordered'    => $expected,
+                    'shipped'    => 0.0,
+                    'remaining'  => 0.0,
+                    'is_service' => true,
+                ];
+                continue;
+            }
+            $anyShippable = true;
             $shipped  = (float) ($deliveredByItem[$si->id] ?? 0);
             $remaining = max(0, round($expected - $shipped, 4));
             if ($shipped > 0.0001) $anyShipped = true;
             if ($remaining > 0.0001) $allFull = false;
 
             $lines[] = [
-                'name'      => $si->description ?: ($product->name ?? '-'),
-                'sku'       => $product->sku ?? null,
-                'ordered'   => $expected,
-                'shipped'   => $shipped,
-                'remaining' => $remaining,
+                'name'       => $si->description ?: ($product->name ?? '-'),
+                'sku'        => $product->sku ?? null,
+                'ordered'    => $expected,
+                'shipped'    => $shipped,
+                'remaining'  => $remaining,
+                'is_service' => false,
             ];
         }
 
-        $status = empty($lines) ? 'terkirim' : (!$anyShipped ? 'belum' : ($allFull ? 'terkirim' : 'partial'));
+        $status = !$anyShippable ? 'terkirim' : (!$anyShipped ? 'belum' : ($allFull ? 'terkirim' : 'partial'));
 
         return ['status' => $status, 'lines' => $lines];
     }
