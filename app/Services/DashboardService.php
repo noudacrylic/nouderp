@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Core\Accounting\AccountBalanceService;
 use App\Core\Inventory\Product;
+use App\Core\Inventory\ProductStock;
 use App\Enums\AccountTypeEnum;
 use App\Models\CustomerPayment;
 use App\Models\SalesInvoice;
@@ -186,6 +187,65 @@ class DashboardService
                 'min'   => (float) $p->min_stock,
             ])->all(),
         ];
+    }
+
+    /**
+     * Jumlah produk per status stok — SELARAS dengan filter halaman Stok
+     * (App\Http\Controllers\Inventory\StockController), agar angka kartu cocok dengan
+     * yang muncul saat di-klik. Status dihitung dari stok fisik (Σ qty_on_hand semua
+     * gudang; bundle = min komponen). Produk preorder dikecualikan.
+     *
+     * @return array{menipis:int,habis:int,minus:int}
+     */
+    public function stockStatusCounts(): array
+    {
+        $products = Product::query()
+            ->where('is_active', 1)
+            ->with(['bundleItems', 'bundleComponents'])
+            ->get(['id', 'sale_type', 'min_stock']);
+
+        // Agregasi stok fisik sekali jalan untuk produk + komponen bundle (hindari N+1).
+        $componentIds = $products->flatMap(fn ($p) => $p->bundleItems->isNotEmpty()
+            ? $p->bundleItems->pluck('component_product_id')
+            : $p->bundleComponents->pluck('component_product_id'));
+        $allIds = $products->pluck('id')->merge($componentIds)->unique()->all();
+
+        $physical = ProductStock::whereIn('product_id', $allIds)
+            ->groupBy('product_id')
+            ->selectRaw('product_id, SUM(qty_on_hand) as total')
+            ->pluck('total', 'product_id');
+
+        $menipis = $habis = $minus = 0;
+        foreach ($products as $product) {
+            if ($product->sale_type === 'preorder') {
+                continue; // preorder tidak dinilai habis/menipis
+            }
+
+            if ($product->sale_type === 'bundle') {
+                $components = $product->bundleItems->isNotEmpty() ? $product->bundleItems : $product->bundleComponents;
+                $stokFisik = PHP_INT_MAX;
+                foreach ($components as $c) {
+                    $req = ($c->qty_required ?? $c->qty ?? 1);
+                    if ($req > 0) {
+                        $stokFisik = min($stokFisik, (int) floor(((float) ($physical[$c->component_product_id] ?? 0)) / $req));
+                    }
+                }
+                $stokFisik = $stokFisik === PHP_INT_MAX ? 0 : $stokFisik;
+            } else {
+                $stokFisik = (float) ($physical[$product->id] ?? 0);
+            }
+
+            $min = $product->min_stock;
+            if ($stokFisik < 0) {
+                $minus++;
+            } elseif ($stokFisik == 0) {
+                $habis++;
+            } elseif ($min !== null && $stokFisik <= (float) $min) {
+                $menipis++;
+            }
+        }
+
+        return ['menipis' => $menipis, 'habis' => $habis, 'minus' => $minus];
     }
 
     /** Aktivitas terbaru: gabungan faktur, SO, & pembayaran. */

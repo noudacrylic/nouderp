@@ -448,8 +448,13 @@ class CashDisbursementController extends Controller
         $cashAccounts = Account::whereIn('account_category', ['cash', 'cash_equivalent'])
             ->where('is_active', 1)->orderBy('code')->get();
 
-        $expenseAccounts = Account::where('type', 'expense')
-            ->where('is_active', 1)->orderBy('code')->get();
+        // Akun debit Pengeluaran Umum: beban + ekuitas (Prive/penarikan modal, dividen
+        // dari Laba Ditahan, dll). Ekuitas berbasis-debit seperti Prive valid di-debit
+        // saat kas keluar.
+        $expenseAccounts = Account::whereIn('type', ['expense', 'equity'])
+            ->where('is_active', 1)
+            ->orderByRaw("FIELD(type, 'expense', 'equity')")
+            ->orderBy('code')->get();
 
         // Customers dengan saldo overpay (sum dari customer_overpayments).
         // Untuk type=customer_refund: hanya tampilkan yang saldo > 0,

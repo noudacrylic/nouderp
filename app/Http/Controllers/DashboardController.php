@@ -2,16 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Modules\POS\Services\FulfillmentReadinessService;
 use App\Services\DashboardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
-    public function __construct(private DashboardService $svc) {}
+    public function __construct(
+        private DashboardService $svc,
+        private FulfillmentReadinessService $fulfillment,
+    ) {}
 
     public function index()
     {
+        // Kartu operasional teratas: perlu diproses (dari pemrosesan pesanan) + status stok.
+        $ops = $this->svc->stockStatusCounts()
+            + ['perlu_diproses' => $this->fulfillment->counts()['perlu_diproses']];
+
         return view('erp.dashboard', [
             'sales'      => $this->svc->salesSeries('monthly'),
             'pl'         => $this->svc->profitLoss(),
@@ -19,6 +27,7 @@ class DashboardController extends Controller
             'totalAsset' => $this->svc->totalAssets(),
             'lowStock'   => $this->svc->lowStock(),
             'activity'   => $this->svc->recentActivity(),
+            'ops'        => $ops,
         ]);
     }
 

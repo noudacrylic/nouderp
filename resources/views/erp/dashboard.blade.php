@@ -12,6 +12,28 @@
     </div>
 </div>
 
+{{-- ───────── 4 Kartu Operasional (klik → halaman terkait) ───────── --}}
+@php
+    $opsCards = [
+        ['label' => 'Perlu Diproses', 'count' => $ops['perlu_diproses'], 'url' => route('pos.fulfillment.perlu-diproses'),  'hint' => 'Pesanan menunggu diproses', 'num' => 'text-indigo-700', 'hover' => 'hover:border-indigo-300'],
+        ['label' => 'Stok Menipis',   'count' => $ops['menipis'],        'url' => route('inventory.stocks.index', ['status' => 'menipis']), 'hint' => 'Stok ≤ minimum',          'num' => 'text-amber-600',  'hover' => 'hover:border-amber-300'],
+        ['label' => 'Stok Habis',     'count' => $ops['habis'],          'url' => route('inventory.stocks.index', ['status' => 'habis']),   'hint' => 'Stok fisik nol',          'num' => 'text-red-600',    'hover' => 'hover:border-red-300'],
+        ['label' => 'Oversell',       'count' => $ops['minus'],          'url' => route('inventory.stocks.index', ['status' => 'minus']),   'hint' => 'Stok minus (terjual berlebih)', 'num' => 'text-rose-700', 'hover' => 'hover:border-rose-300'],
+    ];
+@endphp
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+    @foreach($opsCards as $c)
+        <a href="{{ $c['url'] }}" class="bg-white rounded-lg shadow border border-gray-200 p-4 transition hover:shadow-md {{ $c['hover'] }}">
+            <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-600">{{ $c['label'] }}</span>
+                <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </div>
+            <div class="text-3xl font-bold mt-2 {{ (int) $c['count'] > 0 ? $c['num'] : 'text-gray-300' }}">{{ $c['count'] }}</div>
+            <div class="text-[11px] text-gray-400 mt-1">{{ $c['hint'] }}</div>
+        </a>
+    @endforeach
+</div>
+
 {{-- ───────── Grafik Penjualan + 2 stat ───────── --}}
 <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-4">
     <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
