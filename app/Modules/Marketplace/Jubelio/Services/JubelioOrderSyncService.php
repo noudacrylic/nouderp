@@ -85,6 +85,26 @@ class JubelioOrderSyncService
             } while (count($rows) >= 50 && $page <= 40); // batas aman
         }
 
+        // Pass tambahan: order yang SUDAH kita proses (awb_requested) tapi belum diserahkan
+        // ke kurir tidak selalu muncul di daftar ready-to-process maupun completed, sehingga
+        // status Jubelio-nya tak ter-refresh. Tarik ulang detailnya agar last_status naik ke
+        // 'shipped' begitu pesanan benar-benar diserahkan ke jasa kirim → pindah ke "Dikirim".
+        $inFlight = JubelioOrderLink::query()
+            ->whereNotNull('jubelio_salesorder_id')
+            ->where('awb_requested', true)
+            ->where('invoice_posted', false)
+            ->whereNotIn('last_status', ['shipped', 'completed', 'canceled'])
+            ->pluck('jubelio_salesorder_id');
+        foreach ($inFlight as $jid) {
+            try {
+                $this->syncOrderById((int) $jid);
+                $stats['processed']++;
+            } catch (\Throwable $e) {
+                $stats['errors']++;
+                Log::error('Jubelio refresh in-flight error', ['salesorder_id' => $jid, 'error' => $e->getMessage()]);
+            }
+        }
+
         return $stats;
     }
 

@@ -257,20 +257,18 @@ class FulfillmentReadinessService
         // Bucket (urut, mutually exclusive)
         if ($link) {
             //  completed (invoice_posted)                  → Selesai
-            //  KITA proses (awb_requested): cetak resi     → Telah Diproses; resi dicetak + H+1 → Dikirim.
-            //     (status Jubelio menyala terlalu dini, jadi pesanan yang kita proses sendiri
-            //      pakai jejak cetak resi, bukan status Jubelio.)
-            //  diproses langsung di Jubelio:
-            //     last_status 'shipped' (benar-benar diserahkan ke kurir)  → Dikirim.
-            //     resi terbit tapi belum diserahkan ('processed' / sj_created) → Telah Diproses.
+            //  last_status 'shipped' (benar-benar diserahkan ke kurir per Jubelio) → Dikirim.
+            //     Berlaku baik untuk order yang kita proses sendiri (awb_requested) maupun
+            //     yang diproses langsung di Jubelio — pemicu Dikirim = serah ke jasa kirim,
+            //     bukan lagi heuristik H+1 cetak resi.
+            //  resi/AWB sudah ada tapi belum diserahkan (awb_requested / 'processed' /
+            //     sj_created) → Telah Diproses.
             //  sudah dibayar (DP)                          → Perlu Diproses.
             if ($link->invoice_posted) {
                 $bucket = 'selesai';
-            } elseif ($link->awb_requested) {
-                $bucket = $this->mpHandedOver($link) ? 'dikirim' : 'telah_diproses';
             } elseif ($link->last_status === 'shipped') {
                 $bucket = 'dikirim';
-            } elseif ($link->last_status === 'processed' || $link->sj_created) {
+            } elseif ($link->awb_requested || $link->last_status === 'processed' || $link->sj_created) {
                 $bucket = 'telah_diproses';
             } elseif ($link->dp_posted) {
                 $bucket = 'perlu_diproses';
@@ -459,16 +457,6 @@ class FulfillmentReadinessService
             $d->status === 'posted' && $d->delivery_method !== 'ambil_toko'
             && !\App\Models\ManualCourier::isManualCode($d->shipping_courier_code));
         return $ship->isNotEmpty() && $ship->every(fn ($d) => !empty($d->resi_printed_at));
-    }
-
-    /**
-     * Marketplace dianggap sudah diserahkan ke kurir → "Dikirim" mulai H+1 setelah resi
-     * DICETAK. Resi dicetak hari ini tetap di "Telah Diproses" (masih bisa cetak ulang /
-     * batal serah). Tidak memakai status "shipped" Jubelio karena menyala terlalu dini.
-     */
-    private function mpHandedOver(\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link): bool
-    {
-        return $link->resi_printed_at && $link->resi_printed_at->lt(now()->startOfDay());
     }
 
     /** Alamat ringkas customer untuk kartu (shipping_address diutamakan), + kota. */
