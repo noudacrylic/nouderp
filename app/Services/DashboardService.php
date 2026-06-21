@@ -161,48 +161,30 @@ class DashboardService
             ->all();
     }
 
-    /** Produk dengan stok <= minimum. */
-    public function lowStock(int $limit = 15): array
-    {
-        $items = Product::query()
-            ->whereNotNull('min_stock')
-            ->where('min_stock', '>', 0)
-            ->whereColumn('stock', '<=', 'min_stock')
-            ->where('is_active', 1)
-            ->orderBy('stock')
-            ->limit($limit)
-            ->get(['id', 'sku', 'name', 'stock', 'min_stock']);
-
-        $count = Product::query()
-            ->whereNotNull('min_stock')->where('min_stock', '>', 0)
-            ->whereColumn('stock', '<=', 'min_stock')->where('is_active', 1)
-            ->count();
-
-        return [
-            'count' => $count,
-            'items' => $items->map(fn ($p) => [
-                'sku'   => $p->sku,
-                'name'  => $p->name,
-                'stock' => (float) $p->stock,
-                'min'   => (float) $p->min_stock,
-            ])->all(),
-        ];
-    }
+    /** @var array<int,array{sku:string,name:string,stock:float,min:float,status:string}>|null */
+    private ?array $stockRows = null;
 
     /**
-     * Jumlah produk per status stok — SELARAS dengan filter halaman Stok
-     * (App\Http\Controllers\Inventory\StockController), agar angka kartu cocok dengan
-     * yang muncul saat di-klik. Status dihitung dari stok fisik (Σ qty_on_hand semua
-     * gudang; bundle = min komponen). Produk preorder dikecualikan.
+     * Klasifikasi status stok SEMUA produk aktif dari stok FISIK (Σ qty_on_hand semua
+     * gudang; bundle = min komponen) — SELARAS dengan halaman Stok
+     * (App\Http\Controllers\Inventory\StockController). Hanya baris non-'ok' yang
+     * dikembalikan. Produk preorder dikecualikan. Memoized per-request.
      *
-     * @return array{menipis:int,habis:int,minus:int}
+     * Catatan: kolom `products.stock` TIDAK dipakai karena tidak dipelihara (selalu 0
+     * di data nyata); sumber kebenaran stok = tabel product_stocks.
+     *
+     * @return array<int,array{sku:string,name:string,stock:float,min:float,status:string}>
      */
-    public function stockStatusCounts(): array
+    private function stockStatusRows(): array
     {
+        if ($this->stockRows !== null) {
+            return $this->stockRows;
+        }
+
         $products = Product::query()
             ->where('is_active', 1)
             ->with(['bundleItems', 'bundleComponents'])
-            ->get(['id', 'sale_type', 'min_stock']);
+            ->get(['id', 'sku', 'name', 'sale_type', 'min_stock']);
 
         // Agregasi stok fisik sekali jalan untuk produk + komponen bundle (hindari N+1).
         $componentIds = $products->flatMap(fn ($p) => $p->bundleItems->isNotEmpty()
@@ -215,7 +197,7 @@ class DashboardService
             ->selectRaw('product_id, SUM(qty_on_hand) as total')
             ->pluck('total', 'product_id');
 
-        $menipis = $habis = $minus = 0;
+        $rows = [];
         foreach ($products as $product) {
             if ($product->sale_type === 'preorder') {
                 continue; // preorder tidak dinilai habis/menipis
@@ -237,15 +219,56 @@ class DashboardService
 
             $min = $product->min_stock;
             if ($stokFisik < 0) {
-                $minus++;
+                $status = 'minus';
             } elseif ($stokFisik == 0) {
-                $habis++;
+                $status = 'habis';
             } elseif ($min !== null && $stokFisik <= (float) $min) {
-                $menipis++;
+                $status = 'menipis';
+            } else {
+                continue; // 'ok' — tak perlu disimpan
             }
+
+            $rows[] = [
+                'sku'    => $product->sku,
+                'name'   => $product->name,
+                'stock'  => (float) $stokFisik,
+                'min'    => (float) ($min ?? 0),
+                'status' => $status,
+            ];
         }
 
-        return ['menipis' => $menipis, 'habis' => $habis, 'minus' => $minus];
+        return $this->stockRows = $rows;
+    }
+
+    /** Produk berstatus "menipis" (0 < stok ≤ minimum) — untuk daftar rinci dashboard. */
+    public function lowStock(int $limit = 15): array
+    {
+        $menipis = array_values(array_filter(
+            $this->stockStatusRows(),
+            fn ($r) => $r['status'] === 'menipis',
+        ));
+
+        usort($menipis, fn ($a, $b) => $a['stock'] <=> $b['stock']); // paling tipis di atas
+
+        return [
+            'count' => count($menipis),
+            'items' => array_slice($menipis, 0, $limit),
+        ];
+    }
+
+    /**
+     * Jumlah produk per status stok — SELARAS dengan filter halaman Stok, agar angka
+     * kartu cocok dengan yang muncul saat di-klik.
+     *
+     * @return array{menipis:int,habis:int,minus:int}
+     */
+    public function stockStatusCounts(): array
+    {
+        $tally = ['menipis' => 0, 'habis' => 0, 'minus' => 0];
+        foreach ($this->stockStatusRows() as $r) {
+            $tally[$r['status']]++;
+        }
+        return $tally;
     }
 
     /** Aktivitas terbaru: gabungan faktur, SO, & pembayaran. */
