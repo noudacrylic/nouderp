@@ -165,6 +165,76 @@
     </div>
 </div>
 
+{{-- ───────── Proses Produksi per Divisi ───────── --}}
+<div class="bg-white rounded-lg shadow border border-gray-200 p-4 mt-4">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+            <h2 class="font-semibold text-gray-800">Proses Produksi per Divisi</h2>
+            <p class="text-xs text-gray-400">Pekerjaan yang sedang berjalan di tiap divisi produksi.</p>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Dikerjakan <b class="text-gray-700">{{ $production['totals']['dikerjakan'] }}</b></span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span>Pending <b class="text-gray-700">{{ $production['totals']['pending'] }}</b></span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-400"></span>Antre <b class="text-gray-700">{{ $production['totals']['antre'] }}</b></span>
+        </div>
+    </div>
+
+    @php
+        $jobBadge = [
+            'in_progress' => 'bg-emerald-100 text-emerald-700',
+            'paused'      => 'bg-amber-100 text-amber-700',
+            'pending'     => 'bg-slate-100 text-slate-600',
+        ];
+        $jobDot = [
+            'in_progress' => 'bg-emerald-500',
+            'paused'      => 'bg-amber-500',
+            'pending'     => 'bg-slate-400',
+        ];
+    @endphp
+
+    @if(count($production['divisions']) === 0)
+        <div class="text-gray-400 text-sm">Belum ada divisi produksi aktif.</div>
+    @else
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        @foreach($production['divisions'] as $d)
+            <div class="rounded-lg border {{ $d['total'] > 0 ? 'border-gray-200' : 'border-gray-100 bg-gray-50/50' }} p-3 flex flex-col">
+                <div class="flex items-center justify-between gap-2 mb-2">
+                    <a href="{{ route('production.process.index', ['department_id' => $d['id']]) }}" class="font-semibold text-gray-800 text-sm hover:text-indigo-600 truncate">{{ $d['name'] }}</a>
+                    <div class="flex items-center gap-1 shrink-0 text-[11px] font-semibold">
+                        @if($d['dikerjakan'] > 0)<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">{{ $d['dikerjakan'] }}</span>@endif
+                        @if($d['pending'] > 0)<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">{{ $d['pending'] }}</span>@endif
+                        @if($d['antre'] > 0)<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{{ $d['antre'] }}</span>@endif
+                    </div>
+                </div>
+
+                @if(count($d['jobs']) === 0)
+                    <div class="text-[11px] text-gray-400 py-2">Tidak ada pekerjaan.</div>
+                @else
+                <div class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                    @foreach($d['jobs'] as $j)
+                        <div class="flex items-start gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 {{ $jobDot[$j['status']] ?? 'bg-gray-300' }}"></span>
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-sm text-gray-700 truncate">{{ $j['product'] }}</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap {{ $jobBadge[$j['status']] ?? 'bg-gray-100 text-gray-500' }}">{{ $j['status_label'] }}</span>
+                                </div>
+                                <div class="text-[11px] text-gray-400 truncate">
+                                    <span class="font-mono">{{ $j['order_number'] }}</span>
+                                    @if($j['step']) · {{ $j['step'] }}@endif
+                                    @if($j['executors']) · {{ $j['executors'] }}@endif
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+                @endif
+            </div>
+        @endforeach
+    </div>
+    @endif
+</div>
+
 <script>
 (function () {
     const CHART_URL = @json(route('dashboard.chart'));

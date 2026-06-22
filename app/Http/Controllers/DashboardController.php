@@ -27,6 +27,7 @@ class DashboardController extends Controller
             'totalAsset' => $this->svc->totalAssets(),
             'lowStock'   => $this->svc->lowStock(),
             'activity'   => $this->svc->recentActivity(),
+            'production' => $this->svc->productionSummary(),
             'ops'        => $ops,
         ]);
     }

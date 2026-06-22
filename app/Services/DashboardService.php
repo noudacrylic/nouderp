@@ -8,6 +8,8 @@ use App\Core\Inventory\ProductStock;
 use App\Enums\AccountTypeEnum;
 use App\Models\CustomerPayment;
 use App\Models\SalesInvoice;
+use App\Modules\Production\Models\Department;
+use App\Modules\Production\Models\ProductionOrderStep;
 use App\Modules\Sales\Models\SalesOrder;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -298,6 +300,117 @@ class DashboardService
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * Ringkasan proses produksi per divisi: jumlah pekerjaan (langkah) yang sedang
+     * antre / dikerjakan / pending di tiap divisi produksi, plus daftar pekerjaannya.
+     *
+     * Selaras dengan halaman Proses Produksi: hanya langkah dari OP berstatus
+     * confirmed/in_progress, dan langkah 'pending' hanya dihitung bila langkah
+     * sebelumnya sudah selesai (giliran sudah tiba).
+     */
+    public function productionSummary(): array
+    {
+        $steps = ProductionOrderStep::query()
+            ->with([
+                'productionOrder:id,order_number,type,score_type,priority_level,bom_id,created_at',
+                'productionOrder.bom:id,score',
+                'productionOrder.outputs.product:id,name',
+                'productionOrder.steps:id,production_order_id,step_number,status',
+                'executors.karyawan:id,name',
+            ])
+            ->whereIn('status', ['pending', 'in_progress', 'paused'])
+            ->whereHas('productionOrder', fn ($q) => $q->whereIn('status', ['confirmed', 'in_progress']))
+            ->get()
+            ->filter(function ($s) {
+                if ($s->status !== 'pending') {
+                    return true;
+                }
+                $prev = optional($s->productionOrder)->steps
+                    ->firstWhere('step_number', $s->step_number - 1);
+                return $prev === null || $prev->status === 'completed';
+            });
+
+        $byDept = $steps->groupBy('department_id');
+
+        // Urutan tampil pekerjaan: yang sedang dikerjakan dulu, lalu pending, lalu antre.
+        $statusRank = ['in_progress' => 0, 'paused' => 1, 'pending' => 2];
+
+        // Pembanding urutan SELARAS halaman Proses Produksi:
+        //  • in_progress → mulai paling awal di atas (started_at asc)
+        //  • paused      → dipending paling awal di atas (paused_at asc)
+        //  • pending     → antrean prioritas: skor BOM tertinggi dulu, lalu order terlama
+        $compare = function ($a, $b) use ($statusRank) {
+            $ra = $statusRank[$a->status] ?? 9;
+            $rb = $statusRank[$b->status] ?? 9;
+            if ($ra !== $rb) {
+                return $ra <=> $rb;
+            }
+            if ($a->status === 'in_progress') {
+                return $a->started_at <=> $b->started_at;
+            }
+            if ($a->status === 'paused') {
+                return $a->paused_at <=> $b->paused_at;
+            }
+            // pending
+            $sa = (float) ($a->productionOrder->effective_score ?? 0);
+            $sb = (float) ($b->productionOrder->effective_score ?? 0);
+            if ($sa !== $sb) {
+                return $sb <=> $sa; // skor lebih tinggi di atas
+            }
+            return optional($a->productionOrder)->created_at <=> optional($b->productionOrder)->created_at;
+        };
+
+        $divisions = Department::produksi()->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(function ($dept) use ($byDept, $compare) {
+                $deptSteps = $byDept->get($dept->id, collect());
+
+                $antre      = $deptSteps->where('status', 'pending')->count();
+                $dikerjakan = $deptSteps->where('status', 'in_progress')->count();
+                $pending    = $deptSteps->where('status', 'paused')->count();
+
+                $jobs = $deptSteps
+                    ->sort($compare)
+                    ->map(function ($s) {
+                        $o = $s->productionOrder;
+                        $output = $o?->outputs->firstWhere('output_type', 'utama')
+                            ?? $o?->outputs->first();
+                        return [
+                            'order_number' => $o?->order_number ?? '-',
+                            'product'      => $output?->product?->name ?? ($o?->type === 'custom' ? 'Custom' : '-'),
+                            'step'         => $s->name,
+                            'status'       => $s->status,
+                            'status_label' => $s->status_label,
+                            'executors'    => $s->executors->map(fn ($e) => $e->display_name)->filter()->implode(', '),
+                        ];
+                    })
+                    ->values()
+                    ->all();
+
+                return [
+                    'id'         => $dept->id,
+                    'name'       => $dept->name,
+                    'antre'      => $antre,
+                    'dikerjakan' => $dikerjakan,
+                    'pending'    => $pending,
+                    'total'      => $deptSteps->count(),
+                    'jobs'       => $jobs,
+                ];
+            })
+            ->values()
+            ->all();
+
+        return [
+            'divisions' => $divisions,
+            'totals'    => [
+                'antre'      => $steps->where('status', 'pending')->count(),
+                'dikerjakan' => $steps->where('status', 'in_progress')->count(),
+                'pending'    => $steps->where('status', 'paused')->count(),
+            ],
+        ];
     }
 
     private function isHpp(object $row): bool
