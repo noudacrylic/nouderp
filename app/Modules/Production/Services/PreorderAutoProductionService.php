@@ -86,15 +86,19 @@ class PreorderAutoProductionService
             return array_merge($base, ['reason' => "BOM {$bom->bom_number} tidak valid untuk preorder (qty per siklus harus = 1)."]);
         }
 
-        // Idempotent: kalau OP auto-preorder untuk SO + produk ini sudah ada, jangan dobel.
-        // (Trigger dari DP bisa terjadi >1 kali — DP pertama, DP kedua, dst.)
+        // Idempotent: jangan buat OP dobel kalau SUDAH ADA order produksi (non-cancelled) yang
+        // menghasilkan produk ini untuk SO yang sama — TERMASUK OP yang dibuat manual oleh tim.
+        // Dulu cek ini hanya menyaring created_via='auto_preorder', sehingga bila tim membuat OP
+        // custom manual lebih dulu (sering langsung difinalisasi) lalu DP diposting, auto-produksi
+        // tetap membuat OP kedua yang nyangkut di 'confirmed' → SO terjebak di "Belum Siap"
+        // (bucketing fulfillment butuh SEMUA OP finalized). (Trigger dari DP juga bisa >1 kali.)
         $alreadyExists = ProductionOrder::where('sales_order_id', $so->id)
-            ->where('created_via', 'auto_preorder')
+            ->where('status', '!=', 'cancelled')
             ->whereHas('outputs', fn($q) => $q->where('output_type', 'main')
                                               ->where('product_id', $product->id))
             ->exists();
         if ($alreadyExists) {
-            return array_merge($base, ['reason' => 'Order produksi auto sudah ada untuk produk ini, dilewati.']);
+            return array_merge($base, ['reason' => 'Order produksi untuk produk ini sudah ada, dilewati.']);
         }
 
         $cycles = (int) max(1, (int) ($item->qty * ($item->conversion_to_base ?? 1)));
