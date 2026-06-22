@@ -337,7 +337,9 @@ class PaymentController extends Controller
             ->map(function ($inv) {
                 $grandTotal = (float) $inv->grand_total;
                 $advance    = (float) ($inv->advance_applied ?? 0);
-                $paid       = (float) CustomerPaymentAllocation::where('invoice_id', $inv->id)->sum('amount');
+                $paid       = (float) CustomerPaymentAllocation::where('invoice_id', $inv->id)
+                    ->whereHas('payment', fn($q) => $q->where('status', '!=', 'void'))
+                    ->sum('amount');
                 $remaining  = round($grandTotal - $advance - $paid, 2);
 
                 if ($remaining <= 0) return null;
@@ -365,7 +367,9 @@ class PaymentController extends Controller
             ->where('status', 'open')
             ->get()
             ->map(function ($billing) {
-                $paid      = (float) CustomerPaymentAllocation::where('billing_id', $billing->id)->sum('amount');
+                $paid      = (float) CustomerPaymentAllocation::where('billing_id', $billing->id)
+                    ->whereHas('payment', fn($q) => $q->where('status', '!=', 'void'))
+                    ->sum('amount');
                 $remaining = round((float) $billing->total_amount - $paid, 2);
                 if ($remaining <= 0) return null;
 
@@ -387,7 +391,9 @@ class PaymentController extends Controller
             ->get()
             ->map(function ($so) {
                 $grandTotal = (float) $so->grand_total;
-                $paid       = (float) CustomerPaymentAllocation::where('sales_order_id', $so->id)->sum('amount');
+                $paid       = (float) CustomerPaymentAllocation::where('sales_order_id', $so->id)
+                    ->whereHas('payment', fn($q) => $q->where('status', '!=', 'void'))
+                    ->sum('amount');
                 $remaining  = round($grandTotal - $paid, 2);
 
                 if ($remaining <= 0) return null;
