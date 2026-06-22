@@ -38,6 +38,24 @@ class PurchaseInvoicePostingService
         };
     }
 
+    /**
+     * Faktor konversi satuan beli item → satuan dasar produk.
+     * PurchaseInvoiceItem hanya menyimpan nama satuan (string), jadi faktor
+     * dilihat dari product_units (unit_name = item->unit). Default 1 bila
+     * satuan kosong / sama dengan satuan dasar / tidak terdaftar.
+     */
+    protected function conversionToBase($item): float
+    {
+        if (empty($item->unit)) {
+            return 1.0;
+        }
+        $conv = \App\Core\Inventory\ProductUnit::where('product_id', $item->product_id)
+            ->where('unit_name', $item->unit)
+            ->value('conversion_to_base');
+
+        return $conv && (float) $conv > 0 ? (float) $conv : 1.0;
+    }
+
     public function post(PurchaseInvoice $invoice): PurchaseInvoice
     {
         if ($invoice->status === 'posted') {
@@ -92,13 +110,20 @@ class PurchaseInvoicePostingService
             }
 
             // 1. STOCK IN via FIFO — hanya untuk item berstok (bukan asset).
+            // Stok & FIFO selalu dalam satuan dasar. Item invoice bisa dibeli dalam
+            // satuan beli (mis. Lusin) — konversi qty × faktor ke satuan dasar dan
+            // bagi unit cost dengan faktor yang sama agar nilai total layer tetap
+            // (qty_beli × cost_beli = qty_dasar × cost_dasar).
             $engine = app(InventoryEngine::class);
             foreach ($stockItems as $item) {
+                $conv     = $this->conversionToBase($item);
+                $baseQty  = (float) $item->qty * $conv;
+                $baseCost = $conv > 0 ? (float) $item->final_unit_cost / $conv : (float) $item->final_unit_cost;
                 $engine->purchase(
                     $item->product_id,
                     $invoice->warehouse_id,
-                    (float) $item->qty,
-                    (float) $item->final_unit_cost,
+                    $baseQty,
+                    $baseCost,
                     $invoice->invoice_number,
                     $invoice->id
                 );

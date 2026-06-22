@@ -277,11 +277,17 @@ class PurchaseReturnService
 
         // 1. Stock OUT + repricing layer
         foreach ($return->items as $item) {
+            // qty retur disimpan dalam satuan beli → konversi ke satuan dasar untuk
+            // menyentuh layer/ledger. Refund value (subtotal) sudah dalam rupiah, tetap.
+            $invItem = PurchaseInvoiceItem::find($item->purchase_invoice_item_id);
+            $conv    = $this->conversionToBase($item->product_id, $invItem?->unit);
+            $baseQty = (float) $item->qty * $conv;
+
             $invCreditLayer = $this->consumeInvoiceLayer(
                 $invoice->id,
                 $item->product_id,
                 $return->warehouse_id,
-                (float) $item->qty,
+                $baseQty,
                 (float) $item->subtotal,   // refund value yang akan dikurangi dari layer
                 $return->id
             );
@@ -293,15 +299,14 @@ class PurchaseReturnService
                 $item->product_id,
                 $return->warehouse_id,
                 0,
-                (float) $item->qty,
+                $baseQty,
                 'purchase_return',
                 $return->return_number,
                 null,
                 $return->id
             );
 
-            // qty_returned di invoice item
-            $invItem = PurchaseInvoiceItem::find($item->purchase_invoice_item_id);
+            // qty_returned di invoice item (tetap dalam satuan beli, konsisten validasi)
             if ($invItem) {
                 $invItem->qty_returned = (float) $invItem->qty_returned + (float) $item->qty;
                 $invItem->save();
@@ -427,6 +432,24 @@ class PurchaseReturnService
      *   - kalau qty_remaining baru = 0: layer dihabiskan, sisa_total
      *     residual masuk loss
      */
+    /**
+     * Faktor konversi satuan beli → satuan dasar produk (mis. Lusin → 12 pcs).
+     * Stok & FIFO selalu dalam satuan dasar, jadi qty retur (yang disimpan dalam
+     * satuan beli, konsisten dengan invoice item) harus dikalikan faktor ini saat
+     * menyentuh layer/ledger. Default 1 bila satuan kosong / tidak terdaftar.
+     */
+    protected function conversionToBase(int $productId, ?string $unit): float
+    {
+        if (empty($unit)) {
+            return 1.0;
+        }
+        $conv = \App\Core\Inventory\ProductUnit::where('product_id', $productId)
+            ->where('unit_name', $unit)
+            ->value('conversion_to_base');
+
+        return $conv && (float) $conv > 0 ? (float) $conv : 1.0;
+    }
+
     protected function consumeInvoiceLayer(int $invoiceId, int $productId, ?int $warehouseId, float $qtyReturn, float $refundValue, int $returnId): float
     {
         $layer = StockLayer::where('product_id', $productId)
@@ -510,6 +533,12 @@ class PurchaseReturnService
         $engine = app(InventoryEngine::class);
 
         foreach ($return->items as $item) {
+            // qty/cost retur dalam satuan beli → konversi ke satuan dasar untuk layer/ledger.
+            $invItem  = PurchaseInvoiceItem::find($item->purchase_invoice_item_id);
+            $conv     = $this->conversionToBase($item->product_id, $invItem?->unit);
+            $baseQty  = (float) $item->qty * $conv;
+            $baseCost = $conv > 0 ? (float) $item->unit_cost / $conv : (float) $item->unit_cost;
+
             // Rollback ke layer purchase asli (bukan bikin layer baru) — supaya retur
             // berikutnya untuk invoice yang sama bisa menemukan FIFO layer-nya.
             // Karena retur sekarang konsumsi layer persis sebesar HPP, restore juga
@@ -524,10 +553,10 @@ class PurchaseReturnService
             if ($layer) {
                 $oldQty   = (float) $layer->qty_remaining;
                 $oldTotal = round($oldQty * (float) $layer->unit_cost, 2);
-                $newQty   = round($oldQty + (float) $item->qty, 4);
+                $newQty   = round($oldQty + $baseQty, 4);
                 $newTotal = round($oldTotal + (float) $item->subtotal, 2);
                 $layer->qty_remaining = $newQty;
-                $layer->unit_cost     = $newQty > 0 ? round($newTotal / $newQty, 4) : (float) $item->unit_cost;
+                $layer->unit_cost     = $newQty > 0 ? round($newTotal / $newQty, 4) : $baseCost;
                 $layer->save();
             } else {
                 // Fallback: layer asli tidak ada lagi — recreate sebagai source_type=purchase
@@ -535,9 +564,9 @@ class PurchaseReturnService
                 StockLayer::create([
                     'product_id'    => $item->product_id,
                     'warehouse_id'  => $return->warehouse_id,
-                    'qty_in'        => $item->qty,
-                    'qty_remaining' => $item->qty,
-                    'unit_cost'     => $item->unit_cost,
+                    'qty_in'        => $baseQty,
+                    'qty_remaining' => $baseQty,
+                    'unit_cost'     => $baseCost,
                     'source_type'   => 'purchase',
                     'source_id'     => $invoice->id,
                 ]);
@@ -546,14 +575,13 @@ class PurchaseReturnService
             $engine->ledger(
                 $item->product_id,
                 $return->warehouse_id,
-                (float) $item->qty,
+                $baseQty,
                 0,
                 'purchase_return_void',
                 $return->return_number,
                 null,
                 $return->id
             );
-            $invItem = PurchaseInvoiceItem::find($item->purchase_invoice_item_id);
             if ($invItem) {
                 $invItem->qty_returned = max(0, (float) $invItem->qty_returned - (float) $item->qty);
                 $invItem->save();
