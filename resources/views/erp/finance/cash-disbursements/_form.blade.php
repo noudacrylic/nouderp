@@ -202,6 +202,8 @@
         <textarea name="notes" rows="2" class="border rounded px-2 py-1.5 w-full">{{ $defaults['notes'] }}</textarea>
     </div>
 
+    <div id="freightSubmitError" class="hidden bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded text-sm"></div>
+
     <div class="flex justify-between border-t pt-3">
         <a href="{{ route(\App\Modules\Finance\Models\CashDisbursement::listRouteForType($type ?? 'general')) }}" class="text-gray-500 text-sm">← Kembali</a>
         <div class="flex gap-2">
@@ -570,6 +572,46 @@ freightImportFile.addEventListener('change', async (e) => {
         freightImportFile.value = '';  // reset agar bisa upload file yang sama lagi
     }
 });
+
+// ============================================================
+// FREIGHT submit guard
+// Aturan: sebuah faktur HANYA ikut tersimpan kalau "Bayar Aktual"-nya
+// terisi (> 0). Baris yang kosong dilewati (boleh kosong, tidak memblokir),
+// jadi satu pengeluaran cukup mencatat faktur yang dibayar pakai 1 sumber
+// kas; faktur lain yang belum dibayar akan muncul lagi di create berikutnya.
+// Minimal 1 baris harus terisi.
+// ============================================================
+const cdForm = freightBody.closest('form');
+const freightSubmitError = document.getElementById('freightSubmitError');
+if (cdForm) {
+    cdForm.addEventListener('submit', (e) => {
+        if (typeEl.value !== 'freight') return;  // tipe lain pakai validasinya sendiri
+
+        // Inklusi murni berdasar Bayar Aktual terisi — lepas dari status centang.
+        freightBody.querySelectorAll('tr').forEach(tr => {
+            const check = tr.querySelector('.freight-check');
+            const amtEl = tr.querySelector('.freight-amount');
+            if (!check || !amtEl) return;
+            check.checked = (window.cleanNumber(amtEl.value) || 0) > 0;
+            updateFreightRowState(tr);
+        });
+        recalcFreight();  // reindex nama lines[] untuk baris terpilih
+
+        const filled = freightBody.querySelectorAll('.freight-check:checked').length;
+        if (filled === 0) {
+            e.preventDefault();
+            if (freightSubmitError) {
+                freightSubmitError.textContent = 'Isi minimal 1 "Bayar Aktual" untuk faktur yang ingin dibayar. Faktur yang dikosongi akan dilewati dan muncul lagi nanti.';
+                freightSubmitError.classList.remove('hidden');
+                freightSubmitError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                alert('Isi minimal 1 Bayar Aktual untuk faktur yang ingin dibayar.');
+            }
+        } else if (freightSubmitError) {
+            freightSubmitError.classList.add('hidden');
+        }
+    });
+}
 
 // ============================================================
 // Layout toggling & init
