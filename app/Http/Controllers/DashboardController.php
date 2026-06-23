@@ -16,25 +16,39 @@ class DashboardController extends Controller
 
     public function index()
     {
+        $isAdmin = $this->isAdmin();
+
         // Kartu operasional teratas: perlu diproses (dari pemrosesan pesanan) + status stok.
         $ops = $this->svc->stockStatusCounts()
             + ['perlu_diproses' => $this->fulfillment->counts()['perlu_diproses']];
 
-        return view('erp.dashboard', [
-            'sales'      => $this->svc->salesSeries('monthly'),
-            'pl'         => $this->svc->profitLoss(),
-            'expenses'   => $this->svc->expenses(),
-            'totalAsset' => $this->svc->totalAssets(),
+        // Bagian operasional — terlihat untuk semua role (termasuk 'user').
+        $data = [
+            'isAdmin'    => $isAdmin,
             'lowStock'   => $this->svc->lowStock(),
-            'activity'   => $this->svc->recentActivity(),
             'production' => $this->svc->productionSummary(),
             'ops'        => $ops,
-        ]);
+        ];
+
+        // Bagian sensitif (keuangan & penjualan) — hanya super_admin & admin.
+        if ($isAdmin) {
+            $data += [
+                'sales'      => $this->svc->salesSeries('monthly'),
+                'pl'         => $this->svc->profitLoss(),
+                'expenses'   => $this->svc->expenses(),
+                'totalAsset' => $this->svc->totalAssets(),
+                'activity'   => $this->svc->recentActivity(),
+            ];
+        }
+
+        return view('erp.dashboard', $data);
     }
 
-    /** Data grafik + top produk untuk rentang terpilih (AJAX). */
+    /** Data grafik + top produk untuk rentang terpilih (AJAX). Khusus admin (data penjualan sensitif). */
     public function chartData(Request $request): JsonResponse
     {
+        abort_unless($this->isAdmin(), 403);
+
         $period = $request->query('period', 'monthly');
         if (!in_array($period, ['weekly', 'monthly', 'yearly', 'custom'], true)) {
             $period = 'monthly';
@@ -44,5 +58,12 @@ class DashboardController extends Controller
             $request->query('start'),
             $request->query('end'),
         ));
+    }
+
+    /** Hanya super_admin & admin yang boleh lihat ringkasan keuangan/penjualan. */
+    private function isAdmin(): bool
+    {
+        $u = auth()->user();
+        return $u && in_array($u->role, ['super_admin', 'admin'], true);
     }
 }

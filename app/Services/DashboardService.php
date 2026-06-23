@@ -231,6 +231,7 @@ class DashboardService
             }
 
             $rows[] = [
+                'id'     => $product->id,
                 'sku'    => $product->sku,
                 'name'   => $product->name,
                 'stock'  => (float) $stokFisik,
@@ -250,7 +251,34 @@ class DashboardService
             fn ($r) => $r['status'] === 'menipis',
         ));
 
-        usort($menipis, fn ($a, $b) => $a['stock'] <=> $b['stock']); // paling tipis di atas
+        // Waktu stok terakhir berkurang (qty_out > 0) per produk — penanda kapan
+        // produk "baru saja" jadi menipis, untuk urutan terbaru + badge "Baru".
+        // Sumber: inventory_ledgers (ledger pergerakan stok aktif aplikasi).
+        $lastOut = [];
+        if ($menipis) {
+            $lastOut = DB::table('inventory_ledgers')
+                ->select('product_id', DB::raw('MAX(created_at) as last_out'))
+                ->whereIn('product_id', array_column($menipis, 'id'))
+                ->where('qty_out', '>', 0)
+                ->groupBy('product_id')
+                ->pluck('last_out', 'product_id')
+                ->all();
+        }
+
+        $newThreshold = Carbon::now()->subHour();
+        foreach ($menipis as &$r) {
+            $ts = $lastOut[$r['id']] ?? null;
+            $r['last_out_at'] = $ts;
+            $r['is_new'] = $ts !== null && Carbon::parse($ts)->greaterThanOrEqualTo($newThreshold);
+        }
+        unset($r);
+
+        // Urut: pergerakan stok terbaru di atas (null paling bawah), tiebreak stok paling tipis.
+        usort($menipis, function ($a, $b) {
+            $ta = $a['last_out_at'] ? strtotime($a['last_out_at']) : 0;
+            $tb = $b['last_out_at'] ? strtotime($b['last_out_at']) : 0;
+            return $tb <=> $ta ?: ($a['stock'] <=> $b['stock']);
+        });
 
         return [
             'count' => count($menipis),

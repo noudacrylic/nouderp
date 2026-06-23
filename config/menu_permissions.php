@@ -28,8 +28,10 @@ return [
     'dashboard' => [
         'label' => 'Dashboard',
         'icon' => '🏠',
-        // Ringkasan data sensitif → hanya super_admin & admin (bukan untuk karyawan/user).
-        'role_gate' => ['super_admin', 'admin'],
+        // Semua user yang login boleh buka Dashboard. Bagian sensitif (keuangan/penjualan)
+        // hanya dirender untuk super_admin & admin; role 'user' hanya lihat kartu operasional,
+        // Stok Menipis, & Proses Produksi per Divisi (lihat erp/dashboard.blade.php $isAdmin).
+        'always_visible' => true,
         'url' => '/erp/dashboard',
         'route_patterns' => ['dashboard', 'dashboard.*'],
     ],

@@ -34,6 +34,9 @@
     @endforeach
 </div>
 
+{{-- Bagian keuangan & penjualan hanya untuk super_admin & admin. Role 'user' hanya lihat
+     kartu operasional, Stok Menipis, & Proses Produksi per Divisi. --}}
+@if($isAdmin)
 {{-- ───────── Grafik Penjualan + 2 stat ───────── --}}
 <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-4">
     <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
@@ -114,9 +117,11 @@
         <a href="{{ route('accounting.reports.balance-sheet') }}" class="text-xs text-blue-600 hover:underline mt-2">Lihat Neraca →</a>
     </div>
 </div>
+@endif
 
 {{-- ───────── Baris 2: Top Produk · Aktivitas · Stok Menipis ───────── --}}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    @if($isAdmin)
     {{-- Penjualan Top Produk --}}
     <div class="bg-white rounded-lg shadow border border-gray-200 p-4">
         <h2 class="font-semibold text-gray-800 mb-3">Penjualan Top Produk</h2>
@@ -140,9 +145,10 @@
             @endforelse
         </div>
     </div>
+    @endif
 
-    {{-- Stok Menipis --}}
-    <div class="bg-white rounded-lg shadow border border-gray-200 p-4">
+    {{-- Stok Menipis (role 'user' → kartu ini melebar penuh karena 2 kartu lain disembunyikan) --}}
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-4 {{ $isAdmin ? '' : 'lg:col-span-3' }}">
         <div class="flex items-center justify-between mb-3">
             <h2 class="font-semibold text-gray-800">Stok Menipis</h2>
             <span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">{{ $lowStock['count'] }}</span>
@@ -153,6 +159,9 @@
                     <div class="min-w-0">
                         <span class="font-mono text-[11px] text-gray-400">{{ $p['sku'] }}</span>
                         <span class="text-gray-700">{{ $p['name'] }}</span>
+                        @if(!empty($p['is_new']))
+                            <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 align-middle">Baru</span>
+                        @endif
                     </div>
                     <span class="text-xs font-semibold whitespace-nowrap {{ $p['stock'] <= 0 ? 'text-red-600' : 'text-amber-600' }}">
                         {{ rtrim(rtrim(number_format($p['stock'], 2, '.', ''), '0'), '.') }} / {{ rtrim(rtrim(number_format($p['min'], 2, '.', ''), '0'), '.') }}
@@ -235,6 +244,7 @@
     @endif
 </div>
 
+@if($isAdmin)
 <script>
 (function () {
     const CHART_URL = @json(route('dashboard.chart'));
@@ -337,4 +347,5 @@
     apply(@json($sales));
 })();
 </script>
+@endif
 @endsection
