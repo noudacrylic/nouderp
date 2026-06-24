@@ -120,12 +120,20 @@ class JubelioStockSyncService
             return 'skipped_unmatched';
         }
 
-        // Bundle tidak punya stok ledger sendiri — stok tersedianya dihitung dari komponen
-        // (min floor(stok_komponen − reservasi / qty_per_bundle)), pakai BundleService yang
-        // sama dgn POS & halaman Stok. Tanpa ini, availableStock() bundle = 0 → Jubelio salah.
+        // Dorong STOK FISIK (on-hand) ke Jubelio — BUKAN stok tersedia. Tiap sistem mengelola
+        // reservasi pesanannya sendiri: reservasi ERP berasal dari pesanan marketplace yang
+        // JUGA direservasi oleh Jubelio. Mendorong angka fisik mencegah pengurangan ganda
+        // (double-count → "stok tersedia" Jubelio bisa minus) tanpa risiko oversell.
+        // Bundle: stok fisik dari ON-HAND komponen murni (param physical=true, tanpa reservasi).
         $available = $product->sale_type === 'bundle'
-            ? (float) $this->bundles->getBundleStock($product->id)
-            : round($this->inventory->availableStock($product->id), 4);
+            ? (float) $this->bundles->getBundleStock($product->id, null, true)
+            : round($this->inventory->onHand($product->id), 4);
+
+        // Produk preorder: tambah buffer kuota preorder (products.preorder_stock) agar bisa
+        // dijual melampaui stok fisik. Tanpa ini, preorder yang fisiknya 0 tampak habis.
+        if ($product->sale_type === 'preorder') {
+            $available += (float) ($product->preorder_stock ?? 0);
+        }
 
         // Baseline untuk hitung delta.
         $baseline = $product->jubelio_synced_qty !== null ? (float) $product->jubelio_synced_qty : null;
@@ -173,7 +181,7 @@ class JubelioStockSyncService
         JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::OK, $product->name, [
             'reference'  => $product->sku,
             'product_id' => $product->id,
-            'message'    => ($reconcile ? 'Rekonsiliasi' : 'Push') . ' stok: ' . ($delta > 0 ? '+' : '') . rtrim(rtrim(number_format($delta, 4, '.', ''), '0'), '.') . ' → tersedia ' . rtrim(rtrim(number_format($available, 4, '.', ''), '0'), '.'),
+            'message'    => ($reconcile ? 'Rekonsiliasi' : 'Push') . ' stok: ' . ($delta > 0 ? '+' : '') . rtrim(rtrim(number_format($delta, 4, '.', ''), '0'), '.') . ' → fisik ' . rtrim(rtrim(number_format($available, 4, '.', ''), '0'), '.'),
             'meta'       => ['delta' => $delta, 'available' => $available, 'mode' => $reconcile ? 'reconcile' : 'push'],
         ]);
         return 'pushed';

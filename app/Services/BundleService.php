@@ -16,8 +16,11 @@ class BundleService
      *
      * Rumus: floor( (stok_komponen - reserved_komponen) / qty_per_bundle )
      *        ambil yang terkecil dari semua komponen.
+     *
+     * @param bool $physical true = pakai ON-HAND komponen murni (tanpa kurangi reservasi);
+     *                       dipakai saat mendorong STOK FISIK bundle ke Jubelio.
      */
-    public function getBundleStock(int $bundleId, ?int $warehouseId = null): int
+    public function getBundleStock(int $bundleId, ?int $warehouseId = null, bool $physical = false): int
     {
         // 1. Prioritaskan tabel bundle_components (model BundleComponent, field qty)
         $components = BundleComponent::where('bundle_product_id', $bundleId)->get();
@@ -49,7 +52,7 @@ class BundleService
             }
             $reservedQty = $reservedQuery->sum('qty');
 
-            $availableComponent = max(0, $stockQty - $reservedQty);
+            $availableComponent = max(0, $stockQty - ($physical ? 0 : $reservedQty));
             $qtyRequired = $component->{$qtyField} ?? 1;
 
             if ($qtyRequired <= 0) {

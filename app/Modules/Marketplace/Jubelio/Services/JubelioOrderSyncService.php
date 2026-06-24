@@ -36,6 +36,15 @@ use Illuminate\Support\Facades\Log;
  */
 class JubelioOrderSyncService
 {
+    /**
+     * Cutoff auto-faktur Jubelio. Order yang dikirim langsung oleh channel (tanpa lewat
+     * tombol "Proses Pesanan"/WMS) tidak punya Faktur Jubelio → Jubelio menahan reservasi
+     * sehingga "stok tersedia"-nya minus. Sejak tanggal ini, cron membuatkan Faktur Jubelio
+     * otomatis saat order selesai. Order LAMA (backlog) yang masuk sebelum tanggal ini
+     * SENGAJA dilewati — fakturnya dibuat manual oleh user.
+     */
+    private const JUBELIO_INVOICE_AUTOCREATE_SINCE = '2026-06-24 12:50:00';
+
     public function __construct(
         protected JubelioClient $client,
         protected SalesOrderService $orderService,
@@ -247,6 +256,41 @@ class JubelioOrderSyncService
                 $link->invoice_posted     = $locked->invoice_posted;
                 $link->jubelio_invoice_id = $locked->jubelio_invoice_id;
             });
+        }
+
+        // TAHAP D — Faktur Jubelio. Order yang dikirim langsung oleh channel tidak melewati
+        // tombol "Proses Pesanan" (WMS), sehingga Faktur Jubelio tak pernah terbit & Jubelio
+        // menahan reservasi-hantu (stok tersedia minus). Begitu order selesai & Faktur ERP
+        // diposting, buat juga Faktur Jubelio. IDEMPOTEN: SO yang sudah difaktur balas id yang
+        // sama (tak dobel). DIBATASI cutoff: hanya order yang masuk sejak tanggal cutoff —
+        // backlog lama dibuat manual oleh user (lihat JUBELIO_INVOICE_AUTOCREATE_SINCE).
+        if ($link->sales_order_id
+            && $link->invoice_posted
+            && !$link->j_invoice_done
+            && $link->created_at
+            && $link->created_at->gte(self::JUBELIO_INVOICE_AUTOCREATE_SINCE)
+        ) {
+            $resp = $this->client->postCreateInvoice((int) $link->jubelio_salesorder_id);
+            if ($resp['success']) {
+                $invId = (int) (data_get($resp, 'data.id') ?: 0);
+                $link->forceFill([
+                    'j_invoice_done' => true,
+                    'j_invoice_id'   => $invId ?: $link->j_invoice_id,
+                ])->save();
+                JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+                    'reference'             => $link->jubelio_salesorder_no,
+                    'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                    'message'               => 'Faktur Jubelio dibuat otomatis (id ' . ($invId ?: '?') . ').',
+                    'meta'                  => ['j_invoice_id' => $invId],
+                ]);
+            } else {
+                Log::warning('Jubelio auto-faktur gagal', ['link' => $link->id, 'so' => $link->jubelio_salesorder_id, 'error' => $resp['error'] ?? null]);
+                JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::FAIL, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+                    'reference'             => $link->jubelio_salesorder_no,
+                    'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                    'message'               => 'Gagal membuat Faktur Jubelio otomatis: ' . ($resp['error'] ?? 'unknown') . '. Akan dicoba lagi run berikutnya.',
+                ]);
+            }
         }
 
         $link->last_status = $this->statusLabel($detail);
