@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Core\Inventory\Product;
 use App\Core\Inventory\ProductStock;
 use App\Core\Inventory\StockReservation;
+use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class StockController extends Controller
 {
@@ -175,6 +178,72 @@ class StockController extends Controller
         }
 
         return view('erp.inventory.stocks.index', compact('stocks'));
+    }
+
+    /**
+     * Daftar SO yang me-reserve (Dipesan) produk ini — untuk popup saat angka
+     * "Dipesan" di halaman Stok diklik. Sumber = StockReservation aktif.
+     */
+    public function orders(int $productId)
+    {
+        $rows = StockReservation::where('product_id', $productId)
+            ->where('status', 'active')
+            ->where('qty', '>', 0)
+            ->get();
+
+        $orders = SalesOrder::with('customer')
+            ->whereIn('id', $rows->pluck('sales_order_id')->filter()->unique())
+            ->get()
+            ->keyBy('id');
+
+        $items = $rows->map(function ($r) use ($orders) {
+            $so = $orders[$r->sales_order_id] ?? null;
+            return [
+                'number'   => $so->order_number ?? '—',
+                'customer' => $so?->customer?->name ?? '—',
+                'date'     => $so?->order_date ? Carbon::parse($so->order_date)->format('d/m/Y') : '—',
+                'qty'      => format_qty($r->qty),
+                'url'      => $so ? route('sales.orders.show', $so->id) : null,
+            ];
+        })->values();
+
+        return response()->json(['items' => $items]);
+    }
+
+    /**
+     * Daftar Surat Jalan yang sudah mengirim (Dikirim) produk ini tapi belum
+     * difaktur — selaras dengan kolom "Dikirim" (posted, invoice_id NULL).
+     */
+    public function shipments(int $productId)
+    {
+        $rows = DB::table('sales_delivery_items')
+            ->join('sales_deliveries', 'sales_deliveries.id', '=', 'sales_delivery_items.sales_delivery_id')
+            ->leftJoin('sales_orders', 'sales_orders.id', '=', 'sales_deliveries.sales_order_id')
+            ->leftJoin('customers', 'customers.id', '=', 'sales_orders.customer_id')
+            ->where('sales_delivery_items.product_id', $productId)
+            ->where('sales_deliveries.status', 'posted')
+            ->whereNull('sales_deliveries.invoice_id')
+            ->where('sales_delivery_items.qty', '>', 0)
+            ->orderByDesc('sales_deliveries.id')
+            ->get([
+                'sales_deliveries.id as delivery_id',
+                'sales_deliveries.delivery_number',
+                'sales_deliveries.created_at',
+                'sales_orders.order_number',
+                'customers.name as customer',
+                'sales_delivery_items.qty',
+            ]);
+
+        $items = $rows->map(fn ($r) => [
+            'number'   => $r->delivery_number ?? '—',
+            'customer' => $r->customer ?? '—',
+            'date'     => $r->created_at ? Carbon::parse($r->created_at)->format('d/m/Y') : '—',
+            'qty'      => format_qty($r->qty),
+            'so'       => $r->order_number ?? null,
+            'url'      => route('sales.deliveries.show', $r->delivery_id),
+        ])->values();
+
+        return response()->json(['items' => $items]);
     }
 
     public function getStock(Request $request)

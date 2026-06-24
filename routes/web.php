@@ -439,6 +439,8 @@ Route::prefix('erp/inventory')->group(function () {
 
 
     Route::get('/stocks', [StockController::class, 'index'])->name('inventory.stocks.index');
+    Route::get('/stocks/{product}/orders',    [StockController::class, 'orders'])->name('inventory.stocks.api.orders');
+    Route::get('/stocks/{product}/shipments', [StockController::class, 'shipments'])->name('inventory.stocks.api.shipments');
     Route::patch('/products/{id}/min-stock', [\App\Http\Controllers\Inventory\ProductMinStockController::class, 'update'])->name('inventory.products.minstock');
     Route::get('/product-stock-adjustment', [StockController::class, 'getStock'])->name('inventory.product-stock');
     Route::get('/product-stock/{product}/{warehouse}', [InventoryTransferController::class, 'productStock'])->name('product-stock');

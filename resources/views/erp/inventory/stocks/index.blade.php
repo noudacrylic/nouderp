@@ -62,8 +62,24 @@
                     </td>
                     <td class="px-3 py-2 text-right">{{ format_qty($stock->qty_on_hand) }}</td>
                     <td class="px-3 py-2 text-right">{{ format_qty($stock->reserved) }}</td>
-                    <td class="px-3 py-2 text-right">{{ format_qty($stock->ordered) }}</td>
-                    <td class="px-3 py-2 text-right text-blue-600">{{ format_qty($stock->shipped ?? 0) }}</td>
+                    <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
+                        @if($stock->ordered > 0)
+                            <button type="button"
+                                    onclick="showStockDetail('{{ route('inventory.stocks.api.orders', $stock->id) }}', 'Dipesan — {{ $stock->sku }}', 'so')"
+                                    class="text-blue-600 hover:underline font-medium">{{ format_qty($stock->ordered) }}</button>
+                        @else
+                            <span class="text-gray-400">{{ format_qty($stock->ordered) }}</span>
+                        @endif
+                    </td>
+                    <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
+                        @if(($stock->shipped ?? 0) > 0)
+                            <button type="button"
+                                    onclick="showStockDetail('{{ route('inventory.stocks.api.shipments', $stock->id) }}', 'Dikirim — {{ $stock->sku }}', 'sj')"
+                                    class="text-blue-600 hover:underline font-medium">{{ format_qty($stock->shipped ?? 0) }}</button>
+                        @else
+                            <span class="text-gray-400">{{ format_qty($stock->shipped ?? 0) }}</span>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-right text-green-600 font-semibold">{{ format_qty($stock->available) }}</td>
                     <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
                         <div class="flex items-center justify-center gap-1"
@@ -100,10 +116,67 @@
 @endif
 </div>{{-- /#list-results --}}
 
+{{-- Popup daftar SO (Dipesan) / Surat Jalan (Dikirim) --}}
+<div id="stock-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+     onclick="if(event.target===this) closeStockDetail()">
+    <div class="absolute inset-0 bg-black/40"></div>
+    <div class="relative bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[80vh] flex flex-col">
+        <div class="flex items-center justify-between px-4 py-3 border-b">
+            <h3 id="stock-detail-title" class="font-semibold text-gray-800 text-sm"></h3>
+            <button type="button" onclick="closeStockDetail()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+        </div>
+        <div id="stock-detail-body" class="p-4 overflow-y-auto"></div>
+    </div>
+</div>
+
 @include('erp.purchasing._partials.list-scripts')
 
 @push('scripts')
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script>
+function closeStockDetail() {
+    document.getElementById('stock-detail-modal').classList.add('hidden');
+}
+function showStockDetail(url, title, kind) {
+    const modal = document.getElementById('stock-detail-modal');
+    document.getElementById('stock-detail-title').textContent = title;
+    const body = document.getElementById('stock-detail-body');
+    body.innerHTML = '<div class="text-center text-gray-400 py-6">Memuat…</div>';
+    modal.classList.remove('hidden');
+
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.json())
+        .then(d => {
+            const items = d.items || [];
+            if (!items.length) {
+                body.innerHTML = '<div class="text-center text-gray-400 py-6">Tidak ada data.</div>';
+                return;
+            }
+            const numHead = kind === 'sj' ? 'No. Surat Jalan' : 'No. SO';
+            const soCol   = kind === 'sj';
+            let html = '<table class="w-full text-sm"><thead class="text-xs text-gray-500 border-b">'
+                + '<tr><th class="text-left py-1.5">' + numHead + '</th>'
+                + (soCol ? '<th class="text-left">No. SO</th>' : '')
+                + '<th class="text-left">Pelanggan</th><th class="text-left">Tanggal</th>'
+                + '<th class="text-right">Qty</th></tr></thead><tbody>';
+            items.forEach(it => {
+                const num = it.url
+                    ? '<a href="' + it.url + '" class="text-blue-600 hover:underline font-mono">' + it.number + '</a>'
+                    : '<span class="font-mono">' + it.number + '</span>';
+                html += '<tr class="border-b last:border-0">'
+                    + '<td class="py-1.5 pr-2">' + num + '</td>'
+                    + (soCol ? '<td class="pr-2 font-mono text-gray-600">' + (it.so || '—') + '</td>' : '')
+                    + '<td class="pr-2">' + it.customer + '</td>'
+                    + '<td class="pr-2 whitespace-nowrap text-gray-500">' + it.date + '</td>'
+                    + '<td class="text-right font-semibold">' + it.qty + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            body.innerHTML = html;
+        })
+        .catch(() => { body.innerHTML = '<div class="text-center text-red-400 py-6">Gagal memuat data.</div>'; });
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeStockDetail(); });
+</script>
 <script>
 function minStockEditor(productId, initialMin, availableQty, saleType) {
     // Status badge berbasis stok TERSEDIA (sellable - reservasi + preorder), bukan stok fisik —
