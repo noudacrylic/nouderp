@@ -185,9 +185,10 @@ class TaskAutomationService
         $minStock = (float) ($product->min_stock ?? 0);
         if ($minStock <= 0) return 0;
 
-        // Stok fisik live = SUM qty_on_hand dari product_stocks (sumber yg sama dgn
-        // halaman Inventory). Kolom products.stock tidak dipakai krn tidak ter-sync.
-        $stock = (float) ProductStock::where('product_id', $productId)->sum('qty_on_hand');
+        // Stok TERSEDIA live (bukan fisik) = gudang sellable − reservasi aktif +
+        // stok preorder. Sumber & rumus sama dgn "Tersedia" di halaman Inventory,
+        // supaya task restok terpicu lebih cepat saat stok keburu direservasi pesanan.
+        $stock = $this->availableStockMap([$productId])[$productId] ?? 0.0;
         if ($stock > $minStock) return 0;
 
         return $this->createStockTasks($rules, $product, $stock, $minStock);
@@ -205,11 +206,8 @@ class TaskAutomationService
 
         $byProduct = $rules->groupBy('product_id');
 
-        // Batch-load SUM(qty_on_hand) per produk supaya tidak N+1.
-        $stockMap = ProductStock::whereIn('product_id', $byProduct->keys())
-            ->groupBy('product_id')
-            ->select('product_id', DB::raw('SUM(qty_on_hand) as total'))
-            ->pluck('total', 'product_id');
+        // Batch-load stok TERSEDIA per produk supaya tidak N+1 (rumus = halaman Stok).
+        $stockMap = $this->availableStockMap($byProduct->keys()->all());
 
         foreach ($byProduct as $productId => $productRules) {
             $product = $productRules->first()->product;
@@ -224,6 +222,42 @@ class TaskAutomationService
         }
 
         return $created;
+    }
+
+    /**
+     * Stok TERSEDIA per produk (keyed by product_id) = SUM qty_on_hand gudang
+     * sellable − reservasi aktif + stok preorder. Rumus identik dgn kolom
+     * "Tersedia" di halaman Stok (StockController) agar pemicu restok konsisten.
+     *
+     * @param array<int,int> $productIds
+     * @return array<int,float>
+     */
+    private function availableStockMap(array $productIds): array
+    {
+        if (empty($productIds)) return [];
+
+        $sellable = ProductStock::whereIn('product_id', $productIds)
+            ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', true))
+            ->groupBy('product_id')
+            ->select('product_id', DB::raw('SUM(qty_on_hand) as total'))
+            ->pluck('total', 'product_id');
+
+        $reserved = \App\Core\Inventory\StockReservation::whereIn('product_id', $productIds)
+            ->where('status', 'active')
+            ->groupBy('product_id')
+            ->select('product_id', DB::raw('SUM(qty) as total'))
+            ->pluck('total', 'product_id');
+
+        $preorder = Product::whereIn('id', $productIds)->pluck('preorder_stock', 'id');
+
+        $map = [];
+        foreach ($productIds as $pid) {
+            $map[$pid] = (float) ($sellable[$pid] ?? 0)
+                - (float) ($reserved[$pid] ?? 0)
+                + (float) ($preorder[$pid] ?? 0);
+        }
+
+        return $map;
     }
 
     /**

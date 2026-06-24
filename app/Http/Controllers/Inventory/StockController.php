@@ -17,6 +17,9 @@ class StockController extends Controller
         // Produk diarsipkan tidak ditampilkan di halaman Stok.
         $query->where('is_active', 1);
 
+        // Jasa & non-stok memang tidak punya stok — sembunyikan dari halaman Stok.
+        $query->whereNotIn('sale_type', ['service', 'non_stock']);
+
         // SEARCH
         if ($request->search) {
             $query->where(function ($q) use ($request) {
@@ -136,13 +139,15 @@ class StockController extends Controller
 
             $minStock = $product->min_stock;
             $stockStatus = 'ok';
+            // Status stok berbasis stok TERSEDIA (bukan stok fisik): produk dianggap
+            // menipis/habis bila yang benar-benar bisa dijual sudah di bawah min stok.
             if ($product->sale_type === 'preorder') {
                 $stockStatus = 'preorder';
-            } elseif ($stokFisik < 0) {
+            } elseif ($stokTersedia < 0) {
                 $stockStatus = 'minus';
-            } elseif ($stokFisik == 0) {
+            } elseif ($stokTersedia == 0) {
                 $stockStatus = 'habis';
-            } elseif ($minStock !== null && $stokFisik <= (float) $minStock) {
+            } elseif ($minStock !== null && $stokTersedia <= (float) $minStock) {
                 $stockStatus = 'menipis';
             }
 

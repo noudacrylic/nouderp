@@ -186,17 +186,26 @@ class DashboardService
         $products = Product::query()
             ->where('is_active', 1)
             ->with(['bundleItems', 'bundleComponents'])
-            ->get(['id', 'sku', 'name', 'sale_type', 'min_stock']);
+            ->get(['id', 'sku', 'name', 'sale_type', 'min_stock', 'preorder_stock']);
 
-        // Agregasi stok fisik sekali jalan untuk produk + komponen bundle (hindari N+1).
+        // Agregasi stok sekali jalan untuk produk + komponen bundle (hindari N+1).
         $componentIds = $products->flatMap(fn ($p) => $p->bundleItems->isNotEmpty()
             ? $p->bundleItems->pluck('component_product_id')
             : $p->bundleComponents->pluck('component_product_id'));
         $allIds = $products->pluck('id')->merge($componentIds)->unique()->all();
 
-        $physical = ProductStock::whereIn('product_id', $allIds)
+        // Stok tersedia = stok gudang sellable − reservasi aktif (+ stok preorder).
+        // SELARAS dengan perhitungan "Tersedia" di halaman Stok (StockController).
+        $sellable = ProductStock::whereIn('product_id', $allIds)
+            ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', true))
             ->groupBy('product_id')
             ->selectRaw('product_id, SUM(qty_on_hand) as total')
+            ->pluck('total', 'product_id');
+
+        $reserved = \App\Core\Inventory\StockReservation::whereIn('product_id', $allIds)
+            ->where('status', 'active')
+            ->groupBy('product_id')
+            ->selectRaw('product_id, SUM(qty) as total')
             ->pluck('total', 'product_id');
 
         $rows = [];
@@ -207,24 +216,27 @@ class DashboardService
 
             if ($product->sale_type === 'bundle') {
                 $components = $product->bundleItems->isNotEmpty() ? $product->bundleItems : $product->bundleComponents;
-                $stokFisik = PHP_INT_MAX;
+                $tersedia = PHP_INT_MAX;
                 foreach ($components as $c) {
                     $req = ($c->qty_required ?? $c->qty ?? 1);
                     if ($req > 0) {
-                        $stokFisik = min($stokFisik, (int) floor(((float) ($physical[$c->component_product_id] ?? 0)) / $req));
+                        $avail = (float) ($sellable[$c->component_product_id] ?? 0) - (float) ($reserved[$c->component_product_id] ?? 0);
+                        $tersedia = min($tersedia, (int) floor(max(0, $avail) / $req));
                     }
                 }
-                $stokFisik = $stokFisik === PHP_INT_MAX ? 0 : $stokFisik;
+                $tersedia = $tersedia === PHP_INT_MAX ? 0 : $tersedia;
             } else {
-                $stokFisik = (float) ($physical[$product->id] ?? 0);
+                $tersedia = (float) ($sellable[$product->id] ?? 0)
+                    - (float) ($reserved[$product->id] ?? 0)
+                    + (float) ($product->preorder_stock ?? 0);
             }
 
             $min = $product->min_stock;
-            if ($stokFisik < 0) {
+            if ($tersedia < 0) {
                 $status = 'minus';
-            } elseif ($stokFisik == 0) {
+            } elseif ($tersedia == 0) {
                 $status = 'habis';
-            } elseif ($min !== null && $stokFisik <= (float) $min) {
+            } elseif ($min !== null && $tersedia <= (float) $min) {
                 $status = 'menipis';
             } else {
                 continue; // 'ok' — tak perlu disimpan
@@ -234,7 +246,7 @@ class DashboardService
                 'id'     => $product->id,
                 'sku'    => $product->sku,
                 'name'   => $product->name,
-                'stock'  => (float) $stokFisik,
+                'stock'  => (float) $tersedia,
                 'min'    => (float) ($min ?? 0),
                 'status' => $status,
             ];
