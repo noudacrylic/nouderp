@@ -13,17 +13,24 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as PsDate;
 
 class AttendanceImportService
 {
-    public function __construct(protected PayrollCalculationService $payroll) {}
+    public function __construct(
+        protected PayrollCalculationService $payroll,
+        protected PeriodePenggajianService $periodeService,
+    ) {}
 
     /**
+     * Isi data absensi dari Excel. DIGERAKKAN OLEH TANGGAL di tiap baris: setiap
+     * baris dirutekan ke periode sesuai tanggalnya (auto-buat bila belum ada),
+     * bukan dibatasi satu bulan. Cocok untuk backfill hari-hari sebelum mesin
+     * fingerprint aktif. Data fingerprint/manual yang sudah ada TIDAK ditimpa —
+     * Excel hanya mengisi slot waktu yang masih kosong.
+     *
+     * @param int|null $hintBulan,$hintTahun  petunjuk bulan/tahun untuk membantu
+     *        memparse format tanggal ambigu (m/d vs d/m). Tidak membatasi baris.
      * @return array{imported:int, skipped:int, errors:array<string>}
      */
-    public function import(UploadedFile $file, PeriodePenggajian $periode): array
+    public function import(UploadedFile $file, ?int $hintBulan = null, ?int $hintTahun = null): array
     {
-        if (! $periode->canImport()) {
-            return ['imported' => 0, 'skipped' => 0, 'errors' => ['Periode sudah finalized atau void.']];
-        }
-
         $spreadsheet = IOFactory::load($file->getRealPath());
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray(null, true, true, true);
@@ -34,34 +41,47 @@ class AttendanceImportService
         $errors = [];
 
         $karyawanCache = [];
+        $periodeCache  = [];          // 'Y-n' => PeriodePenggajian
+        $affected      = [];          // periode_id => PeriodePenggajian (untuk regen slip)
 
         foreach ($rows as $rowIdx => $row) {
             $stafCode = trim((string) ($row[$header['staf_code']] ?? ''));
-            if ($stafCode === '') {
+            $namaRow  = trim((string) ($row[$header['name']] ?? ''));
+            if ($stafCode === '' && $namaRow === '') {
                 continue;
             }
 
-            $karyawan = $karyawanCache[$stafCode]
-                ?? ($karyawanCache[$stafCode] = $this->findKaryawan($stafCode));
+            // Cocokkan via staf_code / user_id_fingerprint / nama (lihat findKaryawan).
+            $cacheKey = $stafCode . '|' . mb_strtolower($namaRow);
+            $karyawan = $karyawanCache[$cacheKey]
+                ?? ($karyawanCache[$cacheKey] = $this->findKaryawan($stafCode, $namaRow));
 
             if (! $karyawan) {
-                $errors[] = "Baris {$rowIdx}: Staf Code {$stafCode} tidak ditemukan di master karyawan.";
+                $ident = $stafCode !== '' ? "Staf Code {$stafCode}" : "Nama {$namaRow}";
+                $errors[] = "Baris {$rowIdx}: {$ident} tidak cocok dengan master karyawan (cek Staf Code / Nama).";
                 $skipped++;
                 continue;
             }
 
             $tanggalRaw = $row[$header['date']] ?? null;
-            $tanggal = $this->parseDate($tanggalRaw, $periode);
+            $tanggal = $this->parseDate($tanggalRaw, $hintBulan, $hintTahun);
             if (! $tanggal) {
                 $errors[] = "Baris {$rowIdx}: format tanggal tidak valid ({$tanggalRaw}).";
                 $skipped++;
                 continue;
             }
-            if ($tanggal->month !== (int) $periode->bulan || $tanggal->year !== (int) $periode->tahun) {
-                $errors[] = "Baris {$rowIdx}: tanggal {$tanggal->toDateString()} di luar periode {$periode->label}.";
+
+            // Rute ke periode sesuai TANGGAL baris (auto-buat bila belum ada).
+            $cacheKey = $tanggal->year . '-' . $tanggal->month;
+            $periode = $periodeCache[$cacheKey]
+                ?? ($periodeCache[$cacheKey] = $this->periodeService->ensureForMonth($tanggal->month, $tanggal->year));
+
+            if (! $periode->canImport()) {
+                $errors[] = "Baris {$rowIdx}: periode {$periode->label} sudah finalized/void — dilewati.";
                 $skipped++;
                 continue;
             }
+            $affected[$periode->id] = $periode;
 
             $existing = Attendance::where([
                 'periode_id'  => $periode->id,
@@ -149,18 +169,37 @@ class AttendanceImportService
             $imported++;
         }
 
-        // Excel hanya cadangan — periode tetap 'open'. Catat imported_at sebagai jejak audit
-        // (kapan terakhir Excel dipakai mengisi periode ini).
-        $periode->update(['imported_at' => now()]);
-
-        $this->payroll->generateAllSlips($periode);
+        // Untuk tiap periode yang tersentuh: catat jejak audit + regen slip (tetap 'open').
+        foreach ($affected as $periode) {
+            $periode->update(['imported_at' => now()]);
+            $this->payroll->generateAllSlips($periode);
+        }
 
         return ['imported' => $imported, 'skipped' => $skipped, 'errors' => $errors];
     }
 
-    protected function findKaryawan(string $stafCode): ?Karyawan
+    /**
+     * Cari karyawan dari Excel dengan beberapa strategi (paling andal dulu):
+     * 1. staf_code persis  2. user_id_fingerprint persis  3. nama (case-insensitive).
+     * Excel mesin/manual sering pakai kode berbeda dari master → fallback ke nama.
+     */
+    protected function findKaryawan(string $stafCode, ?string $name = null): ?Karyawan
     {
-        return Karyawan::where('staf_code', $stafCode)->first();
+        $code = trim($stafCode);
+
+        if ($code !== '') {
+            $byCode = Karyawan::where('staf_code', $code)
+                ->orWhere('user_id_fingerprint', $code)
+                ->first();
+            if ($byCode) return $byCode;
+        }
+
+        $name = trim((string) $name);
+        if ($name !== '') {
+            return Karyawan::whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($name)])->first();
+        }
+
+        return null;
     }
 
     public function determineStatus(?string $on1, ?string $off1, ?string $week): string
@@ -292,7 +331,7 @@ class AttendanceImportService
         ];
     }
 
-    protected function parseDate($value, ?PeriodePenggajian $periode = null): ?Carbon
+    protected function parseDate($value, ?int $hintBulan = null, ?int $hintTahun = null): ?Carbon
     {
         if ($value === null || $value === '') return null;
         if (is_numeric($value)) {
@@ -304,8 +343,8 @@ class AttendanceImportService
         }
         $value = trim((string) $value);
 
-        // Untuk format ambigu m/d/Y vs d/m/Y, pakai periode sebagai konteks
-        // (cocokkan dengan bulan/tahun periode kalau dua-duanya bisa parse).
+        // Untuk format ambigu m/d/Y vs d/m/Y, pakai bulan/tahun yang sedang dilihat
+        // sebagai petunjuk (cocokkan kalau dua-duanya bisa parse).
         $candidates = [];
         foreach (['Y-m-d', 'd-m-Y', 'd/m/Y', 'm/d/Y', 'n/j/Y'] as $f) {
             try {
@@ -318,9 +357,9 @@ class AttendanceImportService
             }
         }
 
-        if ($periode && $candidates) {
+        if ($hintBulan && $hintTahun && $candidates) {
             foreach ($candidates as $dt) {
-                if ($dt->month === (int) $periode->bulan && $dt->year === (int) $periode->tahun) {
+                if ($dt->month === (int) $hintBulan && $dt->year === (int) $hintTahun) {
                     return $dt;
                 }
             }

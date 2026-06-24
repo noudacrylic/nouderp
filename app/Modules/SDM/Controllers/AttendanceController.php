@@ -522,18 +522,11 @@ class AttendanceController extends Controller
         $bulan = (int) $data['bulan'];
         $tahun = (int) $data['tahun'];
 
-        $periode = $this->ensurePeriode($bulan, $tahun);
+        // bulan/tahun = petunjuk parse tanggal ambigu saja. Tiap baris Excel
+        // dirutekan ke periode sesuai tanggalnya (auto-buat) di dalam service.
+        $result = $service->import($request->file('file'), $bulan, $tahun);
 
-        if (! $periode->canImport()) {
-            return redirect()->route('sdm.absensi.index', [
-                'bulan' => $bulan, 'tahun' => $tahun,
-                'karyawan_id' => $data['karyawan_id'] ?? null,
-            ])->with('error', "Periode {$periode->label} sudah finalized/void — upload Excel tidak diizinkan.");
-        }
-
-        $result = $service->import($request->file('file'), $periode);
-
-        $msg = "Upload selesai untuk {$periode->label}: {$result['imported']} baris diisi, {$result['skipped']} di-skip.";
+        $msg = "Upload selesai: {$result['imported']} baris diisi, {$result['skipped']} di-skip.";
         if (! empty($result['errors'])) {
             $msg .= ' Catatan: ' . implode(' | ', array_slice($result['errors'], 0, 5));
             if (count($result['errors']) > 5) {

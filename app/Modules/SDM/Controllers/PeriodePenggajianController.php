@@ -136,7 +136,7 @@ class PeriodePenggajianController extends Controller
             return back()->with('error', 'Periode sudah finalized atau void, tidak bisa upload.');
         }
 
-        $result = $service->import($request->file('file'), $periode);
+        $result = $service->import($request->file('file'), (int) $periode->bulan, (int) $periode->tahun);
 
         $msg = "Import selesai: {$result['imported']} baris, {$result['skipped']} dilewati.";
         if (! empty($result['errors'])) {
