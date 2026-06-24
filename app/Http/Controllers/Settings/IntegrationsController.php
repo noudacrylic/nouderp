@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\MidtransSetting;
 use App\Models\ShippingSetting;
+use App\Models\TelegramSetting;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 
 /**
@@ -21,6 +22,7 @@ class IntegrationsController extends Controller
         $biteship   = ShippingSetting::for('biteship');
         $kiriminaja = ShippingSetting::for('kiriminaja');
         $jubelio    = JubelioSetting::singleton();
+        $telegram   = TelegramSetting::current();
 
         $integrations = [
             [
@@ -58,6 +60,15 @@ class IntegrationsController extends Controller
                 'active'      => $jubelio->isConfigured(),
                 'mode'        => $jubelio->is_production ? 'Production' : 'Sandbox',
                 'url'         => route('settings.jubelio.edit'),
+            ],
+            [
+                'name'        => 'Telegram',
+                'category'    => 'Notifikasi',
+                'description' => 'Noud Bot — notifikasi pengajuan izin (approver) & status approval (karyawan) via Telegram.',
+                'icon'        => '💬',
+                'active'      => (bool) $telegram?->isConfigured(),
+                'mode'        => $telegram && $telegram->webhook_secret ? 'Webhook' : 'Belum aktif',
+                'url'         => route('settings.telegram.edit'),
             ],
         ];
 

@@ -23,12 +23,22 @@ class AuthController extends Controller
             'username' => 'required|string',
             'password' => 'required|string',
         ], [
-            'username.required' => 'Username wajib diisi.',
+            'username.required' => 'Username / No. HP wajib diisi.',
             'password.required' => 'Password wajib diisi.',
         ]);
 
+        // Karyawan login pakai No. HP (username = HP ternormalisasi). Resolusi:
+        // coba username apa adanya; jika tidak ada, cocokkan versi ternormalisasi HP.
+        $login = $data['username'];
+        if (! User::where('username', $login)->exists()) {
+            $norm = normalize_phone($login);
+            if ($norm !== '' && User::where('username', $norm)->exists()) {
+                $login = $norm;
+            }
+        }
+
         $attempt = Auth::attempt([
-            'username'  => $data['username'],
+            'username'  => $login,
             'password'  => $data['password'],
             'is_active' => true,
         ], remember: (bool) $request->boolean('remember'));

@@ -28,6 +28,9 @@ class DashboardController extends Controller
             'lowStock'   => $this->svc->lowStock(),
             'production' => $this->svc->productionSummary(),
             'ops'        => $ops,
+            'pendingIzin' => $isAdmin
+                ? \App\Modules\SDM\Models\IzinRequest::where('status', 'pending')->count()
+                : 0,
         ];
 
         // Bagian sensitif (keuangan & penjualan) — hanya super_admin & admin.

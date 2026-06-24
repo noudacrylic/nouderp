@@ -38,13 +38,14 @@
                 @csrf
 
                 <div>
-                    <label class="block text-xs font-bold text-gray-600 mb-1">Username</label>
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Username / No. HP</label>
                     <input type="text"
                            name="username"
                            value="{{ old('username') }}"
                            autofocus
                            required
                            autocomplete="username"
+                           placeholder="Username admin atau No. HP karyawan"
                            class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                 </div>
 
@@ -67,6 +68,10 @@
                     Login
                 </button>
             </form>
+
+            <p class="mt-5 text-center text-xs text-gray-400">
+                Karyawan baru? <a href="{{ route('me.register') }}" class="text-blue-600 hover:underline font-medium">Register</a>
+            </p>
         </div>
 
         <p class="text-center text-gray-400 text-xs mt-6">

@@ -14,6 +14,33 @@
     </div>
 
 
+    @if($pendingRegistrations->isNotEmpty())
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-amber-600 text-lg">⏳</span>
+                <h2 class="font-bold text-amber-800 text-sm">{{ $pendingRegistrations->count() }} pendaftaran karyawan menunggu aktivasi</h2>
+            </div>
+            <p class="text-xs text-amber-700 mb-3">Karyawan mendaftar sendiri lewat aplikasi HP. Aktifkan setelah memastikan identitasnya benar.</p>
+            <div class="space-y-2">
+                @foreach($pendingRegistrations as $p)
+                    <div class="flex items-center justify-between bg-white rounded-lg border border-amber-100 px-3 py-2">
+                        <div class="text-sm">
+                            <span class="font-semibold text-gray-800">{{ $p->karyawan?->name ?? $p->name }}</span>
+                            <span class="text-gray-400 text-xs">({{ $p->karyawan?->staf_code ?? '—' }})</span>
+                            <span class="text-gray-500 text-xs">· username: <span class="font-mono">{{ $p->username }}</span></span>
+                        </div>
+                        <form method="POST" action="{{ route('settings.users.toggle-active', $p->id) }}">
+                            @csrf
+                            <button type="submit" class="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+                                Aktifkan
+                            </button>
+                        </form>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
+
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-sm">

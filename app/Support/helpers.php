@@ -9,6 +9,26 @@ if (!function_exists('idr')) {
     }
 }
 
+if (!function_exists('normalize_phone')) {
+    /**
+     * Normalisasi nomor HP Indonesia untuk perbandingan.
+     * Ambil hanya digit, samakan prefix +62 / 62 / 0 menjadi '0'.
+     * Mis. "+62 812-3456-7890", "0812 3456 7890", "62812-34567890" → "081234567890".
+     * Return string kosong kalau tak ada digit.
+     */
+    function normalize_phone(?string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $value);
+        if ($digits === '') return '';
+        if (str_starts_with($digits, '62')) {
+            $digits = '0' . substr($digits, 2);
+        } elseif (!str_starts_with($digits, '0')) {
+            $digits = '0' . $digits;
+        }
+        return $digits;
+    }
+}
+
 if (!function_exists('user_can_access')) {
     /**
      * Cek apakah user yang login boleh akses menu_key tertentu.
@@ -120,6 +140,12 @@ if (!function_exists('user_landing_url')) {
      */
     function user_landing_url(): string
     {
+        // Karyawan (role 'karyawan') → PWA Karyawan. Role 'user' tetap ke ERP.
+        $u = auth()->user();
+        if ($u && $u->role === 'karyawan') {
+            return url('/me');
+        }
+
         if (user_can_access('dashboard')) {
             return url('/erp/dashboard');
         }

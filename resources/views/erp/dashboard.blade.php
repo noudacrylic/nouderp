@@ -34,6 +34,19 @@
     @endforeach
 </div>
 
+{{-- Kartu Pengajuan Izin menunggu (karyawan dari PWA) — klik langsung ke pemrosesan. --}}
+@if($isAdmin && ($pendingIzin ?? 0) > 0)
+<a href="{{ route('sdm.pengajuan-izin.index') }}"
+   class="flex items-center gap-3 bg-amber-50 border border-amber-300 rounded-lg shadow-sm p-4 mb-4 transition hover:shadow-md hover:border-amber-400">
+    <div class="bg-amber-400 text-white rounded-full w-11 h-11 flex items-center justify-center text-xl shrink-0">📝</div>
+    <div class="flex-1">
+        <div class="font-semibold text-amber-900">{{ $pendingIzin }} pengajuan izin menunggu persetujuan</div>
+        <div class="text-xs text-amber-700">Dari aplikasi karyawan — klik untuk memproses (setujui / tolak).</div>
+    </div>
+    <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+</a>
+@endif
+
 {{-- Bagian keuangan & penjualan hanya untuk super_admin & admin. Role 'user' hanya lihat
      kartu operasional, Stok Menipis, & Proses Produksi per Divisi. --}}
 @if($isAdmin)

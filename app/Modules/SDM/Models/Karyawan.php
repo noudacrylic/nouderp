@@ -18,7 +18,7 @@ class Karyawan extends Model
         'gaji_pokok', 'tunjangan_pegawai',
         'mulai_kerja', 'sanksi', 'hak_cuti', 'user_id_fingerprint',
         'is_active', 'resign_date',
-        'hp', 'email', 'alamat', 'nik', 'npwp', 'bpjs',
+        'hp', 'email', 'alamat', 'nik', 'npwp', 'bpjs', 'foto_path', 'ktp_path',
         'bpjs_kesehatan_amount', 'bpjs_tk_amount', 'pph21_amount',
         'ptkp_category', 'ikut_bpjs_kesehatan', 'ikut_bpjs_tk',
         'bank_name', 'bank_account_number', 'bank_account_holder',
@@ -66,6 +66,11 @@ class Karyawan extends Model
     public function spHistory()
     {
         return $this->hasMany(SpHistory::class)->orderByDesc('tanggal_terbit');
+    }
+
+    public function user()
+    {
+        return $this->hasOne(\App\Models\User::class);
     }
 
     public function scopeActive($q)

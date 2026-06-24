@@ -28,7 +28,7 @@ Route::post('/login',  [\App\Http\Controllers\Auth\AuthController::class, 'login
 Route::post('/logout', [\App\Http\Controllers\Auth\AuthController::class, 'logout'])->middleware('auth')->name('logout');
 
 Route::get('/', function () {
-    return redirect(auth()->check() ? '/erp/dashboard' : '/login');
+    return redirect(auth()->check() ? user_landing_url() : '/login');
 });
 
 // ── Midtrans public pay & webhook (NO auth) ──────────────────────────
@@ -47,6 +47,11 @@ Route::prefix('jubelio/webhook')->middleware('jubelio.signature')->group(functio
     Route::post('/salesreturn', [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'salesReturn'])->name('jubelio.webhook.salesreturn');
     Route::post('/stock',       [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'stock'])->name('jubelio.webhook.stock');
 });
+
+// ── Telegram "Noud Bot" webhook (NO auth/CSRF, server-to-server) ──
+// {secret} = telegram_settings.webhook_secret. Menangkap chat_id saat /start.
+Route::post('/telegram/webhook/{secret}', [\App\Http\Controllers\TelegramWebhookController::class, 'handle'])
+    ->name('telegram.webhook');
 
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
@@ -80,6 +85,14 @@ Route::prefix('erp')->group(function () {
 
         // Integrasi — hub aplikasi yang terhubung dengan Noud ERP (Midtrans, Biteship, dst)
         Route::get('/integrations', [\App\Http\Controllers\Settings\IntegrationsController::class, 'index'])->name('settings.integrations.index');
+
+        // Integrasi — Telegram "Noud Bot" (notifikasi izin, dll)
+        Route::get ('/telegram',              [\App\Http\Controllers\Settings\TelegramSettingController::class, 'edit'])->name('settings.telegram.edit');
+        Route::post('/telegram',              [\App\Http\Controllers\Settings\TelegramSettingController::class, 'update'])->name('settings.telegram.update');
+        Route::post('/telegram/set-webhook',  [\App\Http\Controllers\Settings\TelegramSettingController::class, 'setWebhook'])->name('settings.telegram.set-webhook');
+        Route::post('/telegram/delete-webhook',[\App\Http\Controllers\Settings\TelegramSettingController::class, 'deleteWebhook'])->name('settings.telegram.delete-webhook');
+        Route::post('/telegram/link',         [\App\Http\Controllers\Settings\TelegramSettingController::class, 'link'])->name('settings.telegram.link');
+        Route::post('/telegram/unlink',       [\App\Http\Controllers\Settings\TelegramSettingController::class, 'unlink'])->name('settings.telegram.unlink');
 
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');
@@ -174,6 +187,12 @@ Route::prefix('erp/sdm')->name('sdm.')->group(function () {
     Route::get   ('izin/create',   [\App\Modules\SDM\Controllers\IzinController::class, 'create']) ->name('izin.create');
     Route::post  ('izin',          [\App\Modules\SDM\Controllers\IzinController::class, 'store'])  ->name('izin.store');
     Route::delete('izin/{id}',     [\App\Modules\SDM\Controllers\IzinController::class, 'destroy'])->name('izin.destroy');
+
+    // Pengajuan Izin dari PWA karyawan (kotak masuk approval, sub-tab Absensi)
+    Route::get ('pengajuan-izin',              [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'index'])  ->name('pengajuan-izin.index');
+    Route::post('pengajuan-izin/{id}/approve', [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'approve'])->name('pengajuan-izin.approve');
+    Route::post('pengajuan-izin/{id}/reject',  [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'reject']) ->name('pengajuan-izin.reject');
+    Route::post('pengajuan-izin/{id}/cancel',  [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'cancel']) ->name('pengajuan-izin.cancel');
 
     // Surat Peringatan (sub-tab Absensi)
     Route::resource('sp', \App\Modules\SDM\Controllers\SpHistoryController::class)->except(['show']);
@@ -1082,4 +1101,40 @@ Route::prefix('erp/tasks')->name('tasks.')->group(function () {
     Route::get('{task}/edit', [\App\Modules\Tasks\Controllers\TaskController::class, 'edit'])->name('edit');
     Route::match(['patch', 'put'], '{task}', [\App\Modules\Tasks\Controllers\TaskController::class, 'update'])->name('update');
     Route::delete('{task}', [\App\Modules\Tasks\Controllers\TaskController::class, 'destroy'])->name('destroy');
+});
+
+// ── PWA Karyawan (`/me/*`) — aplikasi mobile karyawan ────────────────
+// Tidak lewat EnsureMenuAccess (hanya cek path erp/*). Auth + karyawan via middleware 'karyawan'.
+Route::prefix('me')->name('me.')->group(function () {
+    // Publik (belum login): self-register + halaman offline (fallback service worker)
+    Route::get ('/register',       [\App\Http\Controllers\Me\RegisterController::class, 'show'])->name('register');
+    Route::post('/register/check', [\App\Http\Controllers\Me\RegisterController::class, 'check'])->name('register.check');
+    Route::post('/register',       [\App\Http\Controllers\Me\RegisterController::class, 'register'])->name('register.submit');
+    Route::view('/offline', 'me.offline')->name('offline');
+
+    // Service worker dilayani via route (bukan file fisik) agar scope = /me/ tanpa
+    // direktori public/me yang akan membayangi route ini.
+    Route::get('/sw.js', function () {
+        return response(file_get_contents(resource_path('pwa/sw.js')), 200, [
+            'Content-Type'           => 'application/javascript; charset=utf-8',
+            'Service-Worker-Allowed' => '/me/',
+            'Cache-Control'          => 'no-cache, must-revalidate',
+        ]);
+    })->name('sw');
+
+    // Area karyawan (login + role user + karyawan_id)
+    Route::middleware('karyawan')->group(function () {
+        Route::get('/',        [\App\Http\Controllers\Me\HomeController::class, 'index'])->name('home');
+        Route::get('/absensi', [\App\Http\Controllers\Me\AbsensiController::class, 'index'])->name('absensi');
+        Route::get('/cuti-sp', [\App\Http\Controllers\Me\CutiSpController::class, 'index'])->name('cuti');
+
+        // Pengajuan izin (karyawan)
+        Route::get ('/izin',        [\App\Http\Controllers\Me\IzinController::class, 'index'])->name('izin');
+        Route::get ('/izin/create', [\App\Http\Controllers\Me\IzinController::class, 'create'])->name('izin.create');
+        Route::post('/izin',        [\App\Http\Controllers\Me\IzinController::class, 'store'])->name('izin.store');
+
+        // Slip gaji (karyawan) — hanya periode finalized
+        Route::get('/slip',      [\App\Http\Controllers\Me\SlipController::class, 'index'])->name('slip');
+        Route::get('/slip/{id}', [\App\Http\Controllers\Me\SlipController::class, 'show'])->name('slip.show');
+    });
 });

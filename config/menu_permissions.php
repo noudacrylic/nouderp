@@ -146,6 +146,11 @@ return [
                     'sdm.kasbon.*', 'sdm.kasbon-pembayaran.*',
                 ],
             ],
+            'sdm.pengajuan-izin' => [
+                'label' => 'Penerimaan Izin',
+                'url'   => '/erp/sdm/pengajuan-izin',
+                'route_patterns' => ['sdm.pengajuan-izin.*'],
+            ],
         ],
     ],
 

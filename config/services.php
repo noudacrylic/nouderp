@@ -51,4 +51,12 @@ return [
         'api_key'  => env('BITESHIP_API_KEY'),
     ],
 
+    // "Noud Bot" Telegram — notifikasi keluar (sendMessage) tidak butuh Tunnel.
+    // Tanpa token, TelegramNotifier no-op aman. admin_chat_id = grup/akun penampung
+    // notifikasi approval bila per-user telegram_chat_id belum di-link.
+    'telegram' => [
+        'token'         => env('TELEGRAM_BOT_TOKEN'),
+        'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),
+    ],
+
 ];

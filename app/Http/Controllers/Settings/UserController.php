@@ -45,7 +45,15 @@ class UserController extends Controller
 
         $menuTree = app(MenuRegistry::class)->treeForUI();
 
-        return view('erp.settings.users.index', compact('users', 'karyawanOptions', 'menuTree', 'authUser'));
+        // Registrasi mandiri PWA Karyawan yang menunggu diaktifkan (gate keamanan ke-2).
+        $pendingRegistrations = User::with('karyawan:id,name,staf_code')
+            ->where('role', 'user')
+            ->where('is_active', false)
+            ->whereNotNull('karyawan_id')
+            ->orderByDesc('created_at')
+            ->get();
+
+        return view('erp.settings.users.index', compact('users', 'karyawanOptions', 'menuTree', 'authUser', 'pendingRegistrations'));
     }
 
     public function store(Request $request)

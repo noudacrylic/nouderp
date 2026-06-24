@@ -27,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'midtrans/notify',
             'pay/*',
             'jubelio/webhook/*',
+            'telegram/webhook/*',
         ]);
 
         // Auto-record URL halaman index (dengan filter query string) ke session,
@@ -40,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'midtrans.signature' => \App\Modules\Payment\Http\Middleware\VerifyMidtransSignature::class,
             'jubelio.signature'  => \App\Modules\Marketplace\Jubelio\Http\Middleware\VerifyJubelioSignature::class,
+            'karyawan'           => \App\Http\Middleware\EnsureKaryawan::class,
         ]);
 
         $middleware->redirectGuestsTo(fn() => route('login'));

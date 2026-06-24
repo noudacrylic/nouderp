@@ -1,0 +1,20 @@
+{
+    "name": "NOUD Karyawan",
+    "short_name": "NOUD Karyawan",
+    "description": "Aplikasi karyawan Noud Acrylic — absensi, izin, slip gaji.",
+    "start_url": "/me",
+    "scope": "/me/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#f1f5f9",
+    "theme_color": "#1e3a8a",
+    "lang": "id",
+    "icons": [
+        {
+            "src": "/favicon.png",
+            "sizes": "any",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}
