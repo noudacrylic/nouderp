@@ -1083,7 +1083,14 @@ class JubelioOrderSyncService
         $out = [];
         foreach ($jubelioItems as $it) {
             $itemId = (int) ($it['item_id'] ?? 0);
-            $qty    = (float) ($it['qty'] ?? $it['qty_in_base'] ?? 0);
+            // Jubelio kadang mengirim qty=0 (string "0.0000", BUKAN null) padahal qty_in_base
+            // berisi jumlah sebenarnya (mis. order TikTok TT-...927646: qty 0, qty_in_base 1).
+            // `??` tak menolong krn qty hadir & bernilai 0 → pakai qty_in_base sbg fallback bila
+            // qty<=0, agar order tak terbuang sbg "tanpa item yang dapat diproses".
+            $qty    = (float) ($it['qty'] ?? 0);
+            if ($qty <= 0) {
+                $qty = (float) ($it['qty_in_base'] ?? 0);
+            }
             if ($itemId <= 0 || $qty <= 0) {
                 continue;
             }
