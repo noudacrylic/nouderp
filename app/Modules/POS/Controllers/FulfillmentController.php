@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink;
 use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use App\Modules\Marketplace\Jubelio\Services\JubelioFulfillmentService;
+use App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService;
 use App\Modules\POS\Services\FulfillmentReadinessService;
 use App\Modules\POS\Services\PosFulfillmentService;
 use App\Modules\Sales\Models\SalesDelivery;
 use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class FulfillmentController extends Controller
 {
@@ -116,6 +118,14 @@ class FulfillmentController extends Controller
         $link = JubelioOrderLink::where('sales_order_id', $so)->first();
         if ($link) {
             $result = app(JubelioFulfillmentService::class)->process($link);
+
+            // Faktur Jubelio terbit (stok dipotong di Jubelio) → buat Surat Jalan ERP
+            // sekaligus, agar stok ERP keluar di waktu yang sama. Cron Tahap B akan skip
+            // (sj_created) & hanya memindah tab ke "Dikirim" saat Jubelio shipped.
+            if ($result['success']) {
+                $this->createMarketplaceDelivery($link->fresh());
+            }
+
             $route  = ($result['success'] && $link->fresh()->isWmsComplete())
                 ? 'pos.fulfillment.telah-diproses'
                 : 'pos.fulfillment.perlu-diproses';
@@ -152,6 +162,23 @@ class FulfillmentController extends Controller
     }
 
     /**
+     * Buat Surat Jalan ERP untuk pesanan marketplace yang baru diproses, HANYA bila
+     * Faktur Jubelio sudah terbit (stok dipotong di Jubelio) & SJ belum dibuat.
+     * Idempoten + lock di service; gagal di sini tidak menggagalkan proses WMS.
+     */
+    private function createMarketplaceDelivery(JubelioOrderLink $link): void
+    {
+        if (!$link->j_invoice_done || $link->sj_created) {
+            return;
+        }
+        try {
+            app(JubelioOrderSyncService::class)->createDeliveryOnProcess($link);
+        } catch (\Throwable $e) {
+            Log::warning("Gagal buat Surat Jalan saat Proses marketplace SO {$link->sales_order_id}: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Proses massal beberapa SO sekaligus. SO yang belum lunas / ambil-di-toko (butuh kode
      * booking) otomatis dilewati dengan keterangan. Opsi print_after → langsung cetak gabungan
      * Surat Jalan yang baru dibuat.
@@ -178,8 +205,10 @@ class FulfillmentController extends Controller
             // Marketplace → rantai WMS Jubelio; selain itu → jalur invoice ERP.
             if ($link = $links->get($id)) {
                 $res = app(JubelioFulfillmentService::class)->process($link);
-                if ($res['success']) { $processed[] = $so->order_number; }
-                else { $failed[] = "{$so->order_number} ({$res['message']})"; }
+                if ($res['success']) {
+                    $processed[] = $so->order_number;
+                    $this->createMarketplaceDelivery($link->fresh()); // SJ ERP sekaligus
+                } else { $failed[] = "{$so->order_number} ({$res['message']})"; }
                 continue;
             }
 

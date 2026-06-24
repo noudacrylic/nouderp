@@ -810,6 +810,25 @@ class JubelioOrderSyncService
 
     // ───────────────────────────── Tahap B: Surat Jalan ─────────────────────────────
 
+    /**
+     * Buat Surat Jalan ERP SEGERA saat "Proses Pesanan" marketplace berhasil (Faktur
+     * Jubelio terbit → stok dipotong di Jubelio), supaya stok ERP keluar di waktu yang
+     * sama, bukan menunggu cron. Idempoten via flag sj_created + lock baris link; cron
+     * Tahap B (cek !sj_created) otomatis melewatinya & hanya memindah tab saat shipped.
+     * Return true bila SJ baru dibuat.
+     */
+    public function createDeliveryOnProcess(JubelioOrderLink $link): bool
+    {
+        return DB::transaction(function () use ($link) {
+            $locked = JubelioOrderLink::where('id', $link->id)->lockForUpdate()->first();
+            if (!$locked || !$locked->sales_order_id || $locked->sj_created) {
+                return false;
+            }
+            $this->ensureDelivery($locked);
+            return true;
+        });
+    }
+
     private function ensureDelivery(JubelioOrderLink $link): void
     {
         $so = SalesOrder::find($link->sales_order_id);
