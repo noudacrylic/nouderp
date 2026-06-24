@@ -67,7 +67,7 @@
                     <td class="px-3 py-2 text-right text-green-600 font-semibold">{{ format_qty($stock->available) }}</td>
                     <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
                         <div class="flex items-center justify-center gap-1"
-                             x-data="minStockEditor({{ $stock->id }}, {{ $stock->min_stock ?? 'null' }}, {{ $stock->qty_on_hand }}, '{{ $stock->type }}')">
+                             x-data="minStockEditor({{ $stock->id }}, {{ $stock->min_stock ?? 'null' }}, {{ $stock->available }}, '{{ $stock->type }}')">
                             <input type="number" x-model="value" min="0" step="1"
                                    placeholder="—"
                                    @keydown.enter.prevent="save()"
@@ -105,7 +105,9 @@
 @push('scripts')
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script>
-function minStockEditor(productId, initialMin, qtyOnHand, saleType) {
+function minStockEditor(productId, initialMin, availableQty, saleType) {
+    // Status badge berbasis stok TERSEDIA (sellable - reservasi + preorder), bukan stok fisik —
+    // selaras dengan stock_status di StockController. availableQty = $stock->available.
     const computeStatus = (minVal, qty, type) => {
         if (type === 'preorder') return { label: 'P.O', cls: 'bg-purple-50 text-purple-600 border-purple-200' };
         if (qty < 0)  return { label: 'Minus',     cls: 'bg-red-50 text-red-600 border-red-200' };
@@ -114,7 +116,7 @@ function minStockEditor(productId, initialMin, qtyOnHand, saleType) {
         return { label: 'Ada', cls: 'bg-green-50 text-green-600 border-green-200' };
     };
 
-    const initial = computeStatus(initialMin, qtyOnHand, saleType);
+    const initial = computeStatus(initialMin, availableQty, saleType);
 
     return {
         productId,
@@ -135,7 +137,7 @@ function minStockEditor(productId, initialMin, qtyOnHand, saleType) {
                 });
                 if (res.ok) {
                     this.saved = true;
-                    const s = computeStatus(this.computedMin, qtyOnHand, saleType);
+                    const s = computeStatus(this.computedMin, availableQty, saleType);
                     this.statusLabel = s.label;
                     this.statusClass = s.cls;
                     setTimeout(() => this.saved = false, 2000);

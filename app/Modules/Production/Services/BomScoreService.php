@@ -125,15 +125,26 @@ class BomScoreService
             return 300;
         }
 
-        $qtyOnHand = (float) ProductStock::where('product_id', $product->id)->sum('qty_on_hand');
+        // Bobot stok berbasis stok TERSEDIA (gudang sellable − reservasi aktif + preorder),
+        // bukan stok fisik — selaras dengan status menipis/habis di halaman Stok &
+        // dashboard. Tujuannya restok terpicu sebelum yang bisa dijual benar-benar habis.
+        $sellable = (float) ProductStock::where('product_id', $product->id)
+            ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', true))
+            ->sum('qty_on_hand');
 
-        if ($qtyOnHand < 0) {
+        $reserved = (float) \App\Core\Inventory\StockReservation::where('product_id', $product->id)
+            ->where('status', 'active')
+            ->sum('qty');
+
+        $tersedia = $sellable - $reserved + (float) ($product->preorder_stock ?? 0);
+
+        if ($tersedia < 0) {
             return 300;
         }
-        if ($qtyOnHand == 0) {
+        if ($tersedia == 0) {
             return 200;
         }
-        if ($product->min_stock !== null && $qtyOnHand <= (float) $product->min_stock) {
+        if ($product->min_stock !== null && $tersedia <= (float) $product->min_stock) {
             return 100;
         }
         return 0;
