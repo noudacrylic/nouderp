@@ -297,15 +297,24 @@
         <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
             <a href="{{ route('sales.orders.print', $r['id']) }}"
                class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
-            @unless($r['is_lunas'])
-                <a href="{{ route('sales.payment.create', ['customer_id' => $r['customer_id'], 'so_id' => $r['id'], 'mode' => 'uang_muka']) }}"
-                   class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">💵 Cash</a>
-                <button type="button" onclick="window._midtransOpenSo({{ $r['id'] }})"
-                        class="text-xs px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">💳 Link</button>
-                <button type="button" onclick="window._midtransOpenSoQris({{ $r['id'] }})"
-                        class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">QRIS</button>
-            @endunless
-            <span class="ml-auto text-[11px] text-gray-400 italic">Otomatis pindah ke "Perlu Diproses" saat syarat terpenuhi.</span>
+            {{-- Marketplace: pembayaran terjadi di channel, BUKAN via ERP. Jangan tawarkan
+                 Cash/Link/QRIS — DP otomatis diposting saat Jubelio melaporkan pesanan dibayar
+                 (manual pay di sini akan dobel dengan DP marketplace). --}}
+            @if(empty($r['is_marketplace']))
+                @unless($r['is_lunas'])
+                    <a href="{{ route('sales.payment.create', ['customer_id' => $r['customer_id'], 'so_id' => $r['id'], 'mode' => 'uang_muka']) }}"
+                       class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">💵 Cash</a>
+                    <button type="button" onclick="window._midtransOpenSo({{ $r['id'] }})"
+                            class="text-xs px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">💳 Link</button>
+                    <button type="button" onclick="window._midtransOpenSoQris({{ $r['id'] }})"
+                            class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">QRIS</button>
+                @endunless
+            @endif
+            <span class="ml-auto text-[11px] text-gray-400 italic">
+                {{ !empty($r['is_marketplace'])
+                    ? 'Stok sudah ter-reserve. Otomatis pindah ke "Perlu Diproses" saat dibayar di marketplace.'
+                    : 'Otomatis pindah ke "Perlu Diproses" saat syarat terpenuhi.' }}
+            </span>
         </div>
 
     @elseif($isDone && !empty($r['is_marketplace']))

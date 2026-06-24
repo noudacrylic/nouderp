@@ -220,11 +220,24 @@ class JubelioOrderSyncService
             return $link;
         }
 
-        // TAHAP A — dibayar → SO + DP.
-        // (Aman dari duplikasi via unique constraint jubelio_salesorder_id + transaksi
-        // internal; API resolveItems sengaja di luar lock.)
-        if ($this->isPaid($detail) && !$link->dp_posted) {
-            $this->ensureSalesOrderAndDp($detail, $link);
+        // Persist link lebih dulu agar punya id — ensureSalesOrder/ensureDp mengunci baris link
+        // (lockForUpdate) untuk anti-duplikasi; pesanan baru (firstOrNew) belum tersimpan.
+        $link->save();
+
+        // TAHAP A — buat Sales Order SEDINI MUNGKIN, bahkan untuk pesanan yang BELUM dibayar,
+        // agar stok ERP ikut ter-reserve (Dipesan) sejajar dengan reservasi Jubelio. Tanpa ini,
+        // pesanan belum-bayar memotong "stok tersedia" di Jubelio tapi tidak di ERP → selisih
+        // stok sulit dilacak. SO dibuat status confirmed (reservasi stok) TANPA memicu produksi
+        // preorder — pemicu produksi tetap di posting DP, sehingga order yang batal/tak jadi
+        // bayar tidak meninggalkan OP. Idempotent: link di-lock + cek-ulang di dalam.
+        if (!$link->sales_order_id) {
+            $this->ensureSalesOrder($detail, $link);
+        }
+
+        // TAHAP A2 — dibayar → posting DP/uang muka (memicu settlement Hold→Wallet saat invoice
+        // & produksi preorder via SalesAdvanceObserver). Dipisah agar SO bisa dibuat lebih dulu.
+        if ($link->sales_order_id && $this->isPaid($detail) && !$link->dp_posted) {
+            $this->ensureDp($link);
         }
 
         // TAHAP B & C — SJ & Invoice. Keduanya murni DB → bungkus dalam satu transaksi
@@ -558,6 +571,10 @@ class JubelioOrderSyncService
         $ref = $link->jubelio_salesorder_no ?: (string) $link->jubelio_salesorder_id;
         $link->last_status = 'canceled';
 
+        // SO yang belum sempat dapat DP = belum pernah dibayar → alasan eksplisit "Belum dibayar"
+        // (marketplace umumnya membatalkan order belum-bayar saat jendela bayar habis).
+        $wasUnpaid = !$link->dp_posted;
+
         $so = $link->sales_order_id ? SalesOrder::find($link->sales_order_id) : null;
 
         if (!$so || in_array($so->status, ['void', 'cancelled'], true)) {
@@ -585,7 +602,13 @@ class JubelioOrderSyncService
         }
 
         try {
-            DB::transaction(function () use ($so, $link) {
+            DB::transaction(function () use ($so, $link, $wasUnpaid) {
+                // Catat alasan batal agar tampil di tab Pembatalan. Order belum-bayar → "Belum
+                // dibayar"; bila Jubelio sudah memberi alasan spesifik, hormati alasan itu.
+                if ($wasUnpaid && empty($link->cancel_reason)) {
+                    $link->cancel_reason = 'Belum dibayar';
+                }
+
                 // 1. Void DP/uang muka (bila ada) — mirror PaymentController::void.
                 if ($link->customer_payment_id) {
                     $payment = \App\Models\CustomerPayment::with('allocations.salesOrder')->find($link->customer_payment_id);
@@ -614,7 +637,9 @@ class JubelioOrderSyncService
 
             JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . $ref, [
                 'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
-                'message'   => "SO {$so->order_number} di-void otomatis (dibatalkan di Jubelio).",
+                'message'   => $wasUnpaid
+                    ? "SO {$so->order_number} di-void otomatis (belum dibayar / dibatalkan di marketplace) — reservasi stok dilepas."
+                    : "SO {$so->order_number} di-void otomatis (dibatalkan di Jubelio).",
             ]);
         } catch (\Throwable $e) {
             $link->last_error = 'Gagal auto-void: ' . $e->getMessage();
@@ -667,9 +692,19 @@ class JubelioOrderSyncService
             ->update(['status' => 'cancelled']);
     }
 
-    // ───────────────────────────── Tahap A: SO + DP ─────────────────────────────
+    // ───────────────────────────── Tahap A: Sales Order (reservasi stok) ─────────────────────────────
 
-    private function ensureSalesOrderAndDp(array $detail, JubelioOrderLink $link): void
+    /**
+     * Buat Sales Order ERP dari pesanan Jubelio + posting (confirm) agar stok ter-reserve.
+     * Dijalankan bahkan untuk pesanan BELUM dibayar — tujuannya menyamakan reservasi stok ERP
+     * dengan Jubelio supaya selisih stok mudah dideteksi. TIDAK memposting DP (lihat ensureDp),
+     * jadi produksi preorder belum terpicu untuk order yang mungkin batal/tidak jadi bayar.
+     *
+     * Idempotent: resolusi item & fee di luar lock (ada API call); pembuatan SO di dalam
+     * transaksi dgn lock baris link + cek-ulang sales_order_id agar webhook+cron tak membuat
+     * SO (dan reservasi stok) dobel.
+     */
+    private function ensureSalesOrder(array $detail, JubelioOrderLink $link): void
     {
         $setting = $this->setting();
 
@@ -696,6 +731,16 @@ class JubelioOrderSyncService
         }
 
         DB::transaction(function () use ($detail, $link, $customerId, $warehouseId, $resolved, $store) {
+            // Lock baris link + cek-ulang: webhook & cron bisa konkuren membuat SO untuk pesanan
+            // yang sama → reservasi stok dobel. Lock memastikan hanya satu proses yang membuat.
+            $locked = JubelioOrderLink::where('id', $link->id)->lockForUpdate()->first();
+            if (!$locked || $locked->sales_order_id) {
+                if ($locked) {
+                    $link->sales_order_id = $locked->sales_order_id; // sinkron utk dispatch DP di luar
+                }
+                return;
+            }
+
             $poNumber = $detail['salesorder_no'] ?? ('JBL-' . $link->jubelio_salesorder_id);
 
             $subtotal = 0.0;
@@ -754,24 +799,66 @@ class JubelioOrderSyncService
                 ]);
             }
 
-            // Posting SO (reservasi stok + auto-produksi preorder mengikuti pola existing).
+            // Posting SO → reservasi stok. Produksi preorder TIDAK terpicu di sini (pemicunya
+            // posting DP — lihat ensureDp), agar order belum-bayar tak meninggalkan OP.
             $this->orderService->confirm($so->id);
 
-            $link->sales_order_id = $so->id;
-            $link->store = $store ?: $link->store;
+            $locked->sales_order_id = $so->id;
+            $locked->store = $store ?: $locked->store;
+            $locked->last_error = null;
+            $locked->save();
 
-            // Bayar DP = grand_total. Untuk marketplace, kas = akun Titipan/Hold marketplace
-            // sehingga settlement (Hold→Wallet) saat invoice menutup dengan rapi.
-            $this->postAdvance($so, $customerId, $link);
-
-            // Persist progres tahap A di dalam transaksi agar konsisten dengan SO yang dibuat.
+            // Sinkron ke instance luar agar save() metadata di syncOrderById tak me-revert,
+            // dan agar dispatch DP (ensureDp) di luar transaksi melihat sales_order_id.
+            $link->sales_order_id = $locked->sales_order_id;
+            $link->store = $locked->store;
             $link->last_error = null;
-            $link->save();
 
-            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
-                'reference'             => $link->jubelio_salesorder_no,
-                'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
-                'message'               => 'Sales Order ' . $so->order_number . ' dibuat + DP diposting' . ($store ? " ({$store})" : ''),
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($locked->jubelio_salesorder_no ?: $locked->jubelio_salesorder_id), [
+                'reference'             => $locked->jubelio_salesorder_no,
+                'jubelio_salesorder_id' => $locked->jubelio_salesorder_id,
+                'message'               => 'Sales Order ' . $so->order_number . ' dibuat — stok ter-reserve, menunggu pembayaran' . ($store ? " ({$store})" : ''),
+                'meta'                  => ['sales_order_id' => $so->id, 'grand_total' => (float) $so->grand_total],
+            ]);
+        });
+    }
+
+    /**
+     * Posting DP/uang muka untuk SO marketplace yang SUDAH dibayar di channel. Dipisah dari
+     * pembuatan SO supaya SO bisa dibuat lebih dulu (reservasi stok) sejak order belum dibayar.
+     * Memicu settlement Hold→Wallet (saat invoice) & produksi preorder (SalesAdvanceObserver).
+     * Idempotent: lock baris link + cek-ulang dp_posted agar webhook+cron tak posting DP dobel.
+     */
+    private function ensureDp(JubelioOrderLink $link): void
+    {
+        DB::transaction(function () use ($link) {
+            $locked = JubelioOrderLink::where('id', $link->id)->lockForUpdate()->first();
+            if (!$locked || !$locked->sales_order_id || $locked->dp_posted) {
+                if ($locked) {
+                    $link->dp_posted = $locked->dp_posted;
+                    $link->customer_payment_id = $locked->customer_payment_id;
+                }
+                return;
+            }
+
+            $so = SalesOrder::find($locked->sales_order_id);
+            if (!$so) {
+                return;
+            }
+
+            // Bayar DP = grand_total SO. Untuk marketplace, kas = akun Titipan/Hold marketplace
+            // sehingga settlement (Hold→Wallet) saat invoice menutup dengan rapi.
+            $this->postAdvance($so, (int) $so->customer_id, $locked);
+            $locked->save();
+
+            // Sinkron ke instance luar agar save() metadata di syncOrderById tak me-revert flag.
+            $link->dp_posted = $locked->dp_posted;
+            $link->customer_payment_id = $locked->customer_payment_id;
+
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($locked->jubelio_salesorder_no ?: $locked->jubelio_salesorder_id), [
+                'reference'             => $locked->jubelio_salesorder_no,
+                'jubelio_salesorder_id' => $locked->jubelio_salesorder_id,
+                'message'               => 'DP/uang muka diposting untuk SO ' . $so->order_number . ' (pesanan dibayar).',
                 'meta'                  => ['sales_order_id' => $so->id, 'grand_total' => (float) $so->grand_total],
             ]);
         });
