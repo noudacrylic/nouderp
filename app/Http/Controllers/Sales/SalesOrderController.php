@@ -852,6 +852,9 @@ class SalesOrderController extends Controller
             // Lepas reservasi stok (draft normalnya belum ada, tapi aman bila ada).
             \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)
                 ->update(['status' => 'cancelled']);
+            // Mass-update di atas tidak memicu observer reservasi → tandai manual agar
+            // "stok Jubelio" (= fisik − dipesan non-MP) bertambah lagi setelah reservasi lepas.
+            $this->flagJubelioStockPending($so->id);
 
             // Batalkan PO produksi auto-preorder yang masih draft.
             $this->cancelAutoPreorderProductions($so);
@@ -920,6 +923,8 @@ class SalesOrderController extends Controller
         // Release stock reservations
         \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)
             ->update(['status' => 'cancelled']);
+        // Mass-update tidak memicu observer reservasi → tandai manual untuk push ke Jubelio.
+        $this->flagJubelioStockPending($so->id);
 
         $this->cancelAutoPreorderProductions($so);
 
@@ -949,6 +954,36 @@ class SalesOrderController extends Controller
      * Yang sudah confirmed/in_progress/completed → biarkan jalan (material sudah dikonsumsi),
      * cukup log warning agar bisa di-review manual.
      */
+    /**
+     * Tandai produk yang reservasinya berubah karena void/hapus SO agar didorong ulang ke
+     * Jubelio. Dipakai pada jalur mass-update reservasi (yang melewati StockReservationObserver).
+     * Produk komponen bundle ikut dipanggil lewat reservasinya; bundle induk ditandai juga.
+     */
+    private function flagJubelioStockPending(int $salesOrderId): void
+    {
+        $productIds = \App\Core\Inventory\StockReservation::where('sales_order_id', $salesOrderId)
+            ->pluck('product_id')->unique()->all();
+        if (empty($productIds)) {
+            return;
+        }
+
+        \App\Core\Inventory\Product::whereIn('id', $productIds)
+            ->where('sync_to_jubelio', true)
+            ->update(['jubelio_sync_pending' => true]);
+
+        $bundleIds = \App\Core\Inventory\BundleComponent::whereIn('component_product_id', $productIds)
+            ->pluck('bundle_product_id');
+        if ($bundleIds->isEmpty()) {
+            $bundleIds = \App\Core\Inventory\ProductBundle::whereIn('component_product_id', $productIds)
+                ->pluck('bundle_product_id');
+        }
+        if ($bundleIds->isNotEmpty()) {
+            \App\Core\Inventory\Product::whereIn('id', $bundleIds)
+                ->where('sync_to_jubelio', true)
+                ->update(['jubelio_sync_pending' => true]);
+        }
+    }
+
     private function cancelAutoPreorderProductions(SalesOrder $so): void
     {
         $pos = ProductionOrder::where('sales_order_id', $so->id)

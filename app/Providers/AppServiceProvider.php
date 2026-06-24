@@ -17,6 +17,8 @@ use App\Modules\Production\Observers\SalesAdvanceObserver;
 use App\Models\ProductPrice;
 use App\Modules\Marketplace\Jubelio\Observers\InventoryLedgerObserver as JubelioInventoryLedgerObserver;
 use App\Modules\Marketplace\Jubelio\Observers\ProductPriceObserver as JubelioProductPriceObserver;
+use App\Modules\Marketplace\Jubelio\Observers\StockReservationObserver as JubelioStockReservationObserver;
+use App\Core\Inventory\StockReservation;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -48,6 +50,9 @@ class AppServiceProvider extends ServiceProvider
         // Perubahan stok (pembelian, SJ, penyesuaian, transfer, produksi) → tandai produk
         // untuk didorong ke Jubelio (push via cron, bukan HTTP di sini).
         InventoryLedger::observe(JubelioInventoryLedgerObserver::class);
+        // Reservasi SO non-marketplace (dibuat saat SO dikonfirmasi, tak menggerakkan ledger)
+        // → tandai produk agar "stok Jubelio" (= fisik − dipesan non-MP) didorong ulang.
+        StockReservation::observe(JubelioStockReservationObserver::class);
         // Perubahan harga produk → tandai untuk push harga ke Jubelio (Fase 3).
         ProductPrice::observe(JubelioProductPriceObserver::class);
     }

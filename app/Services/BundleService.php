@@ -17,10 +17,13 @@ class BundleService
      * Rumus: floor( (stok_komponen - reserved_komponen) / qty_per_bundle )
      *        ambil yang terkecil dari semua komponen.
      *
-     * @param bool $physical true = pakai ON-HAND komponen murni (tanpa kurangi reservasi);
-     *                       dipakai saat mendorong STOK FISIK bundle ke Jubelio.
+     * @param bool $physical true = pakai ON-HAND komponen murni (tanpa kurangi reservasi).
+     * @param bool $excludeMarketplaceReserved (hanya berlaku bila $physical=false) true =
+     *                       kurangi HANYA reservasi NON-marketplace (SO tanpa JubelioOrderLink).
+     *                       Dipakai saat mendorong "stok Jubelio" = fisik − dipesan non-MP,
+     *                       karena reservasi marketplace sudah dikelola Jubelio sendiri.
      */
-    public function getBundleStock(int $bundleId, ?int $warehouseId = null, bool $physical = false): int
+    public function getBundleStock(int $bundleId, ?int $warehouseId = null, bool $physical = false, bool $excludeMarketplaceReserved = false): int
     {
         // 1. Prioritaskan tabel bundle_components (model BundleComponent, field qty)
         $components = BundleComponent::where('bundle_product_id', $bundleId)->get();
@@ -49,6 +52,14 @@ class BundleService
                 ->where('status', 'active');
             if ($warehouseId) {
                 $reservedQuery->where('warehouse_id', $warehouseId);
+            }
+            if ($excludeMarketplaceReserved) {
+                // Abaikan reservasi milik SO marketplace (sudah direservasi di Jubelio).
+                $reservedQuery->whereNotIn('sales_order_id', function ($q) {
+                    $q->select('sales_order_id')
+                      ->from('jubelio_order_links')
+                      ->whereNotNull('sales_order_id');
+                });
             }
             $reservedQty = $reservedQuery->sum('qty');
 

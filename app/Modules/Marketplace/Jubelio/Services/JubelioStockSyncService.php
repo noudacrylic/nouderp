@@ -120,14 +120,21 @@ class JubelioStockSyncService
             return 'skipped_unmatched';
         }
 
-        // Dorong STOK FISIK (on-hand) ke Jubelio — BUKAN stok tersedia. Tiap sistem mengelola
-        // reservasi pesanannya sendiri: reservasi ERP berasal dari pesanan marketplace yang
-        // JUGA direservasi oleh Jubelio. Mendorong angka fisik mencegah pengurangan ganda
-        // (double-count → "stok tersedia" Jubelio bisa minus) tanpa risiko oversell.
-        // Bundle: stok fisik dari ON-HAND komponen murni (param physical=true, tanpa reservasi).
+        // Dorong "STOK JUBELIO" = stok fisik (on-hand) DIKURANGI reservasi pesanan
+        // NON-marketplace saja. Alasannya:
+        //  - Reservasi marketplace TIDAK dikurangi: Jubelio sudah mereservasi pesanannya
+        //    sendiri, jadi menguranginya di sini = pengurangan ganda (available Jubelio minus).
+        //  - Reservasi non-marketplace (SO dibuat di ERP) TIDAK diketahui Jubelio & belum
+        //    memotong stok fisik sampai Surat Jalan terbit → tanpa dikurangi di sini, Jubelio
+        //    bisa oversell barang yang sudah dipesan offline. Saat DO terbit, fisik turun &
+        //    reservasi hilang, sehingga (fisik − reservasi_nonMP) tetap → cocok kembali.
+        // Bundle: hitung dari komponen, kurangi reservasi non-MP komponen (excludeMarketplace).
         $available = $product->sale_type === 'bundle'
-            ? (float) $this->bundles->getBundleStock($product->id, null, true)
-            : round($this->inventory->onHand($product->id), 4);
+            ? (float) $this->bundles->getBundleStock($product->id, null, false, true)
+            : round($this->inventory->onHand($product->id) - $this->nonMarketplaceReserved($product->id), 4);
+
+        // Jangan pernah kirim stok negatif ke Jubelio (mis. oversold sebelum DO).
+        $available = max(0.0, $available);
 
         // Produk preorder: tambah buffer kuota preorder (products.preorder_stock) agar bisa
         // dijual melampaui stok fisik. Tanpa ini, preorder yang fisiknya 0 tampak habis.
@@ -181,10 +188,27 @@ class JubelioStockSyncService
         JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::OK, $product->name, [
             'reference'  => $product->sku,
             'product_id' => $product->id,
-            'message'    => ($reconcile ? 'Rekonsiliasi' : 'Push') . ' stok: ' . ($delta > 0 ? '+' : '') . rtrim(rtrim(number_format($delta, 4, '.', ''), '0'), '.') . ' → fisik ' . rtrim(rtrim(number_format($available, 4, '.', ''), '0'), '.'),
+            'message'    => ($reconcile ? 'Rekonsiliasi' : 'Push') . ' stok: ' . ($delta > 0 ? '+' : '') . rtrim(rtrim(number_format($delta, 4, '.', ''), '0'), '.') . ' → stok Jubelio ' . rtrim(rtrim(number_format($available, 4, '.', ''), '0'), '.'),
             'meta'       => ['delta' => $delta, 'available' => $available, 'mode' => $reconcile ? 'reconcile' : 'push'],
         ]);
         return 'pushed';
+    }
+
+    /**
+     * Total reservasi AKTIF produk dari SO NON-marketplace (SO yang TIDAK punya
+     * JubelioOrderLink). Reservasi marketplace sengaja dikecualikan agar tidak terjadi
+     * pengurangan ganda terhadap reservasi yang sudah dikelola Jubelio sendiri.
+     */
+    private function nonMarketplaceReserved(int $productId): float
+    {
+        return (float) \App\Core\Inventory\StockReservation::where('product_id', $productId)
+            ->where('status', 'active')
+            ->whereNotIn('sales_order_id', function ($q) {
+                $q->select('sales_order_id')
+                  ->from('jubelio_order_links')
+                  ->whereNotNull('sales_order_id');
+            })
+            ->sum('qty');
     }
 
     /** Resolusi item_id Jubelio dari produk (cache di kolom; fallback via SKU). */
