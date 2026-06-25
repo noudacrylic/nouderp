@@ -93,7 +93,7 @@ return [
                 'url'   => '/erp/pos/fulfillment/belum-siap',
                 'route_patterns' => ['pos.fulfillment.*'],
                 'subtabs' => [
-                    ['label' => 'Belum Siap',     'url' => '/erp/pos/fulfillment/belum-siap',     'route_patterns' => ['pos.fulfillment.belum-siap*']],
+                    ['label' => 'Belum Siap',     'url' => '/erp/pos/fulfillment/belum-siap',     'route_patterns' => ['pos.fulfillment.belum-siap*'], 'badge' => 'belum_siap'],
                     ['label' => 'Perlu Diproses', 'url' => '/erp/pos/fulfillment/perlu-diproses', 'route_patterns' => ['pos.fulfillment.perlu-diproses*'], 'badge' => 'perlu_diproses'],
                     ['label' => 'Telah Diproses', 'url' => '/erp/pos/fulfillment/telah-diproses', 'route_patterns' => ['pos.fulfillment.telah-diproses*'], 'badge' => 'telah_diproses'],
                     ['label' => 'Dikirim',        'url' => '/erp/pos/fulfillment/dikirim',        'route_patterns' => ['pos.fulfillment.dikirim*'], 'badge' => 'dikirim'],
