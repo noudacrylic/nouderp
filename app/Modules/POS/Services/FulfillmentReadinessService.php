@@ -381,6 +381,11 @@ class FulfillmentReadinessService
             'is_lunas'    => $isLunas,
             'is_custom'   => $isCustom,
 
+            // Gagal proses: marketplace pakai jejak WMS Jubelio; non-marketplace pakai
+            // kolom process_error SO (di-set saat Proses/Proses Massal gagal, dibersihkan saat sukses).
+            'process_failed' => $link ? !empty($link->wms_last_error) : !empty($so->process_error),
+            'process_error'  => $link ? $link->wms_last_error : $so->process_error,
+
             'delivery'    => $this->deliveryBreakdown($so),
             'invoice'     => $postedInvoice,
             'deliveries'  => $so->deliveries,

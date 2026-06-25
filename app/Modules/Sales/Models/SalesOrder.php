@@ -22,6 +22,8 @@ class SalesOrder extends Model
         'order_date',
         'notes',
         'seller_notes',
+        'process_error',
+        'process_failed_at',
 
         'subtotal',
         'discount_total',
@@ -57,6 +59,7 @@ class SalesOrder extends Model
     protected $casts = [
         'picked_up_at' => 'datetime',
         'pickup_date'  => 'date',
+        'process_failed_at' => 'datetime',
     ];
 
     public const DELIVERY_METHODS = [

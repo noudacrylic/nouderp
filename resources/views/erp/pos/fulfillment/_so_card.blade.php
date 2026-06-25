@@ -49,14 +49,18 @@
             . '<span class="w-16 text-right ' . ($remaining > 0 ? 'text-amber-600 font-semibold' : 'text-gray-400') . '">' . $fmtQty($remaining) . '</span>'
             . '</div>';
     };
+
+    // Tandai kartu yang GAGAL diproses (perlu_diproses) dgn warna merah agar menonjol.
+    $isFailed = $mode === 'perlu_diproses' && !empty($r['process_failed']);
 @endphp
-<div class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-emerald-500 shadow-md hover:shadow-lg transition-shadow p-4">
+<div class="bg-white rounded-xl border shadow-md hover:shadow-lg transition-shadow p-4 {{ $isFailed ? 'border-red-300 border-l-4 border-l-red-500' : 'border-gray-300 border-l-4 border-l-emerald-500' }}">
     {{-- Header: nomor + kurir/ambil-toko + status/batas waktu --}}
-    <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 bg-emerald-100 rounded-t-xl border-b border-emerald-200">
+    <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 rounded-t-xl border-b {{ $isFailed ? 'bg-red-100 border-red-200' : 'bg-emerald-100 border-emerald-200' }}">
         @if($mode === 'perlu_diproses')
             <input type="checkbox" class="js-bulk-check w-4 h-4 accent-indigo-600 cursor-pointer"
                    value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
                    data-lunas="{{ $r['is_lunas'] ? 1 : 0 }}" data-pickup="{{ $r['is_pickup'] ? 1 : 0 }}"
+                   data-failed="{{ !empty($r['process_failed']) ? 1 : 0 }}"
                    title="Pilih untuk aksi massal">
         @elseif($mode === 'telah_diproses' && empty($r['is_marketplace']))
             {{-- Aksi massal Telah Diproses (Cetak SJ/Generate Resi Biteship) tak berlaku utk marketplace. --}}
@@ -97,6 +101,9 @@
         @if(!empty($r['j_is_instant']))
             <span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-700 ring-1 ring-orange-300"
                   title="Pesanan instant courier — proses & serahkan ke kurir segera">⚡ INSTANT</span>
+        @endif
+        @if($isFailed)
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white" title="{{ $r['process_error'] ?? '' }}">⚠ GAGAL PROSES</span>
         @endif
         @if($mode === 'belum_siap' && !empty($r['reason']))
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500">⏳ {{ $r['reason'] }}</span>
@@ -155,6 +162,14 @@
             @endif
         @endif
     </div>
+
+    @if($isFailed && !empty($r['process_error']))
+        {{-- Alasan gagal proses (agar operator tahu apa yang harus diperbaiki sebelum proses ulang) --}}
+        <div class="-mx-4 px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700 flex items-start gap-1.5">
+            <span class="shrink-0">⚠</span>
+            <span><span class="font-semibold">Gagal diproses:</span> {{ $r['process_error'] }}</span>
+        </div>
+    @endif
 
     {{-- Body 2 kolom — kiri: produk & qty + catatan pembeli · kanan: customer/alamat + nilai + instruksi --}}
     <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-x-5 gap-y-3">

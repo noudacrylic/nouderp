@@ -11,6 +11,17 @@
 
 @include('erp.pos.fulfillment._filters', ['couriers' => $couriers])
 
+{{-- Tombol pintas: pilih semua pesanan yang GAGAL diproses untuk diproses ulang.
+     Muncul hanya bila ada kegagalan (dihitung dari kartu via JS). --}}
+<div id="failedBar" class="hidden mb-3 flex items-center gap-2 flex-wrap">
+    <button type="button" id="btnSelectFailed"
+            class="text-sm px-3 py-2 rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 font-semibold inline-flex items-center gap-2">
+        ⚠ Gagal Proses
+        <span id="failedCount" class="px-1.5 py-0.5 rounded-full bg-red-600 text-white text-xs font-bold leading-none">0</span>
+    </button>
+    <span class="text-xs text-gray-400">Klik untuk pilih pesanan yang gagal diproses, lalu tekan ✅ Proses untuk coba ulang.</span>
+</div>
+
 {{-- Bar aksi massal (muncul saat ≥1 pesanan dicentang) --}}
 <div id="bulkBar" class="hidden z-40 mb-3 bg-white border border-indigo-200 rounded-xl shadow-md px-3 py-2 flex items-center gap-3 flex-wrap">
     <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
@@ -115,6 +126,22 @@
     }
 
     document.getElementById('bulkProses').addEventListener('click', () => submitProses());
+
+    // ── Tombol "Gagal Proses": tampil bila ada kartu gagal; klik → centang semuanya. ──
+    const failedBar = document.getElementById('failedBar');
+    const failed = () => checks().filter(c => c.dataset.failed === '1');
+    const f = failed();
+    if (f.length) {
+        document.getElementById('failedCount').textContent = f.length;
+        failedBar.classList.remove('hidden');
+    }
+    document.getElementById('btnSelectFailed').addEventListener('click', function () {
+        const list = failed();
+        if (!list.length) return;
+        list.forEach(c => { c.checked = true; });
+        refresh();                                   // tampilkan bulk bar + perbarui hitungan
+        list[0].closest('.bg-white')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
 })();
 </script>
 @endsection

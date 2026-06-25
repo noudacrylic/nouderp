@@ -142,7 +142,9 @@ class FulfillmentController extends Controller
 
         try {
             $invoice = $posSvc->createInvoiceFromSalesOrder($salesOrder, $request->input('pickup_code'));
+            $salesOrder->forceFill(['process_error' => null, 'process_failed_at' => null])->save();
         } catch (\Throwable $e) {
+            $salesOrder->forceFill(['process_error' => $e->getMessage(), 'process_failed_at' => now()])->save();
             return back()->with('error', 'Gagal memproses pesanan: ' . $e->getMessage());
         }
 
@@ -214,11 +216,13 @@ class FulfillmentController extends Controller
 
             try {
                 $posSvc->createInvoiceFromSalesOrder($so); // tanpa pickup_code → ambil-toko otomatis ditolak
+                $so->forceFill(['process_error' => null, 'process_failed_at' => null])->save();
                 $processed[] = $so->order_number;
                 $sj = SalesDelivery::where('sales_order_id', $so->id)
                     ->where('status', '!=', 'void')->latest('id')->first();
                 if ($sj) $deliveryIds[] = $sj->id;
             } catch (\Throwable $e) {
+                $so->forceFill(['process_error' => $e->getMessage(), 'process_failed_at' => now()])->save();
                 $failed[] = "{$so->order_number} ({$e->getMessage()})";
             }
         }
