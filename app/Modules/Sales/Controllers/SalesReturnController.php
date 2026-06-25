@@ -61,8 +61,10 @@ class SalesReturnController extends Controller
             })
             // 2. Harus sudah lunas (Uang Muka / Payment penuh)
             ->whereRaw('COALESCE(paid_amount, 0) >= grand_total')
-            // 3. Menghindari double retur
-            ->whereDoesntHave('returns')
+            // 3. Menghindari double retur (hanya retur yang sudah POSTED yang memblokir;
+            //    draft tidak diblokir agar SO-nya tetap muncul saat draft retur diedit —
+            //    selaras dengan getInvoices()).
+            ->whereDoesntHave('returns', fn ($q) => $q->where('status', 'posted'))
             ->latest('order_date')
             ->get()
             ->map(function ($so) {
