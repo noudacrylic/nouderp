@@ -207,6 +207,187 @@ class SalesDeliveryService
         $needed[$productId]['qty'] += (float) $qty;
     }
 
+    /**
+     * Void Surat Jalan posted: balikkan stok (FIFO per-cost, hormati cogs_deferred) +
+     * balik jurnal booking ongkir. Sumber kebenaran void SJ — dipanggil oleh
+     * SalesDeliveryController::void (manual) DAN auto-void pembatalan Jubelio.
+     * Lempar RuntimeException untuk pelanggaran dependency (dipetakan ke pesan UI di caller).
+     */
+    public function voidDelivery(SalesDelivery $delivery): void
+    {
+        $delivery->loadMissing(['items.product', 'invoice']);
+
+        if ($delivery->status !== 'posted') {
+            throw new \RuntimeException('Hanya Surat Jalan posted yang bisa di-void.');
+        }
+
+        // ── Dependency checks ──
+        if ($delivery->invoice && !in_array(
+                ($delivery->invoice->status instanceof \App\Enums\InvoiceStatusEnum
+                    ? $delivery->invoice->status->value
+                    : $delivery->invoice->status),
+                ['void', 'cancelled', 'draft'],
+                true
+            )) {
+            throw new \RuntimeException("Surat Jalan tidak bisa di-void: masih terkait Invoice {$delivery->invoice->invoice_number} aktif. Void invoice tersebut terlebih dahulu.");
+        }
+
+        // Cek warranty delivery (warranty_order references via reference_type)
+        if (($delivery->reference_type ?? null) === 'warranty_order' && $delivery->reference_id) {
+            $war = \App\Models\WarrantyOrder::find($delivery->reference_id);
+            if ($war && !in_array($war->status, ['void', 'cancelled', 'draft'], true)) {
+                throw new \RuntimeException("Surat Jalan tidak bisa di-void: masih terkait Garansi {$war->warranty_number} aktif. Void garansi tersebut terlebih dahulu.");
+            }
+        }
+
+        DB::transaction(function () use ($delivery) {
+            // Reverse stock per item
+            $engine = app(\App\Core\Inventory\InventoryEngine::class);
+
+            foreach ($delivery->items as $item) {
+                $product = $item->product;
+                if (!$product || in_array($product->sale_type ?? null, ['service', 'non_stock'], true)) {
+                    continue;
+                }
+                if ((float) $item->qty <= 0) continue;
+
+                // Item yang masih di-defer: dikirim dengan stok minus, COGS belum dihitung
+                // dan TIDAK ada layer FIFO yang dikonsumsi. Cukup balikkan ledger (tambah qty),
+                // tanpa membuat layer biaya phantom.
+                if ($item->cogs_deferred) {
+                    $engine->ledger(
+                        $item->product_id,
+                        $delivery->warehouse_id,
+                        (float) $item->qty,
+                        0,
+                        'sales_void',
+                        $delivery->delivery_number,
+                        'Void delivery (deferred) ' . $delivery->delivery_number,
+                        $delivery->id,
+                        true
+                    );
+                    continue;
+                }
+
+                // Baris konsumsi FIFO milik SJ ini (per-layer, simpan unit_cost asli).
+                $consumeLayers = \App\Models\InventoryCostLayer::where('product_id', $item->product_id)
+                    ->where('reference_type', 'sales')
+                    ->where('reference_id', $delivery->id)
+                    ->where('qty_out', '>', 0)
+                    ->orderBy('id')
+                    ->get();
+
+                $totalQty = (float) $consumeLayers->sum('qty_out');
+
+                if ($totalQty <= 0) {
+                    // Tak ada jejak konsumsi (data lama): fallback kembalikan qty item ke
+                    // ledger saja dgn cost dari cogs_total bila ada.
+                    $totalQty = (float) $item->qty;
+                    $fbCost = ((float) $item->qty > 0 && (float) ($item->cogs_total ?? 0) > 0)
+                        ? (float) $item->cogs_total / (float) $item->qty : 0;
+
+                    $engine->ledger(
+                        $item->product_id, $delivery->warehouse_id, $totalQty, 0,
+                        'sales_void', $delivery->delivery_number,
+                        'Void delivery ' . $delivery->delivery_number, $delivery->id
+                    );
+                    \App\Core\Inventory\StockLayer::create([
+                        'product_id'    => $item->product_id,
+                        'warehouse_id'  => $delivery->warehouse_id,
+                        'qty_in'        => $totalQty,
+                        'qty_remaining' => $totalQty,
+                        'unit_cost'     => $fbCost,
+                        'source_type'   => 'sales_void',
+                        'source_id'     => $delivery->id,
+                    ]);
+                    \App\Models\InventoryCostLayer::create([
+                        'product_id'     => $item->product_id,
+                        'qty_in'         => $totalQty,
+                        'qty_balance'    => $totalQty,
+                        'unit_cost'      => $fbCost,
+                        'reference_type' => 'sales_void',
+                        'reference_id'   => $delivery->id,
+                    ]);
+                    continue;
+                }
+
+                // 1) Ledger: kembalikan qty fisik ke running-balance.
+                $engine->ledger(
+                    $item->product_id, $delivery->warehouse_id, $totalQty, 0,
+                    'sales_void', $delivery->delivery_number,
+                    'Void delivery ' . $delivery->delivery_number, $delivery->id
+                );
+
+                // 2) Kembalikan qty_remaining ke LAYER ASLI per unit_cost (jaga FIFO &
+                //    cost asli) — bukan bikin layer rata-rata baru di akhir antrean.
+                $byCost = [];
+                foreach ($consumeLayers as $cl) {
+                    $key = (string) round((float) $cl->unit_cost, 4);
+                    $byCost[$key] = ($byCost[$key] ?? 0) + (float) $cl->qty_out;
+                }
+
+                foreach ($byCost as $costKey => $restoreQty) {
+                    $cost = (float) $costKey;
+                    $remainingToRestore = $restoreQty;
+
+                    // Layer asli ber-cost sama yg sempat terkuras (FIFO: tertua dulu).
+                    $stockLayers = \App\Core\Inventory\StockLayer::where('product_id', $item->product_id)
+                        ->where('warehouse_id', $delivery->warehouse_id)
+                        ->whereRaw('ROUND(unit_cost, 4) = ?', [round($cost, 4)])
+                        ->whereColumn('qty_remaining', '<', 'qty_in')
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get();
+
+                    foreach ($stockLayers as $sl) {
+                        if ($remainingToRestore <= 0.00001) break;
+                        $headroom = (float) $sl->qty_in - (float) $sl->qty_remaining;
+                        $add = min($headroom, $remainingToRestore);
+                        $sl->qty_remaining = (float) $sl->qty_remaining + $add;
+                        $sl->save();
+                        $remainingToRestore -= $add;
+                    }
+
+                    // Sisa tak terpetakan (cost bergeser/data lama) → layer pemulih baru.
+                    if ($remainingToRestore > 0.00001) {
+                        \App\Core\Inventory\StockLayer::create([
+                            'product_id'    => $item->product_id,
+                            'warehouse_id'  => $delivery->warehouse_id,
+                            'qty_in'        => $remainingToRestore,
+                            'qty_remaining' => $remainingToRestore,
+                            'unit_cost'     => $cost,
+                            'source_type'   => 'sales_void',
+                            'source_id'     => $delivery->id,
+                        ]);
+                    }
+
+                    // Audit ledger: entri pembalik per-cost.
+                    \App\Models\InventoryCostLayer::create([
+                        'product_id'     => $item->product_id,
+                        'qty_in'         => $restoreQty,
+                        'qty_balance'    => $restoreQty,
+                        'unit_cost'      => $cost,
+                        'reference_type' => 'sales_void',
+                        'reference_id'   => $delivery->id,
+                    ]);
+                }
+            }
+
+            // Fase 5 — balik jurnal booking ongkir (Saldo Biteship kembali) bila ada resi.
+            if ($delivery->isBooked()) {
+                app(\App\Modules\Shipping\Services\ShippingAccountingService::class)->reverseBooking($delivery);
+                $delivery->shipping_status = 'void';
+                $delivery->provider_order_id = null;
+            }
+
+            $delivery->status = 'void';
+            if (\Illuminate\Support\Facades\Schema::hasColumn($delivery->getTable(), 'voided_at')) {
+                $delivery->voided_at = now();
+            }
+            $delivery->save();
+        });
+    }
+
     public function post(int $deliveryId): void
     {
         DB::transaction(function () use ($deliveryId) {

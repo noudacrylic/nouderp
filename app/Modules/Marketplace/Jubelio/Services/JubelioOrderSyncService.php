@@ -586,21 +586,12 @@ class JubelioOrderSyncService
             return;
         }
 
-        // Guard: ada Faktur/Surat Jalan aktif → jangan auto-void.
-        $activeInvoice = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
-            ->whereNotIn('status', ['void', 'cancelled'])->exists();
-        $activeDelivery = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
-            ->whereNotIn('status', ['void', 'cancelled'])->exists();
-        if ($activeInvoice || $activeDelivery) {
-            $link->last_error = 'Dibatalkan di Jubelio, tetapi sudah ada Faktur/Surat Jalan — perlu void manual.';
-            $link->save();
-            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::FAIL, 'Pesanan ' . $ref, [
-                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
-                'message'   => 'Batal di Jubelio tapi sudah ada Faktur/SJ — tangani manual di tab Pembatalan.',
-            ]);
-            return;
-        }
-
+        // Auto-void PENUH saat Jubelio sinyal batal (operator cukup terima/tolak di Seller
+        // Center). Faktur/Surat Jalan yang sudah terbit ikut di-void otomatis: jurnal Faktur
+        // & stok SJ dibalik via service void yang sama dgn jalur manual (sumber kebenaran).
+        // Bila ada dependency yang menghalangi (Payment/Retur/Garansi/Billing aktif) atau error
+        // lain → catch di bawah menandai 'perlu tangani manual' (tak ada perubahan separuh
+        // jalan karena seluruhnya dalam satu transaksi).
         try {
             DB::transaction(function () use ($so, $link, $wasUnpaid) {
                 // Catat alasan batal agar tampil di tab Pembatalan. Order belum-bayar → "Belum
@@ -617,7 +608,24 @@ class JubelioOrderSyncService
                     }
                 }
 
-                // 2. Void SO — mirror SalesOrderController::void (subset aman: tanpa Faktur/SJ aktif).
+                // 1b. Void Faktur ERP aktif (bila ada) — membalik jurnal Faktur + jurnal
+                //     marketplace, mengembalikan qty_invoiced/uang muka, DAN ikut void Surat
+                //     Jalan terkait + balik stoknya (lihat SalesInvoiceService::voidPosted).
+                $activeInvoices = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+                    ->whereNotIn('status', ['void', 'cancelled'])->get();
+                foreach ($activeInvoices as $inv) {
+                    $this->invoiceService->voidPosted($inv);
+                }
+
+                // 1c. Void Surat Jalan posted yang belum ter-void lewat Faktur (SJ tanpa Faktur,
+                //     mis. order yg sudah dipick/resi tapi belum di-faktur) — balik stok ke ERP.
+                $activeDeliveries = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
+                    ->where('status', 'posted')->get();
+                foreach ($activeDeliveries as $del) {
+                    $this->deliveryService->voidDelivery($del);
+                }
+
+                // 2. Void SO — mirror SalesOrderController::void.
                 \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)->update(['status' => 'cancelled']);
                 $this->cancelAutoPreorderProductions($so);
                 $so->status = 'void';
@@ -632,6 +640,7 @@ class JubelioOrderSyncService
                     }
                 }
 
+                $link->last_error = null; // bersihkan flag "perlu void manual" bila sebelumnya ada
                 $link->save();
             });
 
@@ -639,7 +648,7 @@ class JubelioOrderSyncService
                 'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
                 'message'   => $wasUnpaid
                     ? "SO {$so->order_number} di-void otomatis (belum dibayar / dibatalkan di marketplace) — reservasi stok dilepas."
-                    : "SO {$so->order_number} di-void otomatis (dibatalkan di Jubelio).",
+                    : "SO {$so->order_number} di-void otomatis (dibatalkan di Jubelio) — Faktur/Surat Jalan ikut di-void & stok dikembalikan.",
             ]);
         } catch (\Throwable $e) {
             $link->last_error = 'Gagal auto-void: ' . $e->getMessage();

@@ -547,4 +547,178 @@ class SalesInvoiceService
         });
     }
 
+    /**
+     * Void Faktur posted/paid: void semua SJ terkait (+balik stok), void jurnal Faktur &
+     * jurnal marketplace (fee/settlement), kembalikan qty_invoiced ke SO, reset uang muka.
+     * Sumber kebenaran void Faktur — dipanggil oleh DebugInvoiceController::void (manual) DAN
+     * auto-void pembatalan Jubelio. Lempar RuntimeException untuk pelanggaran dependency.
+     */
+    public function voidPosted(SalesInvoice $invoice): void
+    {
+        $invoice->loadMissing(['items.product', 'delivery']);
+
+        $statusVal = $invoice->status instanceof \App\Enums\InvoiceStatusEnum
+            ? $invoice->status->value
+            : $invoice->status;
+
+        if (!in_array($statusVal, ['posted', 'paid'], true)) {
+            throw new \RuntimeException('Hanya invoice berstatus posted/paid yang dapat di-void.');
+        }
+
+        // -- Dependency checks ------------------------------------------
+        $activePayment = \App\Models\CustomerPaymentAllocation::where('invoice_id', $invoice->id)
+            ->whereHas('payment', fn($q) => $q->where('status', 'posted'))
+            ->with('payment')
+            ->first();
+        if ($activePayment) {
+            $payNum = $activePayment->payment->payment_number ?? '#' . $activePayment->customer_payment_id;
+            throw new \RuntimeException("Invoice tidak bisa di-void: masih ada Payment {$payNum} aktif. Void payment tersebut terlebih dahulu.");
+        }
+
+        $activeReturn = \App\Modules\Sales\Models\SalesReturn::where('invoice_id', $invoice->id)
+            ->whereNotIn('status', ['void', 'cancelled', 'draft'])
+            ->first();
+        if ($activeReturn) {
+            throw new \RuntimeException("Invoice tidak bisa di-void: masih ada Retur {$activeReturn->return_number} aktif. Void retur tersebut terlebih dahulu.");
+        }
+
+        $activeWarranty = \App\Models\WarrantyOrder::where('invoice_id', $invoice->id)
+            ->whereNotIn('status', ['void', 'cancelled', 'draft'])
+            ->first();
+        if ($activeWarranty) {
+            throw new \RuntimeException("Invoice tidak bisa di-void: masih ada Garansi {$activeWarranty->warranty_number} aktif. Void garansi tersebut terlebih dahulu.");
+        }
+
+        $activeBilling = \App\Models\CustomerBillingItem::where('invoice_id', $invoice->id)
+            ->whereHas('billing', fn($q) => $q->whereNotIn('status', ['void', 'draft']))
+            ->with('billing')
+            ->first();
+        if ($activeBilling) {
+            $bilNum = $activeBilling->billing->billing_number ?? '#' . $activeBilling->billing_id;
+            throw new \RuntimeException("Invoice tidak bisa di-void: masih ada Billing {$bilNum} aktif. Void billing tersebut terlebih dahulu.");
+        }
+
+        DB::transaction(function () use ($invoice) {
+            // 1. Reverse stock via delivery. Satu invoice bisa punya BANYAK SJ
+            //    (partial + auto-SJ sisa, Bagian A) → balik & void SEMUA yang posted.
+            $deliveries = \App\Modules\Sales\Models\SalesDelivery::where('invoice_id', $invoice->id)
+                ->where('status', 'posted')
+                ->get();
+            foreach ($deliveries as $delivery) {
+                $this->reverseDeliveryStock($delivery);
+                $delivery->status = 'void';
+                if (\Illuminate\Support\Facades\Schema::hasColumn($delivery->getTable(), 'voided_at')) {
+                    $delivery->voided_at = now();
+                }
+                $delivery->save();
+            }
+
+            // 2. Mark journal utama (sales_invoice) sebagai void
+            \App\Core\Journal\Journal::where('reference_type', 'sales_invoice')
+                ->where('reference_id', $invoice->id)
+                ->update(['status' => 'void', 'voided_at' => now()]);
+
+            // 2b. Void jurnal MARKETPLACE (fee + settlement) dari MarketplaceEngineService,
+            //     dan reset flag agar invoice bisa diproses ulang bila di-post lagi.
+            \App\Core\Journal\Journal::whereIn('reference_type', ['sales_invoice_fee', 'sales_invoice_settlement'])
+                ->where('reference_id', $invoice->id)
+                ->update(['status' => 'void', 'voided_at' => now()]);
+            if (\Illuminate\Support\Facades\Schema::hasColumn($invoice->getTable(), 'marketplace_processed')) {
+                $invoice->marketplace_processed = false;
+            }
+
+            // 3. Kembalikan qty_invoiced pada item SO (kalau dari SO), supaya SO tidak
+            //    terkunci dan bisa di-invoice ulang untuk koreksi.
+            foreach ($invoice->items as $invItem) {
+                if ($invItem->sales_order_item_id) {
+                    $soItem = \App\Modules\Sales\Models\SalesOrderItem::find($invItem->sales_order_item_id);
+                    if ($soItem) {
+                        $soItem->qty_invoiced = max(0, (float) $soItem->qty_invoiced - (float) $invItem->qty);
+                        $soItem->save();
+                    }
+                }
+            }
+
+            // 4. Reset advance_applied (uang muka kembali ke saldo SO)
+            $invoice->advance_applied = 0;
+
+            // 5. Set status void
+            $invoice->status = \App\Enums\InvoiceStatusEnum::VOID;
+            $invoice->save();
+        });
+    }
+
+    /**
+     * Reverse stok yang dikonsumsi saat delivery posted.
+     * Mencatat ledger qty_in untuk mengembalikan saldo stok, dan
+     * membuat StockLayer baru sebagai stok kembali (FIFO order tetap terjaga).
+     */
+    protected function reverseDeliveryStock(\App\Modules\Sales\Models\SalesDelivery $delivery): void
+    {
+        $delivery->loadMissing('items.product');
+        $engine = app(\App\Core\Inventory\InventoryEngine::class);
+
+        foreach ($delivery->items as $item) {
+            $product = $item->product;
+            if (!$product || in_array($product->sale_type ?? null, ['service', 'non_stock'], true)) {
+                continue;
+            }
+            if ((float) $item->qty <= 0) {
+                continue;
+            }
+
+            // Cari InventoryCostLayer hasil consume saat delivery posted
+            $consumeLayers = \App\Models\InventoryCostLayer::where('product_id', $item->product_id)
+                ->where('reference_type', 'sales')
+                ->where('reference_id', $delivery->id)
+                ->where('qty_out', '>', 0)
+                ->get();
+
+            $totalQty = (float) $consumeLayers->sum('qty_out');
+            if ($totalQty <= 0) {
+                $totalQty = (float) $item->qty;
+            }
+
+            // Restore: catat ledger qty_in dan buat StockLayer kembali (avg cost)
+            $avgCost = 0;
+            if ($consumeLayers->count() > 0 && $totalQty > 0) {
+                $totalCost = $consumeLayers->sum(fn($l) => (float) $l->qty_out * (float) $l->unit_cost);
+                $avgCost = $totalCost / $totalQty;
+            } elseif ((float) $item->qty > 0 && (float) ($item->cogs_total ?? 0) > 0) {
+                $avgCost = (float) $item->cogs_total / (float) $item->qty;
+            }
+
+            $engine->ledger(
+                $item->product_id,
+                $delivery->warehouse_id,
+                $totalQty,
+                0,
+                'sales_void',
+                $delivery->delivery_number,
+                'Void delivery ' . $delivery->delivery_number,
+                $delivery->id
+            );
+
+            // Catat balik di FIFO sebagai layer baru (qty_remaining penuh)
+            \App\Core\Inventory\StockLayer::create([
+                'product_id'   => $item->product_id,
+                'warehouse_id' => $delivery->warehouse_id,
+                'qty_in'       => $totalQty,
+                'qty_remaining'=> $totalQty,
+                'unit_cost'    => $avgCost,
+                'source_type'  => 'sales_void',
+                'source_id'    => $delivery->id,
+            ]);
+
+            \App\Models\InventoryCostLayer::create([
+                'product_id'     => $item->product_id,
+                'qty_in'         => $totalQty,
+                'qty_balance'    => $totalQty,
+                'unit_cost'      => $avgCost,
+                'reference_type' => 'sales_void',
+                'reference_id'   => $delivery->id,
+            ]);
+        }
+    }
+
 }
