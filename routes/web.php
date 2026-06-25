@@ -57,6 +57,7 @@ Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/dashboard/chart', [\App\Http\Controllers\DashboardController::class, 'chartData'])->name('dashboard.chart');
+    Route::get('/dashboard/audit', [\App\Http\Controllers\DashboardController::class, 'audit'])->name('dashboard.audit');
 
     // Panduan penggunaan in-app (semua user yang login)
     Route::get('/panduan', [\App\Http\Controllers\PanduanController::class, 'index'])->name('panduan.index');

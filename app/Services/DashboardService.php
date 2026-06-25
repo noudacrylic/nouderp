@@ -21,12 +21,13 @@ class DashboardService
     public function __construct(private AccountBalanceService $balances) {}
 
     /**
-     * Deret penjualan untuk grafik: Potensi Penjualan (SO) + Penjualan (Invoice posted).
-     * @param string $period weekly|monthly|yearly|custom
-     * @param string|null $startDate tanggal awal (Y-m-d) untuk period=custom
-     * @param string|null $endDate   tanggal akhir (Y-m-d) untuk period=custom
+     * Resolusi rentang tanggal grafik penjualan dari period selector.
+     * Sumber kebenaran tunggal — dipakai grafik dashboard & halaman audit rincian
+     * agar angka kartu cocok dengan daftar dokumen saat di-klik.
+     *
+     * @return array{0:Carbon,1:Carbon} [start, end]
      */
-    public function salesSeries(string $period = 'monthly', ?string $startDate = null, ?string $endDate = null): array
+    public function resolveRange(string $period = 'monthly', ?string $startDate = null, ?string $endDate = null): array
     {
         $today = Carbon::today();
 
@@ -41,16 +42,35 @@ class DashboardService
             if ($end->lt($start)) {
                 [$start, $end] = [$end, $start];
             }
-            // Granularitas adaptif: rentang panjang (> 92 hari) per bulan, selain itu per hari.
-            $mode = $start->diffInDays($end) > 92 ? 'month' : 'day';
-        } else {
-            [$start, $mode] = match ($period) {
-                'weekly' => [$today->copy()->subDays(6), 'day'],
-                'yearly' => [$today->copy()->startOfYear(), 'month'],
-                default  => [$today->copy()->startOfMonth(), 'day'], // monthly
-            };
-            $end = $today->copy();
+            return [$start, $end];
         }
+
+        $start = match ($period) {
+            'weekly' => $today->copy()->subDays(6),
+            'yearly' => $today->copy()->startOfYear(),
+            default  => $today->copy()->startOfMonth(), // monthly
+        };
+
+        return [$start, $today->copy()];
+    }
+
+    /**
+     * Deret penjualan untuk grafik: Potensi Penjualan (SO) + Penjualan (Invoice posted).
+     * @param string $period weekly|monthly|yearly|custom
+     * @param string|null $startDate tanggal awal (Y-m-d) untuk period=custom
+     * @param string|null $endDate   tanggal akhir (Y-m-d) untuk period=custom
+     */
+    public function salesSeries(string $period = 'monthly', ?string $startDate = null, ?string $endDate = null): array
+    {
+        [$start, $end] = $this->resolveRange($period, $startDate, $endDate);
+
+        // Granularitas adaptif: weekly/monthly per hari, yearly per bulan,
+        // custom panjang (> 92 hari) per bulan agar grafik tidak terlalu padat.
+        $mode = match ($period) {
+            'weekly', 'monthly' => 'day',
+            'yearly'            => 'month',
+            default             => $start->diffInDays($end) > 92 ? 'month' : 'day', // custom
+        };
 
         $soQ  = SalesOrder::whereNotIn('status', ['void', 'cancelled'])->whereBetween('order_date', [$start->toDateString(), $end->toDateString()]);
         $invQ = SalesInvoice::where('status', 'posted')->whereBetween('invoice_date', [$start->toDateString(), $end->toDateString()]);
@@ -124,7 +144,7 @@ class DashboardService
 
         $total = round($exp->sum('balance'), 2);
 
-        $top = $exp->take(6)->map(fn ($r) => ['name' => $r->name, 'amount' => round($r->balance, 2)])->values()->all();
+        $top = $exp->take(6)->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'amount' => round($r->balance, 2)])->values()->all();
         $rest = round($exp->slice(6)->sum('balance'), 2);
         if ($rest != 0) {
             $top[] = ['name' => 'Lainnya', 'amount' => $rest];

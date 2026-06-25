@@ -73,14 +73,22 @@
     </div>
 
     <div class="grid grid-cols-2 gap-4 mb-4">
-        <div class="rounded-lg border border-gray-100 border-l-4 border-l-indigo-500 bg-indigo-50/30 p-3">
-            <div class="text-xs text-gray-500">Potensi Penjualan <span class="text-gray-400">(dari Sales Order)</span></div>
+        <a id="audit-potensi" href="{{ route('dashboard.audit', ['metric' => 'potensi', 'period' => 'monthly']) }}"
+           class="group rounded-lg border border-gray-100 border-l-4 border-l-indigo-500 bg-indigo-50/30 p-3 transition hover:shadow-md hover:border-l-indigo-600">
+            <div class="text-xs text-gray-500 flex items-center justify-between">
+                <span>Potensi Penjualan <span class="text-gray-400">(dari Sales Order)</span></span>
+                <span class="text-[10px] text-indigo-400 opacity-0 group-hover:opacity-100">rincian →</span>
+            </div>
             <div class="text-xl font-bold text-indigo-700" id="stat-potensi">{{ $rp($sales['totalPotensi']) }}</div>
-        </div>
-        <div class="rounded-lg border border-gray-100 border-l-4 border-l-emerald-500 bg-emerald-50/30 p-3">
-            <div class="text-xs text-gray-500">Penjualan <span class="text-gray-400">(Faktur terbentuk)</span></div>
+        </a>
+        <a id="audit-penjualan" href="{{ route('dashboard.audit', ['metric' => 'penjualan', 'period' => 'monthly']) }}"
+           class="group rounded-lg border border-gray-100 border-l-4 border-l-emerald-500 bg-emerald-50/30 p-3 transition hover:shadow-md hover:border-l-emerald-600">
+            <div class="text-xs text-gray-500 flex items-center justify-between">
+                <span>Penjualan <span class="text-gray-400">(Faktur terbentuk)</span></span>
+                <span class="text-[10px] text-emerald-500 opacity-0 group-hover:opacity-100">rincian →</span>
+            </div>
             <div class="text-xl font-bold text-emerald-700" id="stat-penjualan">{{ $rp($sales['totalPenjualan']) }}</div>
-        </div>
+        </a>
     </div>
 
     <div style="height:300px"><canvas id="salesChart"></canvas></div>
@@ -95,9 +103,9 @@
             <span class="text-[11px] text-gray-400">{{ $pl['rangeLabel'] }}</span>
         </div>
         <div class="space-y-2 text-sm">
-            <div class="flex justify-between"><span class="text-gray-500">Pendapatan</span><span class="font-semibold text-emerald-600">{{ $rp($pl['pendapatan']) }}</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">HPP</span><span class="font-semibold text-amber-600">{{ $rp($pl['hpp']) }}</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">Beban</span><span class="font-semibold text-rose-600">{{ $rp($pl['beban']) }}</span></div>
+            <a href="{{ route('dashboard.audit', ['metric' => 'pendapatan']) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-emerald-50 group"><span class="text-gray-500 group-hover:text-emerald-700">Pendapatan <span class="text-[10px] text-emerald-400 opacity-0 group-hover:opacity-100">rincian →</span></span><span class="font-semibold text-emerald-600">{{ $rp($pl['pendapatan']) }}</span></a>
+            <a href="{{ route('dashboard.audit', ['metric' => 'hpp']) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-amber-50 group"><span class="text-gray-500 group-hover:text-amber-700">HPP <span class="text-[10px] text-amber-400 opacity-0 group-hover:opacity-100">rincian →</span></span><span class="font-semibold text-amber-600">{{ $rp($pl['hpp']) }}</span></a>
+            <a href="{{ route('dashboard.audit', ['metric' => 'beban']) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-rose-50 group"><span class="text-gray-500 group-hover:text-rose-700">Beban <span class="text-[10px] text-rose-400 opacity-0 group-hover:opacity-100">rincian →</span></span><span class="font-semibold text-rose-600">{{ $rp($pl['beban']) }}</span></a>
             <div class="flex justify-between border-t pt-2 mt-1"><span class="font-bold text-gray-800">Laba</span><span class="font-bold text-lg {{ $pl['laba'] >= 0 ? 'text-green-700' : 'text-red-600' }}">{{ $rp($pl['laba']) }}</span></div>
         </div>
     </div>
@@ -108,10 +116,13 @@
             <h2 class="font-semibold text-gray-800">Beban Perusahaan</h2>
             <span class="text-[11px] text-gray-400">{{ $expenses['rangeLabel'] }}</span>
         </div>
-        <div class="text-xl font-bold text-gray-800 mb-3">{{ $rp($expenses['total']) }}</div>
+        <a href="{{ route('dashboard.audit', ['metric' => 'beban_bulan']) }}" class="inline-flex items-baseline gap-2 group mb-3">
+            <span class="text-xl font-bold text-gray-800 group-hover:text-indigo-700">{{ $rp($expenses['total']) }}</span>
+            <span class="text-[10px] text-indigo-400 opacity-0 group-hover:opacity-100">rincian →</span>
+        </a>
         <div class="space-y-1.5 text-sm">
             @forelse($expenses['items'] as $it)
-                <div class="flex justify-between"><span class="text-gray-500 truncate pr-2">{{ $it['name'] }}</span><span class="font-medium text-gray-700 whitespace-nowrap">{{ $rp($it['amount']) }}</span></div>
+                <a href="{{ route('dashboard.audit', ['metric' => 'beban_bulan', 'account_id' => $it['id'] ?? null]) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-gray-50"><span class="text-gray-500 truncate pr-2">{{ $it['name'] }}</span><span class="font-medium text-gray-700 whitespace-nowrap">{{ $rp($it['amount']) }}</span></a>
             @empty
                 <div class="text-gray-400 text-sm">Belum ada beban bulan ini.</div>
             @endforelse
@@ -124,10 +135,14 @@
             <h2 class="font-semibold text-gray-800">Total Aset</h2>
             <span class="text-[11px] text-gray-400">Per hari ini</span>
         </div>
-        <div class="flex-1 flex items-center">
-            <div class="text-3xl font-bold text-gray-900">{{ $rp($totalAsset) }}</div>
+        <a href="{{ route('dashboard.audit', ['metric' => 'aset']) }}" class="flex-1 flex items-center group">
+            <div class="text-3xl font-bold text-gray-900 group-hover:text-indigo-700">{{ $rp($totalAsset) }}</div>
+            <span class="ml-2 text-[10px] text-indigo-400 opacity-0 group-hover:opacity-100">rincian →</span>
+        </a>
+        <div class="flex items-center gap-3 mt-2">
+            <a href="{{ route('dashboard.audit', ['metric' => 'aset']) }}" class="text-xs text-indigo-600 hover:underline">Rincian buku besar →</a>
+            <a href="{{ route('accounting.reports.balance-sheet') }}" class="text-xs text-blue-600 hover:underline">Lihat Neraca →</a>
         </div>
-        <a href="{{ route('accounting.reports.balance-sheet') }}" class="text-xs text-blue-600 hover:underline mt-2">Lihat Neraca →</a>
     </div>
 </div>
 @endif
@@ -318,10 +333,28 @@
             </div>`).join('');
     }
 
+    const AUDIT_URL = @json(route('dashboard.audit'));
+
+    // Link "rincian" Potensi/Penjualan ikut rentang yang sedang dipilih agar
+    // halaman audit menampilkan dokumen pada periode yang sama dgn grafik.
+    function auditQuery() {
+        const period = periodSel.value;
+        let q = 'period=' + encodeURIComponent(period);
+        if (period === 'custom' && startDate.value && endDate.value) {
+            q += '&start=' + startDate.value + '&end=' + endDate.value;
+        }
+        return q;
+    }
+    function updateAuditLinks() {
+        document.getElementById('audit-potensi').href   = AUDIT_URL + '?metric=potensi&' + auditQuery();
+        document.getElementById('audit-penjualan').href = AUDIT_URL + '?metric=penjualan&' + auditQuery();
+    }
+
     function apply(d) {
         document.getElementById('stat-potensi').textContent = fmtRp(d.totalPotensi);
         document.getElementById('stat-penjualan').textContent = fmtRp(d.totalPenjualan);
         document.getElementById('chart-range').textContent = d.rangeLabel;
+        updateAuditLinks();
         buildChart(d);
         renderTop(d.topProducts);
     }

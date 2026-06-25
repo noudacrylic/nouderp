@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Modules\POS\Services\FulfillmentReadinessService;
+use App\Services\DashboardAuditService;
 use App\Services\DashboardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -61,6 +62,27 @@ class DashboardController extends Controller
             $request->query('start'),
             $request->query('end'),
         ));
+    }
+
+    /**
+     * Halaman audit (drill-down) untuk angka dashboard: rincian transaksi/buku besar
+     * pembentuk angka. Khusus admin (data keuangan sensitif).
+     */
+    public function audit(Request $request, DashboardAuditService $audit)
+    {
+        abort_unless($this->isAdmin(), 403);
+
+        $metric = (string) $request->query('metric', '');
+        abort_unless(array_key_exists($metric, DashboardAuditService::METRICS), 404);
+
+        $data = $audit->build($metric, [
+            'period'     => $request->query('period'),
+            'start'      => $request->query('start'),
+            'end'        => $request->query('end'),
+            'account_id' => $request->query('account_id'),
+        ]);
+
+        return view('erp.dashboard.audit', ['audit' => $data, 'metric' => $metric]);
     }
 
     /** Hanya super_admin & admin yang boleh lihat ringkasan keuangan/penjualan. */
