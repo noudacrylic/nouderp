@@ -312,22 +312,36 @@ class InventoryEngine
                 'qty' => $qty
             ]);
 
-            // Reservation update
-            $res = StockReservation::where([
-                'product_id' => $product,
-                'warehouse_id' => $warehouse,
-                'sales_order_id' => $soId,
-                'status' => 'active'
-            ])->first();
+            // Reservation release: kurangi qty terkirim dari reservasi AKTIF SO ini.
+            // Penting: satu SO bisa punya BANYAK baris reservasi (1 per line item),
+            // jadi harus iterasi lintas-baris sampai qty terkirim habis — bukan hanya
+            // baris pertama. Kalau cuma baris pertama, sisa baris nyangkut "active"
+            // dan mengganggu hitung stok tersedia (push Jubelio).
+            if ($soId) {
+                $remainingRelease = (float) $qty;
 
-            if ($res) {
+                $reservations = StockReservation::where([
+                    'product_id'     => $product,
+                    'warehouse_id'   => $warehouse,
+                    'sales_order_id' => $soId,
+                    'status'         => 'active',
+                ])->orderBy('id')->lockForUpdate()->get();
 
-                $res->qty -= $qty;
+                foreach ($reservations as $res) {
+                    if ($remainingRelease <= 0.00001) {
+                        break;
+                    }
 
-                if ($res->qty <= 0) {
-                    $res->delete();
-                } else {
-                    $res->save();
+                    $take = min((float) $res->qty, $remainingRelease);
+                    $res->qty = (float) $res->qty - $take;
+
+                    if ($res->qty <= 0.00001) {
+                        $res->delete();
+                    } else {
+                        $res->save();
+                    }
+
+                    $remainingRelease -= $take;
                 }
             }
 
@@ -354,19 +368,33 @@ class InventoryEngine
                 'qty'          => $qty,
             ]);
 
-            $res = StockReservation::where([
-                'product_id'     => $product,
-                'warehouse_id'   => $warehouse,
-                'sales_order_id' => $soId,
-                'status'         => 'active',
-            ])->first();
+            // Release reservasi lintas-baris (lihat catatan di ship()): satu SO bisa
+            // punya banyak baris reservasi, jadi kurangi sampai qty terkirim habis.
+            if ($soId) {
+                $remainingRelease = (float) $qty;
 
-            if ($res) {
-                $res->qty -= $qty;
-                if ($res->qty <= 0) {
-                    $res->delete();
-                } else {
-                    $res->save();
+                $reservations = StockReservation::where([
+                    'product_id'     => $product,
+                    'warehouse_id'   => $warehouse,
+                    'sales_order_id' => $soId,
+                    'status'         => 'active',
+                ])->orderBy('id')->lockForUpdate()->get();
+
+                foreach ($reservations as $res) {
+                    if ($remainingRelease <= 0.00001) {
+                        break;
+                    }
+
+                    $take = min((float) $res->qty, $remainingRelease);
+                    $res->qty = (float) $res->qty - $take;
+
+                    if ($res->qty <= 0.00001) {
+                        $res->delete();
+                    } else {
+                        $res->save();
+                    }
+
+                    $remainingRelease -= $take;
                 }
             }
         });
