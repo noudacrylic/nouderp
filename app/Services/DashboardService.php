@@ -126,7 +126,7 @@ class DashboardService
         $rev = collect($this->balances->balances([AccountTypeEnum::REVENUE], $from, $to));
         $exp = collect($this->balances->balances([AccountTypeEnum::EXPENSE], $from, $to));
 
-        $pendapatan = round($rev->sum('balance'), 2);
+        $pendapatan = round($rev->filter(fn ($r) => $this->isSalesRevenue($r))->sum('balance'), 2);
         $hpp = round($exp->filter(fn ($r) => $this->isHpp($r))->sum('balance'), 2);
         $beban = round($exp->reject(fn ($r) => $this->isHpp($r))->sum('balance'), 2);
         $laba = round($pendapatan - $hpp - $beban, 2);
@@ -487,5 +487,22 @@ class DashboardService
         return str_contains($name, 'harga pokok')
             || str_contains($name, 'pokok penjualan')
             || str_contains($name, 'hpp');
+    }
+
+    /**
+     * Apakah akun pendapatan dihitung sebagai "Penjualan" di dashboard.
+     * Mengecualikan pendapatan NON-penjualan (per permintaan owner): selisih stok,
+     * pendapatan/selisih ongkir (Pendapatan Pengiriman), dan keuntungan pelepasan aset.
+     * Dipakai bersama oleh kartu dashboard & audit drill-down agar angkanya cocok.
+     */
+    public function isSalesRevenue(object $row): bool
+    {
+        $name = strtolower((string) $row->name);
+        foreach (['selisih', 'pengiriman', 'ongkir', 'pelepasan aset'] as $kw) {
+            if (str_contains($name, $kw)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

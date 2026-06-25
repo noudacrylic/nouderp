@@ -125,12 +125,17 @@ class DashboardAuditService
         $from = Carbon::now()->startOfYear();
         $to   = Carbon::today();
 
+        // Selaras kartu dashboard: hanya pendapatan PENJUALAN — kecualikan selisih
+        // stok, pendapatan/selisih ongkir, & keuntungan pelepasan aset.
+        $accounts = $this->leafAccounts([AccountTypeEnum::REVENUE])
+            ->filter(fn ($a) => $this->dashboard->isSalesRevenue($a));
+
         return $this->ledger(
-            accounts: $this->leafAccounts([AccountTypeEnum::REVENUE]),
+            accounts: $accounts,
             from: $from,
             to: $to,
             title: 'Rincian Pendapatan',
-            subtitle: 'Buku besar akun pendapatan — tahun berjalan (YTD)',
+            subtitle: 'Buku besar akun pendapatan penjualan — tahun berjalan (YTD)',
         );
     }
 
