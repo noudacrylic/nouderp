@@ -94,11 +94,28 @@ class FulfillmentReadinessService
             'telah_diproses' => $all->where('bucket', 'telah_diproses')->count(),
             'dikirim'        => $all->where('bucket', 'dikirim')->count(),
             'selesai'        => $all->where('bucket', 'selesai')->count(),
-            'pembatalan'     => $this->pembatalanQuery()->count(),
+            // Badge HANYA menghitung pembatalan yang masih perlu ditindak operator (batal di
+            // marketplace / pembeli minta batal TAPI SO ERP belum di-void) — termasuk yang
+            // butuh persetujuan seller di Seller Center. Pembatalan yang sudah di-void
+            // (state 'void') = selesai → tidak ikut dihitung.
+            'pembatalan'     => $this->pembatalanActionableQuery()->count(),
         ];
     }
 
     // ───────────── Pembatalan (marketplace) ─────────────
+
+    /**
+     * Pembatalan yang masih AKTIF (perlu ditindak): batal di marketplace (last_status
+     * 'canceled') atau pembeli minta batal (cancel_requested) TAPI SO ERP belum di-void/cancel.
+     * Ini kelas yang sering butuh aksi seller (terima/tolak di Seller Center) + void manual.
+     */
+    private function pembatalanActionableQuery()
+    {
+        return \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::query()
+            ->whereNotNull('sales_order_id')
+            ->where(fn ($q) => $q->where('cancel_requested', true)->orWhere('last_status', 'canceled'))
+            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']));
+    }
 
     /** Query dasar: link marketplace yang diminta batal pembeli ATAU SO-nya sudah di-void/cancel. */
     private function pembatalanQuery()
@@ -163,8 +180,14 @@ class FulfillmentReadinessService
                 str_contains(mb_strtolower((string) $r['product_search']), $needle));
         }
 
-        // Terbaru di atas; tiebreaker id menurun untuk pesanan setanggal (lihat bucket()).
-        return $rows->sortByDesc(fn ($r) => [(string) $r['date_sort'], $r['id'] ?? 0])->values();
+        // Urutan: pembatalan yang masih perlu ditindak (jubelio_canceled / requested — sering
+        // butuh persetujuan seller di Seller Center) di PALING ATAS agar mudah diproses operator;
+        // pembatalan yang sudah di-void (selesai) di bawah. Dalam tiap grup: terbaru di atas
+        // (tiebreaker id menurun untuk pesanan setanggal, lihat bucket()).
+        $rows = $rows->sortByDesc(fn ($r) => [(string) $r['date_sort'], $r['id'] ?? 0])->values();
+        $actionable = $rows->filter(fn ($r) => $r['state'] !== 'void')->values();
+        $resolved   = $rows->filter(fn ($r) => $r['state'] === 'void')->values();
+        return $actionable->concat($resolved)->values();
     }
 
     // ───────────── Sales Order ─────────────
