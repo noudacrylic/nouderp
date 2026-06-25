@@ -15,7 +15,7 @@
         'jam_istirahat_start'        => '11:30',
         'jam_istirahat_end'          => '12:30',
         'has_lembur'                 => false,
-        'jam_masuk_lembur'           => '17:00',
+        'jam_masuk_lembur'           => '16:30',
         'awal_absen_lembur_masuk'    => 15,
         'toleransi_lembur_masuk'     => 0,
         'akhir_absen_lembur_masuk'   => 120,
@@ -46,7 +46,7 @@
                 'jam_istirahat_start'        => $first->jam_istirahat_start ? substr($first->jam_istirahat_start, 0, 5) : '11:30',
                 'jam_istirahat_end'          => $first->jam_istirahat_end ? substr($first->jam_istirahat_end, 0, 5) : '12:30',
                 'has_lembur'                 => (bool) $first->has_lembur,
-                'jam_masuk_lembur'           => $first->jam_masuk_lembur ? substr($first->jam_masuk_lembur, 0, 5) : '17:00',
+                'jam_masuk_lembur'           => $first->jam_masuk_lembur ? substr($first->jam_masuk_lembur, 0, 5) : '16:30',
                 'awal_absen_lembur_masuk'    => $first->awal_absen_lembur_masuk ?? 15,
                 'toleransi_lembur_masuk'     => $first->toleransi_lembur_masuk ?? 0,
                 'akhir_absen_lembur_masuk'   => $first->akhir_absen_lembur_masuk ?? 120,
@@ -305,6 +305,35 @@
                 <input type="text" name="bpjs" value="{{ old('bpjs', $karyawan->bpjs ?? '') }}" class="border rounded px-3 py-2 w-full">
                 <div class="text-[11px] text-gray-400 mt-1">Nomor peserta BPJS. Tarif & toggle aktif diatur di tab <strong>Pajak &amp; BPJS</strong>.</div>
             </div>
+
+            {{-- Foto diri & KTP — diunggah karyawan saat daftar di aplikasi; bisa dilihat/ganti di sini. --}}
+            <div class="col-span-2">
+                <div class="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wider border-t pt-3">Foto Diri &amp; KTP</div>
+                <p class="text-[11px] text-gray-400 mb-1">Diisi saat karyawan mendaftar di aplikasi. Bisa diunggah / diganti dari sini (format gambar, maks 5&nbsp;MB).</p>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">Foto Diri</label>
+                @if($isEdit && $karyawan->foto_path)
+                    <a href="{{ asset('storage/'.$karyawan->foto_path) }}" target="_blank" rel="noopener" class="inline-block mb-2">
+                        <img src="{{ asset('storage/'.$karyawan->foto_path) }}" alt="Foto diri" class="h-32 w-32 object-cover rounded-lg border hover:opacity-90">
+                    </a>
+                @else
+                    <div class="h-32 w-32 rounded-lg border border-dashed flex items-center justify-center text-gray-300 text-xs mb-2">Belum ada</div>
+                @endif
+                <input type="file" name="foto" accept="image/*" class="block text-sm w-full">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">Foto KTP</label>
+                @if($isEdit && $karyawan->ktp_path)
+                    <a href="{{ asset('storage/'.$karyawan->ktp_path) }}" target="_blank" rel="noopener" class="inline-block mb-2">
+                        <img src="{{ asset('storage/'.$karyawan->ktp_path) }}" alt="Foto KTP" class="h-32 w-auto max-w-full object-contain rounded-lg border bg-gray-50 hover:opacity-90">
+                    </a>
+                @else
+                    <div class="h-32 w-full rounded-lg border border-dashed flex items-center justify-center text-gray-300 text-xs mb-2">Belum ada</div>
+                @endif
+                <input type="file" name="ktp" accept="image/*" class="block text-sm w-full">
+            </div>
+
             <div class="col-span-2">
                 <div class="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wider border-t pt-3">Bank Rekening</div>
             </div>

@@ -6,7 +6,7 @@
     <p class="text-xs text-gray-500 mt-1">Divisi diatur dari menu <a href="{{ route('production.departments.index') }}" class="text-blue-600 hover:underline">Divisi</a> setelah karyawan dibuat.</p>
 </div>
 
-<form method="POST" action="{{ route('sdm.karyawan.store') }}">
+<form method="POST" action="{{ route('sdm.karyawan.store') }}" enctype="multipart/form-data">
     @csrf
     @include('erp.sdm.karyawan._form')
 </form>

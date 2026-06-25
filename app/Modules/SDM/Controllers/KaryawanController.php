@@ -57,8 +57,9 @@ class KaryawanController extends Controller
             $data['staf_code'] = $this->generateStafCode();
         }
 
-        DB::transaction(function () use ($data, $schedules, &$karyawan) {
+        DB::transaction(function () use ($request, $data, $schedules, &$karyawan) {
             $karyawan = Karyawan::create($data);
+            $this->handlePhotoUploads($request, $karyawan);
             $this->saveSchedules($karyawan, $schedules);
         });
 
@@ -98,8 +99,9 @@ class KaryawanController extends Controller
         $schedules = $this->parseSchedules($request);
         $applyToAll = $request->boolean('apply_to_all');
 
-        DB::transaction(function () use ($karyawan, $data, $schedules, $applyToAll) {
+        DB::transaction(function () use ($request, $karyawan, $data, $schedules, $applyToAll) {
             $karyawan->update($data);
+            $this->handlePhotoUploads($request, $karyawan);
             $this->saveSchedules($karyawan, $schedules);
 
             if ($applyToAll) {
@@ -223,7 +225,11 @@ class KaryawanController extends Controller
             'bank_name'             => 'nullable|string|max:50',
             'bank_account_number'   => 'nullable|string|max:50',
             'bank_account_holder'   => 'nullable|string|max:150',
+            'foto'                  => 'nullable|image|max:5120',
+            'ktp'                   => 'nullable|image|max:5120',
         ]);
+        // File ditangani terpisah (handlePhotoUploads) — jangan ikut mass-assign.
+        unset($data['foto'], $data['ktp']);
         $data['ptkp_category']       = $data['ptkp_category'] ?? 'NONE';
         $data['ikut_bpjs_kesehatan'] = $request->boolean('ikut_bpjs_kesehatan');
         $data['ikut_bpjs_tk']        = $request->boolean('ikut_bpjs_tk');
@@ -240,6 +246,31 @@ class KaryawanController extends Controller
         $data['hak_cuti']  = $data['hak_cuti'] ?? 12;
 
         return $data;
+    }
+
+    /**
+     * Simpan/ganti foto diri & KTP (disk 'public'), selaras dgn self-register PWA.
+     * File lama dihapus saat diganti agar tak jadi orphan.
+     */
+    protected function handlePhotoUploads(Request $request, Karyawan $karyawan): void
+    {
+        $map = ['foto' => 'foto_path', 'ktp' => 'ktp_path'];
+        $changed = false;
+
+        foreach ($map as $input => $col) {
+            if (! $request->hasFile($input)) {
+                continue;
+            }
+            if ($karyawan->$col) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($karyawan->$col);
+            }
+            $karyawan->$col = $request->file($input)->store('karyawan/' . $input, 'public');
+            $changed = true;
+        }
+
+        if ($changed) {
+            $karyawan->save();
+        }
     }
 
     /**

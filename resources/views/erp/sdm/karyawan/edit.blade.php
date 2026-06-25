@@ -10,7 +10,7 @@
     </form>
 </div>
 
-<form method="POST" action="{{ route('sdm.karyawan.update', $karyawan->id) }}">
+<form method="POST" action="{{ route('sdm.karyawan.update', $karyawan->id) }}" enctype="multipart/form-data">
     @csrf @method('PUT')
     @include('erp.sdm.karyawan._form')
 </form>
