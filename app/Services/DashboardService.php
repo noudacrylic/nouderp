@@ -209,6 +209,10 @@ class DashboardService
 
         $products = Product::query()
             ->where('is_active', 1)
+            // Jasa & non-stok tidak punya stok fisik — dikecualikan agar SELARAS dengan
+            // halaman Stok (StockController). Tanpa ini, jasa yang punya reservasi nyangkut
+            // ikut terhitung "minus" di dashboard tapi tidak muncul saat kartu diklik.
+            ->whereNotIn('sale_type', ['service', 'non_stock'])
             ->with(['bundleItems', 'bundleComponents'])
             ->get(['id', 'sku', 'name', 'sale_type', 'min_stock', 'preorder_stock']);
 
