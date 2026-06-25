@@ -41,6 +41,17 @@
     @endif
 </div>
 
+{{-- Live search: filter baris tabel secara real-time (klien) tanpa reload. --}}
+<div class="mb-3 flex items-center gap-2 flex-wrap">
+    <div class="relative">
+        <input type="text" id="auditSearch" autocomplete="off"
+               placeholder="{{ $audit['type'] === 'documents' ? 'Cari nomor / pelanggan / status…' : 'Cari kode / nama akun…' }}"
+               class="border rounded-lg pl-9 pr-3 py-2 text-sm w-80 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
+        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+    </div>
+    <span id="auditCount" class="text-xs text-gray-400"></span>
+</div>
+
 @if($audit['type'] === 'documents')
     {{-- ───────── Daftar dokumen sumber ───────── --}}
     <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
@@ -56,8 +67,8 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     @forelse($audit['rows'] as $i => $r)
-                        <tr class="hover:bg-indigo-50/30">
-                            <td class="px-4 py-2.5 text-gray-400">{{ $i + 1 }}</td>
+                        <tr class="js-audit-row hover:bg-indigo-50/30">
+                            <td class="px-4 py-2.5 text-gray-400 js-audit-idx">{{ $i + 1 }}</td>
                             <td class="px-4 py-2.5">
                                 <a href="{{ $r['url'] }}" class="font-mono text-indigo-600 hover:underline">{{ $r['number'] }}</a>
                             </td>
@@ -101,7 +112,7 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     @forelse($audit['accounts'] as $acc)
-                        <tr class="hover:bg-indigo-50/30">
+                        <tr class="js-audit-row hover:bg-indigo-50/30">
                             <td class="px-4 py-2.5 font-mono text-xs text-gray-500">{{ $acc['code'] }}</td>
                             <td class="px-4 py-2.5">
                                 <a href="{{ $acc['ledger_url'] }}" class="text-gray-800 font-medium hover:text-indigo-600 hover:underline">{{ $acc['name'] }}</a>
@@ -137,4 +148,39 @@
         💡 Klik nama akun atau "Lihat" untuk menelusuri seluruh baris jurnal akun tersebut di Buku Besar (lengkap dgn saldo berjalan & dokumen sumber).
     </p>
 @endif
+
+<div id="auditNoResults" class="hidden bg-white rounded-lg shadow border border-gray-200 px-4 py-8 text-center text-gray-400 text-sm mt-3">
+    Tidak ada baris yang cocok dengan pencarian.
+</div>
+
+<script>
+// Live search: saring baris tabel audit (dokumen / akun) tanpa reload.
+(function () {
+    const input = document.getElementById('auditSearch');
+    if (!input) return;
+    const rows    = Array.from(document.querySelectorAll('.js-audit-row'));
+    const countEl = document.getElementById('auditCount');
+    const noRes   = document.getElementById('auditNoResults');
+    const total   = rows.length;
+
+    function apply() {
+        const q = input.value.trim().toLowerCase();
+        let shown = 0;
+        rows.forEach(r => {
+            const match = !q || r.textContent.toLowerCase().includes(q);
+            r.classList.toggle('hidden', !match);
+            if (match) {
+                shown++;
+                const idx = r.querySelector('.js-audit-idx'); // nomor urut dokumen → rapikan
+                if (idx) idx.textContent = shown;
+            }
+        });
+        countEl.textContent = q ? `Menampilkan ${shown} dari ${total}` : `${total} baris`;
+        if (noRes) noRes.classList.toggle('hidden', shown !== 0);
+    }
+
+    input.addEventListener('input', apply);
+    apply();
+})();
+</script>
 @endsection

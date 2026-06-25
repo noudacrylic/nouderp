@@ -64,8 +64,8 @@ class DashboardAuditService
             ->where('paid_amount', '>', 0.01) // hanya SO yang sudah ada DP/pembayaran
             ->whereBetween('order_date', [$start->toDateString(), $end->toDateString()])
             ->leftJoin('customers as c', 'c.id', '=', 'sales_orders.customer_id')
-            ->orderBy('order_date')
-            ->orderBy('sales_orders.id')
+            ->orderByDesc('order_date')        // terbaru di atas
+            ->orderByDesc('sales_orders.id')
             ->get(['sales_orders.id', 'sales_orders.order_number', 'sales_orders.order_date', 'sales_orders.status', 'sales_orders.grand_total', 'c.name as customer_name'])
             ->map(fn ($r) => [
                 'url'      => route('sales.orders.show', $r->id),
@@ -95,8 +95,8 @@ class DashboardAuditService
             ->where('status', 'posted')
             ->whereBetween('invoice_date', [$start->toDateString(), $end->toDateString()])
             ->leftJoin('customers as c', 'c.id', '=', 'sales_invoices.customer_id')
-            ->orderBy('invoice_date')
-            ->orderBy('sales_invoices.id')
+            ->orderByDesc('invoice_date')      // terbaru di atas
+            ->orderByDesc('sales_invoices.id')
             ->get(['sales_invoices.id', 'sales_invoices.invoice_number', 'sales_invoices.invoice_date', 'sales_invoices.grand_total', 'c.name as customer_name'])
             ->map(fn ($r) => [
                 'url'      => route('sales.invoices.show', $r->id),
