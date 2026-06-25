@@ -72,7 +72,11 @@ class DashboardService
             default             => $start->diffInDays($end) > 92 ? 'month' : 'day', // custom
         };
 
-        $soQ  = SalesOrder::whereNotIn('status', ['void', 'cancelled'])->whereBetween('order_date', [$start->toDateString(), $end->toDateString()]);
+        // Potensi Penjualan: HANYA SO yang sudah ada DP/pembayaran (paid_amount > 0) —
+        // SO tanpa pembayaran dianggap belum jadi potensi nyata.
+        $soQ  = SalesOrder::whereNotIn('status', ['void', 'cancelled'])
+            ->where('paid_amount', '>', 0.01)
+            ->whereBetween('order_date', [$start->toDateString(), $end->toDateString()]);
         $invQ = SalesInvoice::where('status', 'posted')->whereBetween('invoice_date', [$start->toDateString(), $end->toDateString()]);
 
         $labels = [];

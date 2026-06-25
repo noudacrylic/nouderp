@@ -61,6 +61,7 @@ class DashboardAuditService
 
         $rows = SalesOrder::query()
             ->whereNotIn('status', ['void', 'cancelled'])
+            ->where('paid_amount', '>', 0.01) // hanya SO yang sudah ada DP/pembayaran
             ->whereBetween('order_date', [$start->toDateString(), $end->toDateString()])
             ->leftJoin('customers as c', 'c.id', '=', 'sales_orders.customer_id')
             ->orderBy('order_date')
@@ -78,7 +79,7 @@ class DashboardAuditService
         return [
             'type'       => 'documents',
             'title'      => 'Rincian Potensi Penjualan',
-            'subtitle'   => 'Sales Order (kecuali void/batal) pada rentang terpilih',
+            'subtitle'   => 'Sales Order yang sudah ada DP/pembayaran (kecuali void/batal) pada rentang terpilih',
             'rangeLabel' => $this->rangeLabel($start, $end),
             'total'      => round(array_sum(array_column($rows, 'amount'))),
             'columns'    => ['No. Sales Order', 'Tanggal', 'Pelanggan', 'Status', 'Total'],
