@@ -18,7 +18,10 @@ class DashboardService
 {
     private const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
-    public function __construct(private AccountBalanceService $balances) {}
+    public function __construct(
+        private AccountBalanceService $balances,
+        private \App\Core\Accounting\IncomeStatementService $incomeStatement,
+    ) {}
 
     /**
      * Resolusi rentang tanggal grafik penjualan dari period selector.
@@ -117,22 +120,28 @@ class DashboardService
         ];
     }
 
-    /** Laba/Rugi tahun berjalan (YTD): Pendapatan, HPP, Beban, Laba. */
+    /**
+     * Laba/Rugi tahun berjalan (YTD) — bertingkat, KONSISTEN dgn Laporan Laba Rugi
+     * (sumber tunggal IncomeStatementService): Pendapatan → HPP → Laba Kotor →
+     * Beban Operasional → Laba Operasional → Non-Operasional → Laba Bersih.
+     */
     public function profitLoss(): array
     {
         $from = Carbon::now()->startOfYear();
         $to   = Carbon::today();
 
-        $rev = collect($this->balances->balances([AccountTypeEnum::REVENUE], $from, $to));
-        $exp = collect($this->balances->balances([AccountTypeEnum::EXPENSE], $from, $to));
+        $s = $this->incomeStatement->summary($from, $to);
 
-        $pendapatan = round($rev->filter(fn ($r) => $this->isSalesRevenue($r))->sum('balance'), 2);
-        $hpp = round($exp->filter(fn ($r) => $this->isHpp($r))->sum('balance'), 2);
-        $beban = round($exp->reject(fn ($r) => $this->isHpp($r))->sum('balance'), 2);
-        $laba = round($pendapatan - $hpp - $beban, 2);
-
-        return compact('pendapatan', 'hpp', 'beban', 'laba')
-            + ['rangeLabel' => $from->isoFormat('D MMM') . ' – ' . $to->isoFormat('D MMM Y')];
+        return [
+            'pendapatan'      => $s['totalRevenue'],
+            'hpp'             => $s['totalCogs'],
+            'labaKotor'       => $s['grossProfit'],
+            'beban'           => $s['totalOpex'],          // beban OPERASIONAL saja
+            'labaOperasional' => $s['operatingIncome'],
+            'nonop'           => $s['nonopNet'],           // pendapatan − beban non-operasional
+            'labaBersih'      => $s['netIncome'],
+            'rangeLabel'      => $from->isoFormat('D MMM') . ' – ' . $to->isoFormat('D MMM Y'),
+        ];
     }
 
     /** Beban perusahaan bulan berjalan (operasional, tanpa HPP) — rincian akun + total. */
@@ -141,8 +150,9 @@ class DashboardService
         $from = Carbon::now()->startOfMonth();
         $to   = Carbon::today();
 
+        // Beban OPERASIONAL saja (selaras Laba Rugi): kecualikan HPP & non-operasional.
         $exp = collect($this->balances->balances([AccountTypeEnum::EXPENSE], $from, $to))
-            ->reject(fn ($r) => $this->isHpp($r))
+            ->filter(fn ($r) => $this->incomeStatement->isOperatingExpense($r))
             ->sortByDesc('balance')
             ->values();
 

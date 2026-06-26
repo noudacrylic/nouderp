@@ -102,11 +102,14 @@
             <h2 class="font-semibold text-gray-800">Laba/Rugi Tahun Ini</h2>
             <span class="text-[11px] text-gray-400">{{ $pl['rangeLabel'] }}</span>
         </div>
-        <div class="space-y-2 text-sm">
+        <div class="space-y-1.5 text-sm">
             <a href="{{ route('dashboard.audit', ['metric' => 'pendapatan']) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-emerald-50 group"><span class="text-gray-500 group-hover:text-emerald-700">Pendapatan <span class="text-[10px] text-emerald-400 opacity-0 group-hover:opacity-100">rincian →</span></span><span class="font-semibold text-emerald-600">{{ $rp($pl['pendapatan']) }}</span></a>
             <a href="{{ route('dashboard.audit', ['metric' => 'hpp']) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-amber-50 group"><span class="text-gray-500 group-hover:text-amber-700">HPP <span class="text-[10px] text-amber-400 opacity-0 group-hover:opacity-100">rincian →</span></span><span class="font-semibold text-amber-600">{{ $rp($pl['hpp']) }}</span></a>
-            <a href="{{ route('dashboard.audit', ['metric' => 'beban']) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-rose-50 group"><span class="text-gray-500 group-hover:text-rose-700">Beban <span class="text-[10px] text-rose-400 opacity-0 group-hover:opacity-100">rincian →</span></span><span class="font-semibold text-rose-600">{{ $rp($pl['beban']) }}</span></a>
-            <div class="flex justify-between border-t pt-2 mt-1"><span class="font-bold text-gray-800">Laba</span><span class="font-bold text-lg {{ $pl['laba'] >= 0 ? 'text-green-700' : 'text-red-600' }}">{{ $rp($pl['laba']) }}</span></div>
+            <div class="flex justify-between border-t pt-1.5"><span class="font-semibold text-gray-700">Laba Kotor</span><span class="font-semibold text-gray-800">{{ $rp($pl['labaKotor']) }}</span></div>
+            <a href="{{ route('dashboard.audit', ['metric' => 'beban']) }}" class="flex justify-between rounded px-1 -mx-1 hover:bg-rose-50 group"><span class="text-gray-500 group-hover:text-rose-700">Beban Operasional <span class="text-[10px] text-rose-400 opacity-0 group-hover:opacity-100">rincian →</span></span><span class="font-semibold text-rose-600">{{ $rp($pl['beban']) }}</span></a>
+            <div class="flex justify-between"><span class="font-semibold text-gray-700">Laba Operasional</span><span class="font-semibold {{ $pl['labaOperasional'] >= 0 ? 'text-gray-800' : 'text-red-600' }}">{{ $rp($pl['labaOperasional']) }}</span></div>
+            <div class="flex justify-between text-xs"><span class="text-gray-400">Pendapatan/Beban Non-Operasional</span><span class="{{ $pl['nonop'] >= 0 ? 'text-gray-500' : 'text-red-500' }}">{{ ($pl['nonop'] >= 0 ? '+ ' : '') . $rp($pl['nonop']) }}</span></div>
+            <div class="flex justify-between border-t-2 border-gray-300 pt-2 mt-1"><span class="font-bold text-gray-800">Laba Bersih</span><span class="font-bold text-lg {{ $pl['labaBersih'] >= 0 ? 'text-green-700' : 'text-red-600' }}">{{ $rp($pl['labaBersih']) }}</span></div>
         </div>
     </div>
 

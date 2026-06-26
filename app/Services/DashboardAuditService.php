@@ -23,7 +23,10 @@ use Illuminate\Support\Facades\DB;
  */
 class DashboardAuditService
 {
-    public function __construct(private DashboardService $dashboard) {}
+    public function __construct(
+        private DashboardService $dashboard,
+        private \App\Core\Accounting\IncomeStatementService $incomeStatement,
+    ) {}
 
     /** Metric yang dikenal + apakah perlu rentang tanggal penjualan (period/start/end). */
     public const METRICS = [
@@ -125,10 +128,9 @@ class DashboardAuditService
         $from = Carbon::now()->startOfYear();
         $to   = Carbon::today();
 
-        // Selaras kartu dashboard: hanya pendapatan PENJUALAN — kecualikan selisih
-        // stok, pendapatan/selisih ongkir, & keuntungan pelepasan aset.
+        // Selaras Laba Rugi: pendapatan OPERASIONAL (kode 40xx), kecualikan non-operasional.
         $accounts = $this->leafAccounts([AccountTypeEnum::REVENUE])
-            ->filter(fn ($a) => $this->dashboard->isSalesRevenue($a));
+            ->filter(fn ($a) => $this->incomeStatement->isOperatingRevenue($a));
 
         return $this->ledger(
             accounts: $accounts,
@@ -144,8 +146,10 @@ class DashboardAuditService
         $to = Carbon::today();
         $from = $window === 'month' ? Carbon::now()->startOfMonth() : Carbon::now()->startOfYear();
 
+        // Selaras Laba Rugi: HPP = akun cogs config; selain itu = beban OPERASIONAL
+        // (kecualikan non-operasional spt selisih stok & pelepasan aset).
         $accounts = $this->leafAccounts([AccountTypeEnum::EXPENSE])
-            ->filter(fn ($a) => $this->isHpp($a->name) === $hppOnly);
+            ->filter(fn ($a) => $hppOnly ? $this->incomeStatement->isCogs($a) : $this->incomeStatement->isOperatingExpense($a));
 
         if (!empty($p['account_id'])) {
             $accounts = $accounts->where('id', (int) $p['account_id']);

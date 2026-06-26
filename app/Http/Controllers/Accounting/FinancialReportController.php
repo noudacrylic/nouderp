@@ -57,16 +57,12 @@ class FinancialReportController extends Controller
         $dateFrom = Carbon::parse($request->input('date_from', now()->startOfMonth()->toDateString()));
         $dateTo = Carbon::parse($request->input('date_to', now()->toDateString()));
 
-        $revenues = collect($this->balancesByAccount([AccountTypeEnum::REVENUE], $dateFrom, $dateTo))->values();
-        $expenses = collect($this->balancesByAccount([AccountTypeEnum::EXPENSE], $dateFrom, $dateTo))->values();
+        // Klasifikasi bertingkat (format Accurate) — sumber tunggal di IncomeStatementService.
+        $data = app(\App\Core\Accounting\IncomeStatementService::class)->summary($dateFrom, $dateTo);
 
-        $totalRevenue = round($revenues->sum('balance'), 2);
-        $totalExpense = round($expenses->sum('balance'), 2);
-        $netIncome = round($totalRevenue - $totalExpense, 2);
-
-        return view('erp.accounting.reports.income-statement', compact(
-            'dateFrom', 'dateTo', 'revenues', 'expenses',
-            'totalRevenue', 'totalExpense', 'netIncome'
+        return view('erp.accounting.reports.income-statement', array_merge(
+            compact('dateFrom', 'dateTo'),
+            $data
         ));
     }
 
