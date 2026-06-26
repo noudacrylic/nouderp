@@ -11,6 +11,8 @@
     <link rel="manifest" href="{{ asset('karyawan.webmanifest') }}">
     <title>@yield('title', 'NOUD Karyawan')</title>
     @include('layouts.partials._favicon')
+    {{-- Ikon aplikasi PWA Karyawan (override apple-touch-icon khusus area /me). --}}
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('icons/icon-180.png') }}">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root { --nav-h: 64px; }
