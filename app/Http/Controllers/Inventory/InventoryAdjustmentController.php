@@ -81,8 +81,10 @@ class InventoryAdjustmentController extends Controller
         // Bundle (komponen virtual), jasa, non-stock tidak punya stok untuk di-opname.
         $products        = Product::whereIn('sale_type', ['ready', 'preorder'])->orderBy('name')->get();
         $warehouses      = Warehouse::all();
-        $incomeAccounts  = \App\Core\Accounting\Account::where('type', 'revenue')->where('is_active', true)->orderBy('code')->get();
-        $expenseAccounts = \App\Core\Accounting\Account::where('type', 'expense')->where('is_active', true)->orderBy('code')->get();
+        // Sertakan akun EQUITY (mis. Modal Awal) di pilihan gain/loss agar penyesuaian
+        // SALDO AWAL bisa diarahkan ke Modal Awal (bukan jadi pendapatan/beban di Laba Rugi).
+        $incomeAccounts  = \App\Core\Accounting\Account::whereIn('type', ['revenue', 'equity'])->where('is_active', true)->orderBy('code')->get();
+        $expenseAccounts = \App\Core\Accounting\Account::whereIn('type', ['expense', 'equity'])->where('is_active', true)->orderBy('code')->get();
         $authName        = auth()->user()?->name ?? '';
 
         $defaultIncome  = \App\Core\Accounting\Account::where('type', 'revenue')

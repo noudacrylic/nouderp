@@ -55,7 +55,8 @@
 
                 <div id="income-account-wrap">
                     <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                        Akun Pendapatan Selisih Stok *
+                        Akun Selisih Lebih / Gain *
+                        <span class="text-[9px] font-semibold text-blue-500 normal-case tracking-normal">· pilih Modal Awal utk saldo awal</span>
                     </label>
                     <select name="income_account_id"
                             class="account-select w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -71,7 +72,8 @@
 
                 <div id="expense-account-wrap">
                     <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                        Akun Beban Selisih Stok *
+                        Akun Selisih Kurang / Loss *
+                        <span class="text-[9px] font-semibold text-blue-500 normal-case tracking-normal">· pilih Modal Awal utk saldo awal</span>
                     </label>
                     <select name="expense_account_id"
                             class="account-select w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
