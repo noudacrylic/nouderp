@@ -69,14 +69,15 @@ class DashboardAuditService
             ->leftJoin('customers as c', 'c.id', '=', 'sales_orders.customer_id')
             ->orderByDesc('order_date')        // terbaru di atas
             ->orderByDesc('sales_orders.id')
-            ->get(['sales_orders.id', 'sales_orders.order_number', 'sales_orders.order_date', 'sales_orders.status', 'sales_orders.grand_total', 'c.name as customer_name'])
+            ->get(['sales_orders.id', 'sales_orders.order_number', 'sales_orders.order_date', 'sales_orders.status', 'sales_orders.subtotal', 'sales_orders.global_discount_amount', 'c.name as customer_name'])
             ->map(fn ($r) => [
                 'url'      => route('sales.orders.show', $r->id),
                 'number'   => $r->order_number,
                 'date'     => $r->order_date,
                 'customer' => $r->customer_name ?: '—',
                 'status'   => $r->status,
-                'amount'   => (float) $r->grand_total,
+                // Selaras chart & Laba Rugi: penjualan bruto (subtotal − diskon), bukan grand total.
+                'amount'   => (float) $r->subtotal - (float) $r->global_discount_amount,
             ])->all();
 
         return [
@@ -100,14 +101,15 @@ class DashboardAuditService
             ->leftJoin('customers as c', 'c.id', '=', 'sales_invoices.customer_id')
             ->orderByDesc('invoice_date')      // terbaru di atas
             ->orderByDesc('sales_invoices.id')
-            ->get(['sales_invoices.id', 'sales_invoices.invoice_number', 'sales_invoices.invoice_date', 'sales_invoices.grand_total', 'c.name as customer_name'])
+            ->get(['sales_invoices.id', 'sales_invoices.invoice_number', 'sales_invoices.invoice_date', 'sales_invoices.subtotal', 'sales_invoices.global_discount_amount', 'c.name as customer_name'])
             ->map(fn ($r) => [
                 'url'      => route('sales.invoices.show', $r->id),
                 'number'   => $r->invoice_number,
                 'date'     => $r->invoice_date,
                 'customer' => $r->customer_name ?: '—',
                 'status'   => 'posted',
-                'amount'   => (float) $r->grand_total,
+                // Selaras chart & Laba Rugi: penjualan bruto (subtotal − diskon), bukan grand total.
+                'amount'   => (float) $r->subtotal - (float) $r->global_discount_amount,
             ])->all();
 
         return [

@@ -87,8 +87,8 @@ class DashboardService
         $penjualan = [];
 
         if ($mode === 'day') {
-            $soMap  = (clone $soQ)->selectRaw('DATE(order_date) as d, SUM(grand_total) as t')->groupBy('d')->pluck('t', 'd');
-            $invMap = (clone $invQ)->selectRaw('DATE(invoice_date) as d, SUM(grand_total) as t')->groupBy('d')->pluck('t', 'd');
+            $soMap  = (clone $soQ)->selectRaw('DATE(order_date) as d, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t')->groupBy('d')->pluck('t', 'd');
+            $invMap = (clone $invQ)->selectRaw('DATE(invoice_date) as d, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t')->groupBy('d')->pluck('t', 'd');
             $fmt = $period === 'monthly' ? 'j' : 'd/m';
             for ($d = $start->copy(); $d->lte($end); $d->addDay()) {
                 $key = $d->toDateString();
@@ -97,8 +97,8 @@ class DashboardService
                 $penjualan[] = round((float) ($invMap[$key] ?? 0));
             }
         } else { // month — pakai kunci Y-m agar aman lintas tahun
-            $soMap  = (clone $soQ)->selectRaw("DATE_FORMAT(order_date, '%Y-%m') as ym, SUM(grand_total) as t")->groupBy('ym')->pluck('t', 'ym');
-            $invMap = (clone $invQ)->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') as ym, SUM(grand_total) as t")->groupBy('ym')->pluck('t', 'ym');
+            $soMap  = (clone $soQ)->selectRaw("DATE_FORMAT(order_date, '%Y-%m') as ym, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t")->groupBy('ym')->pluck('t', 'ym');
+            $invMap = (clone $invQ)->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') as ym, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t")->groupBy('ym')->pluck('t', 'ym');
             $crossYear = $start->year !== $end->year;
             for ($m = $start->copy()->startOfMonth(); $m->lte($end); $m->addMonth()) {
                 $key = $m->format('Y-m');
