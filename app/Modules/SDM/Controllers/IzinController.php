@@ -36,6 +36,8 @@ class IzinController extends Controller
     {
         $karyawans = Karyawan::where('is_active', true)->orderBy('name')->get();
         $selected = $request->karyawan_id;
+        // Toleransi (force majeure) sengaja TIDAK di sini: super admin menangani lewat
+        // edit langsung di Absensi (manusia pengendali utama). Lihat IzinRequest::TYPES utk PWA.
         $types = AttendanceOverride::TYPES;
         return view('erp.sdm.izin.create', compact('karyawans', 'selected', 'types'));
     }

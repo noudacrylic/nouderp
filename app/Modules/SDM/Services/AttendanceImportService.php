@@ -16,6 +16,7 @@ class AttendanceImportService
     public function __construct(
         protected PayrollCalculationService $payroll,
         protected PeriodePenggajianService $periodeService,
+        protected AttendanceStatusResolver $statusResolver,
     ) {}
 
     /**
@@ -125,7 +126,8 @@ class AttendanceImportService
             }
 
             $week = $this->shortWeek($row[$header['week']] ?? null, $tanggal);
-            $status = $this->determineStatus($on1, $off1, $week);
+            // Status mengikuti jadwal per-karyawan + override jam hari itu (bukan ambang global).
+            $status = $this->statusResolver->autoStatus($karyawan, $tanggal, $on1, $off1);
 
             $overtimeAllowed = $karyawan->isOvertimeAllowedOn($tanggal);
 
@@ -202,6 +204,10 @@ class AttendanceImportService
         return null;
     }
 
+    /**
+     * @deprecated Pakai AttendanceStatusResolver::autoStatus() — memakai ambang GLOBAL,
+     * tidak sadar jadwal per-karyawan / override jam. Dipertahankan utk fallback langka.
+     */
     public function determineStatus(?string $on1, ?string $off1, ?string $week): string
     {
         $isWeekend = in_array(strtolower((string) $week), ['sun', 'min'], true);

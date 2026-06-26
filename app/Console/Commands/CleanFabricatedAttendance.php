@@ -34,7 +34,7 @@ class CleanFabricatedAttendance extends Command
         'off_work2' => '20:00:00',
     ];
 
-    public function handle(AttendanceImportService $importer): int
+    public function handle(AttendanceImportService $importer, \App\Modules\SDM\Services\AttendanceStatusResolver $statusResolver): int
     {
         $apply = (bool) $this->option('apply');
         $from  = $this->option('from');
@@ -86,7 +86,9 @@ class CleanFabricatedAttendance extends Command
 
             // Recompute status & flag dari sisa jam (log-only) — sama seperti mergeIntoAttendance.
             $overtimeAllowed = $att->karyawan?->isOvertimeAllowedOn($att->tanggal instanceof \DateTimeInterface ? $att->tanggal : \Carbon\Carbon::parse($att->tanggal)) ?? false;
-            $status = $importer->determineStatus($att->on_work1, $att->off_work1, $att->week);
+            $status = $att->karyawan
+                ? $statusResolver->autoStatus($att->karyawan, $att->tanggal instanceof \DateTimeInterface ? \Carbon\Carbon::parse($att->tanggal) : \Carbon\Carbon::parse($att->tanggal), $att->on_work1, $att->off_work1)
+                : $importer->determineStatus($att->on_work1, $att->off_work1, $att->week);
             $flags  = $importer->applyPayFlags($status, $att->on_work1);
             $att->status          = $status;
             $att->overtime_hours  = $importer->calculateOvertime($att->off_work2, $overtimeAllowed);

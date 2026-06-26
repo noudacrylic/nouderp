@@ -1136,6 +1136,16 @@ Route::prefix('me')->name('me.')->group(function () {
         Route::get ('/izin/create', [\App\Http\Controllers\Me\IzinController::class, 'create'])->name('izin.create');
         Route::post('/izin',        [\App\Http\Controllers\Me\IzinController::class, 'store'])->name('izin.store');
 
+        // Profil (hub: Data Pribadi, Cuti & SP, Slip)
+        Route::get ('/profil',      [\App\Http\Controllers\Me\ProfileController::class, 'index'])->name('profil');
+        Route::get ('/profil/edit', [\App\Http\Controllers\Me\ProfileController::class, 'edit'])->name('profil.edit');
+        Route::post('/profil',      [\App\Http\Controllers\Me\ProfileController::class, 'update'])->name('profil.update');
+
+        // Web Push (notifikasi PWA)
+        Route::post('/push/subscribe',   [\App\Http\Controllers\Me\PushSubscriptionController::class, 'store'])->name('push.subscribe');
+        Route::post('/push/unsubscribe', [\App\Http\Controllers\Me\PushSubscriptionController::class, 'destroy'])->name('push.unsubscribe');
+        Route::post('/push/test',        [\App\Http\Controllers\Me\PushSubscriptionController::class, 'test'])->name('push.test');
+
         // Slip gaji (karyawan) — hanya periode finalized
         Route::get('/slip',      [\App\Http\Controllers\Me\SlipController::class, 'index'])->name('slip');
         Route::get('/slip/{id}', [\App\Http\Controllers\Me\SlipController::class, 'show'])->name('slip.show');

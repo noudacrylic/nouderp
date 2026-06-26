@@ -30,6 +30,10 @@ Schedule::command('periode-gaji:ensure-current')
 Schedule::call(fn() => app(\App\Modules\Tasks\Services\TaskAutomationService::class)->runScheduled())
     ->everyFiveMinutes()->name('task-scheduler')->withoutOverlapping();
 
+// Pengingat absensi karyawan (Web Push) — cek tiap 5 menit sesuai jadwal masing-masing.
+Schedule::command('sdm:send-attendance-reminders')
+    ->everyFiveMinutes()->name('attendance-reminders')->withoutOverlapping();
+
 // Jubelio — sinkron pesanan tiap 5 menit, retur tiap 15 menit (andalan localhost; webhook akselerator).
 Schedule::command('jubelio:sync-orders')->everyFiveMinutes()->name('jubelio-sync-orders')->withoutOverlapping();
 Schedule::command('jubelio:sync-returns')->everyFifteenMinutes()->name('jubelio-sync-returns')->withoutOverlapping();

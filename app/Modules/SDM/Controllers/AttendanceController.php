@@ -304,77 +304,9 @@ class AttendanceController extends Controller
 
     protected function resolveStatus(array $row, ?string $on1, ?string $off1): ?string
     {
-        $att   = $row['attendance'];
-        $sched = $row['schedule'];
-        $isFullSwap = $this->hasFullDaySwap($row);
-        $isHalfSwap = $this->hasHalfDaySwap($row);
-
-        // Manual override (HRD pilih dari dropdown) — paling prioritas
-        if ($att && $att->edited_manually && $att->status) {
-            return $att->status;
-        }
-
-        // Tukar ½ Hari: hari kerja → 'hadir' (kredit penuh di sini).
-        // Hari libur → 1 sisi scan consumed swap = 'libur'; 2 sisi = sisanya 'lembur_setengah_hari'.
-        if ($isHalfSwap) {
-            if (! $row['is_off'] && ! $row['is_holiday']) {
-                return 'hadir';
-            }
-            $sides = ($on1 ? 1 : 0) + ($off1 ? 1 : 0);
-            return $sides >= 2 ? 'lembur_setengah_hari' : 'libur';
-        }
-
-        // Tukar Hari (full): hari kerja → 'libur'; hari libur → fall-through ke scan biasa
-        if ($isFullSwap && ! $row['is_off'] && ! $row['is_holiday']) {
-            return 'libur';
-        }
-
-        // Hari libur (off jadwal atau libur nasional) — kecuali ditukar via tukar_hari
-        if (($row['is_holiday'] || $row['is_off']) && ! $isFullSwap) {
-            if (! $on1 && ! $off1) return 'libur';
-            $sides = ($on1 ? 1 : 0) + ($off1 ? 1 : 0);
-            return $sides === 1 ? 'lembur_setengah_hari' : 'lembur';
-        }
-
-        // Status MURNI dari scan — izin/tukar/cuti tidak mengubah status di sini, hanya tampil sebagai badge audit
-        if (! $on1 && ! $off1) {
-            return null;
-        }
-
-        if (! $on1 || ! $off1) {
-            return 'setengah_hari';
-        }
-
-        // Penyesuaian Jam — kalau ada override jam, pakai sebagai patokan Terlambat/Pulang Awal hari itu
-        $overrides = $row['overrides'] ?? collect();
-        $penyJam = $overrides->firstWhere('type', 'penyesuaian_jam');
-
-        $jamMasuk  = $penyJam?->jam_masuk_override
-            ? substr($penyJam->jam_masuk_override, 0, 5)
-            : ($sched?->jam_masuk ? substr($sched->jam_masuk, 0, 5) : '08:00');
-        $jamPulang = $penyJam?->jam_pulang_override
-            ? substr($penyJam->jam_pulang_override, 0, 5)
-            : ($sched?->jam_pulang ? substr($sched->jam_pulang, 0, 5) : '16:00');
-        $lateTol   = (int) ($sched?->late_in_minutes ?? 10);
-        $earlyTol  = (int) ($sched?->early_out_minutes ?? 0);
-
-        $masukMin  = $this->toMinutes($jamMasuk);
-        $pulangMin = $this->toMinutes($jamPulang);
-        $on1Min    = $this->toMinutes($on1);
-        $off1Min   = $this->toMinutes($off1);
-
-        // Telat lebih dari 2.5 jam (150 menit) = setengah hari
-        if ($on1Min - $masukMin > 150)    return 'setengah_hari';
-        if ($pulangMin - $off1Min > 120)  return 'setengah_hari';
-
-        $isLate  = ($on1Min - $masukMin) > $lateTol;
-        $isEarly = ($pulangMin - $off1Min) > $earlyTol;
-
-        if ($isLate && $isEarly) return 'pulang_awal';
-        if ($isLate)             return 'terlambat';
-        if ($isEarly)            return 'pulang_awal';
-
-        return 'hadir';
+        // Sumber tunggal: AttendanceStatusResolver (dipakai juga PWA karyawan)
+        return app(\App\Modules\SDM\Services\AttendanceStatusResolver::class)
+            ->resolve($row, $on1, $off1);
     }
 
     protected function resolveLemburJam(array $row, ?string $status, ?Attendance $att, ?string $otOut, ?string $regOut): float
@@ -553,7 +485,7 @@ class AttendanceController extends Controller
         return view('erp.sdm.attendance.edit', compact('att'));
     }
 
-    public function update(Request $request, int $id, AttendanceImportService $importer, PayrollCalculationService $payroll)
+    public function update(Request $request, int $id, AttendanceImportService $importer, PayrollCalculationService $payroll, \App\Modules\SDM\Services\AttendanceStatusResolver $statusResolver)
     {
         $att = Attendance::findOrFail($id);
 
@@ -573,8 +505,8 @@ class AttendanceController extends Controller
         }
         $att->remark = $data['remark'] ?? null;
 
-        $week = $att->week;
-        $autoStatus = $importer->determineStatus($att->on_work1, $att->off_work1, $week);
+        // Fallback otomatis kalau HRD tak memilih status: ikut jadwal per-karyawan + override jam.
+        $autoStatus = $statusResolver->autoStatus($att->karyawan, Carbon::parse($att->tanggal), $att->on_work1, $att->off_work1);
         $status = $data['status'] ?: $autoStatus;
         $att->status = $status;
 

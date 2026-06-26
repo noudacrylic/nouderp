@@ -37,7 +37,16 @@
     @else
         <div class="space-y-2.5 mt-1">
             @foreach ($rows as $r)
-                @php [$label, $cls] = KaryawanHomeService::statusBadge($r->status); @endphp
+                @php
+                    [$label, $cls] = KaryawanHomeService::statusBadge($r->status);
+                    // Hari ini & masih berjalan (sudah masuk, belum scan pulang) → jangan
+                    // beri vonis "setengah hari"; tampilkan label suportif.
+                    $sedangBerjalan = $r->tanggal->isToday() && $r->on_work1 && ! $lastOut($r);
+                    if ($sedangBerjalan) {
+                        $label = 'Sedang bekerja';
+                        $cls   = 'bg-emerald-100 text-emerald-700';
+                    }
+                @endphp
                 <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3.5 flex items-center gap-3">
                     {{-- Tanggal --}}
                     <div class="text-center w-12 shrink-0">
@@ -46,7 +55,12 @@
                     </div>
                     <div class="flex-1 min-w-0">
                         <span class="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full {{ $cls }}">{{ $label }}</span>
-                        @if (in_array($r->status, ['hadir','terlambat','setengah_hari','pulang_awal']))
+                        @if ($sedangBerjalan)
+                            <p class="text-xs text-slate-500 mt-1">
+                                Masuk <span class="font-semibold text-slate-700">{{ $fmtTime($r->on_work1) }}</span>
+                                · <span class="text-emerald-600 font-semibold">belum pulang</span>
+                            </p>
+                        @elseif (in_array($r->status, ['hadir','terlambat','setengah_hari','pulang_awal']))
                             <p class="text-xs text-slate-500 mt-1">
                                 Masuk <span class="font-semibold text-slate-700">{{ $fmtTime($r->on_work1) }}</span>
                                 · Pulang <span class="font-semibold text-slate-700">{{ $fmtTime($lastOut($r)) }}</span>

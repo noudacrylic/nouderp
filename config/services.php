@@ -59,4 +59,14 @@ return [
         'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),
     ],
 
+    // Web Push (PWA Karyawan) — VAPID. Tanpa kunci, WebPushNotifier no-op aman.
+    // openssl_conf: Windows/XAMPP butuh path openssl.cnf agar EC (ECDH/ES256) jalan;
+    // di Linux biarkan kosong (openssl default sudah benar).
+    'webpush' => [
+        'public_key'   => env('VAPID_PUBLIC_KEY'),
+        'private_key'  => env('VAPID_PRIVATE_KEY'),
+        'subject'      => env('VAPID_SUBJECT', 'mailto:admin@noudacrylic.com'),
+        'openssl_conf' => env('OPENSSL_CONF_PATH', 'C:/xampp/php/extras/ssl/openssl.cnf'),
+    ],
+
 ];

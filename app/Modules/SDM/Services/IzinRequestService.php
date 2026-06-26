@@ -318,7 +318,17 @@ class IzinRequestService
     /** Toleransi: ubah baris absensi jadi "hadir" penuh, late dinetralkan, scan dipertahankan. */
     private function applyToleransi(IzinRequest $req, string $date): void
     {
-        $att = Attendance::where('karyawan_id', $req->karyawan_id)
+        $this->materializeToleransi($req->karyawan_id, $date, $req->alasan, $req->reviewed_by);
+    }
+
+    /**
+     * Materialisasi toleransi ke baris absensi (dipakai approval PWA & input langsung HRD).
+     * Status → 'hadir' penuh, keterlambatan/pulang-cepat dinetralkan, jam scan asli dipertahankan,
+     * baris ditandai edited_manually agar tak ditimpa recompute auto.
+     */
+    public function materializeToleransi(int $karyawanId, string $date, string $alasan, ?string $by = null): void
+    {
+        $att = Attendance::where('karyawan_id', $karyawanId)
             ->whereDate('tanggal', $date)
             ->first();
         if (! $att || ! $att->on_work1) {
@@ -334,10 +344,10 @@ class IzinRequestService
         $att->get_tunjangan     = $flags['tunj'];
         $att->get_bonus_absen   = $flags['bonus_absen'];
         $att->edited_manually   = true;
-        $att->remark            = trim(($att->remark ? $att->remark . ' | ' : '') . 'Toleransi: ' . $req->alasan);
+        $att->remark            = trim(($att->remark ? $att->remark . ' | ' : '') . 'Toleransi: ' . $alasan);
         $att->save();
 
-        $this->regenerateSlipFor($req->karyawan_id, $date);
+        $this->regenerateSlipFor($karyawanId, $date);
     }
 
     private function revertToleransi(int $karyawanId, string $date): void

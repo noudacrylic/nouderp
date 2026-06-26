@@ -43,36 +43,38 @@ class KaryawanHomeService
                 'icon' => '🤒', 'tone' => 'amber',
                 'title' => 'Izin sakit', 'message' => 'Lekas sembuh, hari ini tercatat sakit.',
             ],
-            // Sudah scan masuk
-            $jamMasuk && $status === 'terlambat' => [
-                'icon' => '⏰', 'tone' => 'amber',
-                'title' => 'Terlambat' . ($today->late_minutes ? " {$today->late_minutes} menit" : ''),
-                'message' => "Masuk {$masukStr}" . ($pulangStr ? " · pulang {$pulangStr}" : '') . '.',
+            // ── Hari MASIH BERJALAN: sudah absen masuk, belum scan pulang ──
+            // Jangan beri vonis (setengah hari/terlambat) selagi hari belum selesai —
+            // tampilkan apresiasi yang menyemangati.
+            $jamMasuk && ! $jamPulang => [
+                'icon' => '☀️', 'tone' => 'green',
+                'title' => 'Sudah absen masuk',
+                'message' => "Tercatat masuk pukul {$masukStr}. Selamat bekerja, semangat hari ini! 💪",
             ],
-            $jamMasuk && $status === 'setengah_hari' => [
+
+            // ── Hari sudah selesai (sudah scan pulang) ──
+            $jamMasuk && $jamPulang && $status === 'setengah_hari' => [
                 'icon' => '🌗', 'tone' => 'amber',
                 'title' => 'Setengah hari',
-                'message' => "Masuk {$masukStr}" . ($pulangStr ? " · pulang {$pulangStr}" : '') . '.',
+                'message' => "Masuk {$masukStr} · pulang {$pulangStr}.",
             ],
             $jamMasuk && $jamPulang => [
                 'icon' => '👋', 'tone' => 'green',
                 'title' => 'Sudah pulang',
                 'message' => "Masuk {$masukStr} · pulang {$pulangStr}. Terima kasih hari ini!",
             ],
-            $jamMasuk => [
+
+            // Hanya tercatat scan pulang (jarang — scan masuk kelewat).
+            $jamPulang => [
                 'icon' => '✅', 'tone' => 'green',
-                'title' => 'Sudah absen masuk',
-                'message' => "Tercatat masuk {$masukStr}. Semangat bekerja!",
+                'title' => 'Absensi tercatat',
+                'message' => "Tercatat pulang pukul {$pulangStr}.",
             ],
-            $status === 'tidak_hadir' => [
-                'icon' => '⚠️', 'tone' => 'red',
-                'title' => 'Tidak hadir',
-                'message' => 'Belum ada catatan kehadiran hari ini.',
-            ],
+
             default => [
                 'icon' => '🕗', 'tone' => 'slate',
                 'title' => 'Belum absen',
-                'message' => 'Belum ada catatan absensi masuk hari ini.',
+                'message' => 'Belum ada catatan absensi masuk hari ini. Jangan lupa scan, ya!',
             ],
         };
     }

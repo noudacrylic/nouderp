@@ -28,7 +28,10 @@ use Carbon\Carbon;
  */
 class AutoAttendanceService
 {
-    public function __construct(protected AttendanceImportService $importer) {}
+    public function __construct(
+        protected AttendanceImportService $importer,
+        protected AttendanceStatusResolver $statusResolver,
+    ) {}
 
     public const SLOTS = [
         'check_in'  => ['time' => '08:00', 'label' => 'Check In Pagi'],
@@ -162,9 +165,9 @@ class AutoAttendanceService
             $att->week = $date->format('D');
         }
 
-        // Recompute status & flags
+        // Recompute status & flags — ikut jadwal per-karyawan + override jam hari itu.
         $overtimeAllowed = $karyawan->isOvertimeAllowedOn($date);
-        $status = $this->importer->determineStatus($att->on_work1, $att->off_work1, $att->week);
+        $status = $this->statusResolver->autoStatus($karyawan, $date instanceof Carbon ? $date : Carbon::parse($date), $att->on_work1, $att->off_work1);
         $flags = $this->importer->applyPayFlags($status, $att->on_work1);
 
         $att->status = $status;

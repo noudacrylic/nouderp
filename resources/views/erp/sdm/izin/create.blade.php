@@ -89,6 +89,7 @@
                 <li><strong>Tukar Setengah Hari</strong> — kerja ½ hari di tanggal ini & ½ hari di tanggal pasangan. Keduanya hadir + tunjangan</li>
                 <li><strong>Penyesuaian Jam</strong> — jam masuk/pulang ditimpa khusus hari ini (mis. tidak istirahat, pulang jam 3)</li>
                 <li><strong>Jadwal Lembur</strong> — batch lembur jalan → lembur dihitung</li>
+                <li class="text-gray-400"><em>Force majeure (mis. banjir): super admin cukup edit langsung baris Absensi → ubah status jadi Hadir.</em></li>
             </ul>
         </div>
 

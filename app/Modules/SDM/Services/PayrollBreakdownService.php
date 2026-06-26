@@ -224,58 +224,8 @@ class PayrollBreakdownService
 
     public static function resolveStatus(array $row, ?string $on1, ?string $off1): ?string
     {
-        $att        = $row['attendance'];
-        $sched      = $row['schedule'];
-        $isFullSwap = static::hasFullDaySwap($row);
-        $isHalfSwap = static::hasHalfDaySwap($row);
-
-        if ($att && $att->edited_manually && $att->status) return $att->status;
-
-        if ($isHalfSwap) {
-            if (! $row['is_off'] && ! $row['is_holiday']) return 'hadir';
-            $sides = ($on1 ? 1 : 0) + ($off1 ? 1 : 0);
-            return $sides >= 2 ? 'lembur_setengah_hari' : 'libur';
-        }
-
-        if ($isFullSwap && ! $row['is_off'] && ! $row['is_holiday']) return 'libur';
-
-        if (($row['is_holiday'] || $row['is_off']) && ! $isFullSwap) {
-            if (! $on1 && ! $off1) return 'libur';
-            $sides = ($on1 ? 1 : 0) + ($off1 ? 1 : 0);
-            return $sides === 1 ? 'lembur_setengah_hari' : 'lembur';
-        }
-
-        if (! $on1 && ! $off1) return null;
-        if (! $on1 || ! $off1) return 'setengah_hari';
-
-        $overrides = $row['overrides'] ?? collect();
-        $penyJam   = $overrides->firstWhere('type', 'penyesuaian_jam');
-
-        $jamMasuk  = $penyJam?->jam_masuk_override
-            ? substr($penyJam->jam_masuk_override, 0, 5)
-            : ($sched?->jam_masuk ? substr($sched->jam_masuk, 0, 5) : '08:00');
-        $jamPulang = $penyJam?->jam_pulang_override
-            ? substr($penyJam->jam_pulang_override, 0, 5)
-            : ($sched?->jam_pulang ? substr($sched->jam_pulang, 0, 5) : '16:00');
-        $lateTol   = (int) ($sched?->late_in_minutes ?? 10);
-        $earlyTol  = (int) ($sched?->early_out_minutes ?? 0);
-
-        $masukMin  = static::toMinutes($jamMasuk);
-        $pulangMin = static::toMinutes($jamPulang);
-        $on1Min    = static::toMinutes($on1);
-        $off1Min   = static::toMinutes($off1);
-
-        if ($on1Min - $masukMin > 150)   return 'setengah_hari';
-        if ($pulangMin - $off1Min > 120) return 'setengah_hari';
-
-        $isLate  = ($on1Min - $masukMin) > $lateTol;
-        $isEarly = ($pulangMin - $off1Min) > $earlyTol;
-
-        if ($isLate && $isEarly) return 'pulang_awal';
-        if ($isLate)             return 'terlambat';
-        if ($isEarly)            return 'pulang_awal';
-
-        return 'hadir';
+        // Sumber tunggal: AttendanceStatusResolver (dipakai juga dashboard, PWA, jalur simpan).
+        return app(AttendanceStatusResolver::class)->resolve($row, $on1, $off1);
     }
 
     public static function resolveLemburJam(array $row, ?string $status, ?Attendance $att, ?string $otOut, ?string $regOut): float

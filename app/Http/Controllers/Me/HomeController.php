@@ -5,13 +5,17 @@ namespace App\Http\Controllers\Me;
 use App\Modules\SDM\Models\Attendance;
 use App\Modules\SDM\Models\IzinRequest;
 use App\Modules\SDM\Models\KaryawanSchedule;
+use App\Modules\SDM\Services\AttendanceStatusResolver;
 use App\Modules\SDM\Services\KaryawanHomeService;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
 
 class HomeController extends Controller
 {
-    public function __construct(private KaryawanHomeService $home) {}
+    public function __construct(
+        private KaryawanHomeService $home,
+        private AttendanceStatusResolver $statusResolver,
+    ) {}
 
     public function index()
     {
@@ -27,6 +31,25 @@ class HomeController extends Controller
             ->whereYear('tanggal', $now->year)
             ->whereMonth('tanggal', $now->month)
             ->get();
+
+        // Selaraskan status dgn dashboard HRD: hitung live (hormati jam_pulang
+        // per-jadwal, toleransi, tukar hari, penyesuaian jam) — kolom tersimpan
+        // pakai ambang global shg bisa keliru utk karyawan berjadwal beda.
+        $resolved = $this->statusResolver->resolveForRange(
+            $karyawan,
+            $now->copy()->startOfMonth(),
+            $now->copy()->endOfMonth(),
+            $monthRows,
+        );
+        foreach ($monthRows as $r) {
+            $key = Carbon::parse($r->tanggal)->toDateString();
+            if (array_key_exists($key, $resolved)) {
+                $r->status = $resolved[$key];
+            }
+        }
+        if ($todayRow && array_key_exists($today, $resolved)) {
+            $todayRow->status = $resolved[$today];
+        }
 
         $todayMessage = $this->home->todayMessage($todayRow);
         $metrics      = $this->home->monthMetrics($monthRows);

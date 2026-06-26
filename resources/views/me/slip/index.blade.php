@@ -3,7 +3,12 @@
 @section('title', 'Slip Gaji — NOUD Karyawan')
 
 @section('header')
-    <h1 class="text-xl font-extrabold">Slip Gaji</h1>
+    <div class="flex items-center gap-2">
+        <a href="{{ route('me.profil') }}" class="p-1 -ml-1 rounded-lg hover:bg-white/15">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </a>
+        <h1 class="text-xl font-extrabold">Slip Gaji</h1>
+    </div>
     <p class="text-white/70 text-xs mt-1">Hanya periode yang sudah final.</p>
 @endsection
 

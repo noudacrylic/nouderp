@@ -23,7 +23,10 @@ use Illuminate\Support\Facades\Log;
  */
 class AdmsService
 {
-    public function __construct(protected AttendanceImportService $importer) {}
+    public function __construct(
+        protected AttendanceImportService $importer,
+        protected AttendanceStatusResolver $statusResolver,
+    ) {}
 
     public function findMachineBySerial(string $sn): ?FingerprintMachine
     {
@@ -234,10 +237,15 @@ class AdmsService
             $att->week = $log->scan_at->format('D');
         }
 
-        // Recompute status & overtime
+        // Recompute status & overtime — ikut jadwal per-karyawan + override jam hari itu.
         $karyawan = $log->karyawan;
         $overtimeAllowed = $karyawan->isOvertimeAllowedOn($log->scan_at);
-        $status = $this->importer->determineStatus($att->on_work1, $att->off_work1, $att->week);
+        $status = $this->statusResolver->autoStatus(
+            $karyawan,
+            Carbon::parse($att->tanggal),
+            $att->on_work1,
+            $att->off_work1,
+        );
         $flags = $this->importer->applyPayFlags($status, $att->on_work1);
 
         $att->status = $status;
