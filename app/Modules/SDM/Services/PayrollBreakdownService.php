@@ -265,7 +265,9 @@ class PayrollBreakdownService
             $mins -= $overlap;
         }
 
-        return round(max(0, $mins) / 60, 2);
+        // Dibulatkan KE BAWAH ke kelipatan 30 menit (0,5 jam) — keputusan user 26 Jun 2026:
+        // lembur dari scan tapi tanpa koma aneh (mis. 3j10m → 3,0 ; 3j40m → 3,5).
+        return floor(max(0, $mins) / 30) / 2;
     }
 
     public static function paysFullDay(?string $status): bool

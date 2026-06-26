@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Me;
 
 use App\Modules\SDM\Models\Attendance;
+use App\Modules\SDM\Models\AttendanceOverride;
 use App\Modules\SDM\Models\IzinRequest;
 use App\Modules\SDM\Models\KaryawanSchedule;
+use App\Modules\SDM\Models\NationalHoliday;
 use App\Modules\SDM\Services\AttendanceStatusResolver;
 use App\Modules\SDM\Services\KaryawanHomeService;
+use App\Modules\SDM\Services\PayrollBreakdownService;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
 
@@ -49,6 +52,43 @@ class HomeController extends Controller
         }
         if ($todayRow && array_key_exists($today, $resolved)) {
             $todayRow->status = $resolved[$today];
+        }
+
+        // Selaraskan jam lembur dgn dashboard/slip: hitung live (lembur hari libur/off =
+        // 7 jam, hari kerja = dari scan dibulatkan ke bawah 0,5 jam). Kolom tersimpan tak
+        // memuat lembur hari libur, jadi metrik PWA harus pakai resolveLemburJam.
+        $schedByDow = $karyawan->schedules->keyBy('day_of_week');
+        $startM = $now->copy()->startOfMonth()->toDateString();
+        $endM   = $now->copy()->endOfMonth()->toDateString();
+        $holidays = NationalHoliday::whereBetween('tanggal', [$startM, $endM])
+            ->pluck('tanggal')->map(fn ($d) => Carbon::parse($d)->toDateString())->all();
+        $ovByDate = [];
+        foreach (AttendanceOverride::where('karyawan_id', $karyawan->id)
+            ->where(fn ($q) => $q->whereBetween('tanggal', [$startM, $endM])
+                ->orWhereBetween('paired_date', [$startM, $endM]))->get() as $o) {
+            $ovByDate[Carbon::parse($o->tanggal)->toDateString()][] = $o;
+            if ($o->paired_date) {
+                $ovByDate[Carbon::parse($o->paired_date)->toDateString()][] = $o;
+            }
+        }
+        foreach ($monthRows as $r) {
+            $dateStr = Carbon::parse($r->tanggal)->toDateString();
+            $dow     = (int) Carbon::parse($r->tanggal)->dayOfWeek;
+            $sched   = $schedByDow[$dow] ?? null;
+            $row = [
+                'attendance' => $r,
+                'schedule'   => $sched,
+                'is_off'     => $sched ? (bool) $sched->is_off : ($dow === 0),
+                'is_holiday' => in_array($dateStr, $holidays, true),
+                'overrides'  => collect($ovByDate[$dateStr] ?? []),
+            ];
+            $r->overtime_hours = PayrollBreakdownService::resolveLemburJam(
+                $row,
+                $r->status,
+                $r,
+                $r->off_work2 ? substr($r->off_work2, 0, 5) : null,
+                $r->off_work1 ? substr($r->off_work1, 0, 5) : null,
+            );
         }
 
         $todayMessage = $this->home->todayMessage($todayRow);

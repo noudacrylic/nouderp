@@ -262,7 +262,8 @@ class AttendanceImportService
             $start = Carbon::createFromFormat('H:i:s', '18:30:00');
             $end   = Carbon::createFromFormat('H:i:s', $off2);
             $mins  = $start->diffInMinutes($end);
-            return round(1.5 + ($mins / 60), 2);
+            // Bulat KE BAWAH ke kelipatan 30 menit (0,5 jam) — selaras resolveLemburJam.
+            return 1.5 + floor($mins / 30) * 0.5;
         }
         return 3.0;
     }
