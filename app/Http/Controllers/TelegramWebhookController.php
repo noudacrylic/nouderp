@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\TelegramSetting;
 use App\Models\User;
+use App\Modules\Assistant\Services\AiAccountantService;
 use App\Modules\Notifications\Services\TelegramNotifier;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -34,12 +36,54 @@ class TelegramWebhookController extends Controller
         $chatId  = data_get($message, 'chat.id');
         $text    = trim((string) data_get($message, 'text', ''));
 
-        // Hanya proses perintah /start (linking). Update lain diabaikan (return 200).
         if ($chatId && str_starts_with($text, '/start')) {
+            // /start <token> → linking akun.
             $this->handleStart($telegram, (string) $chatId, $text);
+        } elseif ($chatId) {
+            // Pesan lain → asisten pencatat keuangan (Fase 1: pengeluaran & prive).
+            $this->handleMessage($telegram, (string) $chatId, $text);
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Pesan masuk selain /start → diteruskan ke AiAccountantService.
+     * Guard: hanya user ter-link & ber-role admin/owner yang boleh mencatat transaksi.
+     */
+    private function handleMessage(TelegramNotifier $telegram, string $chatId, string $text): void
+    {
+        $user = User::where('telegram_chat_id', $chatId)->first();
+
+        if (! $user) {
+            $telegram->send($chatId,
+                '⚠️ Akun Telegram ini belum terhubung ke Noud ERP. Buka aplikasi → menu '
+                . '<b>Telegram</b> → <i>Hubungkan</i>.');
+            return;
+        }
+
+        if (! $user->canManageUsers()) {
+            $telegram->send($chatId, '⛔ Maaf, hanya admin/pemilik yang bisa mencatat transaksi lewat bot.');
+            return;
+        }
+
+        if ($text === '') {
+            $telegram->send($chatId,
+                'Kirim perintah teks ya, mis. <i>catat pengeluaran bensin 50rb dari kas</i>. '
+                . '(Baca struk menyusul.)');
+            return;
+        }
+
+        try {
+            // Webhook tanpa sesi → login user utk request ini saja (created_by, dll. ikut benar).
+            Auth::login($user);
+            $reply = app(AiAccountantService::class)->handle($user, $chatId, $text);
+        } catch (\Throwable $e) {
+            Log::warning('AiAccountant gagal: ' . $e->getMessage());
+            $reply = '❌ Terjadi kesalahan: ' . $e->getMessage();
+        }
+
+        $telegram->send($chatId, $reply);
     }
 
     private function handleStart(TelegramNotifier $telegram, string $chatId, string $text): void

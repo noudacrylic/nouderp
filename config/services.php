@@ -59,6 +59,17 @@ return [
         'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),
     ],
 
+    // Claude (Anthropic) — asisten pencatat keuangan via Telegram. Tanpa key, AI no-op aman.
+    // Pakai Http langsung ke api.anthropic.com (tanpa SDK). model_text utk perintah teks,
+    // model_vision utk baca struk (Fase 3). confirm_threshold: nominal di atas ini wajib konfirmasi.
+    'anthropic' => [
+        'key'               => env('ANTHROPIC_API_KEY'),
+        'model_text'        => env('ANTHROPIC_MODEL_TEXT', 'claude-sonnet-4-6'),
+        'model_vision'      => env('ANTHROPIC_MODEL_VISION', 'claude-opus-4-8'),
+        'confirm_threshold' => (int) env('AI_CONFIRM_THRESHOLD', 100000),
+        'conversation_ttl'  => (int) env('AI_CONVERSATION_TTL', 1200), // detik
+    ],
+
     // Web Push (PWA Karyawan) — VAPID. Tanpa kunci, WebPushNotifier no-op aman.
     // openssl_conf: Windows/XAMPP butuh path openssl.cnf agar EC (ECDH/ES256) jalan;
     // di Linux biarkan kosong (openssl default sudah benar).
