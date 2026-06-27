@@ -120,11 +120,12 @@ class AiAccountantService
                 return '❌ AI error: ' . $resp['_error'];
             }
 
-            $content = $this->normalizeToolInputs($resp['content'] ?? []);
+            $content = $resp['content'] ?? [];
             $stop    = $resp['stop_reason'] ?? null;
 
-            // Simpan giliran assistant (mentah, termasuk blok tool_use) ke riwayat.
-            $messages[] = ['role' => 'assistant', 'content' => $content];
+            // Simpan giliran assistant ke riwayat dengan input tool_use ternormalisasi (objek),
+            // tapi $content asli (array) tetap dipakai untuk eksekusi tool di bawah.
+            $messages[] = ['role' => 'assistant', 'content' => $this->normalizeToolInputs($content)];
 
             if ($stop === 'tool_use') {
                 $toolResults = [];
