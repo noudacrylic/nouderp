@@ -28,6 +28,7 @@
             <option value="minus" @selected(request('status') == 'minus')>Minus</option>
         </select>
     </div>
+    @include('erp._partials.per-page-select')
 </form>
 
 <div id="list-results">

@@ -11,7 +11,7 @@ class SupplierController extends Controller
 {
     public function index(Request $request)
     {
-        $suppliers = Supplier::orderBy('name')
+        $query = Supplier::orderBy('name')
             ->when($request->q, function ($q, $term) {
                 $q->where(function ($w) use ($term) {
                     $w->where('name', 'like', "%{$term}%")
@@ -19,8 +19,9 @@ class SupplierController extends Controller
                       ->orWhere('phone', 'like', "%{$term}%")
                       ->orWhere('city', 'like', "%{$term}%");
                 });
-            })
-            ->get();
+            });
+
+        $suppliers = (clone $query)->paginate(per_page_size())->withQueryString();
 
         // Aggregate per supplier untuk keperluan audit:
         //   ap_outstanding   = hutang ke supplier (purchase_invoices.outstanding_amount, status=posted)
@@ -43,6 +44,13 @@ class SupplierController extends Controller
             ->groupBy('supplier_id')
             ->pluck('total', 'supplier_id');
 
+        // Total footer dihitung atas SELURUH pemasok yang cocok filter (bukan hanya halaman ini),
+        // supaya angka total tetap benar walau daftar dipaginasi.
+        $filteredIds  = (clone $query)->pluck('id');
+        $totalAp      = $filteredIds->reduce(fn($c, $id) => $c + (float) ($apMap[$id] ?? 0), 0.0);
+        $totalDp      = $filteredIds->reduce(fn($c, $id) => $c + (float) ($dpMap[$id] ?? 0), 0.0);
+        $totalOverpay = $filteredIds->reduce(fn($c, $id) => $c + (float) ($overpayMap[$id] ?? 0), 0.0);
+
         // Pemasok yang sudah dipakai di transaksi → hanya bisa diarsipkan, tidak bisa dihapus.
         $usedIds = $this->usedSupplierIds($suppliers->pluck('id')->all());
 
@@ -53,7 +61,7 @@ class SupplierController extends Controller
             $s->is_used         = in_array((int) $s->id, $usedIds, true);
         }
 
-        return view('erp.purchasing.suppliers.index', compact('suppliers'));
+        return view('erp.purchasing.suppliers.index', compact('suppliers', 'totalAp', 'totalDp', 'totalOverpay'));
     }
 
     /** ID pemasok yang sudah dipakai di transaksi mana pun (PO/faktur/retur/pembayaran/lebih-bayar). */

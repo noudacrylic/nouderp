@@ -42,6 +42,7 @@
             <option value="no" @selected(request('sellable') == 'no')>Tidak Dijual</option>
         </select>
     </div>
+    @include('erp._partials.per-page-select')
 </form>
 
 {{-- Toggle "Dijual": CSS eksplisit (tidak bergantung Tailwind JIT/peer-checked yang tak tergenerate via CDN). --}}

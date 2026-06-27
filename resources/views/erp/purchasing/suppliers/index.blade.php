@@ -9,13 +9,11 @@
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari kode, nama, telp, atau kota...'])
+    @include('erp._partials.per-page-select')
 </form>
 
-@php
-    $totalAp      = $suppliers->sum('ap_outstanding');
-    $totalDp      = $suppliers->sum('dp_balance');
-    $totalOverpay = $suppliers->sum('overpay_balance');
-@endphp
+{{-- $totalAp/$totalDp/$totalOverpay dihitung di controller atas SELURUH pemasok yang cocok
+     filter (bukan hanya halaman ini), supaya total footer tetap benar walau daftar dipaginasi. --}}
 
 <div class="bg-white rounded shadow overflow-x-auto">
     <table class="w-full text-sm">
@@ -104,6 +102,8 @@
         @endif
     </table>
 </div>
+
+<div class="mt-3">{{ $suppliers->links() }}</div>
 
 @include('erp.purchasing._partials.list-scripts')
 @endsection

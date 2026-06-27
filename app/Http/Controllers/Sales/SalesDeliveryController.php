@@ -53,7 +53,7 @@ class SalesDeliveryController extends Controller
             };
         }
 
-        $deliveries = $query->orderByDesc('id')->get();
+        $deliveries = $query->orderByDesc('id')->paginate(per_page_size())->withQueryString();
         return view('erp.sales.deliveries.index', compact('deliveries'));
     }
 

@@ -18,7 +18,8 @@ class WarrantyOrderController extends Controller
     {
         $warranties = WarrantyOrder::with(['customer', 'invoice', 'salesOrder'])
             ->latest('warranty_date')
-            ->get();
+            ->paginate(per_page_size())
+            ->withQueryString();
 
         return view('erp.sales.warranty.index', compact('warranties'));
     }

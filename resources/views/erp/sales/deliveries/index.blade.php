@@ -24,6 +24,7 @@
             <option value="not_booked" @selected(request('pengiriman')=='not_booked')>Kurir Belum Booking</option>
         </select>
     </div>
+    @include('erp._partials.per-page-select')
 </form>
 
 <div class="bg-white rounded shadow overflow-x-auto">

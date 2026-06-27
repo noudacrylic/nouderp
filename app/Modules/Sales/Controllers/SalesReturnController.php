@@ -22,7 +22,8 @@ class SalesReturnController extends Controller
             ->withCount(['items as repair_items_count' => fn($q) => $q->where('condition', 'repair')])
             ->latest('return_date')
             ->latest('id')
-            ->get();
+            ->paginate(per_page_size())
+            ->withQueryString();
 
         return view('erp.sales.returns.index', compact('returns'));
     }

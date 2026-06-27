@@ -177,6 +177,18 @@ class StockController extends Controller
             $stocks = $stocks->filter(fn($s) => $s->stock_status === $target)->values();
         }
 
+        // Paginate koleksi hasil hitung secara manual (filter status sudah diterapkan di atas
+        // supaya total & isi halaman tetap akurat) → render halaman lebih ringan saat produk banyak.
+        $perPage = per_page_size();
+        $page    = \Illuminate\Pagination\Paginator::resolveCurrentPage();
+        $stocks  = new \Illuminate\Pagination\LengthAwarePaginator(
+            $stocks->forPage($page, $perPage)->values(),
+            $stocks->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
         return view('erp.inventory.stocks.index', compact('stocks'));
     }
 

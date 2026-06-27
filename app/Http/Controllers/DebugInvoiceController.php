@@ -112,7 +112,7 @@ class DebugInvoiceController extends Controller
             };
         }
 
-        $invoices = $query->orderByDesc('id')->get();
+        $invoices = $query->orderByDesc('id')->paginate(per_page_size())->withQueryString();
 
         if ($request->ajax()) {
             return view('erp.sales.invoices.partials.table_rows', compact('invoices'))->render();

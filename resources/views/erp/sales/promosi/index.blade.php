@@ -29,6 +29,7 @@
             <option value="inactive" @selected(request('status')=='inactive')>Nonaktif</option>
         </select>
     </div>
+    @include('erp._partials.per-page-select')
 </form>
 
 <div class="bg-white rounded shadow overflow-x-auto">
@@ -102,6 +103,8 @@
         </tbody>
     </table>
 </div>
+
+<div class="mt-3">{{ $promos->links() }}</div>
 
 @include('erp.purchasing._partials.list-scripts')
 @endsection

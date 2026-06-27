@@ -20,6 +20,7 @@
             @endforeach
         </select>
     </div>
+    @include('erp._partials.per-page-select')
 </form>
 
 <div class="bg-white rounded shadow overflow-x-auto">

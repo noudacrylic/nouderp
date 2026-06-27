@@ -130,6 +130,21 @@ if (!function_exists('marketplace_copy_number')) {
     }
 }
 
+if (!function_exists('per_page_size')) {
+
+    /**
+     * Ukuran halaman (per_page) untuk paginasi index. Ambil dari query string
+     * `per_page`, batasi ke daftar yang diizinkan (default 20/50/100/200) agar user
+     * tidak bisa menyuntik nilai sembarang yang membebani DB. Dipakai bersama
+     * partial `erp._partials.per-page-select`.
+     */
+    function per_page_size(int $default = 20, array $allowed = [20, 50, 100, 200]): int
+    {
+        $pp = (int) request('per_page', $default);
+        return in_array($pp, $allowed, true) ? $pp : $default;
+    }
+}
+
 if (!function_exists('clean_number')) {
 
     function clean_number($string)

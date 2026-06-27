@@ -86,7 +86,8 @@ class ProductController extends Controller
 
         $products = $query->orderBy('sale_type')
             ->orderBy('id', 'desc')
-            ->get();
+            ->paginate(per_page_size())
+            ->withQueryString();
 
         $productIds = $products->pluck('id')->toArray();
 

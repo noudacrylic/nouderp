@@ -56,7 +56,7 @@ class QuotationController extends Controller
             }
         }
 
-        $quotations = $query->orderByDesc('id')->get();
+        $quotations = $query->orderByDesc('id')->paginate(per_page_size())->withQueryString();
 
         return view('erp.sales.quotations.index', compact('quotations'));
     }

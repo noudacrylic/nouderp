@@ -53,6 +53,7 @@
             <option value="gt_3m" @selected(request('age')=='gt_3m')>&gt; 3 bulan</option>
         </select>
     </div>
+    @include('erp._partials.per-page-select')
 </form>
 
 <div class="bg-white rounded shadow overflow-x-auto">

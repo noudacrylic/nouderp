@@ -116,7 +116,7 @@ class SalesOrderController extends Controller
             }
         }
 
-        $orders = $query->latest()->get();
+        $orders = $query->latest()->paginate(per_page_size())->withQueryString();
 
         return view('erp.sales.orders.index', compact('orders'));
     }

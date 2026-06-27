@@ -28,6 +28,7 @@
             <option value="replacement" @selected(request('type')=='replacement')>Kirim Baru</option>
         </select>
     </div>
+    @include('erp._partials.per-page-select')
 </form>
 
 <div class="bg-white rounded shadow overflow-x-auto">

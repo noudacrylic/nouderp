@@ -39,7 +39,7 @@ class PromosiController extends Controller
             $query->where('is_active', false);
         }
 
-        $promos = $query->orderByDesc('id')->get();
+        $promos = $query->orderByDesc('id')->paginate(per_page_size())->withQueryString();
 
         return view('erp.sales.promosi.index', [
             'promos' => $promos,
