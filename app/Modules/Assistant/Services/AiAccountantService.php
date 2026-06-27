@@ -5,9 +5,12 @@ namespace App\Modules\Assistant\Services;
 use App\Core\Accounting\Account;
 use App\Core\Journal\JournalLine;
 use App\Models\AnthropicSetting;
+use App\Models\FreightSetting;
+use App\Models\SalesInvoice;
 use App\Models\User;
 use App\Modules\Finance\Models\BankTransfer;
 use App\Modules\Finance\Models\CashDisbursement;
+use App\Modules\Finance\Models\CashDisbursementLine;
 use App\Modules\Finance\Services\BankTransferService;
 use App\Modules\Finance\Services\CashDisbursementService;
 use Illuminate\Support\Facades\Cache;
@@ -173,6 +176,8 @@ class AiAccountantService
             'cari_akun'            => ['content' => $this->toolCariAkun($input)],
             'catat_pengeluaran'    => $this->toolCatatPengeluaran($chatId, $input),
             'catat_transfer_bank'  => $this->toolCatatTransfer($chatId, $input),
+            'cari_faktur_ongkir'   => ['content' => $this->toolCariFakturOngkir($input)],
+            'catat_bayar_ongkir'   => $this->toolCatatBayarOngkir($chatId, $input),
             'ringkas_pengeluaran'  => ['content' => $this->toolRingkasPengeluaran($input)],
             'saldo_kas_bank'       => ['content' => $this->toolSaldoKasBank($input)],
             default                => ['content' => 'Tool tidak dikenal: ' . $name],
@@ -376,6 +381,138 @@ class AiAccountantService
         ];
     }
 
+    // ───────────────────────── Bayar Ongkir (titipan per faktur) ─────────────────────────
+
+    private function toolCariFakturOngkir(array $input): string
+    {
+        $kw = trim((string) ($input['keyword'] ?? ''));
+
+        // Faktur yang ongkirnya sudah/sedang dibayar (CD freight draft/posted) → dikecualikan.
+        $paidIds = CashDisbursementLine::whereNotNull('sales_invoice_id')
+            ->whereHas('disbursement', fn ($q) => $q->where('type', 'freight')->whereIn('status', ['draft', 'posted']))
+            ->pluck('sales_invoice_id')->all();
+
+        $rows = SalesInvoice::with('customer')
+            ->whereIn('status', ['posted', 'paid'])
+            ->where('shipping_cost', '>', 0)
+            ->whereNotIn('id', $paidIds)
+            ->when($kw !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('invoice_number', 'like', "%{$kw}%")
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$kw}%"))))
+            ->orderByDesc('invoice_date')
+            ->limit(10)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return 'Tidak ada faktur dengan titipan ongkir yang belum dibayar' . ($kw !== '' ? " cocok '{$kw}'" : '') . '.';
+        }
+
+        return $rows->map(fn ($i) => "invoice_id={$i->id} | {$i->invoice_number} | "
+            . ($i->customer->name ?? '-') . ' | titipan Rp ' . number_format((float) $i->shipping_cost, 0, ',', '.'))
+            ->implode("\n");
+    }
+
+    private function toolCatatBayarOngkir(string $chatId, array $input): array
+    {
+        $invoiceId = (int) ($input['invoice_id'] ?? 0);
+        $bayar     = round((float) ($input['bayar_aktual'] ?? 0), 2);
+        $kasId     = (int) ($input['kas_account_id'] ?? 0);
+        $tgl       = trim((string) ($input['tanggal'] ?? '')) ?: now()->format('Y-m-d');
+
+        $inv = SalesInvoice::with('customer')->find($invoiceId);
+        if (! $inv) {
+            return ['content' => "Gagal: faktur id={$invoiceId} tidak ditemukan. Pakai cari_faktur_ongkir dulu."];
+        }
+        $titipan = (float) $inv->shipping_cost;
+        if ($titipan <= 0) {
+            return ['content' => "Gagal: faktur {$inv->invoice_number} tidak punya titipan ongkir."];
+        }
+
+        $sudah = CashDisbursementLine::where('sales_invoice_id', $inv->id)
+            ->whereHas('disbursement', fn ($q) => $q->where('type', 'freight')->whereIn('status', ['draft', 'posted']))
+            ->exists();
+        if ($sudah) {
+            return ['content' => "Gagal: ongkir faktur {$inv->invoice_number} sudah pernah dibayar/draft — tidak boleh dobel."];
+        }
+
+        $kas = Account::find($kasId);
+        if (! $kas) {
+            return ['content' => "Gagal: rekening id={$kasId} tidak ditemukan. Pakai cari_akun jenis=kas_bank."];
+        }
+        if (! (int) $kas->is_cash_account) {
+            return ['content' => "Gagal: {$kas->name} bukan rekening kas/bank."];
+        }
+        if ($bayar <= 0) {
+            return ['content' => 'Gagal: nominal bayar aktual harus lebih dari 0.'];
+        }
+
+        $titipanId = Account::where('code', '1203')->value('id');
+        if (! $titipanId) {
+            return ['content' => 'Gagal: akun 1203 (Titipan Ongkir) belum ada di COA.'];
+        }
+
+        // Pra-cek akun selisih bila ada selisih (post() akan throw kalau belum diset).
+        $selisih = round($titipan - $bayar, 2);
+        if ($selisih != 0.0) {
+            $fs = FreightSetting::singleton();
+            if ($selisih > 0 && ! $fs->gain_account_id) {
+                return ['content' => "Ada selisih LEBIH titipan ongkir, tapi akun 'Selisih Lebih (Gain)' belum diset di Settings → Pengaturan Ongkir."];
+            }
+            if ($selisih < 0 && ! $fs->loss_account_id) {
+                return ['content' => "Ada selisih KURANG titipan ongkir, tapi akun 'Selisih Kurang (Loss)' belum diset di Settings → Pengaturan Ongkir."];
+            }
+        }
+
+        $cust    = $inv->customer->name ?? '-';
+        $rpBayar = 'Rp ' . number_format($bayar, 0, ',', '.');
+        $rpTit   = 'Rp ' . number_format($titipan, 0, ',', '.');
+        $selLbl  = $selisih > 0
+            ? 'lebih Rp ' . number_format($selisih, 0, ',', '.')
+            : ($selisih < 0 ? 'kurang Rp ' . number_format(abs($selisih), 0, ',', '.') : 'pas');
+        $summary = "Bayar ongkir {$inv->invoice_number} ({$cust})\nTitipan {$rpTit} · bayar {$rpBayar} (selisih {$selLbl}) · dari {$kas->name} · {$tgl}";
+
+        try {
+            $cd = $this->cdService->createDraft([
+                'date'            => $tgl,
+                'type'            => 'freight',
+                'cash_account_id' => $kas->id,
+                'lines'           => [[
+                    'account_id'       => $titipanId,
+                    'sales_invoice_id' => $inv->id,
+                    'amount'           => $bayar,
+                ]],
+            ]);
+        } catch (\Throwable $e) {
+            return ['content' => 'Gagal membuat draft ongkir: ' . $e->getMessage()];
+        }
+
+        // Ambang = bayar aktual.
+        if ($bayar > $this->threshold()) {
+            Cache::put($this->pendingKey($chatId), [
+                'kind' => 'cd', 'id' => $cd->id, 'number' => $cd->number, 'summary' => $summary,
+            ], $this->ttl());
+
+            return [
+                '_halt'   => true,
+                'message' => '⚠️ Perlu konfirmasi (di atas ' . $this->thresholdLabel() . "):\n\n{$summary}\n\n"
+                    . 'Balas <b>ya</b> untuk posting atau <b>batal</b>.',
+            ];
+        }
+
+        try {
+            $this->cdService->post($cd);
+        } catch (\Throwable $e) {
+            return ['content' => 'Draft ongkir dibuat tapi gagal posting: ' . $e->getMessage()];
+        }
+
+        Cache::put($this->lastKey($chatId), ['kind' => 'cd', 'id' => $cd->id], $this->ttl());
+
+        return [
+            'content'         => "Bayar ongkir diposting (nomor {$cd->number}). {$summary}",
+            '_posted_summary' => "✅ <b>Diposting</b>: {$cd->number}\n{$summary}",
+        ];
+    }
+
     // ───────────────────────── Tools baca-saja (laporan) ─────────────────────────
 
     private function toolRingkasPengeluaran(array $input): string
@@ -541,14 +678,16 @@ Tanggal hari ini: {$today}.
 KEMAMPUAN SAAT INI:
 1. PENGELUARAN UMUM & PRIVE — uang keluar untuk biaya/beban atau pengambilan pribadi pemilik (pakai catat_pengeluaran).
 2. TRANSFER ANTAR REKENING kas/bank SENDIRI — mis. pindah dana BCA → Mandiri (pakai catat_transfer_bank).
-3. BACA FOTO STRUK/NOTA — baca total, tanggal, dan keterangannya, lalu catat sebagai PENGELUARAN (alur sama: cari akun beban yang sesuai, tanya sumber kas bila belum jelas, lalu catat_pengeluaran).
-4. JAWAB pertanyaan ringkas — total pengeluaran periode (ringkas_pengeluaran) & saldo kas/bank (saldo_kas_bank). Cukup panggil tool lalu sampaikan hasilnya; tidak ada yang diposting.
+3. BAYAR ONGKIR (titipan per faktur) — pelunasan titipan ongkir sebuah faktur penjualan ke kurir (cari_faktur_ongkir → catat_bayar_ongkir). Hanya untuk SATU faktur; banyak faktur sekaligus → arahkan ke menu Bayar Ongkir di ERP.
+4. BACA FOTO STRUK/NOTA — baca total, tanggal, dan keterangannya, lalu catat sebagai PENGELUARAN (alur sama: cari akun beban yang sesuai, tanya sumber kas bila belum jelas, lalu catat_pengeluaran).
+5. JAWAB pertanyaan ringkas — total pengeluaran periode (ringkas_pengeluaran) & saldo kas/bank (saldo_kas_bank). Cukup panggil tool lalu sampaikan hasilnya; tidak ada yang diposting.
 
 Untuk refund customer & pembelian barang dagangan/stok dari supplier (yang menambah stok): katakan itu dicatat manual di ERP, belum didukung lewat chat — jangan dipaksakan.
 
 Bedakan dengan jelas:
-- Uang keluar ke PIHAK LAIN / jadi biaya (bensin, gaji, listrik, ongkir, sewa, prive) → catat_pengeluaran.
+- Uang keluar ke PIHAK LAIN / jadi biaya (bensin, gaji, listrik, sewa, prive) → catat_pengeluaran.
 - Uang pindah ANTAR REKENING SENDIRI (tidak jadi biaya) → catat_transfer_bank.
+- BAYAR ONGKIR yang terkait FAKTUR/pelanggan (pelepasan titipan) → cari_faktur_ongkir + catat_bayar_ongkir. Ongkir lain yang murni biaya umum tanpa faktur → catat_pengeluaran ke akun beban. Kalau ragu, tanya user dulu.
 - Foto struk pengeluaran → baca lalu catat_pengeluaran. Bila struk jelas pembelian barang untuk stok dari supplier, sampaikan dicatat manual di ERP.
 
 ATURAN:
@@ -625,6 +764,35 @@ TXT;
                 ],
             ],
             [
+                'name'        => 'cari_faktur_ongkir',
+                'description' => 'Cari faktur penjualan yang punya titipan ongkir & BELUM dibayar ongkirnya. '
+                    . 'Pakai sebelum catat_bayar_ongkir untuk dapat invoice_id dan nilai titipannya.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'keyword' => ['type' => 'string', 'description' => 'Nomor faktur atau nama pelanggan (opsional; kosong = daftar terbaru).'],
+                    ],
+                    'required' => [],
+                ],
+            ],
+            [
+                'name'        => 'catat_bayar_ongkir',
+                'description' => 'Catat pembayaran ongkir (pelepasan titipan) untuk SATU faktur: titipan 1203 dilepas '
+                    . 'sebesar shipping_cost faktur, kas dikredit sebesar bayar aktual, selisih jadi untung/rugi otomatis. '
+                    . 'Panggil setelah invoice_id jelas via cari_faktur_ongkir & sumber kas via cari_akun jenis=kas_bank. '
+                    . 'Untuk banyak faktur sekaligus, arahkan user ke menu Bayar Ongkir di ERP.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'invoice_id'     => ['type' => 'integer', 'description' => 'id faktur dari cari_faktur_ongkir.'],
+                        'bayar_aktual'   => ['type' => 'number', 'description' => 'Jumlah yang benar-benar dibayar ke kurir (angka bulat).'],
+                        'kas_account_id' => ['type' => 'integer', 'description' => 'id rekening kas/bank sumber dana.'],
+                        'tanggal'        => ['type' => 'string', 'description' => 'Tanggal YYYY-MM-DD, kosong = hari ini.'],
+                    ],
+                    'required' => ['invoice_id', 'bayar_aktual', 'kas_account_id'],
+                ],
+            ],
+            [
                 'name'        => 'ringkas_pengeluaran',
                 'description' => 'Hitung total pengeluaran (kas keluar yang sudah diposting) pada periode tertentu. '
                     . 'Untuk menjawab pertanyaan seperti "pengeluaran hari ini/bulan ini berapa?".',
@@ -662,10 +830,11 @@ TXT;
             . "• <i>catat pengeluaran bensin 50rb dari kas</i>\n"
             . "• <i>prive 200rb dari BCA</i>\n"
             . "• <i>transfer 5jt dari BCA ke Mandiri</i>\n"
+            . "• <i>bayar ongkir faktur SI/2026/06/00020 448rb dari BRI</i>\n"
             . "• <i>pengeluaran bulan ini berapa?</i> / <i>saldo BCA?</i>\n"
             . "📷 atau kirim <b>foto struk</b> untuk dicatat otomatis.\n\n"
             . "Perintah: /batal (batalkan transaksi terakhir) · /baru (mulai ulang percakapan)\n\n"
-            . '<i>Mendukung pengeluaran, prive, transfer antar bank, baca struk, & cek pengeluaran/saldo. '
+            . '<i>Mendukung pengeluaran, prive, transfer antar bank, bayar ongkir (per faktur), baca struk, & cek pengeluaran/saldo. '
             . 'Pembelian supplier berstok dicatat manual di ERP.</i>';
     }
 
