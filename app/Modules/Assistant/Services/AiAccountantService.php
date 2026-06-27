@@ -5,25 +5,30 @@ namespace App\Modules\Assistant\Services;
 use App\Core\Accounting\Account;
 use App\Models\AnthropicSetting;
 use App\Models\User;
+use App\Modules\Finance\Models\BankTransfer;
 use App\Modules\Finance\Models\CashDisbursement;
+use App\Modules\Finance\Services\BankTransferService;
 use App\Modules\Finance\Services\CashDisbursementService;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Asisten pencatat keuangan via Telegram (Fase 1).
+ * Asisten pencatat keuangan via Telegram.
  *
  * Alur: pesan teks → percakapan dengan Claude (tool use) → AI memanggil tool
- * cari_akun / catat_pengeluaran → posting lewat CashDisbursementService (jalur yang
- * sama dengan UI, jurnal konsisten). Nominal di atas ambang ditahan untuk konfirmasi
- * deterministik (ya/batal) sebelum diposting. /batal mem-void transaksi terakhir.
+ * (cari_akun / catat_pengeluaran / catat_transfer_bank) → posting lewat service ERP
+ * yang sama dengan UI (jurnal konsisten). Nominal di atas ambang ditahan untuk
+ * konfirmasi deterministik (ya/batal) sebelum diposting. /batal mem-void transaksi
+ * terakhir (CD atau transfer).
  *
- * Cakupan Fase 1: HANYA Pengeluaran umum & Prive. Transfer/pembelian/struk menyusul.
+ * Cakupan: Fase 1 = Pengeluaran umum & Prive. Fase 2 = Transfer antar bank.
+ * Pembelian supplier, refund, & baca struk menyusul.
  */
 class AiAccountantService
 {
     public function __construct(
         private ClaudeClient $claude,
         private CashDisbursementService $cdService,
+        private BankTransferService $btService,
     ) {}
 
     /** Titik masuk utama. Return teks balasan untuk dikirim ke Telegram (HTML). */
@@ -140,9 +145,10 @@ class AiAccountantService
     private function execTool(string $chatId, string $name, array $input): array
     {
         return match ($name) {
-            'cari_akun'         => ['content' => $this->toolCariAkun($input)],
-            'catat_pengeluaran' => $this->toolCatatPengeluaran($chatId, $input),
-            default             => ['content' => 'Tool tidak dikenal: ' . $name],
+            'cari_akun'           => ['content' => $this->toolCariAkun($input)],
+            'catat_pengeluaran'   => $this->toolCatatPengeluaran($chatId, $input),
+            'catat_transfer_bank' => $this->toolCatatTransfer($chatId, $input),
+            default               => ['content' => 'Tool tidak dikenal: ' . $name],
         };
     }
 
@@ -155,7 +161,9 @@ class AiAccountantService
 
         $q = Account::query()->where('is_active', 1);
         if ($jenis === 'kas_bank') {
-            $q->whereIn('account_category', ['cash', 'cash_equivalent']);
+            // is_cash_account = rekening kas/bank "asli" (valid utk transfer & sumber dana),
+            // bukan akun perantara spt saldo ditahan marketplace.
+            $q->where('is_cash_account', 1);
         } elseif ($jenis === 'equity') {
             $q->where('type', 'equity');
         } else { // beban
@@ -223,9 +231,10 @@ class AiAccountantService
         // Di atas ambang → tahan untuk konfirmasi (deterministik, di luar tangan model).
         if ($nominal > $this->threshold()) {
             Cache::put($this->pendingKey($chatId), [
-                'draft_id' => $cd->id,
-                'number'   => $cd->number,
-                'summary'  => $summary,
+                'kind'    => 'cd',
+                'id'      => $cd->id,
+                'number'  => $cd->number,
+                'summary' => $summary,
             ], $this->ttl());
 
             return [
@@ -241,11 +250,102 @@ class AiAccountantService
             return ['content' => 'Draft dibuat tapi gagal posting: ' . $e->getMessage()];
         }
 
-        Cache::put($this->lastKey($chatId), $cd->id, $this->ttl());
+        Cache::put($this->lastKey($chatId), ['kind' => 'cd', 'id' => $cd->id], $this->ttl());
 
         return [
             'content'         => "Berhasil diposting (nomor {$cd->number}). {$summary}",
             '_posted_summary' => "✅ <b>Diposting</b>: {$cd->number}\n{$summary}",
+        ];
+    }
+
+    private function toolCatatTransfer(string $chatId, array $input): array
+    {
+        $fromId  = (int) ($input['dari_account_id'] ?? 0);
+        $toId    = (int) ($input['ke_account_id'] ?? 0);
+        $nominal = round((float) ($input['nominal'] ?? 0), 2);
+        $fee     = round((float) ($input['biaya_admin'] ?? 0), 2);
+        $ket     = trim((string) ($input['keterangan'] ?? ''));
+        $tgl     = trim((string) ($input['tanggal'] ?? '')) ?: now()->format('Y-m-d');
+
+        $from = Account::find($fromId);
+        $to   = Account::find($toId);
+
+        if (! $from) {
+            return ['content' => "Gagal: rekening sumber id={$fromId} tidak ditemukan. Pakai cari_akun jenis=kas_bank."];
+        }
+        if (! $to) {
+            return ['content' => "Gagal: rekening tujuan id={$toId} tidak ditemukan. Pakai cari_akun jenis=kas_bank."];
+        }
+        if (! (int) $from->is_cash_account) {
+            return ['content' => "Gagal: {$from->name} bukan rekening kas/bank yang bisa ditransfer. Cari rekening lain via cari_akun jenis=kas_bank."];
+        }
+        if (! (int) $to->is_cash_account) {
+            return ['content' => "Gagal: {$to->name} bukan rekening kas/bank yang bisa ditransfer. Cari rekening lain via cari_akun jenis=kas_bank."];
+        }
+        if ($from->id === $to->id) {
+            return ['content' => 'Gagal: rekening sumber & tujuan tidak boleh sama.'];
+        }
+        if ($nominal <= 0) {
+            return ['content' => 'Gagal: nominal harus lebih dari 0.'];
+        }
+
+        $data = [
+            'date'            => $tgl,
+            'from_account_id' => $from->id,
+            'to_account_id'   => $to->id,
+            'amount'          => $nominal,
+            'notes'           => $ket ?: null,
+        ];
+
+        if ($fee > 0) {
+            $feeAcc = Account::where('code', '5103')->where('is_active', 1)->first(); // Beban Administrasi Bank
+            if (! $feeAcc) {
+                return ['content' => 'Ada biaya admin tapi akun 5103 (Beban Administrasi Bank) tidak ada. '
+                    . 'Sarankan user membuat akunnya atau mencatat tanpa biaya admin.'];
+            }
+            $data['admin_fee']            = $fee;
+            $data['admin_fee_account_id'] = $feeAcc->id;
+            $data['fee_borne_by']         = 'source';
+        }
+
+        $rp       = 'Rp ' . number_format($nominal, 0, ',', '.');
+        $feeLabel = $fee > 0 ? ' (+ admin Rp ' . number_format($fee, 0, ',', '.') . ')' : '';
+        $summary  = ($ket !== '' ? "{$ket}\n" : '')
+            . "Transfer {$rp}{$feeLabel} — {$from->name} → {$to->name} · {$tgl}";
+
+        try {
+            $bt = $this->btService->createDraft($data);
+        } catch (\Throwable $e) {
+            return ['content' => 'Gagal membuat draft transfer: ' . $e->getMessage()];
+        }
+
+        // Patokan ambang = nominal transfer (tanpa biaya admin).
+        if ($nominal > $this->threshold()) {
+            Cache::put($this->pendingKey($chatId), [
+                'kind'    => 'transfer',
+                'id'      => $bt->id,
+                'number'  => $bt->number,
+                'summary' => $summary,
+            ], $this->ttl());
+
+            return [
+                '_halt'   => true,
+                'message' => '⚠️ Perlu konfirmasi (di atas ' . $this->thresholdLabel() . "):\n\n{$summary}\n\n"
+                    . 'Balas <b>ya</b> untuk posting atau <b>batal</b> untuk membatalkan.',
+            ];
+        }
+
+        try {
+            $this->btService->post($bt);
+        } catch (\Throwable $e) {
+            return ['content' => 'Draft transfer dibuat tapi gagal posting: ' . $e->getMessage()];
+        }
+
+        Cache::put($this->lastKey($chatId), ['kind' => 'transfer', 'id' => $bt->id], $this->ttl());
+
+        return [
+            'content'         => "Transfer berhasil diposting (nomor {$bt->number}). {$summary}",
+            '_posted_summary' => "✅ <b>Diposting</b>: {$bt->number}\n{$summary}",
         ];
     }
 
@@ -266,58 +366,83 @@ class AiAccountantService
         }
 
         $this->forgetPending($chatId);
-        $cd = CashDisbursement::find($pending['draft_id']);
+        $kind = $pending['kind'] ?? 'cd';
+        $doc  = $this->findDoc($kind, (int) ($pending['id'] ?? 0));
 
-        if (! $cd || ! $cd->isDraft()) {
+        if (! $doc || ! $doc->isDraft()) {
             $this->forgetConversation($chatId);
             return 'Transaksi sudah tidak bisa diproses (mungkin sudah berubah). Silakan ulangi.';
         }
 
         if ($isNo) {
-            $cd->lines()->delete();
-            $cd->delete();
+            $this->deleteDraft($kind, $doc);
             $this->forgetConversation($chatId);
             return '❌ Dibatalkan. Tidak ada yang dibukukan.';
         }
 
         try {
-            $this->cdService->post($cd);
+            $this->postDoc($kind, $doc);
         } catch (\Throwable $e) {
             return '❌ Gagal posting: ' . $e->getMessage();
         }
 
-        Cache::put($this->lastKey($chatId), $cd->id, $this->ttl());
+        Cache::put($this->lastKey($chatId), ['kind' => $kind, 'id' => $doc->id], $this->ttl());
         $this->forgetConversation($chatId);
 
-        return "✅ <b>Diposting</b>: {$cd->number}\n{$pending['summary']}\n\n↩️ /batal untuk membatalkan.";
+        return "✅ <b>Diposting</b>: {$doc->number}\n{$pending['summary']}\n\n↩️ /batal untuk membatalkan.";
     }
 
     private function voidLast(string $chatId): string
     {
-        $id = Cache::get($this->lastKey($chatId));
-        if (! $id) {
+        $last = Cache::get($this->lastKey($chatId));
+        if (! $last || empty($last['id'])) {
             return 'Tidak ada transaksi terakhir untuk dibatalkan (atau sudah kedaluwarsa). '
-                . 'Batalkan manual di menu Pengeluaran bila perlu.';
+                . 'Batalkan manual di menu terkait bila perlu.';
         }
 
-        $cd = CashDisbursement::find($id);
-        if (! $cd) {
+        $kind = $last['kind'] ?? 'cd';
+        $doc  = $this->findDoc($kind, (int) $last['id']);
+        if (! $doc) {
             return 'Transaksi tidak ditemukan.';
         }
-        if ($cd->isVoid()) {
-            return "Transaksi {$cd->number} sudah di-void.";
+        if ($doc->isVoid()) {
+            return "Transaksi {$doc->number} sudah di-void.";
         }
-        if (! $cd->canBeVoided()) {
-            return "Transaksi {$cd->number} tidak bisa di-void.";
+        if (! $doc->canBeVoided()) {
+            return "Transaksi {$doc->number} tidak bisa di-void.";
         }
 
         try {
-            $this->cdService->void($cd);
+            $this->voidDoc($kind, $doc);
             $this->forgetLast($chatId);
-            return "↩️ <b>Dibatalkan (void)</b>: {$cd->number}. Jurnal sudah dibalik.";
+            return "↩️ <b>Dibatalkan (void)</b>: {$doc->number}. Jurnal sudah dibalik.";
         } catch (\Throwable $e) {
             return 'Gagal void: ' . $e->getMessage();
         }
+    }
+
+    /** Cari dokumen draft/posted berdasarkan jenis (cd = Pengeluaran, transfer = Bank Transfer). */
+    private function findDoc(string $kind, int $id)
+    {
+        return $kind === 'transfer' ? BankTransfer::find($id) : CashDisbursement::find($id);
+    }
+
+    private function postDoc(string $kind, $doc): void
+    {
+        $kind === 'transfer' ? $this->btService->post($doc) : $this->cdService->post($doc);
+    }
+
+    private function voidDoc(string $kind, $doc): void
+    {
+        $kind === 'transfer' ? $this->btService->void($doc) : $this->cdService->void($doc);
+    }
+
+    private function deleteDraft(string $kind, $doc): void
+    {
+        if ($kind === 'cd') {
+            $doc->lines()->delete();
+        }
+        $doc->delete();
     }
 
     // ───────────────────────── Prompt & tool schema ─────────────────────────
@@ -333,21 +458,27 @@ Kamu "Noud Bot", asisten pencatat keuangan untuk Noud Acrylic di dalam ERP. Kamu
 
 Tanggal hari ini: {$today}.
 
-KEMAMPUAN SAAT INI (Fase 1) HANYA: mencatat PENGELUARAN UMUM dan PRIVE (pengambilan pribadi pemilik). Untuk transfer antar bank, pembelian supplier, pembacaan struk/foto, laporan, atau lainnya: katakan fitur itu belum aktif dan akan menyusul — jangan dipaksakan.
+KEMAMPUAN SAAT INI:
+1. PENGELUARAN UMUM & PRIVE — uang keluar untuk biaya/beban atau pengambilan pribadi pemilik (pakai catat_pengeluaran).
+2. TRANSFER ANTAR REKENING kas/bank SENDIRI — mis. pindah dana BCA → Mandiri (pakai catat_transfer_bank).
+Untuk pembelian supplier, refund customer, pembacaan struk/foto, atau laporan: katakan fitur itu belum aktif dan akan menyusul — jangan dipaksakan.
 
-Untuk mencatat butuh: akun yang dibebani (beban/biaya atau Prive), akun kas/bank sumber dana, nominal, dan keterangan.
+Bedakan dengan jelas:
+- Uang keluar ke PIHAK LAIN / jadi biaya (bensin, gaji, listrik, ongkir, sewa, prive) → catat_pengeluaran.
+- Uang pindah ANTAR REKENING SENDIRI (tidak jadi biaya) → catat_transfer_bank.
 
 ATURAN:
 - SELALU pakai tool cari_akun untuk menemukan id akun dari kata user. JANGAN mengarang id akun.
   • biaya/beban (mis. "bensin", "makan", "listrik") → cari_akun jenis=beban.
   • "prive"/"ambil pribadi"/"buat pemilik" → cari_akun jenis=equity (cari "Prive").
-  • sumber dana ("kas", "kas kecil", "bca", "bri") → cari_akun jenis=kas_bank.
-- Jika SUMBER kas/bank belum disebut user, TANYAKAN dulu — jangan menebak.
+  • rekening kas/bank ("kas", "kas kecil", "bca", "bri", "mandiri") → cari_akun jenis=kas_bank.
+- Pengeluaran: jika SUMBER kas/bank belum disebut user, TANYAKAN dulu — jangan menebak.
+- Transfer: butuh rekening SUMBER dan TUJUAN; kalau salah satu belum jelas, tanyakan. Biaya admin opsional (sebutkan jika user menyebut, mis. "admin 6500").
 - Jika hasil cari_akun lebih dari satu yang relevan dan ambigu, tanyakan user mana yang dimaksud.
 - Jika akun Prive tidak ditemukan, beri tahu user agar dibuat dulu di Bagan Akun.
 - Parse nominal Indonesia: "20rb"/"20k"/"20.000" = 20000; "1,5jt"/"1.5jt" = 1500000.
-- Nominal di atas {$amb} otomatis butuh konfirmasi user (sistem yang menangani setelah kamu memanggil catat_pengeluaran) — kamu tidak perlu minta konfirmasi sendiri.
-- Setelah semua id akun & nominal jelas, panggil catat_pengeluaran. Balas singkat, ramah, dan to the point.
+- Nominal di atas {$amb} otomatis butuh konfirmasi user (sistem yang menangani setelah kamu memanggil tool catat) — kamu tidak perlu minta konfirmasi sendiri.
+- Setelah semua id akun & nominal jelas, panggil tool yang sesuai. Balas singkat, ramah, dan to the point.
 TXT;
     }
 
@@ -391,6 +522,24 @@ TXT;
                     'required' => ['akun_beban_id', 'kas_account_id', 'nominal', 'keterangan'],
                 ],
             ],
+            [
+                'name'        => 'catat_transfer_bank',
+                'description' => 'Catat pemindahan dana antar rekening kas/bank SENDIRI (Dr rekening tujuan / '
+                    . 'Cr rekening sumber). Panggil setelah id rekening sumber & tujuan jelas via cari_akun '
+                    . '(jenis=kas_bank). BUKAN untuk membayar ke pihak lain — itu pakai catat_pengeluaran.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'dari_account_id' => ['type' => 'integer', 'description' => 'id rekening kas/bank sumber (berkurang).'],
+                        'ke_account_id'   => ['type' => 'integer', 'description' => 'id rekening kas/bank tujuan (bertambah).'],
+                        'nominal'         => ['type' => 'number', 'description' => 'Nominal transfer, angka bulat.'],
+                        'biaya_admin'     => ['type' => 'number', 'description' => 'Biaya admin bank bila ada (opsional, default 0; ditanggung rekening sumber).'],
+                        'keterangan'      => ['type' => 'string', 'description' => 'Keterangan singkat (opsional).'],
+                        'tanggal'         => ['type' => 'string', 'description' => 'Tanggal YYYY-MM-DD. Kosongkan untuk hari ini.'],
+                    ],
+                    'required' => ['dari_account_id', 'ke_account_id', 'nominal'],
+                ],
+            ],
         ];
     }
 
@@ -399,9 +548,10 @@ TXT;
         return "🤖 <b>Noud Bot — Pencatat Keuangan</b>\n\n"
             . "Ketik perintah biasa, mis:\n"
             . "• <i>catat pengeluaran bensin 50rb dari kas</i>\n"
-            . "• <i>prive 200rb dari BCA</i>\n\n"
+            . "• <i>prive 200rb dari BCA</i>\n"
+            . "• <i>transfer 5jt dari BCA ke Mandiri</i>\n\n"
             . "Perintah: /batal (batalkan transaksi terakhir) · /baru (mulai ulang percakapan)\n\n"
-            . '<i>Saat ini baru mendukung pengeluaran & prive. Transfer, pembelian, dan baca struk menyusul.</i>';
+            . '<i>Saat ini mendukung pengeluaran, prive, & transfer antar bank. Pembelian supplier dan baca struk menyusul.</i>';
     }
 
     // ───────────────────────── Util ─────────────────────────
