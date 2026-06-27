@@ -83,6 +83,7 @@
         'action_url'     => route('production.process.steps.complete', $step->id),
         'is_last'        => $isLastStep,
         'order_number'   => $order->order_number,
+        'warehouse_id'   => (int) $order->warehouse_id,
         'planned_cycles' => (float) ($order->planned_cycles ?: 1),
         // Operator boleh override % sampingan hanya bila order TANPA BOM & bukan Perbaikan
         // (ukuran material beda → % beda). Selain itu % otomatis/terkunci.
@@ -99,6 +100,8 @@
                 'qty_planned'     => (float) $o->qty_planned,
                 'qty_produced'    => (float) ($o->qty_produced ?? 0),
                 'variance_notes'  => $o->variance_notes ?? '',
+                // Alokasi gudang tersimpan (bila ada) untuk pre-fill saat retry finalisasi.
+                'allocations'     => is_array($o->warehouse_allocations) ? $o->warehouse_allocations : null,
             ];
         })->values()->toArray() : [],
     ];

@@ -9,6 +9,7 @@ use App\Modules\Production\Models\Department;
 use App\Modules\Production\Models\ProductionOrderStep;
 use App\Modules\Production\Services\ProductionOrderService;
 use App\Modules\Production\Services\BomScoreService;
+use App\Core\Inventory\Warehouse;
 
 class ProductionProcessController extends Controller
 {
@@ -100,8 +101,13 @@ class ProductionProcessController extends Controller
 
         $testingMode = \App\Models\ProductionSetting::isTestingMode();
 
+        // Daftar gudang untuk alokasi hasil produksi saat finalisasi langkah terakhir.
+        $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
+        $defaultWarehouseId = Warehouse::defaultId();
+
         return view('erp.production.process.index', compact(
-            'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode'
+            'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode',
+            'warehouses', 'defaultWarehouseId'
         ));
     }
 
@@ -228,6 +234,9 @@ class ProductionProcessController extends Controller
             'outputs.*.qty_produced'      => 'required_with:outputs|numeric|min:0',
             'outputs.*.percentage'        => 'nullable|numeric|min:0|max:100',
             'outputs.*.variance_notes'    => 'nullable|string|max:500',
+            'outputs.*.allocations'                => 'nullable|array',
+            'outputs.*.allocations.*.warehouse_id' => 'required_with:outputs.*.allocations|integer|exists:warehouses,id',
+            'outputs.*.allocations.*.qty'          => 'required_with:outputs.*.allocations|numeric|min:0',
         ]);
 
         try {

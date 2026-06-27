@@ -357,7 +357,10 @@ class ProductionOrderController extends Controller
         $totalSec = $order->steps->sum('elapsed_working_seconds');
         $totalDur = sprintf('%02d:%02d:%02d', intdiv($totalSec,3600), intdiv($totalSec%3600,60), $totalSec%60);
 
-        return view('erp.production.orders.finalize-confirm', compact('order', 'deptSummary', 'totalDur'));
+        $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
+        $defaultWarehouseId = Warehouse::defaultId();
+
+        return view('erp.production.orders.finalize-confirm', compact('order', 'deptSummary', 'totalDur', 'warehouses', 'defaultWarehouseId'));
     }
 
     public function finalize(Request $request, int $id, ProductionOrderService $service)
@@ -368,6 +371,9 @@ class ProductionOrderController extends Controller
             'outputs.*.qty_produced'     => 'required|numeric|min:0',
             'outputs.*.percentage'       => 'nullable|numeric|min:0|max:100',
             'outputs.*.variance_notes'   => 'nullable|string|max:500',
+            'outputs.*.allocations'                => 'nullable|array',
+            'outputs.*.allocations.*.warehouse_id' => 'required_with:outputs.*.allocations|integer|exists:warehouses,id',
+            'outputs.*.allocations.*.qty'          => 'required_with:outputs.*.allocations|numeric|min:0',
         ]);
 
         try {
@@ -401,6 +407,9 @@ class ProductionOrderController extends Controller
             'outputs.*.qty_produced'   => 'required|numeric|min:0',
             'outputs.*.percentage'     => 'nullable|numeric|min:0|max:100',
             'outputs.*.variance_notes' => 'nullable|string|max:500',
+            'outputs.*.allocations'                => 'nullable|array',
+            'outputs.*.allocations.*.warehouse_id' => 'required_with:outputs.*.allocations|integer|exists:warehouses,id',
+            'outputs.*.allocations.*.qty'          => 'required_with:outputs.*.allocations|numeric|min:0',
         ]);
 
         try {
@@ -581,7 +590,10 @@ class ProductionOrderController extends Controller
             ->latest()
             ->get();
 
-        return view('erp.production.completed.index', compact('finalized', 'awaitingConfirm'));
+        $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
+        $defaultWarehouseId = Warehouse::defaultId();
+
+        return view('erp.production.completed.index', compact('finalized', 'awaitingConfirm', 'warehouses', 'defaultWarehouseId'));
     }
 
     private function validateSoOutputLimits(Request $request): ?string

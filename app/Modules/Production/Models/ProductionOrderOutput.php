@@ -7,14 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 class ProductionOrderOutput extends Model
 {
     protected $fillable = [
-        'production_order_id', 'product_id', 'qty_planned', 'qty_produced', 'output_type', 'percentage', 'unit_percentage', 'variance_notes',
+        'production_order_id', 'product_id', 'qty_planned', 'qty_produced', 'output_type', 'percentage', 'unit_percentage', 'variance_notes', 'warehouse_allocations',
     ];
 
     protected $casts = [
-        'qty_planned'     => 'decimal:4',
-        'qty_produced'    => 'decimal:4',
-        'percentage'      => 'decimal:2',
-        'unit_percentage' => 'decimal:4',
+        'qty_planned'           => 'decimal:4',
+        'qty_produced'          => 'decimal:4',
+        'percentage'            => 'decimal:2',
+        'unit_percentage'       => 'decimal:4',
+        'warehouse_allocations' => 'array',
     ];
 
     public function productionOrder()

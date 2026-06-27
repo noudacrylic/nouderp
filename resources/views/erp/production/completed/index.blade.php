@@ -7,6 +7,7 @@
         'id'           => $o->id,
         'order_number' => $o->order_number,
         'action'       => route('production.orders.edit-finalize', $o->id),
+        'warehouse_id' => (int) $o->warehouse_id,
         // % cost bisa di-override manual hanya utk order TANPA BOM & bukan Perbaikan.
         'pct_manual'   => is_null($o->bom_id) && $o->type !== 'repair',
         'outputs'      => $o->outputs->map(fn($out) => [
@@ -18,6 +19,7 @@
             'qty_produced'   => (float) ($out->qty_produced ?? 0),
             'percentage'     => (float) $out->percentage,
             'variance_notes' => $out->variance_notes ?? '',
+            'allocations'    => is_array($out->warehouse_allocations) ? $out->warehouse_allocations : null,
         ])->values(),
     ]]);
 @endphp
@@ -224,7 +226,7 @@
          @keydown.escape.window="close()" style="display:none;">
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-auto" @click.outside="close()">
             <template x-if="current">
-                <form :action="current.action" method="POST">
+                <form :action="current.action" method="POST" @submit="validateEdit($event)">
                     @csrf
                     {{-- Header --}}
                     <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -261,7 +263,7 @@
                                     <div>
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Aktual *</label>
                                         <input type="number" :name="`outputs[${idx}][qty_produced]`"
-                                               x-model="o.qty_produced" step="0.01" min="0" required
+                                               x-model="o.qty_produced" @input="syncSingleAlloc(o)" step="0.01" min="0" required
                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white text-right">
                                     </div>
                                     <div>
@@ -285,6 +287,40 @@
                                            x-model="o.variance_notes"
                                            placeholder="cth: 1 pcs cacat saat cutting..."
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white text-gray-700">
+                                </div>
+
+                                {{-- Alokasi Gudang per output (default semua ke gudang order). --}}
+                                <div class="mt-3 pt-3 border-t border-dashed border-gray-200" x-show="warehouses.length > 1">
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-[10px] font-bold text-gray-500">Alokasi Gudang</label>
+                                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                              :class="allocBalanced(o) ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'">
+                                            <span x-text="Number(allocSum(o)).toLocaleString('id-ID', {maximumFractionDigits: 2})"></span>
+                                            /
+                                            <span x-text="Number(o.qty_produced || 0).toLocaleString('id-ID', {maximumFractionDigits: 2})"></span>
+                                        </span>
+                                    </div>
+                                    <div class="space-y-1.5">
+                                        <template x-for="(al, j) in o.allocations" :key="j">
+                                            <div class="flex gap-1.5 items-center">
+                                                <select x-model.number="al.warehouse_id"
+                                                        :name="`outputs[${idx}][allocations][${j}][warehouse_id]`"
+                                                        class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+                                                    @foreach($warehouses as $w)
+                                                        <option value="{{ $w->id }}">{{ $w->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <input type="number" step="0.01" min="0"
+                                                       x-model.number="al.qty"
+                                                       :name="`outputs[${idx}][allocations][${j}][qty]`"
+                                                       class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-right bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+                                                <button type="button" @click="removeAlloc(o, j)" x-show="o.allocations.length > 1"
+                                                        class="w-7 h-7 flex-shrink-0 rounded-lg bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 text-xs">✕</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <button type="button" @click="addAlloc(o)" x-show="o.allocations.length < warehouses.length"
+                                            class="mt-1.5 text-[11px] font-bold text-blue-700 hover:text-blue-800">+ Tambah Gudang</button>
                                 </div>
                             </div>
                         </template>
@@ -317,20 +353,65 @@
 
 <script>
     window.__finalizeEdit = @json($editData);
+    window.__warehouses = @json($warehouses);
     function finalizeEditor() {
         return {
             show: false,
             current: null,
+            warehouses: window.__warehouses || [],
+            defaultWh: {{ (int) $defaultWarehouseId }} || null,
             openEdit(id) {
                 const src = (window.__finalizeEdit || {})[id];
                 if (!src) return;
                 // Clone dalam supaya editan di modal tidak mengubah data sumber sebelum disimpan.
                 this.current = JSON.parse(JSON.stringify(src));
+                // Default alokasi = gudang Utama (defaultWh); fallback ke gudang order.
+                const defWh = this.defaultWh || this.current.warehouse_id;
+                (this.current.outputs || []).forEach(o => {
+                    o.qty_produced = parseFloat(o.qty_produced) || 0;
+                    if (Array.isArray(o.allocations) && o.allocations.length) {
+                        o.allocations = o.allocations.map(a => ({ warehouse_id: a.warehouse_id, qty: parseFloat(a.qty) || 0 }));
+                    } else {
+                        o.allocations = [{ warehouse_id: defWh, qty: o.qty_produced }];
+                    }
+                });
                 this.show = true;
             },
             close() { this.show = false; this.current = null; },
             // % cost hanya bisa di-override manual utk sampingan pada order TANPA BOM & bukan Perbaikan.
             pctEditable(o) { return !!this.current?.pct_manual && o.output_type === 'by_product'; },
+            allocSum(o) {
+                if (!o || !Array.isArray(o.allocations)) return 0;
+                return Math.round(o.allocations.reduce((s, a) => s + (parseFloat(a.qty) || 0), 0) * 10000) / 10000;
+            },
+            allocBalanced(o) { return Math.abs(this.allocSum(o) - (parseFloat(o.qty_produced) || 0)) < 1e-6; },
+            addAlloc(o) {
+                // Pilih gudang pertama yang belum dipakai di output ini → minim salah input.
+                const used = new Set((o.allocations || []).map(a => a.warehouse_id));
+                const next = this.warehouses.find(w => !used.has(w.id));
+                o.allocations.push({ warehouse_id: next ? next.id : (this.defaultWh || this.current?.warehouse_id), qty: 0 });
+            },
+            removeAlloc(o, j) {
+                o.allocations.splice(j, 1);
+                if (o.allocations.length === 1) o.allocations[0].qty = parseFloat(o.qty_produced) || 0;
+            },
+            syncSingleAlloc(o) {
+                if (o && Array.isArray(o.allocations) && o.allocations.length === 1) {
+                    o.allocations[0].qty = parseFloat(o.qty_produced) || 0;
+                }
+            },
+            validateEdit(e) {
+                if (!this.current || this.warehouses.length <= 1) return true;
+                for (const o of (this.current.outputs || [])) {
+                    if ((parseFloat(o.qty_produced) || 0) <= 0) continue;
+                    if (!this.allocBalanced(o)) {
+                        e.preventDefault();
+                        alert('Total alokasi gudang untuk "' + o.name + '" belum pas dengan qty aktual. Perbaiki dulu sebelum menyimpan.');
+                        return false;
+                    }
+                }
+                return true;
+            },
         };
     }
 </script>

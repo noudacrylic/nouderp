@@ -7,17 +7,64 @@
          selesai: null,
          mulai: null,
          catatan: null,
+         warehouses: {{ Js::from($warehouses) }},
+         defaultWh: {{ (int) $defaultWarehouseId }} || null,
          openSelesai(d) {
              // Inisialisasi qty aktual = rencana bila belum diisi; seed % dari nilai tersimpan
              // (dipakai mode tanpa BOM agar operator bisa override), lalu hitung % awal.
+             // Default alokasi = gudang Utama (defaultWh); fallback ke gudang order.
+             const defWh = this.defaultWh || (d && d.warehouse_id) || null;
              if (d && Array.isArray(d.outputs)) {
                  d.outputs.forEach(o => {
                      o.qty_produced = (parseFloat(o.qty_produced) > 0) ? parseFloat(o.qty_produced) : parseFloat(o.qty_planned);
                      if (o.calc_percentage === undefined) o.calc_percentage = parseFloat(o.percentage) || 0;
+                     // Seed alokasi gudang: pakai yang tersimpan (retry), kalau tidak ada → semua ke gudang order.
+                     if (Array.isArray(o.allocations) && o.allocations.length) {
+                         o.allocations = o.allocations.map(a => ({ warehouse_id: a.warehouse_id, qty: parseFloat(a.qty) || 0 }));
+                     } else {
+                         o.allocations = [{ warehouse_id: defWh, qty: o.qty_produced }];
+                     }
                  });
              }
              this.selesai = d;
              this.recalcSelesai();
+         },
+         // Jumlah qty yang sudah dialokasikan ke gudang untuk satu output.
+         allocSum(o) {
+             if (!o || !Array.isArray(o.allocations)) return 0;
+             return Math.round(o.allocations.reduce((s, a) => s + (parseFloat(a.qty) || 0), 0) * 10000) / 10000;
+         },
+         allocBalanced(o) { return Math.abs(this.allocSum(o) - (parseFloat(o.qty_produced) || 0)) < 1e-6; },
+         addAlloc(o) {
+             // Pilih gudang pertama yang BELUM dipakai di output ini → minim salah input.
+             const used = new Set((o.allocations || []).map(a => a.warehouse_id));
+             const next = this.warehouses.find(w => !used.has(w.id));
+             const def  = next ? next.id : (this.defaultWh || (this.selesai && this.selesai.warehouse_id) || null);
+             o.allocations.push({ warehouse_id: def, qty: 0 });
+         },
+         removeAlloc(o, j) {
+             o.allocations.splice(j, 1);
+             // Bila tinggal satu baris, samakan otomatis dengan qty terpakai.
+             if (o.allocations.length === 1) o.allocations[0].qty = parseFloat(o.qty_produced) || 0;
+         },
+         // Saat qty terpakai berubah & hanya ada satu gudang, ikut sinkron otomatis.
+         syncSingleAlloc(o) {
+             if (o && Array.isArray(o.allocations) && o.allocations.length === 1) {
+                 o.allocations[0].qty = parseFloat(o.qty_produced) || 0;
+             }
+         },
+         // Cegah submit bila ada alokasi gudang yang tidak pas dengan qty terpakai.
+         validateSelesai(e) {
+             if (!this.selesai || !this.selesai.is_last || this.warehouses.length <= 1) return true;
+             for (const o of (this.selesai.outputs || [])) {
+                 if ((parseFloat(o.qty_produced) || 0) <= 0) continue;
+                 if (!this.allocBalanced(o)) {
+                     e.preventDefault();
+                     alert('Total alokasi gudang untuk produk ' + o.product_name + ' belum pas dengan qty terpakai. Perbaiki dulu sebelum menyimpan.');
+                     return false;
+                 }
+             }
+             return true;
          },
          // Hitung ulang persentase biaya per output. Utama = sisa (100 − Σ sampingan).
          //  • DENGAN BOM: sampingan = unit% × (qty/siklus) — kerusakan sampingan otomatis pindah
@@ -327,7 +374,8 @@
             </div>
 
             {{-- Form action is set dynamically via Alpine x-bind --}}
-            <form id="form-selesai" method="POST" class="flex flex-col min-h-0 flex-1" :action="selesai ? selesai.action_url : '#'">
+            <form id="form-selesai" method="POST" class="flex flex-col min-h-0 flex-1" :action="selesai ? selesai.action_url : '#'"
+                  @submit="validateSelesai($event)">
                 @csrf
 
                 {{-- Badan modal yang bisa di-scroll (header & tombol tetap di tempat) --}}
@@ -373,7 +421,7 @@
                                     <div class="w-24">
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Terpakai *</label>
                                         <input type="number" step="0.01" min="0" required
-                                               x-model.number="out.qty_produced" @input="recalcSelesai()"
+                                               x-model.number="out.qty_produced" @input="recalcSelesai(); syncSingleAlloc(out)"
                                                :name="'outputs[' + idx + '][qty_produced]'"
                                                class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                     </div>
@@ -406,6 +454,40 @@
                                                placeholder="cth: 1 pcs cacat saat cutting..."
                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 bg-white">
                                     </div>
+                                </div>
+
+                                {{-- Alokasi Gudang: bagi hasil produksi ke beberapa gudang (default semua ke gudang order). --}}
+                                <div class="mt-3 pt-3 border-t border-dashed border-gray-200" x-show="warehouses.length > 1">
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-[10px] font-bold text-gray-500">Alokasi Gudang</label>
+                                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                              :class="allocBalanced(out) ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'">
+                                            <span x-text="Number(allocSum(out)).toLocaleString('id-ID', {maximumFractionDigits: 2})"></span>
+                                            /
+                                            <span x-text="Number(out.qty_produced || 0).toLocaleString('id-ID', {maximumFractionDigits: 2})"></span>
+                                        </span>
+                                    </div>
+                                    <div class="space-y-1.5">
+                                        <template x-for="(al, j) in out.allocations" :key="j">
+                                            <div class="flex gap-1.5 items-center">
+                                                <select x-model.number="al.warehouse_id"
+                                                        :name="'outputs[' + idx + '][allocations][' + j + '][warehouse_id]'"
+                                                        class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                                                    @foreach($warehouses as $w)
+                                                        <option value="{{ $w->id }}">{{ $w->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <input type="number" step="0.01" min="0"
+                                                       x-model.number="al.qty"
+                                                       :name="'outputs[' + idx + '][allocations][' + j + '][qty]'"
+                                                       class="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                                                <button type="button" @click="removeAlloc(out, j)" x-show="out.allocations.length > 1"
+                                                        class="w-7 h-7 flex-shrink-0 rounded-lg bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 text-xs">✕</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <button type="button" @click="addAlloc(out)" x-show="out.allocations.length < warehouses.length"
+                                            class="mt-1.5 text-[11px] font-bold text-green-700 hover:text-green-800">+ Tambah Gudang</button>
                                 </div>
                             </div>
                         </template>

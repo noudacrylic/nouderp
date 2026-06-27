@@ -40,10 +40,35 @@
                             // Default qty aktual = target jika belum diisi, supaya admin lihat angka jelas.
                             $qtyDefault     = $qtyActualSaved > 0 ? $qtyActualSaved : $qtyPlanned;
                             $pctSaved       = (float) $out->percentage;
+                            $savedAlloc     = is_array($out->warehouse_allocations) ? $out->warehouse_allocations : null;
+                            // Default alokasi = gudang Utama; fallback ke gudang order.
+                            $defWh          = (int) ($defaultWarehouseId ?: $order->warehouse_id);
                         @endphp
                         <input type="hidden" name="outputs[{{ $i }}][output_id]" value="{{ $out->id }}">
 
-                        <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50">
+                        <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50"
+                             x-data="{
+                                 qty: {{ $qtyDefault ?: 0 }},
+                                 whs: {{ Js::from($warehouses) }},
+                                 defWh: {{ $defWh }},
+                                 allocations: {{ Js::from($savedAlloc) }},
+                                 init() {
+                                     if (!Array.isArray(this.allocations) || !this.allocations.length) {
+                                         this.allocations = [{ warehouse_id: this.defWh, qty: this.qty }];
+                                     } else {
+                                         this.allocations = this.allocations.map(a => ({ warehouse_id: a.warehouse_id, qty: parseFloat(a.qty) || 0 }));
+                                     }
+                                 },
+                                 sum() { return Math.round(this.allocations.reduce((s, a) => s + (parseFloat(a.qty) || 0), 0) * 10000) / 10000; },
+                                 balanced() { return Math.abs(this.sum() - (parseFloat(this.qty) || 0)) < 1e-6; },
+                                 syncSingle() { if (this.allocations.length === 1) this.allocations[0].qty = parseFloat(this.qty) || 0; },
+                                 add() {
+                                     const used = new Set(this.allocations.map(a => a.warehouse_id));
+                                     const next = this.whs.find(w => !used.has(w.id));
+                                     this.allocations.push({ warehouse_id: next ? next.id : this.defWh, qty: 0 });
+                                 },
+                                 remove(j) { this.allocations.splice(j, 1); if (this.allocations.length === 1) this.allocations[0].qty = parseFloat(this.qty) || 0; },
+                             }">
                             <div class="flex items-center gap-2 mb-3 flex-wrap">
                                 <span class="font-bold text-gray-800 text-sm">{{ $out->product?->name ?? '—' }}</span>
                                 @if($out->output_type === 'main')
@@ -67,7 +92,7 @@
                                     <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Aktual *</label>
                                     <input type="number"
                                            name="outputs[{{ $i }}][qty_produced]"
-                                           value="{{ number_format($qtyDefault, 2, '.', '') }}"
+                                           x-model.number="qty" @input="syncSingle()"
                                            step="0.01" min="0" required
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                 </div>
@@ -99,6 +124,40 @@
                                        value="{{ $out->variance_notes }}"
                                        placeholder="cth: 1 pcs cacat saat cutting, lembar akrilik tipis di sudut kanan..."
                                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-gray-700">
+                            </div>
+
+                            {{-- Alokasi Gudang: bagi hasil produksi ke beberapa gudang (default semua ke gudang order). --}}
+                            <div class="mt-3 pt-3 border-t border-dashed border-gray-200" x-show="whs.length > 1">
+                                <div class="flex items-center justify-between mb-1.5">
+                                    <label class="block text-[10px] font-bold text-gray-500">Alokasi Gudang</label>
+                                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                          :class="balanced() ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'">
+                                        <span x-text="Number(sum()).toLocaleString('id-ID', {maximumFractionDigits: 2})"></span>
+                                        /
+                                        <span x-text="Number(qty || 0).toLocaleString('id-ID', {maximumFractionDigits: 2})"></span>
+                                    </span>
+                                </div>
+                                <div class="space-y-1.5">
+                                    <template x-for="(al, j) in allocations" :key="j">
+                                        <div class="flex gap-1.5 items-center">
+                                            <select x-model.number="al.warehouse_id"
+                                                    :name="`outputs[{{ $i }}][allocations][${j}][warehouse_id]`"
+                                                    class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                                                @foreach($warehouses as $w)
+                                                    <option value="{{ $w->id }}">{{ $w->name }}</option>
+                                                @endforeach
+                                            </select>
+                                            <input type="number" step="0.01" min="0"
+                                                   x-model.number="al.qty"
+                                                   :name="`outputs[{{ $i }}][allocations][${j}][qty]`"
+                                                   class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                                            <button type="button" @click="remove(j)" x-show="allocations.length > 1"
+                                                    class="w-7 h-7 flex-shrink-0 rounded-lg bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 text-xs">✕</button>
+                                        </div>
+                                    </template>
+                                </div>
+                                <button type="button" @click="add()" x-show="allocations.length < whs.length"
+                                        class="mt-1.5 text-[11px] font-bold text-green-700 hover:text-green-800">+ Tambah Gudang</button>
                             </div>
                         </div>
                     @endforeach

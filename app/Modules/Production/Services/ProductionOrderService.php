@@ -730,6 +730,48 @@ class ProductionOrderService
      *  3. Jika cukup → konsumsi material via FIFO + post jurnal Dr. WIP / Cr. Persediaan,
      *     lalu lanjut ke proses finalisasi standar (output ke persediaan + closing WIP).
      */
+    /**
+     * Normalisasi alokasi gudang untuk satu baris output finalisasi.
+     *  • Tanpa alokasi (kiriman lama / form tanpa split) → semua qty ke gudang order ($defaultWarehouseId).
+     *  • Beberapa baris gudang sama → digabung.
+     *  • Total alokasi WAJIB sama dengan qty hasil produksi (toleransi float) — kalau tidak → throw.
+     *
+     * @return array<int,array{warehouse_id:int,qty:float}>
+     */
+    private function resolveOutputAllocations(array $out, float $qtyProduced, int $defaultWarehouseId): array
+    {
+        $raw = $out['allocations'] ?? null;
+
+        $byWarehouse = [];
+        if (is_array($raw)) {
+            foreach ($raw as $a) {
+                $wid = (int) ($a['warehouse_id'] ?? 0);
+                $qty = (float) ($a['qty'] ?? 0);
+                if ($wid <= 0 || $qty <= 0) continue;
+                $byWarehouse[$wid] = ($byWarehouse[$wid] ?? 0) + $qty;
+            }
+        }
+
+        if (empty($byWarehouse)) {
+            return [['warehouse_id' => $defaultWarehouseId, 'qty' => $qtyProduced]];
+        }
+
+        $sum = array_sum($byWarehouse);
+        if (abs($sum - $qtyProduced) > 1e-6) {
+            $fmt = fn($n) => rtrim(rtrim(number_format($n, 4, ',', '.'), '0'), ',');
+            throw new Exception(
+                "Total alokasi gudang ({$fmt($sum)}) tidak sama dengan qty hasil produksi ({$fmt($qtyProduced)}). " .
+                "Pastikan jumlah qty tiap gudang pas dengan qty terpakai."
+            );
+        }
+
+        $result = [];
+        foreach ($byWarehouse as $wid => $qty) {
+            $result[] = ['warehouse_id' => $wid, 'qty' => $qty];
+        }
+        return $result;
+    }
+
     public function finalize(int $orderId, array $actualOutputs): void
     {
         // Pre-flight di luar transaksi: cek status & ketersediaan stok untuk material tertunda.
@@ -885,26 +927,34 @@ class ProductionOrderService
                     $itemCost = $costPerUnit * $qtyProduced;
                 }
 
-                // Update qty_produced + percentage (hasil recalc otoritatif) + variance_notes
+                // Alokasi hasil produksi ke satu/beberapa gudang. Fallback: semua ke gudang order
+                // (default Utama). Biaya per unit seragam lintas gudang (produk & WIP sama).
+                $allocations = $this->resolveOutputAllocations($out, $qtyProduced, (int) $order->warehouse_id);
+                $unitCost    = $qtyProduced > 0 ? $itemCost / $qtyProduced : 0;
+
+                // Update qty_produced + percentage (hasil recalc otoritatif) + variance_notes + alokasi gudang
                 $updatePayload = [
-                    'qty_produced'   => $qtyProduced,
-                    'variance_notes' => $out['variance_notes'] ?? null,
+                    'qty_produced'          => $qtyProduced,
+                    'variance_notes'        => $out['variance_notes'] ?? null,
+                    'warehouse_allocations' => $allocations,
                 ];
                 if ($pct !== null) {
                     $updatePayload['percentage'] = $pct;
                 }
                 $outputRecord->update($updatePayload);
 
-                // Stock IN: output masuk persediaan via FIFO
-                $fifo->stockIn(
-                    productId:     $outputRecord->product_id,
-                    warehouseId:   $order->warehouse_id,
-                    type:          'production_order',
-                    reference:     $order->order_number,
-                    qty:           $qtyProduced,
-                    cost:          $qtyProduced > 0 ? $itemCost / $qtyProduced : 0,
-                    transactionId: $order->id
-                );
+                // Stock IN: output masuk persediaan via FIFO, dipecah per gudang sesuai alokasi.
+                foreach ($allocations as $alloc) {
+                    $fifo->stockIn(
+                        productId:     $outputRecord->product_id,
+                        warehouseId:   $alloc['warehouse_id'],
+                        type:          'production_order',
+                        reference:     $order->order_number,
+                        qty:           $alloc['qty'],
+                        cost:          $unitCost,
+                        transactionId: $order->id
+                    );
+                }
 
                 // Untuk custom order: tag FIFO layer dengan sales_order_id
                 if ($order->type === 'custom' && $order->sales_order_id) {
@@ -1050,13 +1100,16 @@ class ProductionOrderService
         // Tulis balancing qty_out ke inventory_ledgers untuk tiap output yang sebelumnya stockIn,
         // supaya saldo & product_stocks.qty_on_hand kembali ke kondisi sebelum finalisasi.
         // (Hanya hapus StockLayer saja tidak cukup — FIFO dan ledger adalah dua sumber yang terpisah.)
+        // Sumber qty & gudang diambil dari StockLayer hasil finalisasi: ini menangani alokasi
+        // multi-gudang dengan benar (qty_out dikembalikan ke gudang yang persis menerima stok),
+        // sekaligus kompatibel dengan order lama yang seluruhnya masuk satu gudang.
         $engine = app(InventoryEngine::class);
-        foreach ($order->outputs as $out) {
-            $qty = (float) ($out->qty_produced ?? 0);
+        foreach ($layers as $layer) {
+            $qty = (float) $layer->qty_in;
             if ($qty <= 0) continue;
             $engine->ledger(
-                productId:     (int) $out->product_id,
-                warehouseId:   (int) $order->warehouse_id,
+                productId:     (int) $layer->product_id,
+                warehouseId:   (int) $layer->warehouse_id,
                 qtyIn:         0,
                 qtyOut:        $qty,
                 type:          'production_order_void',
