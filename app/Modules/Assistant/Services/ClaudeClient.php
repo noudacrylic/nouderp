@@ -31,34 +31,61 @@ class ClaudeClient
         return $this->key !== '';
     }
 
+    // Status transient yang aman dicoba-ulang (overload/rate-limit/server error).
+    private const RETRYABLE = [429, 500, 502, 503, 529];
+
     /**
-     * Kirim request ke /messages. Return respons terdekode, atau ['_error' => '...'].
+     * Kirim request ke /messages dengan auto-retry pada error transient
+     * (mis. 529 overloaded). Return respons terdekode, atau
+     * ['_error' => '...', '_status' => int|null].
      */
     public function messages(array $payload): array
     {
         if (! $this->enabled()) {
-            return ['_error' => 'ANTHROPIC_API_KEY belum diatur di server (.env).'];
+            return ['_error' => 'ANTHROPIC_API_KEY belum diatur (Settings → Integrasi → Claude AI atau .env).'];
         }
 
-        try {
-            $resp = Http::withHeaders([
-                'x-api-key'         => $this->key,
-                'anthropic-version' => '2023-06-01',
-                'content-type'      => 'application/json',
-            ])->timeout(60)->post($this->base . '/messages', $payload);
+        $maxAttempts = 4;
+        $lastError   = 'tidak diketahui';
+        $lastStatus  = null;
 
-            $json = $resp->json() ?? [];
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $resp = Http::withHeaders([
+                    'x-api-key'         => $this->key,
+                    'anthropic-version' => '2023-06-01',
+                    'content-type'      => 'application/json',
+                ])->timeout(60)->post($this->base . '/messages', $payload);
 
-            if (! $resp->successful()) {
-                $msg = data_get($json, 'error.message', 'HTTP ' . $resp->status());
-                Log::warning('Claude API gagal', ['status' => $resp->status(), 'error' => $msg]);
-                return ['_error' => $msg];
+                if ($resp->successful()) {
+                    return $resp->json() ?? [];
+                }
+
+                $lastStatus = $resp->status();
+                $json       = $resp->json() ?? [];
+                $lastError  = data_get($json, 'error.message', 'HTTP ' . $lastStatus);
+
+                // Transient → tunggu lalu coba lagi (hormati Retry-After bila ada).
+                if (in_array($lastStatus, self::RETRYABLE, true) && $attempt < $maxAttempts) {
+                    $retryAfter = (int) $resp->header('retry-after');
+                    $sleepMs    = $retryAfter > 0 ? $retryAfter * 1000 : 800 * $attempt;
+                    usleep(min($sleepMs, 8000) * 1000);
+                    continue;
+                }
+
+                Log::warning('Claude API gagal', ['status' => $lastStatus, 'error' => $lastError]);
+                return ['_error' => $lastError, '_status' => $lastStatus];
+            } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
+                if ($attempt < $maxAttempts) {
+                    usleep(800 * $attempt * 1000);
+                    continue;
+                }
+                Log::warning('Claude API exception: ' . $lastError);
+                return ['_error' => $lastError, '_status' => null];
             }
-
-            return $json;
-        } catch (\Throwable $e) {
-            Log::warning('Claude API exception: ' . $e->getMessage());
-            return ['_error' => $e->getMessage()];
         }
+
+        return ['_error' => $lastError, '_status' => $lastStatus];
     }
 }

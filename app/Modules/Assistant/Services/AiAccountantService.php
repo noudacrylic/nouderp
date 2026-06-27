@@ -79,6 +79,11 @@ class AiAccountantService
             ]);
 
             if (isset($resp['_error'])) {
+                $status = $resp['_status'] ?? null;
+                if (in_array($status, [429, 529], true) || stripos($resp['_error'], 'overload') !== false) {
+                    // Jangan simpan giliran yang gagal → user tinggal kirim ulang dari kondisi bersih.
+                    return '⏳ Server AI sedang sibuk sebentar. Coba kirim lagi beberapa detik lagi ya.';
+                }
                 return '❌ AI error: ' . $resp['_error'];
             }
 
