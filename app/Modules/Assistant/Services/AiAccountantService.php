@@ -392,13 +392,15 @@ class AiAccountantService
             ->whereHas('disbursement', fn ($q) => $q->where('type', 'freight')->whereIn('status', ['draft', 'posted']))
             ->pluck('sales_invoice_id')->all();
 
-        $rows = SalesInvoice::with('customer')
+        $rows = SalesInvoice::with(['customer', 'delivery'])
             ->whereIn('status', ['posted', 'paid'])
             ->where('shipping_cost', '>', 0)
             ->whereNotIn('id', $paidIds)
             ->when($kw !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('invoice_number', 'like', "%{$kw}%")
-                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$kw}%"))))
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$kw}%"))
+                ->orWhereHas('delivery', fn ($d) => $d->where('delivery_number', 'like', "%{$kw}%")
+                    ->orWhere('tracking_number', 'like', "%{$kw}%"))))
             ->orderByDesc('invoice_date')
             ->limit(10)
             ->get();
@@ -407,9 +409,13 @@ class AiAccountantService
             return 'Tidak ada faktur dengan titipan ongkir yang belum dibayar' . ($kw !== '' ? " cocok '{$kw}'" : '') . '.';
         }
 
-        return $rows->map(fn ($i) => "invoice_id={$i->id} | {$i->invoice_number} | "
-            . ($i->customer->name ?? '-') . ' | titipan Rp ' . number_format((float) $i->shipping_cost, 0, ',', '.'))
-            ->implode("\n");
+        return $rows->map(function ($i) {
+            $tgl  = optional($i->invoice_date)->format('d/m/Y') ?: '-';
+            $resi = $i->delivery->tracking_number ?? $i->delivery->delivery_number ?? null;
+            return "invoice_id={$i->id} | {$i->invoice_number} | " . ($i->customer->name ?? '-')
+                . ' | titipan Rp ' . number_format((float) $i->shipping_cost, 0, ',', '.')
+                . " | {$tgl}" . ($resi ? " | resi {$resi}" : '');
+        })->implode("\n");
     }
 
     private function toolCatatBayarOngkir(string $chatId, array $input): array
@@ -687,7 +693,7 @@ Untuk refund customer & pembelian barang dagangan/stok dari supplier (yang menam
 Bedakan dengan jelas:
 - Uang keluar ke PIHAK LAIN / jadi biaya (bensin, gaji, listrik, sewa, prive) → catat_pengeluaran.
 - Uang pindah ANTAR REKENING SENDIRI (tidak jadi biaya) → catat_transfer_bank.
-- BAYAR ONGKIR yang terkait FAKTUR/pelanggan (pelepasan titipan) → cari_faktur_ongkir + catat_bayar_ongkir. Ongkir lain yang murni biaya umum tanpa faktur → catat_pengeluaran ke akun beban. Kalau ragu, tanya user dulu.
+- BAYAR ONGKIR yang terkait FAKTUR/pelanggan (pelepasan titipan) → cari_faktur_ongkir + catat_bayar_ongkir. User boleh menyebut NAMA PEMESAN/PELANGGAN (tidak harus nomor faktur). Jika hasil cari_faktur_ongkir lebih dari satu, TAMPILKAN daftarnya (pelanggan, nomor faktur, titipan, tanggal/resi) dan minta user memilih yang mana. Ongkir lain yang murni biaya umum tanpa faktur → catat_pengeluaran ke akun beban. Kalau ragu, tanya user dulu.
 - Foto struk pengeluaran → baca lalu catat_pengeluaran. Bila struk jelas pembelian barang untuk stok dari supplier, sampaikan dicatat manual di ERP.
 
 ATURAN:
@@ -765,12 +771,13 @@ TXT;
             ],
             [
                 'name'        => 'cari_faktur_ongkir',
-                'description' => 'Cari faktur penjualan yang punya titipan ongkir & BELUM dibayar ongkirnya. '
+                'description' => 'Cari faktur penjualan yang punya titipan ongkir & BELUM dibayar ongkirnya, '
+                    . 'berdasarkan NAMA PELANGGAN, nomor faktur, atau nomor resi/SJ. '
                     . 'Pakai sebelum catat_bayar_ongkir untuk dapat invoice_id dan nilai titipannya.',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'keyword' => ['type' => 'string', 'description' => 'Nomor faktur atau nama pelanggan (opsional; kosong = daftar terbaru).'],
+                        'keyword' => ['type' => 'string', 'description' => 'Nama pelanggan, nomor faktur, atau nomor resi (opsional; kosong = daftar terbaru).'],
                     ],
                     'required' => [],
                 ],
@@ -830,7 +837,7 @@ TXT;
             . "• <i>catat pengeluaran bensin 50rb dari kas</i>\n"
             . "• <i>prive 200rb dari BCA</i>\n"
             . "• <i>transfer 5jt dari BCA ke Mandiri</i>\n"
-            . "• <i>bayar ongkir faktur SI/2026/06/00020 448rb dari BRI</i>\n"
+            . "• <i>bayar ongkir pesanan Tama 42rb dari BRI</i> (boleh sebut nama pemesan)\n"
             . "• <i>pengeluaran bulan ini berapa?</i> / <i>saldo BCA?</i>\n"
             . "📷 atau kirim <b>foto struk</b> untuk dicatat otomatis.\n\n"
             . "Perintah: /batal (batalkan transaksi terakhir) · /baru (mulai ulang percakapan)\n\n"
