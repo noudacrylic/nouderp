@@ -125,7 +125,10 @@
     function transferForm() {
         return {
             fromWarehouse: @js((string) $fromWhSelected),
-            rows: [ this.blankRow() ],
+            rows: [],
+
+            // Alpine memanggil init() otomatis — di sinilah `this` sudah valid.
+            init() { this.rows = [this.blankRow()]; },
 
             blankRow() {
                 return { product_id: '', label: '', query: '', sku: '', stock: 0, qty: '', results: [], showDrop: false, loading: false };
