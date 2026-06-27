@@ -51,15 +51,10 @@ class InventoryTransferController extends Controller
 
     public function create()
     {
+        // Produk dipilih via live-search (erp/api/products/search), tidak perlu di-preload.
         $warehouses = Warehouse::where('is_active', 1)->get();
-        $products = Product::where('is_active', 1)
-            ->orderBy('name')
-            ->get();
 
-        return view(
-            'erp.inventory.transfers.create',
-            compact('products', 'warehouses')
-        );
+        return view('erp.inventory.transfers.create', compact('warehouses'));
     }
 
     public function store(Request $request)
