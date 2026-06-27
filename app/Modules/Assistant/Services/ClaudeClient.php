@@ -2,6 +2,7 @@
 
 namespace App\Modules\Assistant\Services;
 
+use App\Models\AnthropicSetting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -16,7 +17,13 @@ class ClaudeClient
 
     public function __construct()
     {
-        $this->key = (string) config('services.anthropic.key', '');
+        // Sumber utama: pengaturan DB (Settings → Integrasi → Claude AI).
+        // Fallback ke config/.env supaya tetap jalan tanpa setting UI.
+        $setting = AnthropicSetting::current();
+
+        $this->key = ($setting && $setting->is_active)
+            ? (string) ($setting->api_key ?: config('services.anthropic.key', ''))
+            : (string) config('services.anthropic.key', '');
     }
 
     public function enabled(): bool

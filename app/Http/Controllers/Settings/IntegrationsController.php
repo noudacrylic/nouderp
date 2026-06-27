@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
+use App\Models\AnthropicSetting;
 use App\Models\MidtransSetting;
 use App\Models\ShippingSetting;
 use App\Models\TelegramSetting;
@@ -23,6 +24,7 @@ class IntegrationsController extends Controller
         $kiriminaja = ShippingSetting::for('kiriminaja');
         $jubelio    = JubelioSetting::singleton();
         $telegram   = TelegramSetting::current();
+        $anthropic  = AnthropicSetting::current();
 
         $integrations = [
             [
@@ -69,6 +71,15 @@ class IntegrationsController extends Controller
                 'active'      => (bool) $telegram?->isConfigured(),
                 'mode'        => $telegram && $telegram->webhook_secret ? 'Webhook' : 'Belum aktif',
                 'url'         => route('settings.telegram.edit'),
+            ],
+            [
+                'name'        => 'Claude AI',
+                'category'    => 'Asisten / AI',
+                'description' => 'Asisten pencatat keuangan via Telegram — catat pengeluaran & prive lewat chat (ngobrol bahasa natural).',
+                'icon'        => '🤖',
+                'active'      => (bool) $anthropic?->isConfigured(),
+                'mode'        => $anthropic && $anthropic->is_active ? ($anthropic->model_text ?: 'Aktif') : 'Belum aktif',
+                'url'         => route('settings.anthropic.edit'),
             ],
         ];
 

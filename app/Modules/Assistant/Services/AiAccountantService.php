@@ -3,6 +3,7 @@
 namespace App\Modules\Assistant\Services;
 
 use App\Core\Accounting\Account;
+use App\Models\AnthropicSetting;
 use App\Models\User;
 use App\Modules\Finance\Models\CashDisbursement;
 use App\Modules\Finance\Services\CashDisbursementService;
@@ -413,11 +414,16 @@ TXT;
 
     private function model(): string
     {
-        return (string) config('services.anthropic.model_text', 'claude-sonnet-4-6');
+        $setting = AnthropicSetting::current();
+        return (string) (($setting?->model_text) ?: config('services.anthropic.model_text', 'claude-sonnet-4-6'));
     }
 
     private function threshold(): float
     {
+        $setting = AnthropicSetting::current();
+        if ($setting && $setting->confirm_threshold !== null) {
+            return (float) $setting->confirm_threshold;
+        }
         return (float) config('services.anthropic.confirm_threshold', 100000);
     }
 

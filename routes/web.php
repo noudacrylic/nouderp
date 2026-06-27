@@ -87,6 +87,10 @@ Route::prefix('erp')->group(function () {
         // Integrasi — hub aplikasi yang terhubung dengan Noud ERP (Midtrans, Biteship, dst)
         Route::get('/integrations', [\App\Http\Controllers\Settings\IntegrationsController::class, 'index'])->name('settings.integrations.index');
 
+        // Integrasi — Claude AI (Anthropic): asisten pencatat keuangan via Telegram
+        Route::get ('/anthropic', [\App\Http\Controllers\Settings\AnthropicSettingController::class, 'edit'])->name('settings.anthropic.edit');
+        Route::post('/anthropic', [\App\Http\Controllers\Settings\AnthropicSettingController::class, 'update'])->name('settings.anthropic.update');
+
         // Integrasi — Telegram "Noud Bot" (notifikasi izin, dll)
         Route::get ('/telegram',              [\App\Http\Controllers\Settings\TelegramSettingController::class, 'edit'])->name('settings.telegram.edit');
         Route::post('/telegram',              [\App\Http\Controllers\Settings\TelegramSettingController::class, 'update'])->name('settings.telegram.update');
