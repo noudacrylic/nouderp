@@ -93,4 +93,43 @@ class TelegramNotifier
     {
         return $user && $this->send($user->telegram_chat_id, $text, $opts);
     }
+
+    /**
+     * Unduh file Telegram (mis. foto struk) → ['data' => base64, 'media_type' => '...'].
+     * Null bila gagal. Dipakai asisten AI untuk membaca struk (vision).
+     */
+    public function getFileBase64(string $fileId): ?array
+    {
+        if (! $this->enabled() || $fileId === '') {
+            return null;
+        }
+
+        try {
+            $info = Http::timeout(10)->get("https://api.telegram.org/bot{$this->token}/getFile", [
+                'file_id' => $fileId,
+            ]);
+            $path = data_get($info->json(), 'result.file_path');
+            if (! $path) {
+                return null;
+            }
+
+            $bin = Http::timeout(20)->get("https://api.telegram.org/file/bot{$this->token}/{$path}");
+            if (! $bin->successful()) {
+                return null;
+            }
+
+            $ext   = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            $media = match ($ext) {
+                'png'  => 'image/png',
+                'webp' => 'image/webp',
+                'gif'  => 'image/gif',
+                default => 'image/jpeg',
+            };
+
+            return ['data' => base64_encode($bin->body()), 'media_type' => $media];
+        } catch (\Throwable $e) {
+            Log::warning('TelegramNotifier getFile gagal: ' . $e->getMessage());
+            return null;
+        }
+    }
 }

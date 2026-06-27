@@ -3,6 +3,7 @@
 namespace App\Modules\Assistant\Services;
 
 use App\Core\Accounting\Account;
+use App\Core\Journal\JournalLine;
 use App\Models\AnthropicSetting;
 use App\Models\User;
 use App\Modules\Finance\Models\BankTransfer;
@@ -31,48 +32,72 @@ class AiAccountantService
         private BankTransferService $btService,
     ) {}
 
-    /** Titik masuk utama. Return teks balasan untuk dikirim ke Telegram (HTML). */
-    public function handle(User $user, string $chatId, string $text): string
+    /**
+     * Titik masuk utama. $image = ['data'=>base64,'media_type'=>...] bila user kirim foto struk.
+     * Return teks balasan untuk dikirim ke Telegram (HTML).
+     */
+    public function handle(User $user, string $chatId, string $text, ?array $image = null): string
     {
         $text = trim($text);
         $lower = strtolower($text);
 
-        if ($lower === '/baru' || $lower === 'reset' || $lower === '/reset') {
-            $this->forgetConversation($chatId);
-            $this->forgetPending($chatId);
-            return '🔄 Percakapan direset. Silakan mulai lagi.';
-        }
-        if (str_starts_with($lower, '/batal')) {
-            return $this->voidLast($chatId);
-        }
-        if ($lower === '/help' || $lower === '/bantuan') {
-            return $this->helpText();
-        }
+        // Perintah & konfirmasi hanya berlaku untuk pesan teks murni (bukan foto).
+        if (! $image) {
+            if ($lower === '/baru' || $lower === 'reset' || $lower === '/reset') {
+                $this->forgetConversation($chatId);
+                $this->forgetPending($chatId);
+                return '🔄 Percakapan direset. Silakan mulai lagi.';
+            }
+            if (str_starts_with($lower, '/batal')) {
+                return $this->voidLast($chatId);
+            }
+            if ($lower === '/help' || $lower === '/bantuan') {
+                return $this->helpText();
+            }
 
-        // Ada transaksi menunggu konfirmasi (nominal di atas ambang)?
-        if ($pending = Cache::get($this->pendingKey($chatId))) {
-            return $this->resolvePending($chatId, $text, $pending);
+            // Ada transaksi menunggu konfirmasi (nominal di atas ambang)?
+            if ($pending = Cache::get($this->pendingKey($chatId))) {
+                return $this->resolvePending($chatId, $text, $pending);
+            }
+        } else {
+            // Foto baru = transaksi baru; buang konfirmasi lama yang menggantung.
+            $this->forgetPending($chatId);
         }
 
         if (! $this->claude->enabled()) {
-            return '⚠️ AI belum aktif: ANTHROPIC_API_KEY belum diatur di server.';
+            return '⚠️ AI belum aktif: API key Claude belum diatur (Settings → Integrasi → Claude AI).';
         }
 
-        return $this->converse($user, $chatId, $text);
+        return $this->converse($user, $chatId, $text, $image);
     }
 
     // ───────────────────────── Percakapan + tool loop ─────────────────────────
 
-    private function converse(User $user, string $chatId, string $text): string
+    private function converse(User $user, string $chatId, string $text, ?array $image = null): string
     {
         $messages = Cache::get($this->convKey($chatId), []);
-        $messages[] = ['role' => 'user', 'content' => $text];
 
+        if ($image) {
+            // Giliran dengan foto struk → konten gambar + instruksi.
+            $messages[] = ['role' => 'user', 'content' => [
+                ['type' => 'image', 'source' => [
+                    'type'       => 'base64',
+                    'media_type' => $image['media_type'],
+                    'data'       => $image['data'],
+                ]],
+                ['type' => 'text', 'text' => $text !== '' ? $text : 'Catat transaksi dari struk/nota di gambar ini.'],
+            ]];
+        } else {
+            $messages[] = ['role' => 'user', 'content' => $text];
+        }
+
+        // Foto → model vision (Opus) untuk giliran ini; teks → model teks (Sonnet).
+        $modelForTurn  = $image ? $this->visionModel() : $this->model();
         $postedSummary = null;
 
         for ($i = 0; $i < 6; $i++) {
             $resp = $this->claude->messages([
-                'model'      => $this->model(),
+                'model'      => $modelForTurn,
                 'max_tokens' => 1024,
                 'system'     => [[
                     'type'          => 'text',
@@ -145,10 +170,12 @@ class AiAccountantService
     private function execTool(string $chatId, string $name, array $input): array
     {
         return match ($name) {
-            'cari_akun'           => ['content' => $this->toolCariAkun($input)],
-            'catat_pengeluaran'   => $this->toolCatatPengeluaran($chatId, $input),
-            'catat_transfer_bank' => $this->toolCatatTransfer($chatId, $input),
-            default               => ['content' => 'Tool tidak dikenal: ' . $name],
+            'cari_akun'            => ['content' => $this->toolCariAkun($input)],
+            'catat_pengeluaran'    => $this->toolCatatPengeluaran($chatId, $input),
+            'catat_transfer_bank'  => $this->toolCatatTransfer($chatId, $input),
+            'ringkas_pengeluaran'  => ['content' => $this->toolRingkasPengeluaran($input)],
+            'saldo_kas_bank'       => ['content' => $this->toolSaldoKasBank($input)],
+            default                => ['content' => 'Tool tidak dikenal: ' . $name],
         };
     }
 
@@ -349,6 +376,59 @@ class AiAccountantService
         ];
     }
 
+    // ───────────────────────── Tools baca-saja (laporan) ─────────────────────────
+
+    private function toolRingkasPengeluaran(array $input): string
+    {
+        [$from, $to, $label] = $this->periodeRange((string) ($input['periode'] ?? 'bulan_ini'));
+
+        $q = CashDisbursement::where('status', 'posted')
+            ->whereBetween('date', [$from->toDateString(), $to->toDateString()]);
+        $total = (float) $q->sum('total');
+        $count = (clone $q)->count();
+
+        return "Pengeluaran {$label}: Rp " . number_format($total, 0, ',', '.') . " dari {$count} transaksi.";
+    }
+
+    private function toolSaldoKasBank(array $input): string
+    {
+        $kw = trim((string) ($input['keyword'] ?? ''));
+
+        $q = Account::where('is_cash_account', 1)->where('is_active', 1);
+        if ($kw !== '') {
+            $q->where(fn ($w) => $w->where('name', 'like', "%{$kw}%")->orWhere('code', 'like', "%{$kw}%"));
+        }
+        $accs = $q->orderBy('code')->get();
+
+        if ($accs->isEmpty()) {
+            return "Tidak ada rekening kas/bank yang cocok dengan '{$kw}'.";
+        }
+
+        $lines = [];
+        foreach ($accs as $a) {
+            $bal = (float) JournalLine::where('account_id', $a->id)
+                ->whereHas('journal', fn ($j) => $j->where('status', 'posted'))
+                ->selectRaw('COALESCE(SUM(debit) - SUM(credit), 0) as b')
+                ->value('b');
+            $lines[] = "{$a->name}: Rp " . number_format($bal, 0, ',', '.');
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @return array{0:\Illuminate\Support\Carbon,1:\Illuminate\Support\Carbon,2:string} */
+    private function periodeRange(string $p): array
+    {
+        $t = now();
+        return match ($p) {
+            'hari_ini'   => [$t->copy()->startOfDay(),   $t->copy()->endOfDay(),   'hari ini'],
+            'kemarin'    => [$t->copy()->subDay()->startOfDay(), $t->copy()->subDay()->endOfDay(), 'kemarin'],
+            'minggu_ini' => [$t->copy()->startOfWeek(),  $t->copy()->endOfWeek(),  'minggu ini'],
+            'bulan_lalu' => [$t->copy()->subMonthNoOverflow()->startOfMonth(), $t->copy()->subMonthNoOverflow()->endOfMonth(), 'bulan lalu'],
+            default      => [$t->copy()->startOfMonth(), $t->copy()->endOfMonth(), 'bulan ini'],
+        };
+    }
+
     // ───────────────────────── Konfirmasi & void ─────────────────────────
 
     private function resolvePending(string $chatId, string $text, array $pending): string
@@ -461,11 +541,15 @@ Tanggal hari ini: {$today}.
 KEMAMPUAN SAAT INI:
 1. PENGELUARAN UMUM & PRIVE — uang keluar untuk biaya/beban atau pengambilan pribadi pemilik (pakai catat_pengeluaran).
 2. TRANSFER ANTAR REKENING kas/bank SENDIRI — mis. pindah dana BCA → Mandiri (pakai catat_transfer_bank).
-Untuk pembelian supplier, refund customer, pembacaan struk/foto, atau laporan: katakan fitur itu belum aktif dan akan menyusul — jangan dipaksakan.
+3. BACA FOTO STRUK/NOTA — baca total, tanggal, dan keterangannya, lalu catat sebagai PENGELUARAN (alur sama: cari akun beban yang sesuai, tanya sumber kas bila belum jelas, lalu catat_pengeluaran).
+4. JAWAB pertanyaan ringkas — total pengeluaran periode (ringkas_pengeluaran) & saldo kas/bank (saldo_kas_bank). Cukup panggil tool lalu sampaikan hasilnya; tidak ada yang diposting.
+
+Untuk refund customer & pembelian barang dagangan/stok dari supplier (yang menambah stok): katakan itu dicatat manual di ERP, belum didukung lewat chat — jangan dipaksakan.
 
 Bedakan dengan jelas:
 - Uang keluar ke PIHAK LAIN / jadi biaya (bensin, gaji, listrik, ongkir, sewa, prive) → catat_pengeluaran.
 - Uang pindah ANTAR REKENING SENDIRI (tidak jadi biaya) → catat_transfer_bank.
+- Foto struk pengeluaran → baca lalu catat_pengeluaran. Bila struk jelas pembelian barang untuk stok dari supplier, sampaikan dicatat manual di ERP.
 
 ATURAN:
 - SELALU pakai tool cari_akun untuk menemukan id akun dari kata user. JANGAN mengarang id akun.
@@ -540,6 +624,34 @@ TXT;
                     'required' => ['dari_account_id', 'ke_account_id', 'nominal'],
                 ],
             ],
+            [
+                'name'        => 'ringkas_pengeluaran',
+                'description' => 'Hitung total pengeluaran (kas keluar yang sudah diposting) pada periode tertentu. '
+                    . 'Untuk menjawab pertanyaan seperti "pengeluaran hari ini/bulan ini berapa?".',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'periode' => [
+                            'type'        => 'string',
+                            'enum'        => ['hari_ini', 'kemarin', 'minggu_ini', 'bulan_ini', 'bulan_lalu'],
+                            'description' => 'Periode yang diminta. Default bulan_ini.',
+                        ],
+                    ],
+                    'required' => [],
+                ],
+            ],
+            [
+                'name'        => 'saldo_kas_bank',
+                'description' => 'Lihat saldo rekening kas/bank saat ini. Untuk pertanyaan seperti "saldo kas berapa?" '
+                    . 'atau "saldo BCA?". keyword opsional untuk memfilter rekening.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'keyword' => ['type' => 'string', 'description' => 'Filter nama rekening (opsional), mis. "bca". Kosong = semua.'],
+                    ],
+                    'required' => [],
+                ],
+            ],
         ];
     }
 
@@ -549,9 +661,12 @@ TXT;
             . "Ketik perintah biasa, mis:\n"
             . "• <i>catat pengeluaran bensin 50rb dari kas</i>\n"
             . "• <i>prive 200rb dari BCA</i>\n"
-            . "• <i>transfer 5jt dari BCA ke Mandiri</i>\n\n"
+            . "• <i>transfer 5jt dari BCA ke Mandiri</i>\n"
+            . "• <i>pengeluaran bulan ini berapa?</i> / <i>saldo BCA?</i>\n"
+            . "📷 atau kirim <b>foto struk</b> untuk dicatat otomatis.\n\n"
             . "Perintah: /batal (batalkan transaksi terakhir) · /baru (mulai ulang percakapan)\n\n"
-            . '<i>Saat ini mendukung pengeluaran, prive, & transfer antar bank. Pembelian supplier dan baca struk menyusul.</i>';
+            . '<i>Mendukung pengeluaran, prive, transfer antar bank, baca struk, & cek pengeluaran/saldo. '
+            . 'Pembelian supplier berstok dicatat manual di ERP.</i>';
     }
 
     // ───────────────────────── Util ─────────────────────────

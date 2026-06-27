@@ -34,14 +34,19 @@ class TelegramWebhookController extends Controller
 
         $message = $request->input('message') ?? $request->input('edited_message');
         $chatId  = data_get($message, 'chat.id');
-        $text    = trim((string) data_get($message, 'text', ''));
+        // Teks pesan, atau caption bila berupa foto.
+        $text    = trim((string) (data_get($message, 'text') ?? data_get($message, 'caption', '')));
+
+        // Foto struk (ambil ukuran terbesar = elemen terakhir array photo).
+        $photos      = data_get($message, 'photo', []);
+        $photoFileId = is_array($photos) && $photos ? data_get(end($photos), 'file_id') : null;
 
         if ($chatId && str_starts_with($text, '/start')) {
             // /start <token> → linking akun.
             $this->handleStart($telegram, (string) $chatId, $text);
         } elseif ($chatId) {
-            // Pesan lain → asisten pencatat keuangan (Fase 1: pengeluaran & prive).
-            $this->handleMessage($telegram, (string) $chatId, $text);
+            // Pesan lain (teks / foto struk) → asisten pencatat keuangan.
+            $this->handleMessage($telegram, (string) $chatId, $text, $photoFileId);
         }
 
         return response()->json(['ok' => true]);
@@ -51,7 +56,7 @@ class TelegramWebhookController extends Controller
      * Pesan masuk selain /start → diteruskan ke AiAccountantService.
      * Guard: hanya user ter-link & ber-role admin/owner yang boleh mencatat transaksi.
      */
-    private function handleMessage(TelegramNotifier $telegram, string $chatId, string $text): void
+    private function handleMessage(TelegramNotifier $telegram, string $chatId, string $text, ?string $photoFileId = null): void
     {
         $user = User::where('telegram_chat_id', $chatId)->first();
 
@@ -67,17 +72,20 @@ class TelegramWebhookController extends Controller
             return;
         }
 
-        if ($text === '') {
+        // Foto struk → unduh & teruskan ke AI (vision).
+        $image = $photoFileId ? $telegram->getFileBase64($photoFileId) : null;
+
+        if ($text === '' && ! $image) {
             $telegram->send($chatId,
-                'Kirim perintah teks ya, mis. <i>catat pengeluaran bensin 50rb dari kas</i>. '
-                . '(Baca struk menyusul.)');
+                'Kirim perintah teks (mis. <i>catat pengeluaran bensin 50rb dari kas</i>) '
+                . 'atau <b>foto struk</b> untuk dicatat otomatis.');
             return;
         }
 
         try {
             // Webhook tanpa sesi → login user utk request ini saja (created_by, dll. ikut benar).
             Auth::login($user);
-            $reply = app(AiAccountantService::class)->handle($user, $chatId, $text);
+            $reply = app(AiAccountantService::class)->handle($user, $chatId, $text, $image);
         } catch (\Throwable $e) {
             Log::warning('AiAccountant gagal: ' . $e->getMessage());
             $reply = '❌ Terjadi kesalahan: ' . $e->getMessage();
