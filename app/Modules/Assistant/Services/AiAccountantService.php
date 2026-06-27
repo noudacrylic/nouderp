@@ -120,7 +120,7 @@ class AiAccountantService
                 return '❌ AI error: ' . $resp['_error'];
             }
 
-            $content = $resp['content'] ?? [];
+            $content = $this->normalizeToolInputs($resp['content'] ?? []);
             $stop    = $resp['stop_reason'] ?? null;
 
             // Simpan giliran assistant (mentah, termasuk blok tool_use) ke riwayat.
@@ -846,6 +846,21 @@ TXT;
     }
 
     // ───────────────────────── Util ─────────────────────────
+
+    /**
+     * Pastikan setiap blok tool_use punya `input` berupa OBJEK saat dikirim ulang ke API.
+     * Respons API ter-decode jadi array asosiatif; `{}` (tool tanpa argumen) jadi `[]` (array
+     * kosong) yang akan di-encode sebagai array JSON → API menolak ("input should be an object").
+     */
+    private function normalizeToolInputs(array $content): array
+    {
+        foreach ($content as $i => $blk) {
+            if (($blk['type'] ?? '') === 'tool_use' && (! isset($blk['input']) || $blk['input'] === [])) {
+                $content[$i]['input'] = (object) [];
+            }
+        }
+        return $content;
+    }
 
     private function collectText(array $content): string
     {
