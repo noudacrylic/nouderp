@@ -880,6 +880,12 @@ TXT;
         return (string) (($setting?->model_text) ?: config('services.anthropic.model_text', 'claude-sonnet-4-6'));
     }
 
+    private function visionModel(): string
+    {
+        $setting = AnthropicSetting::current();
+        return (string) (($setting?->model_vision) ?: config('services.anthropic.model_vision', 'claude-opus-4-8'));
+    }
+
     private function threshold(): float
     {
         $setting = AnthropicSetting::current();
