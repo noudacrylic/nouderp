@@ -42,6 +42,11 @@ class IncomeStatementService
         return array_map('strval', $this->cfg()['nonoperating_expense_codes'] ?? []);
     }
 
+    public function contraRevenueExpenseCodes(): array
+    {
+        return array_map('strval', $this->cfg()['contra_revenue_expense_codes'] ?? []);
+    }
+
     /** Pendapatan operasional: kode diawali prefix & bukan override non-operasional. */
     public function isOperatingRevenue(object $a): bool
     {
@@ -59,10 +64,18 @@ class IncomeStatementService
         return in_array((string) $a->code, $this->nonopExpenseCodes(), true);
     }
 
-    /** Beban operasional: beban yang bukan HPP & bukan non-operasional. */
+    /** Beban yang menjadi pengurang Pendapatan (contra-revenue), bukan beban operasional. */
+    public function isContraRevenueExpense(object $a): bool
+    {
+        return in_array((string) $a->code, $this->contraRevenueExpenseCodes(), true);
+    }
+
+    /** Beban operasional: beban yang bukan HPP, bukan non-operasional, & bukan contra-revenue. */
     public function isOperatingExpense(object $a): bool
     {
-        return ! $this->isCogs($a) && ! $this->isNonopExpense($a);
+        return ! $this->isCogs($a)
+            && ! $this->isNonopExpense($a)
+            && ! $this->isContraRevenueExpense($a);
     }
 
     /**
@@ -81,7 +94,18 @@ class IncomeStatementService
         $nonopExpense = $exp->filter(fn ($a) => $this->isNonopExpense($a))->values();
         $opex         = $exp->filter(fn ($a) => $this->isOperatingExpense($a))->values();
 
-        $totalRevenue    = round($operatingRevenue->sum('balance'), 2);
+        // Contra-revenue (mis. fee admin marketplace): beban yang ditampilkan sebagai
+        // PENGURANG Pendapatan. Saldo di-negasikan agar tampil sebagai deduksi (kurung).
+        $contraRevenue = $exp->filter(fn ($a) => $this->isContraRevenueExpense($a))
+            ->map(function ($a) {
+                $c = clone $a;
+                $c->balance = round(-$a->balance, 2);
+                return $c;
+            })->values();
+
+        $grossRevenue    = round($operatingRevenue->sum('balance'), 2);
+        $totalContraRev  = round($contraRevenue->sum('balance'), 2); // sudah negatif
+        $totalRevenue    = round($grossRevenue + $totalContraRev, 2); // Jumlah Pendapatan (net)
         $totalCogs       = round($cogs->sum('balance'), 2);
         $grossProfit     = round($totalRevenue - $totalCogs, 2);
         $totalOpex       = round($opex->sum('balance'), 2);
@@ -92,7 +116,8 @@ class IncomeStatementService
         $netIncome       = round($operatingIncome + $nonopNet, 2);
 
         return compact(
-            'operatingRevenue', 'totalRevenue',
+            'operatingRevenue', 'grossRevenue',
+            'contraRevenue', 'totalContraRev', 'totalRevenue',
             'cogs', 'totalCogs', 'grossProfit',
             'opex', 'totalOpex', 'operatingIncome',
             'nonopIncome', 'totalNonopInc',

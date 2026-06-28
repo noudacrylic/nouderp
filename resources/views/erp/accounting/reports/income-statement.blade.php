@@ -43,6 +43,9 @@
             @empty
                 <tr><td colspan="3" class="px-3 py-3 text-center text-gray-400 text-xs italic">Belum ada pendapatan di periode ini</td></tr>
             @endforelse
+            @foreach($contraRevenue as $a)
+                @include('erp.accounting.reports._is_row', ['a' => $a])
+            @endforeach
             <tr class="border-b-2 border-gray-300 font-semibold">
                 <td colspan="2" class="px-3 py-2 text-right pl-8">Jumlah Pendapatan</td>
                 <td class="px-3 py-2 text-right tabular-nums">{{ $fmt($totalRevenue) }}</td>

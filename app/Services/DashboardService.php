@@ -86,6 +86,9 @@ class DashboardService
         $potensi = [];
         $penjualan = [];
 
+        // Fee admin marketplace = pengurang Penjualan (selaras Laba Rugi: contra-revenue).
+        $feeMap = $this->contraRevenueByBucket($start, $end, $mode);
+
         if ($mode === 'day') {
             $soMap  = (clone $soQ)->selectRaw('DATE(order_date) as d, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t')->groupBy('d')->pluck('t', 'd');
             $invMap = (clone $invQ)->selectRaw('DATE(invoice_date) as d, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t')->groupBy('d')->pluck('t', 'd');
@@ -94,7 +97,7 @@ class DashboardService
                 $key = $d->toDateString();
                 $labels[]    = $d->format($fmt);
                 $potensi[]   = round((float) ($soMap[$key] ?? 0));
-                $penjualan[] = round((float) ($invMap[$key] ?? 0));
+                $penjualan[] = round((float) ($invMap[$key] ?? 0) - (float) ($feeMap[$key] ?? 0));
             }
         } else { // month — pakai kunci Y-m agar aman lintas tahun
             $soMap  = (clone $soQ)->selectRaw("DATE_FORMAT(order_date, '%Y-%m') as ym, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t")->groupBy('ym')->pluck('t', 'ym');
@@ -104,7 +107,7 @@ class DashboardService
                 $key = $m->format('Y-m');
                 $labels[]    = self::MONTHS[$m->month] . ($crossYear ? " '" . $m->format('y') : '');
                 $potensi[]   = round((float) ($soMap[$key] ?? 0));
-                $penjualan[] = round((float) ($invMap[$key] ?? 0));
+                $penjualan[] = round((float) ($invMap[$key] ?? 0) - (float) ($feeMap[$key] ?? 0));
             }
         }
 
@@ -118,6 +121,31 @@ class DashboardService
             'rangeLabel'     => $start->isoFormat($start->year !== $end->year ? 'D MMM Y' : 'D MMM') . ' – ' . $end->isoFormat('D MMM Y'),
             'topProducts'    => $this->topProducts($start, $end),
         ];
+    }
+
+    /**
+     * Total fee admin marketplace (contra-revenue, kode di config/income_statement.php)
+     * per bucket waktu — dipakai mengurangi deret Penjualan grafik agar selaras Laba Rugi.
+     * Key: 'Y-m-d' saat $mode='day', 'Y-m' saat 'month'. Nilai = SUM(debit - credit).
+     */
+    private function contraRevenueByBucket(Carbon $start, Carbon $end, string $mode): \Illuminate\Support\Collection
+    {
+        $codes = $this->incomeStatement->contraRevenueExpenseCodes();
+        if (empty($codes)) {
+            return collect();
+        }
+
+        $expr = $mode === 'day' ? 'DATE(j.date)' : "DATE_FORMAT(j.date, '%Y-%m')";
+
+        return DB::table('journal_lines as jl')
+            ->join('journals as j', 'j.id', '=', 'jl.journal_id')
+            ->join('accounts as a', 'a.id', '=', 'jl.account_id')
+            ->where('j.status', 'posted')
+            ->whereIn('a.code', $codes)
+            ->whereBetween(DB::raw('DATE(j.date)'), [$start->toDateString(), $end->toDateString()])
+            ->selectRaw("$expr as k, SUM(jl.debit - jl.credit) as t")
+            ->groupBy('k')
+            ->pluck('t', 'k');
     }
 
     /**
