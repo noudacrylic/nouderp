@@ -18,7 +18,9 @@ class StorefrontSetting extends Model
 
     public static function singleton(): self
     {
-        return self::firstOrCreate(['id' => 1]);
+        // Lihat catatan di R2Setting::singleton — hindari firstOrCreate(['id'=>1]) yang rapuh
+        // saat auto-increment sudah lewat 1. Ambil baris pertama, atau buat bila belum ada.
+        return self::query()->oldest('id')->first() ?? self::create([]);
     }
 
     public static function current(): ?self

@@ -27,7 +27,11 @@ class R2Setting extends Model
 
     public static function singleton(): self
     {
-        return self::firstOrCreate(['id' => 1]);
+        // Ambil baris yang ada (singleton sebenarnya 1 baris). JANGAN firstOrCreate(['id'=>1]):
+        // 'id' bukan fillable → create mengabaikannya & pakai auto-increment, sehingga bila
+        // auto-increment sudah lewat 1 (mis. akibat insert ter-rollback), where id=1 tak pernah
+        // ketemu dan baris baru dibuat tiap simpan. Pakai first()-atau-create yang tahan id apa pun.
+        return self::query()->oldest('id')->first() ?? self::create([]);
     }
 
     public static function current(): ?self
