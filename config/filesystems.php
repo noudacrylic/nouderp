@@ -60,6 +60,10 @@ return [
             'report' => false,
         ],
 
+        // Cloudflare R2 (media etalase): kredensial DIPUSATKAN di Settings →
+        // Integrasi → Cloudflare R2 (DB, model R2Setting). StoreMediaService
+        // membangun disk-nya on-the-fly via Storage::build(), bukan dari sini.
+
     ],
 
     /*

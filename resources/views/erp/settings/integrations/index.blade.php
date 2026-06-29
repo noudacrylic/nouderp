@@ -1,14 +1,14 @@
 @extends('layouts.erp')
 
 @section('content')
-<div class="max-w-4xl mx-auto py-4">
+<div class="max-w-6xl mx-auto py-4">
 
     <div class="mb-5">
         <h1 class="text-lg font-semibold text-gray-800">Integrasi</h1>
         <p class="text-sm text-gray-500 mt-0.5">Aplikasi pihak ketiga yang terhubung dengan Noud ERP. Klik <b>Konfigurasi</b> untuk mengatur kredensial tiap layanan.</p>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         @foreach($integrations as $i)
             <a href="{{ $i['url'] }}"
                class="group bg-white rounded-lg shadow border border-gray-100 p-4 hover:shadow-md hover:border-blue-200 transition flex flex-col">

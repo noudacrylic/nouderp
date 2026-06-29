@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\AnthropicSetting;
 use App\Models\MidtransSetting;
+use App\Models\R2Setting;
 use App\Models\ShippingSetting;
+use App\Models\StorefrontSetting;
 use App\Models\TelegramSetting;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 
@@ -25,6 +27,8 @@ class IntegrationsController extends Controller
         $jubelio    = JubelioSetting::singleton();
         $telegram   = TelegramSetting::current();
         $anthropic  = AnthropicSetting::current();
+        $r2         = R2Setting::current();
+        $storefront = StorefrontSetting::current();
 
         $integrations = [
             [
@@ -80,6 +84,24 @@ class IntegrationsController extends Controller
                 'active'      => (bool) $anthropic?->isConfigured(),
                 'mode'        => $anthropic && $anthropic->is_active ? ($anthropic->model_text ?: 'Aktif') : 'Belum aktif',
                 'url'         => route('settings.anthropic.edit'),
+            ],
+            [
+                'name'        => 'Cloudflare R2',
+                'category'    => 'Penyimpanan Media',
+                'description' => 'Object storage untuk foto & video etalase (Produk Store) — disajikan cepat via CDN, hemat (egress gratis).',
+                'icon'        => '🗄️',
+                'active'      => (bool) $r2?->isConfigured(),
+                'mode'        => $r2 && $r2->is_active ? ($r2->bucket ?: 'Aktif') : 'Belum aktif',
+                'url'         => route('settings.r2.edit'),
+            ],
+            [
+                'name'        => 'Etalase Website',
+                'category'    => 'API / Storefront',
+                'description' => 'Kunci API jembatan untuk website toko (noudakrilik.com) membaca katalog, stok live, & promosi dari ERP.',
+                'icon'        => '🌐',
+                'active'      => (bool) $storefront?->isConfigured(),
+                'mode'        => $storefront && $storefront->is_active ? 'Aktif' : 'Belum aktif',
+                'url'         => route('settings.storefront.edit'),
             ],
         ];
 

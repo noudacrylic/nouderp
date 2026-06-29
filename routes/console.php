@@ -42,6 +42,10 @@ Schedule::command('jubelio:push-stock')->everyFiveMinutes()->name('jubelio-push-
 Schedule::command('jubelio:reconcile-stock')->everyTwoHours()->name('jubelio-reconcile-stock')->withoutOverlapping();
 // Jubelio harga — push perubahan harga tiap 15 menit (promo tetap diatur di Jubelio).
 Schedule::command('jubelio:push-prices')->everyFifteenMinutes()->name('jubelio-push-prices')->withoutOverlapping();
+// Store — garbage collector media: hapus file foto/video yang sudah di-soft-delete
+// & lewat masa jeda (config store.media_gc_days). Harian dini hari.
+Schedule::command('store:gc-media')->dailyAt('03:10')->name('store-gc-media')->withoutOverlapping();
+
 // Jubelio riwayat sinkron — buang log lebih lama dari 90 hari (jejak audit, bukan sumber kebenaran).
 Schedule::call(fn() => \App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog::where('created_at', '<', now()->subDays(90))->delete())
     ->dailyAt('02:30')->name('jubelio-prune-sync-logs');

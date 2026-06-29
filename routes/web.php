@@ -102,6 +102,16 @@ Route::prefix('erp')->group(function () {
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');
 
+        // Integrasi — Cloudflare R2 (penyimpanan media etalase / Produk Store)
+        Route::get ('/r2',      [\App\Http\Controllers\Settings\R2SettingController::class, 'edit'])->name('settings.r2.edit');
+        Route::post('/r2',      [\App\Http\Controllers\Settings\R2SettingController::class, 'update'])->name('settings.r2.update');
+        Route::post('/r2/test', [\App\Http\Controllers\Settings\R2SettingController::class, 'test'])->name('settings.r2.test');
+
+        // Integrasi — Etalase Website (kunci API jembatan /api/storefront/*)
+        Route::get ('/storefront',          [\App\Http\Controllers\Settings\StorefrontSettingController::class, 'edit'])->name('settings.storefront.edit');
+        Route::post('/storefront',          [\App\Http\Controllers\Settings\StorefrontSettingController::class, 'update'])->name('settings.storefront.update');
+        Route::post('/storefront/generate', [\App\Http\Controllers\Settings\StorefrontSettingController::class, 'generate'])->name('settings.storefront.generate');
+
         // Integrasi marketplace — Jubelio
         Route::get('/jubelio', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'edit'])->name('settings.jubelio.edit');
         Route::get('/jubelio/history', [\App\Http\Controllers\Settings\JubelioSyncLogController::class, 'index'])->name('settings.jubelio.history');
@@ -368,6 +378,37 @@ Route::prefix('erp/accounting')->group(function () {
         Route::get('/balance-sheet', [\App\Http\Controllers\Accounting\FinancialReportController::class, 'balanceSheet'])->name('balance-sheet');
         Route::get('/income-statement', [\App\Http\Controllers\Accounting\FinancialReportController::class, 'incomeStatement'])->name('income-statement');
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| STORE — etalase web (Produk Store + Kategori). Konten untuk noudakrilik.com.
+|--------------------------------------------------------------------------
+*/
+Route::prefix('erp/store')->group(function () {
+    // Kategori
+    Route::get('/categories',            [\App\Http\Controllers\Store\StoreCategoryController::class, 'index'])->name('store.categories.index');
+    Route::get('/categories/create',     [\App\Http\Controllers\Store\StoreCategoryController::class, 'create'])->name('store.categories.create');
+    Route::post('/categories',           [\App\Http\Controllers\Store\StoreCategoryController::class, 'store'])->name('store.categories.store');
+    Route::get('/categories/{id}/edit',  [\App\Http\Controllers\Store\StoreCategoryController::class, 'edit'])->name('store.categories.edit');
+    Route::put('/categories/{id}',       [\App\Http\Controllers\Store\StoreCategoryController::class, 'update'])->name('store.categories.update');
+    Route::delete('/categories/{id}',    [\App\Http\Controllers\Store\StoreCategoryController::class, 'destroy'])->name('store.categories.destroy');
+
+    // Produk Store
+    Route::get('/products',              [\App\Http\Controllers\Store\StoreProductController::class, 'index'])->name('store.products.index');
+    Route::get('/products/create',       [\App\Http\Controllers\Store\StoreProductController::class, 'create'])->name('store.products.create');
+    Route::post('/products',             [\App\Http\Controllers\Store\StoreProductController::class, 'store'])->name('store.products.store');
+    Route::get('/products/{id}/edit',    [\App\Http\Controllers\Store\StoreProductController::class, 'edit'])->name('store.products.edit');
+    Route::put('/products/{id}',         [\App\Http\Controllers\Store\StoreProductController::class, 'update'])->name('store.products.update');
+    Route::delete('/products/{id}',      [\App\Http\Controllers\Store\StoreProductController::class, 'destroy'])->name('store.products.destroy');
+
+    // Galeri media Produk Store (foto/video) — endpoint JSON, dikelola di halaman edit.
+    Route::post('/products/{id}/media',                   [\App\Http\Controllers\Store\StoreProductMediaController::class, 'storeImages'])->name('store.products.media.store');
+    Route::post('/products/{id}/media/video',             [\App\Http\Controllers\Store\StoreProductMediaController::class, 'storeVideo'])->name('store.products.media.video');
+    Route::post('/products/{id}/media/youtube',           [\App\Http\Controllers\Store\StoreProductMediaController::class, 'storeYoutube'])->name('store.products.media.youtube');
+    Route::put('/products/{id}/media/reorder',            [\App\Http\Controllers\Store\StoreProductMediaController::class, 'reorder'])->name('store.products.media.reorder');
+    Route::put('/products/{id}/media/{mediaId}/primary',  [\App\Http\Controllers\Store\StoreProductMediaController::class, 'setPrimary'])->name('store.products.media.primary');
+    Route::delete('/products/{id}/media/{mediaId}',       [\App\Http\Controllers\Store\StoreProductMediaController::class, 'destroy'])->name('store.products.media.destroy');
 });
 
 Route::prefix('erp/inventory')->group(function () {

@@ -936,6 +936,13 @@
                 </a>
                 @endif
 
+                {{-- ================= STORE ================= --}}
+                @if(should_show_menu_group('store'))
+                <a href="{{ module_landing_url('store') }}" class="menu-single {{ request()->is('erp/store/*') ? 'active' : '' }}" data-tip="Store">
+                    <span class="menu-icon" style="font-size:20px;display:flex;align-items:center;justify-content:center;">🏪</span><span class="menu-label">&nbsp;Store</span>
+                </a>
+                @endif
+
                 {{-- ================= PURCHASING ================= --}}
                 @if(should_show_menu_group('purchasing'))
                 <a href="{{ module_landing_url('purchasing') }}" class="menu-single {{ request()->is('erp/purchasing/*') ? 'active' : '' }}" data-tip="Purchasing">

@@ -1,0 +1,99 @@
+<?php
+
+namespace App\Http\Controllers\Store;
+
+use App\Http\Controllers\Controller;
+use App\Models\StoreProduct;
+use App\Models\StoreProductMedia;
+use App\Services\Store\StoreMediaService;
+use Illuminate\Http\Request;
+
+class StoreProductMediaController extends Controller
+{
+    public function __construct(private StoreMediaService $media) {}
+
+    /** Upload satu/lebih foto. */
+    public function storeImages(Request $request, $id)
+    {
+        $product = StoreProduct::findOrFail($id);
+
+        $request->validate([
+            'images'   => ['required', 'array', 'min:1'],
+            'images.*' => ['file', 'mimes:' . implode(',', config('store.image_mimes')),
+                           'max:' . config('store.image_max_kb')],
+        ]);
+
+        $created = [];
+        foreach ($request->file('images') as $file) {
+            $created[] = $this->present($this->media->uploadImage($product, $file));
+        }
+
+        return response()->json(['ok' => true, 'media' => $created]);
+    }
+
+    /** Upload satu video (file). */
+    public function storeVideo(Request $request, $id)
+    {
+        $product = StoreProduct::findOrFail($id);
+
+        $request->validate([
+            'video' => ['required', 'file', 'mimes:' . implode(',', config('store.video_mimes')),
+                        'max:' . config('store.video_max_kb')],
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'media' => $this->present($this->media->uploadVideo($product, $request->file('video'))),
+        ]);
+    }
+
+    /** Tambah video YouTube (link). */
+    public function storeYoutube(Request $request, $id)
+    {
+        $product = StoreProduct::findOrFail($id);
+
+        $data = $request->validate([
+            'url' => ['required', 'string', 'url', 'max:255'],
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'media' => $this->present($this->media->addYoutube($product, $data['url'])),
+        ]);
+    }
+
+    public function reorder(Request $request, $id)
+    {
+        $product = StoreProduct::findOrFail($id);
+        $data = $request->validate(['order' => ['required', 'array'], 'order.*' => ['integer']]);
+        $this->media->reorder($product, $data['order']);
+        return response()->json(['ok' => true]);
+    }
+
+    public function setPrimary(Request $request, $id, $mediaId)
+    {
+        $product = StoreProduct::findOrFail($id);
+        $this->media->setPrimary($product, (int) $mediaId);
+        return response()->json(['ok' => true]);
+    }
+
+    public function destroy($id, $mediaId)
+    {
+        $product = StoreProduct::findOrFail($id);
+        $media = StoreProductMedia::where('store_product_id', $product->id)->findOrFail($mediaId);
+        $this->media->delete($media);
+        return response()->json(['ok' => true]);
+    }
+
+    private function present(StoreProductMedia $m): array
+    {
+        return [
+            'id'         => $m->id,
+            'kind'       => $m->kind,
+            'source'     => $m->source,
+            'url'        => $m->url,
+            'is_primary' => (bool) $m->is_primary,
+            'sort_order' => $m->sort_order,
+        ];
+    }
+}
