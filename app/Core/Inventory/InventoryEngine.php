@@ -124,8 +124,24 @@ class InventoryEngine
                 ]
             );
 
+            $this->syncProductStockColumn($productId);
+
             return $balance;
         });
+    }
+
+    /**
+     * Sinkronkan kolom cache lama `products.stock` = total on-hand semua gudang
+     * (SUM product_stocks.qty_on_hand). Kolom ini denormalisasi; sumber kebenaran
+     * tetap ledger/product_stocks. Dipanggil tiap kali qty_on_hand berubah agar
+     * kolom tak pernah drift lagi (dulu hanya ditulis Stock Opname → sering basi).
+     * Pakai query builder langsung (bukan Eloquent) agar tak memicu observer
+     * maupun bump products.updated_at yang bisa menandai jubelio_sync_pending.
+     */
+    private function syncProductStockColumn(int $productId): void
+    {
+        $total = (float) ProductStock::where('product_id', $productId)->sum('qty_on_hand');
+        DB::table('products')->where('id', $productId)->update(['stock' => $total]);
     }
 
     /*
@@ -201,6 +217,8 @@ class InventoryEngine
             ['product_id' => $productId, 'warehouse_id' => $warehouseId],
             ['qty_on_hand' => $running]
         );
+
+        $this->syncProductStockColumn($productId);
 
         return $running;
     }
