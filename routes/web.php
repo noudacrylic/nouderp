@@ -408,6 +408,7 @@ Route::prefix('erp/store')->group(function () {
     Route::post('/products/{id}/media/youtube',           [\App\Http\Controllers\Store\StoreProductMediaController::class, 'storeYoutube'])->name('store.products.media.youtube');
     Route::put('/products/{id}/media/reorder',            [\App\Http\Controllers\Store\StoreProductMediaController::class, 'reorder'])->name('store.products.media.reorder');
     Route::put('/products/{id}/media/{mediaId}/primary',  [\App\Http\Controllers\Store\StoreProductMediaController::class, 'setPrimary'])->name('store.products.media.primary');
+    Route::put('/products/{id}/media/{mediaId}/alt',      [\App\Http\Controllers\Store\StoreProductMediaController::class, 'updateAlt'])->name('store.products.media.alt');
     Route::delete('/products/{id}/media/{mediaId}',       [\App\Http\Controllers\Store\StoreProductMediaController::class, 'destroy'])->name('store.products.media.destroy');
 });
 

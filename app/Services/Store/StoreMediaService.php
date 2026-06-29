@@ -153,10 +153,16 @@ class StoreMediaService
     private function store(StoreProduct $product, UploadedFile $file): string
     {
         $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension());
-        $name = Str::uuid()->toString() . ($ext ? ".$ext" : '');
+
+        // Nama file SEO-friendly: slug produk (kata kunci) + akhiran pendek unik.
+        // Tetap unik (versioned) supaya ganti foto = URL baru → tak perlu purge CDN.
+        $base = Str::slug($product->slug ?: $product->name ?: 'foto') ?: 'foto';
+        $suffix = strtolower(Str::random(6));
+        $name = "{$base}-{$suffix}" . ($ext ? ".$ext" : '');
+
         $dir = trim(config('store.media_path', 'store/products'), '/') . '/' . $product->id;
 
-        // putFileAs → simpan dengan nama unik (versioned), visibility public.
+        // putFileAs → simpan dengan nama tsb, visibility public.
         return $this->fs()->putFileAs($dir, $file, $name, 'public');
     }
 

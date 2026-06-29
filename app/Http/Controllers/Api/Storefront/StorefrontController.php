@@ -191,6 +191,7 @@ class StorefrontController extends Controller
                 'kind'       => $m->kind,
                 'source'     => $m->source,
                 'url'        => $m->url,
+                'alt'        => $m->alt_text,
                 'is_primary' => (bool) $m->is_primary,
                 'sort_order' => $m->sort_order,
             ])->values(),

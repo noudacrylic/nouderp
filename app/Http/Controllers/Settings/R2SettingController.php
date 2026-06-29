@@ -40,7 +40,7 @@ class R2SettingController extends Controller
             'access_key_id'  => $data['access_key_id'] ?: null,
             'bucket'         => $data['bucket'] ?: null,
             'endpoint'       => $data['endpoint'] ?: null,
-            'public_url'     => $data['public_url'] ? rtrim($data['public_url'], '/') : null,
+            'public_url'     => $this->normalizeUrl($data['public_url'] ?? null),
             'region'         => $data['region'] ?: 'auto',
             'use_path_style' => (bool) ($data['use_path_style'] ?? false),
         ]);
@@ -52,6 +52,17 @@ class R2SettingController extends Controller
 
         return redirect()->route('settings.r2.edit')
             ->with('success', 'Pengaturan Cloudflare R2 disimpan.');
+    }
+
+    /** Pastikan URL publik punya skema https:// supaya <img src> tidak jadi path relatif. */
+    private function normalizeUrl(?string $url): ?string
+    {
+        $url = trim((string) $url);
+        if ($url === '') return null;
+        if (!preg_match('#^https?://#i', $url)) {
+            $url = 'https://' . $url;
+        }
+        return rtrim($url, '/');
     }
 
     /** Uji koneksi: tulis + baca + hapus file kecil. */

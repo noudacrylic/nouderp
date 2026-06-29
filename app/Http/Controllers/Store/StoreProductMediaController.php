@@ -85,6 +85,16 @@ class StoreProductMediaController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /** Simpan alt text (kata kunci SEO) sebuah media. */
+    public function updateAlt(Request $request, $id, $mediaId)
+    {
+        $product = StoreProduct::findOrFail($id);
+        $media = StoreProductMedia::where('store_product_id', $product->id)->findOrFail($mediaId);
+        $data = $request->validate(['alt_text' => 'nullable|string|max:255']);
+        $media->update(['alt_text' => $data['alt_text'] ?? null]);
+        return response()->json(['ok' => true]);
+    }
+
     private function present(StoreProductMedia $m): array
     {
         return [
@@ -92,6 +102,7 @@ class StoreProductMediaController extends Controller
             'kind'       => $m->kind,
             'source'     => $m->source,
             'url'        => $m->url,
+            'alt_text'   => $m->alt_text,
             'is_primary' => (bool) $m->is_primary,
             'sort_order' => $m->sort_order,
         ];

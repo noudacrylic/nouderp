@@ -2,7 +2,7 @@
 <div class="bg-white rounded shadow p-4 mt-6 max-w-5xl"
      x-data="storeMediaGallery({{ $product->id }}, {{ Js::from($product->media->map(fn($m) => [
         'id' => $m->id, 'kind' => $m->kind, 'source' => $m->source,
-        'url' => $m->url, 'is_primary' => (bool) $m->is_primary, 'sort_order' => $m->sort_order,
+        'url' => $m->url, 'alt_text' => $m->alt_text, 'is_primary' => (bool) $m->is_primary, 'sort_order' => $m->sort_order,
      ])->values()) }})">
 
     <h2 class="text-sm font-semibold text-gray-700 border-b pb-2 mb-3">Galeri Foto &amp; Video</h2>
@@ -58,6 +58,13 @@
                           x-text="m.source === 'youtube' ? 'YouTube' : 'Video'"></span>
                 </div>
 
+                {{-- Alt text (kata kunci SEO) --}}
+                <div class="px-1.5 pt-1.5">
+                    <input type="text" x-model="m.alt_text" @change="saveAlt(m)"
+                           placeholder="Alt / kata kunci SEO"
+                           class="border rounded px-1.5 py-1 w-full text-[11px]" title="Deskripsi gambar untuk SEO & aksesibilitas">
+                </div>
+
                 {{-- Aksi --}}
                 <div class="p-1.5 flex items-center justify-between gap-1 text-[11px]">
                     <div class="flex gap-1">
@@ -106,6 +113,10 @@ function storeMediaGallery(productId, initial) {
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.message || 'Gagal'); }
             return r.json();
+        },
+        async saveAlt(m) {
+            try { await this.send(`${base}/${m.id}/alt`, 'PUT', { alt_text: m.alt_text || '' }); }
+            catch (err) { this.error = err.message; }
         },
         async uploadImages(e) {
             const files = e.target.files; if (!files.length) return;
