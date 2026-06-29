@@ -7,6 +7,43 @@ route/view/console tidak perlu clear cache manual.)
 
 ---
 
+## Rilis 2026-06-29 — Modul Store (Produk Store + Media R2 + API Etalase)
+
+Fondasi website toko (noudakrilik.com): menu **Store** (Kategori + Produk Store dengan varian),
+galeri media via **Cloudflare R2**, dan **API jembatan** `/api/storefront/*`.
+
+### 1. Dependency baru — WAJIB `composer install`
+Driver S3 `league/flysystem-aws-s3-v3` ditambahkan (dipakai R2). `deploy/deploy.sh` **sudah**
+menjalankan `composer install --no-dev` (step 4) + `migrate` (step 5), jadi cukup deploy normal:
+
+```bash
+cd /var/www/noud-erp && ./deploy/deploy.sh
+```
+
+Bila deploy MANUAL (tanpa skrip), jangan lupa keduanya:
+```bash
+git pull --ff-only
+composer install --no-dev --optimize-autoloader   # WAJIB — tanpa ini disk R2 error "class not found"
+php artisan migrate --force                        # tabel store_*, r2_settings, storefront_settings, dst
+php artisan optimize:clear && php artisan optimize
+```
+
+### 2. Konfigurasi Cloudflare R2 — sekali, lewat UI (bukan .env)
+Settings → Integrasi → **Cloudflare R2**: isi Access Key ID + Secret (dari bagian *"S3 clients"*
+di halaman R2 API Token, BUKAN "Token value" `cfat_...`), Bucket, Endpoint S3 (tanpa nama bucket),
+URL Publik (`https://galeri.noudakrilik.com`), Region `auto`, Path-style ✓ → Aktifkan → Simpan →
+**Uji Koneksi**. Saat R2 nonaktif, media jatuh ke disk lokal `public` (butuh `php artisan storage:link`).
+
+### 3. Kunci API etalase — sekali, lewat UI
+Settings → Integrasi → **Etalase Website**: Simpan (kunci dibuat otomatis) → Aktifkan. Kunci ini
+dipakai server etalase (VPS/Cloudflare) untuk memanggil `/api/storefront/*`.
+
+### 4. Scheduler (sudah ada cron `schedule:run`)
+Job baru `store:gc-media` (harian 03:10) membersihkan file media yang sudah dihapus & lewat masa
+jeda. Tidak ada langkah manual selama cron `* * * * * php artisan schedule:run` aktif.
+
+---
+
 ## Rilis 2026-06-17
 
 Tiga perubahan: (a) fix race-condition siklus di form Order Produksi, (b) Edit Finalisasi
