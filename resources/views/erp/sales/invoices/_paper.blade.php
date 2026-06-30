@@ -1,5 +1,6 @@
 @php
-    $subtotal       = (float) ($invoice->subtotal ?? 0);
+    // Subtotal = jumlah kolom Total per item (sudah net diskon item), sama seperti tampilan di view/form.
+    $subtotal       = (float) $invoice->items->sum(fn($it) => (float) ($it->subtotal ?? $it->line_total ?? ($it->qty * $it->unit_price - (float) ($it->discount_amount ?? $it->line_discount ?? 0))));
     $globalDiscount = (float) ($invoice->global_discount_amount ?? 0);
     $ppnPercent     = (float) ($invoice->ppn_percent ?? 0);
     $ppn            = (float) ($invoice->ppn_amount ?? 0);
@@ -43,11 +44,16 @@
 ])
 
 {{-- Recipient --}}
+@php
+    $cust = $invoice->customer;
+    // Alamat lengkap gaya alamat pengiriman (jalan + wilayah + kode pos).
+    $custAddress = $cust ? $cust->fullAddress() : '';
+@endphp
 <div class="recipient-block">
     <div class="lbl">Kepada</div>
-    <div class="name">{{ $invoice->customer->name ?? '-' }}</div>
-    @if(!empty($invoice->customer?->address))
-        <div class="addr">{{ $invoice->customer->address }}</div>
+    <div class="name">{{ $cust->name ?? '-' }}</div>
+    @if($custAddress !== '')
+        <div class="addr">{{ $custAddress }}</div>
     @endif
 </div>
 

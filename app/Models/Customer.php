@@ -66,4 +66,20 @@ class Customer extends Model
     {
         return $this->overpayments_sum_amount ?? 0;
     }
+
+    /**
+     * Alamat lengkap gaya alamat pengiriman: jalan + kelurahan/kecamatan + kota + provinsi + kode pos.
+     * Komposisinya identik dengan kartu Pengiriman di form (CustomerController::shippingPayload):
+     * jalan dari `shipping_address` (fallback `address`), lalu district, city, province, postal_code.
+     * Dipakai di nota cetak (Penawaran/Pesanan/Faktur) supaya formatnya seragam.
+     */
+    public function fullAddress(): string
+    {
+        $street = trim((string) ($this->shipping_address ?: $this->address ?: ''));
+
+        return collect([$street, $this->district, $this->city, $this->province, $this->postal_code])
+            ->map(fn ($v) => trim((string) $v))
+            ->filter()
+            ->implode(', ');
+    }
 }

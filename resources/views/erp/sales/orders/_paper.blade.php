@@ -1,7 +1,8 @@
 {{-- Satu halaman cetak Pesanan Penjualan. Param: $order, $profile.
      Dipakai oleh print.blade.php (tunggal) & print-bulk.blade.php (gabungan). --}}
 @php
-    $subtotal       = (float) ($order->subtotal ?? $order->items->sum('line_total'));
+    // Subtotal = jumlah Total per item (sudah net diskon item), sama seperti tampilan di view/form.
+    $subtotal       = (float) $order->items->sum('line_total');
     $globalDiscount = (float) ($order->global_discount_amount ?? 0);
     $ppnPercent     = (float) ($order->ppn_percent ?? 0);
     $ppn            = (float) ($order->ppn_amount ?? 0);
@@ -38,11 +39,16 @@
 ])
 
 {{-- Recipient --}}
+@php
+    $cust = $order->customer;
+    // Alamat lengkap gaya alamat pengiriman (jalan + wilayah + kode pos).
+    $custAddress = $cust ? $cust->fullAddress() : '';
+@endphp
 <div class="recipient-block">
     <div class="lbl">Kepada</div>
-    <div class="name">{{ $order->customer->name ?? '-' }}</div>
-    @if(!empty($order->customer?->address))
-        <div class="addr">{{ $order->customer->address }}</div>
+    <div class="name">{{ $cust->name ?? '-' }}</div>
+    @if($custAddress !== '')
+        <div class="addr">{{ $custAddress }}</div>
     @endif
 </div>
 

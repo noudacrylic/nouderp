@@ -12,6 +12,7 @@
     .recipient-block .addr {
         color: #475569; white-space: pre-line;
         font-size: 12px; margin-top: 8px;
+        max-width: 50%; overflow-wrap: break-word;
     }
 
     /* === Items table — quotation style === */

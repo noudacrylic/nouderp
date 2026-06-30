@@ -85,7 +85,8 @@
         .doc-head td { vertical-align: top; padding: 0; }
         .doc-head .recipient .label { color: #475569; font-weight: 500; }
         .doc-head .recipient .name { font-weight: 700; font-size: 13px; }
-        .doc-head .recipient .addr { color: #475569; white-space: pre-line; }
+        /* max-width ≈ 50% lebar halaman A4 (recipient ada di sel 62%, jadi pakai px agar setara nota lain) */
+        .doc-head .recipient .addr { color: #475569; white-space: pre-line; overflow-wrap: break-word; max-width: 340px; }
         .doc-head table.meta { border-collapse: collapse; display: inline-table; text-align: left; }
         .doc-head table.meta td { padding: 2px 0; vertical-align: top; font-size: 12px; }
         .doc-head table.meta td.label { width: 80px; color: #475569; }
@@ -316,7 +317,8 @@
     $tglFormatted = $d->day . ' ' . $bulan[(int)$d->month] . ' ' . $d->year;
 
     // Hitung breakdown summary — sama dgn show view.
-    $subtotal = $quotation->items->sum(fn($it) => (float) $it->subtotal);
+    // Subtotal = jumlah kolom Total per item (sudah net diskon item), seragam dgn nota SO & Faktur.
+    $subtotal = $quotation->items->sum(fn($it) => (float) $it->line_total);
     $discountGlobal = (float) ($quotation->discount_global ?? 0);
     $dpp = max(0, $subtotal - $discountGlobal);
     $ppn = $dpp * (((float) ($quotation->ppn_percent ?? 0)) / 100);
@@ -354,11 +356,16 @@
 <table class="doc-head">
     <tr>
         <td style="width:62%; padding-right:18px;">
+            @php
+                $cust = $quotation->customer;
+                // Alamat lengkap gaya alamat pengiriman (jalan + wilayah + kode pos).
+                $custAddress = $cust ? $cust->fullAddress() : '';
+            @endphp
             <div class="recipient">
                 <div class="label">Kepada Yth.</div>
-                <div class="name">{{ $quotation->customer->name ?? '-' }}</div>
-                @if(!empty($quotation->customer?->address))
-                    <div class="addr">{{ $quotation->customer->address }}</div>
+                <div class="name">{{ $cust->name ?? '-' }}</div>
+                @if($custAddress !== '')
+                    <div class="addr">{{ $custAddress }}</div>
                 @endif
             </div>
         </td>
