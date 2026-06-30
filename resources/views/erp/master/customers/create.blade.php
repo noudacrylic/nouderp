@@ -65,13 +65,15 @@
             <div class="col-span-2">
 
                 <label class="block text-sm mb-1">
-                    Address
+                    Alamat (umum / penagihan)
                 </label>
 
                 <textarea name="address" rows="3" class="border rounded px-3 py-2 w-full"
-                    placeholder="Alamat lengkap customer"></textarea>
+                    placeholder="Alamat umum / penagihan customer">{{ old('address') }}</textarea>
 
             </div>
+
+            @include('erp.master.customers._shipping_fields', ['customer' => null])
 
         </div>
 

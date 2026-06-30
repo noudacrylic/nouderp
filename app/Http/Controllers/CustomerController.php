@@ -87,17 +87,47 @@ class CustomerController extends Controller
 
     public function store(Request $request)
     {
-        Customer::create([
-            'code' => 'CUST-' . time(),
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'address' => $request->address,
-            'customer_type' => $request->customer_type ?? 'regular',
-            'is_active' => true
-        ]);
+        $data = $this->customerFormData($request);
+        $data['code'] = 'CUST-' . time();
+        $data['customer_type'] = $request->customer_type ?? 'regular';
+        $data['is_active'] = true;
+
+        Customer::create($data);
 
         return redirect(list_url('customers.index'));
+    }
+
+    /**
+     * Data dari form master Customer (create/edit), termasuk alamat pengiriman
+     * (kolom yang sama dengan popup "Edit/Tambah Alamat" di SO/Invoice).
+     */
+    private function customerFormData(Request $request): array
+    {
+        $data = $request->validate([
+            'name'               => 'required|string|max:255',
+            'email'              => 'nullable|email|max:255',
+            'phone'              => 'nullable|string|max:30',
+            'address'            => 'nullable|string|max:2000',
+            'customer_type'      => 'nullable|string|max:50',
+            // Alamat pengiriman
+            'recipient_phone'    => 'nullable|string|max:30',
+            'shipping_address'   => 'nullable|string|max:2000',
+            'province'           => 'nullable|string|max:100',
+            'city'               => 'nullable|string|max:100',
+            'district'           => 'nullable|string|max:100',
+            'postal_code'        => 'nullable|string|max:10',
+            'biteship_area_id'   => 'nullable|string|max:100',
+            'kiriminaja_area_id' => 'nullable|string|max:100',
+            'location_point'     => 'nullable|string|max:500',
+        ]);
+
+        // Titik lokasi (link Google Maps atau "lat,long") → latitude/longitude.
+        $point = parse_lat_long($data['location_point'] ?? null);
+        unset($data['location_point']);
+        $data['latitude']  = $point['latitude'];
+        $data['longitude'] = $point['longitude'];
+
+        return $data;
     }
 
     public function edit($id)
@@ -111,13 +141,7 @@ class CustomerController extends Controller
     {
         $customer = Customer::findOrFail($id);
 
-        $customer->update([
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'address' => $request->address,
-            'customer_type' => $request->customer_type
-        ]);
+        $customer->update($this->customerFormData($request));
 
         return redirect(list_url('customers.index'));
     }

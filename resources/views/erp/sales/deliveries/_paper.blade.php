@@ -15,11 +15,16 @@
 ])
 
 {{-- Recipient --}}
+@php
+    $cust = $delivery->order->customer ?? null;
+    // Alamat lengkap gaya alamat pengiriman (jalan + wilayah + kode pos).
+    $custAddress = $cust ? $cust->fullAddress() : '';
+@endphp
 <div class="recipient-block">
     <div class="lbl">Kepada</div>
-    <div class="name">{{ $delivery->order->customer->name ?? '-' }}</div>
-    @if(!empty($delivery->order->customer->address ?? null))
-        <div class="addr">{{ $delivery->order->customer->address }}</div>
+    <div class="name">{{ $cust->name ?? '-' }}</div>
+    @if($custAddress !== '')
+        <div class="addr">{{ $custAddress }}</div>
     @endif
 </div>
 
