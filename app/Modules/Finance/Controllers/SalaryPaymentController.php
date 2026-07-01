@@ -190,7 +190,11 @@ class SalaryPaymentController extends Controller
 
     /**
      * AJAX: hitung breakdown gaji + potongan untuk karyawan+periode tertentu.
-     * Mengambil data dari Summary Absensi (controller dashboard) — direkonstruksi singkat di sini.
+     *
+     * UTAMAKAN angka dari Slip Gaji yang sudah dibuat/diteliti manual — supaya form
+     * Bayar Gaji == slip (tidak ada perhitungan otomatis yang berbeda). Perhitungan
+     * live dari absensi (SummaryPreviewService, approximation) HANYA dipakai sebagai
+     * cadangan kalau slip belum ada.
      */
     public function preview(Request $request)
     {
@@ -200,6 +204,17 @@ class SalaryPaymentController extends Controller
             'periode_tahun' => 'required|integer|min:2020|max:2100',
         ]);
 
+        $periode = \App\Modules\SDM\Models\PeriodePenggajian::where('bulan', (int) $data['periode_bulan'])
+            ->where('tahun', (int) $data['periode_tahun'])->first();
+        $slip = $periode
+            ? \App\Modules\SDM\Models\SlipGaji::where('periode_id', $periode->id)
+                ->where('karyawan_id', (int) $data['karyawan_id'])->first()
+            : null;
+
+        if ($slip) {
+            return response()->json($this->previewFromSlip($slip));
+        }
+
         return response()->json(
             \App\Modules\SDM\Services\SummaryPreviewService::buildPayrollPreview(
                 (int) $data['karyawan_id'],
@@ -207,6 +222,35 @@ class SalaryPaymentController extends Controller
                 (int) $data['periode_tahun'],
             )
         );
+    }
+
+    /**
+     * Susun payload preview LANGSUNG dari Slip Gaji (sumber tunggal yang sama dgn
+     * slip cetak). Konsisten dgn bulkFromSlips()/quickPay(): bruto = subtotal +
+     * komponen earning, potongan karyawan dari slip, nett = total_gaji.
+     */
+    protected function previewFromSlip(\App\Modules\SDM\Models\SlipGaji $slip): array
+    {
+        $bruto = (float) $slip->subtotal + (float) $slip->total_komponen_earning;
+
+        return [
+            'source'            => 'slip',
+            'hari_kerja'        => (int) $slip->hari_kerja_periode,
+            'gaji_per_hari'     => (float) $slip->gaji_per_hari,
+            'total_gaji_pokok'  => (float) $slip->gaji_pokok_dibayar,
+            'total_lembur'      => (float) $slip->lembur_amount,
+            'total_kolom'       => (float) $slip->tunjangan_harian_amount,
+            'summary_plus'      => (float) $slip->tunjangan_bulanan_amount,
+            'summary_minus'     => 0,
+            'bruto_gaji'        => round($bruto, 2),
+            'bpjs_kes_employee' => (float) $slip->bpjs_kesehatan_amount,
+            'bpjs_kes_company'  => 0,
+            'bpjs_tk_employee'  => (float) $slip->bpjs_tk_amount,
+            'bpjs_tk_company'   => 0,
+            'pph21_amount'      => (float) $slip->pph21_amount,
+            'kasbon_potongan'   => (float) $slip->kasbon_payment,
+            'nett_dibayar'      => (float) $slip->total_gaji,
+        ];
     }
 
     protected function formData(): array
