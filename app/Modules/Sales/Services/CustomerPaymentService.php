@@ -169,12 +169,47 @@ class CustomerPaymentService
         return round($total, 2);
     }
 
+    /**
+     * Bangun label dokumen untuk keterangan jurnal:
+     * - Pelunasan (invoice) -> nomor Invoice
+     * - Uang Muka (advance)  -> nomor Sales Order
+     * Nomor payment tetap tersimpan sebagai reference_number (kolom REF di ledger),
+     * jadi keterangan cukup menampilkan dokumen sumber agar mudah di-tracking.
+     */
+    public function documentReference(CustomerPayment $payment, array $invoiceIds, array $soIds): string
+    {
+        // Pelunasan -> Invoice
+        if ($payment->payment_type === 'invoice' && !empty($invoiceIds)) {
+            $numbers = SalesInvoice::whereIn('id', $invoiceIds)->pluck('invoice_number')->filter()->all();
+            if (!empty($numbers)) return implode(', ', $numbers);
+        }
+
+        // Uang Muka -> Sales Order
+        if (!empty($soIds)) {
+            $numbers = \App\Modules\Sales\Models\SalesOrder::whereIn('id', $soIds)->pluck('order_number')->filter()->all();
+            if (!empty($numbers)) return implode(', ', $numbers);
+        }
+
+        // Fallback: masih ada invoice walau tipe berbeda (mis. billing multi-invoice)
+        if (!empty($invoiceIds)) {
+            $numbers = SalesInvoice::whereIn('id', $invoiceIds)->pluck('invoice_number')->filter()->all();
+            if (!empty($numbers)) return implode(', ', $numbers);
+        }
+
+        // Fallback terakhir: nomor payment
+        return $payment->payment_number;
+    }
+
     protected function postJournal(CustomerPayment $payment, float $total, float $saldoUsed, float $overpay, array $invoiceIds, array $soIds, array $billingIds)
     {
         $arAccountId = DB::table('accounts')->where('code', '1120')->value('id'); // Piutang
         $advanceAccountId = DB::table('accounts')->where('code', '2105')->value('id'); // Uang Muka Customer
         $overpayAccountId = DB::table('accounts')->where('code', '2106')->value('id'); // Kelebihan Bayar Customer
-        
+
+        // Label dokumen sumber (Invoice utk pelunasan, SO utk uang muka)
+        $docRef = $this->documentReference($payment, $invoiceIds, $soIds);
+        $typeLabel = $payment->payment_type === 'invoice' ? 'Pelunasan' : 'Uang Muka';
+
         $totalToAllocate = round($payment->amount + $saldoUsed, 2);
         $journalLines = [];
 
@@ -189,7 +224,7 @@ class CustomerPaymentService
                     account_id: $payment->cash_account_id,
                     debit: $netAmount,
                     credit: 0,
-                    description: "Penerimaan Kas (Net) - {$payment->payment_number}"
+                    description: "Penerimaan Kas (Net) - {$docRef}"
                 );
             }
 
@@ -206,7 +241,7 @@ class CustomerPaymentService
                     account_id: $expenseAccountId,
                     debit: $adminFee,
                     credit: 0,
-                    description: "Biaya Admin/Bank - {$payment->payment_number}"
+                    description: "Biaya Admin/Bank - {$docRef}"
                 );
             }
         }
@@ -243,7 +278,7 @@ class CustomerPaymentService
                     account_id: $arAccountId,
                     debit: 0,
                     credit: $remainingCredit,
-                    description: "Pelunasan Piutang - {$payment->payment_number}"
+                    description: "Pelunasan Piutang - {$docRef}"
                 );
             } else {
                 // Uang Muka SO / Billing SO -> Credit Uang Muka Penjualan
@@ -251,7 +286,7 @@ class CustomerPaymentService
                     account_id: $advanceAccountId,
                     debit: 0,
                     credit: $remainingCredit,
-                    description: "Penerimaan Uang Muka SO - {$payment->payment_number}"
+                    description: "Penerimaan Uang Muka SO - {$docRef}"
                 );
             }
         }
@@ -273,7 +308,7 @@ class CustomerPaymentService
             date: \Carbon\Carbon::parse($payment->date)->format('Y-m-d'),
             reference_type: 'customer_payment',
             reference_id: $payment->id,
-            description: "Customer Payment {$payment->payment_number}",
+            description: "{$typeLabel} - {$docRef}",
             lines: $journalLines,
             reference_number: $payment->payment_number
         );
