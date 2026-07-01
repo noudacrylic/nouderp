@@ -42,6 +42,15 @@
     $karyawanLabelById = $karyawans->mapWithKeys(fn($k) => [$k->id => $k->name . ' (' . $k->staf_code . ')']);
     $selKaryawanId    = old('karyawan_id', $defaults['karyawan_id']);
     $selKaryawanLabel = $karyawanLabelById[$selKaryawanId] ?? '';
+
+    // Live search Akun Kas/Bank & Beban Admin: label ("KODE - Nama") → id
+    $cashLabelById = $cashAccounts->mapWithKeys(fn($a) => [$a->id => $a->code . ' - ' . $a->name]);
+    $selCashId     = old('cash_account_id', $defaults['cash_account_id']);
+    $selCashLabel  = $cashLabelById[$selCashId] ?? '';
+
+    $expLabelById  = $expenseAccounts->mapWithKeys(fn($a) => [$a->id => $a->code . ' - ' . $a->name]);
+    $selAdminId    = old('admin_fee_account_id', $defaults['admin_fee_account_id']);
+    $selAdminLabel = $expLabelById[$selAdminId] ?? '';
 @endphp
 
 @if(session('error') || $errors->any())
@@ -77,14 +86,15 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Akun Kas/Bank</label>
-                <select name="cash_account_id" required class="border rounded px-2 py-1.5 w-full">
-                    <option value="">-- pilih akun --</option>
+                <input type="text" id="cash_account_search" list="cashAccountList" autocomplete="off" required
+                       placeholder="Ketik kode / nama akun…" class="border rounded px-2 py-1.5 w-full"
+                       value="{{ $selCashLabel }}">
+                <datalist id="cashAccountList">
                     @foreach($cashAccounts as $a)
-                        <option value="{{ $a->id }}" @selected(old('cash_account_id', $defaults['cash_account_id']) == $a->id)>
-                            {{ $a->code }} - {{ $a->name }}
-                        </option>
+                        <option value="{{ $a->code }} - {{ $a->name }}"></option>
                     @endforeach
-                </select>
+                </datalist>
+                <input type="hidden" name="cash_account_id" id="cash_account_id" value="{{ $selCashId }}">
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Periode Bulan</label>
@@ -189,14 +199,15 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Akun Beban Admin Bank <span id="admin-fee-account-req" class="text-red-500 hidden">*</span></label>
-                <select name="admin_fee_account_id" id="admin_fee_account_id" class="border rounded px-2 py-1.5 w-full">
-                    <option value="">— pilih akun (kalau ada biaya admin) —</option>
+                <input type="text" id="admin_fee_account_search" list="expenseAccountList" autocomplete="off"
+                       placeholder="Ketik kode / nama akun (kalau ada biaya admin)…" class="border rounded px-2 py-1.5 w-full"
+                       value="{{ $selAdminLabel }}">
+                <datalist id="expenseAccountList">
                     @foreach($expenseAccounts as $a)
-                        <option value="{{ $a->id }}" @selected(old('admin_fee_account_id', $defaults['admin_fee_account_id']) == $a->id)>
-                            {{ $a->code }} - {{ $a->name }}
-                        </option>
+                        <option value="{{ $a->code }} - {{ $a->name }}"></option>
                     @endforeach
-                </select>
+                </datalist>
+                <input type="hidden" name="admin_fee_account_id" id="admin_fee_account_id" value="{{ $selAdminId }}">
             </div>
         </div>
         <div class="text-xs text-gray-500 mt-2">
@@ -232,7 +243,8 @@
     const nettInp    = document.getElementById('nett_dibayar');
     const totPotEl   = document.getElementById('total-potongan');
     const adminFeeInp = document.getElementById('admin_fee');
-    const adminAccInp = document.getElementById('admin_fee_account_id');
+    const adminAccInp = document.getElementById('admin_fee_account_search'); // input live search (validasi)
+    const adminAccId  = document.getElementById('admin_fee_account_id');     // hidden id terkirim
     const adminReq    = document.getElementById('admin-fee-account-req');
     const totalCashOutEl = document.getElementById('total-cash-out');
 
@@ -252,6 +264,9 @@
             const need = adminFee > 0;
             adminAccInp.required = need;
             adminReq.classList.toggle('hidden', !need);
+            // wajib akun kalau ada biaya admin & belum terpilih akun valid
+            const missing = need && !(adminAccId && adminAccId.value);
+            adminAccInp.setCustomValidity(missing ? 'Pilih akun beban admin dari daftar.' : '');
         }
     }
     recomputeNett();
@@ -271,6 +286,26 @@
         kSearch.addEventListener('change', syncKaryawan);
         syncKaryawan();
     }
+
+    // Live search Akun (datalist) → hidden id
+    const cashByLabel = {!! json_encode($cashAccounts->mapWithKeys(fn($a) => [$a->code . ' - ' . $a->name => $a->id])->all()) !!};
+    const expByLabel  = {!! json_encode($expenseAccounts->mapWithKeys(fn($a) => [$a->code . ' - ' . $a->name => $a->id])->all()) !!};
+
+    function bindAccountSearch(searchId, hiddenId, map, requiredAlways, onSync) {
+        const s = document.getElementById(searchId);
+        const h = document.getElementById(hiddenId);
+        if (!s || !h) return;
+        const sync = () => {
+            h.value = map[s.value.trim()] ?? '';
+            if (requiredAlways) s.setCustomValidity(h.value ? '' : 'Pilih akun dari daftar.');
+            if (onSync) onSync();
+        };
+        s.addEventListener('input', sync);
+        s.addEventListener('change', sync);
+        sync();
+    }
+    bindAccountSearch('cash_account_search', 'cash_account_id', cashByLabel, true);
+    bindAccountSearch('admin_fee_account_search', 'admin_fee_account_id', expByLabel, false, recomputeCashOut);
 
     // AJAX preview
     document.getElementById('btn-preview').addEventListener('click', async () => {
