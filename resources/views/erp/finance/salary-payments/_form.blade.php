@@ -37,6 +37,11 @@
         'notes'                => null,
     ];
     $fmt = fn($v) => number_format((float) $v, 0, ',', '.');
+
+    // Live search Karyawan: label ("Nama (STAF-CODE)") → id, dan label terpilih awal
+    $karyawanLabelById = $karyawans->mapWithKeys(fn($k) => [$k->id => $k->name . ' (' . $k->staf_code . ')']);
+    $selKaryawanId    = old('karyawan_id', $defaults['karyawan_id']);
+    $selKaryawanLabel = $karyawanLabelById[$selKaryawanId] ?? '';
 @endphp
 
 @if(session('error') || $errors->any())
@@ -60,19 +65,15 @@
             </div>
             <div class="col-span-2">
                 <label class="block text-xs text-gray-500 mb-1">Karyawan</label>
-                <select name="karyawan_id" id="karyawan_id" required class="border rounded px-2 py-1.5 w-full">
-                    <option value="">-- pilih karyawan --</option>
+                <input type="text" id="karyawan_search" list="karyawanList" autocomplete="off" required
+                       placeholder="Ketik nama / staf code…" class="border rounded px-2 py-1.5 w-full"
+                       value="{{ $selKaryawanLabel }}">
+                <datalist id="karyawanList">
                     @foreach($karyawans as $k)
-                        <option value="{{ $k->id }}"
-                                data-gaji="{{ $k->gaji_pokok }}"
-                                data-ptkp="{{ $k->ptkp_category }}"
-                                data-kes="{{ (int) $k->ikut_bpjs_kesehatan }}"
-                                data-tk="{{ (int) $k->ikut_bpjs_tk }}"
-                                @selected(old('karyawan_id', $defaults['karyawan_id']) == $k->id)>
-                            {{ $k->name }} ({{ $k->staf_code }})
-                        </option>
+                        <option value="{{ $k->name }} ({{ $k->staf_code }})"></option>
                     @endforeach
-                </select>
+                </datalist>
+                <input type="hidden" name="karyawan_id" id="karyawan_id" value="{{ $selKaryawanId }}">
             </div>
             <div>
                 <label class="block text-xs text-gray-500 mb-1">Akun Kas/Bank</label>
@@ -256,6 +257,20 @@
     recomputeNett();
     if (adminFeeInp) adminFeeInp.addEventListener('input', recomputeCashOut);
     if (nettInp)     nettInp.addEventListener('input', recomputeCashOut);
+
+    // Live search Karyawan (datalist) → hidden karyawan_id
+    const karyawanByLabel = {!! json_encode($karyawans->mapWithKeys(fn($k) => [$k->name . ' (' . $k->staf_code . ')' => $k->id])->all()) !!};
+    const kSearch = document.getElementById('karyawan_search');
+    const kId     = document.getElementById('karyawan_id');
+    function syncKaryawan() {
+        kId.value = karyawanByLabel[kSearch.value.trim()] ?? '';
+        kSearch.setCustomValidity(kId.value ? '' : 'Pilih karyawan dari daftar.');
+    }
+    if (kSearch && kId) {
+        kSearch.addEventListener('input', syncKaryawan);
+        kSearch.addEventListener('change', syncKaryawan);
+        syncKaryawan();
+    }
 
     // AJAX preview
     document.getElementById('btn-preview').addEventListener('click', async () => {
