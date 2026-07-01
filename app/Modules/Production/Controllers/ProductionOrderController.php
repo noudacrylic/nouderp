@@ -43,6 +43,7 @@ class ProductionOrderController extends Controller
             ->when($status,   fn($query) => $query->where('status', $status))
             ->when($type,     fn($query) => $query->where('type', $type))
             ->latest('production_date')
+            ->latest('id')
             ->paginate(20)
             ->withQueryString();
 
