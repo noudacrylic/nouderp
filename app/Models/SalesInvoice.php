@@ -44,6 +44,7 @@ class SalesInvoice extends Model
         'advance_applied',
         'hpp_total',
         'notes',
+        'marketplace_processed',
     ];
 
     protected $casts = [
