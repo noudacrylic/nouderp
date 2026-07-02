@@ -278,28 +278,27 @@ class MarketplaceSettlementService
                 'posted_at'        => now(),
             ]);
 
-            // gross & fee_actual = nilai PENUH (utk tampil). Yang menyentuh GL:
-            //   hold dilepas sebesar grand_total (= gross - fee yg sudah dibukukan di faktur)
-            //   beban admin di-posting HANYA SELISIHNYA (fee aktual - fee tercatat di faktur),
-            //   supaya biaya admin yang sudah masuk jurnal faktur tidak dobel.
-            $totalGross     = (float) $ms->total_gross;
+            // Saldo ditahan marketplace SUDAH dilepas per-faktur saat faktur dibuat
+            // (jurnal `sales_invoice_settlement`: Dr Wallet / Cr Saldo Ditahan sebesar net faktur),
+            // dan fee yang tercatat di faktur (fee_prebooked) sudah masuk beban admin di jurnal faktur.
+            // Maka pada settlement kita HANYA membukukan SELISIH biaya admin aktual vs yang sudah
+            // tercatat di faktur, dengan lawan akun Wallet (menyesuaikan saldo wallet ke dana cair
+            // aktual). TIDAK melepas saldo ditahan lagi & tidak re-debit wallet penuh — kalau tidak,
+            // saldo ditahan (1202 dst) & wallet akan ter-posting DOBEL.
             $totalFeeActual = (float) $ms->total_fee_actual;
             $totalPrebooked = round((float) $ms->lines->sum('fee_prebooked'), 2);
-            $totalNet       = round($totalGross - $totalFeeActual, 2);   // = Σ dana cair marketplace
-            $holdRelease    = round($totalGross - $totalPrebooked, 2);   // = Σ grand_total faktur
-            $feeToBook      = round($totalFeeActual - $totalPrebooked, 2); // selisih yg dibukukan
+            $feeToBook      = round($totalFeeActual - $totalPrebooked, 2); // selisih fee yg belum dibukukan
 
-            // Dr Wallet Marketplace (net diterima)
-            $this->mkLine($journal, $ms, $config->account_wallet_id, $totalNet, 0, 'Net masuk wallet marketplace');
-            // Beban admin: hanya SELISIH vs yang sudah tercatat di faktur.
             if ($feeToBook > 0) {
+                // Marketplace potong lebih besar dari yang tercatat di faktur.
                 $this->mkLine($journal, $ms, $config->account_fee_id, $feeToBook, 0, 'Selisih biaya admin marketplace (tambahan vs faktur)');
+                $this->mkLine($journal, $ms, $config->account_wallet_id, 0, $feeToBook, 'Penyesuaian saldo wallet ke dana cair aktual');
             } elseif ($feeToBook < 0) {
-                // Marketplace potong lebih sedikit dari yang tercatat di faktur → koreksi (Cr beban).
+                // Marketplace potong lebih sedikit dari yang tercatat di faktur → koreksi (Cr beban, Dr wallet).
+                $this->mkLine($journal, $ms, $config->account_wallet_id, abs($feeToBook), 0, 'Penyesuaian saldo wallet ke dana cair aktual');
                 $this->mkLine($journal, $ms, $config->account_fee_id, 0, abs($feeToBook), 'Koreksi biaya admin marketplace (lebih kecil dari faktur)');
             }
-            // Cr Saldo Ditahan (sebesar yang ditahan = grand_total faktur)
-            $this->mkLine($journal, $ms, $config->account_receivable_hold_id, 0, $holdRelease, 'Pelepasan saldo ditahan marketplace');
+            // feeToBook == 0 → tidak ada selisih fee; settlement murni pencocokan data, tanpa baris GL.
 
             $this->validateBalance($journal->id);
 

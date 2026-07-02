@@ -41,7 +41,13 @@ class AccountController extends Controller
     {
         $status = request('status', 'active');
         
-        $query = Account::with('journalLines')->orderBy('code');
+        // Kecualikan jurnal void agar saldo di daftar akun IDENTIK dgn ledger (show())
+        // & Neraca. journalLines() relasi polos ikut menghitung baris jurnal void,
+        // sehingga akun dgn jurnal yang di-void (mis. koreksi settlement marketplace)
+        // menampilkan saldo salah di halaman ini padahal ledger sudah benar.
+        $query = Account::with(['journalLines' => function ($q) {
+            $q->whereHas('journal', fn ($j) => $j->where('status', 'posted'));
+        }])->orderBy('code');
 
         if ($status === 'active') {
             $query->where('is_active', true);
@@ -101,8 +107,11 @@ class AccountController extends Controller
 
     public function show(Account $account)
     {
-        // Daftar tahun yang punya transaksi (untuk dropdown filter "Tahun")
+        // Daftar tahun yang punya transaksi (untuk dropdown filter "Tahun").
+        // Hanya jurnal posted — selaras dgn Neraca/Dashboard (AccountBalanceService),
+        // supaya jurnal void (mis. DP order yang di-void Jubelio) tidak ikut terhitung.
         $availableYears = JournalLine::where('account_id', $account->id)
+            ->whereHas('journal', fn ($q) => $q->where('status', 'posted'))
             ->selectRaw('YEAR(created_at) as y')
             ->distinct()
             ->orderByDesc('y')
@@ -121,6 +130,8 @@ class AccountController extends Controller
         }
 
         $query = JournalLine::where('account_id', $account->id)
+            // Kecualikan jurnal void agar running balance halaman ini identik dgn Neraca.
+            ->whereHas('journal', fn ($q) => $q->where('status', 'posted'))
             ->with('journal')
             ->orderBy('created_at');
 
