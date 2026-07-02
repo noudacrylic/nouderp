@@ -1,11 +1,18 @@
 @extends('layouts.erp')
 
 @section('content')
-<div class="flex items-center justify-between mb-3">
+<div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
     <div>
         <h1 class="text-lg font-semibold">Perlu Diproses</h1>
         <p class="text-xs text-gray-500">Pesanan siap diproses. Klik "Proses" untuk generate Faktur + Surat Jalan (wajib lunas{{ '' }} & kode booking bila ambil di toko).</p>
     </div>
+    {{-- Tarik manual pesanan marketplace terbaru (tanpa menunggu sinkron terjadwal). --}}
+    <form method="POST" action="{{ route('pos.fulfillment.sync-marketplace') }}">
+        @csrf
+        <button type="submit" class="text-xs px-3 py-2 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">
+            🔄 Tarik Pesanan Baru
+        </button>
+    </form>
 </div>
 
 
