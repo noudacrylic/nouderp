@@ -26,17 +26,24 @@ class FulfillmentController extends Controller
         ]);
     }
 
-    /** Tarik manual pesanan marketplace terbaru + segarkan pesanan belum-bayar (cadangan webhook). */
+    /** Tarik manual pesanan marketplace baru (cepat — hanya ready-to-process, tak menunggu sinkron 5 menit). */
     public function syncMarketplace(\App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService $sync)
     {
         if (!\App\Modules\Marketplace\Jubelio\Models\JubelioSetting::singleton()->isConfigured()) {
             return back()->with('error', 'Integrasi Jubelio belum aktif/dikonfigurasi.');
         }
-        $orders  = $sync->syncOrders();
-        $pending = $sync->refreshPendingLinks();
 
-        return back()->with('success', "Sinkron marketplace: {$orders['processed']} pesanan diproses; "
-            . "{$pending['refreshed']} pesanan menunggu disegarkan ({$pending['promoted']} sudah dibayar → jadi SO).");
+        $res = $sync->pullNewOrders();
+
+        if ($res['created'] > 0) {
+            return back()->with('success', "✅ {$res['created']} pesanan baru masuk.");
+        }
+
+        $msg = 'Belum ada pesanan baru.';
+        if ($res['errors'] > 0) {
+            $msg .= " ({$res['errors']} pesanan gagal disinkron — cek log.)";
+        }
+        return back()->with('success', $msg);
     }
 
     public function perluDiproses(Request $request, FulfillmentReadinessService $svc)

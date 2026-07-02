@@ -118,6 +118,55 @@ class JubelioOrderSyncService
     }
 
     /**
+     * Tarik CEPAT pesanan baru siap-proses — untuk tombol manual "Tarik Pesanan Baru".
+     * HANYA memproses daftar ready-to-process (order dibayar & siap fulfill), TIDAK
+     * re-sync completed/in-flight/pending (itu tugas sinkron terjadwal 5 menit), supaya
+     * request cepat & tidak "muter" lama. Order yang baru dibayar pun ikut tertangkap
+     * karena muncul di ready-to-process.
+     *
+     * @return array{created:int, processed:int, errors:int}
+     */
+    public function pullNewOrders(): array
+    {
+        $stats = ['created' => 0, 'processed' => 0, 'errors' => 0];
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        // Snapshot order Jubelio yang SUDAH jadi SO sebelum tarik — untuk hitung yang benar-benar baru.
+        $before = JubelioOrderLink::whereNotNull('sales_order_id')
+            ->pluck('jubelio_salesorder_id')->flip();
+
+        $page = 1;
+        do {
+            $resp = $this->client->listReadyToProcess($page, 50);
+            if (!$resp['success']) {
+                break;
+            }
+            $rows = $this->rows($resp['data']);
+            foreach ($rows as $row) {
+                $id = (int) ($row['salesorder_id'] ?? 0);
+                if ($id <= 0) {
+                    continue;
+                }
+                try {
+                    $link = $this->syncOrderById($id);
+                    $stats['processed']++;
+                    if ($link && $link->sales_order_id && !$before->has($id)) {
+                        $stats['created']++;
+                    }
+                } catch (\Throwable $e) {
+                    $stats['errors']++;
+                    Log::error('Jubelio pullNewOrders error', ['salesorder_id' => $id, 'error' => $e->getMessage()]);
+                }
+            }
+            $page++;
+        } while (count($rows) >= 50 && $page <= 40);
+
+        return $stats;
+    }
+
+    /**
      * Backfill catatan pembeli untuk SO marketplace LAMA yang notes-nya masih berisi teks
      * identitas auto ("Pesanan Jubelio … — …"). Tarik ulang field "note" dari Jubelio lalu
      * timpa. Hanya menyentuh SO ber-pola lama agar catatan yang sudah diedit manual aman.
