@@ -73,7 +73,13 @@ class AutoProductionService
             return array_merge($base, ['reason' => "Produk {$product->sku} preorder — OP dibuat saat ada pesanan (DP), bukan dari stok menipis."]);
         }
 
-        $qtyOnHand = (float) ProductStock::where('product_id', $product->id)->sum('qty_on_hand');
+        // Hanya hitung stok di gudang jual (is_sellable = 1). Gudang non-jual seperti
+        // "Cadangan" sengaja DIKECUALIKAN: isinya buffer untuk saat pesanan rame dan
+        // tidak boleh menutupi kondisi menipis di gudang operasional. Dengan begitu auto
+        // tetap jalan begitu gudang jual menipis, sementara stok cadangan tetap tersimpan.
+        $qtyOnHand = (float) ProductStock::where('product_id', $product->id)
+            ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', 1))
+            ->sum('qty_on_hand');
         $minStock  = $product->min_stock !== null ? (float) $product->min_stock : null;
 
         // Trigger jika: stok habis/minus (apa pun nilai min_stock), atau menipis (qty <= min_stock yang valid).
