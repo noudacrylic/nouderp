@@ -20,7 +20,7 @@ class MarketplaceSettlementController extends Controller
                 'lines as lines_unmatched' => fn($q) => $q->where('is_matched', false),
             ])
             ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->when($request->marketplace_config_id, fn($q, $m) => $q->where('marketplace_config_id', $m))
+            ->when($request->marketplace_config_id, fn($q, $m) => $q->whereIn('marketplace_config_id', is_array($m) ? $m : explode(',', $m)))
             ->when($request->date_from, fn($q, $d) => $q->whereDate('date', '>=', $d))
             ->when($request->date_to, fn($q, $d) => $q->whereDate('date', '<=', $d))
             ->when($request->has_pending, function ($q) {
@@ -52,23 +52,44 @@ class MarketplaceSettlementController extends Controller
             ->groupBy('marketplace_config_id')
             ->pluck('latest_date', 'marketplace_config_id');
 
-        $settlementStatuses = $configs->map(function ($cfg) use ($thisMonth, $latestPerConfig) {
-            $rows = $thisMonth->where('marketplace_config_id', $cfg->id);
+        // Gabungkan config yang BERBAGI akun wallet+hold jadi satu "toko" (mis. TikTok+Tokopedia
+        // pasca-merger). Config tanpa akun lengkap berdiri sendiri.
+        $groups = $configs->groupBy(fn($c) => ($c->account_wallet_id && $c->account_receivable_hold_id)
+            ? 'grp-' . $c->account_wallet_id . '-' . $c->account_receivable_hold_id
+            : 'solo-' . $c->id);
+
+        $settlementStatuses = $groups->map(function ($groupConfigs) use ($thisMonth, $latestPerConfig) {
+            $ids    = $groupConfigs->pluck('id')->values();
+            $rows   = $thisMonth->whereIn('marketplace_config_id', $ids->all());
             $posted = $rows->where('status', 'posted');
             $draft  = $rows->where('status', 'draft');
             $status = $posted->count() > 0 ? 'posted' : ($draft->count() > 0 ? 'draft' : 'none');
+            $names  = $groupConfigs->map(fn($c) => $c->customer->name ?? ('#' . $c->id))->unique()->values();
+            // 1 config → nama penuh. Gabungan (>1) → kata pertama tiap toko dirangkai
+            // (mis. "Tiktok Shop" + "Tokopedia" → "Tiktok Tokopedia").
+            $name   = $groupConfigs->count() > 1
+                ? $names->map(fn($n) => strtok($n, ' '))->unique()->implode(' ')
+                : $names->first();
+            $latest = $groupConfigs->map(fn($c) => $latestPerConfig->get($c->id))->filter()->max();
             return [
-                'config'       => $cfg,
+                'config_ids'   => $ids->all(),
+                'name'         => $name,
                 'status'       => $status,
                 'posted_count' => $posted->count(),
                 'draft_count'  => $draft->count(),
                 'total_net'    => (float) $rows->sum('total_net'),
-                'latest_date'  => $latestPerConfig->get($cfg->id),
+                'latest_date'  => $latest,
             ];
-        });
+        })->values();
+
+        // Map config_id → nama toko gabungan (dipakai kolom Marketplace di tabel history & filter).
+        $configGroupName = [];
+        foreach ($settlementStatuses as $g) {
+            foreach ($g['config_ids'] as $cid) $configGroupName[$cid] = $g['name'];
+        }
 
         return view('erp.finance.marketplace-settlements.index', compact(
-            'items', 'configs', 'statusMonth', 'settlementStatuses'
+            'items', 'configs', 'statusMonth', 'settlementStatuses', 'configGroupName'
         ));
     }
 
@@ -117,7 +138,8 @@ class MarketplaceSettlementController extends Controller
 
         try {
             $file = $request->file('file');
-            $parsed = $this->service->parseStandardFormat($file->getRealPath());
+            $ext = strtolower($file->getClientOriginalExtension() ?: $file->guessExtension() ?: '');
+            $parsed = $this->service->parseStandardFormat($file->getRealPath(), $ext);
 
             if ($parsed['total_rows'] === 0) {
                 $msg = 'Tidak ada baris valid yang bisa diparse.';
@@ -200,6 +222,30 @@ class MarketplaceSettlementController extends Controller
                 return back()->with('error', 'Tidak ada line yang ketemu match-nya. Cek dulu: invoice utk customer ini sudah ada & customer_po_number sesuai order_ref settlement.');
             }
             return back()->with('success', "$newly baris baru ketemu match-nya.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Hapus semua baris "tidak match" (fee aktual 0, order belum tercatat di ERP) dari draft.
+     * Untuk rekonsiliasi awal — sisa transaksi ini dimasukkan lewat Opening Balance saldo.
+     */
+    public function deleteUnmatched($id)
+    {
+        $ms = MarketplaceSettlement::findOrFail($id);
+        try {
+            $deleted = $this->service->deleteUnmatchedLines($ms);
+            if ($deleted === 0) {
+                return back()->with('error', 'Tidak ada baris tidak match untuk dihapus.');
+            }
+            // Kalau draft jadi kosong (tidak ada baris matched tersisa), hapus draft sekalian.
+            if ($ms->fresh()->lines()->count() === 0) {
+                $ms->delete();
+                return redirect(list_url('finance.cash-bank.settlements.index'))
+                    ->with('success', "$deleted baris tidak match dihapus. Settlement kosong, draft ikut dihapus.");
+            }
+            return back()->with('success', "$deleted baris tidak match dihapus. Sisa baris matched siap di-submit.");
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }

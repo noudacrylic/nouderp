@@ -50,7 +50,6 @@
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
             @foreach($settlementStatuses as $row)
                 @php
-                    $cfg = $row['config'];
                     $st  = $row['status'];
                     [$color, $badge, $badgeCls] = match($st) {
                         'posted' => ['bg-green-50 border-green-300',  '✅ Diposting', 'bg-green-100 text-green-700'],
@@ -58,7 +57,7 @@
                         default  => ['bg-red-50 border-red-300',      '⚠ Belum',  'bg-red-100 text-red-700'],
                     };
                     $listUrl = route('finance.cash-bank.settlements.index', [
-                        'marketplace_config_id' => $cfg->id,
+                        'marketplace_config_id' => implode(',', $row['config_ids']),
                         'date_from' => sprintf('%04d-%02d-01', $sy, $sm),
                         'date_to'   => \Carbon\Carbon::create($sy, $sm, 1)->endOfMonth()->toDateString(),
                         'status_month' => $statusMonth,
@@ -66,7 +65,7 @@
                 @endphp
                 <div class="border rounded px-3 py-2 text-sm flex items-center justify-between gap-2 {{ $color }}">
                     <div class="min-w-0">
-                        <div class="font-semibold truncate">{{ $cfg->customer->name ?? '#'.$cfg->id }}</div>
+                        <div class="font-semibold truncate">{{ $row['name'] }}</div>
                         <div class="text-xs text-gray-600 flex items-center gap-2 mt-0.5 flex-wrap">
                             <span class="px-1.5 py-0.5 rounded {{ $badgeCls }}">{{ $badge }}</span>
                             @if($row['posted_count'] || $row['draft_count'])
@@ -102,8 +101,9 @@
         <label class="block text-xs text-gray-500 mb-1">Marketplace</label>
         <select name="marketplace_config_id" class="border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach($configs as $cfg)
-                <option value="{{ $cfg->id }}" @selected(request('marketplace_config_id')==$cfg->id)>{{ $cfg->customer->name ?? '#'.$cfg->id }}</option>
+            @foreach($settlementStatuses as $g)
+                @php $gid = implode(',', $g['config_ids']); @endphp
+                <option value="{{ $gid }}" @selected(request('marketplace_config_id')==$gid)>{{ $g['name'] }}</option>
             @endforeach
         </select>
     </div>
@@ -165,7 +165,7 @@
                 <tr class="border-b hover:bg-blue-50 cursor-pointer" data-href="{{ route('finance.cash-bank.settlements.show', $ms->id) }}">
                     <td class="px-3 py-2 font-medium">{{ $ms->number }}</td>
                     <td class="px-3 py-2">{{ $ms->date->format('d M Y') }}</td>
-                    <td class="px-3 py-2">{{ $ms->marketplaceConfig->customer->name ?? '-' }}</td>
+                    <td class="px-3 py-2">{{ $configGroupName[$ms->marketplace_config_id] ?? ($ms->marketplaceConfig->customer->name ?? '-') }}</td>
                     <td class="px-3 py-2 text-center text-xs whitespace-nowrap">
                         <span class="text-green-700 font-semibold">{{ $matched }}</span>
                         <span class="text-gray-400">/ {{ $total }}</span>

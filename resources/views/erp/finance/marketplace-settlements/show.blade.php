@@ -12,6 +12,7 @@
     $linesLebih = $ms->lines->filter(fn($l) => $l->fee_diff > 0.01)->count();
     $linesKurang = $ms->lines->filter(fn($l) => $l->fee_diff < -0.01)->count();
     $linesSesuai = $ms->lines->count() - $linesLebih - $linesKurang;
+    $feePrebooked = $ms->lines->sum('fee_prebooked'); // biaya admin yang sudah tercatat di faktur
 @endphp
 
 @if($ms->isDraft())
@@ -20,18 +21,18 @@
     <div class="flex-1">
         <div class="font-semibold text-amber-900">Hasil Pencocokan</div>
         <div class="text-xs text-amber-800 mt-1 flex gap-3 flex-wrap">
-            <span>✓ <b>{{ $linesSesuai }}</b> sesuai</span>
-            @if($linesLebih > 0)<span class="text-red-700">⬆ <b>{{ $linesLebih }}</b> fee lebih besar</span>@endif
-            @if($linesKurang > 0)<span class="text-blue-700">⬇ <b>{{ $linesKurang }}</b> fee lebih kecil</span>@endif
+            <span>✓ <b>{{ $linesSesuai }}</b> sesuai (fee aktual = tercatat)</span>
+            @if($linesLebih > 0)<span class="text-red-700">⬆ <b>{{ $linesLebih }}</b> fee aktual > tercatat</span>@endif
+            @if($linesKurang > 0)<span class="text-blue-700">⬇ <b>{{ $linesKurang }}</b> fee aktual < tercatat</span>@endif
             @if($unmatched > 0)<span class="text-amber-700">⚠ <b>{{ $unmatched }}</b> tidak match faktur</span>@endif
         </div>
         @if(abs($ms->total_fee_diff) > 0.01)
             <div class="text-xs text-amber-800 mt-1">
-                Selisih total fee:
+                Selisih total fee (dibukukan):
                 <b class="{{ $ms->total_fee_diff > 0 ? 'text-red-700' : 'text-blue-700' }}">
                     {{ $ms->total_fee_diff > 0 ? '+' : '' }}{{ number_format($ms->total_fee_diff, 0, ',', '.') }}
                 </b>
-                {{ $ms->total_fee_diff > 0 ? '(marketplace potong lebih banyak dari config)' : '(marketplace potong lebih sedikit dari config)' }}
+                {{ $ms->total_fee_diff > 0 ? '(marketplace potong lebih banyak dari yg tercatat di faktur)' : '(marketplace potong lebih sedikit dari yg tercatat di faktur)' }}
             </div>
         @endif
         @if($unmatched > 0 && $matched > 0)
@@ -73,6 +74,12 @@
                     @csrf
                     <button class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-semibold" title="Re-run matching: cari customer_po_number lagi di Sales Order utk baris yg belum match">🔄 Retry Match</button>
                 </form>
+                <form method="POST" action="{{ route('finance.cash-bank.settlements.delete-unmatched', $ms->id) }}" class="inline"
+                      onsubmit="return confirm(@json("Hapus {$unmatched} baris TIDAK MATCH (fee aktual 0, order belum tercatat di ERP)? Baris ini akan dimasukkan lewat Opening Balance saldo. Tindakan tidak bisa dibatalkan."))">
+                    @csrf
+                    <button class="border border-red-400 text-red-600 hover:bg-red-50 px-3 py-1.5 rounded text-sm"
+                            title="Buang baris tanpa faktur di ERP (rekonsiliasi awal → masuk Opening Balance)">🗑 Hapus {{ $unmatched }} Tidak Match</button>
+                </form>
             @endif
             <form method="POST" action="{{ route('finance.cash-bank.settlements.destroy', $ms->id) }}" class="inline" onsubmit="return confirm('Hapus draf?')">
                 @csrf @method('DELETE')
@@ -95,9 +102,9 @@
         <div><div class="text-xs text-gray-500">File Sumber</div>{{ $ms->source_filename ?? '-' }}</div>
         <div><div class="text-xs text-gray-500">Jurnal</div>{{ $ms->journal_id ? '#'.$ms->journal_id : '-' }}</div>
         <div><div class="text-xs text-gray-500">Total Gross</div>{{ number_format($ms->total_gross, 0, ',', '.') }}</div>
-        <div><div class="text-xs text-gray-500">Fee Aktual</div>{{ number_format($ms->total_fee_actual, 0, ',', '.') }}</div>
-        <div><div class="text-xs text-gray-500">Fee Per Config</div>{{ number_format($ms->total_fee_config, 0, ',', '.') }}</div>
-        <div><div class="text-xs text-gray-500">Selisih Fee</div><span class="{{ abs($ms->total_fee_diff) > 0.01 ? 'text-amber-700 font-semibold' : '' }}">{{ number_format($ms->total_fee_diff, 0, ',', '.') }}</span></div>
+        <div><div class="text-xs text-gray-500">Fee Tercatat (Faktur)</div>{{ number_format($feePrebooked, 0, ',', '.') }}</div>
+        <div><div class="text-xs text-gray-500">Fee Aktual (Marketplace)</div>{{ number_format($ms->total_fee_actual, 0, ',', '.') }}</div>
+        <div><div class="text-xs text-gray-500">Selisih (Dibukukan)</div><span class="{{ abs($ms->total_fee_diff) > 0.01 ? 'text-amber-700 font-semibold' : '' }}">{{ number_format($ms->total_fee_diff, 0, ',', '.') }}</span></div>
         <div class="col-span-2"><div class="text-xs text-gray-500">Total Net</div><span class="text-base font-semibold">{{ number_format($ms->total_net, 0, ',', '.') }}</span></div>
         <div><div class="text-xs text-gray-500">Matched</div><span class="text-green-700">{{ $matched }}</span> / {{ $ms->lines->count() }}</div>
         <div><div class="text-xs text-gray-500">Unmatched</div><span class="{{ $unmatched > 0 ? 'text-amber-700' : '' }}">{{ $unmatched }}</span></div>
@@ -129,8 +136,8 @@
         <select id="filter_status" class="border rounded px-2 py-1.5 text-sm">
             <option value="">Semua Status</option>
             <option value="sesuai">✓ Sesuai</option>
-            <option value="lebih">⬆ Lebih (fee &gt; config)</option>
-            <option value="kurang">⬇ Kurang (fee &lt; config)</option>
+            <option value="lebih">⬆ Lebih (fee aktual &gt; tercatat)</option>
+            <option value="kurang">⬇ Kurang (fee aktual &lt; tercatat)</option>
             <option value="no_match">✗ No Match</option>
         </select>
     </div>
@@ -149,8 +156,8 @@
                 <th class="px-3 py-2 text-left">Tgl Settlement</th>
                 <th class="px-3 py-2 text-left">Faktur Match</th>
                 <th class="px-3 py-2 text-right">Gross</th>
+                <th class="px-3 py-2 text-right">Fee Tercatat</th>
                 <th class="px-3 py-2 text-right">Fee Aktual</th>
-                <th class="px-3 py-2 text-right">Fee Config</th>
                 <th class="px-3 py-2 text-right">Selisih</th>
                 <th class="px-3 py-2 text-right">Net</th>
                 <th class="px-3 py-2 text-center">Status</th>
@@ -189,17 +196,17 @@
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right">{{ number_format($line->gross_amount, 0, ',', '.') }}</td>
+                    <td class="px-3 py-2 text-right text-gray-500">{{ number_format($line->fee_prebooked, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-right">{{ number_format($line->fee_actual, 0, ',', '.') }}</td>
-                    <td class="px-3 py-2 text-right">{{ number_format($line->fee_config, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-right {{ abs($line->fee_diff) > 0.01 ? 'text-amber-700 font-semibold' : '' }}">{{ number_format($line->fee_diff, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-right">{{ number_format($line->net_amount, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-center">
                         @if($statusKey === 'no_match')
                             <span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 font-semibold">✗ No Match</span>
                         @elseif($statusKey === 'lebih')
-                            <span class="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 font-semibold" title="Marketplace memotong fee lebih besar dari config">⬆ Lebih</span>
+                            <span class="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 font-semibold" title="Marketplace memotong fee lebih besar dari yang tercatat di faktur">⬆ Lebih</span>
                         @elseif($statusKey === 'kurang')
-                            <span class="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-700 font-semibold" title="Marketplace memotong fee lebih kecil dari config">⬇ Kurang</span>
+                            <span class="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-700 font-semibold" title="Marketplace memotong fee lebih kecil dari yang tercatat di faktur">⬇ Kurang</span>
                         @else
                             <span class="px-1.5 py-0.5 rounded text-[10px] bg-green-100 text-green-700 font-semibold">✓ Sesuai</span>
                         @endif

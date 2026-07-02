@@ -113,6 +113,7 @@ Route::prefix('erp/finance/cash-bank')->name('finance.cash-bank.')->group(functi
         Route::delete('/{id}', [MarketplaceSettlementController::class, 'destroy'])->whereNumber('id')->name('destroy');
         Route::post('/{id}/post', [MarketplaceSettlementController::class, 'post'])->whereNumber('id')->name('post');
         Route::post('/{id}/retry-match', [MarketplaceSettlementController::class, 'retryMatch'])->whereNumber('id')->name('retry-match');
+        Route::post('/{id}/delete-unmatched', [MarketplaceSettlementController::class, 'deleteUnmatched'])->whereNumber('id')->name('delete-unmatched');
         Route::post('/{id}/void', [MarketplaceSettlementController::class, 'void'])->whereNumber('id')->name('void');
         Route::get('/{id}', [MarketplaceSettlementController::class, 'show'])->whereNumber('id')->name('show');
     });

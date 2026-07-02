@@ -35,9 +35,18 @@ class MarketplaceSettlementService
      *   'total_rows'      => int,
      * ]
      */
-    public function parseStandardFormat(string $absolutePath): array
+    public function parseStandardFormat(string $absolutePath, ?string $extension = null): array
     {
-        $spreadsheet = IOFactory::load($absolutePath);
+        // File upload punya nama temp tanpa ekstensi, jadi IOFactory tak bisa deteksi format dari
+        // nama. Untuk CSV pakai reader eksplisit + tebak encoding (UTF-8 BOM) & delimiter
+        // (koma / titik-koma dari Excel Indonesia) otomatis. Selain itu (xlsx/xls) auto-detect.
+        if (strtolower((string) $extension) === 'csv') {
+            $reader = IOFactory::createReader('Csv');
+            $reader->setInputEncoding(\PhpOffice\PhpSpreadsheet\Reader\Csv::GUESS_ENCODING);
+            $spreadsheet = $reader->load($absolutePath);
+        } else {
+            $spreadsheet = IOFactory::load($absolutePath);
+        }
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray(null, true, false, false); // 0-based
 
@@ -62,9 +71,16 @@ class MarketplaceSettlementService
         // Pre-load semua marketplace_configs aktif + customer info untuk lookup cepat
         $configs = MarketplaceConfig::with('customer')->where('is_active', 1)->get();
         $codeToConfig = []; // 'shopee' => MarketplaceConfig
+        // Pass 1: base code (marketplace_code / nama) — paling spesifik, tidak boleh ditimpa.
         foreach ($configs as $cfg) {
             $code = $this->resolveMarketplaceCode($cfg);
-            if ($code) $codeToConfig[$code] = $cfg;
+            if ($code && !isset($codeToConfig[$code])) $codeToConfig[$code] = $cfg;
+        }
+        // Pass 2: alias tambahan (mis. label AI "tiktok_tokopedia"/"tiktok" → config Tokopedia).
+        foreach ($configs as $cfg) {
+            foreach ($this->marketplaceAliases($cfg) as $alias) {
+                if ($alias && !isset($codeToConfig[$alias])) $codeToConfig[$alias] = $cfg;
+            }
         }
 
         $rowsPerConfig = [];
@@ -155,7 +171,7 @@ class MarketplaceSettlementService
     {
         return DB::transaction(function () use ($config, $rows, $meta) {
             $totals = [
-                'gross' => 0, 'fee_actual' => 0, 'fee_config' => 0, 'fee_diff' => 0, 'net' => 0,
+                'gross' => 0, 'prebooked' => 0, 'fee_actual' => 0, 'fee_config' => 0, 'fee_diff' => 0, 'net' => 0,
             ];
 
             $ms = MarketplaceSettlement::create([
@@ -168,33 +184,30 @@ class MarketplaceSettlementService
                 'created_by'            => auth()->id(),
             ]);
 
+            $customerIds = $this->relatedCustomerIds($config);
+
             foreach ($rows as $row) {
-                // Match invoice via sales_orders.customer_po_number → sales_order_id → sales_invoice
-                // Filter by customer_id agar tidak salah ambil PO number yang kebetulan sama dari customer lain.
-                $invoice = $this->matchInvoiceByOrderRef($row['order_ref'], $config->customer_id);
+                // Match invoice via sales_orders.customer_po_number → sales_order_id → sales_invoice.
+                // Filter by customer (termasuk marketplace kembar, mis. TikTok+Tokopedia) agar tidak
+                // salah ambil PO yang kebetulan sama dari customer lain.
+                $invoice = $this->matchInvoiceByOrderRef($row['order_ref'], $customerIds);
 
-                // Gross diambil dari invoice (kalau ketemu). Kalau tidak ketemu, fallback ke
-                // gross dari row Excel (kalau ada) atau net (asumsi tanpa biaya).
-                $gross = (float) ($row['gross_amount'] ?? 0);
-                if ($invoice && $gross <= 0) {
-                    $gross = (float) $invoice->grand_total;
-                }
-                if ($gross <= 0) {
-                    $gross = (float) $row['net_amount'];  // last fallback
-                }
+                [$gross, $prebooked] = $this->resolveGross($invoice, $row);
 
-                // Fee aktual = gross - net (apa pun jenis biaya, di-treat gabungan)
+                // Fee aktual = fee marketplace SEBENARNYA = gross (nilai jual penuh) - net (dana cair).
                 $feeActual = round($gross - (float) $row['net_amount'], 2);
                 if ($feeActual < 0) $feeActual = 0;  // safety: kalau net > gross (mis. cashback), treat fee=0
 
                 $feeConfig = $this->computeConfigFee($config, $gross);
-                $feeDiff = round($feeActual - $feeConfig, 2);
+                // Selisih yang DIBUKUKAN di settlement = fee aktual - fee yang sudah tercatat di faktur.
+                $feeDiff = round($feeActual - $prebooked, 2);
 
                 MarketplaceSettlementLine::create([
                     'marketplace_settlement_id' => $ms->id,
                     'order_ref'                 => $row['order_ref'],
                     'settlement_date'           => $row['settlement_date'] ?? null,
                     'gross_amount'              => $gross,
+                    'fee_prebooked'             => $prebooked,
                     'fee_actual'                => $feeActual,
                     'fee_config'                => $feeConfig,
                     'fee_diff'                  => $feeDiff,
@@ -206,6 +219,7 @@ class MarketplaceSettlementService
                 ]);
 
                 $totals['gross']      += $gross;
+                $totals['prebooked']  += $prebooked;
                 $totals['fee_actual'] += $feeActual;
                 $totals['fee_config'] += $feeConfig;
                 $totals['fee_diff']   += $feeDiff;
@@ -229,7 +243,9 @@ class MarketplaceSettlementService
         if ($ms->isPosted()) throw new DomainException('Sudah diposting.');
         if ($ms->isVoid())   throw new DomainException('Sudah di-void.');
 
-        $payDate = Carbon::parse($ms->date);
+        // Penyesuaian rekonsiliasi dibebankan di AKHIR BULAN yang direkonsiliasi (bulan dana cair),
+        // bukan tanggal upload — supaya biaya transaksi bulan lalu tidak jatuh di bulan ini.
+        $payDate = $this->resolvePostingDate($ms);
         $this->periodService->ensureOpen($payDate);
 
         $exists = Journal::where('reference_type', 'marketplace_settlement')
@@ -245,9 +261,6 @@ class MarketplaceSettlementService
             if (!$config->account_wallet_id || !$config->account_fee_id || !$config->account_receivable_hold_id) {
                 throw new DomainException('Mapping akun marketplace (wallet/fee/hold) belum lengkap di MarketplaceConfig.');
             }
-            if ((float) $ms->total_fee_diff != 0 && !$config->account_fee_diff_id) {
-                throw new DomainException('Akun selisih biaya admin (fee_diff) belum diset di MarketplaceConfig, padahal ada selisih.');
-            }
 
             $period = AccountingPeriod::where('year', $payDate->year)
                 ->where('month', $payDate->month)->first();
@@ -255,7 +268,7 @@ class MarketplaceSettlementService
 
             $journal = Journal::create([
                 'journal_number'   => 'MS-J-' . $ms->number,
-                'date'             => $ms->date,
+                'date'             => $payDate->toDateString(),
                 'period_id'        => $period->id,
                 'reference_type'   => 'marketplace_settlement',
                 'reference_id'     => $ms->id,
@@ -265,37 +278,28 @@ class MarketplaceSettlementService
                 'posted_at'        => now(),
             ]);
 
-            $totalGross = (float) $ms->total_gross;
+            // gross & fee_actual = nilai PENUH (utk tampil). Yang menyentuh GL:
+            //   hold dilepas sebesar grand_total (= gross - fee yg sudah dibukukan di faktur)
+            //   beban admin di-posting HANYA SELISIHNYA (fee aktual - fee tercatat di faktur),
+            //   supaya biaya admin yang sudah masuk jurnal faktur tidak dobel.
+            $totalGross     = (float) $ms->total_gross;
             $totalFeeActual = (float) $ms->total_fee_actual;
-            $totalFeeConfig = (float) $ms->total_fee_config;
-            $totalFeeDiff   = (float) $ms->total_fee_diff;
-            $totalNet       = round($totalGross - $totalFeeActual, 2);
+            $totalPrebooked = round((float) $ms->lines->sum('fee_prebooked'), 2);
+            $totalNet       = round($totalGross - $totalFeeActual, 2);   // = Σ dana cair marketplace
+            $holdRelease    = round($totalGross - $totalPrebooked, 2);   // = Σ grand_total faktur
+            $feeToBook      = round($totalFeeActual - $totalPrebooked, 2); // selisih yg dibukukan
 
             // Dr Wallet Marketplace (net diterima)
             $this->mkLine($journal, $ms, $config->account_wallet_id, $totalNet, 0, 'Net masuk wallet marketplace');
-            // Dr Fee aktual ke akun fee
-            if ($totalFeeActual > 0) {
-                $this->mkLine($journal, $ms, $config->account_fee_id, $totalFeeActual, 0, 'Biaya admin marketplace aktual');
+            // Beban admin: hanya SELISIH vs yang sudah tercatat di faktur.
+            if ($feeToBook > 0) {
+                $this->mkLine($journal, $ms, $config->account_fee_id, $feeToBook, 0, 'Selisih biaya admin marketplace (tambahan vs faktur)');
+            } elseif ($feeToBook < 0) {
+                // Marketplace potong lebih sedikit dari yang tercatat di faktur → koreksi (Cr beban).
+                $this->mkLine($journal, $ms, $config->account_fee_id, 0, abs($feeToBook), 'Koreksi biaya admin marketplace (lebih kecil dari faktur)');
             }
-            // Cr Receivable Hold (sebesar gross — karena saat invoice dipost, hold ditandai sebesar gross)
-            $this->mkLine($journal, $ms, $config->account_receivable_hold_id, 0, $totalGross, 'Pelepasan saldo ditahan marketplace');
-
-            // Selisih fee aktual vs fee config dipisah ke akun selisih (untuk transparansi)
-            if (abs($totalFeeDiff) > 0.001 && $config->account_fee_diff_id) {
-                if ($totalFeeDiff > 0) {
-                    // Fee aktual > config (rugi tambahan): adjust antara fee_id (excess) dan fee_diff_id
-                    // Pendekatan sederhana: keseluruhan biaya admin sudah masuk fee_id, dan fee_diff_id menjadi
-                    // koreksi (Cr fee_id sebesar diff, Dr fee_diff_id sebesar diff) supaya fee_id menampilkan
-                    // angka sesuai kontrak/config dan selisih jadi terlihat di fee_diff_id.
-                    $this->mkLine($journal, $ms, $config->account_fee_id, 0, $totalFeeDiff, 'Reklasifikasi selisih fee ke akun selisih');
-                    $this->mkLine($journal, $ms, $config->account_fee_diff_id, $totalFeeDiff, 0, 'Selisih biaya admin marketplace (rugi)');
-                } else {
-                    // Fee aktual < config (untung): tambah fee_id supaya jadi sesuai config, lalu Cr fee_diff_id
-                    $abs = abs($totalFeeDiff);
-                    $this->mkLine($journal, $ms, $config->account_fee_id, $abs, 0, 'Reklasifikasi selisih fee ke akun selisih');
-                    $this->mkLine($journal, $ms, $config->account_fee_diff_id, 0, $abs, 'Selisih biaya admin marketplace (laba)');
-                }
-            }
+            // Cr Saldo Ditahan (sebesar yang ditahan = grand_total faktur)
+            $this->mkLine($journal, $ms, $config->account_receivable_hold_id, 0, $holdRelease, 'Pelepasan saldo ditahan marketplace');
 
             $this->validateBalance($journal->id);
 
@@ -363,6 +367,26 @@ class MarketplaceSettlementService
     }
 
     /**
+     * Hapus semua line yang TIDAK match (is_matched=false) dari settlement draft.
+     * Dipakai saat rekonsiliasi awal: baris tanpa faktur di ERP (fee aktual 0, order pra-ERP)
+     * dibuang karena akan dimasukkan lewat Opening Balance. Return jumlah baris terhapus.
+     */
+    public function deleteUnmatchedLines(MarketplaceSettlement $ms): int
+    {
+        if (!$ms->isDraft()) {
+            throw new DomainException('Hanya settlement draft yang bisa diedit.');
+        }
+
+        return DB::transaction(function () use ($ms) {
+            $deleted = (int) $ms->lines()->where('is_matched', false)->delete();
+            if ($deleted > 0) {
+                $this->recalcTotals($ms);
+            }
+            return $deleted;
+        });
+    }
+
+    /**
      * Re-run matching untuk semua line unmatched di settlement draft.
      * Return jumlah line yang baru ketemu match-nya.
      */
@@ -374,10 +398,11 @@ class MarketplaceSettlementService
 
         return DB::transaction(function () use ($ms) {
             $config = $ms->marketplaceConfig;
+            $customerIds = $this->relatedCustomerIds($config);
             $newly = 0;
 
             foreach ($ms->lines()->where('is_matched', false)->get() as $line) {
-                $invoice = $this->matchInvoiceByOrderRef($line->order_ref, $config->customer_id);
+                $invoice = $this->matchInvoiceByOrderRef($line->order_ref, $customerIds);
                 if (!$invoice) continue;
 
                 $this->applyMatchToLine($line, $invoice, $config);
@@ -398,27 +423,35 @@ class MarketplaceSettlementService
      */
     public function autoRematchForOrderRef(int $customerId, ?string $orderRef): int
     {
-        $orderRef = trim((string) $orderRef);
-        if ($orderRef === '') return 0;
+        // $orderRef di sini = customer_po_number SO (MASIH ada prefix Jubelio), jadi wajib
+        // dinormalkan dulu sebelum dibandingkan dengan order_ref settlement (bare number).
+        $core = $this->normalizeOrderRef($orderRef);
+        if ($core === '') return 0;
+
+        // Grup marketplace kembar (mis. TikTok+Tokopedia) supaya invoice channel A ikut
+        // match ke settlement draft channel B yang satu grup.
+        $cfg = MarketplaceConfig::where('customer_id', $customerId)->where('is_active', 1)->first();
+        $relatedIds = $cfg ? $this->relatedCustomerIds($cfg) : [$customerId];
 
         $lines = MarketplaceSettlementLine::with('settlement.marketplaceConfig')
-            ->where('order_ref', $orderRef)
             ->where('is_matched', false)
-            ->whereHas('settlement', function ($q) use ($customerId) {
+            ->whereHas('settlement', function ($q) use ($relatedIds) {
                 $q->where('status', 'draft')
-                  ->whereHas('marketplaceConfig', fn($qq) => $qq->where('customer_id', $customerId));
+                  ->whereHas('marketplaceConfig', fn($qq) => $qq->whereIn('customer_id', $relatedIds));
             })
-            ->get();
+            ->get()
+            ->filter(fn($l) => $this->normalizeOrderRef($l->order_ref) === $core)
+            ->values();
 
         if ($lines->isEmpty()) return 0;
 
         $affectedSettlementIds = [];
         $count = 0;
 
-        DB::transaction(function () use ($lines, $customerId, &$count, &$affectedSettlementIds) {
+        DB::transaction(function () use ($lines, &$count, &$affectedSettlementIds) {
             foreach ($lines as $line) {
                 $config = $line->settlement->marketplaceConfig;
-                $invoice = $this->matchInvoiceByOrderRef($line->order_ref, $customerId);
+                $invoice = $this->matchInvoiceByOrderRef($line->order_ref, $this->relatedCustomerIds($config));
                 if (!$invoice) continue;
 
                 $this->applyMatchToLine($line, $invoice, $config);
@@ -440,21 +473,54 @@ class MarketplaceSettlementService
      */
     protected function applyMatchToLine(MarketplaceSettlementLine $line, SalesInvoice $invoice, MarketplaceConfig $config): void
     {
-        $gross = (float) $invoice->grand_total;
+        [$gross, $prebooked] = $this->resolveGross($invoice, ['net_amount' => $line->net_amount]);
         $feeActual = round($gross - (float) $line->net_amount, 2);
         if ($feeActual < 0) $feeActual = 0;
         $feeConfig = $this->computeConfigFee($config, $gross);
-        $feeDiff   = round($feeActual - $feeConfig, 2);
+        $feeDiff   = round($feeActual - $prebooked, 2);
 
         $line->update([
             'sales_invoice_id' => $invoice->id,
             'is_matched'       => true,
             'gross_amount'     => $gross,
+            'fee_prebooked'    => $prebooked,
             'fee_actual'       => $feeActual,
             'fee_config'       => $feeConfig,
             'fee_diff'         => $feeDiff,
             'note'             => null,
         ]);
+    }
+
+    /**
+     * Tentukan gross (nilai jual penuh) & fee yang SUDAH dibukukan di faktur.
+     * - Ada faktur: gross = grand_total + marketplace_fee (= subtotal, nilai jual sebelum
+     *   biaya admin marketplace). prebooked = marketplace_fee (Biaya Admin yg sudah masuk jurnal faktur).
+     * - Tanpa faktur: gross = net (asumsi tanpa biaya, order pra-ERP), prebooked = 0.
+     * Return [gross, prebooked].
+     */
+    protected function resolveGross(?SalesInvoice $invoice, array $row): array
+    {
+        if ($invoice) {
+            $prebooked = (float) ($invoice->marketplace_fee ?? 0);
+            $gross = round((float) $invoice->grand_total + $prebooked, 2);
+            return [$gross, $prebooked];
+        }
+        $gross = (float) ($row['gross_amount'] ?? 0);
+        if ($gross <= 0) $gross = (float) ($row['net_amount'] ?? 0);
+        return [$gross, 0.0];
+    }
+
+    /**
+     * Tanggal posting jurnal settlement = AKHIR BULAN periode yang direkonsiliasi
+     * (bulan dari settlement_date/dana cair terakhir di baris). Fallback ke tanggal
+     * dokumen settlement bila baris tak punya settlement_date.
+     * Tujuan: penyesuaian biaya transaksi bulan lalu tidak dibebankan di bulan upload.
+     */
+    protected function resolvePostingDate(MarketplaceSettlement $ms): Carbon
+    {
+        $maxLineDate = $ms->lines()->max('settlement_date');
+        $base = $maxLineDate ? Carbon::parse($maxLineDate) : Carbon::parse($ms->date);
+        return $base->endOfMonth()->startOfDay();
     }
 
     /**
@@ -501,22 +567,105 @@ class MarketplaceSettlementService
     }
 
     /**
-     * Lookup SalesInvoice via sales_order.customer_po_number = $orderRef.
-     * Filter by customer_id supaya tidak salah ambil PO yang kebetulan sama dari customer berbeda.
+     * Lookup SalesInvoice via sales_order.customer_po_number, TOLERAN prefix Jubelio.
+     *
+     * ERP menyimpan PO dengan format Jubelio:
+     *   Shopee               → "SP-<order>"                (tanpa store id)
+     *   TikTok/Tokopedia/Laz → "TT-/TP-/LZ-<order>-<store>"  (ada store id di belakang)
+     * Sedangkan laporan settlement dari dashboard marketplace hanya berisi <order> murni
+     * (untuk TikTok/Tokopedia/Lazada = segmen TENGAH antar strip). Maka kita normalkan
+     * kedua sisi ke "core" lalu cocokkan.
+     *
+     * $customerIds boleh berisi >1 customer (marketplace kembar, mis. TikTok+Tokopedia).
      * Return invoice posted (atau draft kalau tidak ada posted), atau null kalau tidak ketemu.
      */
-    protected function matchInvoiceByOrderRef(string $orderRef, int $customerId): ?SalesInvoice
+    protected function matchInvoiceByOrderRef(string $orderRef, array|int $customerIds): ?SalesInvoice
     {
-        // Cari sales_order dulu
-        $orderId = DB::table('sales_orders')
-            ->where('customer_id', $customerId)
-            ->where('customer_po_number', $orderRef)
-            ->value('id');
+        $customerIds = array_values(array_unique(array_filter(array_map('intval', (array) $customerIds))));
+        if (empty($customerIds)) return null;
+
+        $orderRef = trim($orderRef);
+        $core = $this->normalizeOrderRef($orderRef);
+
+        $base = DB::table('sales_orders')->whereIn('customer_id', $customerIds);
+
+        // 1. Exact match dulu (kompat mundur / order_ref yang sudah lengkap dgn prefix).
+        $orderId = (clone $base)->where('customer_po_number', $orderRef)->value('id');
+
+        // 2. Normalized match: cocokkan core ke "…-CORE" (Shopee) atau "…-CORE-STOREID" (lainnya).
+        if (!$orderId && $core !== '') {
+            $esc = addcslashes($core, '%_\\');
+            $orderId = (clone $base)->where(function ($w) use ($esc) {
+                $w->where('customer_po_number', 'like', "%-{$esc}")      // PREFIX-CORE
+                  ->orWhere('customer_po_number', 'like', "%-{$esc}-%"); // PREFIX-CORE-STOREID
+            })->orderByDesc('id')->value('id');
+        }
+
         if (!$orderId) return null;
 
         return SalesInvoice::where('sales_order_id', $orderId)
             ->orderByRaw("FIELD(status, 'posted', 'paid', 'draft', 'void')")
             ->first();
+    }
+
+    /**
+     * Normalkan nomor pesanan ke "core" marketplace: buang prefix Jubelio (SP-/TP-/TT-/LZ-/…)
+     * lalu ambil segmen pertama antar strip (buang store-id Jubelio di belakang).
+     * Contoh:
+     *   "SP-26062520FFP68B"              → "26062520FFP68B"
+     *   "TP-584682328694097503-127339"   → "584682328694097503"
+     *   "LZ-2778098093064322-127336"     → "2778098093064322"
+     *   "584682328694097503" (bare)      → "584682328694097503"
+     */
+    protected function normalizeOrderRef(?string $ref): string
+    {
+        $ref = trim((string) $ref);
+        if ($ref === '') return '';
+        // Buang prefix marketplace Jubelio: 2-4 huruf diikuti strip.
+        $ref = preg_replace('/^[A-Za-z]{2,4}-/', '', $ref);
+        // Ambil segmen pertama; buang store-id Jubelio (mis. "-127339") di belakang.
+        $dash = strpos($ref, '-');
+        if ($dash !== false) $ref = substr($ref, 0, $dash);
+        return trim($ref);
+    }
+
+    /**
+     * Customer yang dianggap satu marketplace untuk keperluan matching.
+     * Config yang BERBAGI akun wallet + hold di-treat sebagai marketplace kembar
+     * (mis. TikTok Shop & Tokopedia pasca-merger → cari invoice di kedua customer).
+     */
+    protected function relatedCustomerIds(MarketplaceConfig $config): array
+    {
+        if (!$config->account_wallet_id || !$config->account_receivable_hold_id) {
+            return array_filter([$config->customer_id]);
+        }
+        return MarketplaceConfig::where('is_active', 1)
+            ->where('account_wallet_id', $config->account_wallet_id)
+            ->where('account_receivable_hold_id', $config->account_receivable_hold_id)
+            ->pluck('customer_id')
+            ->push($config->customer_id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Alias label marketplace (dari kolom Excel AI) → config.
+     * TikTok & Tokopedia satu sumber pasca-merger: label "tiktok"/"tiktok_tokopedia"
+     * diarahkan ke config Tokopedia (matching tetap lintas customer via relatedCustomerIds).
+     */
+    protected function marketplaceAliases(MarketplaceConfig $cfg): array
+    {
+        $base = $this->resolveMarketplaceCode($cfg);
+        $groups = [
+            'shopee'     => ['shopee'],
+            'lazada'     => ['lazada'],
+            'blibli'     => ['blibli'],
+            'tokopedia'  => ['tokopedia', 'tiktok', 'tiktokshop', 'tiktok_tokopedia', 'tiktoktokopedia'],
+            'tiktokshop' => ['tiktokshop'],
+        ];
+        return $groups[$base] ?? array_filter([$base]);
     }
 
     protected function computeConfigFee(MarketplaceConfig $config, float $gross): float

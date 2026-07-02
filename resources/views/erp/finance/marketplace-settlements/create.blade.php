@@ -109,7 +109,7 @@
                 @endif
 
                 <div class="bg-blue-50 border border-blue-100 text-blue-800 px-3 py-2 rounded text-[11px] mb-3">
-                    Format Excel hasil AI (4 kolom):
+                    Format Excel/CSV hasil AI (4 kolom):
                     <code class="block bg-white rounded px-2 py-1 text-[10px] font-mono mt-1">marketplace | order_ref | settlement_date | net_amount</code>
                 </div>
 
@@ -122,7 +122,7 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">File Excel Format Baku <span class="text-red-500">*</span></label>
+                        <label class="block text-xs text-gray-500 mb-1">File Excel/CSV Format Baku <span class="text-red-500">*</span></label>
                         <input type="file" name="file" accept=".xlsx,.xls,.csv"
                                class="border rounded px-2 py-1.5 w-full text-sm" required>
                     </div>
