@@ -51,7 +51,7 @@ return [
         'label' => 'Inventory',
         'icon' => '📦',
         'children' => [
-            'inventory.warehouses'  => ['label' => 'Warehouse',         'url' => '/erp/inventory/warehouses', 'route_patterns' => ['inventory.warehouses.*', 'product-stock']],
+            'inventory.warehouses'  => ['label' => 'Warehouse',         'url' => '/erp/inventory/warehouses', 'route_patterns' => ['inventory.warehouses.*']],
             'inventory.products'    => ['label' => 'Produk',            'url' => '/erp/inventory/products',   'route_patterns' => ['inventory.products.*', 'products.*']],
             'inventory.stocks'      => ['label' => 'Stock',             'url' => '/erp/inventory/stocks',     'route_patterns' => ['inventory.stocks.*', 'inventory.product-stock']],
             'inventory.transfers'   => ['label' => 'Transfer Stock',    'url' => '/erp/inventory/transfers',  'route_patterns' => ['inventory.transfers.*']],

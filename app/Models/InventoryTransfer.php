@@ -13,12 +13,18 @@ class InventoryTransfer extends Model
         'date',
         'from_warehouse_id',
         'to_warehouse_id',
-        'status'
+        'status',
+        'created_by',
     ];
 
     public function items()
     {
         return $this->hasMany(InventoryTransferItem::class, 'transfer_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'created_by');
     }
 
     public function fromWarehouse()

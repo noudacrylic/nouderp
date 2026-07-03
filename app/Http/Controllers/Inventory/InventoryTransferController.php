@@ -42,6 +42,7 @@ class InventoryTransferController extends Controller
         }
 
         $transfers = $query
+            ->with('creator:id,name')
             ->latest()
             ->paginate(20)
             ->withQueryString();
@@ -65,7 +66,8 @@ class InventoryTransferController extends Controller
                 'date' => $request->date,
                 'from_warehouse_id' => $request->from_warehouse_id,
                 'to_warehouse_id' => $request->to_warehouse_id,
-                'status' => 'draft'
+                'status' => 'draft',
+                'created_by' => auth()->id(),
             ]);
 
             if ($request->products) {

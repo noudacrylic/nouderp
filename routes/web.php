@@ -490,7 +490,11 @@ Route::prefix('erp/inventory')->group(function () {
     Route::get('/stocks/{product}/shipments', [StockController::class, 'shipments'])->name('inventory.stocks.api.shipments');
     Route::patch('/products/{id}/min-stock', [\App\Http\Controllers\Inventory\ProductMinStockController::class, 'update'])->name('inventory.products.minstock');
     Route::get('/product-stock-adjustment', [StockController::class, 'getStock'])->name('inventory.product-stock');
-    Route::get('/product-stock/{product}/{warehouse}', [InventoryTransferController::class, 'productStock'])->name('product-stock');
+    // Dipakai HANYA oleh halaman Transfer Stok (create/edit) utk cek stok gudang asal.
+    // Namanya harus di bawah `inventory.transfers.*` supaya EnsureMenuAccess mengizinkan
+    // pemegang menu Transfer Stok (mis. divisi Packing) — sebelumnya bernama 'product-stock'
+    // yang terpetakan ke menu 'inventory.warehouses' sehingga kena 403 & stok kebaca 0.
+    Route::get('/product-stock/{product}/{warehouse}', [InventoryTransferController::class, 'productStock'])->name('inventory.transfers.product-stock');
 
     Route::prefix('transfers')->name('inventory.transfers.')->group(function () {
         Route::get('/', [InventoryTransferController::class, 'index'])->name('index');

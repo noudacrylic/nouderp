@@ -27,6 +27,7 @@
             <tr>
                 <th class="px-3 py-2 text-left">No Transfer</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
+                <th class="px-3 py-2 text-left">Divisi</th>
                 <th class="px-3 py-2 text-center">Status</th>
                 <th class="px-3 py-2 text-center w-72">Aksi</th>
             </tr>
@@ -50,6 +51,15 @@
                         @include('erp.purchasing._partials.copy-btn', ['value' => $transfer->number])
                     </td>
                     <td class="px-3 py-2">{{ $transfer->date }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        @if($transfer->creator)
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                                {{ $transfer->creator->name }}
+                            </span>
+                        @else
+                            <span class="text-gray-400 text-xs italic">—</span>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
                         <span class="px-2 py-0.5 rounded text-xs uppercase {{ $statusCls }}">{{ $statusLabel }}</span>
                     </td>
@@ -83,7 +93,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="4" class="px-3 py-6 text-center text-gray-400">Belum ada transfer.</td></tr>
+                <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">Belum ada transfer.</td></tr>
             @endforelse
         </tbody>
     </table>
