@@ -3,8 +3,11 @@
 namespace App\Modules\Assistant\Services;
 
 use App\Core\Accounting\Account;
+use App\Core\Inventory\Product;
 use App\Core\Journal\JournalLine;
 use App\Models\AnthropicSetting;
+use App\Models\Customer;
+use App\Models\CustomerPayment;
 use App\Models\FreightSetting;
 use App\Models\SalesInvoice;
 use App\Models\User;
@@ -13,6 +16,12 @@ use App\Modules\Finance\Models\CashDisbursement;
 use App\Modules\Finance\Models\CashDisbursementLine;
 use App\Modules\Finance\Services\BankTransferService;
 use App\Modules\Finance\Services\CashDisbursementService;
+use App\Modules\Notifications\Services\TelegramNotifier;
+use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Sales\Services\CustomerPaymentService;
+use App\Modules\Sales\Services\PromotionService;
+use App\Modules\Sales\Services\SalesOrderPdfService;
+use App\Modules\Sales\Services\SalesOrderService;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -24,8 +33,9 @@ use Illuminate\Support\Facades\Cache;
  * konfirmasi deterministik (ya/batal) sebelum diposting. /batal mem-void transaksi
  * terakhir (CD atau transfer).
  *
- * Cakupan: Fase 1 = Pengeluaran umum & Prive. Fase 2 = Transfer antar bank.
- * Pembelian supplier, refund, & baca struk menyusul.
+ * Cakupan: Pengeluaran umum & Prive, Transfer antar bank, Bayar ongkir (per faktur),
+ * baca struk (vision), laporan ringkas, serta Sales Order (buat draft → kirim PDF →
+ * post → DP/uang muka). Pembelian supplier berstok & refund masih manual di ERP.
  */
 class AiAccountantService
 {
@@ -33,6 +43,10 @@ class AiAccountantService
         private ClaudeClient $claude,
         private CashDisbursementService $cdService,
         private BankTransferService $btService,
+        private SalesOrderService $soService,
+        private CustomerPaymentService $paymentService,
+        private SalesOrderPdfService $soPdfService,
+        private TelegramNotifier $telegram,
     ) {}
 
     /**
@@ -181,6 +195,15 @@ class AiAccountantService
             'catat_bayar_ongkir'   => $this->toolCatatBayarOngkir($chatId, $input),
             'ringkas_pengeluaran'  => ['content' => $this->toolRingkasPengeluaran($input)],
             'saldo_kas_bank'       => ['content' => $this->toolSaldoKasBank($input)],
+            'cari_pelanggan'       => ['content' => $this->toolCariPelanggan($input)],
+            'buat_pelanggan'       => ['content' => $this->toolBuatPelanggan($input)],
+            'cari_produk'          => ['content' => $this->toolCariProduk($input)],
+            'cek_harga_produk'     => ['content' => $this->toolCekHargaProduk($input)],
+            'cari_so'              => ['content' => $this->toolCariSo($input)],
+            'buat_so_draft'        => $this->toolBuatSoDraft($chatId, $input),
+            'edit_so_draft'        => $this->toolEditSoDraft($chatId, $input),
+            'post_so'              => $this->toolPostSo($chatId, $input),
+            'catat_dp'             => $this->toolCatatDp($chatId, $input),
             default                => ['content' => 'Tool tidak dikenal: ' . $name],
         };
     }
@@ -573,6 +596,409 @@ class AiAccountantService
         };
     }
 
+    // ───────────────────────── Sales Order (buat → PDF → post) & DP ─────────────────────────
+
+    private function toolCariPelanggan(array $input): string
+    {
+        $kw = trim((string) ($input['keyword'] ?? ''));
+
+        $rows = Customer::query()
+            ->where('is_active', 1)
+            ->when($kw !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('name', 'like', "%{$kw}%")->orWhere('code', 'like', "%{$kw}%")))
+            ->orderBy('name')->limit(10)->get(['id', 'name', 'code']);
+
+        if ($rows->isEmpty()) {
+            return "Tidak ada pelanggan cocok dengan '{$kw}'. Tawarkan buat_pelanggan bila ini pelanggan baru.";
+        }
+
+        return $rows->map(fn ($c) => "id={$c->id} | {$c->name}" . ($c->code ? " ({$c->code})" : ''))->implode("\n");
+    }
+
+    private function toolBuatPelanggan(array $input): string
+    {
+        $nama = trim((string) ($input['nama'] ?? ''));
+        if ($nama === '') {
+            return 'Gagal: nama pelanggan wajib diisi.';
+        }
+
+        // Hindari duplikat nama persis.
+        if ($dup = Customer::where('name', $nama)->where('is_active', 1)->first()) {
+            return "Pelanggan '{$nama}' sudah ada (id={$dup->id}). Pakai yang ini saja.";
+        }
+
+        $cust = Customer::create([
+            'code'      => 'CUST-' . time(),
+            'name'      => $nama,
+            'phone'     => trim((string) ($input['telepon'] ?? '')) ?: null,
+            'address'   => trim((string) ($input['alamat'] ?? '')) ?: null,
+            'is_active' => 1,
+        ]);
+
+        return "Pelanggan baru dibuat: id={$cust->id} | {$cust->name}. Lanjut buat SO dengan customer_id={$cust->id}.";
+    }
+
+    private function toolCariProduk(array $input): string
+    {
+        $kw = trim((string) ($input['keyword'] ?? ''));
+
+        $rows = Product::query()
+            ->where('is_active', 1)
+            ->where('is_sellable', true)
+            ->when($kw !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('name', 'like', "%{$kw}%")->orWhere('sku', 'like', "%{$kw}%")))
+            ->orderBy('name')->limit(10)->get();
+
+        if ($rows->isEmpty()) {
+            return "Tidak ada produk 'Dijual' yang cocok dengan '{$kw}'.";
+        }
+
+        return $rows->map(function ($p) {
+            $harga  = 'Rp ' . number_format((float) ($p->display_price ?? 0), 0, ',', '.');
+            $custom = in_array($p->sale_type, ['custom', 'preorder'], true)
+                ? ' | CUSTOM (minta nama/spesifikasi produk ke user utk field description item)'
+                : '';
+            return "id={$p->id} | " . ($p->sku ? "{$p->sku} " : '') . "{$p->name} | harga {$harga}"
+                . ($p->base_unit ? " | satuan {$p->base_unit}" : '') . $custom;
+        })->implode("\n");
+    }
+
+    private function toolCekHargaProduk(array $input): string
+    {
+        $kw  = trim((string) ($input['keyword'] ?? ''));
+        $qty = max(1.0, (float) ($input['qty'] ?? 1));
+        if ($kw === '') {
+            return 'Sebutkan SKU atau nama produk yang mau dicek harganya.';
+        }
+
+        // Prioritas: cocok SKU persis → kalau tidak, cari mirip (SKU/nama).
+        $product = Product::where('is_active', 1)->where('sku', $kw)->first();
+        if (! $product) {
+            $rows = Product::where('is_active', 1)
+                ->where(fn ($w) => $w->where('sku', 'like', "%{$kw}%")->orWhere('name', 'like', "%{$kw}%"))
+                ->orderBy('name')->limit(8)->get();
+
+            if ($rows->isEmpty()) {
+                return "Produk '{$kw}' tidak ditemukan.";
+            }
+            if ($rows->count() > 1) {
+                return "Ada beberapa produk cocok '{$kw}', sebutkan yang mana (pakai SKU):\n"
+                    . $rows->map(fn ($p) => '• ' . ($p->sku ? "{$p->sku} — " : '') . $p->name)->implode("\n");
+            }
+            $product = $rows->first();
+        }
+
+        $base = (float) ($product->display_price ?? 0);
+
+        // Diskon dari promo item aktif (auto-apply). qty menyesuaikan (nominal = per unit).
+        $m = null;
+        try {
+            $promoMap = app(PromotionService::class)->resolveItemDiscounts([
+                ['product_id' => $product->id, 'qty' => $qty, 'unit_price' => $base],
+            ]);
+            $m = $promoMap[$product->id] ?? null;
+        } catch (\Throwable $e) {
+            // Kalau modul promo error, tetap tampilkan harga tanpa diskon.
+        }
+
+        $disc     = $m ? (float) ($m['discount_amount'] ?? 0) : 0.0;   // total untuk qty
+        $subtotal = round($base * $qty, 2);
+        $total    = max(0, round($subtotal - $disc, 2));
+        $rp       = fn ($n) => 'Rp ' . number_format((float) $n, 0, ',', '.');
+        $label    = ($product->sku ? "{$product->sku} — " : '') . $product->name;
+        $promoNm  = $m['promotion_name'] ?? null;
+
+        if ($qty > 1) {
+            $out  = "{$label} (× " . rtrim(rtrim(number_format($qty, 2, ',', '.'), '0'), ',') . ")\n";
+            $out .= 'Harga satuan: ' . $rp($base) . "\n";
+            $out .= 'Subtotal: ' . $rp($subtotal) . "\n";
+        } else {
+            $out  = "{$label}\n";
+            $out .= 'Harga utama: ' . $rp($base) . "\n";
+        }
+        $out .= $disc > 0
+            ? 'Diskon' . ($promoNm ? " ({$promoNm})" : '') . ': -' . $rp($disc) . "\n"
+            : "Diskon: tidak ada promo aktif\n";
+        $out .= 'Harga total: ' . $rp($total);
+
+        return $out;
+    }
+
+    private function toolCariSo(array $input): string
+    {
+        $kw = trim((string) ($input['keyword'] ?? ''));
+
+        $rows = SalesOrder::with('customer')
+            ->where('status', 'confirmed')
+            ->when($kw !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('order_number', 'like', "%{$kw}%")
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$kw}%"))))
+            ->orderByDesc('order_date')->limit(10)->get()
+            ->filter(fn ($so) => round((float) $so->grand_total - (float) $so->paid_amount, 2) > 0)
+            ->values();
+
+        if ($rows->isEmpty()) {
+            return 'Tidak ada SO ter-post (confirmed) dengan sisa tagihan' . ($kw !== '' ? " cocok '{$kw}'" : '') . '.';
+        }
+
+        return $rows->map(function ($so) {
+            $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
+            return "so_id={$so->id} | {$so->order_number} | " . ($so->customer->name ?? '-')
+                . ' | sisa Rp ' . number_format($sisa, 0, ',', '.');
+        })->implode("\n");
+    }
+
+    /** Bentuk dto item dari input tool → array untuk SalesOrderService. */
+    private function mapSoItems(array $input): array
+    {
+        $items = [];
+        foreach ((array) ($input['items'] ?? []) as $it) {
+            if (empty($it['product_id'])) continue;
+            $items[] = [
+                'product_id'     => (int) $it['product_id'],
+                'qty'            => (float) ($it['qty'] ?? 0),
+                'unit_price'     => $it['unit_price'] ?? 0,
+                'discount_type'  => ($it['discount_type'] ?? 'nominal') === 'percent' ? 'percent' : 'nominal',
+                'discount_value' => $it['discount_value'] ?? 0,
+                'description'    => trim((string) ($it['description'] ?? '')) ?: null,
+            ];
+        }
+        return $items;
+    }
+
+    /** Susun dto pengiriman (metode + kurir manual + ongkir + diskon) dari input tool. */
+    private function mapSoShipping(array $input): array
+    {
+        $method = ($input['metode_pengiriman'] ?? 'kurir') === 'ambil_toko' ? 'ambil_toko' : 'kurir';
+        $dto = ['delivery_method' => $method];
+        if ($method === 'kurir') {
+            $dto['courier_name']            = trim((string) ($input['kurir'] ?? '')) ?: null;
+            $dto['shipping_gross']          = $input['ongkir'] ?? 0;
+            $dto['shipping_discount_type']  = ($input['diskon_ongkir_tipe'] ?? 'nominal') === 'percent' ? 'percent' : 'nominal';
+            $dto['shipping_discount_value'] = $input['diskon_ongkir_nilai'] ?? 0;
+        }
+        return $dto;
+    }
+
+    private function toolBuatSoDraft(string $chatId, array $input): array
+    {
+        $customerId = (int) ($input['customer_id'] ?? 0);
+        if (! $customerId || ! Customer::find($customerId)) {
+            return ['content' => 'Gagal: customer_id tidak valid. Pakai cari_pelanggan / buat_pelanggan dulu.'];
+        }
+        $items = $this->mapSoItems($input);
+        if (empty($items)) {
+            return ['content' => 'Gagal: minimal satu item (product_id + qty) diperlukan. Pakai cari_produk dulu.'];
+        }
+
+        $dto = array_merge([
+            'customer_id'           => $customerId,
+            'notes'                 => trim((string) ($input['catatan'] ?? '')) ?: null,
+            'global_discount_type'  => ($input['diskon_total_tipe'] ?? 'nominal') === 'percent' ? 'percent' : 'nominal',
+            'global_discount_value' => $input['diskon_total_nilai'] ?? 0,
+            'items'                 => $items,
+        ], $this->mapSoShipping($input));
+
+        try {
+            $so = $this->soService->createDraftFromData($dto);
+        } catch (\Throwable $e) {
+            return ['content' => 'Gagal membuat SO: ' . $e->getMessage()];
+        }
+
+        Cache::put($this->soKey($chatId), $so->id, $this->soTtl());
+
+        $pdfNote = $this->sendSoPdf($chatId, $so, "📄 Draft {$so->order_number} — silakan diteruskan ke pembeli. Balas <b>post</b> bila sudah oke.");
+
+        return ['content' => "SO draft dibuat (id={$so->id}, nomor {$so->order_number}).\n"
+            . $this->soSummary($so) . "\n{$pdfNote}\n"
+            . 'Sampaikan ke user bahwa PDF sudah dikirim & bisa diteruskan ke pembeli; jangan di-post sebelum user bilang "post".'];
+    }
+
+    private function toolEditSoDraft(string $chatId, array $input): array
+    {
+        $soId = (int) ($input['so_id'] ?? 0) ?: (int) Cache::get($this->soKey($chatId), 0);
+        if (! $soId) {
+            return ['content' => 'Gagal: tidak ada SO aktif untuk diedit. Sebutkan so_id atau buat SO dulu.'];
+        }
+
+        $dto = [];
+        if (array_key_exists('items', $input)) {
+            $dto['items'] = $this->mapSoItems($input);
+        }
+        if (array_key_exists('catatan', $input)) {
+            $dto['notes'] = trim((string) $input['catatan']) ?: null;
+        }
+        if (array_key_exists('customer_id', $input) && (int) $input['customer_id'] > 0) {
+            $dto['customer_id'] = (int) $input['customer_id'];
+        }
+        if (array_key_exists('diskon_total_nilai', $input) || array_key_exists('diskon_total_tipe', $input)) {
+            $dto['global_discount_type']  = ($input['diskon_total_tipe'] ?? 'nominal') === 'percent' ? 'percent' : 'nominal';
+            $dto['global_discount_value'] = $input['diskon_total_nilai'] ?? 0;
+        }
+        if (array_key_exists('metode_pengiriman', $input) || array_key_exists('kurir', $input) || array_key_exists('ongkir', $input)) {
+            $dto = array_merge($dto, $this->mapSoShipping($input));
+        }
+
+        try {
+            $so = $this->soService->updateDraftFromData($soId, $dto);
+        } catch (\Throwable $e) {
+            return ['content' => 'Gagal mengedit SO: ' . $e->getMessage()];
+        }
+
+        Cache::put($this->soKey($chatId), $so->id, $this->soTtl());
+
+        $pdfNote = $this->sendSoPdf($chatId, $so, "📄 Revisi {$so->order_number} — versi terbaru untuk diteruskan ke pembeli.");
+
+        return ['content' => "SO {$so->order_number} diperbarui.\n" . $this->soSummary($so) . "\n{$pdfNote}"];
+    }
+
+    private function toolPostSo(string $chatId, array $input): array
+    {
+        $soId = (int) ($input['so_id'] ?? 0) ?: (int) Cache::get($this->soKey($chatId), 0);
+        if (! $soId) {
+            return ['content' => 'Gagal: tidak ada SO aktif untuk di-post. Sebutkan so_id.'];
+        }
+
+        $so = SalesOrder::find($soId);
+        if (! $so) {
+            return ['content' => "Gagal: SO id={$soId} tidak ditemukan."];
+        }
+        if ($so->status !== 'draft') {
+            return ['content' => "SO {$so->order_number} statusnya bukan draft (sekarang: {$so->status}), tidak bisa di-post lagi."];
+        }
+
+        try {
+            $this->soService->confirm($so->id);
+        } catch (\Throwable $e) {
+            return ['content' => 'Gagal post SO: ' . $e->getMessage()];
+        }
+
+        $so->refresh();
+        $extra = $so->delivery_method === 'ambil_toko' && $so->pickup_code
+            ? "\nKode ambil di toko: <b>{$so->pickup_code}</b>."
+            : '';
+
+        return [
+            'content'         => "SO {$so->order_number} berhasil di-post (dikonfirmasi, stok direservasi).{$extra}",
+            '_posted_summary' => "✅ <b>SO diposting</b>: {$so->order_number}\n" . $this->soSummary($so) . $extra,
+        ];
+    }
+
+    private function toolCatatDp(string $chatId, array $input): array
+    {
+        $soId    = (int) ($input['so_id'] ?? 0) ?: (int) Cache::get($this->soKey($chatId), 0);
+        $nominal = round((float) clean_number($input['nominal'] ?? 0), 2);
+        $kasId   = (int) ($input['kas_account_id'] ?? 0);
+        $tgl     = trim((string) ($input['tanggal'] ?? '')) ?: now()->format('Y-m-d');
+        $notes   = trim((string) ($input['catatan'] ?? '')) ?: null;
+
+        $so = SalesOrder::find($soId);
+        if (! $so) {
+            return ['content' => 'Gagal: SO tidak ditemukan. Sebutkan so_id yang benar.'];
+        }
+        if ($so->status !== 'confirmed') {
+            return ['content' => "Gagal: SO {$so->order_number} harus di-post (confirmed) dulu sebelum DP dicatat. Statusnya sekarang: {$so->status}."];
+        }
+        $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
+        if ($sisa <= 0) {
+            return ['content' => "SO {$so->order_number} sudah lunas/tidak ada sisa tagihan. Tidak perlu DP."];
+        }
+        if ($nominal <= 0) {
+            return ['content' => 'Gagal: nominal DP harus lebih dari 0.'];
+        }
+        if ($nominal > $sisa + 0.01) {
+            return ['content' => 'Gagal: nominal DP (Rp ' . number_format($nominal, 0, ',', '.') . ') melebihi sisa tagihan SO (Rp ' . number_format($sisa, 0, ',', '.') . ').'];
+        }
+
+        $kas = Account::find($kasId);
+        if (! $kas) {
+            return ['content' => "Gagal: rekening id={$kasId} tidak ditemukan. Pakai cari_akun jenis=kas_bank."];
+        }
+        if (! (int) $kas->is_cash_account) {
+            return ['content' => "Gagal: {$kas->name} bukan rekening kas/bank."];
+        }
+
+        try {
+            $payment = $this->paymentService->create([
+                'customer_id'     => $so->customer_id,
+                'date'            => $tgl,
+                'cash_account_id' => $kas->id,
+                'amount'          => $nominal,
+                'payment_type'    => 'advance',
+                'sales_order_id'  => $so->id,
+                'notes'           => $notes,
+            ]);
+        } catch (\Throwable $e) {
+            return ['content' => 'Gagal membuat draft DP: ' . $e->getMessage()];
+        }
+
+        $rp      = 'Rp ' . number_format($nominal, 0, ',', '.');
+        $cust    = $so->customer->name ?? '-';
+        $summary = "DP {$so->order_number} ({$cust})\n{$rp} → {$kas->name} · {$tgl}";
+
+        if ($nominal > $this->threshold()) {
+            Cache::put($this->pendingKey($chatId), [
+                'kind'    => 'dp',
+                'id'      => $payment->id,
+                'so_id'   => $so->id,
+                'number'  => $payment->payment_number,
+                'summary' => $summary,
+            ], $this->ttl());
+
+            return [
+                '_halt'   => true,
+                'message' => '⚠️ Perlu konfirmasi (di atas ' . $this->thresholdLabel() . "):\n\n{$summary}\n\n"
+                    . 'Balas <b>ya</b> untuk posting DP atau <b>batal</b> untuk membatalkan.',
+            ];
+        }
+
+        try {
+            $this->paymentService->post($payment->id, null, [], [$so->id], false);
+        } catch (\Throwable $e) {
+            return ['content' => 'Draft DP dibuat tapi gagal posting: ' . $e->getMessage()];
+        }
+
+        return [
+            'content'         => "DP diposting (nomor {$payment->payment_number}). {$summary}",
+            '_posted_summary' => "✅ <b>DP diposting</b>: {$payment->payment_number}\n{$summary}",
+        ];
+    }
+
+    /** Render & kirim PDF SO ke chat. Return catatan status (untuk konteks model). */
+    private function sendSoPdf(string $chatId, SalesOrder $so, string $caption): string
+    {
+        try {
+            $pdf = $this->soPdfService->render($so);
+            $ok  = $this->telegram->sendDocument($chatId, $pdf, $this->soPdfService->filename($so), $caption);
+            return $ok ? '(PDF SO sudah dikirim ke Telegram.)'
+                       : '(Catatan: PDF gagal dikirim ke Telegram — mungkin bot belum diset. Sampaikan ini ke user.)';
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Gagal render PDF SO utk Telegram: ' . $e->getMessage());
+            return '(Catatan: PDF tidak bisa dibuat saat ini. SO tetap tersimpan; user bisa cetak dari ERP.)';
+        }
+    }
+
+    /** Ringkasan SO untuk balasan Telegram (HTML). */
+    private function soSummary(SalesOrder $so): string
+    {
+        $so->loadMissing('items', 'customer');
+        $lines = [];
+        foreach ($so->items as $it) {
+            $nama = $it->description ?: ($it->product->name ?? 'Item');
+            $lines[] = '• ' . $nama . ' × ' . rtrim(rtrim(number_format((float) $it->qty, 2, ',', '.'), '0'), ',')
+                . ' = Rp ' . number_format((float) $it->line_total, 0, ',', '.');
+        }
+        $kirim = $so->delivery_method === 'ambil_toko'
+            ? 'Ambil di toko'
+            : ('Kurir' . ($so->shipping_service_name ? ' ' . $so->shipping_service_name : '')
+                . ' · ongkir Rp ' . number_format((float) $so->shipping_cost, 0, ',', '.'));
+
+        return 'Pelanggan: ' . ($so->customer->name ?? '-') . "\n"
+            . implode("\n", $lines) . "\n"
+            . "Pengiriman: {$kirim}\n"
+            . 'Total: <b>Rp ' . number_format((float) $so->grand_total, 0, ',', '.') . '</b>';
+    }
+
     // ───────────────────────── Konfirmasi & void ─────────────────────────
 
     private function resolvePending(string $chatId, string $text, array $pending): string
@@ -591,7 +1017,13 @@ class AiAccountantService
 
         $this->forgetPending($chatId);
         $kind = $pending['kind'] ?? 'cd';
-        $doc  = $this->findDoc($kind, (int) ($pending['id'] ?? 0));
+
+        // DP (uang muka) punya alur post tersendiri (butuh SO id) → tangani terpisah.
+        if ($kind === 'dp') {
+            return $this->resolvePendingDp($chatId, $isYes, $pending);
+        }
+
+        $doc = $this->findDoc($kind, (int) ($pending['id'] ?? 0));
 
         if (! $doc || ! $doc->isDraft()) {
             $this->forgetConversation($chatId);
@@ -614,6 +1046,34 @@ class AiAccountantService
         $this->forgetConversation($chatId);
 
         return "✅ <b>Diposting</b>: {$doc->number}\n{$pending['summary']}\n\n↩️ /batal untuk membatalkan.";
+    }
+
+    /** Konfirmasi DP: post lewat CustomerPaymentService (butuh SO id). Tidak wire /batal (void DP di ERP). */
+    private function resolvePendingDp(string $chatId, bool $isYes, array $pending): string
+    {
+        $payment = CustomerPayment::find((int) ($pending['id'] ?? 0));
+
+        if (! $payment || $payment->status !== 'draft') {
+            $this->forgetConversation($chatId);
+            return 'DP sudah tidak bisa diproses (mungkin sudah berubah). Silakan ulangi.';
+        }
+
+        if (! $isYes) {
+            $payment->delete();
+            $this->forgetConversation($chatId);
+            return '❌ Dibatalkan. DP tidak dibukukan.';
+        }
+
+        try {
+            $this->paymentService->post($payment->id, null, [], [(int) ($pending['so_id'] ?? 0)], false);
+        } catch (\Throwable $e) {
+            return '❌ Gagal posting DP: ' . $e->getMessage();
+        }
+
+        $this->forgetConversation($chatId);
+
+        return "✅ <b>DP diposting</b>: {$payment->payment_number}\n{$pending['summary']}\n\n"
+            . '<i>Untuk membatalkan DP, void di menu Pembayaran ERP.</i>';
     }
 
     private function voidLast(string $chatId): string
@@ -687,7 +1147,16 @@ KEMAMPUAN SAAT INI:
 2. TRANSFER ANTAR REKENING kas/bank SENDIRI — mis. pindah dana BCA → Mandiri (pakai catat_transfer_bank).
 3. BAYAR ONGKIR (titipan per faktur) — pelunasan titipan ongkir sebuah faktur penjualan ke kurir (cari_faktur_ongkir → catat_bayar_ongkir). Hanya untuk SATU faktur; banyak faktur sekaligus → arahkan ke menu Bayar Ongkir di ERP.
 4. BACA FOTO STRUK/NOTA — baca total, tanggal, dan keterangannya, lalu catat sebagai PENGELUARAN (alur sama: cari akun beban yang sesuai, tanya sumber kas bila belum jelas, lalu catat_pengeluaran).
-5. JAWAB pertanyaan ringkas — total pengeluaran periode (ringkas_pengeluaran) & saldo kas/bank (saldo_kas_bank). Cukup panggil tool lalu sampaikan hasilnya; tidak ada yang diposting.
+5. JAWAB pertanyaan ringkas — total pengeluaran periode (ringkas_pengeluaran), saldo kas/bank (saldo_kas_bank), & CEK HARGA PRODUK (cek_harga_produk: harga utama + diskon promo + harga total dari SKU/nama). Cukup panggil tool lalu sampaikan hasilnya; tidak ada yang diposting.
+6. BUAT PESANAN PENJUALAN (SO) → PDF → POST → DP:
+   a. Cari/buat pelanggan (cari_pelanggan → kalau tak ada, buat_pelanggan) dan cari produk (cari_produk) untuk dapat id + harga.
+   b. buat_so_draft → membuat SO DRAFT lalu OTOMATIS mengirim PDF-nya ke chat ini. Sampaikan bahwa PDF sudah dikirim & bisa diteruskan ke pembeli. Kalau harga tidak disebut, pakai harga jual produk.
+      • PRODUK CUSTOM: banyak barang dijual lewat produk custom (mis. SKU "Custom 6"/"CS 6") yang namanya diganti per pesanan. Kalau user pilih produk custom (ditandai CUSTOM di hasil cari_produk) atau menyebut nama/spesifikasi produk spesifik, ISI field `description` item dengan nama itu — mis. "Akrilik Sign Dilarang Merokok 3mm 16x30". Nama ini yang muncul di SO & PDF (menggantikan nama master). Untuk mengganti nama item belakangan, pakai edit_so_draft (kirim ulang items dengan description baru). Produk biasa: description dikosongkan.
+   c. Revisi: bila user minta ubah (qty/item/ongkir/diskon), pakai edit_so_draft (PDF dikirim ulang). Bila mengirim daftar item, kirim SELURUH item versi final.
+   d. POST: JANGAN mem-post sendiri. Hanya panggil post_so kalau user secara eksplisit bilang "post"/"konfirmasi"/"oke post". Sebelum itu biarkan tetap draft supaya user bisa teruskan PDF & minta revisi.
+   e. DP/uang muka: setelah SO di-post & pembeli bayar, user meneruskan bukti transfer (teks atau FOTO). Baca nominalnya, tentukan rekening kas/bank tujuan via cari_akun jenis=kas_bank, lalu catat_dp. Kalau SO-nya bukan yang terakhir dibuat / lupa, pakai cari_so untuk temukan so_id-nya.
+
+Pengiriman SO: hanya "kurir" (kurir MANUAL — user isi nama kurir spt "JNT Cargo" + ongkir + diskon ongkir; TIDAK ada cek ongkir otomatis) atau "ambil_toko". Metode "instant" BELUM didukung — kalau user minta instant, jelaskan belum ada & tawarkan kurir manual atau ambil di toko.
 
 Untuk refund customer & pembelian barang dagangan/stok dari supplier (yang menambah stok): katakan itu dicatat manual di ERP, belum didukung lewat chat — jangan dipaksakan.
 
@@ -707,7 +1176,9 @@ ATURAN:
 - Jika hasil cari_akun lebih dari satu yang relevan dan ambigu, tanyakan user mana yang dimaksud.
 - Jika akun Prive tidak ditemukan, beri tahu user agar dibuat dulu di Bagan Akun.
 - Parse nominal Indonesia: "20rb"/"20k"/"20.000" = 20000; "1,5jt"/"1.5jt" = 1500000.
-- Nominal di atas {$amb} otomatis butuh konfirmasi user (sistem yang menangani setelah kamu memanggil tool catat) — kamu tidak perlu minta konfirmasi sendiri.
+- Nominal di atas {$amb} otomatis butuh konfirmasi user (sistem yang menangani setelah kamu memanggil tool catat/DP) — kamu tidak perlu minta konfirmasi sendiri. (Membuat SO draft & mem-post SO TIDAK pakai ambang; post hanya atas perintah user.)
+- SO: JANGAN mengarang customer_id atau product_id — selalu lewat cari_pelanggan/buat_pelanggan & cari_produk. Konfirmasikan ringkas isi pesanan sebelum buat_so_draft bila ada yang ambigu.
+- DP hanya untuk SO yang sudah confirmed (di-post). Kalau user mau DP tapi SO masih draft, ingatkan untuk post dulu.
 - Setelah semua id akun & nominal jelas, panggil tool yang sesuai. Balas singkat, ramah, dan to the point.
 TXT;
     }
@@ -828,6 +1299,179 @@ TXT;
                     'required' => [],
                 ],
             ],
+            [
+                'name'        => 'cari_pelanggan',
+                'description' => 'Cari pelanggan/customer berdasarkan nama atau kode untuk mendapat customer_id sebelum membuat SO. '
+                    . 'Bila tidak ada yang cocok, tawarkan buat_pelanggan.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'keyword' => ['type' => 'string', 'description' => 'Nama atau kode pelanggan.'],
+                    ],
+                    'required' => ['keyword'],
+                ],
+            ],
+            [
+                'name'        => 'buat_pelanggan',
+                'description' => 'Buat pelanggan baru bila belum ada di database. Cukup nama; telepon & alamat opsional '
+                    . '(bisa dilengkapi nanti di ERP). Pakai hanya setelah cari_pelanggan tidak menemukan yang cocok.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'nama'    => ['type' => 'string', 'description' => 'Nama pelanggan.'],
+                        'telepon' => ['type' => 'string', 'description' => 'Nomor telepon/HP (opsional).'],
+                        'alamat'  => ['type' => 'string', 'description' => 'Alamat (opsional).'],
+                    ],
+                    'required' => ['nama'],
+                ],
+            ],
+            [
+                'name'        => 'cari_produk',
+                'description' => 'Cari produk yang boleh dijual (nama/SKU) untuk mendapat product_id, harga jual, & satuan '
+                    . 'sebelum menambahkannya ke item SO.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'keyword' => ['type' => 'string', 'description' => 'Nama atau SKU produk.'],
+                    ],
+                    'required' => ['keyword'],
+                ],
+            ],
+            [
+                'name'        => 'buat_so_draft',
+                'description' => 'Buat Sales Order (SO / Pesanan Penjualan) berstatus DRAFT lalu KIRIM PDF-nya ke chat '
+                    . 'untuk diteruskan ke pembeli. JANGAN memposting — hanya draft. Panggil setelah customer_id (via '
+                    . 'cari_pelanggan/buat_pelanggan) dan semua product_id (via cari_produk) jelas. unit_price default '
+                    . 'ke harga jual produk bila user tidak menyebut harga. Gudang otomatis (gudang utama).',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'customer_id' => ['type' => 'integer', 'description' => 'id pelanggan dari cari_pelanggan/buat_pelanggan.'],
+                        'items' => [
+                            'type'  => 'array',
+                            'description' => 'Baris item SO.',
+                            'items' => [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'product_id'     => ['type' => 'integer', 'description' => 'id produk dari cari_produk.'],
+                                    'qty'            => ['type' => 'number', 'description' => 'Jumlah/kuantitas.'],
+                                    'unit_price'     => ['type' => 'number', 'description' => 'Harga satuan. Kosong/0 = pakai harga jual produk.'],
+                                    'discount_type'  => ['type' => 'string', 'enum' => ['nominal', 'percent'], 'description' => 'Tipe diskon per item (opsional).'],
+                                    'discount_value' => ['type' => 'number', 'description' => 'Nilai diskon per item; nominal = per unit (opsional).'],
+                                    'description'    => ['type' => 'string', 'description' => 'Nama produk custom / nama tampilan item untuk pesanan ini — MENGGANTIKAN nama master di SO & PDF. '
+                                        . 'Isi bila user pilih produk custom (mis. SKU "Custom 6") lalu sebut nama sebenarnya, mis. "Akrilik Sign Dilarang Merokok 3mm 16x30". Kosongkan untuk produk biasa.'],
+                                ],
+                                'required' => ['product_id', 'qty'],
+                            ],
+                        ],
+                        'metode_pengiriman'   => ['type' => 'string', 'enum' => ['kurir', 'ambil_toko'], 'description' => 'Metode kirim. Default kurir. "instant" belum didukung.'],
+                        'kurir'               => ['type' => 'string', 'description' => 'Nama kurir manual bila metode=kurir, mis. "JNT Cargo", "JNE". Default "JNT Cargo".'],
+                        'ongkir'              => ['type' => 'number', 'description' => 'Ongkir kotor (sebelum diskon) bila metode=kurir.'],
+                        'diskon_ongkir_tipe'  => ['type' => 'string', 'enum' => ['nominal', 'percent'], 'description' => 'Tipe diskon ongkir (opsional, default nominal).'],
+                        'diskon_ongkir_nilai' => ['type' => 'number', 'description' => 'Nilai diskon ongkir (opsional).'],
+                        'diskon_total_tipe'   => ['type' => 'string', 'enum' => ['nominal', 'percent'], 'description' => 'Tipe diskon total belanja (opsional).'],
+                        'diskon_total_nilai'  => ['type' => 'number', 'description' => 'Nilai diskon total belanja (opsional).'],
+                        'catatan'             => ['type' => 'string', 'description' => 'Catatan SO (opsional).'],
+                    ],
+                    'required' => ['customer_id', 'items'],
+                ],
+            ],
+            [
+                'name'        => 'edit_so_draft',
+                'description' => 'Revisi SO DRAFT yang barusan dibuat (mis. ganti qty, tambah/kurang item, ubah ongkir/diskon/catatan) '
+                    . 'lalu kirim ulang PDF-nya. so_id opsional (default SO aktif terakhir di chat ini). Bila mengirim "items", '
+                    . 'kirim SELURUH daftar item versi final (item lama diganti total).',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'so_id'       => ['type' => 'integer', 'description' => 'id SO yang diedit (opsional, default SO aktif terakhir).'],
+                        'customer_id' => ['type' => 'integer', 'description' => 'Ganti pelanggan (opsional).'],
+                        'items' => [
+                            'type'  => 'array',
+                            'description' => 'Daftar item FINAL (mengganti semua item lama). Kirim hanya bila item berubah.',
+                            'items' => [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'product_id'     => ['type' => 'integer'],
+                                    'qty'            => ['type' => 'number'],
+                                    'unit_price'     => ['type' => 'number'],
+                                    'discount_type'  => ['type' => 'string', 'enum' => ['nominal', 'percent']],
+                                    'discount_value' => ['type' => 'number'],
+                                    'description'    => ['type' => 'string', 'description' => 'Nama produk custom / nama tampilan item (mengganti nama master). Isi/ubah untuk produk custom.'],
+                                ],
+                                'required' => ['product_id', 'qty'],
+                            ],
+                        ],
+                        'metode_pengiriman'   => ['type' => 'string', 'enum' => ['kurir', 'ambil_toko']],
+                        'kurir'               => ['type' => 'string'],
+                        'ongkir'              => ['type' => 'number'],
+                        'diskon_ongkir_tipe'  => ['type' => 'string', 'enum' => ['nominal', 'percent']],
+                        'diskon_ongkir_nilai' => ['type' => 'number'],
+                        'diskon_total_tipe'   => ['type' => 'string', 'enum' => ['nominal', 'percent']],
+                        'diskon_total_nilai'  => ['type' => 'number'],
+                        'catatan'             => ['type' => 'string'],
+                    ],
+                    'required' => [],
+                ],
+            ],
+            [
+                'name'        => 'post_so',
+                'description' => 'POST / konfirmasi SO draft (reservasi stok). PANGGIL HANYA bila user secara eksplisit '
+                    . 'menyuruh "post"/"konfirmasi"/"gas post". JANGAN otomatis mem-post setelah membuat draft — '
+                    . 'user perlu meneruskan PDF ke pembeli & bisa minta revisi dulu. so_id opsional (default SO aktif).',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'so_id' => ['type' => 'integer', 'description' => 'id SO yang di-post (opsional, default SO aktif terakhir).'],
+                    ],
+                    'required' => [],
+                ],
+            ],
+            [
+                'name'        => 'cek_harga_produk',
+                'description' => 'Cek harga jual sebuah produk berdasarkan SKU atau nama: harga utama, diskon promo aktif (bila ada), '
+                    . 'dan harga total. Untuk pertanyaan seperti "harga produk TBKD-13-T3-M1 berapa?". qty opsional (default 1) '
+                    . 'bila user tanya harga untuk sejumlah unit. Bila SKU/nama cocok ke banyak produk, hasilnya minta user memilih.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'keyword' => ['type' => 'string', 'description' => 'SKU (diutamakan) atau nama produk.'],
+                        'qty'     => ['type' => 'number', 'description' => 'Jumlah unit (opsional, default 1).'],
+                    ],
+                    'required' => ['keyword'],
+                ],
+            ],
+            [
+                'name'        => 'cari_so',
+                'description' => 'Cari Sales Order yang SUDAH di-post (confirmed) & masih punya sisa tagihan, berdasarkan nama '
+                    . 'pelanggan atau nomor SO. Pakai untuk menemukan so_id sebelum catat_dp — terutama bila DP masuk '
+                    . 'belakangan / di sesi berbeda dari saat SO dibuat.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'keyword' => ['type' => 'string', 'description' => 'Nama pelanggan atau nomor SO (opsional; kosong = daftar terbaru).'],
+                    ],
+                    'required' => [],
+                ],
+            ],
+            [
+                'name'        => 'catat_dp',
+                'description' => 'Catat DP / uang muka pembeli untuk sebuah SO yang SUDAH di-post (confirmed). Kredit akun Uang Muka '
+                    . 'Penjualan, debit kas/bank. Sumber DP dari bukti transfer yang diteruskan user (baca nominal dari foto '
+                    . 'bila ada). Panggil setelah so_id jelas & kas via cari_akun jenis=kas_bank. Nominal di atas ambang '
+                    . 'ditahan untuk konfirmasi otomatis oleh sistem.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'so_id'          => ['type' => 'integer', 'description' => 'id SO tujuan DP (opsional, default SO aktif terakhir).'],
+                        'nominal'        => ['type' => 'number', 'description' => 'Nominal DP yang diterima (angka bulat).'],
+                        'kas_account_id' => ['type' => 'integer', 'description' => 'id rekening kas/bank penerima DP (via cari_akun jenis=kas_bank).'],
+                        'tanggal'        => ['type' => 'string', 'description' => 'Tanggal YYYY-MM-DD, kosong = hari ini.'],
+                        'catatan'        => ['type' => 'string', 'description' => 'Catatan (opsional).'],
+                    ],
+                    'required' => ['nominal', 'kas_account_id'],
+                ],
+            ],
         ];
     }
 
@@ -840,10 +1484,16 @@ TXT;
             . "• <i>transfer 5jt dari BCA ke Mandiri</i>\n"
             . "• <i>bayar ongkir pesanan Tama 42rb dari BRI</i> (boleh sebut nama pemesan)\n"
             . "• <i>pengeluaran bulan ini berapa?</i> / <i>saldo BCA?</i>\n"
+            . "• <i>harga produk TBKD-13-T3-M1 berapa?</i> (harga utama, diskon, total)\n"
+            . "🧾 <b>Buat pesanan (SO):</b>\n"
+            . "• <i>buat SO Budi: 10 akrilik A4, kurir JNT Cargo ongkir 20rb</i> → dapat PDF untuk diteruskan ke pembeli\n"
+            . "• produk custom: <i>Custom 6, namanya Akrilik Sign Dilarang Merokok 3mm 16x30, 2pcs 50rb</i>\n"
+            . "• revisi: <i>ganti jadi 12 pcs</i> / <i>ganti nama item jadi ...</i> · lalu <i>post</i> kalau sudah oke\n"
+            . "• DP: forward bukti transfer + <i>DP 500rb ke BCA</i>\n"
             . "📷 atau kirim <b>foto struk</b> untuk dicatat otomatis.\n\n"
             . "Perintah: /batal (batalkan transaksi terakhir) · /baru (mulai ulang percakapan)\n\n"
-            . '<i>Mendukung pengeluaran, prive, transfer antar bank, bayar ongkir (per faktur), baca struk, & cek pengeluaran/saldo. '
-            . 'Pembelian supplier berstok dicatat manual di ERP.</i>';
+            . '<i>Mendukung pengeluaran, prive, transfer antar bank, bayar ongkir (per faktur), baca struk, cek pengeluaran/saldo, '
+            . 'serta buat SO → PDF → post → DP. Pembelian supplier berstok dicatat manual di ERP.</i>';
     }
 
     // ───────────────────────── Util ─────────────────────────
@@ -905,9 +1555,16 @@ TXT;
         return (int) config('services.anthropic.conversation_ttl', 1200);
     }
 
+    /** SO aktif diingat lebih lama (7 hari) supaya DP yang di-forward belakangan tetap bisa default ke SO terakhir. */
+    private function soTtl(): int
+    {
+        return 7 * 24 * 3600;
+    }
+
     private function convKey(string $chatId): string    { return "aiacc:conv:{$chatId}"; }
     private function pendingKey(string $chatId): string  { return "aiacc:pending:{$chatId}"; }
     private function lastKey(string $chatId): string     { return "aiacc:last:{$chatId}"; }
+    private function soKey(string $chatId): string       { return "aiacc:so:{$chatId}"; }
 
     private function saveConversation(string $chatId, array $messages): void
     {

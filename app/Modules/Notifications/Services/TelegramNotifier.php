@@ -95,6 +95,31 @@ class TelegramNotifier
     }
 
     /**
+     * Kirim file (dokumen) ke satu chat — mis. PDF Sales Order untuk diteruskan ke pembeli.
+     * $bytes = isi file mentah. Return true bila terkirim. Tidak pernah throw.
+     */
+    public function sendDocument(?string $chatId, string $bytes, string $filename, string $caption = ''): bool
+    {
+        if (! $this->enabled() || empty($chatId) || $bytes === '') {
+            return false;
+        }
+
+        try {
+            $req = Http::timeout(30)
+                ->attach('document', $bytes, $filename)
+                ->post("https://api.telegram.org/bot{$this->token}/sendDocument", array_filter([
+                    'chat_id'    => $chatId,
+                    'caption'    => $caption !== '' ? $caption : null,
+                    'parse_mode' => 'HTML',
+                ]));
+            return $req->successful();
+        } catch (\Throwable $e) {
+            Log::warning('TelegramNotifier sendDocument gagal: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Unduh file Telegram (mis. foto struk) → ['data' => base64, 'media_type' => '...'].
      * Null bila gagal. Dipakai asisten AI untuk membaca struk (vision).
      */

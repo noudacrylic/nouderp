@@ -1101,53 +1101,20 @@ class SalesOrderController extends Controller
         return view('erp.sales.orders.print-bulk', compact('orders', 'profile', 'indexUrl'));
     }
 
-    public function downloadPdf($id)
+    public function downloadPdf($id, \App\Modules\Sales\Services\SalesOrderPdfService $pdfService)
     {
-        $order = SalesOrder::with(['customer', 'warehouse', 'items.product', 'advances'])->findOrFail($id);
+        $order = SalesOrder::findOrFail($id);
 
         if ($order->status === 'void') {
             return redirect()->route('sales.orders.show', $order->id)
                 ->with('error', 'Sales Order sudah di-void dan tidak boleh dicetak.');
         }
 
-        $this->ensurePaymentLink($order);
-        $profile = \App\Models\BusinessProfile::instance()->load('bankAccounts');
-
-        $html = view('erp.sales.orders.print', [
-            'order'   => $order,
-            'profile' => $profile,
-            'pdfMode' => true,
-        ])->render();
-
-        // Inline aset lokal jadi base64 → hindari deadlock single-worker `php artisan serve`.
-        $html = $this->inlineLocalAssets($html);
-
-        $bs = \Spatie\Browsershot\Browsershot::html($html)
-            ->showBackground()
-            ->format('A4')
-            ->margins(0, 0, 0, 0)
-            ->emulateMedia('print')
-            ->timeout(120)
-            ->waitUntilNetworkIdle();
-
-        $nodePath = env('BROWSERSHOT_NODE_PATH', PHP_OS_FAMILY === 'Windows' ? 'C:\\Program Files\\nodejs\\node.exe' : null);
-        $npmPath  = env('BROWSERSHOT_NPM_PATH',  PHP_OS_FAMILY === 'Windows' ? 'C:\\Program Files\\nodejs\\npm.cmd'  : null);
-        if ($nodePath) $bs->setNodeBinary($nodePath);
-        if ($npmPath)  $bs->setNpmBinary($npmPath);
-
-        // Tanpa ini puppeteer cari Chrome di cache default HOME (kosong di server) → 500.
-        // Path absolut Chrome di-set via env pool php-fpm (lihat SlipGajiController).
-        if ($chromePath = env('BROWSERSHOT_CHROME_PATH')) {
-            $bs->setChromePath($chromePath);
-        }
-
-        $pdf = $bs->pdf();
-
-        $filename = 'PesananPenjualan_' . preg_replace('/[^A-Za-z0-9_-]/', '_', $order->order_number) . '.pdf';
+        $pdf = $pdfService->render($order);
 
         return response($pdf, 200, [
             'Content-Type'        => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="' . $pdfService->filename($order) . '"',
         ]);
     }
 
