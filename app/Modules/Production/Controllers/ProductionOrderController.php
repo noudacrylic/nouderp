@@ -521,7 +521,7 @@ class ProductionOrderController extends Controller
     public function updatePriority(Request $request, int $id)
     {
         $request->validate([
-            'value' => 'required|in:auto,low,medium,high,very_high',
+            'value' => 'required|in:auto,low,medium,high,very_high,urgent',
         ]);
 
         $order = ProductionOrder::findOrFail($id);

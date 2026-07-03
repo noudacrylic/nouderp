@@ -109,6 +109,7 @@
                                     <option value="medium"    {{ $cur === 'medium'    ? 'selected' : '' }}>Sedang</option>
                                     <option value="high"      {{ $cur === 'high'      ? 'selected' : '' }}>Tinggi</option>
                                     <option value="very_high" {{ $cur === 'very_high' ? 'selected' : '' }}>Sangat Tinggi</option>
+                                    <option value="urgent"    {{ $cur === 'urgent'    ? 'selected' : '' }}>Mendesak</option>
                                 </select>
                             </form>
                         @endif

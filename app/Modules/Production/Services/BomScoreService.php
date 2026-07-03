@@ -138,8 +138,10 @@ class BomScoreService
 
         $tersedia = $sellable - $reserved + (float) ($product->preorder_stock ?? 0);
 
+        // Stok minus lebih penting dikerjakan lebih dulu ketimbang preorder (300):
+        // barang sudah kurang/oversold, jadi diberi bobot tertinggi 400.
         if ($tersedia < 0) {
-            return 300;
+            return 400;
         }
         if ($tersedia == 0) {
             return 200;

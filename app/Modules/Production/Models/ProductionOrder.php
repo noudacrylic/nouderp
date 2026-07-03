@@ -78,6 +78,7 @@ class ProductionOrder extends Model
     {
         if ($this->score_type === 'priority') {
             return match($this->priority_level) {
+                'urgent'    => 400.0,
                 'very_high' => 300.0,
                 'high'      => 200.0,
                 'medium'    => 100.0,
@@ -99,6 +100,7 @@ class ProductionOrder extends Model
     public function getPriorityLabelAttribute(): string
     {
         return match($this->priority_level) {
+            'urgent'    => 'Mendesak',
             'very_high' => 'Sangat Tinggi',
             'high'      => 'Tinggi',
             'medium'    => 'Sedang',

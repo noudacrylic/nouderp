@@ -622,6 +622,7 @@
                 $priorityEditable = !in_array($order->status, ['finalized', 'cancelled']);
                 $priorityBadge = $order->score_type === 'priority'
                     ? match($order->priority_level) {
+                        'urgent'    => 'bg-red-600 text-white border-red-700',
                         'very_high' => 'bg-red-50 text-red-700 border-red-200',
                         'high'      => 'bg-orange-50 text-orange-700 border-orange-200',
                         'medium'    => 'bg-amber-50 text-amber-700 border-amber-200',
@@ -650,6 +651,7 @@
                             <option value="medium"    {{ $priorityCurrent === 'medium'    ? 'selected' : '' }}>Sedang</option>
                             <option value="high"      {{ $priorityCurrent === 'high'      ? 'selected' : '' }}>Tinggi</option>
                             <option value="very_high" {{ $priorityCurrent === 'very_high' ? 'selected' : '' }}>Sangat Tinggi</option>
+                            <option value="urgent"    {{ $priorityCurrent === 'urgent'    ? 'selected' : '' }}>Mendesak</option>
                         </select>
                         <p class="text-[10px] text-gray-400 mt-2 leading-snug">Otomatis: antrian mengikuti skor BOM. Manual: urutan sesuai level. Dapat diubah selama produksi berjalan.</p>
                     </form>

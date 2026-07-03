@@ -630,6 +630,7 @@
                             <option value="medium">Sedang (100)</option>
                             <option value="high">Tinggi (200)</option>
                             <option value="very_high">Sangat Tinggi (300)</option>
+                            <option value="urgent">Mendesak (400)</option>
                         </select>
                     </div>
                     <p x-show="scoreType === 'auto'" class="text-[10px] text-gray-400 mt-1">Dihitung otomatis dari BOM + kondisi stok.</p>
