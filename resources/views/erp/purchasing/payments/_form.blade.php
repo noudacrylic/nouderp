@@ -620,7 +620,10 @@
     };
 
     // ── SUBMIT — inject allocations as hidden inputs ────────────────────
-    document.querySelector('form').addEventListener('submit', function(e){
+    // NB: pakai form yang memuat input jumlah, JANGAN querySelector('form')
+    // — form pertama di halaman adalah form logout milik layout, sehingga
+    // handler ini dulu tak pernah jalan & alokasi tak pernah terkirim.
+    amountInput.closest('form').addEventListener('submit', function(e){
         // Hapus hidden allocations lama (kalau resubmit)
         this.querySelectorAll('input[data-alloc]').forEach(el => el.remove());
 
