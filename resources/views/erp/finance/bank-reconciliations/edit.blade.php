@@ -115,6 +115,10 @@
         <div class="text-xs text-gray-500">{{ $br->account->code }} — {{ $br->account->name }} · {{ $br->start_date->format('d M Y') }} – {{ $br->end_date->format('d M Y') }}</div>
     </div>
     <div class="flex items-center gap-2">
+        <button type="button" onclick="openTransferModal()"
+                class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded text-sm font-semibold">
+            + Transfer
+        </button>
         <button type="button" onclick="openQuickModal('disbursement')"
                 class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-semibold">
             + Pengeluaran
@@ -579,6 +583,226 @@ async function submitQuickModal(e) {
             return;
         }
         // Reload page so syncLines pickup transaksi baru
+        window.location.href = QM_BR_EDIT_URL + '?_added=' + encodeURIComponent(j.number);
+    } catch (err) {
+        errBox.textContent = 'Error: ' + err.message;
+        errBox.classList.remove('hidden');
+        submit.disabled = false;
+        submit.textContent = origText;
+    }
+}
+</script>
+
+{{-- ============ QUICK-ADD MODAL: Transfer Antar Bank ============ --}}
+<div id="transferModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-purple-200 bg-purple-50 rounded-t-lg">
+            <h3 class="text-base font-semibold text-purple-800">+ Transfer Antar Bank</h3>
+            <button type="button" onclick="closeTransferModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+        </div>
+        <form id="transferModalForm" onsubmit="submitTransferModal(event)" class="p-4 space-y-3 text-sm">
+            <div id="tmError" class="hidden bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded text-xs"></div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Tanggal <span class="text-red-500">*</span></label>
+                    <input type="date" id="tmDate" required
+                           min="{{ $br->start_date->format('Y-m-d') }}"
+                           max="{{ $br->end_date->format('Y-m-d') }}"
+                           value="{{ now()->between($br->start_date, $br->end_date) ? now()->format('Y-m-d') : $br->end_date->format('Y-m-d') }}"
+                           class="border rounded px-2 h-9 w-full">
+                    <div class="text-[10px] text-gray-400 mt-0.5">Wajib di periode {{ $br->start_date->format('d M') }} – {{ $br->end_date->format('d M Y') }}</div>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Jumlah (Rp) <span class="text-red-500">*</span></label>
+                    <input type="text" inputmode="numeric" id="tmAmount" required
+                           class="border rounded px-2 h-9 w-full text-right rupiah-input">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Arah Transfer <span class="text-red-500">*</span></label>
+                <div class="grid grid-cols-2 gap-2">
+                    <label class="flex items-center gap-2 border rounded px-2 h-9 cursor-pointer has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+                        <input type="radio" name="tmDirection" value="out" checked class="text-purple-600">
+                        <span class="text-xs">Keluar dari rekening ini</span>
+                    </label>
+                    <label class="flex items-center gap-2 border rounded px-2 h-9 cursor-pointer has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+                        <input type="radio" name="tmDirection" value="in" class="text-purple-600">
+                        <span class="text-xs">Masuk ke rekening ini</span>
+                    </label>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">
+                    <span id="tmCounterLabel">Rekening Tujuan</span> <span class="text-red-500">*</span>
+                </label>
+                <input type="text" id="tmCounterSearch" list="tmCounterList" required
+                       class="border rounded px-2 h-9 w-full" placeholder="Ketik kode/nama rekening kas/bank…">
+                <input type="hidden" id="tmCounterId">
+                <datalist id="tmCounterList"></datalist>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Biaya Admin (Rp)</label>
+                    <input type="text" inputmode="numeric" id="tmAdminFee"
+                           class="border rounded px-2 h-9 w-full text-right rupiah-input" placeholder="0">
+                    <div class="text-[10px] text-gray-400 mt-0.5">Ditanggung rekening sumber.</div>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Akun Beban Admin</label>
+                    <input type="text" id="tmAdminFeeSearch" list="tmAdminFeeList"
+                           class="border rounded px-2 h-9 w-full" placeholder="Wajib jika ada biaya admin">
+                    <input type="hidden" id="tmAdminFeeId" value="{{ $defaultAdminFeeAccountId }}">
+                    <datalist id="tmAdminFeeList"></datalist>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">No. Referensi / Keterangan (opsional)</label>
+                <input type="text" id="tmReference" maxlength="255"
+                       class="border rounded px-2 h-9 w-full" placeholder="Mis. nomor mutasi rekening">
+            </div>
+
+            <div class="bg-gray-50 rounded px-3 py-2 text-xs text-gray-600">
+                <div><b>Rekening ini:</b> {{ $br->account->code }} — {{ $br->account->name }}</div>
+                <div class="mt-0.5">Setelah simpan, transfer langsung POSTED & muncul di tabel rekonsiliasi.</div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2 border-t">
+                <button type="button" onclick="closeTransferModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm">Batal</button>
+                <button type="submit" id="tmSubmit" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm font-semibold">Simpan & Post</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const TM_RECON_ACCOUNT_ID = {{ (int) $br->account_id }};
+const TM_QUICK_URL        = @json(route('finance.cash-bank.reconciliations.quick-transfer'));
+
+const TM_CASH_ACCOUNTS = @json($transferAccounts->map(fn($a) => [
+    'id' => $a->id, 'label' => $a->code . ' — ' . $a->name,
+])->values());
+const TM_EXPENSE_ACCOUNTS = @json($expenseAccounts->map(fn($a) => [
+    'id' => $a->id, 'label' => $a->code . ' — ' . $a->name,
+])->values());
+
+let tmCounterByLabel = {}, tmAdminByLabel = {};
+
+function tmPopulate(listId, accounts, map) {
+    const dl = document.getElementById(listId);
+    dl.innerHTML = '';
+    Object.keys(map).forEach(k => delete map[k]);
+    accounts.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.label;
+        dl.appendChild(opt);
+        map[a.label] = a.id;
+    });
+}
+
+function openTransferModal() {
+    const modal = document.getElementById('transferModal');
+    tmPopulate('tmCounterList', TM_CASH_ACCOUNTS, tmCounterByLabel);
+    tmPopulate('tmAdminFeeList', TM_EXPENSE_ACCOUNTS, tmAdminByLabel);
+
+    document.getElementById('tmError').classList.add('hidden');
+    document.getElementById('tmAmount').value = '';
+    document.getElementById('tmCounterSearch').value = '';
+    document.getElementById('tmCounterId').value = '';
+    document.getElementById('tmAdminFee').value = '';
+    document.getElementById('tmReference').value = '';
+    document.querySelector('input[name="tmDirection"][value="out"]').checked = true;
+    updateCounterLabel();
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => document.getElementById('tmDate').focus(), 50);
+}
+
+function closeTransferModal() {
+    const modal = document.getElementById('transferModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function updateCounterLabel() {
+    const dir = document.querySelector('input[name="tmDirection"]:checked').value;
+    document.getElementById('tmCounterLabel').textContent = dir === 'out' ? 'Rekening Tujuan' : 'Rekening Sumber';
+}
+
+document.querySelectorAll('input[name="tmDirection"]').forEach(r =>
+    r.addEventListener('change', updateCounterLabel));
+
+document.getElementById('tmCounterSearch').addEventListener('input', (e) => {
+    document.getElementById('tmCounterId').value = tmCounterByLabel[e.target.value] || '';
+});
+document.getElementById('tmAdminFeeSearch').addEventListener('input', (e) => {
+    document.getElementById('tmAdminFeeId').value = tmAdminByLabel[e.target.value] || '';
+});
+
+document.getElementById('transferModal').addEventListener('click', (e) => {
+    if (e.target.id === 'transferModal') closeTransferModal();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !document.getElementById('transferModal').classList.contains('hidden')) {
+        closeTransferModal();
+    }
+});
+
+async function submitTransferModal(e) {
+    e.preventDefault();
+    const errBox = document.getElementById('tmError');
+    errBox.classList.add('hidden');
+
+    const counterId = document.getElementById('tmCounterId').value;
+    if (!counterId) {
+        errBox.textContent = 'Rekening lawan harus dipilih dari daftar.';
+        errBox.classList.remove('hidden');
+        return;
+    }
+    const adminFee = window.cleanNumber(document.getElementById('tmAdminFee').value) || 0;
+    const adminFeeId = document.getElementById('tmAdminFeeId').value;
+    if (adminFee > 0 && !adminFeeId) {
+        errBox.textContent = 'Akun beban admin wajib dipilih saat ada biaya admin.';
+        errBox.classList.remove('hidden');
+        return;
+    }
+
+    const submit = document.getElementById('tmSubmit');
+    const origText = submit.textContent;
+    submit.disabled = true;
+    submit.textContent = 'Menyimpan…';
+
+    const fd = new FormData();
+    fd.append('_token', QM_CSRF);
+    fd.append('date', document.getElementById('tmDate').value);
+    fd.append('reconciliation_account_id', TM_RECON_ACCOUNT_ID);
+    fd.append('direction', document.querySelector('input[name="tmDirection"]:checked').value);
+    fd.append('counterparty_account_id', counterId);
+    fd.append('amount', window.cleanNumber(document.getElementById('tmAmount').value));
+    fd.append('admin_fee', adminFee);
+    if (adminFeeId) fd.append('admin_fee_account_id', adminFeeId);
+    fd.append('reference', document.getElementById('tmReference').value);
+    fd.append('notes', document.getElementById('tmReference').value);
+
+    try {
+        const res = await fetch(TM_QUICK_URL, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': QM_CSRF },
+            body: fd,
+        });
+        const j = await res.json();
+        if (!res.ok || !j.success) {
+            errBox.textContent = j.error || ('HTTP ' + res.status);
+            errBox.classList.remove('hidden');
+            submit.disabled = false;
+            submit.textContent = origText;
+            return;
+        }
         window.location.href = QM_BR_EDIT_URL + '?_added=' + encodeURIComponent(j.number);
     } catch (err) {
         errBox.textContent = 'Error: ' + err.message;

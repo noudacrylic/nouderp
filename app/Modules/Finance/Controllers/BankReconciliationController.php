@@ -5,6 +5,7 @@ namespace App\Modules\Finance\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Finance\Models\BankReconciliation;
 use App\Modules\Finance\Services\BankReconciliationService;
+use App\Modules\Finance\Services\BankTransferService;
 use App\Core\Accounting\Account;
 use App\Core\Journal\JournalLine;
 use App\Models\MarketplaceConfig;
@@ -186,8 +187,21 @@ class BankReconciliationController extends Controller
         $revenueAccounts = Account::where('type', 'revenue')
             ->where('is_active', 1)->orderBy('code')->get();
 
+        // Akun kas lawan untuk modal quick-add Transfer Bank: semua kas/bank aktif
+        // KECUALI rekening yang sedang direkonsiliasi. Akun kelolaan marketplace
+        // (Saldo Penjualan Marketplace) SENGAJA diikutkan — pemindahan saldo dari
+        // wallet marketplace ke bank adalah transfer antar-kas yang sah.
+        $transferAccounts = Account::where('is_cash_account', 1)
+            ->where('is_active', 1)
+            ->where('id', '!=', $br->account_id)
+            ->orderBy('code')->get();
+        $defaultAdminFeeAccountId = Account::where('account_category', 'bank_admin_fee')
+            ->where('is_active', 1)->value('id');
+
         return view('erp.finance.bank-reconciliations.edit', compact(
-            'br', 'matchedSum', 'unmatchedSum', 'expenseAccounts', 'revenueAccounts'
+            'br', 'matchedSum', 'unmatchedSum',
+            'expenseAccounts', 'revenueAccounts',
+            'transferAccounts', 'defaultAdminFeeAccountId'
         ));
     }
 
@@ -212,6 +226,61 @@ class BankReconciliationController extends Controller
                 ->with('success', 'Tersimpan sebagai draft.');
         } catch (\Throwable $e) {
             return back()->withInput()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Quick-add Transfer Antar Bank dari halaman rekonsiliasi. Rekening yang
+     * sedang direkonsiliasi menjadi salah satu kaki (sumber saat 'out', tujuan
+     * saat 'in'); rekening lawan dipilih di modal. Langsung dibuat & POSTED.
+     */
+    public function quickStoreTransfer(Request $request, BankTransferService $transferService)
+    {
+        $data = $request->validate([
+            'date'                 => 'required|date',
+            'reconciliation_account_id' => 'required|exists:accounts,id',
+            'direction'            => 'required|in:in,out',
+            'counterparty_account_id'   => 'required|exists:accounts,id|different:reconciliation_account_id',
+            'amount'               => 'required|numeric|gt:0',
+            'admin_fee'            => 'nullable|numeric|min:0',
+            'admin_fee_account_id' => 'nullable|exists:accounts,id',
+            'reference'            => 'nullable|string|max:255',
+            'notes'                => 'nullable|string|max:255',
+        ]);
+
+        // 'out' → kas keluar dari rekening rekonsiliasi (from = rekening ini).
+        // 'in'  → kas masuk ke rekening rekonsiliasi (to = rekening ini).
+        if ($data['direction'] === 'out') {
+            $fromId = $data['reconciliation_account_id'];
+            $toId   = $data['counterparty_account_id'];
+        } else {
+            $fromId = $data['counterparty_account_id'];
+            $toId   = $data['reconciliation_account_id'];
+        }
+
+        try {
+            $bt = $transferService->createDraft([
+                'date'                 => $data['date'],
+                'from_account_id'      => $fromId,
+                'to_account_id'        => $toId,
+                'admin_fee_account_id' => $data['admin_fee_account_id'] ?? null,
+                'amount'               => $data['amount'],
+                'admin_fee'            => $data['admin_fee'] ?? 0,
+                'fee_borne_by'         => 'source',
+                'reference'            => $data['reference'] ?? null,
+                'notes'                => $data['notes'] ?? null,
+            ]);
+            $transferService->post($bt);
+            return response()->json([
+                'success' => true,
+                'number'  => $bt->number,
+                'message' => 'Transfer ' . $bt->number . ' dibuat & POSTED.',
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ], 422);
         }
     }
 

@@ -98,6 +98,7 @@ Route::prefix('erp/finance/cash-bank')->name('finance.cash-bank.')->group(functi
         Route::get('/', [BankReconciliationController::class, 'index'])->name('index');
         Route::get('/create', [BankReconciliationController::class, 'create'])->name('create');
         Route::post('/', [BankReconciliationController::class, 'store'])->name('store');
+        Route::post('/quick-transfer', [BankReconciliationController::class, 'quickStoreTransfer'])->name('quick-transfer');
         Route::get('/{id}/edit', [BankReconciliationController::class, 'edit'])->whereNumber('id')->name('edit');
         Route::put('/{id}', [BankReconciliationController::class, 'update'])->whereNumber('id')->name('update');
         Route::delete('/{id}', [BankReconciliationController::class, 'destroy'])->whereNumber('id')->name('destroy');
