@@ -780,6 +780,34 @@ class AiAccountantService
         return $dto;
     }
 
+    /**
+     * Tentukan id SO dari input: so_id eksplisit → cari lewat so_number (nomor SO, mis. dari
+     * foto/nota walau tidak dibuat di chat ini) → SO aktif terakhir di chat. $preferStatus
+     * memprioritaskan SO berstatus tsb bila ada beberapa dengan nomor sama.
+     */
+    private function resolveSoId(array $input, string $chatId, ?string $preferStatus = null): int
+    {
+        if ($id = (int) ($input['so_id'] ?? 0)) {
+            return $id;
+        }
+
+        $num = trim((string) ($input['so_number'] ?? ''));
+        if ($num !== '') {
+            $base = SalesOrder::where(fn ($w) => $w
+                ->where('order_number', $num)->orWhere('order_number', 'like', "%{$num}%"));
+            $so = null;
+            if ($preferStatus) {
+                $so = (clone $base)->where('status', $preferStatus)->orderByDesc('id')->first();
+            }
+            $so = $so ?: $base->orderByDesc('id')->first();
+            if ($so) {
+                return $so->id;
+            }
+        }
+
+        return (int) Cache::get($this->soKey($chatId), 0);
+    }
+
     private function toolBuatSoDraft(string $chatId, array $input): array
     {
         $customerId = (int) ($input['customer_id'] ?? 0);
@@ -816,9 +844,9 @@ class AiAccountantService
 
     private function toolEditSoDraft(string $chatId, array $input): array
     {
-        $soId = (int) ($input['so_id'] ?? 0) ?: (int) Cache::get($this->soKey($chatId), 0);
+        $soId = $this->resolveSoId($input, $chatId, 'draft');
         if (! $soId) {
-            return ['content' => 'Gagal: tidak ada SO aktif untuk diedit. Sebutkan so_id atau buat SO dulu.'];
+            return ['content' => 'Gagal: tidak ada SO yang bisa diedit. Sebutkan nomor SO (so_number) atau buat SO dulu.'];
         }
 
         $dto = [];
@@ -854,14 +882,14 @@ class AiAccountantService
 
     private function toolPostSo(string $chatId, array $input): array
     {
-        $soId = (int) ($input['so_id'] ?? 0) ?: (int) Cache::get($this->soKey($chatId), 0);
+        $soId = $this->resolveSoId($input, $chatId, 'draft');
         if (! $soId) {
-            return ['content' => 'Gagal: tidak ada SO aktif untuk di-post. Sebutkan so_id.'];
+            return ['content' => 'Gagal: tidak jelas SO mana yang mau di-post. Minta user sebutkan nomor SO (so_number).'];
         }
 
         $so = SalesOrder::find($soId);
         if (! $so) {
-            return ['content' => "Gagal: SO id={$soId} tidak ditemukan."];
+            return ['content' => 'Gagal: SO tidak ditemukan. Pastikan nomor SO (so_number) benar.'];
         }
         if ($so->status !== 'draft') {
             return ['content' => "SO {$so->order_number} statusnya bukan draft (sekarang: {$so->status}), tidak bisa di-post lagi."];
@@ -886,7 +914,7 @@ class AiAccountantService
 
     private function toolCatatDp(string $chatId, array $input): array
     {
-        $soId    = (int) ($input['so_id'] ?? 0) ?: (int) Cache::get($this->soKey($chatId), 0);
+        $soId    = $this->resolveSoId($input, $chatId, 'confirmed');
         $nominal = round((float) clean_number($input['nominal'] ?? 0), 2);
         $kasId   = (int) ($input['kas_account_id'] ?? 0);
         $tgl     = trim((string) ($input['tanggal'] ?? '')) ?: now()->format('Y-m-d');
@@ -894,7 +922,7 @@ class AiAccountantService
 
         $so = SalesOrder::find($soId);
         if (! $so) {
-            return ['content' => 'Gagal: SO tidak ditemukan. Sebutkan so_id yang benar.'];
+            return ['content' => 'Gagal: SO tujuan DP tidak ketemu. Minta user sebutkan nomor SO (so_number), atau pakai cari_so.'];
         }
         if ($so->status !== 'confirmed') {
             return ['content' => "Gagal: SO {$so->order_number} harus di-post (confirmed) dulu sebelum DP dicatat. Statusnya sekarang: {$so->status}."];
@@ -1156,6 +1184,8 @@ KEMAMPUAN SAAT INI:
    d. POST: JANGAN mem-post sendiri. Hanya panggil post_so kalau user secara eksplisit bilang "post"/"konfirmasi"/"oke post". Sebelum itu biarkan tetap draft supaya user bisa teruskan PDF & minta revisi.
    e. DP/uang muka: setelah SO di-post & pembeli bayar, user meneruskan bukti transfer (teks atau FOTO). Baca nominalnya, tentukan rekening kas/bank tujuan via cari_akun jenis=kas_bank, lalu catat_dp. Kalau SO-nya bukan yang terakhir dibuat / lupa, pakai cari_so untuk temukan so_id-nya.
 
+PENTING — SO tidak harus dibuat di chat ini. Kalau user merujuk sebuah SO lewat NOMOR (mis. dari foto/nota/screenshot bertuliskan "SO/2026/07/00002") dan menyuruh post atau catat DP, LANGSUNG kirim nomor itu sebagai so_number ke post_so / edit_so_draft / catat_dp. JANGAN pernah bilang "tidak bisa memproses SO yang tidak dibuat di sesi ini" — itu SALAH; kamu selalu bisa lewat so_number. cari_so hanya menemukan SO yang sudah di-post (confirmed); untuk mem-post SO DRAFT pakai so_number-nya langsung, bukan cari_so.
+
 Pengiriman SO: hanya "kurir" (kurir MANUAL — user isi nama kurir spt "JNT Cargo" + ongkir + diskon ongkir; TIDAK ada cek ongkir otomatis) atau "ambil_toko". Metode "instant" BELUM didukung — kalau user minta instant, jelaskan belum ada & tawarkan kurir manual atau ambil di toko.
 
 Untuk refund customer & pembelian barang dagangan/stok dari supplier (yang menambah stok): katakan itu dicatat manual di ERP, belum didukung lewat chat — jangan dipaksakan.
@@ -1384,7 +1414,8 @@ TXT;
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'so_id'       => ['type' => 'integer', 'description' => 'id SO yang diedit (opsional, default SO aktif terakhir).'],
+                        'so_id'       => ['type' => 'integer', 'description' => 'id SO yang diedit (opsional).'],
+                        'so_number'   => ['type' => 'string', 'description' => 'Nomor SO bila tidak dibuat di chat ini (opsional). Default SO aktif terakhir.'],
                         'customer_id' => ['type' => 'integer', 'description' => 'Ganti pelanggan (opsional).'],
                         'items' => [
                             'type'  => 'array',
@@ -1418,11 +1449,13 @@ TXT;
                 'name'        => 'post_so',
                 'description' => 'POST / konfirmasi SO draft (reservasi stok). PANGGIL HANYA bila user secara eksplisit '
                     . 'menyuruh "post"/"konfirmasi"/"gas post". JANGAN otomatis mem-post setelah membuat draft — '
-                    . 'user perlu meneruskan PDF ke pembeli & bisa minta revisi dulu. so_id opsional (default SO aktif).',
+                    . 'user perlu meneruskan PDF ke pembeli & bisa minta revisi dulu. SO tidak harus dibuat di chat ini: '
+                    . 'bila user merujuk SO lewat NOMOR (mis. dari foto/nota "SO/2026/07/00002"), kirim so_number itu.',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'so_id' => ['type' => 'integer', 'description' => 'id SO yang di-post (opsional, default SO aktif terakhir).'],
+                        'so_id'     => ['type' => 'integer', 'description' => 'id SO (opsional).'],
+                        'so_number' => ['type' => 'string', 'description' => 'Nomor SO (mis. "SO/2026/07/00002"). Pakai bila SO tidak dibuat di chat ini. Default SO aktif terakhir.'],
                     ],
                     'required' => [],
                 ],
@@ -1463,7 +1496,8 @@ TXT;
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'so_id'          => ['type' => 'integer', 'description' => 'id SO tujuan DP (opsional, default SO aktif terakhir).'],
+                        'so_id'          => ['type' => 'integer', 'description' => 'id SO tujuan DP (opsional).'],
+                        'so_number'      => ['type' => 'string', 'description' => 'Nomor SO tujuan DP bila tidak dibuat di chat ini (opsional). Default SO aktif; atau pakai cari_so.'],
                         'nominal'        => ['type' => 'number', 'description' => 'Nominal DP yang diterima (angka bulat).'],
                         'kas_account_id' => ['type' => 'integer', 'description' => 'id rekening kas/bank penerima DP (via cari_akun jenis=kas_bank).'],
                         'tanggal'        => ['type' => 'string', 'description' => 'Tanggal YYYY-MM-DD, kosong = hari ini.'],
