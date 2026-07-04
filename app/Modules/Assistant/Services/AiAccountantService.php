@@ -638,16 +638,55 @@ class AiAccountantService
         return "Pelanggan baru dibuat: id={$cust->id} | {$cust->name}. Lanjut buat SO dengan customer_id={$cust->id}.";
     }
 
+    /**
+     * Pencarian produk toleran: case-insensitive & multi-kata. Tiap kata dicocokkan ke
+     * NAMA atau SKU; hasil di-ranking berdasarkan JUMLAH kata yang cocok (ai_match_score),
+     * jadi typo/kata hilang tetap memberi kandidat & yang paling relevan naik ke atas.
+     * $base = pabrik query (Closure) agar bisa dipakai dgn/ tanpa filter is_sellable.
+     */
+    private function searchProducts(\Closure $base, string $kw, int $limit)
+    {
+        $tokens = array_values(array_filter(
+            array_map(fn ($t) => mb_strtolower(trim($t)), preg_split('/\s+/', trim($kw))),
+            fn ($t) => $t !== ''
+        ));
+
+        if (empty($tokens)) {
+            return $base()->orderBy('name')->limit($limit)->get();
+        }
+
+        // Skor = berapa banyak kata yang muncul (di nama atau sku).
+        $scoreParts = [];
+        $scoreBind  = [];
+        foreach ($tokens as $t) {
+            $scoreParts[] = '(CASE WHEN LOWER(name) LIKE ? OR LOWER(sku) LIKE ? THEN 1 ELSE 0 END)';
+            $scoreBind[]  = "%{$t}%";
+            $scoreBind[]  = "%{$t}%";
+        }
+        $score = implode(' + ', $scoreParts);
+
+        return $base()
+            ->selectRaw("products.*, ({$score}) as ai_match_score", $scoreBind)
+            ->where(function ($w) use ($tokens) {
+                foreach ($tokens as $t) {
+                    $w->orWhereRaw('LOWER(name) LIKE ?', ["%{$t}%"])
+                      ->orWhereRaw('LOWER(sku) LIKE ?', ["%{$t}%"]);
+                }
+            })
+            ->orderByRaw('ai_match_score DESC')
+            ->orderBy('name')
+            ->limit($limit)
+            ->get();
+    }
+
     private function toolCariProduk(array $input): string
     {
         $kw = trim((string) ($input['keyword'] ?? ''));
 
-        $rows = Product::query()
-            ->where('is_active', 1)
-            ->where('is_sellable', true)
-            ->when($kw !== '', fn ($q) => $q->where(fn ($w) => $w
-                ->where('name', 'like', "%{$kw}%")->orWhere('sku', 'like', "%{$kw}%")))
-            ->orderBy('name')->limit(10)->get();
+        $rows = $this->searchProducts(
+            fn () => Product::query()->where('is_active', 1)->where('is_sellable', true),
+            $kw, 10
+        );
 
         if ($rows->isEmpty()) {
             return "Tidak ada produk 'Dijual' yang cocok dengan '{$kw}'.";
@@ -671,19 +710,23 @@ class AiAccountantService
             return 'Sebutkan SKU atau nama produk yang mau dicek harganya.';
         }
 
-        // Prioritas: cocok SKU persis → kalau tidak, cari mirip (SKU/nama).
-        $product = Product::where('is_active', 1)->where('sku', $kw)->first();
+        // Prioritas: cocok SKU persis (abaikan besar/kecil) → kalau tidak, cari via nama/SKU (multi-kata).
+        $product = Product::where('is_active', 1)
+            ->whereRaw('LOWER(sku) = ?', [mb_strtolower($kw)])->first();
         if (! $product) {
-            $rows = Product::where('is_active', 1)
-                ->where(fn ($w) => $w->where('sku', 'like', "%{$kw}%")->orWhere('name', 'like', "%{$kw}%"))
-                ->orderBy('name')->limit(8)->get();
+            $rows = $this->searchProducts(fn () => Product::where('is_active', 1), $kw, 8);
 
             if ($rows->isEmpty()) {
                 return "Produk '{$kw}' tidak ditemukan.";
             }
-            if ($rows->count() > 1) {
+            // Auto-pilih bila ada 1 pemenang skor (kata cocok terbanyak) yang jelas menang;
+            // kalau seri di skor teratas, minta user pilih SKU-nya.
+            $topScore = (int) ($rows[0]->ai_match_score ?? 0);
+            $tie      = $rows->count() > 1 && (int) ($rows[1]->ai_match_score ?? 0) === $topScore;
+            if ($tie) {
                 return "Ada beberapa produk cocok '{$kw}', sebutkan yang mana (pakai SKU):\n"
-                    . $rows->map(fn ($p) => '• ' . ($p->sku ? "{$p->sku} — " : '') . $p->name)->implode("\n");
+                    . $rows->where('ai_match_score', $topScore)
+                        ->map(fn ($p) => '• ' . ($p->sku ? "{$p->sku} — " : '') . $p->name)->implode("\n");
             }
             $product = $rows->first();
         }
@@ -1176,6 +1219,7 @@ KEMAMPUAN SAAT INI:
 3. BAYAR ONGKIR (titipan per faktur) — pelunasan titipan ongkir sebuah faktur penjualan ke kurir (cari_faktur_ongkir → catat_bayar_ongkir). Hanya untuk SATU faktur; banyak faktur sekaligus → arahkan ke menu Bayar Ongkir di ERP.
 4. BACA FOTO STRUK/NOTA — baca total, tanggal, dan keterangannya, lalu catat sebagai PENGELUARAN (alur sama: cari akun beban yang sesuai, tanya sumber kas bila belum jelas, lalu catat_pengeluaran).
 5. JAWAB pertanyaan ringkas — total pengeluaran periode (ringkas_pengeluaran), saldo kas/bank (saldo_kas_bank), & CEK HARGA PRODUK (cek_harga_produk: harga utama + diskon promo + harga total dari SKU/nama). Cukup panggil tool lalu sampaikan hasilnya; tidak ada yang diposting.
+   • Cek harga: keyword bisa NAMA produk (mis. "box charger akrilik 9 kotak") atau SKU — kirim kata-kata deskriptif dari user apa adanya, jangan hanya SKU. HATI-HATI: angka pada NAMA produk ("9 kotak", "12 kotak", "30x30") adalah bagian nama, BUKAN jumlah beli — jangan diisi ke qty. qty hanya diisi kalau user jelas mau beli sekian unit (mis. "harga 10 pcs").
 6. BUAT PESANAN PENJUALAN (SO) → PDF → POST → DP:
    a. Cari/buat pelanggan (cari_pelanggan → kalau tak ada, buat_pelanggan) dan cari produk (cari_produk) untuk dapat id + harga.
    b. buat_so_draft → membuat SO DRAFT lalu OTOMATIS mengirim PDF-nya ke chat ini. Sampaikan bahwa PDF sudah dikirim & bisa diteruskan ke pembeli. Kalau harga tidak disebut, pakai harga jual produk.
@@ -1462,14 +1506,16 @@ TXT;
             ],
             [
                 'name'        => 'cek_harga_produk',
-                'description' => 'Cek harga jual sebuah produk berdasarkan SKU atau nama: harga utama, diskon promo aktif (bila ada), '
-                    . 'dan harga total. Untuk pertanyaan seperti "harga produk TBKD-13-T3-M1 berapa?". qty opsional (default 1) '
-                    . 'bila user tanya harga untuk sejumlah unit. Bila SKU/nama cocok ke banyak produk, hasilnya minta user memilih.',
+                'description' => 'Cek harga jual sebuah produk berdasarkan SKU ATAU nama: harga utama, diskon promo aktif (bila ada), '
+                    . 'dan harga total. Untuk pertanyaan seperti "harga produk TBKD-13-T3-M1 berapa?" atau "harga box charger '
+                    . 'akrilik 9 kotak". keyword boleh nama lengkap/sebagian atau SKU (tidak harus persis huruf besar/kecil). '
+                    . 'Bila cocok ke banyak produk, hasilnya minta user memilih.',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
-                        'keyword' => ['type' => 'string', 'description' => 'SKU (diutamakan) atau nama produk.'],
-                        'qty'     => ['type' => 'number', 'description' => 'Jumlah unit (opsional, default 1).'],
+                        'keyword' => ['type' => 'string', 'description' => 'Nama produk (lengkap/sebagian) atau SKU. Sertakan kata-kata deskriptif dari user, mis. "box charger akrilik 9 kotak".'],
+                        'qty'     => ['type' => 'number', 'description' => 'Jumlah unit yang mau DIBELI (opsional, default 1). Isi HANYA bila user jelas menyebut jumlah beli, mis. "harga 5 pcs". '
+                            . 'JANGAN ambil angka dari NAMA produk — mis. "9 kotak"/"12 kotak" itu bagian nama, BUKAN qty.'],
                     ],
                     'required' => ['keyword'],
                 ],
