@@ -99,6 +99,10 @@ Route::prefix('erp/finance/cash-bank')->name('finance.cash-bank.')->group(functi
         Route::get('/create', [BankReconciliationController::class, 'create'])->name('create');
         Route::post('/', [BankReconciliationController::class, 'store'])->name('store');
         Route::post('/quick-transfer', [BankReconciliationController::class, 'quickStoreTransfer'])->name('quick-transfer');
+        // Upload rekening koran (Excel) untuk pencocokan otomatis.
+        Route::get('/statement-template', [BankReconciliationController::class, 'statementTemplate'])->name('statement-template');
+        Route::post('/{id}/statement-import', [BankReconciliationController::class, 'statementImport'])->whereNumber('id')->name('statement-import');
+        Route::delete('/{id}/statement', [BankReconciliationController::class, 'clearStatement'])->whereNumber('id')->name('statement-clear');
         Route::get('/{id}/edit', [BankReconciliationController::class, 'edit'])->whereNumber('id')->name('edit');
         Route::put('/{id}', [BankReconciliationController::class, 'update'])->whereNumber('id')->name('update');
         Route::delete('/{id}', [BankReconciliationController::class, 'destroy'])->whereNumber('id')->name('destroy');

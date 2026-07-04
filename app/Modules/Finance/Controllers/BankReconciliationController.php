@@ -162,7 +162,10 @@ class BankReconciliationController extends Controller
         // Sync line — pickup transaksi baru yg dibuat lewat quick-add modal setelah BR dibuat.
         $this->service->syncLines($br);
 
-        $br->load(['account', 'lines.journalLine.journal', 'lines.journalLine.account']);
+        $br->load(['account', 'lines.journalLine.journal', 'lines.journalLine.account', 'statementLines']);
+
+        // Laporan pencocokan rekening koran (jika sudah di-upload).
+        $statementMatch = $this->service->buildStatementMatch($br);
 
         // Sortir line kronologis: tanggal jurnal lalu id jurnal lalu id line.
         // Penting untuk perhitungan running balance.
@@ -187,6 +190,14 @@ class BankReconciliationController extends Controller
         $revenueAccounts = Account::where('type', 'revenue')
             ->where('is_active', 1)->orderBy('code')->get();
 
+        // Akun debit untuk modal + Pengeluaran Umum: beban + ekuitas (Prive/penarikan
+        // modal). Ekuitas berbasis-debit spt Prive valid di-debit saat kas keluar.
+        // Selaras dgn CashDisbursementController::formData().
+        $disbursementAccounts = Account::whereIn('type', ['expense', 'equity'])
+            ->where('is_active', 1)
+            ->orderByRaw("FIELD(type, 'expense', 'equity')")
+            ->orderBy('code')->get();
+
         // Akun kas lawan untuk modal quick-add Transfer Bank: semua kas/bank aktif
         // KECUALI rekening yang sedang direkonsiliasi. Akun kelolaan marketplace
         // (Saldo Penjualan Marketplace) SENGAJA diikutkan — pemindahan saldo dari
@@ -200,9 +211,107 @@ class BankReconciliationController extends Controller
 
         return view('erp.finance.bank-reconciliations.edit', compact(
             'br', 'matchedSum', 'unmatchedSum',
-            'expenseAccounts', 'revenueAccounts',
-            'transferAccounts', 'defaultAdminFeeAccountId'
+            'expenseAccounts', 'revenueAccounts', 'disbursementAccounts',
+            'transferAccounts', 'defaultAdminFeeAccountId',
+            'statementMatch'
         ));
+    }
+
+    /**
+     * Upload rekening koran (Excel). Kolom: Tanggal | Keterangan | Uang Masuk | Uang Keluar.
+     * Replace data koran lama, lalu kembali ke halaman edit (pencocokan dihitung di edit()).
+     */
+    public function statementImport(Request $request, $id)
+    {
+        $br = BankReconciliation::findOrFail($id);
+        $request->validate(['file' => 'required|file|mimes:xlsx,xls,csv']);
+
+        try {
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($request->file('file')->getRealPath());
+            // formatData=false → ambil RAW value (tanggal serial & angka asli), bukan string terformat.
+            $rows = $spreadsheet->getActiveSheet()->toArray(null, true, false, false);
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Gagal baca file: ' . $e->getMessage());
+        }
+
+        if (count($rows) < 2) {
+            return back()->with('error', 'File kosong atau tidak ada baris data (perlu header + minimal 1 data).');
+        }
+        array_shift($rows); // buang baris header
+
+        try {
+            $res = $this->service->importStatement($br, $rows);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        $msg = "Rekening koran ter-upload: {$res['imported']} baris.";
+        if ($res['out_of_period'] > 0) {
+            $msg .= " ({$res['out_of_period']} baris tanggalnya di luar periode — tetap dicocokkan berdasarkan nilai.)";
+        }
+        if (!empty($res['skipped'])) {
+            $msg .= ' ' . count($res['skipped']) . ' baris dilewati (tanggal/nilai tidak valid).';
+        }
+
+        return redirect()->route('finance.cash-bank.reconciliations.edit', $br->id)->with('success', $msg);
+    }
+
+    /**
+     * Hapus seluruh data rekening koran yang di-upload untuk BR ini (untuk re-upload).
+     */
+    public function clearStatement($id)
+    {
+        $br = BankReconciliation::findOrFail($id);
+        $this->service->clearStatement($br);
+        return redirect()->route('finance.cash-bank.reconciliations.edit', $br->id)
+            ->with('success', 'Data rekening koran dihapus.');
+    }
+
+    /**
+     * Download template Excel rekening koran.
+     * Format: Tanggal | Keterangan | Uang Masuk | Uang Keluar.
+     */
+    public function statementTemplate()
+    {
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Rekening Koran');
+
+        $sheet->setCellValue('A1', 'Tanggal');
+        $sheet->setCellValue('B1', 'Keterangan');
+        $sheet->setCellValue('C1', 'Uang Masuk');
+        $sheet->setCellValue('D1', 'Uang Keluar');
+        $sheet->getStyle('A1:D1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:D1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID);
+        $sheet->getStyle('A1:D1')->getFill()->getStartColor()->setRGB('DBEAFE');
+        $sheet->getColumnDimension('A')->setWidth(14);
+        $sheet->getColumnDimension('B')->setWidth(40);
+        $sheet->getColumnDimension('C')->setWidth(18);
+        $sheet->getColumnDimension('D')->setWidth(18);
+        $sheet->getStyle('C:D')->getNumberFormat()->setFormatCode('#,##0');
+        $sheet->getStyle('A:A')->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+
+        // Contoh baris
+        $sheet->setCellValue('A2', '2026-06-08');
+        $sheet->setCellValue('B2', 'Transfer masuk dari pelanggan');
+        $sheet->setCellValue('C2', 960000);
+        $sheet->setCellValue('A3', '2026-06-09');
+        $sheet->setCellValue('B3', 'Biaya admin bank');
+        $sheet->setCellValue('D3', 12500);
+
+        $sheet->setCellValue('A5', 'Petunjuk:');
+        $sheet->setCellValue('A6', '- Tanggal format YYYY-MM-DD (mis. 2026-06-08).');
+        $sheet->setCellValue('A7', '- Uang Masuk = dana masuk ke rekening; Uang Keluar = dana keluar. Isi salah satu.');
+        $sheet->setCellValue('A8', '- Keterangan opsional. Hapus baris contoh & petunjuk sebelum isi data riil.');
+        $sheet->getStyle('A5')->getFont()->setBold(true);
+        $sheet->getStyle('A5:A8')->getFont()->setItalic(true);
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, 'template-rekening-koran.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     public function update(Request $request, $id)

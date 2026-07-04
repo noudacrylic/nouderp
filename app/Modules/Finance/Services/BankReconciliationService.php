@@ -4,6 +4,7 @@ namespace App\Modules\Finance\Services;
 
 use App\Modules\Finance\Models\BankReconciliation;
 use App\Modules\Finance\Models\BankReconciliationLine;
+use App\Modules\Finance\Models\BankStatementLine;
 use App\Core\Journal\Journal;
 use App\Core\Journal\JournalLine;
 use App\Core\Accounting\Account;
@@ -189,6 +190,189 @@ class BankReconciliationService
             ->orderBy('id')
             ->pluck('id')
             ->all();
+    }
+
+    // =====================================================================
+    //  REKENING KORAN (Bank Statement) — upload Excel & pencocokan otomatis
+    // =====================================================================
+
+    /**
+     * Import baris rekening koran dari raw rows Excel (header sudah di-strip).
+     * Kolom: 0 Tanggal, 1 Keterangan, 2 Uang Masuk, 3 Uang Keluar.
+     * Replace total data koran lama untuk BR ini. Return ringkasan.
+     */
+    public function importStatement(BankReconciliation $br, array $rawRows): array
+    {
+        if (!$br->isDraft()) throw new DomainException('Hanya draft yang bisa di-upload rekening koran.');
+
+        $parsed  = [];
+        $skipped = [];
+        foreach ($rawRows as $idx => $row) {
+            $rowNum  = $idx + 2; // +1 header sudah di-strip, +1 supaya 1-indexed
+            $rawDate = $row[0] ?? null;
+            $desc    = trim((string) ($row[1] ?? ''));
+            $masuk   = (float) clean_number($row[2] ?? 0);
+            $keluar  = (float) clean_number($row[3] ?? 0);
+
+            // Lewati baris kosong total (biasanya baris petunjuk / spasi)
+            if (($rawDate === null || $rawDate === '') && $masuk == 0 && $keluar == 0) continue;
+
+            $date = $this->parseStatementDate($rawDate);
+            if (!$date) {
+                $skipped[] = ['row' => $rowNum, 'reason' => 'tanggal tidak valid (' . $rawDate . ')'];
+                continue;
+            }
+            $amount = round($masuk - $keluar, 2);
+            if ($amount == 0.0) {
+                $skipped[] = ['row' => $rowNum, 'reason' => 'nilai 0 — Uang Masuk & Keluar kosong'];
+                continue;
+            }
+
+            $parsed[] = [
+                'statement_date' => $date->toDateString(),
+                'amount'         => $amount,
+                'description'    => $desc !== '' ? mb_substr($desc, 0, 255) : null,
+                'source_row'     => $rowNum,
+            ];
+        }
+
+        if (empty($parsed)) {
+            throw new DomainException('Tidak ada baris valid. Pastikan urutan kolom: Tanggal | Keterangan | Uang Masuk | Uang Keluar.');
+        }
+
+        DB::transaction(function () use ($br, $parsed) {
+            BankStatementLine::where('bank_reconciliation_id', $br->id)->delete();
+            foreach ($parsed as $p) {
+                BankStatementLine::create($p + ['bank_reconciliation_id' => $br->id]);
+            }
+        });
+
+        $start = Carbon::parse($br->start_date)->startOfDay();
+        $end   = Carbon::parse($br->end_date)->endOfDay();
+        $outOfPeriod = 0;
+        foreach ($parsed as $p) {
+            $d = Carbon::parse($p['statement_date']);
+            if ($d->lt($start) || $d->gt($end)) $outOfPeriod++;
+        }
+
+        return [
+            'imported'      => count($parsed),
+            'skipped'       => $skipped,
+            'out_of_period' => $outOfPeriod,
+        ];
+    }
+
+    public function clearStatement(BankReconciliation $br): void
+    {
+        BankStatementLine::where('bank_reconciliation_id', $br->id)->delete();
+    }
+
+    private function parseStatementDate($raw): ?Carbon
+    {
+        if ($raw === null || $raw === '') return null;
+
+        // Excel menyimpan tanggal sebagai serial number → konversi.
+        if (is_numeric($raw)) {
+            try {
+                $dt = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $raw);
+                return Carbon::instance($dt)->startOfDay();
+            } catch (\Throwable $e) { /* fall through ke parse string */ }
+        }
+
+        $s = trim((string) $raw);
+        // dd/mm/yyyy atau dd-mm-yyyy (format Indonesia) → eksplisit supaya tak terbalik.
+        if (preg_match('#^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$#', $s, $m)) {
+            try {
+                return Carbon::createFromDate((int) $m[3], (int) $m[2], (int) $m[1])->startOfDay();
+            } catch (\Throwable $e) { return null; }
+        }
+        try {
+            return Carbon::parse($s)->startOfDay();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Cocokkan baris rekening koran dengan transaksi ERP (journal lines) di BR ini.
+     * Greedy 2 tahap: (1) tanggal & nilai sama, (2) nilai sama tanggal beda.
+     * Return map per journal_line_id + daftar baris koran yang belum ada padanan.
+     */
+    public function buildStatementMatch(BankReconciliation $br): array
+    {
+        $stmtArr = $br->statementLines->values()->all();
+
+        // Nilai bertanda per journal line (debit - credit) + tanggal jurnal.
+        $erp = [];
+        foreach ($br->lines as $l) {
+            $jl = $l->journalLine;
+            if (!$jl) continue;
+            $erp[$jl->id] = [
+                'amount' => round((float) $jl->debit - (float) $jl->credit, 2),
+                'date'   => Carbon::parse($jl->journal->date)->toDateString(),
+            ];
+        }
+
+        $key = fn($amt) => (string) (int) round((float) $amt); // bandingkan dlm rupiah bulat
+
+        $lineMatch = [];
+        $usedStmt  = [];
+
+        // Tahap 1: tanggal & nilai sama (cocok persis)
+        foreach ($erp as $jlId => $e) {
+            foreach ($stmtArr as $i => $s) {
+                if (isset($usedStmt[$i])) continue;
+                if ($key($s->amount) === $key($e['amount'])
+                    && $s->statement_date->toDateString() === $e['date']) {
+                    $lineMatch[$jlId] = [
+                        'status' => 'exact',
+                        'date'   => $s->statement_date->toDateString(),
+                        'amount' => (float) $s->amount,
+                        'desc'   => $s->description,
+                    ];
+                    $usedStmt[$i] = true;
+                    break;
+                }
+            }
+        }
+        // Tahap 2: nilai sama, tanggal beda (kemungkinan salah input tanggal di ERP)
+        foreach ($erp as $jlId => $e) {
+            if (isset($lineMatch[$jlId])) continue;
+            foreach ($stmtArr as $i => $s) {
+                if (isset($usedStmt[$i])) continue;
+                if ($key($s->amount) === $key($e['amount'])) {
+                    $lineMatch[$jlId] = [
+                        'status' => 'amount',
+                        'date'   => $s->statement_date->toDateString(),
+                        'amount' => (float) $s->amount,
+                        'desc'   => $s->description,
+                    ];
+                    $usedStmt[$i] = true;
+                    break;
+                }
+            }
+        }
+
+        // Baris koran tanpa padanan di ERP → harus diinput.
+        $unmatched = [];
+        foreach ($stmtArr as $i => $s) {
+            if (isset($usedStmt[$i])) continue;
+            $unmatched[] = [
+                'id'     => $s->id,
+                'date'   => $s->statement_date->toDateString(),
+                'amount' => (float) $s->amount,
+                'desc'   => $s->description,
+            ];
+        }
+
+        return [
+            'lineMatch'       => $lineMatch,
+            'unmatched'       => $unmatched,
+            'total'           => count($stmtArr),
+            'exact'           => count(array_filter($lineMatch, fn($m) => $m['status'] === 'exact')),
+            'amount_only'     => count(array_filter($lineMatch, fn($m) => $m['status'] === 'amount')),
+            'unmatched_count' => count($unmatched),
+        ];
     }
 
     /**

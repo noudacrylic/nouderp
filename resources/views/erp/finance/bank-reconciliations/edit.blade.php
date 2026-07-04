@@ -127,6 +127,13 @@
                 class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-sm font-semibold">
             + Pemasukan
         </button>
+        <button type="button" onclick="openStatementModal()"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-semibold inline-flex items-center gap-1">
+            ⬆ Upload Koran
+            @if(($statementMatch['total'] ?? 0) > 0)
+                <span class="bg-white/25 rounded px-1.5 text-[11px]">{{ $statementMatch['total'] }}</span>
+            @endif
+        </button>
         <a href="{{ route('finance.cash-bank.reconciliations.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
     </div>
 </div>
@@ -171,6 +178,32 @@
         </div>
     </div>
 
+    {{-- Ringkasan pencocokan rekening koran --}}
+    @if(($statementMatch['total'] ?? 0) > 0)
+        <div class="bg-white rounded shadow px-3 py-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span class="font-semibold text-gray-700">Rekening Koran:</span>
+            <span class="text-gray-600">{{ $statementMatch['total'] }} baris</span>
+            <span class="inline-flex items-center gap-1 text-green-700">
+                <span class="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                {{ $statementMatch['exact'] }} cocok persis
+            </span>
+            <span class="inline-flex items-center gap-1 text-amber-700">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                {{ $statementMatch['amount_only'] }} nilai cocok (tanggal beda)
+            </span>
+            <span class="inline-flex items-center gap-1 text-rose-700">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                {{ $statementMatch['unmatched_count'] }} belum ada di ERP
+            </span>
+            @if($statementMatch['exact'] > 0)
+                <button type="button" id="matchExactBtn"
+                        class="ml-auto bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded text-xs font-semibold">
+                    ✓ Cocokkan semua yang cocok persis ({{ $statementMatch['exact'] }})
+                </button>
+            @endif
+        </div>
+    @endif
+
     {{-- Tabel transaksi --}}
     <div class="bg-white rounded shadow overflow-x-auto">
         <table class="text-sm" id="reconTable" style="table-layout: fixed; width: 100%;">
@@ -181,6 +214,7 @@
                 <col data-col-key="debit" style="width: 140px">
                 <col data-col-key="kredit" style="width: 140px">
                 <col data-col-key="saldo" style="width: 140px">
+                <col data-col-key="koran" style="width: 170px">
                 <col data-col-key="status" style="width: 140px">
             </colgroup>
             <thead class="bg-gray-50 border-b text-gray-600">
@@ -191,6 +225,7 @@
                     <th class="px-3 py-2 text-right resizable">Debit (Masuk)<span class="col-resizer"></span></th>
                     <th class="px-3 py-2 text-right resizable">Kredit (Keluar)<span class="col-resizer"></span></th>
                     <th class="px-3 py-2 text-right resizable">Saldo<span class="col-resizer"></span></th>
+                    <th class="px-3 py-2 text-left resizable">Rek. Koran<span class="col-resizer"></span></th>
                     <th class="px-3 py-2 text-right">Status Cocok</th>
                 </tr>
             </thead>
@@ -202,6 +237,7 @@
                     <td></td>
                     <td class="px-3 py-1.5 text-right font-semibold font-mono">{{ number_format($br->opening_balance, 0, ',', '.') }}</td>
                     <td></td>
+                    <td></td>
                 </tr>
                 @php $running = (float) $br->opening_balance; @endphp
                 @forelse($br->lines as $line)
@@ -209,8 +245,9 @@
                         $jl = $line->journalLine;
                         $ref = $refMap($jl);
                         $running += (float)$jl->debit - (float)$jl->credit;
+                        $sm = $statementMatch['lineMatch'][$jl->id] ?? null;
                     @endphp
-                    <tr class="border-b match-row {{ $line->is_matched ? 'bg-green-50' : '' }}">
+                    <tr class="border-b match-row {{ $line->is_matched ? 'bg-green-50' : ($sm && $sm['status']==='amount' ? 'bg-amber-50/50' : '') }}">
                         <td class="px-3 py-1.5 whitespace-nowrap">{{ \Carbon\Carbon::parse($jl->journal->date)->format('d M Y') }}</td>
                         <td class="px-3 py-1.5">
                             <span class="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold {{ $colorCls($ref['color']) }}">{{ $ref['label'] }}</span>
@@ -226,20 +263,36 @@
                         <td class="px-3 py-1.5 text-right">{{ (float)$jl->debit > 0 ? number_format($jl->debit, 0, ',', '.') : '' }}</td>
                         <td class="px-3 py-1.5 text-right">{{ (float)$jl->credit > 0 ? number_format($jl->credit, 0, ',', '.') : '' }}</td>
                         <td class="px-3 py-1.5 text-right font-mono">{{ number_format($running, 0, ',', '.') }}</td>
+                        <td class="px-3 py-1.5">
+                            @if($sm && $sm['status'] === 'exact')
+                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700">
+                                    ● Cocok persis
+                                </span>
+                            @elseif($sm && $sm['status'] === 'amount')
+                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700"
+                                      title="Nilai sama tapi tanggal di rekening koran berbeda — kemungkinan tanggal transaksi ERP salah.">
+                                    ● Nilai cocok
+                                </span>
+                                <div class="text-[10px] text-amber-600 mt-0.5">Koran: {{ \Carbon\Carbon::parse($sm['date'])->format('d M Y') }}</div>
+                            @else
+                                <span class="text-gray-300 text-xs">—</span>
+                            @endif
+                        </td>
                         <td class="px-3 py-1.5 text-right">
                             <input type="hidden" name="matched_journal_line_ids[]" value="{{ $jl->id }}"
                                    class="match-input" {{ $line->is_matched ? '' : 'disabled' }}>
                             <button type="button"
                                     class="match-btn px-2.5 py-1 rounded text-xs font-semibold border transition
-                                           {{ $line->is_matched ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100' }}"
+                                           {{ $line->is_matched ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : ($sm && $sm['status']==='exact' ? 'bg-white text-green-700 border-green-400 hover:bg-green-50 ring-1 ring-green-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100') }}"
                                     data-debit="{{ (float) $jl->debit }}"
-                                    data-credit="{{ (float) $jl->credit }}">
+                                    data-credit="{{ (float) $jl->credit }}"
+                                    data-koran="{{ $sm['status'] ?? '' }}">
                                 {{ $line->is_matched ? '✓ Sudah Cocok' : 'Cocokkan' }}
                             </button>
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Tidak ada transaksi pada periode ini.</td></tr>
+                    <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">Tidak ada transaksi pada periode ini.</td></tr>
                 @endforelse
                 <tr class="border-t bg-gray-50/70 italic text-gray-600">
                     <td class="px-3 py-1.5 whitespace-nowrap">{{ $br->end_date->format('d M Y') }}</td>
@@ -248,10 +301,41 @@
                     <td></td>
                     <td class="px-3 py-1.5 text-right font-semibold font-mono">{{ number_format($running, 0, ',', '.') }}</td>
                     <td></td>
+                    <td></td>
                 </tr>
             </tbody>
         </table>
     </div>
+
+    {{-- Baris rekening koran yang belum ada padanannya di ERP --}}
+    @if(!empty($statementMatch['unmatched']))
+        <div class="bg-white rounded shadow mt-3 border border-rose-200">
+            <div class="px-3 py-2 border-b border-rose-100 bg-rose-50 rounded-t flex items-center gap-2">
+                <span class="text-rose-700 font-semibold text-sm">⚠ Transaksi rekening koran belum ada di ERP ({{ count($statementMatch['unmatched']) }})</span>
+                <span class="text-xs text-rose-500">Buat transaksinya lewat tombol <b>+ Pengeluaran</b> / <b>+ Pemasukan</b> di atas, lalu klik Cocokkan pada barisnya.</span>
+            </div>
+            <table class="text-sm w-full">
+                <thead class="bg-gray-50 border-b text-gray-600">
+                    <tr>
+                        <th class="px-3 py-2 text-left">Tanggal</th>
+                        <th class="px-3 py-2 text-left">Keterangan</th>
+                        <th class="px-3 py-2 text-right">Uang Masuk</th>
+                        <th class="px-3 py-2 text-right">Uang Keluar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($statementMatch['unmatched'] as $u)
+                        <tr class="border-b">
+                            <td class="px-3 py-1.5 whitespace-nowrap">{{ \Carbon\Carbon::parse($u['date'])->format('d M Y') }}</td>
+                            <td class="px-3 py-1.5 text-gray-700">{{ $u['desc'] ?: '-' }}</td>
+                            <td class="px-3 py-1.5 text-right font-mono text-green-700">{{ $u['amount'] > 0 ? number_format($u['amount'], 0, ',', '.') : '' }}</td>
+                            <td class="px-3 py-1.5 text-right font-mono text-red-600">{{ $u['amount'] < 0 ? number_format(abs($u['amount']), 0, ',', '.') : '' }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
 
     {{-- Catatan paling bawah --}}
     <div class="bg-white rounded shadow p-3 mt-3">
@@ -321,6 +405,15 @@ document.getElementById('toggleAll').addEventListener('click', () => {
     buttons.forEach(b => setRowState(b, anyUnmatched));
     recalc();
 });
+
+// Cocokkan semua baris yang cocok persis dgn rekening koran (tanggal & nilai sama)
+const matchExactBtn = document.getElementById('matchExactBtn');
+if (matchExactBtn) {
+    matchExactBtn.addEventListener('click', () => {
+        document.querySelectorAll('.match-btn[data-koran="exact"]').forEach(b => setRowState(b, true));
+        recalc();
+    });
+}
 
 recalc();
 
@@ -461,7 +554,7 @@ const QM_QUICK_DISB_URL  = @json(route('finance.cash-bank.disbursements.quick-st
 const QM_QUICK_RCPT_URL  = @json(route('finance.cash-bank.receipts.quick-store'));
 const QM_CSRF            = @json(csrf_token());
 
-const QM_EXPENSE_ACCOUNTS = @json($expenseAccounts->map(fn($a) => [
+const QM_EXPENSE_ACCOUNTS = @json($disbursementAccounts->map(fn($a) => [
     'id' => $a->id, 'label' => $a->code . ' — ' . $a->name,
 ])->values());
 const QM_REVENUE_ACCOUNTS = @json($revenueAccounts->map(fn($a) => [
@@ -481,7 +574,7 @@ function openQuickModal(kind) {
     if (kind === 'disbursement') {
         title.textContent = '+ Pengeluaran Umum';
         header.className = 'flex items-center justify-between px-4 py-3 border-b border-red-200 bg-red-50 rounded-t-lg';
-        accLabel.textContent = 'Akun Beban / Pengeluaran';
+        accLabel.textContent = 'Akun Beban / Pengeluaran / Prive';
         accLabel.className = 'text-red-700';
         submit.className = 'bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded text-sm font-semibold';
         populateAccountList(QM_EXPENSE_ACCOUNTS);
@@ -811,5 +904,95 @@ async function submitTransferModal(e) {
         submit.textContent = origText;
     }
 }
+</script>
+
+{{-- ============ MODAL: Upload Rekening Koran (Excel) ============ --}}
+<div id="statementModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-blue-200 bg-blue-50 rounded-t-lg">
+            <h3 class="text-base font-semibold text-blue-800">⬆ Upload Rekening Koran (Excel)</h3>
+            <button type="button" onclick="closeStatementModal()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+        </div>
+
+        <div class="p-4 space-y-4 text-sm">
+            @if(($statementMatch['total'] ?? 0) > 0)
+                <div class="bg-green-50 border border-green-200 rounded px-3 py-2 text-green-700 flex items-center justify-between">
+                    <span>Sudah ada <b>{{ $statementMatch['total'] }}</b> baris koran ter-upload.</span>
+                    <form method="POST" action="{{ route('finance.cash-bank.reconciliations.statement-clear', $br->id) }}"
+                          onsubmit="return confirm('Hapus semua data rekening koran yang ter-upload?')">
+                        @csrf @method('DELETE')
+                        <button type="submit" class="text-rose-600 hover:underline text-xs font-semibold">Hapus data koran</button>
+                    </form>
+                </div>
+            @endif
+
+            {{-- 1. Konversi PDF → Excel via AI --}}
+            <div>
+                <div class="font-semibold text-gray-700 mb-1">1. Ubah PDF rekening koran → Excel pakai AI</div>
+                <p class="text-xs text-gray-500 mb-1">Salin prompt ini, tempel di AI (mis. ChatGPT/Gemini/Claude) bersama file PDF rekening koran, lalu simpan hasilnya sebagai Excel.</p>
+                <textarea id="aiPromptText" rows="7" readonly
+                          class="border rounded px-2 py-1.5 w-full text-xs font-mono bg-gray-50 leading-relaxed">Ubah rekening koran / mutasi rekening dalam file terlampir menjadi tabel Excel dengan TEPAT 4 kolom dan header berikut di baris pertama:
+Tanggal | Keterangan | Uang Masuk | Uang Keluar
+
+Aturan:
+- Tanggal: format YYYY-MM-DD (contoh 2026-06-08).
+- Keterangan: uraian transaksi apa adanya.
+- Uang Masuk: nominal dana yang MASUK ke rekening (angka polos tanpa titik/koma ribuan, tanpa "Rp"). Kosongkan jika bukan transaksi masuk.
+- Uang Keluar: nominal dana yang KELUAR dari rekening (angka polos). Kosongkan jika bukan transaksi keluar.
+- Satu baris untuk satu mutasi. Jangan sertakan baris saldo, subtotal, atau ringkasan.
+- Jangan tambah kolom lain. Keluarkan sebagai file Excel (.xlsx) siap unduh.</textarea>
+                <button type="button" onclick="copyAiPrompt(this)"
+                        class="mt-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-2.5 py-1 rounded text-xs font-semibold">📋 Salin Prompt</button>
+            </div>
+
+            {{-- 2. Upload --}}
+            <div>
+                <div class="font-semibold text-gray-700 mb-1">2. Upload file Excel</div>
+                <div class="text-xs text-gray-500 mb-2">
+                    Kolom wajib urut: <b>Tanggal | Keterangan | Uang Masuk | Uang Keluar</b>.
+                    <a href="{{ route('finance.cash-bank.reconciliations.statement-template') }}" class="text-blue-600 hover:underline">Download template</a>
+                </div>
+                <form method="POST" action="{{ route('finance.cash-bank.reconciliations.statement-import', $br->id) }}"
+                      enctype="multipart/form-data" class="flex items-center gap-2">
+                    @csrf
+                    <input type="file" name="file" accept=".xlsx,.xls,.csv" required
+                           class="border rounded px-2 py-1.5 w-full text-xs">
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm font-semibold whitespace-nowrap">Upload</button>
+                </form>
+                <p class="text-[11px] text-gray-400 mt-1">Upload baru akan menggantikan data koran sebelumnya. Cocok/tidaknya dihitung otomatis berdasarkan tanggal &amp; nilai.</p>
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-2 px-4 py-3 border-t">
+            <button type="button" onclick="closeStatementModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm">Tutup</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openStatementModal() {
+    const m = document.getElementById('statementModal');
+    m.classList.remove('hidden'); m.classList.add('flex');
+}
+function closeStatementModal() {
+    const m = document.getElementById('statementModal');
+    m.classList.add('hidden'); m.classList.remove('flex');
+}
+function copyAiPrompt(btn) {
+    const ta = document.getElementById('aiPromptText');
+    ta.select();
+    navigator.clipboard.writeText(ta.value).then(() => {
+        const t = btn.textContent; btn.textContent = '✓ Tersalin';
+        setTimeout(() => btn.textContent = t, 1500);
+    }).catch(() => { document.execCommand('copy'); });
+}
+document.getElementById('statementModal').addEventListener('click', (e) => {
+    if (e.target.id === 'statementModal') closeStatementModal();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !document.getElementById('statementModal').classList.contains('hidden')) {
+        closeStatementModal();
+    }
+});
 </script>
 @endsection

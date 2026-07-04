@@ -46,6 +46,11 @@ class BankReconciliation extends Model
         return $this->hasMany(BankReconciliationLine::class);
     }
 
+    public function statementLines()
+    {
+        return $this->hasMany(BankStatementLine::class);
+    }
+
     public function isDraft(): bool
     {
         return $this->status === 'draft';
