@@ -46,7 +46,7 @@ class AdmsService
         $sn = $machine->serial_number;
         return implode("\r\n", [
             "GET OPTION FROM: {$sn}",
-            "ATTLOGStamp=None",
+            "ATTLOGStamp=0",
             "OPERLOGStamp=9999",
             "ATTPHOTOStamp=None",
             "ErrorDelay=30",
