@@ -292,19 +292,26 @@ class JubelioOrderSyncService
         // TAHAP B & C — SJ & Invoice. Keduanya murni DB → bungkus dalam satu transaksi
         // dgn lockForUpdate pada baris link + re-cek flag, supaya webhook & cron tidak
         // memproses tahap yang sama bersamaan (SJ/Invoice dobel → stok keluar dobel).
-        // SJ (stok keluar) dibuat saat resi/AWB sudah TERBIT di Jubelio (hasResi) — bukan saat
-        // benar-benar dikirim — karena pada titik itu barang sudah dipick/dipack. Timing ini
-        // sama dgn perilaku lama (dulu isShipped menyala pada tracking_no), jadi stok tak berubah.
-        $needB = $link->sales_order_id && $this->hasResi($detail)     && !$link->sj_created;
+        // SJ (stok keluar) dibuat saat barang sudah keluar di Jubelio. Pemicu (salah satu):
+        //  - resi/AWB TERBIT di Jubelio (hasResi) — pada titik ini barang sudah dipick/dipack;
+        //  - order benar-benar dikirim (isShipped);
+        //  - Jubelio SUDAH menerbitkan Faktur-nya (j_invoice_done → stok dipotong di Jubelio).
+        // Cakupan j_invoice_done WAJIB: order yang diproses lewat WMS Jubelio (bukan tombol
+        // "Proses Pesanan" ERP) atau dikirim langsung channel sering TIDAK memunculkan resi di
+        // detail order, sehingga hasResi tetap false selamanya → SJ ERP tak pernah dibuat →
+        // stok ERP tak terpotong & reservasi menggantung (reservasi hantu, available minus,
+        // ERP dorong stok basi ke Jubelio). j_invoice_done adalah sinyal andal "stok sudah keluar".
+        $shipOut = fn($l, $d) => $this->hasResi($d) || $this->isShipped($d) || (bool) $l->j_invoice_done;
+        $needB = $link->sales_order_id && $shipOut($link, $detail)    && !$link->sj_created;
         $needC = $link->sales_order_id && $this->isCompleted($detail) && !$link->invoice_posted;
         if ($needB || $needC) {
-            DB::transaction(function () use ($link, $detail) {
+            DB::transaction(function () use ($link, $detail, $shipOut) {
                 $locked = JubelioOrderLink::where('id', $link->id)->lockForUpdate()->first();
                 if (!$locked) {
                     return;
                 }
 
-                if ($this->hasResi($detail) && !$locked->sj_created) {
+                if ($shipOut($locked, $detail) && !$locked->sj_created) {
                     $this->ensureDelivery($locked);
                 }
                 if ($locked->sales_order_id && $this->isCompleted($detail) && !$locked->invoice_posted) {
