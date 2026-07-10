@@ -152,7 +152,20 @@ class PurchaseInvoiceController extends Controller
             'returns',
             'paymentAllocations.payment',
         ])->findOrFail($id);
-        return view('erp.purchasing.invoices.show', compact('invoice'));
+        $dpBalance = app(\App\Modules\Purchasing\Services\SupplierPaymentService::class)
+            ->getSupplierDpBalance((int) $invoice->supplier_id);
+        return view('erp.purchasing.invoices.show', compact('invoice', 'dpBalance'));
+    }
+
+    public function applyDp($id)
+    {
+        $invoice = PurchaseInvoice::findOrFail($id);
+        try {
+            $applied = $this->postingService->applyDpToInvoice($invoice);
+            return back()->with('success', 'Saldo DP dipakai: Rp ' . number_format($applied, 0, ',', '.') . '.');
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 
     public function edit($id)
@@ -243,6 +256,7 @@ class PurchaseInvoiceController extends Controller
         }
 
         $activeAlloc = \App\Modules\Purchasing\Models\SupplierPaymentAllocation::where('purchase_invoice_id', $invoice->id)
+            ->where('is_auto_dp', false)
             ->whereHas('payment', fn($q) => $q->where('status', 'posted'))
             ->with('payment')
             ->first();

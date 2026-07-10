@@ -840,6 +840,7 @@ Route::prefix('erp/purchasing')->name('purchasing.')->group(function () {
     Route::delete('invoices/{id}', [\App\Modules\Purchasing\Controllers\PurchaseInvoiceController::class, 'destroy'])->whereNumber('id')->name('invoices.destroy');
     Route::post('invoices/{id}/post', [\App\Modules\Purchasing\Controllers\PurchaseInvoiceController::class, 'post'])->whereNumber('id')->name('invoices.post');
     Route::post('invoices/{id}/void', [\App\Modules\Purchasing\Controllers\PurchaseInvoiceController::class, 'void'])->whereNumber('id')->name('invoices.void');
+    Route::post('invoices/{id}/apply-dp', [\App\Modules\Purchasing\Controllers\PurchaseInvoiceController::class, 'applyDp'])->whereNumber('id')->name('invoices.apply-dp');
     Route::get('invoices/{id}/print', [\App\Modules\Purchasing\Controllers\PurchaseInvoiceController::class, 'print'])->whereNumber('id')->name('invoices.print');
     Route::get('invoices/{id}/pdf', [\App\Modules\Purchasing\Controllers\PurchaseInvoiceController::class, 'downloadPdf'])->whereNumber('id')->name('invoices.pdf');
 

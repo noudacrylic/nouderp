@@ -29,6 +29,17 @@
             </form>
         @elseif($invoice->status === 'posted')
             @if($invoice->outstanding_amount > 0)
+                @if(($dpBalance ?? 0) > 0)
+                    @php $dpUse = min($dpBalance, $invoice->outstanding_amount); @endphp
+                    <form method="POST" action="{{ route('purchasing.invoices.apply-dp', $invoice->id) }}"
+                        onsubmit="return confirm('Pakai saldo DP supplier Rp {{ number_format($dpUse, 0, ',', '.') }} untuk faktur ini?')">
+                        @csrf
+                        <button class="bg-purple-600 text-white px-3 py-2 rounded text-sm"
+                            title="Saldo DP tersedia: Rp {{ number_format($dpBalance, 0, ',', '.') }}">
+                            Pakai Saldo DP (Rp {{ number_format($dpUse, 0, ',', '.') }})
+                        </button>
+                    </form>
+                @endif
                 <a href="{{ route('purchasing.payments.create', ['supplier_id' => $invoice->supplier_id]) }}" class="bg-indigo-600 text-white px-3 py-2 rounded text-sm">→ Bayar</a>
             @endif
             <a href="{{ route('purchasing.returns.create', ['invoice_id' => $invoice->id]) }}" class="bg-orange-600 text-white px-3 py-2 rounded text-sm">→ Retur</a>

@@ -40,6 +40,16 @@ class PurchaseInvoiceService
                 $this->validateAgainstPO($data['purchase_order_id'], $items);
             }
 
+            // SAFETY NET biaya PO: form kadang men-drop baris "Biaya Tambahan" saat isi
+            // ulang item dari PO (mis. re-pick PO, atau resubmit setelah validasi gagal).
+            // Akibatnya biaya nyata (mis. Biaya Layanan/admin Shopee) hilang dari faktur →
+            // total faktur < DP → sisa DP nyangkut permanen di 1107. Kalau faktur dibuat
+            // dari PO tapi TANPA baris biaya, tarik biaya dari PO — sekali saja (hanya bila
+            // belum ada faktur non-void lain dari PO ini yang sudah membawa biaya).
+            if (empty($expenses) && !empty($data['purchase_order_id'])) {
+                $expenses = $this->inheritPoExpenses((int) $data['purchase_order_id']);
+            }
+
             [$totals, $itemCalcs] = $this->calculateTotals(
                 $items,
                 $expenses,
@@ -229,6 +239,33 @@ class PurchaseInvoiceService
             $invoice->expenses()->delete();
             $invoice->delete();
         });
+    }
+
+    /**
+     * Ambil baris biaya dari PO untuk dibawa ke faktur — hanya bila belum ada faktur
+     * non-void lain dari PO yang sama yang sudah membawa biaya (cegah dobel saat
+     * faktur parsial). Kembalikan array kosong bila tak perlu / tak ada.
+     */
+    protected function inheritPoExpenses(int $poId): array
+    {
+        $po = PurchaseOrder::with('expenses')->find($poId);
+        if (!$po || $po->expenses->isEmpty()) {
+            return [];
+        }
+
+        $alreadyCarried = PurchaseInvoiceExpense::whereHas('purchaseInvoice', function ($q) use ($poId) {
+            $q->where('purchase_order_id', $poId)->where('status', '!=', 'void');
+        })->exists();
+        if ($alreadyCarried) {
+            return [];
+        }
+
+        return $po->expenses->map(fn ($e) => [
+            'account_id'  => $e->account_id,
+            'description' => $e->description,
+            'amount'      => (float) $e->amount,
+            'mode'        => $e->mode,
+        ])->all();
     }
 
     /**

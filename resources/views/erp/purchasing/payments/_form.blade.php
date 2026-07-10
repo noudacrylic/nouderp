@@ -26,7 +26,7 @@
                 </div>
                 <div class="text-gray-400">
                     Saldo DP (Uang Muka): <span id="dpBalance" class="font-bold text-blue-700">Rp 0</span>
-                    <span class="italic">— auto-apply ke faktur</span>
+                    <span class="italic">— dipakai manual via tombol "Pakai Saldo DP" di faktur</span>
                 </div>
             </div>
         </div>

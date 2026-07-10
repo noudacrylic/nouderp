@@ -84,7 +84,10 @@ class PurchaseInvoice extends Model
     {
         if ($this->status !== 'posted') return false;
 
+        // Hanya pelunasan MANUAL (is_auto_dp=false) yang memblok void. Pemakaian saldo DP
+        // (is_auto_dp=true) otomatis di-reverse saat void faktur, jadi tidak memblok.
         if (SupplierPaymentAllocation::where('purchase_invoice_id', $this->id)
+            ->where('is_auto_dp', false)
             ->whereHas('payment', fn($q) => $q->where('status', 'posted'))->exists()) return false;
 
         if (PurchaseReturn::where('purchase_invoice_id', $this->id)

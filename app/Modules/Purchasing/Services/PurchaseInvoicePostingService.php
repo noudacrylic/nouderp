@@ -198,10 +198,11 @@ class PurchaseInvoicePostingService
                 ?? $this->getAccountIdByCode($this->account('ap'));
             $this->createLine($invoice, $apAccountId, 'credit', (float) $invoice->total, 'Hutang ke supplier');
 
-            // 3.5 AUTO-APPLY DP: kalau supplier punya saldo DP, langsung kurangi AP up to min(invoice_total, dp_balance).
-            // Reduksi piutang-supplier (1107) ditangani via journal line Cr 1107, allocation row di-flag is_auto_dp=true
-            // supaya void invoice bisa reverse selektif (manual pelunasan tidak ikut ter-reverse).
-            $this->autoApplyDp($invoice, $apAccountId);
+            // CATATAN: saldo DP supplier TIDAK lagi dipakai otomatis saat posting.
+            // Dulu autoApplyDp() langsung menyedot saldo DP (1107) ke AP tanpa bisa dipilih —
+            // sering menyisakan DP nyangkut (mis. Biaya Layanan Shopee tak masuk faktur).
+            // Sekarang pemakaian DP jadi tindakan sengaja lewat applyDpToInvoice() (tombol
+            // "Pakai Saldo DP" di faktur), sehingga user memilih kapan & berapa DP dipakai.
 
             // 4. UPDATE PO ITEM qty_invoiced
             if ($invoice->purchase_order_id) {
@@ -276,8 +277,12 @@ class PurchaseInvoicePostingService
                 app(FixedAssetAcquisitionService::class)->revertAssetsForInvoice($invoice);
             }
 
-            // Reverse auto-DP allocations dulu — kembalikan saldo DP ke supplier.
+            // Reverse pemakaian DP dulu — kembalikan saldo DP ke supplier + void jurnal DPA.
             $this->reverseAutoDpAllocations($invoice);
+            Journal::where('reference_type', 'dp_application')
+                ->where('reference_id', $invoice->id)
+                ->where('status', 'posted')
+                ->update(['status' => 'void', 'voided_at' => now()]);
 
             // 1. Reverse FIFO: hapus layers + reverse ledger
             $engine = app(InventoryEngine::class);
@@ -333,61 +338,111 @@ class PurchaseInvoicePostingService
     }
 
     /**
-     * Auto-apply saldo DP supplier (1107) ke invoice yang baru posted, FIFO per payment_date.
-     * Buat Dr AP / Cr 1107 di journal yang sama, plus allocation row dengan is_auto_dp=true.
-     * Update payment.allocated_amount/remaining_amount + invoice.paid_amount/outstanding_amount.
+     * MANUAL: pakai saldo DP supplier (1107) untuk melunasi sebagian/seluruh faktur.
+     * Dipanggil sengaja lewat tombol "Pakai Saldo DP" (bukan otomatis saat posting).
+     *
+     * Membuat JURNAL SENDIRI (reference_type='dp_application') berisi Dr 2101 AP / Cr 1107,
+     * menyedot DP FIFO per payment_date (allocation is_auto_dp=true di payment sumber), dan
+     * mengurangi outstanding faktur. Bisa dibalik otomatis saat faktur di-void
+     * (reverseAutoDpAllocations + void jurnal dp_application).
+     *
+     * @return float jumlah DP yang benar-benar dipakai.
      */
-    protected function autoApplyDp(PurchaseInvoice $invoice, int $apAccountId): void
+    public function applyDpToInvoice(PurchaseInvoice $invoice, ?float $requested = null): float
     {
-        $outstanding = (float) $invoice->outstanding_amount;
-        if ($outstanding <= 0) return;
-
-        // lockForUpdate: cegah dua invoice yg di-post bersamaan sama-sama membaca
-        // remaining_amount lama lalu mengalokasikan DP yg sama (over-consume → 1107 minus).
-        $dpPayments = SupplierPayment::where('supplier_id', $invoice->supplier_id)
-            ->where('status', 'posted')
-            ->where('remaining_amount', '>', 0)
-            ->orderBy('payment_date')
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get();
-
-        if ($dpPayments->isEmpty()) return;
-
-        $totalDp = (float) $dpPayments->sum('remaining_amount');
-        $applyTotal = round(min($outstanding, $totalDp), 2);
-        if ($applyTotal <= 0) return;
-
-        $remaining = $applyTotal;
-        foreach ($dpPayments as $payment) {
-            if ($remaining <= 0.0001) break;
-            $applyHere = round(min($remaining, (float) $payment->remaining_amount), 2);
-            if ($applyHere <= 0) continue;
-
-            SupplierPaymentAllocation::create([
-                'supplier_payment_id' => $payment->id,
-                'purchase_invoice_id' => $invoice->id,
-                'amount_applied' => $applyHere,
-                'is_auto_dp' => true,
-            ]);
-
-            $payment->allocated_amount = (float) $payment->allocated_amount + $applyHere;
-            $payment->remaining_amount = (float) $payment->remaining_amount - $applyHere;
-            $payment->save();
-
-            $remaining -= $applyHere;
+        if ($invoice->status !== 'posted') {
+            throw new DomainException('Hanya faktur posted yang bisa dibayar dengan saldo DP.');
+        }
+        if ((float) $invoice->outstanding_amount <= 0) {
+            throw new DomainException('Faktur sudah lunas.');
         }
 
-        // Journal lines: Dr 2101 AP, Cr 1107 Uang Muka
-        $dpAccountId = $invoice->supplier->account_dp_id
-            ?? $this->getAccountIdByCode($this->account('dp_supplier'));
+        $applyDate = now();
+        $this->periodService->ensureOpen($applyDate);
 
-        $this->createLine($invoice, $apAccountId, 'debit', $applyTotal, 'Auto-apply DP supplier');
-        $this->createLine($invoice, $dpAccountId, 'credit', $applyTotal, 'DP teralokasi ke ' . $invoice->invoice_number);
+        return DB::transaction(function () use ($invoice, $requested, $applyDate) {
+            $invoice->refresh()->load('supplier');
+            $outstanding = (float) $invoice->outstanding_amount;
+            if ($outstanding <= 0) {
+                throw new DomainException('Faktur sudah lunas.');
+            }
 
-        $invoice->paid_amount = (float) $invoice->paid_amount + $applyTotal;
-        $invoice->outstanding_amount = max(0, (float) $invoice->outstanding_amount - $applyTotal);
-        $invoice->save();
+            // lockForUpdate: cegah dua aksi bersamaan menyedot DP yang sama (1107 minus).
+            $dpPayments = SupplierPayment::where('supplier_id', $invoice->supplier_id)
+                ->where('status', 'posted')
+                ->where('remaining_amount', '>', 0)
+                ->orderBy('payment_date')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            $totalDp = (float) $dpPayments->sum('remaining_amount');
+            if ($totalDp <= 0) {
+                throw new DomainException('Tidak ada saldo DP supplier yang tersedia.');
+            }
+
+            $cap = $requested !== null && $requested > 0 ? round($requested, 2) : $outstanding;
+            $applyTotal = round(min($outstanding, $totalDp, $cap), 2);
+            if ($applyTotal <= 0) {
+                throw new DomainException('Tidak ada saldo DP yang bisa dipakai.');
+            }
+
+            $period = AccountingPeriod::where('year', $applyDate->year)
+                ->where('month', $applyDate->month)
+                ->first();
+            if (!$period) {
+                throw new \Exception('Accounting period tidak ditemukan.');
+            }
+
+            $journal = Journal::create([
+                'journal_number'   => $this->generateDpJournalNumber(),
+                'date'             => $applyDate->toDateString(),
+                'period_id'        => $period->id,
+                'reference_type'   => 'dp_application',
+                'reference_id'     => $invoice->id,
+                'reference_number' => $invoice->invoice_number,
+                'description'      => 'Pemakaian saldo DP ke ' . $invoice->invoice_number,
+                'status'           => 'posted',
+                'posted_at'        => now(),
+            ]);
+
+            // Sedot DP FIFO
+            $remaining = $applyTotal;
+            foreach ($dpPayments as $payment) {
+                if ($remaining <= 0.0001) break;
+                $applyHere = round(min($remaining, (float) $payment->remaining_amount), 2);
+                if ($applyHere <= 0) continue;
+
+                SupplierPaymentAllocation::create([
+                    'supplier_payment_id' => $payment->id,
+                    'purchase_invoice_id' => $invoice->id,
+                    'amount_applied'      => $applyHere,
+                    'is_auto_dp'          => true,
+                ]);
+
+                $payment->allocated_amount = (float) $payment->allocated_amount + $applyHere;
+                $payment->remaining_amount = (float) $payment->remaining_amount - $applyHere;
+                $payment->save();
+
+                $remaining -= $applyHere;
+            }
+
+            $apAccountId = $invoice->supplier->account_payable_id
+                ?? $this->getAccountIdByCode($this->account('ap'));
+            $dpAccountId = $invoice->supplier->account_dp_id
+                ?? $this->getAccountIdByCode($this->account('dp_supplier'));
+
+            $this->createDpLine($journal, $invoice, $apAccountId, 'debit', $applyTotal, 'Pelunasan via saldo DP');
+            $this->createDpLine($journal, $invoice, $dpAccountId, 'credit', $applyTotal, 'DP teralokasi ke ' . $invoice->invoice_number);
+
+            $invoice->paid_amount = (float) $invoice->paid_amount + $applyTotal;
+            $invoice->outstanding_amount = max(0, $outstanding - $applyTotal);
+            $invoice->save();
+
+            $this->validateBalance($journal->id);
+
+            return $applyTotal;
+        });
     }
 
     /**
@@ -454,6 +509,32 @@ class PurchaseInvoicePostingService
             'reference_id' => $invoice->id,
             'reference_number' => $invoice->invoice_number,
         ]);
+    }
+
+    /** Line untuk jurnal pemakaian DP (reference_type='dp_application'), journal terpisah. */
+    protected function createDpLine(Journal $journal, PurchaseInvoice $invoice, int $accountId, string $type, float $amount, ?string $description = null): void
+    {
+        if ($amount <= 0) return;
+        JournalLine::create([
+            'journal_id' => $journal->id,
+            'account_id' => $accountId,
+            'debit' => $type === 'debit' ? $amount : 0,
+            'credit' => $type === 'credit' ? $amount : 0,
+            'description' => $description,
+            'reference_type' => 'dp_application',
+            'reference_id' => $invoice->id,
+            'reference_number' => $invoice->invoice_number,
+        ]);
+    }
+
+    protected function generateDpJournalNumber(): string
+    {
+        $prefix = 'DPA/' . now()->format('Y/m') . '/';
+        $latest = Journal::where('journal_number', 'LIKE', $prefix . '%')
+            ->orderByDesc('journal_number')
+            ->value('journal_number');
+        $next = $latest ? ((int) substr($latest, strlen($prefix))) + 1 : 1;
+        return $prefix . str_pad($next, 4, '0', STR_PAD_LEFT);
     }
 
     protected function validateBalance(int $journalId): void

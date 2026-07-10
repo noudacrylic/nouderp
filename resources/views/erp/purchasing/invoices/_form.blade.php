@@ -73,7 +73,7 @@
         <div>
             <label class="block text-sm mb-1">Saldo DP Pemasok</label>
             <input type="text" id="dpDisplay" class="border rounded px-3 py-2 w-full bg-purple-50 text-purple-700 font-semibold text-right" readonly value="Rp 0">
-            <p class="text-[10px] text-gray-500 mt-1">Otomatis di-apply ke AP saat faktur diposting.</p>
+            <p class="text-[10px] text-gray-500 mt-1">Dipakai manual lewat tombol "Pakai Saldo DP" di faktur setelah diposting.</p>
         </div>
     </div>
 </div>
