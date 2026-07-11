@@ -137,7 +137,8 @@
             <span class="ml-auto text-xs whitespace-nowrap {{ $pickupOverdue ? 'text-red-600 font-bold' : 'text-amber-700 font-semibold' }}">
                 🏬 Ambil {{ \Carbon\Carbon::parse($r['pickup_date'])->format('d M Y') }}{{ $pickupOverdue ? ' (lewat)' : '' }}
             </span>
-        @elseif($deadline)
+        @elseif($deadline && !in_array($mode, ['dikirim', 'selesai'], true))
+            {{-- Batas kirim disembunyikan di tab "Dikirim" & "Selesai": pesanan sudah diserahkan/selesai → tak relevan lagi. --}}
             @php
                 // Marketplace: deadline punya jam (mis. 23:59) → tampilkan tgl+jam + hitungan mundur.
                 // Non-marketplace: deadline tengah malam (00:00) → cukup tanggal seperti semula.
