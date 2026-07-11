@@ -126,9 +126,9 @@
                     <td class="px-3 py-2">{{ $e->description }}</td>
                     <td class="px-3 py-2">
                         @if($e->mode === 'capitalized')
-                            <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">Capitalized (HPP)</span>
+                            <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">Dikapitalisasi (HPP)</span>
                         @else
-                            <span class="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">Direct Expense</span>
+                            <span class="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">Beban Langsung</span>
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right">{{ number_format($e->amount, 0, ',', '.') }}</td>

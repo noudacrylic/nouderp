@@ -83,12 +83,14 @@
                 @endif
             </div>
             <div class="text-right">{{ $invoice->global_discount_amount > 0 ? '−' : '' }}{{ number_format($invoice->global_discount_amount, 0, ',', '.') }}</div>
-            <div class="text-gray-500">Expense Capitalized</div><div class="text-right">{{ number_format($invoice->expense_capitalized_total, 0, ',', '.') }}</div>
-            <div class="text-gray-500">Expense Direct</div><div class="text-right">{{ number_format($invoice->expense_direct_total, 0, ',', '.') }}</div>
+            @php $totalBeban = $invoice->expense_capitalized_total + $invoice->expense_direct_total; @endphp
+            @if($totalBeban > 0)
+                <div class="text-gray-500">Total Beban</div><div class="text-right">{{ number_format($totalBeban, 0, ',', '.') }}</div>
+            @endif
             <div class="text-gray-500">PPN Masukan ({{ $invoice->ppn_percent }}%)</div><div class="text-right">{{ number_format($invoice->ppn_amount, 0, ',', '.') }}</div>
             <div class="font-semibold border-t pt-1">TOTAL</div><div class="text-right font-semibold border-t pt-1">{{ number_format($invoice->total, 0, ',', '.') }}</div>
             <div class="text-gray-500">Sudah Dibayar</div><div class="text-right text-green-600">{{ number_format($invoice->paid_amount, 0, ',', '.') }}</div>
-            <div class="text-gray-500">Outstanding</div>
+            <div class="text-gray-500">Sisa Tagihan</div>
             <div class="text-right">
                 @if($invoice->outstanding_amount > 0)
                     <span class="text-red-600 font-semibold">{{ number_format($invoice->outstanding_amount, 0, ',', '.') }}</span>
@@ -111,9 +113,9 @@
                 <th class="px-3 py-2 text-right w-32">Harga</th>
                 <th class="px-3 py-2 text-right w-28">Diskon</th>
                 <th class="px-3 py-2 text-right w-32">Subtotal</th>
-                <th class="px-3 py-2 text-right w-32">Landed Share</th>
-                <th class="px-3 py-2 text-right w-32">Final Cost / Unit</th>
-                <th class="px-3 py-2 text-right w-20">Returned</th>
+                <th class="px-3 py-2 text-right w-32">Alokasi Beban</th>
+                <th class="px-3 py-2 text-right w-32">Cost Akhir/Unit</th>
+                <th class="px-3 py-2 text-right w-20">Diretur</th>
             </tr>
         </thead>
         <tbody>
@@ -153,9 +155,9 @@
                     <td class="px-3 py-2">{{ $e->description }}</td>
                     <td class="px-3 py-2">
                         @if($e->mode === 'capitalized')
-                            <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">Capitalized (HPP)</span>
+                            <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">Dikapitalisasi (HPP)</span>
                         @else
-                            <span class="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">Direct Expense</span>
+                            <span class="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">Beban Langsung</span>
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right">{{ number_format($e->amount, 0, ',', '.') }}</td>

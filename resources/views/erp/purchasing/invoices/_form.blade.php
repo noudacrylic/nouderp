@@ -111,8 +111,8 @@
 <div class="bg-white rounded shadow p-4 mb-4">
     <div class="flex items-center justify-between mb-3">
         <div>
-            <h3 class="font-semibold">Biaya Tambahan (Expense)</h3>
-            <p class="text-xs text-gray-500">Mode <b>Capitalized</b> = nambah HPP barang. Mode <b>Direct Expense</b> = langsung jadi beban.</p>
+            <h3 class="font-semibold">Biaya Tambahan</h3>
+            <p class="text-xs text-gray-500">Mode <b>Dikapitalisasi</b> = nambah HPP barang. Mode <b>Beban Langsung</b> = langsung jadi beban.</p>
         </div>
         <button type="button" id="addExpense" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">+ Tambah Biaya</button>
     </div>
@@ -325,8 +325,8 @@
         <td class="px-2 py-1"><input type="text" name="expenses[__E__][description]" class="border rounded px-2 py-1 w-full"></td>
         <td class="px-2 py-1">
             <select name="expenses[__E__][mode]" class="border rounded px-2 py-1 w-full mode-in">
-                <option value="capitalized">Capitalized (masuk HPP)</option>
-                <option value="direct_expense">Direct Expense (beban)</option>
+                <option value="capitalized">Dikapitalisasi (masuk HPP)</option>
+                <option value="direct_expense">Beban Langsung (beban)</option>
             </select>
         </td>
         <td class="px-2 py-1"><input type="text" inputmode="numeric" name="expenses[__E__][amount]" class="rupiah-input border rounded px-2 py-1 w-full text-right amount-in" required></td>
