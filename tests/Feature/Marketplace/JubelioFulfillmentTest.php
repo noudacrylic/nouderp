@@ -56,7 +56,7 @@ class JubelioFulfillmentTest extends TestCase
         Http::fake([
             '*/login' => Http::response(['token' => 'tok'], 200),
             '*/wms/sales/ready-to-pick' => Http::response(['status' => 200], 200),
-            '*/sales/picklists/items-to-pick' => Http::response([
+            '*/sales/picklists/items-to-pick/' => Http::response([
                 ['salesorder_id' => self::SO_ID, 'salesorder_detail_id' => 82, 'item_id' => 2,
                  'location_id' => 1, 'qty_ordered' => '3', 'bundle_item_id' => 0, 'end_qty' => '6'],
             ], 200),
@@ -97,7 +97,7 @@ class JubelioFulfillmentTest extends TestCase
         Http::fake([
             '*/login' => Http::response(['token' => 'tok'], 200),
             '*/wms/sales/ready-to-pick' => Http::response(['status' => 200], 200),
-            '*/sales/picklists/items-to-pick' => Http::response([
+            '*/sales/picklists/items-to-pick/' => Http::response([
                 ['salesorder_id' => self::SO_ID, 'salesorder_detail_id' => 82, 'item_id' => 2,
                  'location_id' => 1, 'qty_ordered' => '3'],
             ], 200),
@@ -137,6 +137,34 @@ class JubelioFulfillmentTest extends TestCase
         $this->assertTrue($res['success']);
         $this->assertSame('done', $res['stage']);
         Http::assertNothingSent();
+    }
+
+    /**
+     * REGRESI: "Generate Ulang" saat awb_requested sudah true tapi resi belum tercatat
+     * (channel async). Resi harus ditarik dari WMS shipments (sumber sinkron & andal),
+     * bukan cuma detail order yang sering telat sync (dulu bikin retry "jarang bisa").
+     */
+    public function test_regenerate_reads_resi_from_shipments_when_order_detail_lags(): void
+    {
+        Http::fake([
+            '*/login' => Http::response(['token' => 'tok'], 200),
+            '*/wms/sales/shipments/orders/' => Http::response([
+                ['salesorder_id' => self::SO_ID, 'tracking_no' => 'SPXID069810073737', 'shipper' => 'SPX Standard'],
+            ], 200),
+        ]);
+
+        $link = $this->makeLink([
+            'j_ready_to_pick' => true, 'j_picklist_done' => true, 'j_packed' => true,
+            'j_invoice_done' => true, 'j_invoice_id' => 8, 'awb_requested' => true,
+            'tracking_no' => null,
+        ]);
+
+        $res = app(JubelioFulfillmentService::class)->process($link);
+
+        $this->assertTrue($res['success']);
+        $this->assertSame('SPXID069810073737', $link->fresh()->tracking_no);
+        $this->assertSame('SPX Standard', $link->fresh()->shipper);
+        $this->assertNotNull($link->fresh()->wms_completed_at);
     }
 
     public function test_missing_picker_email_fails_fast(): void

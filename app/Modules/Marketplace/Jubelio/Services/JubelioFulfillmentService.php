@@ -132,16 +132,15 @@ class JubelioFulfillmentService
                 $tracking = data_get($res, 'data.tracking_no');
                 $shipper  = data_get($res, 'data.shipper');
             } else {
-                // 5b. Channel yang menerbitkan resi SENDIRI (mis. TikTok `use_tiktok_label`): request-awb
-                //     ditolak "Kurir tidak di support". Picu pembuatan label (setara klik "Cetak Resi" di
-                //     Seller Center) — ini yang membuat marketplace menerbitkan resi — lalu baca resinya
-                //     dari detail order (andal; endpoint shipments mengosongkan baris setelah resi terbit).
-                $hasShipment = !empty(data_get($this->client->getShipmentAwb([$soId]), 'data.0'));
-                $label       = $this->client->getShippingLabelUrl($soId);
-                [$tracking, $shipper] = $this->trackingFromOrder($soId);
+                // 5b. Belum dapat resi dari kurir agregator (gagal), atau channel menerbitkan resi
+                //     SENDIRI (mis. TikTok `use_tiktok_label`) yang menolak request-awb. Picu pembuatan
+                //     label (setara klik "Cetak Resi" di Seller Center) lalu baca resi dari sumber ANDAL
+                //     (WMS shipments / request-awb), bukan hanya detail order yang sering telat sync.
+                $label = $this->client->getShippingLabelUrl($soId);
+                [$tracking, $shipper] = $this->fetchTracking($soId);
 
-                // Tak ada resi, tak ada shipment, label pun gagal → bukan order channel-issued: gagal nyata.
-                if ($tracking === null && !$hasShipment && !$label['success']) {
+                // Tak ada resi & label pun gagal → belum bisa dibentuk: lepas klaim agar bisa diulang.
+                if ($tracking === null && !$label['success']) {
                     return $this->release($link, 'awb_requested', "Faktur sudah dibuat, tetapi AWB/resi belum terbentuk: {$res['error']}. Klik \"Proses\" lagi untuk membentuk AWB (langkah sebelumnya tidak diulang).");
                 }
             }
@@ -164,16 +163,21 @@ class JubelioFulfillmentService
             }
         }
 
-        // Step 5c — resi sering terbit BELAKANGAN (channel async): AWB sudah diproses tapi nomor
-        // resi belum tercatat (step 5 dilewati karena awb_requested sudah true). Tarik ulang
-        // dari detail order Jubelio agar klik "Generate Ulang" menangkap resi yang sudah keluar.
+        // Step 5c — RESUME "Generate Ulang": AWB sudah diproses (awb_requested true) tapi nomor resi
+        // belum tercatat (channel menerbitkan resi async). Step 5 dilewati karena flag sudah true, jadi
+        // di sini tarik ulang resi dari sumber ANDAL (WMS shipments → request-awb → detail order). Bila
+        // masih kosong, picu ulang label sekali lagi lalu baca ulang — inilah yang bikin retry berhasil
+        // (dulu cuma baca tracking_number dari detail order yang sering telat sync → "jarang bisa").
         if ($link->awb_requested && empty($link->tracking_no)) {
-            $od       = $this->client->getOrder($soId);
-            $tracking = data_get($od, 'data.tracking_no') ?: data_get($od, 'data.tracking_number');
+            [$tracking, $shipper] = $this->fetchTracking($soId);
+            if (empty($tracking)) {
+                $this->client->getShippingLabelUrl($soId); // picu penerbitan label/resi lalu baca ulang
+                [$tracking, $shipper] = $this->fetchTracking($soId);
+            }
             if (!empty($tracking)) {
                 $link->forceFill([
                     'tracking_no'      => $tracking,
-                    'shipper'          => data_get($od, 'data.shipper') ?: $link->shipper,
+                    'shipper'          => $shipper ?: $link->shipper,
                     'wms_last_error'   => null,
                     'wms_completed_at' => now(),
                 ])->save();
@@ -254,17 +258,36 @@ class JubelioFulfillmentService
     }
 
     /**
-     * Resi + shipper dari detail order Jubelio. tracking null bila resi belum terbit.
-     * Dipakai setelah memicu label: detail order adalah sumber resi yang andal (endpoint WMS
-     * shipments mengosongkan baris begitu resi terbit & order keluar dari antrian "ready to ship").
+     * Ambil nomor resi + shipper dari sumber yang PALING ANDAL & sinkron, berurutan:
+     *   1. WMS shipments (`/wms/sales/shipments/orders/`) — array baris berisi tracking_no + shipper.
+     *   2. request-awb (`/sales/request-awb-order/`) — kurir agregator (Shopee/Tokopedia) balik resi
+     *      langsung; idempoten untuk order yang AWB-nya sudah terbit.
+     *   3. Detail order (`/sales/orders/{id}`) — `tracking_number` sering TELAT sinkron dari channel,
+     *      jadi hanya dipakai sebagai upaya terakhir.
+     * Ambil yang pertama tidak kosong. Ini menggantikan pembacaan lama yang hanya baca detail order.
      *
      * @return array{0:?string, 1:?string} [tracking_no, shipper]
      */
-    private function trackingFromOrder(int $soId): array
+    private function fetchTracking(int $soId): array
     {
-        $d  = $this->client->getOrder($soId)['data'] ?? [];
-        $tn = trim((string) ($d['tracking_no'] ?? $d['tracking_number'] ?? ''));
-        $sh = trim((string) ($d['shipper'] ?? ''));
+        // 1. WMS shipments (read-only).
+        $ship = $this->client->getShipmentAwb([$soId]);
+        $tn = trim((string) (data_get($ship, 'data.0.tracking_no') ?? ''));
+        $sh = trim((string) (data_get($ship, 'data.0.shipper') ?? ''));
+        if ($tn !== '') return [$tn, $sh ?: null];
+
+        // 2. request-awb (kurir agregator; idempoten bila AWB sudah ada).
+        $awb = $this->client->requestAwb($soId);
+        if (($awb['success'] ?? false)) {
+            $tn = trim((string) (data_get($awb, 'data.tracking_no') ?? ''));
+            $sh = trim((string) (data_get($awb, 'data.shipper') ?? ''));
+            if ($tn !== '') return [$tn, $sh ?: null];
+        }
+
+        // 3. Detail order (sering telat sync) — upaya terakhir.
+        $od = $this->client->getOrder($soId);
+        $tn = trim((string) (data_get($od, 'data.tracking_no') ?? data_get($od, 'data.tracking_number') ?? ''));
+        $sh = trim((string) (data_get($od, 'data.shipper') ?? ''));
 
         return [$tn !== '' ? $tn : null, $sh ?: null];
     }
