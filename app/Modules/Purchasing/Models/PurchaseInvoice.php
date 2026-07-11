@@ -93,6 +93,22 @@ class PurchaseInvoice extends Model
         if (PurchaseReturn::where('purchase_invoice_id', $this->id)
             ->whereNotIn('status', ['void', 'cancelled', 'draft'])->exists()) return false;
 
+        // Stok dari faktur ini sudah dipakai (terjual / produksi) → void ditolak service.
+        // Sembunyikan tombol; koreksi lewat Retur, bukan void.
+        if (\App\Core\Inventory\StockLayer::where('source_type', 'purchase')
+            ->where('source_id', $this->id)
+            ->whereRaw('qty_remaining < qty_in - 0.0001')->exists()) return false;
+
+        // Faktur yang melahirkan aset tetap dengan riwayat (penyusutan/transfer/disposisi)
+        // tak bisa di-void — samakan dgn revertAssetsForInvoice.
+        if (\App\Modules\FixedAsset\Models\FixedAsset::where('source_invoice_id', $this->id)
+            ->where('status', 'active')
+            ->where(function ($q) {
+                $q->whereHas('depreciations', fn($d) => $d->where('status', 'posted'))
+                  ->orWhereHas('transfers', fn($d) => $d->where('status', 'posted'))
+                  ->orWhereHas('disposals', fn($d) => $d->where('status', 'posted'));
+            })->exists()) return false;
+
         return true;
     }
 }
