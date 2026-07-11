@@ -76,7 +76,7 @@ class PurchaseInvoicePostingService
         $invoiceDate = Carbon::parse($invoice->invoice_date);
         $this->periodService->ensureOpen($invoiceDate);
 
-        return DB::transaction(function () use ($invoice, $invoiceDate) {
+        $posted = DB::transaction(function () use ($invoice, $invoiceDate) {
 
             $invoice->load(['items.product', 'items.assetCategory', 'expenses', 'supplier']);
 
@@ -235,6 +235,38 @@ class PurchaseInvoicePostingService
 
             return $invoice;
         });
+
+        // AUTO-APPLY SALDO DP: setelah faktur ter-post, otomatis pakai saldo DP supplier
+        // sebesar outstanding (kalau ada). Untuk pembelian prabayar (mis. Shopee) DP = total
+        // faktur, jadi faktur langsung LUNAS & AP (2101) ter-net ke nol tanpa klik manual.
+        // Dijalankan DI LUAR transaksi posting: bila pemakaian DP gagal, posting yang sudah
+        // valid tidak ikut ter-rollback. Tetap aman di-void (alokasi is_auto_dp=true di-reverse
+        // otomatis). Tombol "Pakai Saldo DP" tetap tersedia untuk sisa/parsial.
+        $this->autoApplyDpOnPost($posted);
+
+        return $posted;
+    }
+
+    /**
+     * Otomatis pakai saldo DP supplier untuk faktur yang baru di-post (sampai outstanding).
+     * Diam saja bila tak ada saldo DP / faktur sudah lunas — bukan error.
+     */
+    protected function autoApplyDpOnPost(PurchaseInvoice $invoice): void
+    {
+        $invoice->refresh();
+        if ($invoice->status !== 'posted' || (float) $invoice->outstanding_amount <= 0) {
+            return;
+        }
+
+        $dpBalance = (float) SupplierPayment::where('supplier_id', $invoice->supplier_id)
+            ->where('status', 'posted')
+            ->where('remaining_amount', '>', 0)
+            ->sum('remaining_amount');
+        if ($dpBalance <= 0) {
+            return;
+        }
+
+        $this->applyDpToInvoice($invoice);
     }
 
     /**
