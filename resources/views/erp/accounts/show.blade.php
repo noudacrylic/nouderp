@@ -173,7 +173,7 @@
                                     data-ref="{{ strtolower($line->reference_number ?? '') }}"
                                     data-desc="{{ strtolower($line->description ?? '') }}">
                                     <td class="ps-3 text-muted">
-                                        {{ $line->created_at->format('d/m/Y') }}
+                                        {{ $line->journal && $line->journal->date ? \Illuminate\Support\Carbon::parse($line->journal->date)->format('d/m/Y') : '-' }}
                                     </td>
                                     <td class="fw-bold text-dark">
                                         {{ $line->journal->journal_number }}

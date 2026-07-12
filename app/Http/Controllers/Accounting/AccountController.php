@@ -110,9 +110,12 @@ class AccountController extends Controller
         // Daftar tahun yang punya transaksi (untuk dropdown filter "Tahun").
         // Hanya jurnal posted — selaras dgn Neraca/Dashboard (AccountBalanceService),
         // supaya jurnal void (mis. DP order yang di-void Jubelio) tidak ikut terhitung.
-        $availableYears = JournalLine::where('account_id', $account->id)
-            ->whereHas('journal', fn ($q) => $q->where('status', 'posted'))
-            ->selectRaw('YEAR(created_at) as y')
+        // Tahun diambil dari tanggal jurnal (akuntansi), bukan created_at (waktu input),
+        // supaya entri backdate muncul di tahun transaksinya.
+        $availableYears = JournalLine::where('journal_lines.account_id', $account->id)
+            ->join('journals', 'journals.id', '=', 'journal_lines.journal_id')
+            ->where('journals.status', 'posted')
+            ->selectRaw('YEAR(journals.date) as y')
             ->distinct()
             ->orderByDesc('y')
             ->pluck('y')
@@ -129,27 +132,34 @@ class AccountController extends Controller
             $availableYears = $availableYears->push($selectedYear)->sortDesc()->values();
         }
 
-        $query = JournalLine::where('account_id', $account->id)
+        // Urutkan & filter berdasarkan tanggal jurnal (akuntansi), bukan created_at
+        // (waktu baris diinput). Entri backdate jadi tampil di posisi tanggal transaksinya.
+        // select('journal_lines.*') wajib supaya kolom hasil join (journals.id/date) tidak
+        // menimpa atribut model line.
+        $query = JournalLine::where('journal_lines.account_id', $account->id)
+            ->join('journals', 'journals.id', '=', 'journal_lines.journal_id')
             // Kecualikan jurnal void agar running balance halaman ini identik dgn Neraca.
-            ->whereHas('journal', fn ($q) => $q->where('status', 'posted'))
+            ->where('journals.status', 'posted')
             ->with('journal')
-            ->orderBy('created_at');
+            ->select('journal_lines.*')
+            ->orderBy('journals.date')
+            ->orderBy('journal_lines.id');
 
         if ($selectedYear !== '' || $selectedMonth !== '') {
             // Filter berdasarkan tahun dan/atau bulan — mengabaikan start/end date
             if ($selectedYear !== '') {
-                $query->whereYear('created_at', $selectedYear);
+                $query->whereYear('journals.date', $selectedYear);
             }
             if ($selectedMonth !== '') {
-                $query->whereMonth('created_at', $selectedMonth);
+                $query->whereMonth('journals.date', $selectedMonth);
             }
         } else {
             if (request('start_date')) {
-                $query->whereDate('created_at', '>=', request('start_date'));
+                $query->whereDate('journals.date', '>=', request('start_date'));
             }
 
             if (request('end_date')) {
-                $query->whereDate('created_at', '<=', request('end_date'));
+                $query->whereDate('journals.date', '<=', request('end_date'));
             }
         }
 
@@ -175,7 +185,7 @@ class AccountController extends Controller
         }
 
         $grouped = $lines->groupBy(function ($item) {
-            return $item->created_at->format('Y-m');
+            return \Illuminate\Support\Carbon::parse($item->journal->date)->format('Y-m');
         });
 
         return view('erp.accounts.show', compact('account', 'grouped', 'availableYears', 'selectedYear', 'selectedMonth'));
