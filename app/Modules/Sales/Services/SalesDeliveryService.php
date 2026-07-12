@@ -294,7 +294,8 @@ class SalesDeliveryService
                     $engine->ledger(
                         $item->product_id, $delivery->warehouse_id, $totalQty, 0,
                         'sales_void', $delivery->delivery_number,
-                        'Void delivery ' . $delivery->delivery_number, $delivery->id
+                        'Void delivery ' . $delivery->delivery_number, $delivery->id,
+                        true // restore stok hanya MENAMBAH; jgn diblokir guard saat produk oversold (balance masih < 0)
                     );
                     \App\Core\Inventory\StockLayer::create([
                         'product_id'    => $item->product_id,
@@ -320,7 +321,8 @@ class SalesDeliveryService
                 $engine->ledger(
                     $item->product_id, $delivery->warehouse_id, $totalQty, 0,
                     'sales_void', $delivery->delivery_number,
-                    'Void delivery ' . $delivery->delivery_number, $delivery->id
+                    'Void delivery ' . $delivery->delivery_number, $delivery->id,
+                    true // restore stok hanya MENAMBAH; jgn diblokir guard saat produk oversold (balance masih < 0)
                 );
 
                 // 2) Kembalikan qty_remaining ke LAYER ASLI per unit_cost (jaga FIFO &
