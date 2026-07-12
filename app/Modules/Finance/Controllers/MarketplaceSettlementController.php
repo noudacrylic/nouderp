@@ -34,10 +34,16 @@ class MarketplaceSettlementController extends Controller
 
         $configs = MarketplaceConfig::with('customer')->where('is_active', 1)->get();
 
-        // Per-marketplace status untuk bulan terpilih (default: bulan berjalan)
+        // Per-marketplace status untuk bulan terpilih. Default: bulan TERTUA yang masih
+        // punya rekonsiliasi draft (belum diposting) — supaya bulan lama yang belum kelar
+        // tetap tampil (mis. Juni belum terposting walau sekarang sudah Juli). Kalau semua
+        // sudah beres → bulan berjalan. Tetap bisa diganti via picker (status_month).
         $statusMonth = $request->input('status_month');
         if (!$statusMonth || !preg_match('/^\d{4}-\d{2}$/', $statusMonth)) {
-            $statusMonth = now()->format('Y-m');
+            $oldestPendingDate = MarketplaceSettlement::where('status', 'draft')->min('date');
+            $statusMonth = $oldestPendingDate
+                ? \Illuminate\Support\Carbon::parse($oldestPendingDate)->format('Y-m')
+                : now()->format('Y-m');
         }
         [$sy, $sm] = array_map('intval', explode('-', $statusMonth));
 
