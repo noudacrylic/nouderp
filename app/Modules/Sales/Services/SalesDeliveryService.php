@@ -222,7 +222,12 @@ class SalesDeliveryService
         }
 
         // ── Dependency checks ──
-        if ($delivery->invoice && !in_array(
+        // DO yang dibuat DARI faktur (DOINV, reference_type='sales_invoice') boleh di-void
+        // lebih dulu: faktur adalah induk, jadi tak perlu menunggu faktur. Void SJ hanya
+        // membalik stok/HPP; pendapatan faktur tetap sampai faktur sendiri di-void. Guard
+        // faktur-aktif hanya berlaku untuk SJ yang menjadi INDUK faktur (mencegah deadlock).
+        $isFromInvoice = ($delivery->reference_type ?? null) === 'sales_invoice';
+        if (!$isFromInvoice && $delivery->invoice && !in_array(
                 ($delivery->invoice->status instanceof \App\Enums\InvoiceStatusEnum
                     ? $delivery->invoice->status->value
                     : $delivery->invoice->status),

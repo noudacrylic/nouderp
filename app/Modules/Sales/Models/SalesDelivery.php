@@ -58,7 +58,13 @@ class SalesDelivery extends Model
     {
         if ($this->status !== 'posted') return false;
 
-        if ($this->invoice_id) {
+        // DO yang dibuat DARI faktur (DOINV, reference_type='sales_invoice'): faktur adalah
+        // induk & SJ anaknya. Boleh di-void lebih dulu tanpa menunggu faktur — void SJ hanya
+        // membalik stok/HPP, pendapatan faktur tetap sampai faktur sendiri di-void. Ini
+        // memutus deadlock "SJ nunggu faktur, faktur nunggu SJ".
+        $isFromInvoice = ($this->reference_type ?? null) === 'sales_invoice';
+
+        if ($this->invoice_id && !$isFromInvoice) {
             $inv = $this->invoice ?: \App\Models\SalesInvoice::find($this->invoice_id);
             if ($inv) {
                 $val = $inv->status instanceof \App\Enums\InvoiceStatusEnum ? $inv->status->value : $inv->status;
