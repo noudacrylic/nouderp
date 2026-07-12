@@ -510,16 +510,14 @@ class MarketplaceSettlementService
     }
 
     /**
-     * Tanggal posting jurnal settlement = AKHIR BULAN periode yang direkonsiliasi
-     * (bulan dari settlement_date/dana cair terakhir di baris). Fallback ke tanggal
-     * dokumen settlement bila baris tak punya settlement_date.
-     * Tujuan: penyesuaian biaya transaksi bulan lalu tidak dibebankan di bulan upload.
+     * Tanggal posting jurnal rekonsiliasi = TANGGAL DOKUMEN rekonsiliasi (bulan berjalan
+     * saat rekonsiliasi dikerjakan), BUKAN di-backdate ke bulan transaksi.
+     * Contoh: transaksi Juni yang direkonsiliasi 2 Juli → jurnal masuk periode Juli.
+     * Tujuan: buku bulan lalu yang mungkin sudah ditutup tidak ikut berubah.
      */
     protected function resolvePostingDate(MarketplaceSettlement $ms): Carbon
     {
-        $maxLineDate = $ms->lines()->max('settlement_date');
-        $base = $maxLineDate ? Carbon::parse($maxLineDate) : Carbon::parse($ms->date);
-        return $base->endOfMonth()->startOfDay();
+        return Carbon::parse($ms->date)->startOfDay();
     }
 
     /**

@@ -11,10 +11,10 @@
 @endphp
 
 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-    <h1 class="text-lg font-semibold">Settlement Marketplace</h1>
+    <h1 class="text-lg font-semibold">Rekonsiliasi Marketplace</h1>
     <div class="flex gap-2 flex-wrap">
         <a href="{{ route('settings.jubelio.edit') }}" class="bg-gray-600 text-white px-3 py-2 rounded text-sm">⚙ Marketplace Config</a>
-        <a href="{{ route('finance.cash-bank.settlements.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Upload Settlement</a>
+        <a href="{{ route('finance.cash-bank.settlements.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Upload Rekonsiliasi</a>
     </div>
 </div>
 
@@ -22,7 +22,7 @@
 <div class="bg-white rounded shadow p-4 mb-4">
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
-            <h2 class="text-sm font-semibold">Status Settlement · {{ $monthName }}</h2>
+            <h2 class="text-sm font-semibold">Status Rekonsiliasi · {{ $monthName }}</h2>
             <div class="text-xs text-gray-500">
                 <span class="text-red-600 font-semibold">⚠ {{ $totalNone }} belum</span> ·
                 <span class="text-yellow-700 font-semibold">✏ {{ $totalDraft }} draf</span> ·
@@ -183,7 +183,7 @@
                             @if($ms->isDraft())
                                 @if($matched > 0)
                                     <form method="POST" action="{{ route('finance.cash-bank.settlements.post', $ms->id) }}" class="inline"
-                                          onsubmit="return confirm('Submit {{ $matched }} matched dari {{ $ms->number }}?@if($unmatched > 0) Sisa {{ $unmatched }} unmatched akan dipindah ke settlement baru.@endif')">
+                                          onsubmit="return confirm('Submit {{ $matched }} matched dari {{ $ms->number }}?@if($unmatched > 0) Sisa {{ $unmatched }} unmatched akan dipindah ke rekonsiliasi baru.@endif')">
                                         @csrf
                                         <button class="bg-green-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap">Submit</button>
                                     </form>
@@ -208,7 +208,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="10" class="px-3 py-6 text-center text-gray-400">Belum ada settlement.</td></tr>
+                <tr><td colspan="10" class="px-3 py-6 text-center text-gray-400">Belum ada rekonsiliasi.</td></tr>
             @endforelse
         </tbody>
     </table>

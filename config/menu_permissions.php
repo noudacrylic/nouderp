@@ -205,7 +205,7 @@ return [
             ],
             'cash-bank.transfers'       => ['label' => 'Transfer Antar Bank',   'url' => '/erp/finance/cash-bank/transfers',       'route_patterns' => ['finance.cash-bank.transfers.*']],
             'cash-bank.reconciliations' => ['label' => 'Rekonsiliasi Bank',     'url' => '/erp/finance/cash-bank/reconciliations', 'route_patterns' => ['finance.cash-bank.reconciliations.*']],
-            'cash-bank.settlements'     => ['label' => 'Settlement Marketplace', 'url' => '/erp/finance/cash-bank/settlements',     'route_patterns' => ['finance.cash-bank.settlements.*']],
+            'cash-bank.settlements'     => ['label' => 'Rekonsiliasi Marketplace', 'url' => '/erp/finance/cash-bank/settlements',     'route_patterns' => ['finance.cash-bank.settlements.*']],
         ],
     ],
 

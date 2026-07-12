@@ -37,7 +37,7 @@
         @endif
         @if($unmatched > 0 && $matched > 0)
             <div class="mt-2 text-xs text-amber-900 bg-white border border-amber-200 rounded px-2 py-1.5">
-                💡 Submit akan men-jurnal <b>{{ $matched }} baris matched</b>. Sisa <b>{{ $unmatched }} unmatched</b> dipindah ke settlement baru (DRAF) — akan auto-match saat faktur marketplace baru dibuat, atau klik <b>Retry Match</b>.
+                💡 Submit akan men-jurnal <b>{{ $matched }} baris matched</b>. Sisa <b>{{ $unmatched }} unmatched</b> dipindah ke rekonsiliasi baru (DRAF) — akan auto-match saat faktur marketplace baru dibuat, atau klik <b>Retry Match</b>.
             </div>
         @elseif($unmatched > 0 && $matched === 0)
             <div class="mt-2 text-xs text-red-900 bg-white border border-red-200 rounded px-2 py-1.5">
@@ -50,7 +50,7 @@
 
 <div class="flex items-center justify-between mb-4">
     <div>
-        <h1 class="text-lg font-semibold">Settlement {{ $ms->number }}</h1>
+        <h1 class="text-lg font-semibold">Rekonsiliasi {{ $ms->number }}</h1>
         <div class="text-xs text-gray-500">{{ $ms->marketplaceConfig->customer->name ?? '-' }} · {{ $ms->date->format('d M Y') }}</div>
     </div>
     <div class="flex gap-2 flex-row-reverse">
@@ -61,8 +61,8 @@
                         ? "✓ Submit {$matched} Matched (sisa {$unmatched} ke draf baru)"
                         : "✓ Submit Rekonsiliasi";
                     $confirmMsg = $unmatched > 0
-                        ? "Submit {$matched} baris matched? Sisa {$unmatched} unmatched akan dipindah ke settlement baru status DRAF."
-                        : "Submit rekonsiliasi {$ms->number}? Jurnal akan dibuat & settlement dipost.";
+                        ? "Submit {$matched} baris matched? Sisa {$unmatched} unmatched akan dipindah ke rekonsiliasi baru status DRAF."
+                        : "Submit rekonsiliasi {$ms->number}? Jurnal akan dibuat & rekonsiliasi dipost.";
                 @endphp
                 <form method="POST" action="{{ route('finance.cash-bank.settlements.post', $ms->id) }}" class="inline" onsubmit="return confirm(@json($confirmMsg))">
                     @csrf
@@ -153,7 +153,7 @@
             <tr>
                 <th class="px-3 py-2 text-left">Marketplace</th>
                 <th class="px-3 py-2 text-left">Order Ref</th>
-                <th class="px-3 py-2 text-left">Tgl Settlement</th>
+                <th class="px-3 py-2 text-left">Tgl Cair</th>
                 <th class="px-3 py-2 text-left">Faktur Match</th>
                 <th class="px-3 py-2 text-right">Gross</th>
                 <th class="px-3 py-2 text-right">Fee Tercatat</th>

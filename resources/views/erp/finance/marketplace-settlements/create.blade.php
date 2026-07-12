@@ -10,8 +10,8 @@
 
 <div class="flex items-center justify-between mb-4">
     <div>
-        <h1 class="text-lg font-semibold">Upload Settlement Marketplace</h1>
-        <p class="text-xs text-gray-500">Cocokkan dana cair marketplace dengan faktur yang belum di-settle.</p>
+        <h1 class="text-lg font-semibold">Upload Rekonsiliasi Marketplace</h1>
+        <p class="text-xs text-gray-500">Cocokkan dana cair marketplace dengan faktur yang belum direkonsiliasi.</p>
     </div>
     <a href="{{ route('finance.cash-bank.settlements.index') }}" class="bg-gray-200 px-3 py-1.5 rounded text-sm">← Daftar</a>
 </div>
@@ -35,7 +35,7 @@
 
         @if($pendingInvoices->isEmpty())
             <div class="text-center py-12 text-xs text-gray-400 italic">
-                Tidak ada faktur marketplace yang menunggu settlement.
+                Tidak ada faktur marketplace yang menunggu rekonsiliasi.
             </div>
         @else
             <div class="max-h-[600px] overflow-y-auto pr-1 space-y-3" id="pending_list">
@@ -115,10 +115,10 @@
 
                 <div class="space-y-3 text-sm">
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">Tanggal Settlement <span class="text-red-500">*</span></label>
+                        <label class="block text-xs text-gray-500 mb-1">Tanggal Rekonsiliasi <span class="text-red-500">*</span></label>
                         <input type="date" name="date" value="{{ old('date', $prefillDate ?: now()->toDateString()) }}"
                                class="border rounded px-2 py-1.5 w-full text-sm" required>
-                        <div class="text-[10px] text-gray-400 mt-0.5">Tanggal dokumen settlement (untuk jurnal).</div>
+                        <div class="text-[10px] text-gray-400 mt-0.5">Menentukan bulan jurnal penyesuaian (pakai bulan berjalan saat rekonsiliasi).</div>
                     </div>
 
                     <div>

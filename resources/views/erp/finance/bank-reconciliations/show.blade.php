@@ -33,7 +33,7 @@
                 $label = 'Transfer Bank'; $color = 'purple';
                 $url = $id ? route('finance.cash-bank.transfers.show', $id) : null; break;
             case 'marketplace_settlement':
-                $label = 'Settlement Marketplace'; $color = 'indigo';
+                $label = 'Rekonsiliasi Marketplace'; $color = 'indigo';
                 $url = $id ? route('finance.cash-bank.settlements.show', $id) : null; break;
             case 'warranty_order':
                 $label = 'Order Garansi'; $color = 'teal';

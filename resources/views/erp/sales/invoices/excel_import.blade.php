@@ -49,7 +49,7 @@
             <li>Per <b>No. Pesanan</b>: bikin 1 Sales Order (status confirmed) + 1 Faktur Penjualan (langsung POSTED). Multi-item per pesanan dirangkum (max 5 item).</li>
             <li><b>Match produk</b> via kolom <code>Nomor Referensi SKU</code> &rarr; <code>products.sku</code> di Noud ERP.</li>
             <li><b>Pelanggan</b> dipaksa ke master <code>"Shopee"</code> (id harus ada di master). Gudang = gudang pertama.</li>
-            <li><code>customer_po_number</code> di SO = <b>No. Pesanan Shopee</b> &mdash; ini kunci match nanti saat upload <b>Marketplace Settlement</b>.</li>
+            <li><code>customer_po_number</code> di SO = <b>No. Pesanan Shopee</b> &mdash; ini kunci match nanti saat upload <b>Rekonsiliasi Marketplace</b>.</li>
             <li>Status yang diterima: <b>"Selesai"</b> &amp; <b>"Pesanan diterima, namun pembeli masih dapat mengajukan pengembalian..."</b>. Status lain (batal/return) di-skip.</li>
             <li>No. Pesanan yang sudah pernah diimport untuk Shopee di-skip (tidak di-import ulang).</li>
             <li>Stok produk harus cukup &amp; tanggal harus dalam periode terbuka (period guard).</li>

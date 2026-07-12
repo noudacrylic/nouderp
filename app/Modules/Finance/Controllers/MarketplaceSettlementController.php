@@ -158,7 +158,7 @@ class MarketplaceSettlementController extends Controller
 
             $count = count($created);
             $numbers = collect($created)->pluck('number')->implode(', ');
-            $msg = "$count settlement draft dibuat ($numbers). Total {$parsed['total_rows']} baris.";
+            $msg = "$count rekonsiliasi draft dibuat ($numbers). Total {$parsed['total_rows']} baris.";
             if (!empty($parsed['unmapped'])) {
                 $msg .= ' ⚠ Marketplace tidak dikenal di-skip: ' . implode(', ', $parsed['unmapped']);
             }
@@ -197,7 +197,7 @@ class MarketplaceSettlementController extends Controller
             $posted  = $result['posted'];
             $pending = $result['pending'];
 
-            $msg = 'Settlement ' . $posted->number . ' POSTED ('
+            $msg = 'Rekonsiliasi ' . $posted->number . ' POSTED ('
                 . $posted->lines()->count() . ' baris matched dijurnal).';
             if ($pending) {
                 $msg .= ' Sisa ' . $pending->lines()->count() . ' baris dipindah ke '
@@ -243,7 +243,7 @@ class MarketplaceSettlementController extends Controller
             if ($ms->fresh()->lines()->count() === 0) {
                 $ms->delete();
                 return redirect(list_url('finance.cash-bank.settlements.index'))
-                    ->with('success', "$deleted baris tidak match dihapus. Settlement kosong, draft ikut dihapus.");
+                    ->with('success', "$deleted baris tidak match dihapus. Rekonsiliasi kosong, draft ikut dihapus.");
             }
             return back()->with('success', "$deleted baris tidak match dihapus. Sisa baris matched siap di-submit.");
         } catch (\Throwable $e) {
@@ -257,7 +257,7 @@ class MarketplaceSettlementController extends Controller
         if (!$ms->canBeVoided()) return back()->with('error', 'Tidak bisa di-void.');
         try {
             $this->service->void($ms);
-            return back()->with('success', 'Settlement ' . $ms->number . ' di-void.');
+            return back()->with('success', 'Rekonsiliasi ' . $ms->number . ' di-void.');
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
