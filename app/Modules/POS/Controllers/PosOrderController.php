@@ -37,7 +37,22 @@ class PosOrderController extends Controller
             'cashAccounts'    => $cashAccounts,
             'defaultCustomer' => $defaultCustomer,
             'customers'       => $customers,
+            // QRIS hanya bisa dipakai bila Midtrans sudah terkonfigurasi. Kalau belum,
+            // tombol QRIS disembunyikan supaya kasir tidak membuat invoice nyangkut (posted,
+            // tak pernah settle → BELUM LUNAS selamanya).
+            'qrisEnabled'     => $this->qrisAvailable(),
         ]);
+    }
+
+    /**
+     * QRIS di Kasir hanya aktif bila di-ON-kan eksplisit (Pengaturan Midtrans) DAN kredensial
+     * Midtrans terisi. Default OFF: mencegah operator salah klik QRIS lalu membuat invoice
+     * ter-post tanpa pembayaran selama Midtrans belum live.
+     */
+    private function qrisAvailable(): bool
+    {
+        $s = \App\Models\MidtransSetting::singleton();
+        return (bool) $s->pos_qris_enabled && filled($s->server_key) && filled($s->client_key);
     }
 
     /** Live search produk (kiri layar). Harga = display_price (ProductPrice), stok = available (ledger − reservasi; bundle dari komponen). */
@@ -151,6 +166,15 @@ class PosOrderController extends Controller
             'items.*.discount_value' => ['nullable'],
             'items.*.description'   => ['nullable', 'string', 'max:255'],
         ]);
+
+        // Guard QRIS sebelum invoice dibuat: kalau Midtrans belum terkonfigurasi, settlement
+        // tak pernah datang → invoice akan nyangkut BELUM LUNAS. Tolak di sini supaya tidak ada
+        // invoice sampah yang terlanjur di-post.
+        if ($data['payment_method'] === 'qris' && !$this->qrisAvailable()) {
+            return response()->json([
+                'message' => 'Pembayaran QRIS belum aktif (Midtrans belum terkonfigurasi). Gunakan Bayar Cash.',
+            ], 422);
+        }
 
         $customerId = $data['customer_id'] ?? $svc->resolveWalkInCustomer()->id;
 

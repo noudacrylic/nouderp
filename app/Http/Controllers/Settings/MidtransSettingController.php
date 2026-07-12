@@ -30,6 +30,7 @@ class MidtransSettingController extends Controller
             'merchant_id' => 'nullable|string|max:255',
             'is_production' => 'nullable|boolean',
             'show_payment_method' => 'nullable|boolean',
+            'pos_qris_enabled' => 'nullable|boolean',
             'link_expiry_days' => 'required|integer|min:1|max:90',
             'qris_expiry_minutes' => 'required|integer|min:5|max:1440',
             'va_fee' => 'required|numeric|min:0',
@@ -53,6 +54,7 @@ class MidtransSettingController extends Controller
 
         $data['is_production'] = $request->boolean('is_production');
         $data['show_payment_method'] = $request->boolean('show_payment_method');
+        $data['pos_qris_enabled'] = $request->boolean('pos_qris_enabled');
 
         MidtransSetting::singleton()->update($data);
 

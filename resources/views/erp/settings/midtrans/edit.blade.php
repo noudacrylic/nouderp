@@ -75,6 +75,21 @@
                 </p>
             </div>
 
+            {{-- ===== Tombol QRIS di Kasir POS ===== --}}
+            <div>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Kasir POS</h3>
+                <label class="inline-flex items-start gap-2 text-sm font-semibold text-gray-700">
+                    <input type="checkbox" name="pos_qris_enabled" value="1" {{ old('pos_qris_enabled', $setting->pos_qris_enabled) ? 'checked' : '' }}
+                           class="rounded border-gray-300 mt-0.5">
+                    <span>Tampilkan tombol <b>Bayar QRIS</b> di Kasir</span>
+                </label>
+                <p class="text-xs text-gray-500 mt-2">
+                    <b>Tidak dicentang (disarankan selama Midtrans belum live):</b> tombol Bayar QRIS
+                    disembunyikan sehingga kasir tidak bisa salah klik dan membuat faktur ter-post
+                    <b>tanpa pembayaran</b> (nyangkut BELUM LUNAS). Kasir cukup pakai <b>Bayar Cash</b>.
+                </p>
+            </div>
+
             {{-- ===== Masa berlaku ===== --}}
             <div>
                 <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Masa Berlaku</h3>

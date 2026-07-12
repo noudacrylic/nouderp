@@ -77,10 +77,12 @@
                 </div>
             </div>
 
-            {{-- Aksi bayar --}}
-            <div class="mt-3 grid grid-cols-2 gap-2">
+            {{-- Aksi bayar. QRIS hanya muncul bila Midtrans sudah terkonfigurasi (lihat controller). --}}
+            <div class="mt-3 grid @if($qrisEnabled) grid-cols-2 @else grid-cols-1 @endif gap-2">
                 <button id="btnCash" type="button" class="px-3 py-2.5 rounded-lg text-sm font-bold bg-green-600 hover:bg-green-700 text-white">💵 Bayar Cash</button>
+                @if($qrisEnabled)
                 <button id="btnQris" type="button" class="px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white">📲 Bayar QRIS</button>
+                @endif
             </div>
             <p id="posError" class="hidden text-xs text-red-600 mt-2"></p>
         </div>
@@ -421,8 +423,8 @@
             .finally(() => { this.disabled = false; this.textContent = 'Selesai & Bayar'; });
     });
 
-    // ----- QRIS -----
-    el('btnQris').addEventListener('click', function () {
+    // ----- QRIS ----- (tombol hanya ada bila Midtrans terkonfigurasi)
+    el('btnQris')?.addEventListener('click', function () {
         clearError();
         if (!cart.length) return showError('Keranjang masih kosong.');
         this.disabled = true;
