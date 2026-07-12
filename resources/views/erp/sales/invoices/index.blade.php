@@ -79,7 +79,9 @@
                     $isPosted = $postedEnum && $invoice->status === $postedEnum;
 
                     $remaining = round((float)$invoice->grand_total - (float)($invoice->advance_applied ?? 0) - (float)($invoice->paid_amount ?? 0), 2);
-                    $isPaid = $remaining <= 0.01;
+                    // Toleransi Rp1: sisa < 1 rupiah = debu rekonsiliasi (mis. selisih pecahan
+                    // DP marketplace vs grand_total faktur) → dianggap LUNAS, jangan nyangkut.
+                    $isPaid = $remaining < 1;
 
                     $hasWarranty = !empty($invoice->has_warranty);
 

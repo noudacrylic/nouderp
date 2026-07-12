@@ -81,9 +81,12 @@ class DebugInvoiceController extends Controller
             $m1 = $today->copy()->subMonth();     // batas 1 bulan
             $m3 = $today->copy()->subMonths(3);   // batas 3 bulan
 
-            // Hanya yang "belum diproses": posted & belum lunas (sisa tagihan > 0).
+            // Hanya yang "belum diproses": posted & belum lunas (sisa tagihan >= Rp1).
+            // Toleransi Rp1: sisa di bawah 1 rupiah = debu rekonsiliasi (mis. DP marketplace
+            // dibukukan sebesar grand_total SO yang beda pecahan dengan grand_total faktur) →
+            // dianggap LUNAS supaya tidak nyangkut selamanya.
             $query->where('status', 'posted')
-                ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) > 0.01');
+                ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1');
 
             if ($request->age === 'lt_1w') {
                 $query->whereDate('invoice_date', '>=', $w1);
@@ -100,9 +103,9 @@ class DebugInvoiceController extends Controller
             match ($request->status) {
                 'draft'            => $query->where('status', 'draft'),
                 'belum_lunas'      => $query->where('status', 'posted')
-                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) > 0.01'),
+                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1'),
                 'selesai'          => $query->where('status', 'posted')
-                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) <= 0.01'),
+                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) < 1'),
                 'void'             => $query->where('status', 'void'),
                 'returned_partial' => $query->where('status', 'posted')
                                             ->havingRaw('items_returned_total > 0 AND items_returned_total < items_qty_total'),
