@@ -342,7 +342,9 @@ class PaymentController extends Controller
                     ->sum('amount');
                 $remaining  = round($grandTotal - $advance - $paid, 2);
 
-                if ($remaining <= 0) return null;
+                // Toleransi Rp1: sisa < 1 rupiah = debu rekonsiliasi (mis. selisih pecahan DP
+                // marketplace vs grand_total faktur) → dianggap lunas, jangan tampil di pelunasan.
+                if ($remaining < 1) return null;
 
                 // Is this invoice already in an ACTIVE billing?
                 $activeBillingItem = $inv->billingItems
@@ -371,7 +373,7 @@ class PaymentController extends Controller
                     ->whereHas('payment', fn($q) => $q->where('status', '!=', 'void'))
                     ->sum('amount');
                 $remaining = round((float) $billing->total_amount - $paid, 2);
-                if ($remaining <= 0) return null;
+                if ($remaining < 1) return null; // toleransi Rp1 (debu rekonsiliasi)
 
                 $billing->remaining  = $remaining;
                 $billing->is_locked  = false;
@@ -396,7 +398,7 @@ class PaymentController extends Controller
                     ->sum('amount');
                 $remaining  = round($grandTotal - $paid, 2);
 
-                if ($remaining <= 0) return null;
+                if ($remaining < 1) return null; // toleransi Rp1 (debu rekonsiliasi)
 
                 $so->remaining = $remaining;
 
