@@ -34,15 +34,26 @@ class MarketplaceSettlementController extends Controller
 
         $configs = MarketplaceConfig::with('customer')->where('is_active', 1)->get();
 
-        // Per-marketplace status untuk bulan terpilih. Default: bulan TERTUA yang masih
-        // punya rekonsiliasi draft (belum diposting) — supaya bulan lama yang belum kelar
-        // tetap tampil (mis. Juni belum terposting walau sekarang sudah Juli). Kalau semua
-        // sudah beres → bulan berjalan. Tetap bisa diganti via picker (status_month).
+        // Per-marketplace status untuk bulan terpilih. Default: bulan TRANSAKSI marketplace
+        // TERTUA yang fakturnya belum direkonsiliasi (belum masuk rekonsiliasi POSTED) —
+        // supaya bulan lama tetap tampil walau belum ada rekonsiliasi dibuat (mis. Juni
+        // belum direkonsiliasi walau sekarang Juli). Begitu semua faktur bulan itu sudah
+        // di-post → default pindah ke bulan berikutnya / bulan berjalan. Tetap bisa diganti
+        // manual via picker (status_month).
         $statusMonth = $request->input('status_month');
         if (!$statusMonth || !preg_match('/^\d{4}-\d{2}$/', $statusMonth)) {
-            $oldestPendingDate = MarketplaceSettlement::where('status', 'draft')->min('date');
-            $statusMonth = $oldestPendingDate
-                ? \Illuminate\Support\Carbon::parse($oldestPendingDate)->format('Y-m')
+            $mpCustomerIds = $configs->pluck('customer_id')->filter()->all();
+            $reconciledInvoiceIds = \App\Modules\Finance\Models\MarketplaceSettlementLine::whereNotNull('sales_invoice_id')
+                ->whereHas('settlement', fn($q) => $q->where('status', 'posted'))
+                ->pluck('sales_invoice_id');
+            $oldestUnreconciled = ! empty($mpCustomerIds)
+                ? \App\Models\SalesInvoice::whereIn('customer_id', $mpCustomerIds)
+                    ->where('status', 'posted')
+                    ->whereNotIn('id', $reconciledInvoiceIds)
+                    ->min('invoice_date')
+                : null;
+            $statusMonth = $oldestUnreconciled
+                ? \Illuminate\Support\Carbon::parse($oldestUnreconciled)->format('Y-m')
                 : now()->format('Y-m');
         }
         [$sy, $sm] = array_map('intval', explode('-', $statusMonth));
