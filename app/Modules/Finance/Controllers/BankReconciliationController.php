@@ -49,10 +49,40 @@ class BankReconciliationController extends Controller
             ->whereNotIn('id', $excludeIds)
             ->orderBy('code')->get();
 
-        // Per-account status untuk bulan yang dipilih (default: bulan berjalan)
+        // Per-account status untuk bulan yang dipilih. Default: bulan TERTUA yang masih punya
+        // aktivitas kas/bank tapi BELUM selesai direkonsiliasi (per akun+bulan) — supaya bulan
+        // lama tetap tampil walau sudah lewat (mis. Juni belum selesai walau sekarang Juli).
+        // Draft belum dihitung selesai. Begitu semua akun bulan itu completed → default pindah
+        // ke bulan berikutnya / bulan berjalan. Tetap bisa diganti manual via picker.
         $statusMonth = $request->input('status_month');
         if (!$statusMonth || !preg_match('/^\d{4}-\d{2}$/', $statusMonth)) {
-            $statusMonth = now()->format('Y-m');
+            $reconAccountIds = $accounts->pluck('id')->all();
+
+            // (account_id | 'YYYY-MM') yang SUDAH completed.
+            $completed = BankReconciliation::where('status', 'completed')
+                ->get(['account_id', 'period_year', 'period_month'])
+                ->map(fn ($b) => $b->account_id . '|' . sprintf('%04d-%02d', $b->period_year, $b->period_month))
+                ->flip();
+
+            // Cari bulan tertua dgn aktivitas jurnal (non-void) di akun rekonsiliasi yang
+            // pasangan akun+bulannya belum completed.
+            $oldestUnreconciled = null;
+            if (!empty($reconAccountIds)) {
+                $activity = JournalLine::query()
+                    ->join('journals', 'journals.id', '=', 'journal_lines.journal_id')
+                    ->whereIn('journal_lines.account_id', $reconAccountIds)
+                    ->where('journals.status', '!=', 'void')
+                    ->selectRaw("journal_lines.account_id AS aid, DATE_FORMAT(journals.date, '%Y-%m') AS ym")
+                    ->distinct()
+                    ->get();
+                foreach ($activity as $a) {
+                    if (isset($completed[$a->aid . '|' . $a->ym])) continue;
+                    if ($oldestUnreconciled === null || $a->ym < $oldestUnreconciled) {
+                        $oldestUnreconciled = $a->ym;
+                    }
+                }
+            }
+            $statusMonth = $oldestUnreconciled ?: now()->format('Y-m');
         }
         [$sy, $sm] = array_map('intval', explode('-', $statusMonth));
 
