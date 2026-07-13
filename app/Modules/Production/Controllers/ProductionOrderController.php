@@ -135,7 +135,7 @@ class ProductionOrderController extends Controller
             'production_date' => 'required|date',
             'planned_cycles'  => 'nullable|numeric|min:0.0001',
             'score_type'     => 'nullable|in:auto,priority',
-            'priority_level' => 'required_if:score_type,priority|nullable|in:low,medium,high,very_high',
+            'priority_level' => 'required_if:score_type,priority|nullable|in:low,medium,high,very_high,urgent',
             'images'          => 'nullable|array|max:5',
             'images.*'        => 'image|max:5120',
             'costs'                   => 'nullable|array',
