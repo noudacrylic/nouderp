@@ -104,8 +104,13 @@ class AutoProductionService
             return array_merge($base, ['reason' => "Stok {$product->sku} ({$qtyOnHand}) masih aman ({$minLabel})."]);
         }
 
-        // Anti-duplikat: cek produksi aktif untuk produk utama yang sama (apa pun sumbernya).
+        // Anti-duplikat: cek produksi aktif untuk produk utama yang sama.
+        // KECUALIKAN tipe 'repair' (Perbaikan): OP perbaikan hanya memulihkan 1 unit
+        // retur/garansi (bukan mengisi ulang stok jual), jadi tidak boleh menghalangi
+        // auto-produksi. Hanya produksi asli (ready_stock/custom) yang menambah stok
+        // jual yang dianggap duplikat.
         $hasActive = ProductionOrder::whereNotIn('status', ['finalized', 'cancelled'])
+            ->where('type', '!=', 'repair')
             ->whereHas('outputs', function ($q) use ($product) {
                 $q->where('product_id', $product->id)
                   ->where('output_type', 'main');
