@@ -77,9 +77,20 @@ class AutoProductionService
         // "Cadangan" sengaja DIKECUALIKAN: isinya buffer untuk saat pesanan rame dan
         // tidak boleh menutupi kondisi menipis di gudang operasional. Dengan begitu auto
         // tetap jalan begitu gudang jual menipis, sementara stok cadangan tetap tersimpan.
-        $qtyOnHand = (float) ProductStock::where('product_id', $product->id)
+        //
+        // Pakai stok TERSEDIA, bukan on-hand mentah, agar SELARAS dengan kartu "Stok
+        // Menipis" di dashboard & kolom "Tersedia" di halaman Stok:
+        //   tersedia = Σ on_hand gudang sellable − reservasi aktif + stok preorder.
+        // Tanpa mengurangi reservasi, unit yang sudah di-booking pesanan (akan keluar)
+        // menutupi kondisi menipis sehingga OP otomatis tak pernah terbentuk walau
+        // dashboard sudah menandai produk itu menipis.
+        $onHand = (float) ProductStock::where('product_id', $product->id)
             ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', 1))
             ->sum('qty_on_hand');
+        $reserved = (float) \App\Core\Inventory\StockReservation::where('product_id', $product->id)
+            ->where('status', 'active')
+            ->sum('qty');
+        $qtyOnHand = $onHand - $reserved + (float) ($product->preorder_stock ?? 0);
         $minStock  = $product->min_stock !== null ? (float) $product->min_stock : null;
 
         // Trigger jika: stok habis/minus (apa pun nilai min_stock), atau menipis (qty <= min_stock yang valid).
