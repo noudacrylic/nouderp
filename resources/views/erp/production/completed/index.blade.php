@@ -9,7 +9,7 @@
         'action'       => route('production.orders.edit-finalize', $o->id),
         'warehouse_id' => (int) $o->warehouse_id,
         // % cost bisa di-override manual hanya utk order TANPA BOM & bukan Perbaikan.
-        'pct_manual'   => is_null($o->bom_id) && $o->type !== 'repair',
+        'pct_manual'   => is_null($o->bom_id) && !in_array($o->type, ['repair','perbaikan','garansi'], true),
         'outputs'      => $o->outputs->map(fn($out) => [
             'output_id'      => $out->id,
             'name'           => $out->product?->name ?? '—',
@@ -95,8 +95,10 @@
             <select name="type" class="filter-auto border rounded px-2 py-1.5">
                 <option value="">Semua</option>
                 <option value="ready_stock" @selected(request('type')=='ready_stock')>Ready Stock</option>
-                <option value="custom"      @selected(request('type')=='custom')>Custom / Preorder</option>
-                <option value="repair"      @selected(request('type')=='repair')>Repair</option>
+                <option value="custom"      @selected(request('type')=='custom')>Preorder</option>
+                <option value="perbaikan"   @selected(request('type')=='perbaikan')>Perbaikan</option>
+                <option value="garansi"     @selected(request('type')=='garansi')>Garansi</option>
+                <option value="repair"      @selected(request('type')=='repair')>Perbaikan (lama)</option>
             </select>
         </div>
     </form>

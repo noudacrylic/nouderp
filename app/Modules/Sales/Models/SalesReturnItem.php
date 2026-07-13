@@ -14,13 +14,15 @@ class SalesReturnItem extends Model
         'qty',
         'unit_price',
         'subtotal',
-        'condition'
+        'condition',
+        'component_conditions',
     ];
 
     protected $casts = [
         'qty' => 'decimal:4',
         'unit_price' => 'decimal:2',
         'subtotal' => 'decimal:2',
+        'component_conditions' => 'array',
     ];
 
     public function salesReturn()

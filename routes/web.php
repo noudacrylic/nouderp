@@ -984,6 +984,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
 
     // Production Orders
     Route::get('ajax/repair-sources', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'getRepairSources'])->name('ajax.repair-sources');
+    Route::get('ajax/repair-stock',   [\App\Modules\Production\Controllers\ProductionOrderController::class, 'getRepairStock'])->name('ajax.repair-stock');
     Route::get('ajax/sales-orders',   [\App\Modules\Production\Controllers\ProductionOrderController::class, 'searchSalesOrders'])->name('ajax.sales-orders');
     Route::get('orders', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'index'])->name('orders.index');
     Route::get('orders/create', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'create'])->name('orders.create');

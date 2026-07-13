@@ -359,6 +359,34 @@ class InventoryAdjustmentController extends Controller
                     );
 
                     $totalLoss += $fifoCost; // Use calculated FIFO cost for loss journal
+
+                    // Penyesuaian tujuan perbaikan = TRANSFER, bukan pemusnahan: barang pindah
+                    // fisik ke Gudang Perbaikan (= akun 1131) senilai FIFO yang dikonsumsi,
+                    // sehingga OP tipe perbaikan bisa mengambilnya per-SKU dan saldo 1131 cocok
+                    // dengan stok fisik. Jurnal tetap Dr 1131 / Cr 1130 (tak berubah).
+                    if ($adjustment->purpose === 'perbaikan_rusak') {
+                        $repairWarehouseId = Warehouse::repairId();
+                        if ($repairWarehouseId && $repairWarehouseId != $adjustment->warehouse_id) {
+                            $unitCost = $qtyOut > 0 ? $fifoCost / $qtyOut : ($product->last_cost ?? 0);
+                            $engine->ledger(
+                                productId: $product->id,
+                                warehouseId: $repairWarehouseId,
+                                qtyIn: $qtyOut,
+                                qtyOut: 0,
+                                type: 'adjustment_repair_in',
+                                reference: $adjustment->number,
+                                transactionId: $adjustment->id
+                            );
+                            $fifo->createLayer(
+                                productId: $product->id,
+                                warehouseId: $repairWarehouseId,
+                                qty: $qtyOut,
+                                cost: $unitCost,
+                                source: 'adjustment_repair_in',
+                                referenceId: $adjustment->id
+                            );
+                        }
+                    }
                 }
             }
 
@@ -523,6 +551,38 @@ class InventoryAdjustmentController extends Controller
                             $stockLayer->delete();
                         } else {
                             $stockLayer->save();
+                        }
+                    }
+                }
+
+                // Balik transfer ke Gudang Perbaikan (untuk penyesuaian 'perbaikan_rusak'):
+                // keluarkan qty yang tadi dipindahkan ke sana + hapus layer FIFO-nya.
+                if ($diff < 0 && $adjustment->purpose === 'perbaikan_rusak') {
+                    $repairWarehouseId = Warehouse::repairId();
+                    if ($repairWarehouseId && $repairWarehouseId != $warehouseId) {
+                        $engine->ledger(
+                            $productId,
+                            $repairWarehouseId,
+                            0,
+                            $qty,
+                            'adjustment_repair_void',
+                            $adjustment->number,
+                            null,
+                            $adjustment->id
+                        );
+
+                        $repairLayer = \App\Core\Inventory\StockLayer::where('source_type', 'adjustment_repair_in')
+                            ->where('source_id', $adjustment->id)
+                            ->where('product_id', $productId)
+                            ->where('warehouse_id', $repairWarehouseId)
+                            ->first();
+                        if ($repairLayer) {
+                            $repairLayer->qty_remaining -= $qty;
+                            if ($repairLayer->qty_remaining <= 0) {
+                                $repairLayer->delete();
+                            } else {
+                                $repairLayer->save();
+                            }
                         }
                     }
                 }

@@ -32,6 +32,13 @@
                     </span>
                 </div>
 
+                @if($order->isRepairLike())
+                    <div class="mb-4 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2 flex items-start gap-2">
+                        <span class="font-black">ℹ️</span>
+                        <span>Order {{ strtolower($order->type_label) }}: <b>nilai tambahan produksi</b> (biaya perbaikan &amp; penggantian komponen dari WIP) <b>dibagi rata per unit output</b> — HPP tiap produk naik merata sesuai jumlah unit.</span>
+                    </div>
+                @endif
+
                 <div class="space-y-3">
                     @foreach($order->outputs as $i => $out)
                         @php
@@ -100,7 +107,7 @@
                                     @php
                                         // Override manual hanya untuk sampingan pada order TANPA BOM & bukan Perbaikan
                                         // (ukuran material beda → % beda). Dengan BOM/Perbaikan atau baris Utama → otomatis/terkunci.
-                                        $pctEditable = is_null($order->bom_id) && $order->type !== 'repair' && $out->output_type === 'by_product';
+                                        $pctEditable = is_null($order->bom_id) && !$order->isRepairLike() && $out->output_type === 'by_product';
                                     @endphp
                                     <label class="block text-[10px] font-bold text-gray-500 mb-1">
                                         Persentase Cost (%) {!! $pctEditable ? '*' : '<span class="font-normal text-gray-400">(otomatis)</span>' !!}

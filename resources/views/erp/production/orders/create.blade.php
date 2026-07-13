@@ -22,6 +22,16 @@
         @if($errors->any() || session('error'))
             <div class="mb-5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
                 <div class="font-bold mb-1">Order produksi gagal disimpan:</div>
+                @if(session('error'))
+                    <div class="mt-0.5">{{ session('error') }}</div>
+                @endif
+                @if($errors->any())
+                    <ul class="list-disc list-inside mt-1 space-y-0.5">
+                        @foreach($errors->all() as $err)
+                            <li>{{ $err }}</li>
+                        @endforeach
+                    </ul>
+                @endif
                 <div class="text-[11px] text-red-500 mt-1.5">Data yang sudah diisi tetap dipertahankan di bawah.</div>
             </div>
         @endif
@@ -41,8 +51,9 @@
                             <select name="type" x-model="type"
                                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                                 <option value="ready_stock">Ready Stock</option>
-                                <option value="custom">Custom / Preorder</option>
-                                <option value="repair">Perbaikan</option>
+                                <option value="custom">Preorder</option>
+                                <option value="perbaikan">Perbaikan</option>
+                                <option value="garansi">Garansi</option>
                             </select>
                         </div>
                         <div>
@@ -51,7 +62,10 @@
                                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-gray-500 mb-1">Gudang *</label>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">
+                                <span x-show="type !== 'perbaikan'">Gudang *</span>
+                                <span x-show="type === 'perbaikan'" x-cloak>Gudang Hasil Perbaikan (Jual) *</span>
+                            </label>
                             @if(!empty($lockWarehouse))
                                 {{-- OP perbaikan: gudang dikunci ke gudang sumber (garansi/retur) --}}
                                 @php $lockedWh = $warehouses->firstWhere('id', $defaultWarehouseId); @endphp
@@ -65,9 +79,15 @@
                                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                                     <option value="">— Pilih Gudang —</option>
                                     @foreach($warehouses as $wh)
-                                        <option value="{{ $wh->id }}" @selected(old('warehouse_id', $defaultWarehouseId) == $wh->id)>{{ $wh->name }}</option>
+                                        {{-- Gudang Perbaikan bukan tujuan output (holding 1131) → sembunyikan saat tipe perbaikan. --}}
+                                        <option value="{{ $wh->id }}"
+                                                @if($wh->is_repair) x-show="type !== 'perbaikan'" @endif
+                                                @selected(old('warehouse_id', $defaultWarehouseId) == $wh->id)>{{ $wh->name }}</option>
                                     @endforeach
                                 </select>
+                                <p x-show="type === 'perbaikan'" x-cloak class="text-[10px] text-orange-500 mt-0.5">
+                                    Barang yang diperbaiki otomatis diambil dari <b>Gudang Perbaikan</b>. Gudang ini hanya <b>tujuan hasil</b> perbaikan (masuk sebagai stok jual), jadi pilih gudang jual — bukan Gudang Perbaikan.
+                                </p>
                             @endif
                         </div>
                     </div>
@@ -132,61 +152,44 @@
                         <p class="text-[10px] text-purple-500 mt-0.5">Hanya SO dengan produk <strong>preorder</strong>. Output akan di-cap sesuai sisa yang belum diproduksi.</p>
                     </div>
 
-                    {{-- Repair: Sumber + Ref (1 baris) --}}
-                    <div x-show="type === 'repair'" x-transition class="grid grid-cols-2 gap-3 mb-3">
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 mb-1">Sumber Perbaikan *</label>
-                            <select name="repair_source_type" x-model="repairSource"
-                                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
-                                <option value="">— Pilih Sumber —</option>
-                                <option value="adjustment">Penyesuaian Stok</option>
-                                <option value="return">Retur Pelanggan</option>
-                                <option value="warranty">Garansi</option>
-                            </select>
-                        </div>
-                        <div x-show="repairSource" x-transition>
-                            <label class="block text-xs font-bold text-gray-500 mb-1">
-                                Nomor
-                                <span x-text="repairSource === 'adjustment' ? 'Penyesuaian' : repairSource === 'return' ? 'Retur' : 'Garansi'"></span>
-                            </label>
-                            {{-- Hidden inputs untuk submit --}}
-                            <input type="hidden" name="repair_source_ref" x-model="repairSourceRef">
-                            <input type="hidden" name="repair_source_id"  x-model="repairSourceId">
-                            {{-- Search dropdown --}}
-                            <div class="relative" @click.outside="repairSourceDrop = false">
-                                <input type="text" x-model="repairSourceQuery"
-                                       @input.debounce.400ms="searchRepairSource()"
-                                       @focus="if (repairSourceResults.length) repairSourceDrop = true"
-                                       :placeholder="'Cari nomor ' + (repairSource === 'adjustment' ? 'penyesuaian' : repairSource === 'return' ? 'retur' : 'garansi') + '...'"
-                                       :class="repairSourceRef ? 'border-orange-300 bg-orange-50' : 'border-gray-200 bg-white'"
-                                       class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
-                                <span x-show="repairSourceRef"
-                                      class="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 cursor-pointer hover:text-red-500 text-xs font-bold"
-                                      @click="clearRepairSource()">✕</span>
-                                <div x-show="repairSourceDrop && repairSourceResults.length > 0"
-                                     class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-30 max-h-48 overflow-y-auto">
-                                    <template x-for="doc in repairSourceResults" :key="doc.id">
-                                        <div @click="selectRepairSource(doc)"
-                                             class="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0 flex justify-between items-center">
-                                            <span class="font-bold text-gray-800" x-text="doc.label"></span>
-                                            <span class="text-[10px] text-gray-400 ml-2 flex-shrink-0"
-                                                  x-text="doc.items.length + ' produk'"></span>
-                                        </div>
-                                    </template>
-                                </div>
+                    {{-- GARANSI: pilih dokumen garansi (sumber = warranty) --}}
+                    <div x-show="type === 'garansi'" x-transition class="mb-3">
+                        <input type="hidden" name="repair_source_type" value="warranty">
+                        <input type="hidden" name="repair_source_ref" x-model="repairSourceRef">
+                        <input type="hidden" name="repair_source_id"  x-model="repairSourceId">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Nomor Garansi *</label>
+                        <div class="relative" @click.outside="repairSourceDrop = false">
+                            <input type="text" x-model="repairSourceQuery"
+                                   @input.debounce.400ms="searchRepairSource()"
+                                   @focus="if (repairSourceResults.length) repairSourceDrop = true"
+                                   placeholder="Cari nomor garansi..."
+                                   :class="repairSourceRef ? 'border-orange-300 bg-orange-50' : 'border-gray-200 bg-white'"
+                                   class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                            <span x-show="repairSourceRef"
+                                  class="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 cursor-pointer hover:text-red-500 text-xs font-bold"
+                                  @click="clearRepairSource()">✕</span>
+                            <div x-show="repairSourceDrop && repairSourceResults.length > 0"
+                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-30 max-h-48 overflow-y-auto">
+                                <template x-for="doc in repairSourceResults" :key="doc.id">
+                                    <div @click="selectRepairSource(doc)"
+                                         class="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0 flex justify-between items-center">
+                                        <span class="font-bold text-gray-800" x-text="doc.label"></span>
+                                        <span class="text-[10px] text-gray-400 ml-2 flex-shrink-0" x-text="doc.items.length + ' produk'"></span>
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     </div>
 
-                    {{-- Produk yang Diperbaiki (muncul setelah referensi dipilih) --}}
-                    <div x-show="type === 'repair' && repairItems.length > 0" x-transition class="mb-3">
+                    {{-- GARANSI: Produk yang Diperbaiki (read-only dari dokumen) --}}
+                    <div x-show="type === 'garansi' && repairItems.length > 0" x-transition class="mb-3">
                         <div class="bg-orange-50 border border-orange-100 rounded-xl p-4">
                             <div class="flex items-center justify-between mb-3">
                                 <h4 class="text-xs font-bold text-orange-700 flex items-center gap-1.5">
-                                    <span class="w-4 h-4 bg-orange-200 text-orange-700 rounded flex items-center justify-center text-[9px] font-black">R</span>
-                                    Produk yang Diperbaiki
+                                    <span class="w-4 h-4 bg-orange-200 text-orange-700 rounded flex items-center justify-center text-[9px] font-black">G</span>
+                                    Produk Garansi yang Diperbaiki
                                 </h4>
-                                <span class="text-[10px] text-orange-400">Dari referensi terpilih · tidak dapat diubah manual</span>
+                                <span class="text-[10px] text-orange-400">Dari dokumen garansi · tidak dapat diubah manual</span>
                             </div>
                             <div class="space-y-2">
                                 <template x-for="(item, idx) in repairItems" :key="idx">
@@ -199,11 +202,71 @@
                                         <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0"
                                               :class="item.output_type === 'main' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'"
                                               x-text="item.output_type === 'main' ? 'Utama' : 'Sampingan (' + item.percentage.toFixed(1) + '%)'"></span>
-                                        {{-- Hidden inputs --}}
                                         <input type="hidden" :name="`repair_items[${idx}][product_id]`" :value="item.product_id">
                                         <input type="hidden" :name="`repair_items[${idx}][qty]`"         :value="item.qty">
                                         <input type="hidden" :name="`repair_items[${idx}][output_type]`" :value="item.output_type">
                                         <input type="hidden" :name="`repair_items[${idx}][percentage]`"  :value="item.percentage">
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- PERBAIKAN: pilih SKU dari Gudang Perbaikan (retur/penyesuaian) --}}
+                    <div x-show="type === 'perbaikan'" x-transition class="mb-3">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Pilih SKU dari Gudang Perbaikan *</label>
+                        <div class="relative" @click.outside="repairStockDrop = false">
+                            <input type="text" x-model="repairStockQuery"
+                                   @input.debounce.300ms="searchRepairStock()"
+                                   @focus="searchRepairStock(); repairStockDrop = true"
+                                   placeholder="Cari SKU/nama barang yang menunggu perbaikan..."
+                                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                            <div x-show="repairStockDrop && availableRepairStock().length > 0"
+                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto">
+                                <template x-for="p in availableRepairStock()" :key="p.product_id">
+                                    <div @click="addRepairStockItem(p)"
+                                         class="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0 flex justify-between items-center gap-2">
+                                        <span class="min-w-0">
+                                            <span class="font-bold text-blue-600" x-text="p.sku"></span>
+                                            <span class="text-gray-600 text-xs ml-1" x-text="p.name"></span>
+                                        </span>
+                                        <span class="text-[10px] text-orange-600 font-bold flex-shrink-0">stok: <span x-text="p.qty"></span></span>
+                                    </div>
+                                </template>
+                            </div>
+                            <div x-show="repairStockDrop && availableRepairStock().length === 0 && repairStockQuery.trim() !== ''"
+                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-30 px-3 py-2.5 text-xs text-gray-400">
+                                Tidak ada SKU yang cocok di Gudang Perbaikan.
+                            </div>
+                        </div>
+                        <p class="text-[10px] text-orange-500 mt-0.5">Daftar barang yang sudah masuk perbaikan (dari retur kondisi "Perbaikan" &amp; penyesuaian stok). Tidak terikat nomor retur.</p>
+                    </div>
+
+                    {{-- PERBAIKAN: SKU terpilih + qty --}}
+                    <div x-show="type === 'perbaikan' && perbaikanItems.length > 0" x-transition class="mb-3">
+                        <div class="bg-orange-50 border border-orange-100 rounded-xl p-4">
+                            <h4 class="text-xs font-bold text-orange-700 flex items-center gap-1.5 mb-3">
+                                <span class="w-4 h-4 bg-orange-200 text-orange-700 rounded flex items-center justify-center text-[9px] font-black">P</span>
+                                SKU yang Akan Diperbaiki
+                            </h4>
+                            <div class="space-y-2">
+                                <template x-for="(item, idx) in perbaikanItems" :key="item.product_id">
+                                    <div class="flex items-center gap-3 bg-white rounded-lg px-3 py-2 border border-orange-100">
+                                        <div class="flex-1 min-w-0">
+                                            <span class="font-bold text-blue-600 text-xs" x-text="item.sku"></span>
+                                            <span class="text-gray-700 text-xs ml-1" x-text="item.name"></span>
+                                            <span class="block text-[10px] text-gray-400">Tersedia di perbaikan: <span x-text="item.max"></span></span>
+                                        </div>
+                                        <div class="flex flex-col items-end flex-shrink-0">
+                                            <input type="number" min="0.0001" :max="item.max" step="any"
+                                                   x-model="item.qty" @input="validateRepairQty(idx)"
+                                                   class="w-20 border-2 border-orange-200 text-center rounded-lg px-2 py-1 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-300">
+                                        </div>
+                                        <button type="button" @click="removeRepairStockItem(idx)"
+                                                class="text-red-400 hover:text-red-600 text-sm flex-shrink-0">✕</button>
+                                        {{-- Hidden inputs submit (output_type/percentage default di server) --}}
+                                        <input type="hidden" :name="`repair_items[${idx}][product_id]`" :value="item.product_id">
+                                        <input type="hidden" :name="`repair_items[${idx}][qty]`"         :value="item.qty">
                                     </div>
                                 </template>
                             </div>
@@ -219,7 +282,7 @@
                 </div>
 
                 {{-- BOM (disembunyikan untuk repair) --}}
-                <div x-show="type !== 'repair'" class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div x-show="!isRepairLike()" class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     <button type="button" @click="bomOpen = !bomOpen"
                             class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition">
                         <span class="font-bold text-gray-700 text-sm flex items-center gap-2">
@@ -302,7 +365,7 @@
                 </div>
 
                 {{-- Material (disembunyikan untuk repair) --}}
-                <div x-show="type !== 'repair'" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div x-show="!isRepairLike()" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="font-bold text-gray-700">Material yang Digunakan</h3>
                         <button type="button" @click="addMaterial()"
@@ -351,7 +414,7 @@
                 </div>
 
                 {{-- Output (disembunyikan untuk repair) --}}
-                <div x-show="type !== 'repair'" id="outputAnchor" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div x-show="!isRepairLike()" id="outputAnchor" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="font-bold text-gray-700">Output yang Dihasilkan</h3>
                         <button type="button" @click="addOutput()"
@@ -607,17 +670,17 @@
                 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <h3 class="font-bold text-gray-600 text-sm mb-3">Skor Antrean</h3>
                     <div class="flex rounded-lg border overflow-hidden text-xs font-bold mb-2"
-                         :class="type === 'repair' ? 'border-orange-200' : 'border-gray-200'">
+                         :class="isRepairLike() ? 'border-orange-200' : 'border-gray-200'">
                         <label class="flex-1 flex items-center justify-center px-3 py-2 transition"
-                               :class="type === 'repair'
+                               :class="isRepairLike()
                                    ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
                                    : scoreType === 'auto' ? 'bg-blue-600 text-white cursor-pointer' : 'bg-white text-gray-500 hover:bg-gray-50 cursor-pointer'">
                             <input type="radio" name="score_type" value="auto" x-model="scoreType"
-                                   :disabled="type === 'repair'" class="sr-only">
+                                   :disabled="isRepairLike()" class="sr-only">
                             Otomatis
                         </label>
                         <label class="flex-1 flex items-center justify-center px-3 py-2 border-l cursor-pointer transition"
-                               :class="type === 'repair' ? 'border-orange-200' : 'border-gray-200'"
+                               :class="isRepairLike() ? 'border-orange-200' : 'border-gray-200'"
                                :class="scoreType === 'priority' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'">
                             <input type="radio" name="score_type" value="priority" x-model="scoreType" class="sr-only">
                             Prioritas
@@ -634,7 +697,7 @@
                         </select>
                     </div>
                     <p x-show="scoreType === 'auto'" class="text-[10px] text-gray-400 mt-1">Dihitung otomatis dari BOM + kondisi stok.</p>
-                    <p x-show="type === 'repair'" class="text-[10px] text-orange-400 mt-1">Order perbaikan menggunakan prioritas manual karena tidak memiliki BOM.</p>
+                    <p x-show="isRepairLike()" class="text-[10px] text-orange-400 mt-1">Order perbaikan/garansi menggunakan prioritas manual karena tidak memiliki BOM.</p>
                 </div>
 
                 {{-- Simpan Order --}}
@@ -902,6 +965,11 @@ function orderForm() {
         repairSourceResults: [],
         repairSourceDrop: false,
         repairItems: [],
+        // Perbaikan berbasis SKU dari Gudang Perbaikan
+        repairStockQuery: '',
+        repairStockResults: [],
+        repairStockDrop: false,
+        perbaikanItems: [],
         salesOrderId: null,
         salesOrderLabel: '',
         salesOrderCustomer: '',
@@ -1246,8 +1314,23 @@ function orderForm() {
                 this.submitError = 'Data BOM masih dimuat. Tunggu sebentar lalu simpan lagi.';
                 return;
             }
-            // Order perbaikan tidak pakai outputs[] biasa.
-            if (this.type === 'repair') return;
+            // Order repair-like (perbaikan/garansi) tidak pakai outputs[] biasa.
+            if (this.isRepairLike()) {
+                if (this.type === 'perbaikan') {
+                    const ok = this.perbaikanItems.length > 0
+                        && this.perbaikanItems.every(i => parseFloat(i.qty) > 0);
+                    if (!ok) {
+                        e.preventDefault();
+                        this.submitError = 'Pilih minimal 1 SKU dari Gudang Perbaikan dengan qty > 0.';
+                        return;
+                    }
+                } else if (!this.repairSourceId) {
+                    e.preventDefault();
+                    this.submitError = 'Pilih dokumen garansi terlebih dahulu.';
+                    return;
+                }
+                return;
+            }
 
             const badOutput = this.outputs.length === 0
                 || this.outputs.some(o => !o.product_id || !(parseFloat(o.qty_planned) > 0));
@@ -1339,6 +1422,51 @@ function orderForm() {
             this.repairItems       = doc.items;
         },
 
+        // Tipe repair-like (perbaikan/garansi): sembunyikan BOM/Material/Output biasa.
+        isRepairLike() {
+            return this.type === 'perbaikan' || this.type === 'garansi';
+        },
+
+        // ── Perbaikan: pilih SKU dari Gudang Perbaikan ──
+        async searchRepairStock() {
+            const q   = this.repairStockQuery.trim();
+            const res = await fetch(`/erp/production/ajax/repair-stock?search=${encodeURIComponent(q)}`);
+            this.repairStockResults = await res.json();
+            this.repairStockDrop    = true;
+        },
+
+        // Hasil pencarian tanpa SKU yang sudah ditambahkan (biar tidak muncul lagi di dropdown).
+        availableRepairStock() {
+            const added = new Set(this.perbaikanItems.map(i => i.product_id));
+            return this.repairStockResults.filter(p => !added.has(p.product_id));
+        },
+
+        addRepairStockItem(p) {
+            if (this.perbaikanItems.some(i => i.product_id === p.product_id)) {
+                this.repairStockQuery = ''; this.repairStockResults = []; this.repairStockDrop = false;
+                return;
+            }
+            this.perbaikanItems.push({
+                product_id: p.product_id, sku: p.sku, name: p.name,
+                qty: p.qty, max: p.qty, unit_cost: p.unit_cost,
+            });
+            this.repairStockQuery   = '';
+            this.repairStockResults = [];
+            this.repairStockDrop    = false;
+        },
+
+        removeRepairStockItem(idx) {
+            this.perbaikanItems.splice(idx, 1);
+        },
+
+        validateRepairQty(idx) {
+            const it = this.perbaikanItems[idx];
+            let q = parseFloat(it.qty) || 0;
+            if (q < 0) q = 0;
+            if (q > it.max) q = it.max;
+            it.qty = q;
+        },
+
         async searchSalesOrders() {
             const q   = this.salesOrderQuery.trim();
             const res = await fetch(`/erp/production/ajax/sales-orders?q=${encodeURIComponent(q)}`);
@@ -1380,22 +1508,26 @@ function orderForm() {
             this.outputs            = [];
         },
 
-        // Prefill type=repair + sumber perbaikan dari querystring.
+        // Prefill dari querystring: type=perbaikan (dari Retur) atau type=garansi (dari Warranty).
         async prefillFromUrl() {
             const params = new URLSearchParams(window.location.search);
-            if (params.get('type') !== 'repair') return;
+            const t = params.get('type');
 
-            this.type = 'repair';
-            const st  = params.get('repair_source_type');
+            // Retur → perbaikan berbasis SKU (tanpa dokumen). Cukup set tipe.
+            if (t === 'perbaikan') { this.type = 'perbaikan'; return; }
+
+            // Garansi (atau legacy repair-warranty) → pilih dokumen garansi.
+            if (t !== 'garansi' && t !== 'repair') return;
+
+            this.type = 'garansi';
             const ref = params.get('repair_ref') || '';
             const sid = params.get('repair_source_id');
-            if (!st || !sid) return;
-
-            this.repairSource = st;          // memicu watch → clearRepairSource()
-            await this.$nextTick();          // tunggu watch selesai sebelum mengisi
+            await this.$nextTick();          // biarkan watch type set repairSource='warranty'
+            this.repairSource = 'warranty';
+            if (!sid) return;
 
             try {
-                const url = `/erp/production/ajax/repair-sources?source_type=${encodeURIComponent(st)}&search=${encodeURIComponent(ref)}`;
+                const url = `/erp/production/ajax/repair-sources?source_type=warranty&search=${encodeURIComponent(ref)}`;
                 const res = await fetch(url);
                 const docs = await res.json();
                 const doc = docs.find(d => String(d.id) === String(sid)) || docs[0];
@@ -1464,11 +1596,23 @@ function orderForm() {
             this.$watch('cycles', () => this.applyCycles());
             this.$watch('repairSource', () => this.clearRepairSource());
             this.$watch('type', (val) => {
-                if (val === 'repair') {
+                if (val === 'perbaikan' || val === 'garansi') {
                     this.scoreType = 'priority';
                 } else {
-                    this.clearRepairSource();
                     this.scoreType = 'auto';
+                }
+                // Garansi selalu bersumber dari dokumen warranty.
+                if (val === 'garansi') {
+                    this.repairSource = 'warranty';
+                } else {
+                    this.repairSource = '';
+                    this.clearRepairSource();
+                }
+                // Bersihkan pilihan SKU perbaikan bila pindah dari 'perbaikan'.
+                if (val !== 'perbaikan') {
+                    this.perbaikanItems   = [];
+                    this.repairStockQuery = '';
+                    this.repairStockResults = [];
                 }
                 if (val !== 'custom') {
                     this.clearSalesOrder();

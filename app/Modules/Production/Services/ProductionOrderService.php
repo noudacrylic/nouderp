@@ -16,6 +16,7 @@ use App\Modules\Production\Models\Department;
 use App\Core\Inventory\FifoService;
 use App\Core\Inventory\InventoryEngine;
 use App\Core\Inventory\StockLayer;
+use App\Core\Inventory\Warehouse;
 use App\Core\Journal\JournalPostingService;
 use App\DTO\JournalEntryDTO;
 use App\DTO\JournalLineDTO;
@@ -51,8 +52,11 @@ class ProductionOrderService
                 'image_paths' => isset($data['image_paths']) ? json_encode($data['image_paths']) : null,
             ]);
 
-            // Repair type: auto-create materials/outputs/sources from repair_items
-            if (($data['type'] ?? '') === 'repair' && !empty($data['repair_items'])) {
+            // Tipe repair-like (perbaikan/garansi/legacy repair): auto-create materials/outputs
+            // (dan sources bila ada dokumen) dari repair_items. Input=output produk sama.
+            //  • perbaikan → item dari SKU Gudang Perbaikan, TANPA dokumen sumber.
+            //  • garansi/repair → item dari dokumen warranty/retur, dengan source_id.
+            if (ProductionOrder::isRepairType($data['type'] ?? '') && !empty($data['repair_items'])) {
                 $sourceType = match($data['repair_source_type'] ?? '') {
                     'warranty'   => 'warranty',
                     'adjustment' => 'stock_repair',
@@ -74,8 +78,10 @@ class ProductionOrderService
                         'production_order_id' => $order->id,
                         'product_id'          => $item['product_id'],
                         'qty_planned'         => $item['qty'],
-                        'output_type'         => $item['output_type'],
-                        'percentage'          => $item['percentage'],
+                        // Perbaikan: tiap SKU adalah "main" independen (biaya tambahan dibagi rata
+                        // per unit saat finalize, bukan berbasis persentase sampingan).
+                        'output_type'         => $item['output_type'] ?? 'main',
+                        'percentage'          => $item['percentage'] ?? 0,
                     ]);
 
                     if (!empty($data['repair_source_id'])) {
@@ -375,9 +381,15 @@ class ProductionOrderService
      */
     private function consumeOrderMaterials(ProductionOrder $order, iterable $materials): float
     {
-        $creditCode = $order->type === 'repair'
+        $creditCode = $order->isRepairLike()
             ? AccountCodeEnum::INVENTORY_REPAIR
             : AccountCodeEnum::INVENTORY;
+
+        // Tipe 'perbaikan' mengambil bahan (barang menunggu perbaikan) dari GUDANG PERBAIKAN.
+        // Garansi/legacy repair tetap dari gudang order (= gudang dokumen sumber, terkunci).
+        $materialWarehouseId = $order->type === 'perbaikan'
+            ? (Warehouse::repairId() ?? $order->warehouse_id)
+            : $order->warehouse_id;
 
         $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
         $inventoryAccount = Account::where('code', $creditCode)->firstOrFail();
@@ -397,7 +409,7 @@ class ProductionOrderService
             // Catat stock-out di inventory_ledgers (FifoService::consume tidak menyentuh ledger).
             $engine->ledger(
                 productId: $material->product_id,
-                warehouseId: $order->warehouse_id,
+                warehouseId: $materialWarehouseId,
                 qtyIn: 0,
                 qtyOut: $toConsume,
                 type: 'production_material',
@@ -408,7 +420,7 @@ class ProductionOrderService
 
             $cogs = $fifo->consume(
                 $material->product_id,
-                $order->warehouse_id,
+                $materialWarehouseId,
                 $toConsume,
                 'production_material',
                 $order->id
@@ -796,11 +808,15 @@ class ProductionOrderService
         if ($unconsumed->isNotEmpty()) {
             $engine = app(InventoryEngine::class);
             $insufficient = [];
+            // Perbaikan menarik bahan dari Gudang Perbaikan (bukan gudang order).
+            $materialWarehouseId = $order->type === 'perbaikan'
+                ? (Warehouse::repairId() ?? $order->warehouse_id)
+                : $order->warehouse_id;
 
             foreach ($unconsumed as $material) {
                 $available = (float) $engine->availableStock(
                     (int) $material->product_id,
-                    (int) $order->warehouse_id
+                    (int) $materialWarehouseId
                 );
                 // Hanya butuh sisa yang belum dikonsumsi.
                 $required = (float) $material->qty_required - (float) $material->qty_consumed;
@@ -866,8 +882,10 @@ class ProductionOrderService
             //    pakai persentase yang dikirim (fallback ke nilai tersimpan di OP).
             //  Bila tidak ada sampingan (mayoritas / data lama), pertahankan alokasi rasio qty.
             $cycles = max(1e-9, (float) ($order->planned_cycles ?: 1));
-            // Order Perbaikan tetap pakai alokasi rasio qty (tidak ada konsep % sampingan).
-            $usePctMode = $order->type !== 'repair'
+            // Order repair-like (perbaikan/garansi/repair) pakai alokasi RASIO QTY = nilai
+            // (material + biaya tambahan) dibagi RATA PER UNIT output. Tidak ada konsep %
+            // sampingan. Sesuai aturan: biaya perbaikan/penggantian komponen dibagi rata.
+            $usePctMode = !$order->isRepairLike()
                 && $order->outputs->contains(fn($o) => $o->output_type === 'by_product');
             $bomFixed   = $order->bom_id !== null;
 
@@ -997,7 +1015,7 @@ class ProductionOrderService
 
             // Auto-advance dokumen sumber Perbaikan → "Selesai Diperbaiki".
             // Garansi: received/posted → repaired, sehingga SJ Garansi bisa langsung dibuat.
-            if ($order->type === 'repair'
+            if ($order->isRepairLike()
                 && $order->repair_source_type === 'warranty'
                 && $order->repair_source_id) {
                 app(\App\Modules\Sales\Services\WarrantyOrderService::class)
@@ -1227,9 +1245,14 @@ class ProductionOrderService
             return false;
         }
 
-        $debitCode = $order->type === 'repair'
+        $debitCode = $order->isRepairLike()
             ? AccountCodeEnum::INVENTORY_REPAIR
             : AccountCodeEnum::INVENTORY;
+
+        // Perbaikan: bahan dikembalikan ke Gudang Perbaikan (asal konsumsinya).
+        $restoreWarehouseId = $order->type === 'perbaikan'
+            ? (Warehouse::repairId() ?? $order->warehouse_id)
+            : $order->warehouse_id;
 
         $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
         $inventoryAccount = Account::where('code', $debitCode)->firstOrFail();
@@ -1257,7 +1280,7 @@ class ProductionOrderService
             // Stok kembali ke gudang: layer FIFO baru + ledger qtyIn.
             $fifo->stockIn(
                 productId:     (int) $productId,
-                warehouseId:   (int) $order->warehouse_id,
+                warehouseId:   (int) $restoreWarehouseId,
                 type:          'production_cancel',
                 reference:     $order->order_number,
                 qty:           $qty,
@@ -1541,16 +1564,20 @@ class ProductionOrderService
     {
         // Ambil total debit ke WIP dari semua jurnal yang berkontribusi ke order ini:
         //  - production_order_confirm  → konsumsi material awal (reference_id = order_id)
+        //  - production_order_cost     → biaya produksi saat buat order (reference_id = order_id)
         //  - production_material_addition → penambahan bahan (reference_id = addition_id)
         //  - production_cost_addition  → biaya tambahan saat penambahan bahan (reference_id = addition_id)
         $wipAccount = Account::where('code', AccountCodeEnum::WIP)->first();
         if (!$wipAccount) return 0;
 
-        // (a) Direct: jurnal yang reference_id-nya = order_id
+        // (a) Direct: jurnal yang reference_id-nya = order_id (konsumsi material + biaya produksi
+        //     yang diinput saat membuat order). Tanpa 'production_order_cost', biaya produksi
+        //     saat create nyangkut di WIP & tak ikut ditutup ke persediaan saat finalisasi.
         $directDebit = (float) \App\Core\Journal\JournalLine::where('account_id', $wipAccount->id)
             ->whereHas('journal', function ($q) use ($orderId) {
-                $q->where('reference_type', 'production_order_confirm')
-                  ->where('reference_id', $orderId);
+                $q->whereIn('reference_type', ['production_order_confirm', 'production_order_cost'])
+                  ->where('reference_id', $orderId)
+                  ->where('status', '!=', 'void');
             })
             ->sum('debit');
 
@@ -1563,7 +1590,8 @@ class ProductionOrderService
             $additionDebit = (float) \App\Core\Journal\JournalLine::where('account_id', $wipAccount->id)
                 ->whereHas('journal', function ($q) use ($additionIds) {
                     $q->whereIn('reference_type', ['production_material_addition', 'production_cost_addition'])
-                      ->whereIn('reference_id', $additionIds);
+                      ->whereIn('reference_id', $additionIds)
+                      ->where('status', '!=', 'void');
                 })
                 ->sum('debit');
         }

@@ -43,14 +43,14 @@
         <div class="flex items-center gap-2">
             @if(($warranty->type ?? 'repair') !== 'replacement' && in_array($warranty->status, ['posted', 'repaired'], true))
                 <a href="{{ route('production.orders.create', [
-                        'type'               => 'repair',
+                        'type'               => 'garansi',
                         'repair_source_type' => 'warranty',
                         'repair_source_id'   => $warranty->id,
                         'repair_ref'         => $warranty->warranty_number,
                     ]) }}"
                    class="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all"
-                   title="Buat Order Produksi perbaikan dari garansi ini">
-                    + OP Perbaikan
+                   title="Buat Order Produksi garansi dari garansi ini">
+                    + OP Garansi
                 </a>
             @endif
             <a href="{{ route('sales.warranty.index') }}"

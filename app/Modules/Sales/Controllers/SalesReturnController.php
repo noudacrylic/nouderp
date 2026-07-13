@@ -91,12 +91,50 @@ class SalesReturnController extends Controller
                             'discount_amount' => (float) ($item->line_discount ?? 0),
                             'subtotal'        => (float) ($item->line_total ?? 0), // NET total
                             'cogs_total'      => (float) $cogsTotal,
+                            'components'      => $this->bundleComponentsPayload(
+                                $item->product_id,
+                                $so->deliveries->where('status', 'posted')->flatMap->items
+                            ),
                         ];
                     }),
                 ];
             });
 
         return response()->json($orders);
+    }
+
+    /**
+     * Daftar komponen sebuah produk bundle beserta COGS-nya (dari SJ), untuk retur.
+     * Kosong bila produk bukan bundle. Dipakai form retur agar kondisi (utuh/perbaikan/rusak)
+     * bisa diset PER KOMPONEN — routing stok & Gudang Perbaikan mengikuti komponen.
+     */
+    private function bundleComponentsPayload(?int $productId, $deliveryItems): array
+    {
+        $product = $productId ? \App\Core\Inventory\Product::find($productId) : null;
+        if (!$product || $product->sale_type !== 'bundle') {
+            return [];
+        }
+
+        $components = \App\Core\Inventory\BundleComponent::where('bundle_product_id', $productId)->get();
+        $qtyField = 'qty';
+        if ($components->isEmpty()) {
+            $components = \App\Core\Inventory\ProductBundle::where('bundle_product_id', $productId)->get();
+            $qtyField = 'qty_required';
+        }
+
+        $deliveryItems = $deliveryItems ?? collect();
+
+        return $components->map(function ($c) use ($deliveryItems, $qtyField) {
+            $prod = \App\Core\Inventory\Product::find($c->component_product_id);
+            $di   = $deliveryItems->firstWhere('product_id', $c->component_product_id);
+            return [
+                'product_id'     => (int) $c->component_product_id,
+                'sku'            => $prod->sku ?? '',
+                'name'           => $prod->name ?? '—',
+                'qty_per_bundle' => (float) ($c->{$qtyField} ?? 1),
+                'cogs_total'     => (float) ($di->cogs_total ?? 0),
+            ];
+        })->values()->toArray();
     }
 
     /**
@@ -145,6 +183,7 @@ class SalesReturnController extends Controller
                             'discount_amount' => (float) $item->discount_amount,
                             'subtotal'        => (float) $item->subtotal,
                             'cogs_total'      => $cogsTotal,
+                            'components'      => $this->bundleComponentsPayload($item->product_id, $deliveryItems),
                         ];
                     }),
                 ];
@@ -178,9 +217,12 @@ class SalesReturnController extends Controller
             'customer_id'       => 'required|exists:customers,id',
             'return_date'       => 'required|date',
             'items'             => 'required|array|min:1',
-            'items.*.invoice_item_id' => 'required|integer', 
+            'items.*.invoice_item_id' => 'required|integer',
             'items.*.qty'       => 'required|numeric|min:0',
             'items.*.condition' => 'required|in:good,damaged,repair',
+            // Bundle: kondisi per komponen { "<product_id>": "good|repair|damaged" }.
+            'items.*.component_conditions'   => 'nullable|array',
+            'items.*.component_conditions.*' => 'in:good,damaged,repair',
         ]);
 
         $items = collect($request->items)

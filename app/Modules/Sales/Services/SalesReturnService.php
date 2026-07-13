@@ -13,6 +13,7 @@ use App\Core\Inventory\FifoService;
 use App\Core\Inventory\BundleComponent;
 use App\Core\Inventory\ProductBundle;
 use App\Core\Inventory\Product;
+use App\Core\Inventory\Warehouse;
 use App\Modules\Sales\Models\SalesReturn;
 use App\Modules\Sales\Models\SalesReturnItem;
 use App\Models\CustomerOverpayment;
@@ -53,6 +54,7 @@ class SalesReturnService
                     'unit_price'        => $docItem->unit_price,
                     'subtotal'          => round(($docItemSubtotal / $docItem->qty) * $item['qty'], 2),
                     'condition'         => $item['condition'],
+                    'component_conditions' => $this->normalizeComponentConditions($item['component_conditions'] ?? null),
                 ]);
             }
 
@@ -93,6 +95,7 @@ class SalesReturnService
                     'unit_price'        => $docItem->unit_price,
                     'subtotal'          => round(($docItemSubtotal / $docItem->qty) * $item['qty'], 2),
                     'condition'         => $item['condition'],
+                    'component_conditions' => $this->normalizeComponentConditions($item['component_conditions'] ?? null),
                 ]);
             }
 
@@ -181,7 +184,26 @@ class SalesReturnService
             'unit_price'        => $docItem->unit_price,
             'subtotal'          => round(($docItemSubtotal / $docItem->qty) * $item['qty'], 2),
             'condition'         => $item['condition'],
+            'component_conditions' => $this->normalizeComponentConditions($item['component_conditions'] ?? null),
         ]);
+    }
+
+    /**
+     * Bersihkan map kondisi per komponen: buang nilai kosong/tak valid, kunci = product_id int.
+     * Return null bila tidak ada (item non-bundle) → item pakai `condition` tunggal.
+     */
+    private function normalizeComponentConditions($raw): ?array
+    {
+        if (!is_array($raw) || empty($raw)) {
+            return null;
+        }
+        $out = [];
+        foreach ($raw as $pid => $cond) {
+            if (in_array($cond, ['good', 'repair', 'damaged'], true)) {
+                $out[(int) $pid] = $cond;
+            }
+        }
+        return $out ?: null;
     }
 
     private function getRevenueReversalLines($doc, $amount, $isSO)
@@ -261,6 +283,15 @@ class SalesReturnService
                 }
             }
 
+            // Bundle dengan kondisi PER KOMPONEN → tiap komponen dirutekan & di-COGS sendiri.
+            $componentConditions = $this->normalizeComponentConditions($item['component_conditions'] ?? null);
+            if ($product && $product->sale_type === 'bundle' && $componentConditions) {
+                $lines = array_merge($lines, $this->bundleComponentCogsLines(
+                    $doc, $docItem, $item, $componentConditions, $docNumber, $returnId, $isSO
+                ));
+                continue;
+            }
+
             $unitCogs = $cogsTotal > 0 ? $cogsTotal / $qty : 0;
             $returnCogs = round($unitCogs * $item['qty'], 2);
 
@@ -300,6 +331,13 @@ class SalesReturnService
     {
         $product = Product::find($docItem->product_id);
 
+        // Barang kondisi 'repair' masuk ke Gudang Perbaikan (non-jual, = akun 1131), BUKAN
+        // gudang jual — supaya tidak ikut terjual & saldo 1131 cocok dengan stok fisik.
+        // Kondisi 'good' tetap kembali ke gudang dokumen. (bundle: komponennya ikut aturan sama)
+        $targetWarehouseId = $item['condition'] === 'repair'
+            ? (Warehouse::repairId() ?? $doc->warehouse_id)
+            : $doc->warehouse_id;
+
         if ($product && $product->sale_type === 'bundle') {
             $components = BundleComponent::where('bundle_product_id', $docItem->product_id)->get();
             $qtyField = 'qty';
@@ -320,7 +358,7 @@ class SalesReturnService
 
                 app(FifoService::class)->stockIn(
                     productId: $comp->component_product_id,
-                    warehouseId: $doc->warehouse_id,
+                    warehouseId: $targetWarehouseId,
                     type: 'sales_return',
                     reference: $docNumber,
                     qty: $compQtyReturn,
@@ -334,13 +372,95 @@ class SalesReturnService
 
         app(FifoService::class)->stockIn(
             productId: $docItem->product_id,
-            warehouseId: $doc->warehouse_id,
+            warehouseId: $targetWarehouseId,
             type: 'sales_return',
             reference: $docNumber,
             qty: $item['qty'],
             cost: $unitCogs,
             transactionId: $returnId
         );
+    }
+
+    /** Kumpulkan item SJ (posted) untuk dokumen retur — sumber COGS per komponen. */
+    private function deliveryItemsFor($doc)
+    {
+        if ($doc instanceof \App\Modules\Sales\Models\SalesOrder) {
+            return $doc->deliveries()->where('status', 'posted')->with('items')->get()->flatMap->items;
+        }
+        return $doc->delivery?->items ?? collect();
+    }
+
+    /**
+     * Bundle dengan kondisi PER KOMPONEN: rutekan stok & buat baris COGS untuk tiap komponen
+     * sesuai kondisinya sendiri (good→persediaan, repair→Gudang Perbaikan, damaged→beban).
+     * Pembalikan pendapatan tetap di level bundle (di getRevenueReversalLines), tak disentuh.
+     */
+    private function bundleComponentCogsLines($doc, $docItem, array $item, array $componentConditions, string $docNumber, int $returnId, bool $isSO): array
+    {
+        $components = BundleComponent::where('bundle_product_id', $docItem->product_id)->get();
+        $qtyField = 'qty';
+        if ($components->isEmpty()) {
+            $components = ProductBundle::where('bundle_product_id', $docItem->product_id)->get();
+            $qtyField = 'qty_required';
+        }
+
+        $deliveryItems     = $this->deliveryItemsFor($doc);
+        $docQty            = (float) $docItem->qty;
+        $retQty            = (float) $item['qty'];
+        $repairWarehouseId = Warehouse::repairId();
+        $fifo              = app(FifoService::class);
+        $lines             = [];
+
+        foreach ($components as $comp) {
+            $cond = $componentConditions[(int) $comp->component_product_id] ?? 'good';
+            $compQtyPerBundle = (float) ($comp->{$qtyField} ?? 1);
+            if ($compQtyPerBundle <= 0) {
+                continue;
+            }
+
+            $di            = $deliveryItems->firstWhere('product_id', $comp->component_product_id);
+            $compDelivCogs = (float) ($di->cogs_total ?? 0);
+            // Biaya 1 unit komponen (delivery cogs mencakup docQty × compQtyPerBundle unit).
+            $compUnitCost   = ($docQty > 0) ? $compDelivCogs / ($docQty * $compQtyPerBundle) : 0;
+            $compQtyReturn  = $compQtyPerBundle * $retQty;
+            $compReturnCogs = round($compUnitCost * $compQtyReturn, 2);
+
+            // Routing stok: good/repair masuk gudang (repair→Gudang Perbaikan); damaged tidak.
+            if ($cond === 'good' || $cond === 'repair') {
+                $warehouseId = $cond === 'repair'
+                    ? ($repairWarehouseId ?? $doc->warehouse_id)
+                    : $doc->warehouse_id;
+                $fifo->stockIn(
+                    productId: $comp->component_product_id,
+                    warehouseId: $warehouseId,
+                    type: 'sales_return',
+                    reference: $docNumber,
+                    qty: $compQtyReturn,
+                    cost: $compUnitCost,
+                    transactionId: $returnId
+                );
+            }
+
+            if ($compReturnCogs <= 0) {
+                continue;
+            }
+
+            $label = $this->getReturnConditionLabel($cond);
+            $lines[] = new JournalLineDTO(
+                account_id: $this->getAccountId($this->getReturnConditionAccountCode($cond)),
+                debit: (float) $compReturnCogs,
+                credit: 0,
+                description: ($isSO ? 'Retur SO' : 'Retur Invoice') . " - {$label} (komponen)"
+            );
+            $lines[] = new JournalLineDTO(
+                account_id: $this->getAccountId(AccountCodeEnum::COGS),
+                debit: 0,
+                credit: (float) $compReturnCogs,
+                description: "{$label} COGS Reversal (komponen)"
+            );
+        }
+
+        return $lines;
     }
 
     private function getReturnConditionAccountCode(string $condition): string
@@ -403,19 +523,28 @@ class SalesReturnService
             throw new Exception('Minimal harus ada 1 item yang diretur.');
         }
 
+        // Satu produk kini bisa dipecah ke beberapa baris (kondisi berbeda: utuh/perbaikan/
+        // rusak). Validasi returnable harus pakai TOTAL per item dokumen, bukan per baris —
+        // kalau tidak, tiap baris lolos sendiri (mis. utuh 2 + rusak 2) padahal jumlahnya
+        // melebihi qty dokumen.
+        $requestedByRef = [];
         foreach ($dto->items as $item) {
-            $targetItem = $doc->items->firstWhere('id', $item['invoice_item_id']);
-            if (!$targetItem) {
-                throw new Exception("Item ID {$item['invoice_item_id']} tidak ditemukan pada dokumen");
+            $refId = $item['invoice_item_id'];
+            if (!$doc->items->firstWhere('id', $refId)) {
+                throw new Exception("Item ID {$refId} tidak ditemukan pada dokumen");
             }
-
             if ($item['qty'] <= 0) {
                 throw new Exception('Qty retur harus lebih besar dari 0');
             }
+            $requestedByRef[$refId] = ($requestedByRef[$refId] ?? 0) + (float) $item['qty'];
+        }
+
+        foreach ($requestedByRef as $refId => $requestedQty) {
+            $targetItem = $doc->items->firstWhere('id', $refId);
 
             // Qty yang SUDAH diretur (posted) untuk item dokumen ini, kecuali retur yang
             // sedang di-post. Cegah double-return: validasi pakai SISA, bukan qty penuh.
-            $alreadyReturned = (float) SalesReturnItem::where('reference_item_id', $item['invoice_item_id'])
+            $alreadyReturned = (float) SalesReturnItem::where('reference_item_id', $refId)
                 ->whereHas('salesReturn', function ($q) use ($existingReturnId) {
                     $q->where('status', 'posted');
                     if ($existingReturnId) {
@@ -425,9 +554,9 @@ class SalesReturnService
                 ->sum('qty');
 
             $returnable = (float) $targetItem->qty - $alreadyReturned;
-            if ($item['qty'] > $returnable + 0.00001) {
+            if ($requestedQty > $returnable + 0.00001) {
                 throw new Exception(
-                    "Qty retur ({$item['qty']}) melebihi sisa yang bisa diretur ({$returnable}). "
+                    "Total qty retur ({$requestedQty}) untuk " . ($targetItem->product?->name ?? "item #{$refId}") . " melebihi sisa yang bisa diretur ({$returnable}). "
                     . "Qty dokumen: {$targetItem->qty}, sudah diretur: {$alreadyReturned}."
                 );
             }

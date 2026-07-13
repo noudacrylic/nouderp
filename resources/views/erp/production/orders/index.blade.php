@@ -16,8 +16,10 @@
             @php
                 $typeOptions = [
                     'ready_stock' => 'Ready Stock',
-                    'custom'      => 'Custom / Preorder',
-                    'repair'      => 'Perbaikan',
+                    'custom'      => 'Preorder',
+                    'perbaikan'   => 'Perbaikan',
+                    'garansi'     => 'Garansi',
+                    'repair'      => 'Perbaikan (lama)',
                 ];
             @endphp
             @foreach($typeOptions as $val => $label)

@@ -87,14 +87,9 @@
                             @endif
 
                             @if($isPosted && $return->repair_items_count > 0)
-                                <a href="{{ route('production.orders.create', [
-                                        'type'               => 'repair',
-                                        'repair_source_type' => 'return',
-                                        'repair_source_id'   => $return->id,
-                                        'repair_ref'         => $return->return_number,
-                                    ]) }}"
+                                <a href="{{ route('production.orders.create', ['type' => 'perbaikan']) }}"
                                    class="bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
-                                   title="Buat Order Produksi perbaikan dari retur ini">+ OP Perbaikan</a>
+                                   title="Barang perbaikan sudah masuk Gudang Perbaikan. Buat OP Perbaikan lalu pilih SKU-nya (tidak lagi terikat nomor retur).">+ OP Perbaikan</a>
                             @endif
                         </div>
                     </td>

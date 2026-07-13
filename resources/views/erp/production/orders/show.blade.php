@@ -17,7 +17,7 @@
                     <a href="{{ route('production.orders.show', $order->mergedInto->id) }}"
                        class="text-xs text-purple-600 hover:underline font-semibold">→ digabung ke {{ $order->mergedInto->order_number }}</a>
                 @endif
-                @php $tc = match($order->type) { 'ready_stock'=>'bg-blue-100 text-blue-700','custom'=>'bg-purple-100 text-purple-700','repair'=>'bg-orange-100 text-orange-700' }; @endphp
+                @php $tc = match($order->type) { 'ready_stock'=>'bg-blue-100 text-blue-700','custom'=>'bg-purple-100 text-purple-700','perbaikan'=>'bg-orange-100 text-orange-700','garansi'=>'bg-amber-100 text-amber-700','repair'=>'bg-orange-100 text-orange-700', default=>'bg-gray-100 text-gray-600' }; @endphp
                 <span class="text-xs px-2 py-1 rounded font-black {{ $tc }}">{{ $order->type_label }}</span>
             </h1>
             <div class="flex gap-4 mt-1.5 text-sm text-gray-500">

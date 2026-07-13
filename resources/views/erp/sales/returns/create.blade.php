@@ -29,6 +29,19 @@
         <input type="hidden" name="return_id" :value="returnId">
         <input type="hidden" name="status" :value="formStatus">
 
+        {{-- Submit payload: 1 alokasi = 1 items[]; satu produk bisa jadi beberapa baris (per kondisi).
+             Bundle: 1 baris + component_conditions per komponen. --}}
+        <template x-for="(a, i) in flatItems()" :key="i">
+            <div>
+                <input type="hidden" :name="`items[${i}][invoice_item_id]`" :value="a.invoice_item_id">
+                <input type="hidden" :name="`items[${i}][qty]`"             :value="a.qty">
+                <input type="hidden" :name="`items[${i}][condition]`"       :value="a.condition">
+                <template x-for="(cond, pid) in (a.component_conditions || {})" :key="pid">
+                    <input type="hidden" :name="`items[${i}][component_conditions][${pid}]`" :value="cond">
+                </template>
+            </div>
+        </template>
+
         <div class="grid grid-cols-12 gap-5">
 
             {{-- LEFT COLUMN --}}
@@ -165,14 +178,16 @@
                             <h3 class="font-bold text-gray-700">Item yang Diretur</h3>
                         </div>
                         <div class="text-xs text-gray-400 font-medium">
-                            <span x-text="items.filter(i => parseFloat(i.qty_return) > 0).length"></span> item dipilih
+                            <span x-text="items.filter(i => itemTotalQty(i) > 0).length"></span> item dipilih
                         </div>
                     </div>
 
                     {{-- Legend --}}
-                    <div class="flex items-center gap-4 mb-4 text-xs font-semibold text-gray-400">
-                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-green-400"></span> Kondisi Utuh → Stok kembali + HPP reverse</div>
-                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-red-400"></span> Rusak → Tidak masuk stok</div>
+                    <div class="flex items-center gap-4 mb-4 text-xs font-semibold text-gray-400 flex-wrap">
+                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-green-400"></span> Utuh → Stok kembali + HPP reverse</div>
+                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-yellow-400"></span> Perbaikan → Persediaan Perbaikan + HPP reverse</div>
+                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-red-400"></span> Rusak → Beban kerugian, tidak masuk stok</div>
+                        <div class="flex items-center gap-1.5 text-blue-400">Butuh campur kondisi? Klik <span class="font-bold">"Pisah kondisi"</span> pada baris produk.</div>
                     </div>
 
                     <div class="overflow-hidden rounded-xl border border-gray-100">
@@ -188,17 +203,19 @@
                             </thead>
                             <tbody class="divide-y divide-gray-50">
                                 <template x-for="(item, index) in items" :key="item.id">
-                                    <tr class="group transition-colors"
+                                    <tr class="group transition-colors align-top"
                                         :class="{
-                                            'bg-green-50/50': item.condition === 'good' && parseFloat(item.qty_return) > 0,
-                                            'bg-red-50/50':   item.condition === 'damaged' && parseFloat(item.qty_return) > 0,
-                                            'opacity-50':     parseFloat(item.qty_return) === 0
+                                            'bg-green-50/50': !item.split && item.condition === 'good' && parseFloat(item.qty_return) > 0,
+                                            'bg-red-50/50':   !item.split && item.condition === 'damaged' && parseFloat(item.qty_return) > 0,
+                                            'bg-yellow-50/40': item.split && itemTotalQty(item) > 0,
+                                            'opacity-50':     itemTotalQty(item) === 0
                                         }">
                                         {{-- Product --}}
                                         <td class="px-4 py-3">
-                                            <input type="hidden" :name="`items[${index}][invoice_item_id]`" :value="item.id">
-                                            <input type="hidden" :name="`items[${index}][condition]`"      :value="item.condition">
-                                            <div class="font-semibold text-gray-800" x-text="item.name"></div>
+                                            <div class="font-semibold text-gray-800">
+                                                <span x-text="item.name"></span>
+                                                <span x-show="item.is_bundle" class="ml-1 text-[9px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold align-middle">BUNDLE</span>
+                                            </div>
                                             <div class="text-[10px] text-gray-400 mt-0.5" x-show="item.qty > 0">
                                                 Harga Net: Rp <span x-text="formatNumber(item.subtotal / item.qty)"></span>
                                                 <span class="ml-1 text-[9px] bg-gray-100 px-1 rounded italic">incl. diskon</span>
@@ -212,45 +229,111 @@
 
                                         {{-- Qty Retur --}}
                                         <td class="px-4 py-3 text-center">
-                                            <div class="relative">
-                                                <input type="number"
-                                                    :name="`items[${index}][qty]`"
-                                                    x-model="item.qty_return"
-                                                    :max="item.qty"
-                                                    min="0"
-                                                    step="0.01"
-                                                    @input="onQtyChange(index)"
-                                                    @blur="validateQty(index)"
-                                                    class="w-20 border-2 text-center rounded-lg px-2 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
-                                                    :class="{
-                                                        'border-red-400 bg-red-50': item.qty_error,
-                                                        'border-green-300 bg-green-50': parseFloat(item.qty_return) > 0 && !item.qty_error,
-                                                        'border-gray-200': !parseFloat(item.qty_return) && !item.qty_error
-                                                    }">
-                                                <div class="text-[9px] text-red-500 font-bold mt-0.5" x-show="item.qty_error" x-text="item.qty_error"></div>
-                                            </div>
+                                            {{-- Mode simpel: 1 input qty --}}
+                                            <template x-if="!item.split">
+                                                <div class="relative inline-block">
+                                                    <input type="number"
+                                                        x-model="item.qty_return"
+                                                        :max="item.qty"
+                                                        min="0"
+                                                        step="0.01"
+                                                        @input="onQtyChange(index)"
+                                                        @blur="validateQty(index)"
+                                                        class="w-20 border-2 text-center rounded-lg px-2 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+                                                        :class="{
+                                                            'border-red-400 bg-red-50': item.qty_error,
+                                                            'border-green-300 bg-green-50': parseFloat(item.qty_return) > 0 && !item.qty_error,
+                                                            'border-gray-200': !parseFloat(item.qty_return) && !item.qty_error
+                                                        }">
+                                                    <div class="text-[9px] text-red-500 font-bold mt-0.5" x-show="item.qty_error" x-text="item.qty_error"></div>
+                                                </div>
+                                            </template>
+                                            {{-- Mode pisah: total (Σ) baca-saja --}}
+                                            <template x-if="item.split">
+                                                <div>
+                                                    <div class="text-sm font-black" :class="item.qty_error ? 'text-red-500' : 'text-gray-700'">
+                                                        <span x-text="itemTotalQty(item)"></span> <span class="text-[9px] text-gray-400 font-semibold">/ <span x-text="item.qty"></span></span>
+                                                    </div>
+                                                    <div class="text-[9px] text-red-500 font-bold mt-0.5" x-show="item.qty_error" x-text="item.qty_error"></div>
+                                                </div>
+                                            </template>
                                         </td>
 
                                         {{-- Kondisi --}}
                                         <td class="px-4 py-3 text-center">
-                                            <select x-model="item.condition"
-                                                    @change="onConditionChange(index)"
-                                                    class="border rounded-lg px-2 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 transition"
-                                                    :class="{
-                                                        'border-green-300 text-green-700 bg-green-50':  item.condition === 'good',
-                                                        'border-yellow-300 text-yellow-700 bg-yellow-50': item.condition === 'repair',
-                                                        'border-red-300   text-red-700   bg-red-50':    item.condition === 'damaged'
-                                                    }">
-                                                <option value="good">🟢 Utuh</option>
-                                                <option value="repair">🟡 Perbaikan</option>
-                                                <option value="damaged">🔴 Tidak Dapat Diperbaiki</option>
-                                            </select>
+                                            {{-- Bundle: kondisi PER KOMPONEN --}}
+                                            <template x-if="item.is_bundle">
+                                                <div class="flex flex-col gap-1.5 items-stretch min-w-[190px]">
+                                                    <span class="text-[9px] text-gray-400 font-bold uppercase tracking-wide text-left">Kondisi per komponen</span>
+                                                    <template x-for="c in item.components" :key="c.product_id">
+                                                        <div class="flex items-center justify-between gap-2">
+                                                            <span class="text-[11px] font-semibold text-gray-600 truncate" :title="c.name" x-text="c.name"></span>
+                                                            <select x-model="item.component_conditions[c.product_id]" @change="calculateSummary()"
+                                                                    class="border rounded-lg px-1.5 py-1 text-[11px] font-bold focus:outline-none focus:ring-2 transition flex-shrink-0"
+                                                                    :class="{
+                                                                        'border-green-300 text-green-700 bg-green-50':  item.component_conditions[c.product_id] === 'good',
+                                                                        'border-yellow-300 text-yellow-700 bg-yellow-50': item.component_conditions[c.product_id] === 'repair',
+                                                                        'border-red-300   text-red-700   bg-red-50':    item.component_conditions[c.product_id] === 'damaged'
+                                                                    }">
+                                                                <option value="good">🟢 Utuh</option>
+                                                                <option value="repair">🟡 Perbaikan</option>
+                                                                <option value="damaged">🔴 Rusak</option>
+                                                            </select>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                            {{-- Mode simpel (non-bundle): dropdown + tombol pisah --}}
+                                            <template x-if="!item.split && !item.is_bundle">
+                                                <div class="flex flex-col items-center gap-1">
+                                                    <select x-model="item.condition"
+                                                            @change="onConditionChange(index)"
+                                                            class="border rounded-lg px-2 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 transition"
+                                                            :class="{
+                                                                'border-green-300 text-green-700 bg-green-50':  item.condition === 'good',
+                                                                'border-yellow-300 text-yellow-700 bg-yellow-50': item.condition === 'repair',
+                                                                'border-red-300   text-red-700   bg-red-50':    item.condition === 'damaged'
+                                                            }">
+                                                        <option value="good">🟢 Utuh</option>
+                                                        <option value="repair">🟡 Perbaikan</option>
+                                                        <option value="damaged">🔴 Tidak Dapat Diperbaiki</option>
+                                                    </select>
+                                                    <button type="button" @click="enableSplit(index)"
+                                                            class="text-[9px] text-blue-500 hover:text-blue-700 hover:underline font-semibold">
+                                                        + Pisah kondisi
+                                                    </button>
+                                                </div>
+                                            </template>
+                                            {{-- Mode pisah: 3 input qty per kondisi --}}
+                                            <template x-if="item.split">
+                                                <div class="flex flex-col gap-1.5 items-stretch min-w-[150px]">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-bold text-green-700">🟢 Utuh</span>
+                                                        <input type="number" x-model="item.splits.good" @input="onSplitChange(index)" min="0" step="0.01"
+                                                               class="w-16 border-2 border-green-200 text-center rounded-lg px-1.5 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-green-300">
+                                                    </div>
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-bold text-yellow-700">🟡 Perbaikan</span>
+                                                        <input type="number" x-model="item.splits.repair" @input="onSplitChange(index)" min="0" step="0.01"
+                                                               class="w-16 border-2 border-yellow-200 text-center rounded-lg px-1.5 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-yellow-300">
+                                                    </div>
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-bold text-red-700">🔴 Rusak</span>
+                                                        <input type="number" x-model="item.splits.damaged" @input="onSplitChange(index)" min="0" step="0.01"
+                                                               class="w-16 border-2 border-red-200 text-center rounded-lg px-1.5 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-red-300">
+                                                    </div>
+                                                    <button type="button" @click="disableSplit(index)"
+                                                            class="text-[9px] text-gray-400 hover:text-gray-600 hover:underline font-semibold self-end">
+                                                        × batal pisah
+                                                    </button>
+                                                </div>
+                                            </template>
                                         </td>
 
                                         {{-- Nilai Retur --}}
                                         <td class="px-4 py-3 text-right">
-                                            <div class="font-black text-gray-700" x-text="parseFloat(item.qty_return) > 0 ? `Rp ${formatNumber(getLineValue(item))}` : '—'"></div>
-                                            <div class="text-[9px] text-gray-400 mt-0.5" x-show="parseFloat(item.qty_return) > 0">
+                                            <div class="font-black text-gray-700" x-text="itemTotalQty(item) > 0 ? `Rp ${formatNumber(getLineValue(item))}` : '—'"></div>
+                                            <div class="text-[9px] text-gray-400 mt-0.5" x-show="itemTotalQty(item) > 0">
                                                 Net setelah diskon
                                             </div>
                                         </td>
@@ -574,21 +657,26 @@ function returForm(initialData = null) {
                     this.selectedDoc = this.documents.find(d => d.id == this.selectedDocId);
                     
                     if (this.selectedDoc) {
-                        // 3. Map items from initialData, but merge with selectedDoc items for reference data (like max qty)
+                        // 3. Kelompokkan baris retur tersimpan per item dokumen. Satu produk bisa
+                        //    punya beberapa baris (kondisi berbeda) → hidrasi ke mode "pisah kondisi".
+                        const grouped = {};
+                        (initialData.items || []).forEach(ri => {
+                            (grouped[ri.reference_item_id] ??= []).push(ri);
+                        });
+
                         this.items = this.selectedDoc.items.map(docItem => {
-                            const returnItem = initialData.items.find(ri => ri.reference_item_id == docItem.id);
-                            return {
-                                id:              docItem.id,
-                                name:            docItem.name,
-                                qty:             docItem.qty,
-                                qty_return:      returnItem ? parseFloat(returnItem.qty) : 0,
-                                unit_price:      docItem.unit_price,
-                                discount_amount: docItem.discount_amount,
-                                subtotal:        docItem.subtotal,
-                                cogs_total:      docItem.cogs_total,
-                                condition:       returnItem ? returnItem.condition : 'good',
-                                qty_error:       null,
-                            };
+                            const rows = grouped[docItem.id] || [];
+                            let saved = null;
+                            if (rows.length === 1) {
+                                saved = { qty: rows[0].qty, condition: rows[0].condition || 'good',
+                                          component_conditions: rows[0].component_conditions || null };
+                            } else if (rows.length > 1) {
+                                // Beberapa baris kondisi (produk non-bundle) → mode pisah.
+                                const splits = { good: 0, repair: 0, damaged: 0 };
+                                rows.forEach(r => { if (splits[r.condition] !== undefined) splits[r.condition] += parseFloat(r.qty) || 0; });
+                                saved = { split: true, splits };
+                            }
+                            return this.buildItem(docItem, saved);
                         });
                     }
                     
@@ -704,18 +792,7 @@ function returForm(initialData = null) {
             if (!this.selectedDoc) return;
 
             // Map doc items to returnable items
-            this.items = this.selectedDoc.items.map(item => ({
-                id:           item.id,
-                name:         item.name,
-                qty:          item.qty,
-                qty_return:   0,
-                unit_price:   item.unit_price,
-                discount_amount: item.discount_amount,
-                subtotal:     item.subtotal,
-                cogs_total:   item.cogs_total,
-                condition:    'good',
-                qty_error:    null,
-            }));
+            this.items = this.selectedDoc.items.map(item => this.buildItem(item));
 
             this.calculateSummary(); // 🔥 TRIGGER INITIAL CALCULATION
         },
@@ -723,8 +800,15 @@ function returForm(initialData = null) {
         // ── Qty Validation ──────────────────────────────
         validateQty(index) {
             const item = this.items[index];
-            const qty  = parseFloat(item.qty_return) || 0;
 
+            if (item.split) {
+                // Mode pisah: jumlah semua kondisi tidak boleh melebihi qty dokumen.
+                const total = this.itemTotalQty(item);
+                item.qty_error = total > item.qty + 1e-9 ? `Σ maks ${item.qty}` : null;
+                return;
+            }
+
+            const qty = parseFloat(item.qty_return) || 0;
             if (qty < 0) {
                 item.qty_return = 0;
                 item.qty_error  = null;
@@ -745,12 +829,136 @@ function returForm(initialData = null) {
             this.calculateSummary();
         },
 
+        onSplitChange(index) {
+            this.validateQty(index);
+            this.calculateSummary();
+        },
+
+        // Aktifkan pisah kondisi: bawa qty simpel yang sudah diisi sebagai nilai awal
+        // pada kondisi terpilih agar tidak hilang.
+        enableSplit(index) {
+            const item = this.items[index];
+            item.splits = { good: 0, repair: 0, damaged: 0 };
+            const qty = parseFloat(item.qty_return) || 0;
+            if (qty > 0 && item.splits[item.condition] !== undefined) {
+                item.splits[item.condition] = qty;
+            }
+            item.split = true;
+            this.validateQty(index);
+            this.calculateSummary();
+        },
+
+        // Batalkan pisah: kembali ke 1 qty + 1 kondisi (ambil kondisi non-nol pertama).
+        disableSplit(index) {
+            const item = this.items[index];
+            const allocs = this.itemAllocations(item);
+            item.qty_return = allocs.reduce((s, a) => s + a.qty, 0);
+            item.condition  = allocs.length ? allocs[0].condition : 'good';
+            item.splits     = { good: 0, repair: 0, damaged: 0 };
+            item.split      = false;
+            this.validateQty(index);
+            this.calculateSummary();
+        },
+
+        // Bangun 1 baris item retur dari item dokumen (+ data tersimpan saat edit).
+        // Item bundle → mode kondisi PER KOMPONEN (tiap komponen punya kondisi sendiri).
+        buildItem(docItem, saved = null) {
+            const components = Array.isArray(docItem.components) ? docItem.components : [];
+            const isBundle = components.length > 0;
+            const cc = {};
+            components.forEach(c => {
+                cc[c.product_id] = (saved && saved.component_conditions && saved.component_conditions[c.product_id]) || 'good';
+            });
+            return {
+                id:              docItem.id,
+                name:            docItem.name,
+                qty:             docItem.qty,
+                qty_return:      saved ? (parseFloat(saved.qty) || 0) : 0,
+                unit_price:      docItem.unit_price,
+                discount_amount: docItem.discount_amount,
+                subtotal:        docItem.subtotal,
+                cogs_total:      docItem.cogs_total,
+                condition:       saved ? (saved.condition || 'good') : 'good',
+                split:           saved ? !!saved.split : false,
+                splits:          (saved && saved.splits) ? saved.splits : { good: 0, repair: 0, damaged: 0 },
+                is_bundle:       isBundle,
+                components:      components,
+                component_conditions: cc,
+                qty_error:       null,
+            };
+        },
+
+        // ── Alokasi (normalisasi simpel vs pisah) ──────────
+        // Kembalikan daftar {condition, qty} untuk 1 produk NON-bundle:
+        //  • mode simpel → 1 alokasi (qty_return + condition)
+        //  • mode pisah  → sampai 3 alokasi (splits per kondisi, yang qty>0)
+        // Bundle ditangani terpisah (qty di level bundle, COGS di-split per komponen).
+        itemAllocations(item) {
+            if (item.is_bundle) return [];
+            if (item.split) {
+                return ['good', 'repair', 'damaged']
+                    .map(c => ({ condition: c, qty: parseFloat(item.splits?.[c]) || 0 }))
+                    .filter(a => a.qty > 0);
+            }
+            const qty = parseFloat(item.qty_return) || 0;
+            return qty > 0 ? [{ condition: item.condition, qty }] : [];
+        },
+
+        itemTotalQty(item) {
+            if (item.is_bundle) return parseFloat(item.qty_return) || 0;
+            return this.itemAllocations(item).reduce((s, a) => s + a.qty, 0);
+        },
+
+        // Bagi COGS bundle ke tiap komponen (bobot cogs komponen) dengan kondisi masing-masing.
+        // Return [{condition, cogs}] untuk qty_return sekarang.
+        bundleComponentCogs(item) {
+            const q = parseFloat(item.qty_return) || 0;
+            if (!item.is_bundle || q <= 0 || !item.qty) return [];
+            const ratio = q / item.qty; // porsi qty yang diretur
+            return item.components.map(c => ({
+                condition: item.component_conditions[c.product_id] || 'good',
+                cogs: (parseFloat(c.cogs_total) || 0) * ratio,
+            }));
+        },
+
+        // Daftar datar untuk dikirim sebagai items[]. Non-bundle: 1 baris per alokasi kondisi.
+        // Bundle: 1 baris + component_conditions per komponen.
+        flatItems() {
+            const out = [];
+            this.items.forEach(item => {
+                if (item.is_bundle) {
+                    const q = parseFloat(item.qty_return) || 0;
+                    if (q > 0) {
+                        out.push({
+                            invoice_item_id: item.id, qty: q, condition: 'good',
+                            component_conditions: { ...item.component_conditions },
+                        });
+                    }
+                    return;
+                }
+                this.itemAllocations(item).forEach(a => {
+                    out.push({ invoice_item_id: item.id, qty: a.qty, condition: a.condition, component_conditions: {} });
+                });
+            });
+            return out;
+        },
+
         // ── Calculate ──────────────────────────────────
+        lineValueFor(item, qty) {
+            if (!qty || !item.qty) return 0;
+            return Math.round(item.subtotal * (qty / item.qty) * 100) / 100;
+        },
+
+        lineCogsFor(item, qty) {
+            const totalQty  = parseFloat(item.qty) || 0;
+            const totalCogs = parseFloat(item.cogs_total) || 0;
+            if (!qty || !totalQty || !totalCogs) return 0;
+            return (totalCogs / totalQty) * qty;
+        },
+
+        // Nilai retur baris (gabungan semua alokasi produk) — untuk kolom "Nilai Retur"
         getLineValue(item) {
-            const qty   = parseFloat(item.qty_return) || 0;
-            if (!qty) return 0;
-            const ratio = qty / item.qty;
-            return Math.round(item.subtotal * ratio * 100) / 100;
+            return this.lineValueFor(item, this.itemTotalQty(item));
         },
 
         calculateSummary() {
@@ -763,18 +971,27 @@ function returForm(initialData = null) {
             };
 
             this.items.forEach(item => {
-                const qty = parseFloat(item.qty_return) || 0;
-                if (qty > 0) {
-                    const lineNet = this.getLineValue(item);
-                    net += lineNet;
-
-                    const lineCogs = this.getLineCogs(item);
-                    cogs += lineCogs;
-
-                    if (conditionTotals[item.condition] !== undefined) {
-                        conditionTotals[item.condition] += lineCogs;
-                    }
+                if (item.is_bundle) {
+                    // Pendapatan/nilai retur = level bundle; COGS di-split per komponen sesuai kondisinya.
+                    const q = parseFloat(item.qty_return) || 0;
+                    if (q <= 0) return;
+                    net += this.lineValueFor(item, q);
+                    this.bundleComponentCogs(item).forEach(cc => {
+                        cogs += cc.cogs;
+                        if (conditionTotals[cc.condition] !== undefined) {
+                            conditionTotals[cc.condition] += cc.cogs;
+                        }
+                    });
+                    return;
                 }
+                this.itemAllocations(item).forEach(a => {
+                    net  += this.lineValueFor(item, a.qty);
+                    const lineCogs = this.lineCogsFor(item, a.qty);
+                    cogs += lineCogs;
+                    if (conditionTotals[a.condition] !== undefined) {
+                        conditionTotals[a.condition] += lineCogs;
+                    }
+                });
             });
 
             this.summary = {
@@ -788,18 +1005,6 @@ function returForm(initialData = null) {
             };
 
             this.journalPreview = this.buildJournalPreview();
-        },
-
-        getLineCogs(item) {
-            const qty = parseFloat(item.qty_return) || 0;
-            const totalQty = parseFloat(item.qty) || 0;
-            const totalCogs = parseFloat(item.cogs_total) || 0;
-
-            if (!qty || !totalQty || !totalCogs) {
-                return 0;
-            }
-
-            return (totalCogs / totalQty) * qty;
         },
 
         getConditionMeta(condition) {
@@ -865,7 +1070,7 @@ function returForm(initialData = null) {
         // ── Validation ─────────────────────────────────
         canSubmit() {
             if (!this.customerId || !this.selectedDoc || !this.returnDate) return false;
-            const hasItem = this.items.some(i => parseFloat(i.qty_return) > 0);
+            const hasItem = this.items.some(i => this.itemTotalQty(i) > 0);
             const hasError = this.items.some(i => i.qty_error);
             return hasItem && !hasError && this.summary.net > 0;
         },

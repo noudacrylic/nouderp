@@ -110,7 +110,7 @@ class AutoProductionService
         // auto-produksi. Hanya produksi asli (ready_stock/custom) yang menambah stok
         // jual yang dianggap duplikat.
         $hasActive = ProductionOrder::whereNotIn('status', ['finalized', 'cancelled'])
-            ->where('type', '!=', 'repair')
+            ->whereNotIn('type', ProductionOrder::REPAIR_TYPES)
             ->whereHas('outputs', function ($q) use ($product) {
                 $q->where('product_id', $product->id)
                   ->where('output_type', 'main');

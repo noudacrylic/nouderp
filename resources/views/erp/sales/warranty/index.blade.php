@@ -97,13 +97,13 @@
                             @endif
                             @if(!$isReplacement && in_array($w->status, ['received', 'repaired', 'posted'], true))
                                 <a href="{{ route('production.orders.create', [
-                                        'type'               => 'repair',
+                                        'type'               => 'garansi',
                                         'repair_source_type' => 'warranty',
                                         'repair_source_id'   => $w->id,
                                         'repair_ref'         => $w->warranty_number,
                                     ]) }}"
                                    class="bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
-                                   title="Buat Order Produksi perbaikan dari garansi ini">+ OP Perbaikan</a>
+                                   title="Buat Order Produksi garansi dari garansi ini">+ OP Garansi</a>
                             @endif
                         </div>
                     </td>

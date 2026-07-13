@@ -20,12 +20,34 @@ class Warehouse extends Model
         'contact_name',
         'contact_phone',
         'is_sellable',
-        'is_active'
+        'is_active',
+        'is_repair',
+    ];
+
+    protected $casts = [
+        'is_sellable' => 'boolean',
+        'is_active'   => 'boolean',
+        'is_repair'   => 'boolean',
     ];
 
     public function stocks()
     {
         return $this->hasMany(ProductStock::class, 'warehouse_id');
+    }
+
+    /**
+     * Gudang Perbaikan = wujud fisik akun 1131 Persediaan Perbaikan (non-jual).
+     * Menampung barang menunggu perbaikan (dari retur kondisi 'repair' & penyesuaian
+     * 'perbaikan_rusak'); OP tipe perbaikan mengambil material dari sini per-SKU.
+     */
+    public static function repair(): ?Warehouse
+    {
+        return static::where('is_repair', true)->orderBy('id')->first();
+    }
+
+    public static function repairId(): ?int
+    {
+        return static::where('is_repair', true)->orderBy('id')->value('id');
     }
 
     /**

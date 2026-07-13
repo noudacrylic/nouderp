@@ -19,14 +19,9 @@
                 $hasRepairItems = $return->items->where('condition', 'repair')->count() > 0;
             @endphp
             @if($return->status === 'posted' && $hasRepairItems)
-                <a href="{{ route('production.orders.create', [
-                        'type'               => 'repair',
-                        'repair_source_type' => 'return',
-                        'repair_source_id'   => $return->id,
-                        'repair_ref'         => $return->return_number,
-                    ]) }}"
+                <a href="{{ route('production.orders.create', ['type' => 'perbaikan']) }}"
                    class="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all"
-                   title="Buat Order Produksi perbaikan dari retur ini">
+                   title="Barang kondisi perbaikan sudah masuk Gudang Perbaikan. Buat OP Perbaikan lalu pilih SKU-nya (tidak lagi terikat nomor retur).">
                     + OP Perbaikan
                 </a>
             @endif

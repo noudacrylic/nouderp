@@ -22,6 +22,24 @@ class ProductionOrder extends Model
         'image_paths'     => 'array',
     ];
 
+    /**
+     * Tipe "repair-like": input=output produk sama, konsumsi/kredit akun 1131 Persediaan
+     * Perbaikan. 'perbaikan' = berbasis SKU di Gudang Perbaikan; 'garansi' = berbasis dokumen
+     * warranty; 'repair' = legacy (data lama sebelum dipecah). Semua diperlakukan sama di
+     * akuntansi & lifecycle.
+     */
+    public const REPAIR_TYPES = ['repair', 'perbaikan', 'garansi'];
+
+    public function isRepairLike(): bool
+    {
+        return in_array($this->type, self::REPAIR_TYPES, true);
+    }
+
+    public static function isRepairType(?string $type): bool
+    {
+        return in_array($type, self::REPAIR_TYPES, true);
+    }
+
     public function bom()
     {
         return $this->belongsTo(Bom::class);
@@ -113,7 +131,9 @@ class ProductionOrder extends Model
     {
         return match($this->type) {
             'ready_stock' => 'Ready Stock',
-            'custom'      => 'Custom / Preorder',
+            'custom'      => 'Preorder',
+            'perbaikan'   => 'Perbaikan',
+            'garansi'     => 'Garansi',
             'repair'      => 'Perbaikan',
             default       => ucfirst($this->type),
         };

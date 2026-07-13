@@ -553,14 +553,29 @@
                     </div>
                 </div>
 
-                {{-- Product --}}
-                <div>
+                {{-- Product (non-perbaikan) --}}
+                <div x-show="!detail?.is_repair">
                     <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Produk Output</div>
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-bold text-gray-800" x-text="detail?.product_name"></span>
                         <span class="text-xs text-gray-400" x-show="detail?.product_sku !== '—'" x-text="'SKU: ' + detail?.product_sku"></span>
                         <span class="text-xs bg-green-50 text-green-600 border border-green-100 px-2 py-0.5 rounded font-bold" x-text="'Qty: ' + detail?.qty_planned"></span>
                         <span class="text-xs text-gray-400" x-show="detail?.target_date !== '—'" x-text="'Target: ' + detail?.target_date"></span>
+                    </div>
+                </div>
+
+                {{-- Produk yang Diperbaiki (khusus OP perbaikan/garansi, bisa multi-SKU) --}}
+                <div x-show="detail?.is_repair && detail?.repair_items?.length"
+                     class="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3">
+                    <div class="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-2">🔧 Produk yang Diperbaiki</div>
+                    <div class="space-y-1.5">
+                        <template x-for="(it, i) in detail?.repair_items" :key="i">
+                            <div class="flex items-center gap-2 bg-white border border-orange-100 rounded-lg px-3 py-2">
+                                <span class="text-xs font-bold text-blue-600 flex-shrink-0" x-text="it.sku"></span>
+                                <span class="text-xs text-gray-700 flex-1 min-w-0 truncate" x-text="it.name"></span>
+                                <span class="text-xs bg-orange-100 border border-orange-200 text-orange-700 px-2 py-0.5 rounded font-bold flex-shrink-0" x-text="'Qty: ' + it.qty"></span>
+                            </div>
+                        </template>
                     </div>
                 </div>
 

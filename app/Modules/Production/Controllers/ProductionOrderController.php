@@ -16,6 +16,8 @@ use App\Models\SalesInvoice;
 use App\Models\WarrantyOrder;
 use App\Models\InventoryAdjustment;
 use App\Core\Inventory\Warehouse;
+use App\Core\Inventory\ProductStock;
+use App\Core\Inventory\StockLayer;
 use App\Core\Accounting\Account;
 
 class ProductionOrderController extends Controller
@@ -58,10 +60,11 @@ class ProductionOrderController extends Controller
             ?? $warehouses->where('is_active', 1)->first()?->id
             ?? $warehouses->first()?->id;
 
-        // OP perbaikan dari garansi/retur → kunci gudang ke gudang sumbernya, supaya output
-        // perbaikan & SJ berada di gudang yang sama dengan barang yang diterima (tidak ada stok phantom).
+        // OP garansi dari dokumen warranty/retur → kunci gudang ke gudang sumbernya, supaya
+        // output & SJ berada di gudang yang sama dengan barang yang diterima (tidak ada stok phantom).
+        // Perbaikan (berbasis SKU Gudang Perbaikan) TIDAK dikunci — gudang output = gudang jual pilihan user.
         $lockWarehouse = false;
-        if ($request->type === 'repair' && $request->repair_source_id) {
+        if (in_array($request->type, ['garansi', 'repair'], true) && $request->repair_source_id) {
             $srcWarehouseId = $this->repairSourceWarehouseId($request->repair_source_type, (int) $request->repair_source_id);
             if ($srcWarehouseId) {
                 $defaultWarehouseId = $srcWarehouseId;
@@ -127,10 +130,14 @@ class ProductionOrderController extends Controller
 
     public function store(Request $request, ProductionOrderService $service)
     {
-        $isRepair = $request->type === 'repair';
+        // Garansi/legacy repair = repair-like berbasis DOKUMEN warranty (wajib source_id).
+        // Perbaikan = repair-like berbasis SKU di Gudang Perbaikan (tanpa dokumen).
+        $isGaransi   = in_array($request->type, ['garansi', 'repair'], true);
+        $isPerbaikan = $request->type === 'perbaikan';
+        $isRepair    = $isGaransi || $isPerbaikan;
 
         $rules = [
-            'type'            => 'required|in:ready_stock,custom,repair',
+            'type'            => 'required|in:ready_stock,custom,perbaikan,garansi',
             'warehouse_id'    => 'required|exists:warehouses,id',
             'production_date' => 'required|date',
             'planned_cycles'  => 'nullable|numeric|min:0.0001',
@@ -149,13 +156,18 @@ class ProductionOrderController extends Controller
             $rules['sales_order_id'] = 'required|exists:sales_orders,id';
         }
 
-        if ($isRepair) {
+        if ($isGaransi) {
             $rules['repair_source_id']             = 'required|integer';
             $rules['repair_items']                 = 'required|array|min:1';
             $rules['repair_items.*.product_id']    = 'required|exists:products,id';
             $rules['repair_items.*.qty']           = 'required|numeric|min:0.0001';
             $rules['repair_items.*.output_type']   = 'required|in:main,by_product';
             $rules['repair_items.*.percentage']    = 'required|numeric|min:0|max:100';
+        } elseif ($isPerbaikan) {
+            // Perbaikan berbasis SKU: cukup product_id + qty (output_type/percentage default).
+            $rules['repair_items']                 = 'required|array|min:1';
+            $rules['repair_items.*.product_id']    = 'required|exists:products,id';
+            $rules['repair_items.*.qty']           = 'required|numeric|min:0.0001';
         } else {
             $rules['materials']                = 'required|array|min:1';
             $rules['materials.*.product_id']   = 'required|exists:products,id';
@@ -181,12 +193,42 @@ class ProductionOrderController extends Controller
 
         $request->validate($rules, $messages);
 
-        // OP perbaikan dari garansi/retur WAJIB segudang dengan dokumen sumbernya
-        // (output perbaikan & SJ harus di gudang yang sama → tidak ada stok phantom).
-        if ($isRepair && $request->repair_source_id) {
+        // Garansi/legacy repair dari dokumen → WAJIB segudang dokumen sumber
+        // (output & SJ segudang barang diterima → tidak ada stok phantom).
+        if ($isGaransi && $request->repair_source_id) {
             $srcWh = $this->repairSourceWarehouseId($request->repair_source_type, (int) $request->repair_source_id);
             if ($srcWh) {
                 $request->merge(['warehouse_id' => $srcWh]);
+            }
+        }
+
+        // Perbaikan: qty tiap SKU tidak boleh melebihi stok di Gudang Perbaikan, dan
+        // gudang output tidak boleh Gudang Perbaikan itu sendiri (hasil = stok jual).
+        if ($isPerbaikan) {
+            $repairWarehouseId = Warehouse::repairId();
+            if (!$repairWarehouseId) {
+                return back()->withInput()->with('error', 'Gudang Perbaikan belum tersedia. Hubungi admin.');
+            }
+            if ((int) $request->warehouse_id === (int) $repairWarehouseId) {
+                return back()->withInput()->with('error', 'Gudang output perbaikan harus gudang jual, bukan Gudang Perbaikan.');
+            }
+
+            $requestedByProduct = [];
+            foreach ((array) $request->input('repair_items', []) as $it) {
+                if (empty($it['product_id']) || empty($it['qty'])) continue;
+                $pid = (int) $it['product_id'];
+                $requestedByProduct[$pid] = ($requestedByProduct[$pid] ?? 0) + (float) $it['qty'];
+            }
+            foreach ($requestedByProduct as $pid => $qtyReq) {
+                $avail = (float) ProductStock::where('product_id', $pid)
+                    ->where('warehouse_id', $repairWarehouseId)
+                    ->sum('qty_on_hand');
+                if ($qtyReq > $avail + 1e-6) {
+                    $prod = \App\Core\Inventory\Product::find($pid);
+                    $label = $prod ? trim(($prod->sku ? $prod->sku . ' - ' : '') . $prod->name) : "produk #{$pid}";
+                    return back()->withInput()->with('error',
+                        "Qty perbaikan {$label} ({$qtyReq}) melebihi stok di Gudang Perbaikan ({$avail}).");
+                }
             }
         }
 
@@ -259,11 +301,15 @@ class ProductionOrderController extends Controller
         // Map stok tersedia per material di gudang order — buat audit "kurang berapa"
         // di tabel Material. Hanya relevan untuk material yang belum dikonsumsi.
         $engine = app(\App\Core\Inventory\InventoryEngine::class);
+        // Perbaikan menarik bahan dari Gudang Perbaikan; tipe lain dari gudang order.
+        $materialWarehouseId = $order->type === 'perbaikan'
+            ? (Warehouse::repairId() ?? $order->warehouse_id)
+            : $order->warehouse_id;
         $materialStock = [];
         foreach ($order->materials as $m) {
             $materialStock[$m->product_id] = (float) $engine->availableStock(
                 (int) $m->product_id,
-                (int) $order->warehouse_id
+                (int) $materialWarehouseId
             );
         }
 
@@ -271,7 +317,7 @@ class ProductionOrderController extends Controller
         // repair_source_type menyimpan nilai mentah: 'warranty' | 'return' | 'adjustment'.
         // repair_source_ref sudah berisi nomor dokumennya, repair_source_id = FK ke dokumen.
         $repairSource = null;
-        if ($order->type === 'repair' && $order->repair_source_type) {
+        if ($order->isRepairLike() && $order->repair_source_type) {
             $repairSource = match ($order->repair_source_type) {
                 'warranty' => [
                     'label'  => 'Garansi',
@@ -742,6 +788,52 @@ class ProductionOrderController extends Controller
             'return'     => $this->fetchReturnSources($search),
             default      => [],
         };
+
+        return response()->json($results);
+    }
+
+    /**
+     * Daftar SKU yang sedang berada di Gudang Perbaikan (qty_on_hand > 0) untuk OP
+     * tipe 'perbaikan'. Sumber kebenaran = stok fisik gudang perbaikan (diisi dari retur
+     * kondisi 'repair' & penyesuaian 'perbaikan_rusak'), BUKAN nomor dokumen retur.
+     */
+    public function getRepairStock(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $search = trim((string) $request->get('search', ''));
+        $repairWarehouseId = Warehouse::repairId();
+
+        if (!$repairWarehouseId) {
+            return response()->json([]);
+        }
+
+        $stocks = ProductStock::with('product')
+            ->where('warehouse_id', $repairWarehouseId)
+            ->where('qty_on_hand', '>', 0)
+            ->when($search, function ($q) use ($search) {
+                $q->whereHas('product', fn($p) => $p
+                    ->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('sku', 'LIKE', "%{$search}%"));
+            })
+            ->get();
+
+        $results = $stocks->filter(fn($s) => $s->product)->map(function ($s) use ($repairWarehouseId) {
+            // HPP rata per SKU dari layer FIFO tersisa di gudang perbaikan (untuk info nilai).
+            $layers = StockLayer::where('product_id', $s->product_id)
+                ->where('warehouse_id', $repairWarehouseId)
+                ->where('qty_remaining', '>', 0)
+                ->get();
+            $totalQty  = (float) $layers->sum('qty_remaining');
+            $totalCost = (float) $layers->sum(fn($l) => (float) $l->qty_remaining * (float) $l->unit_cost);
+            $avgCost   = $totalQty > 0 ? $totalCost / $totalQty : (float) ($s->product->last_cost ?? 0);
+
+            return [
+                'product_id' => (int) $s->product_id,
+                'sku'        => $s->product->sku,
+                'name'       => $s->product->name,
+                'qty'        => (float) $s->qty_on_hand,
+                'unit_cost'  => round($avgCost, 2),
+            ];
+        })->sortBy('name')->values()->toArray();
 
         return response()->json($results);
     }

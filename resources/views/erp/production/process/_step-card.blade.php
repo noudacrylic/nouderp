@@ -13,11 +13,12 @@
     $displayName = ($soItem && filled($soItem->description))
                      ? $soItem->description
                      : ($product?->name ?? '—');
+    $isRepair = $order->isRepairLike();
     $tc      = match($order->type) {
-        'ready_stock' => 'bg-blue-100 text-blue-700',
-        'custom'      => 'bg-purple-100 text-purple-700',
-        'repair'      => 'bg-orange-100 text-orange-700',
-        default       => 'bg-gray-100 text-gray-600',
+        'ready_stock'                    => 'bg-blue-100 text-blue-700',
+        'custom'                         => 'bg-purple-100 text-purple-700',
+        'repair', 'perbaikan', 'garansi' => 'bg-orange-500 text-white',
+        default                          => 'bg-gray-100 text-gray-600',
     };
     $numColor = match($panel) {
         'pending'     => 'bg-amber-100 text-amber-700',
@@ -40,6 +41,13 @@
         'description'    => $order->description,
         'product_name'   => $displayName,
         'product_sku'    => $product?->sku ?? '—',
+        'is_repair'      => $isRepair,
+        // Daftar SKU yang diperbaiki + qty (OP perbaikan/garansi bisa multi-SKU).
+        'repair_items'   => $isRepair ? $order->outputs->map(fn($o) => [
+            'sku'  => $o->product?->sku ?? '—',
+            'name' => $o->product?->name ?? '—',
+            'qty'  => rtrim(rtrim(number_format((float) $o->qty_planned, 2, '.', ''), '0'), '.'),
+        ])->values()->toArray() : [],
         'qty_planned'    => $mainOut ? number_format((float)$mainOut->qty_planned, 0) : '—',
         'target_date'    => $order->target_completion_date?->format('d/m/Y') ?? '—',
         'executor'       => $step->executors->isNotEmpty()
@@ -173,7 +181,7 @@
             <div class="flex items-center gap-1.5 flex-wrap leading-tight mt-0.5">
                 <a href="{{ route('production.orders.show', $order->id) }}"
                    class="text-[11px] font-bold text-blue-600 hover:underline">{{ $order->order_number }}</a>
-                <span class="text-[10px] px-1.5 py-0.5 rounded font-black {{ $tc }}">{{ strtoupper($order->type_label) }}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded font-black {{ $tc }} @if($isRepair) ring-1 ring-orange-300 shadow-sm @endif">@if($isRepair)🔧 @endif{{ strtoupper($order->type_label) }}</span>
                 @if($order->bom)
                     <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold bg-teal-50 text-teal-700 border border-teal-100"
                           title="BOM: {{ $order->bom->bom_number }}{{ filled($order->bom->name) ? ' — '.$order->bom->name : '' }}">
