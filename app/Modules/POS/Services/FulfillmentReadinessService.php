@@ -5,6 +5,7 @@ namespace App\Modules\POS\Services;
 use App\Models\WarrantyOrder;
 use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Sales\Models\SalesReturn;
 use Illuminate\Support\Collection;
 
 /**
@@ -94,6 +95,8 @@ class FulfillmentReadinessService
             'telah_diproses' => $all->where('bucket', 'telah_diproses')->count(),
             'dikirim'        => $all->where('bucket', 'dikirim')->count(),
             'selesai'        => $all->where('bucket', 'selesai')->count(),
+            // Retur pembeli yang perlu ditindak (cek barang & post draft retur).
+            'retur'          => $all->where('bucket', 'retur')->count(),
             // Badge HANYA menghitung pembatalan yang masih perlu ditindak operator (batal di
             // marketplace / pembeli minta batal TAPI SO ERP belum di-void) — termasuk yang
             // butuh persetujuan seller di Seller Center. Pembatalan yang sudah di-void
@@ -229,14 +232,22 @@ class FulfillmentReadinessService
         $linksBySo = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::whereIn('sales_order_id', $soIds)
             ->get()->keyBy('sales_order_id');
 
-        $this->soRows = $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo) {
-            return $this->buildSoRow($so, $prodBySo->get($so->id), $linksBySo->get($so->id));
+        // Retur per-SO (untuk tab "Retur": kartu link ke halaman edit draft retur). Terbaru dulu.
+        $returnsBySo = SalesReturn::whereIn('sales_order_id', $soIds)
+            ->orderByDesc('id')
+            ->get()->groupBy('sales_order_id');
+
+        $this->soRows = $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo) {
+            $returns = $returnsBySo->get($so->id);
+            // Prioritaskan draft (yang masih perlu ditindak); jatuh ke retur terbaru bila semua sudah di-post.
+            $retur   = $returns?->firstWhere('status', 'draft') ?? $returns?->first();
+            return $this->buildSoRow($so, $prodBySo->get($so->id), $linksBySo->get($so->id), $retur);
         });
 
         return $this->soRows;
     }
 
-    private function buildSoRow(SalesOrder $so, ?Collection $prodOrders, ?\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link = null): array
+    private function buildSoRow(SalesOrder $so, ?Collection $prodOrders, ?\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link = null, ?SalesReturn $retur = null): array
     {
         $grand    = (float) $so->grand_total;
         $paid     = (float) $so->paid_amount;
@@ -287,7 +298,17 @@ class FulfillmentReadinessService
             //  resi/AWB sudah ada tapi belum diserahkan (awb_requested / 'processed' /
             //     sj_created) → Telah Diproses.
             //  sudah dibayar (DP)                          → Perlu Diproses.
-            if ($link->invoice_posted) {
+            // Retur pembeli didahulukan: order diretur (Jubelio RETURNED) atau sudah dibuatkan
+            // draft retur → tab "Retur", KELUAR dari "Telah Diproses". Cek return_created
+            // menangkap order yang last_status-nya belum ter-refresh dari cron. Begitu draft
+            // retur DI-POST → tuntas, pindah ke "Selesai" (badge "Retur" ikut self-clearing).
+            $returPosted = $retur && $retur->status === 'posted';
+            $isReturn    = $link->last_status === 'returned' || $link->return_created;
+            if ($isReturn && !$returPosted) {
+                $bucket = 'retur';
+            } elseif ($isReturn) {
+                $bucket = 'selesai';
+            } elseif ($link->invoice_posted) {
                 $bucket = 'selesai';
             } elseif ($link->last_status === 'shipped') {
                 $bucket = 'dikirim';
@@ -389,6 +410,11 @@ class FulfillmentReadinessService
             'delivery'    => $this->deliveryBreakdown($so),
             'invoice'     => $postedInvoice,
             'deliveries'  => $so->deliveries,
+
+            // Retur (tab "Retur"): draft/terbaru untuk di-link ke halaman edit retur.
+            'retur_id'     => $retur?->id,
+            'retur_number' => $retur?->return_number,
+            'retur_status' => $retur?->status,
 
             // Status resi (filter "Telah Diproses") + tanda cetak
             'resi_state'     => $resiState,

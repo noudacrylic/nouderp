@@ -1412,8 +1412,28 @@ class JubelioOrderSyncService
             || strtoupper((string) ($d['wms_status'] ?? '')) === 'COMPLETED';
     }
 
+    /**
+     * Pesanan DIRETUR pembeli (RETURNED/TO_RETURN). Tanpa cek ini, order retur yang masih
+     * punya resi jatuh ke 'processed' → nyangkut di "Telah Diproses". Diprioritaskan di atas
+     * completed/shipped agar retur (termasuk yang terjadi setelah barang diterima) muncul di
+     * tab "Retur", bukan tersembunyi di bucket lain.
+     */
+    private function isReturned(array $d): bool
+    {
+        $in = strtoupper(trim((string) ($d['internal_status'] ?? '')));
+        if ($in === 'RETURNED') {
+            return true;
+        }
+        $ch = strtoupper(trim((string) ($d['channel_status'] ?? '')));
+        if (in_array($ch, ['TO_RETURN', 'TO RETURN', 'RETURNED'], true)) {
+            return true;
+        }
+        return strtoupper(trim((string) ($d['wms_status'] ?? ''))) === 'RETURNED';
+    }
+
     private function statusLabel(array $d): string
     {
+        if ($this->isReturned($d))  return 'returned';  // diretur pembeli → tab "Retur"
         if ($this->isCompleted($d)) return 'completed';
         if ($this->isShipped($d))   return 'shipped';   // benar-benar diserahkan ke kurir
         if ($this->hasResi($d))     return 'processed';  // resi terbit, belum diserahkan → Telah Diproses

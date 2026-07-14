@@ -95,6 +95,27 @@ class FulfillmentController extends Controller
         ]);
     }
 
+    /** Tab Retur: pesanan marketplace yang diretur pembeli — cek barang lalu post draft retur. */
+    public function retur(Request $request, FulfillmentReadinessService $svc)
+    {
+        return view('erp.pos.fulfillment.retur', [
+            'rows'     => $svc->bucket('retur', $request->q, $request->only(['channel', 'courier'])),
+            'counts'   => $svc->counts(),
+            'couriers' => $svc->courierOptions('retur'),
+        ]);
+    }
+
+    /** Tarik manual retur dari Jubelio (selain cron): buat draft retur untuk pesanan yang diretur. */
+    public function syncRetur(\App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService $sync)
+    {
+        if (!\App\Modules\Marketplace\Jubelio\Models\JubelioSetting::singleton()->isConfigured()) {
+            return back()->with('error', 'Integrasi Jubelio belum aktif/dikonfigurasi.');
+        }
+        $stats = $sync->syncReturns();
+
+        return back()->with('success', "Retur disinkron: {$stats['created']} draft dibuat, {$stats['skipped']} dilewati.");
+    }
+
     /** Tab Pembatalan: pesanan marketplace yang pembeli minta batal + SO marketplace yang sudah di-void. */
     public function pembatalan(Request $request, FulfillmentReadinessService $svc)
     {
