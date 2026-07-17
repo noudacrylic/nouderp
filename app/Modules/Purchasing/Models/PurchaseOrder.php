@@ -14,6 +14,7 @@ class PurchaseOrder extends Model
         'warehouse_id',
         'po_date',
         'expected_date',
+        'supplier_invoice_no',
         'subtotal',
         'discount_total',
         'global_discount_type',

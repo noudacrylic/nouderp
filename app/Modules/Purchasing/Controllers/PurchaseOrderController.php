@@ -106,6 +106,7 @@ class PurchaseOrderController extends Controller
             ->when($request->q, function ($q, $term) {
                 $q->where(function ($w) use ($term) {
                     $w->where('po_number', 'like', "%{$term}%")
+                      ->orWhere('supplier_invoice_no', 'like', "%{$term}%")
                       ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%"));
                 });
             })
@@ -138,6 +139,7 @@ class PurchaseOrderController extends Controller
             'warehouse_id' => 'required|exists:warehouses,id',
             'po_date' => 'required|date',
             'expected_date' => 'nullable|date',
+            'supplier_invoice_no' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'ppn_percent' => 'nullable|numeric|min:0|max:100',
             'global_discount_type' => 'nullable|in:nominal,percent',
@@ -216,6 +218,7 @@ class PurchaseOrderController extends Controller
             'warehouse_id' => 'required|exists:warehouses,id',
             'po_date' => 'required|date',
             'expected_date' => 'nullable|date',
+            'supplier_invoice_no' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'ppn_percent' => 'nullable|numeric|min:0|max:100',
             'global_discount_type' => 'nullable|in:nominal,percent',

@@ -339,6 +339,15 @@
     function format(n){ return new Intl.NumberFormat('id-ID',{maximumFractionDigits:2}).format(n); }
     function rp(n){ return 'Rp ' + format(n); }
 
+    // Number cleaner lokal (tidak bergantung urutan load window.cleanNumber, yang
+    // didefinisikan di layout SETELAH script ini → recalc awal pernah throw & summary macet di 0).
+    function cleanNum(v){
+        if (v === null || v === undefined) return 0;
+        var s = String(v).replace(/\./g, '').replace(/[^0-9,\-]/g, '').replace(',', '.');
+        var n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    }
+
     // ===== SUPPLIER SEARCH (copy dari PO form) =====
     const supSearch = document.getElementById('supplierSearch');
     const supId = document.getElementById('supplierId');
@@ -860,7 +869,7 @@
         const itemRows = [...document.querySelectorAll('.item-row')];
         const lineSubs = itemRows.map(r => {
             const qty = parseFloat(r.querySelector('.qty-in').value) || 0;
-            const price = window.cleanNumber(r.querySelector('.price-in').value) || 0;
+            const price = cleanNum(r.querySelector('.price-in').value) || 0;
             const dtype = r.querySelector('.disc-type').value;
             const dval = parseFloat(r.querySelector('.disc-val').value) || 0;
             const gross = qty * price;
@@ -874,7 +883,7 @@
 
         let sumExpCap = 0, sumExpDir = 0;
         document.querySelectorAll('.expense-row').forEach(r => {
-            const amt = window.cleanNumber(r.querySelector('.amount-in').value) || 0;
+            const amt = cleanNum(r.querySelector('.amount-in').value) || 0;
             const mode = r.querySelector('.mode-in').value;
             if (mode === 'capitalized') sumExpCap += amt;
             else sumExpDir += amt;

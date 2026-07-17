@@ -42,6 +42,7 @@
             <div class="text-gray-500">Gudang</div><div>{{ $po->warehouse->name ?? '-' }}</div>
             <div class="text-gray-500">Tanggal PO</div><div>{{ $po->po_date->format('d M Y') }}</div>
             <div class="text-gray-500">Tgl Diharapkan</div><div>{{ $po->expected_date ? $po->expected_date->format('d M Y') : '-' }}</div>
+            <div class="text-gray-500">No. Faktur Pemasok</div><div>{{ $po->supplier_invoice_no ?: '-' }}</div>
         </div>
     </div>
     <div class="bg-white rounded shadow p-4 text-sm">

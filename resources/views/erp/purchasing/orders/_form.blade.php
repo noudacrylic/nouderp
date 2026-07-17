@@ -51,6 +51,13 @@
             <label class="block text-sm mb-1">Tanggal Diharapkan</label>
             <input type="date" name="expected_date" class="border rounded px-3 py-2 w-full" value="{{ old('expected_date', isset($po) && $po->expected_date ? $po->expected_date->format('Y-m-d') : '') }}">
         </div>
+        <div>
+            <label class="block text-sm mb-1">No. Faktur Pemasok</label>
+            <input type="text" name="supplier_invoice_no" class="border rounded px-3 py-2 w-full"
+                   value="{{ old('supplier_invoice_no', $po->supplier_invoice_no ?? '') }}"
+                   placeholder="No. nota/faktur dari pemasok" autocomplete="off">
+            <p class="text-xs text-gray-400 mt-1">Untuk audit &amp; pencocokan nota fisik pemasok.</p>
+        </div>
     </div>
 </div>
 
@@ -300,6 +307,15 @@
 <script>
 (function(){
     function format(n){ return new Intl.NumberFormat('id-ID',{maximumFractionDigits:2}).format(n); }
+
+    // Number cleaner lokal (tidak bergantung urutan load window.cleanNumber, yang
+    // didefinisikan di layout SETELAH script ini → recalc awal pernah throw & summary macet di 0).
+    function cleanNum(v){
+        if (v === null || v === undefined) return 0;
+        var s = String(v).replace(/\./g, '').replace(/[^0-9,\-]/g, '').replace(',', '.');
+        var n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    }
 
     // ===== SUPPLIER SEARCH =====
     const supSearch = document.getElementById('supplierSearch');
@@ -716,7 +732,7 @@
         let sumLine = 0, sumLineDisc = 0;
         document.querySelectorAll('.po-item-row').forEach(r => {
             const qty = parseFloat(r.querySelector('.qty-in').value) || 0;
-            const price = window.cleanNumber(r.querySelector('.price-in').value) || 0;
+            const price = cleanNum(r.querySelector('.price-in').value) || 0;
             const dtype = r.querySelector('.disc-type').value;
             const dval = parseFloat(r.querySelector('.disc-val').value) || 0;
             const gross = qty * price;
@@ -735,7 +751,7 @@
 
         let sumExpense = 0;
         document.querySelectorAll('.expense-row').forEach(r => {
-            sumExpense += window.cleanNumber(r.querySelector('.amount-in').value) || 0;
+            sumExpense += cleanNum(r.querySelector('.amount-in').value) || 0;
         });
 
         const ppnPct = parseFloat(document.getElementById('ppnPercent').value) || 0;
