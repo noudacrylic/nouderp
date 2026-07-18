@@ -9,13 +9,22 @@ use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Verifikasi signature webhook Jubelio.
- * Sesuai dokumentasi: signature = SHA256( stringify(payload) + secret_key ),
- * dikirim di header "webhook-signature".
+ * Autentikasi webhook Jubelio via TOKEN RAHASIA DI URL.
  *
- * Bila webhook_secret belum diatur, verifikasi dilewati (mode dev/localhost) —
- * tetapi tetap aman karena route ini hanya memicu pemrosesan idempotent yang
- * sama dengan cron.
+ * Latar: signature bawaan Jubelio (header "sign") TIDAK dapat diverifikasi dari sisi kita —
+ * formula signing Jubelio menyimpang dari dokumentasinya (diuji ribuan kombinasi hash/HMAC
+ * terhadap payload asli, tak ada yang cocok meski secret sudah benar). Karena itu keamanan
+ * dialihkan ke token rahasia pada query string URL webhook.
+ *
+ * Konfigurasi URL webhook di Jubelio (token di PATH — Jubelio membuang query string):
+ *   https://erp.noudakrilik.com/jubelio/webhook/salesorder/<webhook_secret>
+ *   https://erp.noudakrilik.com/jubelio/webhook/salesreturn/<webhook_secret>
+ *   https://erp.noudakrilik.com/jubelio/webhook/stock/<webhook_secret>
+ *
+ * Aman karena: (1) token dibandingkan constant-time; (2) handler hanya memicu pemrosesan
+ * idempotent yang menarik data OTORITATIF dari API Jubelio (payload tak dipercaya selain ID);
+ * (3) endpoint berada di balik Cloudflare. Bila webhook_secret kosong, verifikasi dilewati
+ * (mode dev/localhost).
  */
 class VerifyJubelioSignature
 {
@@ -27,17 +36,10 @@ class VerifyJubelioSignature
             return $next($request);
         }
 
-        $signature = $request->header('webhook-signature');
-        if (empty($signature)) {
-            Log::warning('Jubelio webhook tanpa signature');
-            return response()->json(['error' => 'missing signature'], 403);
-        }
-
-        $expected = hash('sha256', $request->getContent() . $secret);
-
-        if (!hash_equals($expected, $signature)) {
-            Log::warning('Jubelio webhook signature salah');
-            return response()->json(['error' => 'invalid signature'], 403);
+        $token = $request->route('token') ?: $request->query('token') ?: $request->header('x-webhook-token');
+        if (!is_string($token) || $token === '' || !hash_equals($secret, $token)) {
+            Log::warning('Jubelio webhook ditolak: token URL salah/kosong', ['path' => $request->path()]);
+            return response()->json(['error' => 'invalid token'], 403);
         }
 
         return $next($request);

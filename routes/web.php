@@ -41,11 +41,13 @@ Route::get ('/pay/{token}/so.pdf',      [\App\Modules\Payment\Controllers\Midtra
 Route::post('/midtrans/notify',   [\App\Modules\Payment\Controllers\MidtransWebhookController::class, 'handle'])
     ->middleware('midtrans.signature')->name('midtrans.notify');
 
-// ── Jubelio webhook (NO auth, server-to-server) — hybrid; cron tetap andalan ──
+// ── Jubelio webhook (server-to-server) — auth via TOKEN DI PATH ──
+// Jubelio MEMBUANG query string & signature-nya tak bisa diverifikasi, jadi token ditaruh di
+// path (mirip webhook Telegram). Set URL webhook Jubelio: .../jubelio/webhook/<event>/<webhook_secret>
 Route::prefix('jubelio/webhook')->middleware('jubelio.signature')->group(function () {
-    Route::post('/salesorder',  [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'salesOrder'])->name('jubelio.webhook.salesorder');
-    Route::post('/salesreturn', [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'salesReturn'])->name('jubelio.webhook.salesreturn');
-    Route::post('/stock',       [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'stock'])->name('jubelio.webhook.stock');
+    Route::post('/salesorder/{token?}',  [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'salesOrder'])->name('jubelio.webhook.salesorder');
+    Route::post('/salesreturn/{token?}', [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'salesReturn'])->name('jubelio.webhook.salesreturn');
+    Route::post('/stock/{token?}',       [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'stock'])->name('jubelio.webhook.stock');
 });
 
 // ── Telegram "Noud Bot" webhook (NO auth/CSRF, server-to-server) ──
