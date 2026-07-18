@@ -339,13 +339,14 @@
             <a href="{{ route('sales.orders.print', $r['id']) }}"
                class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
             @if($mode === 'telah_diproses' && empty($r['tracking_no']))
-                {{-- Resi belum terbit (AWB gagal/pending) → jalankan ulang rantai Proses. --}}
-                <form action="{{ route('pos.fulfillment.proses', $r['id']) }}" method="POST"
-                      onsubmit="return confirm('Generate ulang resi untuk {{ $r['number'] }}? (lanjutkan rantai Jubelio)')">
-                    @csrf
-                    <button type="submit" name="print_after" value="0"
-                            class="text-xs px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white font-bold">🔄 Generate Ulang</button>
-                </form>
+                {{-- Resi marketplace terbit ASYNC: Shopee merilis nomor resi saat paket siap kirim,
+                     lalu cron jubelio:sync-orders menariknya otomatis. Tombol "Generate Ulang"
+                     (mengulang rantai Proses) sengaja DIHAPUS — pada order yang sudah tuntas di
+                     Jubelio, mengulang justru ditolak Jubelio & bikin operator salah paham. Cukup tunggu. --}}
+                <span class="text-xs px-3 py-1.5 rounded bg-sky-50 border border-sky-200 text-sky-700 font-medium inline-flex items-center gap-1.5"
+                      title="Nomor resi diterbitkan marketplace lalu ditarik otomatis oleh sistem — tidak perlu aksi manual.">
+                    ⏳ Resi belum di-generate — tunggu beberapa saat, resi akan di-generate otomatis.
+                </span>
             @else
                 <a href="{{ route('pos.fulfillment.jubelio-resi', $r['id']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 font-semibold">🏷️ Cetak Resi</a>
