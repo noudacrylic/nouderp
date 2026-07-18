@@ -176,7 +176,7 @@ class MarketplaceSettlementService
 
             $ms = MarketplaceSettlement::create([
                 'number'                => $this->generateNumber(MarketplaceSettlement::class, 'MS'),
-                'date'                  => $meta['date'] ?? now()->toDateString(),
+                'date'                  => $this->resolveSettlementDate($rows, $meta),
                 'marketplace_config_id' => $config->id,
                 'source_filename'       => $meta['source_filename'] ?? null,
                 'status'                => 'draft',
@@ -243,8 +243,8 @@ class MarketplaceSettlementService
         if ($ms->isPosted()) throw new DomainException('Sudah diposting.');
         if ($ms->isVoid())   throw new DomainException('Sudah di-void.');
 
-        // Penyesuaian rekonsiliasi dibebankan di AKHIR BULAN yang direkonsiliasi (bulan dana cair),
-        // bukan tanggal upload — supaya biaya transaksi bulan lalu tidak jatuh di bulan ini.
+        // Penyesuaian rekonsiliasi dibebankan di BULAN TRANSAKSI (tanggal dana cair dari Excel),
+        // bukan tanggal upload — supaya biaya transaksi Juni tidak jatuh di Juli.
         $payDate = $this->resolvePostingDate($ms);
         $this->periodService->ensureOpen($payDate);
 
@@ -510,10 +510,33 @@ class MarketplaceSettlementService
     }
 
     /**
-     * Tanggal posting jurnal rekonsiliasi = TANGGAL DOKUMEN rekonsiliasi (bulan berjalan
-     * saat rekonsiliasi dikerjakan), BUKAN di-backdate ke bulan transaksi.
-     * Contoh: transaksi Juni yang direkonsiliasi 2 Juli → jurnal masuk periode Juli.
-     * Tujuan: buku bulan lalu yang mungkin sudah ditutup tidak ikut berubah.
+     * Tanggal dokumen rekonsiliasi = tanggal transaksi (settlement_date) TERAKHIR dari Excel,
+     * supaya jurnal penyesuaian jatuh di BULAN TRANSAKSI (bulan dana cair), BUKAN bulan upload.
+     * Rekonsiliasi wajib per-bulan (divalidasi di controller), jadi semua settlement_date ada
+     * di bulan yang sama; ambil yang terakhir sebagai tanggal representatif.
+     * Fallback ke meta['date'] (input manual) hanya bila Excel tak punya kolom tanggal sama sekali.
+     */
+    protected function resolveSettlementDate(array $rows, array $meta): string
+    {
+        $dates = collect($rows)
+            ->pluck('settlement_date')
+            ->filter()
+            ->map(fn($d) => Carbon::parse($d))
+            ->sort()
+            ->values();
+
+        if ($dates->isNotEmpty()) {
+            return $dates->last()->toDateString();
+        }
+
+        return $meta['date'] ?? now()->toDateString();
+    }
+
+    /**
+     * Tanggal posting jurnal rekonsiliasi = TANGGAL DOKUMEN rekonsiliasi ($ms->date), yang sudah
+     * diturunkan dari settlement_date Excel → jurnal penyesuaian jatuh di BULAN TRANSAKSI.
+     * Contoh: transaksi Juni yang direkonsiliasi 2 Juli → jurnal tetap masuk periode Juni.
+     * Kalau bulan itu sudah ditutup, posting akan ditolak PeriodService (harus dibuka dulu).
      */
     protected function resolvePostingDate(MarketplaceSettlement $ms): Carbon
     {

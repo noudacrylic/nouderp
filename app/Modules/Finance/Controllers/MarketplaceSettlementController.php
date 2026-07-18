@@ -167,6 +167,25 @@ class MarketplaceSettlementController extends Controller
                 return back()->withInput()->with('error', $msg);
             }
 
+            // Rekonsiliasi WAJIB per-bulan: semua transaksi dalam satu file harus di bulan yang
+            // sama, supaya jurnal penyesuaian tidak mencampur bulan (mis. transaksi Juni ikut
+            // terbukukan di Juli). Bulan jurnal diambil dari settlement_date Excel, bukan tanggal upload.
+            $months = [];
+            foreach ($parsed['rows_per_config'] as $rows) {
+                foreach ($rows as $r) {
+                    if (!empty($r['settlement_date'])) {
+                        $months[substr($r['settlement_date'], 0, 7)] = true;
+                    }
+                }
+            }
+            if (count($months) > 1) {
+                $list = array_keys($months);
+                sort($list);
+                return back()->withInput()->with('error',
+                    'File berisi transaksi lintas bulan (' . implode(', ', $list) . '). '
+                    . 'Rekonsiliasi harus per-bulan — pisahkan file per bulan lalu upload satu per satu.');
+            }
+
             $created = $this->service->createDraftsFromStandard($parsed['rows_per_config'], [
                 'date'            => $data['date'],
                 'source_filename' => $file->getClientOriginalName(),

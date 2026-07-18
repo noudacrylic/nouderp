@@ -115,10 +115,14 @@
 
                 <div class="space-y-3 text-sm">
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">Tanggal Rekonsiliasi <span class="text-red-500">*</span></label>
+                        <label class="block text-xs text-gray-500 mb-1">Tanggal Rekonsiliasi (fallback) <span class="text-red-500">*</span></label>
                         <input type="date" name="date" value="{{ old('date', $prefillDate ?: now()->toDateString()) }}"
                                class="border rounded px-2 py-1.5 w-full text-sm" required>
-                        <div class="text-[10px] text-gray-400 mt-0.5">Menentukan bulan jurnal penyesuaian (pakai bulan berjalan saat rekonsiliasi).</div>
+                        <div class="text-[10px] text-gray-400 mt-0.5">
+                            Bulan jurnal penyesuaian mengikuti kolom <code>settlement_date</code> di Excel (bulan transaksi/dana cair),
+                            jadi transaksi Juni tetap masuk buku Juni walau di-upload di Juli.
+                            Tanggal ini dipakai HANYA kalau Excel tidak punya kolom tanggal. Rekonsiliasi wajib 1 bulan per file.
+                        </div>
                     </div>
 
                     <div>
