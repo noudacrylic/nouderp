@@ -95,7 +95,11 @@ class FixedAssetService
         return DB::transaction(function () use ($asset, $data) {
             $cat = AssetCategory::findOrFail($data['asset_category_id'] ?? $asset->asset_category_id);
 
-            $cost = (float) ($data['acquisition_cost'] ?? $asset->acquisition_cost);
+            // Harga perolehan aset dari faktur bersifat otoritatif dari invoice (field readonly di form).
+            // Abaikan nilai dari client supaya tidak bisa berubah/drift dari sini.
+            $cost = $asset->source_type === 'purchase'
+                ? (float) $asset->acquisition_cost
+                : (float) ($data['acquisition_cost'] ?? $asset->acquisition_cost);
             $isDepreciable = array_key_exists('is_depreciable', $data) ? (bool) $data['is_depreciable'] : $asset->is_depreciable;
             $life = $isDepreciable ? ($data['useful_life_months'] ?? $asset->useful_life_months) : null;
             $salvage = (float) ($data['salvage_value'] ?? $asset->salvage_value);

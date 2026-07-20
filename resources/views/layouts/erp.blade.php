@@ -1260,7 +1260,13 @@
     <script>
     (function () {
         function formatThousands(value) {
-            var digits = String(value == null ? '' : value).replace(/\D/g, '');
+            var s = String(value == null ? '' : value);
+            // Mask ini bulat (tanpa desimal). Buang bagian pecahan lebih dulu supaya
+            // nilai mentah dari DB spt "2023200.00" tidak jadi "202320000" (×100).
+            // Pemisah desimal = titik/koma diikuti 1-2 digit di akhir string;
+            // pemisah ribuan selalu diikuti 3 digit, jadi tidak ikut kena.
+            s = s.replace(/[.,]\d{1,2}$/, '');
+            var digits = s.replace(/\D/g, '');
             digits = digits.replace(/^0+(?=\d)/, ''); // buang leading zero
             if (digits === '') return '';
             return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
