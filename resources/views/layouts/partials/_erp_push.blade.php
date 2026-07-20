@@ -44,18 +44,29 @@
         const ctx = ensureAudio();
         if (!ctx) return;
         const now = ctx.currentTime;
+
+        // Compressor/limiter → memaksimalkan kekerasan (loudness) tanpa distorsi kasar
+        // walau gain dinaikkan tinggi. Master gain sedikit di bawah 1 sebagai pengaman.
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -18; comp.ratio.value = 12;
+        comp.attack.value = 0.003; comp.release.value = 0.2;
+        const master = ctx.createGain();
+        master.gain.value = 0.95;
+        comp.connect(master).connect(ctx.destination);
+
         // Tiga nada naik (A5 → A5 → D6) supaya mencolok — pesanan instant perlu segera diproses.
-        [[880, 0], [880, 0.18], [1175, 0.36]].forEach(([freq, t]) => {
+        // Gelombang square lebih kaya harmonik → terdengar jauh lebih nyaring daripada sinus.
+        [[880, 0], [880, 0.2], [1175, 0.4]].forEach(([freq, t]) => {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
-            osc.type = 'sine';
+            osc.type = 'square';
             osc.frequency.value = freq;
             gain.gain.setValueAtTime(0.0001, now + t);
-            gain.gain.exponentialRampToValueAtTime(0.5, now + t + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.16);
-            osc.connect(gain).connect(ctx.destination);
+            gain.gain.exponentialRampToValueAtTime(0.9, now + t + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.2);
+            osc.connect(gain).connect(comp);
             osc.start(now + t);
-            osc.stop(now + t + 0.17);
+            osc.stop(now + t + 0.21);
         });
     }
 
