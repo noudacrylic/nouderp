@@ -63,6 +63,28 @@ class WebPushNotifier
     }
 
     /**
+     * Kirim ke SEMUA user ERP (super_admin/admin/user) yang mengaktifkan notifikasi di
+     * browser desktop — dipakai untuk memberi tahu tim packing saat ada pesanan masuk.
+     *
+     * Penargetan berdasar role: langganan karyawan (PWA /me) role='karyawan' dikirim untuk
+     * absensi/izin lewat notifyUser; langganan ERP (role bukan 'karyawan') hanya dibuat
+     * lewat toggle di aplikasi ERP yang satu-satunya fitur push-nya adalah notifikasi ini,
+     * jadi "berlangganan di ERP" = "ingin notifikasi pesanan". Opt-in per perangkat.
+     */
+    public function notifyErpUsers(string $title, string $body, array $opts = []): int
+    {
+        $subs = PushSubscription::whereHas('user', function ($q) {
+            $q->where('role', '!=', 'karyawan');
+        })->get();
+
+        if ($subs->isEmpty()) {
+            return 0;
+        }
+
+        return $this->sendToSubscriptions($subs, $title, $body, $opts);
+    }
+
+    /**
      * @param  \Illuminate\Support\Collection<PushSubscription>  $subs
      */
     public function sendToSubscriptions($subs, string $title, string $body, array $opts = []): int

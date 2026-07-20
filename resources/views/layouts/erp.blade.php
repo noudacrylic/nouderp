@@ -1050,6 +1050,14 @@
                         <span class="role-badge {{ $authUser->role }}">{{ $roleLabel }}</span>
                     </div>
 
+                    @if(config('services.webpush.public_key'))
+                        <button type="button" id="erpPushToggle" class="item" style="display:none;">
+                            <span class="icon">🔔</span>
+                            <span id="erpPushLabel">Aktifkan Notifikasi Pesanan</span>
+                        </button>
+                        <div class="divider"></div>
+                    @endif
+
                     @if($authUser->canManageUsers())
                         <a href="{{ route('settings.users.index') }}" class="item" style="text-decoration:none;">
                             <span class="icon">👥</span>
@@ -1317,6 +1325,12 @@
 
     {{-- Alpine.js dipakai oleh sidebar user-profile dropdown + beberapa halaman --}}
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    {{-- Web Push notifikasi pesanan (tim packing) — registrasi SW + toggle di user menu --}}
+    @auth
+        @include('layouts.partials._erp_push')
+    @endauth
+
     @yield('scripts')
     @stack('scripts')
 </body>

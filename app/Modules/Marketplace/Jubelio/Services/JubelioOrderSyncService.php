@@ -13,6 +13,7 @@ use App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap;
 use App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog;
+use App\Modules\Notifications\Services\WebPushNotifier;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesOrderItem;
 use App\Modules\Sales\Services\CustomerPaymentService;
@@ -281,6 +282,14 @@ class JubelioOrderSyncService
         // bayar tidak meninggalkan OP. Idempotent: link di-lock + cek-ulang di dalam.
         if (!$link->sales_order_id) {
             $this->ensureSalesOrder($detail, $link);
+
+            // Pesanan INSTANT baru (SPX Instant/GoSend/Grab/SameDay dll) → beri tahu tim
+            // packing lewat notifikasi web agar segera diproses & dikirim, sesuai kebijakan
+            // marketplace yang menuntut pesanan instant dikirim cepat. Hanya di titik ini
+            // (SO baru saja dibuat) supaya pesanan lama tak memicu notifikasi saat re-sync.
+            if ($link->sales_order_id && $link->is_instant_courier) {
+                $this->notifyPackingNewInstant($link);
+            }
         }
 
         // TAHAP A2 — dibayar → posting DP/uang muka (memicu settlement Hold→Wallet saat invoice
@@ -886,6 +895,44 @@ class JubelioOrderSyncService
                 'meta'                  => ['sales_order_id' => $so->id, 'grand_total' => (float) $so->grand_total],
             ]);
         });
+    }
+
+    /**
+     * Notifikasi web ke tim packing untuk pesanan marketplace INSTANT yang baru masuk.
+     *
+     * Klaim atomik pada packing_notified_at memastikan hanya SATU proses yang mengirim,
+     * walau webhook & cron memproses pesanan baru yang sama nyaris bersamaan. Kegagalan
+     * kirim (VAPID belum diatur / push error) tidak boleh mengganggu alur sinkron.
+     */
+    private function notifyPackingNewInstant(JubelioOrderLink $link): void
+    {
+        $claimed = JubelioOrderLink::where('id', $link->id)
+            ->whereNull('packing_notified_at')
+            ->update(['packing_notified_at' => now()]);
+        if (!$claimed) {
+            return; // sudah diberitahu oleh proses lain
+        }
+        $link->packing_notified_at = now();
+
+        $store = $link->store ?: 'Marketplace';
+        $parts = [];
+        if ($link->snap_customer)   { $parts[] = $link->snap_customer; }
+        if ($link->snap_item_count) { $parts[] = $link->snap_item_count . ' item'; }
+        if ($link->shipper)         { $parts[] = $link->shipper; }
+        $detail = $parts ? ' — ' . implode(' • ', $parts) : '';
+
+        try {
+            app(WebPushNotifier::class)->notifyErpUsers(
+                "⚡ Pesanan Instant Baru — {$store}",
+                "Segera proses & kirim{$detail}",
+                [
+                    'url' => route('pos.fulfillment.perlu-diproses'),
+                    'tag' => 'jubelio-instant-' . $link->id,
+                ]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Notifikasi packing (pesanan instant) gagal: ' . $e->getMessage());
+        }
     }
 
     /**

@@ -778,7 +778,24 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
 // ═══════════════════════════════════════════════════════════════
 // POS MODULE — Pemrosesan Pesanan (fulfillment dashboard tim packing)
 // ═══════════════════════════════════════════════════════════════
+
+// Service worker notifikasi ERP — dilayani via route (bukan file fisik) agar scope /erp/.
+// Closure tanpa nama → lolos EnsureMenuAccess untuk user yang sudah login (lihat middleware).
+Route::get('erp/sw.js', function () {
+    return response(file_get_contents(resource_path('pwa/erp-sw.js')), 200, [
+        'Content-Type'           => 'application/javascript; charset=utf-8',
+        'Service-Worker-Allowed' => '/erp/',
+        'Cache-Control'          => 'no-cache, must-revalidate',
+    ]);
+});
+
 Route::prefix('erp/pos')->name('pos.')->group(function () {
+    // Web Push notifikasi pesanan (tim packing). Nama ber-segmen `api` agar staf role `user`
+    // yang punya akses menu POS lolos EnsureMenuAccess (route bantu, bukan menu tersendiri).
+    Route::post('/push/subscribe',   [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'store'])->name('api.push-subscribe');
+    Route::post('/push/unsubscribe', [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'destroy'])->name('api.push-unsubscribe');
+    Route::post('/push/test',        [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'test'])->name('api.push-test');
+
     // Kasir POS — buat transaksi langsung (Invoice + Bayar, tanpa SO)
     Route::get('/kasir',          [\App\Modules\POS\Controllers\PosOrderController::class, 'kasir'])->name('kasir');
     Route::get('/kasir/search',   [\App\Modules\POS\Controllers\PosOrderController::class, 'search'])->name('kasir.search');
