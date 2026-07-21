@@ -212,6 +212,50 @@ class JubelioStockSyncService
     }
 
     /**
+     * Push SEKETIKA (sinkron) sekumpulan produk ke Jubelio — dipakai agar stok komponen
+     * bundle langsung berkurang di marketplace begitu bundle terjual & SJ terbentuk, tanpa
+     * menunggu cron 5 menit (celah oversell). Diberi "seed" = produk pada SO; method meng-
+     * expand ke: komponen bila seed adalah bundle, LALU bundle lain yang berbagi komponen
+     * tsb (stok tersedia-nya ikut berubah). Idempoten & aman: pushProduct menangkap errornya
+     * sendiri; produk gagal ditandai ulang agar cron mencoba lagi. Cron push tetap jaring
+     * pengaman. Lihat [[nouderp-stocklayers-ledger-drift-sj-stuck]] & observer stok.
+     *
+     * @param  int[]  $seedProductIds
+     * @return array{pushed:int, skipped:int, failed:int}
+     */
+    public function pushProductsNow(array $seedProductIds): array
+    {
+        $stats = ['pushed' => 0, 'skipped' => 0, 'failed' => 0];
+        if (empty($seedProductIds) || !$this->client->isReady()) {
+            return $stats;
+        }
+
+        $ids = collect($seedProductIds)->filter()->unique();
+
+        // Seed bundle → tambahkan komponennya.
+        $components = \App\Core\Inventory\BundleComponent::whereIn('bundle_product_id', $ids)->pluck('component_product_id')
+            ->merge(\App\Core\Inventory\ProductBundle::whereIn('bundle_product_id', $ids)->pluck('component_product_id'));
+        $ids = $ids->merge($components)->unique();
+
+        // Semua produk di atas → tambahkan bundle lain yang memuatnya sebagai komponen.
+        $bundles = \App\Core\Inventory\BundleComponent::whereIn('component_product_id', $ids)->pluck('bundle_product_id')
+            ->merge(\App\Core\Inventory\ProductBundle::whereIn('component_product_id', $ids)->pluck('bundle_product_id'));
+        $ids = $ids->merge($bundles)->unique()->values();
+
+        Product::whereIn('id', $ids)->where('sync_to_jubelio', true)->get()->each(function (Product $p) use (&$stats) {
+            // Lepas flag sebelum push (anti lost-update, sama pola pushPending); set ulang bila gagal.
+            $p->forceFill(['jubelio_sync_pending' => false])->save();
+            $r = $this->pushProduct($p, false);
+            $stats[$r === 'skipped_unmatched' ? 'skipped' : $r]++;
+            if ($r === 'failed') {
+                $p->forceFill(['jubelio_sync_pending' => true])->save();
+            }
+        });
+
+        return $stats;
+    }
+
+    /**
      * Total reservasi AKTIF produk dari SO NON-marketplace (SO yang TIDAK punya
      * JubelioOrderLink). Reservasi marketplace sengaja dikecualikan agar tidak terjadi
      * pengurangan ganda terhadap reservasi yang sudah dikelola Jubelio sendiri.

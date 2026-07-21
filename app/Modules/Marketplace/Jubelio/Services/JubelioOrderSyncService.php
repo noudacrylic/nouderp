@@ -312,6 +312,7 @@ class JubelioOrderSyncService
         // stok ERP tak terpotong & reservasi menggantung (reservasi hantu, available minus,
         // ERP dorong stok basi ke Jubelio). j_invoice_done adalah sinyal andal "stok sudah keluar".
         $shipOut = fn($l, $d) => $this->hasResi($d) || $this->isShipped($d) || (bool) $l->j_invoice_done;
+        $sjWasCreated = (bool) $link->sj_created; // deteksi SJ yang BARU terbentuk run ini (untuk push stok seketika)
         $needB = $link->sales_order_id && $shipOut($link, $detail)    && !$link->sj_created;
         $needC = $link->sales_order_id && $this->isCompleted($detail) && !$link->invoice_posted;
         if ($needB || $needC) {
@@ -374,6 +375,19 @@ class JubelioOrderSyncService
 
         $link->last_status = $this->statusLabel($detail);
         $link->save();
+
+        // Push stok SEKETIKA bila SJ BARU terbentuk run ini (stok komponen sudah keluar):
+        // bundle terjual → komponen + bundle terkait langsung berkurang di marketplace tanpa
+        // menunggu cron 5 menit (menutup celah oversell komponen). Di LUAR transaksi stok inti,
+        // sinkron; pushProductsNow menangkap errornya sendiri sehingga tak mengganggu sync order.
+        if (!$sjWasCreated && $link->sj_created && $link->sales_order_id) {
+            try {
+                $productIds = SalesOrderItem::where('sales_order_id', $link->sales_order_id)->pluck('product_id')->all();
+                app(JubelioStockSyncService::class)->pushProductsNow($productIds);
+            } catch (\Throwable $e) {
+                Log::warning('Jubelio push stok seketika pasca-SJ gagal', ['link' => $link->id, 'error' => $e->getMessage()]);
+            }
+        }
 
         return $link;
     }
