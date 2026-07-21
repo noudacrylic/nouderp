@@ -110,8 +110,10 @@ return [
         'label' => 'Store',
         'icon' => '🏪',
         'children' => [
-            'store.categories' => ['label' => 'Kategori',     'url' => '/erp/store/categories', 'route_patterns' => ['store.categories.*']],
-            'store.products'   => ['label' => 'Produk Store', 'url' => '/erp/store/products',   'route_patterns' => ['store.products.*']],
+            'store.categories'         => ['label' => 'Kategori',        'url' => '/erp/store/categories',         'route_patterns' => ['store.categories.*']],
+            'store.products'           => ['label' => 'Produk Store',    'url' => '/erp/store/products',           'route_patterns' => ['store.products.*']],
+            'store.articles'           => ['label' => 'Blog / Artikel',  'url' => '/erp/store/articles',           'route_patterns' => ['store.articles.*']],
+            'store.article-categories' => ['label' => 'Kategori Artikel','url' => '/erp/store/article-categories', 'route_patterns' => ['store.article-categories.*']],
         ],
     ],
 

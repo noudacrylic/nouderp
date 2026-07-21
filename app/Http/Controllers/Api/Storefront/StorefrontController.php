@@ -6,6 +6,8 @@ use App\Core\Inventory\Product;
 use App\Core\Inventory\ProductStock;
 use App\Core\Inventory\StockReservation;
 use App\Http\Controllers\Controller;
+use App\Models\StoreArticle;
+use App\Models\StoreArticleCategory;
 use App\Models\StoreCategory;
 use App\Models\StoreProduct;
 use App\Modules\Sales\Models\Promotion;
@@ -132,6 +134,62 @@ class StorefrontController extends Controller
         return response()->json(['data' => $promos]);
     }
 
+    // ───────────────────────── Blog/Artikel ─────────────────────────
+
+    /** Kategori artikel untuk navigasi blog. */
+    public function articleCategories()
+    {
+        $cats = StoreArticleCategory::orderBy('sort_order')->orderBy('name')
+            ->get(['id', 'slug', 'name', 'sort_order']);
+
+        return response()->json(['data' => $cats]);
+    }
+
+    /**
+     * Daftar artikel terbit (untuk listing blog + cache). Konten penuh TIDAK disertakan
+     * (hemat payload) — ambil per-artikel via /articles/{slug}. ?updated_since & ?page.
+     */
+    public function articles(Request $request)
+    {
+        $query = StoreArticle::query()
+            ->published()
+            ->with('category')
+            ->orderByDesc('is_featured')
+            ->orderByDesc('published_at')
+            ->orderByDesc('id');
+
+        if ($since = $request->get('updated_since')) {
+            $query->where('updated_at', '>=', $since);
+        }
+        if ($cat = $request->get('category')) {
+            $query->whereHas('category', fn($q) => $q->where('slug', $cat));
+        }
+
+        $page = $query->paginate(min((int) $request->get('per_page', 30), 100))->withQueryString();
+
+        return response()->json([
+            'data' => $page->getCollection()->map(fn($a) => $this->serializeArticle($a, false))->all(),
+            'meta' => [
+                'current_page' => $page->currentPage(),
+                'last_page'    => $page->lastPage(),
+                'per_page'     => $page->perPage(),
+                'total'        => $page->total(),
+            ],
+        ]);
+    }
+
+    /** Detail satu artikel terbit by slug (dengan konten HTML). */
+    public function article(string $slug)
+    {
+        $a = StoreArticle::published()->with('category')->where('slug', $slug)->first();
+
+        if (!$a) {
+            return response()->json(['message' => 'Artikel tidak ditemukan.'], 404);
+        }
+
+        return response()->json(['data' => $this->serializeArticle($a, true)]);
+    }
+
     // ───────────────────────── helpers ─────────────────────────
 
     /** Map product_id → info diskon item (harga coret) untuk semua varian di koleksi. */
@@ -202,6 +260,30 @@ class StorefrontController extends Controller
                 'description' => $p->meta_description ?: $p->short_description,
             ],
             'updated_at'        => optional($p->updated_at)->toIso8601String(),
+        ];
+    }
+
+    private function serializeArticle(StoreArticle $a, bool $withContent): array
+    {
+        return [
+            'id'           => $a->id,
+            'slug'         => $a->slug,
+            'title'        => $a->title,
+            'excerpt'      => $a->excerpt,
+            'cover_url'    => $a->cover_url,
+            'author'       => $a->author,
+            'is_featured'  => (bool) $a->is_featured,
+            'category'     => $a->category ? [
+                'id' => $a->category->id, 'slug' => $a->category->slug, 'name' => $a->category->name,
+            ] : null,
+            'published_at' => optional($a->published_at)->toIso8601String(),
+            'meta'         => [
+                'title'       => $a->meta_title ?: $a->title,
+                'description' => $a->meta_description ?: $a->excerpt,
+            ],
+            'updated_at'   => optional($a->updated_at)->toIso8601String(),
+            // Konten HTML hanya di detail (hemat payload listing).
+            'content'      => $withContent ? $a->content : null,
         ];
     }
 }

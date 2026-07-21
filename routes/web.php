@@ -412,6 +412,23 @@ Route::prefix('erp/store')->group(function () {
     Route::put('/products/{id}/media/{mediaId}/primary',  [\App\Http\Controllers\Store\StoreProductMediaController::class, 'setPrimary'])->name('store.products.media.primary');
     Route::put('/products/{id}/media/{mediaId}/alt',      [\App\Http\Controllers\Store\StoreProductMediaController::class, 'updateAlt'])->name('store.products.media.alt');
     Route::delete('/products/{id}/media/{mediaId}',       [\App\Http\Controllers\Store\StoreProductMediaController::class, 'destroy'])->name('store.products.media.destroy');
+
+    // Blog/Artikel SEO
+    Route::get('/articles',              [\App\Http\Controllers\Store\StoreArticleController::class, 'index'])->name('store.articles.index');
+    Route::get('/articles/create',       [\App\Http\Controllers\Store\StoreArticleController::class, 'create'])->name('store.articles.create');
+    Route::post('/articles',             [\App\Http\Controllers\Store\StoreArticleController::class, 'store'])->name('store.articles.store');
+    Route::get('/articles/{id}/edit',    [\App\Http\Controllers\Store\StoreArticleController::class, 'edit'])->name('store.articles.edit');
+    Route::put('/articles/{id}',         [\App\Http\Controllers\Store\StoreArticleController::class, 'update'])->name('store.articles.update');
+    Route::delete('/articles/{id}',      [\App\Http\Controllers\Store\StoreArticleController::class, 'destroy'])->name('store.articles.destroy');
+    Route::post('/articles/{id}/image',  [\App\Http\Controllers\Store\StoreArticleController::class, 'uploadImage'])->name('store.articles.image');
+
+    // Kategori artikel
+    Route::get('/article-categories',              [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'index'])->name('store.article-categories.index');
+    Route::get('/article-categories/create',       [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'create'])->name('store.article-categories.create');
+    Route::post('/article-categories',             [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'store'])->name('store.article-categories.store');
+    Route::get('/article-categories/{id}/edit',    [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'edit'])->name('store.article-categories.edit');
+    Route::put('/article-categories/{id}',         [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'update'])->name('store.article-categories.update');
+    Route::delete('/article-categories/{id}',      [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'destroy'])->name('store.article-categories.destroy');
 });
 
 Route::prefix('erp/inventory')->group(function () {
