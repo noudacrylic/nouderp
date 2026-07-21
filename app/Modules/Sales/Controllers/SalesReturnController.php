@@ -16,10 +16,22 @@ use Illuminate\Support\Facades\DB;
 
 class SalesReturnController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $search = trim((string) $request->get('search', ''));
+        $status = $request->get('status');
+
         $returns = SalesReturn::with(['customer', 'invoice', 'salesOrder'])
             ->withCount(['items as repair_items_count' => fn($q) => $q->where('condition', 'repair')])
+            ->when($status !== null && $status !== '', fn($q) => $q->where('status', $status))
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($sub) use ($search) {
+                    $sub->where('return_number', 'like', "%{$search}%")
+                        ->orWhereHas('customer', fn($c) => $c->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('invoice', fn($i) => $i->where('invoice_number', 'like', "%{$search}%"))
+                        ->orWhereHas('salesOrder', fn($s) => $s->where('order_number', 'like', "%{$search}%"));
+                });
+            })
             ->latest('return_date')
             ->latest('id')
             ->paginate(per_page_size())
