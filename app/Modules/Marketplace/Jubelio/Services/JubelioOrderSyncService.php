@@ -103,7 +103,8 @@ class JubelioOrderSyncService
             ->whereNotNull('jubelio_salesorder_id')
             ->where('awb_requested', true)
             ->where('invoice_posted', false)
-            ->whereNotIn('last_status', ['shipped', 'completed', 'canceled'])
+            // NULL-safe: `NULL NOT IN (...)` = NULL mengeksklusi baris ber-last_status kosong (lihat reconcileActiveOrders).
+            ->where(fn ($q) => $q->whereNull('last_status')->orWhereNotIn('last_status', ['shipped', 'completed', 'canceled']))
             ->pluck('jubelio_salesorder_id');
         foreach ($inFlight as $jid) {
             try {
@@ -515,8 +516,10 @@ class JubelioOrderSyncService
             return $stats;
         }
 
+        // NULL-safe: `last_status != 'canceled'` juga = NULL untuk baris NULL → ter-eksklusi. Link
+        // pending baru sering ber-last_status NULL; harus tetap disegarkan agar bisa promote ke SO.
         $links = JubelioOrderLink::whereNull('sales_order_id')
-            ->where('last_status', '!=', 'canceled')
+            ->where(fn ($q) => $q->whereNull('last_status')->orWhere('last_status', '!=', 'canceled'))
             ->get();
 
         foreach ($links as $link) {
@@ -600,9 +603,13 @@ class JubelioOrderSyncService
             return $stats;
         }
 
+        // CATATAN NULL: `last_status` bisa NULL (link tersimpan dgn SO sebelum sync penuh
+        // menetapkan statusnya). Di SQL `NULL NOT IN (...)` = NULL → baris ter-eksklusi diam-diam,
+        // sehingga pesanan yang dibatalkan channel SEBELUM last_status terisi lolos selamanya dari
+        // rekonsiliasi (SO/reservasi menggantung di "Dipesan"). NULL bukan status terminal → ikut sertakan.
         $links = JubelioOrderLink::whereNotNull('sales_order_id')
             ->where('invoice_posted', false)
-            ->whereNotIn('last_status', ['canceled', 'completed'])
+            ->where(fn ($q) => $q->whereNull('last_status')->orWhereNotIn('last_status', ['canceled', 'completed']))
             ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
             ->get();
 
