@@ -4,24 +4,18 @@
 <div class="max-w-screen-2xl mx-auto py-4">
     <div class="flex items-center justify-between mb-4">
         <h1 class="text-lg font-semibold">Cek Ongkir</h1>
-        <a href="{{ route('settings.shipping.biteship') }}" class="text-xs text-blue-600 hover:underline">⚙️ Setting Biteship</a>
+        <a href="{{ route('settings.shipping.rajaongkir') }}" class="text-xs text-blue-600 hover:underline">⚙️ Setting RajaOngkir</a>
     </div>
 
     @php
-        $biteship = \App\Models\ShippingSetting::for('biteship');
-        $kiriminaja = \App\Models\ShippingSetting::for('kiriminaja');
-        // Pemilih provider tujuan: tampil hanya bila KiriminAja diaktifkan.
+        $rajaongkir = \App\Models\ShippingSetting::for('rajaongkir');
+        // Kurir aktif tunggal (RajaOngkir) → tidak perlu pemilih provider tujuan.
         $areaProviders = [];
-        if ($kiriminaja->is_enabled) {
-            if ($biteship->is_enabled) $areaProviders['biteship'] = 'Biteship';
-            $areaProviders['kiriminaja'] = 'KiriminAja';
-        }
     @endphp
-    @if(!$biteship->isConfigured() && !$kiriminaja->isConfigured())
+    @if(!$rajaongkir->isConfigured())
         <div class="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded mb-4 text-sm">
-            Belum ada kurir aktif. Isi API key di
-            <a href="{{ route('settings.shipping.biteship') }}" class="font-bold underline">Settings → Biteship</a>
-            atau <a href="{{ route('settings.shipping.kiriminaja') }}" class="font-bold underline">KiriminAja</a> agar ongkir bisa diambil.
+            Belum ada kurir aktif. Isi API key & alamat asal di
+            <a href="{{ route('settings.shipping.rajaongkir') }}" class="font-bold underline">Settings → RajaOngkir</a> agar ongkir bisa diambil.
         </div>
     @endif
 

@@ -22,6 +22,7 @@ class IntegrationsController extends Controller
     public function index()
     {
         $midtrans   = MidtransSetting::singleton();
+        $rajaongkir = ShippingSetting::for('rajaongkir');
         $biteship   = ShippingSetting::for('biteship');
         $kiriminaja = ShippingSetting::for('kiriminaja');
         $jubelio    = JubelioSetting::singleton();
@@ -41,9 +42,18 @@ class IntegrationsController extends Controller
                 'url'         => route('settings.midtrans.edit'),
             ],
             [
+                'name'        => 'RajaOngkir',
+                'category'    => 'Kurir / Pengiriman',
+                'description' => 'Cek ongkir (JNE, J&T, SiCepat, AnterAja, POS, TIKI, dll). Ramah perorangan, tanpa badan usaha. Booking manual.',
+                'icon'        => '📦',
+                'active'      => $rajaongkir->isConfigured(),
+                'mode'        => 'Production',
+                'url'         => route('settings.shipping.rajaongkir'),
+            ],
+            [
                 'name'        => 'Biteship',
                 'category'    => 'Kurir / Pengiriman',
-                'description' => 'Aggregator kurir (JNE, J&T, SiCepat, AnterAja, dll) untuk cek ongkir & booking resi.',
+                'description' => 'Aggregator kurir untuk cek ongkir & booking resi. DINONAKTIFKAN (wajib badan usaha).',
                 'icon'        => '📦',
                 'active'      => $biteship->isConfigured(),
                 'mode'        => $biteship->is_production ? 'Production' : 'Sandbox',
@@ -52,7 +62,7 @@ class IntegrationsController extends Controller
             [
                 'name'        => 'KiriminAja',
                 'category'    => 'Kurir / Pengiriman',
-                'description' => 'Aggregator kurir (reguler & instant GoSend/Grab) untuk cek ongkir & booking resi.',
+                'description' => 'Aggregator kurir (reguler & instant). DINONAKTIFKAN (verifikasi tertunda).',
                 'icon'        => '🚚',
                 'active'      => $kiriminaja->isConfigured(),
                 'mode'        => $kiriminaja->is_production ? 'Production' : 'Sandbox',

@@ -17,9 +17,10 @@ class AreaSearchController extends Controller
     public function __invoke(Request $request, ShippingManager $manager)
     {
         $query = trim((string) $request->input('input', $request->input('q', '')));
-        $key   = $request->input('provider', 'biteship');
+        // Default = provider aktif pertama (RajaOngkir). Fallback biteship utk kompat lama.
+        $key   = $request->input('provider') ?: ($manager->defaultProviderKey() ?? 'biteship');
 
-        $provider = $manager->provider($key) ?: $manager->provider('biteship');
+        $provider = $manager->provider($key) ?: $manager->provider($manager->defaultProviderKey() ?? 'biteship');
         if (!$provider) {
             return response()->json(['success' => false, 'areas' => [], 'error' => 'Provider tidak dikenal.']);
         }

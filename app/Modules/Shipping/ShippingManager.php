@@ -5,17 +5,22 @@ namespace App\Modules\Shipping;
 use App\Modules\Shipping\Contracts\ShippingProvider;
 use App\Modules\Shipping\Providers\BiteshipProvider;
 use App\Modules\Shipping\Providers\KiriminAjaProvider;
+use App\Modules\Shipping\Providers\RajaOngkirProvider;
 
 /**
- * Resolver kurir → provider. Biteship + KiriminAja (Fase 6).
- * Menggabungkan ongkir lintas provider yang aktif.
+ * Resolver kurir → provider. Menggabungkan ongkir lintas provider yang aktif.
+ *
+ * AKTIF (21 Jul 2026): RajaOngkir (cek ongkir, ramah perorangan). Biteship & KiriminAja
+ * DINONAKTIFKAN (butuh badan usaha / verifikasi macet) — kelasnya tetap ada, tinggal
+ * di-uncomment di PROVIDERS bila verifikasi cair.
  */
 class ShippingManager
 {
     /** @return array<string, class-string<ShippingProvider>> */
     private const PROVIDERS = [
-        'biteship'   => BiteshipProvider::class,
-        'kiriminaja' => KiriminAjaProvider::class,
+        'rajaongkir' => RajaOngkirProvider::class,
+        // 'biteship'   => BiteshipProvider::class,   // dinonaktifkan (wajib badan usaha)
+        // 'kiriminaja' => KiriminAjaProvider::class, // dinonaktifkan (verifikasi macet)
     ];
 
     /** Provider yang aktif & terkonfigurasi. @return ShippingProvider[] */
@@ -44,9 +49,17 @@ class ShippingManager
 
     /** Label tampilan per provider (untuk pemilih area di form). */
     public const LABELS = [
+        'rajaongkir' => 'RajaOngkir',
         'biteship'   => 'Biteship',
         'kiriminaja' => 'KiriminAja',
     ];
+
+    /** Key provider aktif pertama (fallback untuk pencarian area default). */
+    public function defaultProviderKey(): ?string
+    {
+        $active = $this->activeProviders();
+        return $active ? $active[0]->key() : null;
+    }
 
     /**
      * Provider aktif sebagai [code => label] untuk pemilih area di form.

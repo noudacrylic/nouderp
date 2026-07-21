@@ -126,6 +126,9 @@ Route::prefix('erp')->group(function () {
         Route::delete('/jubelio/channel-map/{id}', [\App\Http\Controllers\Settings\JubelioSettingController::class, 'destroyChannelMap'])->name('settings.jubelio.channel-map.destroy');
 
         // Integrasi kurir — Biteship
+        Route::get('/shipping/rajaongkir', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'rajaongkir'])->name('settings.shipping.rajaongkir');
+        Route::post('/shipping/rajaongkir', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'updateRajaongkir'])->name('settings.shipping.rajaongkir.update');
+        Route::get('/shipping/rajaongkir/areas', \App\Http\Controllers\Shipping\AreaSearchController::class)->name('settings.shipping.rajaongkir.areas');
         Route::get('/shipping/biteship', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'biteship'])->name('settings.shipping.biteship');
         Route::post('/shipping/biteship', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'updateBiteship'])->name('settings.shipping.biteship.update');
         Route::get('/shipping/kiriminaja', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'kiriminaja'])->name('settings.shipping.kiriminaja');

@@ -6,10 +6,64 @@ use App\Http\Controllers\Controller;
 use App\Models\ShippingSetting;
 use App\Modules\Shipping\Providers\BiteshipProvider;
 use App\Modules\Shipping\Providers\KiriminAjaProvider;
+use App\Modules\Shipping\Providers\RajaOngkirProvider;
 use Illuminate\Http\Request;
 
 class ShippingSettingController extends Controller
 {
+    /** Kurir domestik RajaOngkir (kode → label) untuk pilihan di form. */
+    public const RAJAONGKIR_COURIERS = [
+        'jne' => 'JNE', 'jnt' => 'J&T Express', 'sicepat' => 'SiCepat', 'anteraja' => 'AnterAja',
+        'pos' => 'POS Indonesia', 'tiki' => 'TIKI', 'ninja' => 'Ninja Xpress', 'lion' => 'Lion Parcel',
+        'sap' => 'SAP Express', 'ide' => 'ID Express', 'wahana' => 'Wahana', 'ncs' => 'NCS',
+        'sentral' => 'Sentral Cargo', 'star' => 'Star Cargo', 'jet' => 'JET Express', 'rex' => 'REX',
+    ];
+
+    // ───────────── RajaOngkir (cek ongkir — aktif) ─────────────
+
+    public function rajaongkir()
+    {
+        $setting  = ShippingSetting::for('rajaongkir');
+        $selected = $setting->config['couriers'] ?? RajaOngkirProvider::DEFAULT_COURIERS;
+
+        return view('erp.settings.shipping.rajaongkir', [
+            'setting'          => $setting,
+            'couriers'         => self::RAJAONGKIR_COURIERS,
+            'selectedCouriers' => $selected,
+            'originId'         => $setting->config['origin_id'] ?? '',
+            'originLabel'      => $setting->config['origin_label'] ?? '',
+        ]);
+    }
+
+    public function updateRajaongkir(Request $request)
+    {
+        $data = $request->validate([
+            'is_enabled'   => 'nullable|boolean',
+            'api_key'      => 'nullable|string|max:500',
+            'origin_id'    => 'nullable|string|max:50',
+            'origin_label' => 'nullable|string|max:255',
+            'couriers'     => 'nullable|array',
+            'couriers.*'   => 'string|max:50',
+        ]);
+
+        $setting = ShippingSetting::for('rajaongkir');
+        $config  = $setting->config ?? [];
+        $config['origin_id']    = !empty($data['origin_id']) ? (int) $data['origin_id'] : null;
+        $config['origin_label'] = $data['origin_label'] ?? null;
+        $config['couriers']     = array_values(array_unique($request->input('couriers', [])));
+
+        $setting->update([
+            'is_enabled'    => $request->boolean('is_enabled'),
+            'is_production' => true, // cek ongkir RajaOngkir hanya di produksi
+            'api_key'       => $data['api_key'] ?? null,
+            'base_url'      => ShippingSetting::DEFAULT_BASE_URL['rajaongkir'],
+            'config'        => $config,
+        ]);
+
+        return redirect()->route('settings.integrations.index')
+            ->with('success', 'Pengaturan RajaOngkir tersimpan.');
+    }
+
     public function biteship(BiteshipProvider $provider)
     {
         $setting   = ShippingSetting::for('biteship');
