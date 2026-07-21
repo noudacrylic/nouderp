@@ -81,29 +81,13 @@ class InventoryAdjustmentController extends Controller
         // Bundle (komponen virtual), jasa, non-stock tidak punya stok untuk di-opname.
         $products        = Product::whereIn('sale_type', ['ready', 'preorder'])->orderBy('name')->get();
         $warehouses      = Warehouse::all();
-        // Sertakan akun EQUITY (mis. Modal Awal) di pilihan gain/loss agar penyesuaian
-        // SALDO AWAL bisa diarahkan ke Modal Awal (bukan jadi pendapatan/beban di Laba Rugi).
-        $incomeAccounts  = \App\Core\Accounting\Account::whereIn('type', ['revenue', 'equity'])->where('is_active', true)->orderBy('code')->get();
-        $expenseAccounts = \App\Core\Accounting\Account::whereIn('type', ['expense', 'equity'])->where('is_active', true)->orderBy('code')->get();
         $authName        = auth()->user()?->name ?? '';
 
-        $defaultIncome  = \App\Core\Accounting\Account::where('type', 'revenue')
-            ->where('is_active', true)
-            ->where(function ($q) {
-                $q->where('name', 'like', '%Pendapatan Selisih Stok%')
-                  ->orWhere('name', 'like', '%Selisih Stok%');
-            })->first();
-
-        $defaultExpense = \App\Core\Accounting\Account::where('type', 'expense')
-            ->where('is_active', true)
-            ->where(function ($q) {
-                $q->where('name', 'like', '%Beban Selisih Stok%')
-                  ->orWhere('name', 'like', '%Kerugian Selisih%');
-            })->first();
-
+        // Akun selisih lebih/kurang tidak lagi dipilih per-penyesuaian — diambil dari
+        // Pengaturan Inventory (InventoryAccountSetting) saat posting sebagai sumber tunggal.
         return view(
             'erp.inventory.adjustments.create',
-            compact('products', 'warehouses', 'incomeAccounts', 'expenseAccounts', 'authName', 'defaultIncome', 'defaultExpense')
+            compact('products', 'warehouses', 'authName')
         );
     }
 
@@ -111,8 +95,6 @@ class InventoryAdjustmentController extends Controller
     {
         $request->validate([
             'purpose'            => 'required|in:stock_opname,perbaikan_rusak',
-            'income_account_id'  => 'required_if:purpose,stock_opname|nullable|exists:accounts,id',
-            'expense_account_id' => 'required_if:purpose,stock_opname|nullable|exists:accounts,id',
             'date'               => 'required|date',
             'warehouse_id'       => 'required',
             'items'              => 'required|array|min:1',
@@ -127,17 +109,14 @@ class InventoryAdjustmentController extends Controller
         \DB::transaction(function () use ($request) {
             $direction = $request->purpose === 'perbaikan_rusak' ? 'pengurangan' : 'set_stock';
 
-            // Perbaikan: gunakan akun perbaikan dari setting, tidak perlu dipilih user
-            $expenseAccountId = $request->purpose === 'perbaikan_rusak'
-                ? (\App\Models\InventoryAccountSetting::first()?->repair_account_id)
-                : $request->expense_account_id;
-
+            // Akun selisih (gain/loss) & akun perbaikan tidak lagi dipilih di form —
+            // di-resolve dari Pengaturan Inventory saat posting. Simpan null di sini.
             $adjustment = InventoryAdjustment::create([
                 'number'             => $this->generateNumber(),
                 'purpose'            => $request->purpose,
                 'direction'          => $direction,
-                'income_account_id'  => $request->purpose === 'stock_opname' ? $request->income_account_id : null,
-                'expense_account_id' => $expenseAccountId,
+                'income_account_id'  => null,
+                'expense_account_id' => null,
                 'type'               => $request->purpose === 'perbaikan_rusak' ? 'Stock Rusak' : 'Stock Opname',
                 'date'               => $request->date,
                 'warehouse_id'       => $request->warehouse_id,
@@ -250,7 +229,7 @@ class InventoryAdjustmentController extends Controller
         }
 
         if (!$gainAccountId && !$lossAccountId) {
-            return back()->with('error', 'Akun penyesuaian belum diatur. Pilih akun saat membuat adjustment.');
+            return back()->with('error', 'Akun penyesuaian belum diatur. Atur di Pengaturan Inventory (Akun Selisih Lebih/Kurang Stok).');
         }
 
         // Get active period

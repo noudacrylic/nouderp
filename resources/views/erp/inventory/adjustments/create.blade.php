@@ -50,45 +50,10 @@
                 </div>
             </div>
 
-            {{-- Row 2: Akun - hanya tampil untuk Stock Opname --}}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="accounts-row">
+            {{-- Akun selisih lebih/kurang diambil dari Pengaturan Inventory (sumber tunggal),
+                 tidak dipilih per-penyesuaian agar konsisten. --}}
 
-                <div id="income-account-wrap">
-                    <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                        Akun Selisih Lebih / Gain *
-                        <span class="text-[9px] font-semibold text-blue-500 normal-case tracking-normal">· pilih Modal Awal utk saldo awal</span>
-                    </label>
-                    <select name="income_account_id"
-                            class="account-select w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-                        <option value="">— Pilih akun pendapatan —</option>
-                        @foreach ($incomeAccounts as $acc)
-                            <option value="{{ $acc->id }}"
-                                {{ (old('income_account_id', $defaultIncome?->id)) == $acc->id ? 'selected' : '' }}>
-                                {{ $acc->code }} — {{ $acc->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div id="expense-account-wrap">
-                    <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                        Akun Selisih Kurang / Loss *
-                        <span class="text-[9px] font-semibold text-blue-500 normal-case tracking-normal">· pilih Modal Awal utk saldo awal</span>
-                    </label>
-                    <select name="expense_account_id"
-                            class="account-select w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-                        <option value="">— Pilih akun beban —</option>
-                        @foreach ($expenseAccounts as $acc)
-                            <option value="{{ $acc->id }}"
-                                {{ (old('expense_account_id', $defaultExpense?->id)) == $acc->id ? 'selected' : '' }}>
-                                {{ $acc->code }} — {{ $acc->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-            </div>
-
-            {{-- Row 3: Penanggung Jawab + Catatan --}}
+            {{-- Row 2: Penanggung Jawab + Catatan --}}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Penanggung Jawab</label>
@@ -189,9 +154,8 @@
 
     $(document).ready(function () {
 
-        // Init TomSelect pada product & account selects
+        // Init TomSelect pada product selects
         $('.product-select').each(function () { initTomSelect(this); });
-        $('.account-select').each(function () { initTomSelect(this); });
 
         // Sinkronisasi tampilan berdasarkan tujuan penyesuaian
         function syncPurpose() {
@@ -200,14 +164,9 @@
             $('#hidden-direction').val(isPerbaikan ? 'pengurangan' : 'set_stock');
 
             if (isPerbaikan) {
-                $('#accounts-row').hide();
-                $('#accounts-row select').removeAttr('required');
                 $('#perbaikan-warning').show();
                 $('#add-item-btn').hide();
             } else {
-                $('#accounts-row').show();
-                $('#income-account-wrap select').attr('required', 'required');
-                $('#expense-account-wrap select').attr('required', 'required');
                 $('#perbaikan-warning').hide();
                 $('#add-item-btn').show();
             }
