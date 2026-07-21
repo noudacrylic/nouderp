@@ -129,9 +129,26 @@ class JubelioStockSyncService
         //    bisa oversell barang yang sudah dipesan offline. Saat DO terbit, fisik turun &
         //    reservasi hilang, sehingga (fisik − reservasi_nonMP) tetap → cocok kembali.
         // Bundle: hitung dari komponen, kurangi reservasi non-MP komponen (excludeMarketplace).
-        $available = $product->sale_type === 'bundle'
-            ? (float) $this->bundles->getBundleStock($product->id, null, false, true)
-            : round($this->inventory->onHand($product->id) - $this->nonMarketplaceReserved($product->id), 4);
+        //
+        // ANTI-OVERSELL (plafon FIFO): stok fisik yang didorong = min(onHand ledger, sisa FIFO
+        // layer). Surat Jalan mengonsumsi FIFO layer, jadi apa pun yang melebihi sisa layer TIDAK
+        // bisa dipenuhi. Bila ledger & layer drift (mis. entri manual menaikkan ledger tanpa layer),
+        // tanpa plafon ini ERP menawarkan stok hantu ke marketplace → oversell berulang + fulfillment
+        // gagal "Stock not enough for FIFO consume". min() memastikan tiap unit yang ditawarkan
+        // benar-benar bisa dikirim. Lihat [[nouderp-stocklayers-ledger-drift-sj-stuck]].
+        if ($product->sale_type === 'bundle') {
+            $available = (float) $this->bundles->getBundleStock($product->id, null, false, true);
+        } else {
+            $onHand    = $this->inventory->onHand($product->id);
+            $fifo      = $this->inventory->fifoRemaining($product->id);
+            $physical  = min($onHand, $fifo);
+            if ($onHand - $fifo > 0.0001) {
+                Log::warning('Jubelio stok: drift ledger>FIFO, push diplafon ke FIFO (anti-oversell)', [
+                    'product' => $product->id, 'sku' => $product->sku, 'onhand' => $onHand, 'fifo' => $fifo,
+                ]);
+            }
+            $available = round($physical - $this->nonMarketplaceReserved($product->id), 4);
+        }
 
         // Jangan pernah kirim stok negatif ke Jubelio (mis. oversold sebelum DO).
         $available = max(0.0, $available);

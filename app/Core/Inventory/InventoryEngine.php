@@ -38,6 +38,21 @@ class InventoryEngine
     }
 
     /**
+     * Sisa kuantitas yang BENAR-BENAR bisa dipenuhi dari FIFO layer (SUM qty_remaining).
+     * Normalnya sama dengan onHand(), tapi bila ledger & layer drift (mis. entri manual yg
+     * menaikkan ledger tanpa bikin layer), HANYA sebanyak ini yang bisa dikonsumsi Surat Jalan.
+     * Dipakai sebagai PLAFON anti-oversell saat push stok ke marketplace: jangan pernah tawarkan
+     * lebih dari yang bisa dikirim. Lihat [[nouderp-stocklayers-ledger-drift-sj-stuck]].
+     */
+    public function fifoRemaining(int $productId, ?int $warehouseId = null): float
+    {
+        return (float) DB::table('stock_layers')
+            ->where('product_id', $productId)
+            ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+            ->sum('qty_remaining');
+    }
+
+    /**
      * Saldo ledger terakhir. Kolom `balance` adalah running-total PER (produk, gudang),
      * jadi untuk lintas-gudang (warehouseId null) TIDAK boleh ambil baris terakhir saja —
      * harus menjumlahkan saldo terakhir tiap gudang.
