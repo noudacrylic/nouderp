@@ -31,11 +31,9 @@
 
 {{-- Bar aksi massal (muncul saat ≥1 pesanan dicentang) --}}
 <div id="bulkBar" class="hidden z-40 mb-3 bg-white border border-indigo-200 rounded-xl shadow-md px-3 py-2 flex items-center gap-3 flex-wrap">
-    <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-        <input type="checkbox" id="bulkSelectAll" class="w-4 h-4 accent-indigo-600"> Pilih semua
-    </label>
     <span id="bulkCount" class="text-xs font-semibold text-indigo-700">0 dipilih</span>
     <div class="ml-auto flex items-center gap-2 flex-wrap">
+        <button type="button" id="bulkSelectAll" data-all="0" class="text-xs px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">☑ Pilih semua</button>
         <button type="button" id="bulkPrintSo" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</button>
         <button type="button" id="bulkProses" class="text-xs px-3 py-1.5 rounded border border-green-300 text-green-700 hover:bg-green-50 font-semibold">✅ Proses</button>
         <button type="button" id="bulkClear" class="text-xs px-2.5 py-1.5 rounded text-gray-400 hover:text-gray-600">Batal</button>
@@ -88,15 +86,19 @@
         bar.classList.toggle('hidden', sel.length === 0);
         countEl.textContent = sel.length + ' dipilih';
         const all = checks();
-        selectAll.checked = all.length > 0 && sel.length === all.length;
+        const allSelected = all.length > 0 && sel.length === all.length;
+        selectAll.dataset.all = allSelected ? '1' : '0';
+        selectAll.textContent = allSelected ? '☒ Batal pilih' : '☑ Pilih semua';
     }
 
     document.addEventListener('change', function (e) {
         if (e.target.classList.contains('js-bulk-check')) refresh();
     });
 
-    selectAll.addEventListener('change', function () {
-        checks().forEach(c => { c.checked = selectAll.checked; });
+    // Tombol (bukan lagi checkbox) — hindari salah klik. Toggle: pilih semua ⇄ batal pilih.
+    selectAll.addEventListener('click', function () {
+        const target = selectAll.dataset.all !== '1';
+        checks().forEach(c => { c.checked = target; });
         refresh();
     });
 

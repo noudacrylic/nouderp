@@ -13,11 +13,9 @@
 
 {{-- Bar aksi massal (muncul saat ≥1 pesanan dicentang) — tanpa cek berat/dimensi, berdasarkan SO. --}}
 <div id="tdBulkBar" class="hidden z-40 mb-3 bg-white border border-emerald-200 rounded-xl shadow-md px-3 py-2 flex items-center gap-3 flex-wrap">
-    <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-        <input type="checkbox" id="tdSelectAll" class="w-4 h-4 accent-emerald-600"> Pilih semua
-    </label>
     <span id="tdCount" class="text-xs font-semibold text-emerald-700">0 dipilih</span>
     <div class="ml-auto flex items-center gap-2 flex-wrap">
+        <button type="button" id="tdSelectAll" data-all="0" class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">☑ Pilih semua</button>
         <button type="button" id="tdGenResi" class="text-xs px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">📮 Generate Resi</button>
         <button type="button" id="tdPrintResi" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Resi</button>
         <button type="button" id="tdPrintLabel" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</button>
@@ -214,7 +212,9 @@
         bar.classList.toggle('hidden', sel.length === 0);
         countEl.textContent = sel.length + ' dipilih';
         const all = checks();
-        selectAll.checked = all.length > 0 && sel.length === all.length;
+        const allSelected = all.length > 0 && sel.length === all.length;
+        selectAll.dataset.all = allSelected ? '1' : '0';
+        selectAll.textContent = allSelected ? '☒ Batal pilih' : '☑ Pilih semua';
         const hasNp = sel.some(c => c.dataset.mp !== '1');
         ['tdGenResi', 'tdPrintLabel', 'tdPrintInv', 'tdPrintSj'].forEach(id => setShown(id, hasNp));
     }
@@ -231,8 +231,10 @@
     document.addEventListener('change', function (e) {
         if (e.target.classList.contains('js-bulk-td')) refresh();
     });
-    selectAll.addEventListener('change', function () {
-        checks().forEach(c => { c.checked = selectAll.checked; });
+    // Tombol (bukan lagi checkbox) — hindari salah klik. Toggle: pilih semua ⇄ batal pilih.
+    selectAll.addEventListener('click', function () {
+        const target = selectAll.dataset.all !== '1';
+        checks().forEach(c => { c.checked = target; });
         refresh();
     });
     document.getElementById('tdClear').addEventListener('click', function () {
