@@ -110,8 +110,6 @@ return [
         'label' => 'Store',
         'icon' => '🏪',
         'children' => [
-            'store.products'   => ['label' => 'Produk Store',   'url' => '/erp/store/products',   'route_patterns' => ['store.products.*']],
-            'store.articles'   => ['label' => 'Blog / Artikel', 'url' => '/erp/store/articles',   'route_patterns' => ['store.articles.*']],
             // "Kategori" = tab induk dengan 2 sub-tab: Kategori Produk & Kategori Blog.
             // route_patterns menampung keduanya agar tab aktif & akses menu berlaku untuk keduanya.
             'store.categories' => ['label' => 'Kategori', 'url' => '/erp/store/categories',
@@ -121,6 +119,8 @@ return [
                     ['label' => 'Kategori Blog',   'url' => '/erp/store/article-categories', 'route_patterns' => ['store.article-categories.*']],
                 ],
             ],
+            'store.products'   => ['label' => 'Produk Store',   'url' => '/erp/store/products',   'route_patterns' => ['store.products.*']],
+            'store.articles'   => ['label' => 'Blog / Artikel', 'url' => '/erp/store/articles',   'route_patterns' => ['store.articles.*']],
         ],
     ],
 
