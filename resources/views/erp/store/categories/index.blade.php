@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Kategori Store</h1>
+    <h1 class="text-lg font-semibold">Kategori Produk</h1>
     <a href="{{ route('store.categories.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Kategori</a>
 </div>
 
