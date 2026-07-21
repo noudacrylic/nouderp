@@ -95,8 +95,10 @@ class FulfillmentReadinessService
             'telah_diproses' => $all->where('bucket', 'telah_diproses')->count(),
             'dikirim'        => $all->where('bucket', 'dikirim')->count(),
             'selesai'        => $all->where('bucket', 'selesai')->count(),
-            // Retur pembeli yang perlu ditindak (cek barang & post draft retur).
-            'retur'          => $all->where('bucket', 'retur')->count(),
+            // Retur pembeli yang perlu ditindak: HANYA yang draft retur-nya masih 'draft'
+            // (perlu cek barang & di-post). Order diretur tanpa draft terbentuk / draft
+            // sudah di-post / void tidak ikut dihitung — tab tetap menampilkan semuanya.
+            'retur'          => $all->where('bucket', 'retur')->where('retur_status', 'draft')->count(),
             // Badge HANYA menghitung pembatalan yang masih perlu ditindak operator (batal di
             // marketplace / pembeli minta batal TAPI SO ERP belum di-void) — termasuk yang
             // butuh persetujuan seller di Seller Center. Pembatalan yang sudah di-void
