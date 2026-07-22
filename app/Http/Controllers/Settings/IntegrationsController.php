@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\AnthropicSetting;
 use App\Models\MidtransSetting;
+use App\Models\PaymentSetting;
 use App\Models\R2Setting;
 use App\Models\ShippingSetting;
 use App\Models\StorefrontSetting;
@@ -22,6 +23,7 @@ class IntegrationsController extends Controller
     public function index()
     {
         $midtrans   = MidtransSetting::singleton();
+        $payment    = PaymentSetting::singleton();
         $rajaongkir = ShippingSetting::for('rajaongkir');
         $biteship   = ShippingSetting::for('biteship');
         $kiriminaja = ShippingSetting::for('kiriminaja');
@@ -40,6 +42,15 @@ class IntegrationsController extends Controller
                 'active'      => !empty($midtrans->server_key) && !empty($midtrans->client_key),
                 'mode'        => $midtrans->is_production ? 'Production' : 'Sandbox',
                 'url'         => route('settings.midtrans.edit'),
+            ],
+            [
+                'name'        => 'Pembayaran (Transfer Bank)',
+                'category'    => 'Payment',
+                'description' => 'Transfer bank + kode unik untuk toko online. Konfirmasi otomatis (email/Moota) → eskalasi Telegram → auto-batal 24 jam.',
+                'icon'        => '🏦',
+                'active'      => $payment->isConfigured(),
+                'mode'        => $payment->is_active ? ucfirst($payment->confirmation_provider) : 'Belum aktif',
+                'url'         => route('settings.payment.edit'),
             ],
             [
                 'name'        => 'RajaOngkir',

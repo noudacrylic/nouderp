@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Storefront\CheckoutController;
 use App\Http\Controllers\Api\Storefront\StorefrontController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,4 +23,11 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::get('/article-categories', [StorefrontController::class, 'articleCategories'])->name('api.storefront.article-categories');
     Route::get('/articles',           [StorefrontController::class, 'articles'])->name('api.storefront.articles');
     Route::get('/articles/{slug}',    [StorefrontController::class, 'article'])->name('api.storefront.article');
+
+    // Checkout: cek alamat/ongkir, buat pesanan, status & klaim transfer.
+    Route::get ('/shipping/areas',        [CheckoutController::class, 'areas'])->name('api.storefront.shipping.areas');
+    Route::post('/shipping/rates',        [CheckoutController::class, 'rates'])->name('api.storefront.shipping.rates');
+    Route::post('/checkout',              [CheckoutController::class, 'checkout'])->name('api.storefront.checkout');
+    Route::get ('/orders/{token}',        [CheckoutController::class, 'show'])->name('api.storefront.orders.show');
+    Route::post('/orders/{token}/claim',  [CheckoutController::class, 'claim'])->name('api.storefront.orders.claim');
 });

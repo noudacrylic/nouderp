@@ -169,7 +169,10 @@ class SalesOrderService
         $dpp -= $globalAmount;
 
         $ship     = $this->resolveShippingData($dto, $deliveryMethod);
-        $grand    = round($dpp + $ship['net']);
+        // Kode unik pembayaran transfer bank (toko online) tetap dikurangkan saat
+        // total dihitung ulang, agar tidak hilang bila SO diedit setelah dibuat.
+        $uniqueCode = (int) ($so->unique_code ?? 0);
+        $grand    = round($dpp + $ship['net']) - $uniqueCode;
 
         $so->update([
             'subtotal'                => $subtotal,

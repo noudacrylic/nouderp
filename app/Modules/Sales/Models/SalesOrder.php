@@ -50,6 +50,7 @@ class SalesOrder extends Model
         'shipping_settled',
         'additional_fee',
         'marketplace_fee',
+        'unique_code',
 
         'grand_total',
         'paid_amount',
@@ -108,6 +109,12 @@ class SalesOrder extends Model
     public function advances()
     {
         return $this->hasMany(SalesAdvance::class);
+    }
+
+    /** Intent pembayaran transfer bank (toko online) untuk SO ini. */
+    public function webPayment()
+    {
+        return $this->hasOne(\App\Models\WebPayment::class);
     }
 
     public function deliveries()

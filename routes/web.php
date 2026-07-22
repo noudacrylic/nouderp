@@ -104,6 +104,10 @@ Route::prefix('erp')->group(function () {
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');
 
+        // Integrasi — Pembayaran toko online (Transfer Bank + Kode Unik)
+        Route::get ('/payment', [\App\Http\Controllers\Settings\PaymentSettingController::class, 'edit'])->name('settings.payment.edit');
+        Route::post('/payment', [\App\Http\Controllers\Settings\PaymentSettingController::class, 'update'])->name('settings.payment.update');
+
         // Integrasi — Cloudflare R2 (penyimpanan media etalase / Produk Store)
         Route::get ('/r2',      [\App\Http\Controllers\Settings\R2SettingController::class, 'edit'])->name('settings.r2.edit');
         Route::post('/r2',      [\App\Http\Controllers\Settings\R2SettingController::class, 'update'])->name('settings.r2.update');
@@ -432,6 +436,11 @@ Route::prefix('erp/store')->group(function () {
     Route::get('/article-categories/{id}/edit',    [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'edit'])->name('store.article-categories.edit');
     Route::put('/article-categories/{id}',         [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'update'])->name('store.article-categories.update');
     Route::delete('/article-categories/{id}',      [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'destroy'])->name('store.article-categories.destroy');
+
+    // Pembayaran Web (Transfer Bank + Kode Unik) — pantau & konfirmasi/batal manual
+    Route::get('/web-payments',              [\App\Http\Controllers\Store\WebPaymentController::class, 'index'])->name('store.web-payments.index');
+    Route::post('/web-payments/{id}/confirm',[\App\Http\Controllers\Store\WebPaymentController::class, 'confirm'])->name('store.web-payments.confirm');
+    Route::post('/web-payments/{id}/cancel', [\App\Http\Controllers\Store\WebPaymentController::class, 'cancel'])->name('store.web-payments.cancel');
 });
 
 Route::prefix('erp/inventory')->group(function () {

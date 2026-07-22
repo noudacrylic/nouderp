@@ -75,7 +75,7 @@ class TelegramSettingController extends Controller
         $resp = $this->api($setting, 'setWebhook', [
             'url'             => $url,
             'secret_token'    => $secret,
-            'allowed_updates' => ['message'],
+            'allowed_updates' => ['message', 'callback_query'],
             'drop_pending_updates' => true,
         ]);
 

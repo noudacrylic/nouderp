@@ -417,6 +417,21 @@ class CustomerPaymentService
 
     private function generateNumber(): string
     {
-        return 'PAY/' . date('Y/m') . '/' . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
+        // Urut per bulan (MAX suffix + 1), BUKAN acak — rand(1,9999) sering bentrok
+        // begitu jumlah payment/bulan padat (unique constraint gagal). Ekstrak suffix
+        // numerik (aman >9999) + guard anti-tabrakan ringan untuk race jarang.
+        $prefix = 'PAY/' . date('Y/m') . '/';
+
+        $max = (int) CustomerPayment::where('payment_number', 'like', $prefix . '%')
+            ->selectRaw("MAX(CAST(SUBSTRING_INDEX(payment_number, '/', -1) AS UNSIGNED)) as m")
+            ->value('m');
+
+        $next = $max + 1;
+        do {
+            $number = $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+            $next++;
+        } while (CustomerPayment::where('payment_number', $number)->exists());
+
+        return $number;
     }
 }

@@ -62,14 +62,9 @@ class TelegramNotifier
         }
     }
 
-    /**
-     * Kirim ke semua penanggung jawab approval (super_admin/admin yang sudah
-     * link Telegram) + admin_chat_id fallback (grup) bila diset.
-     */
-    public function notifyApprovers(string $text, array $opts = []): int
+    /** Daftar chat_id penanggung jawab approval (admin/owner ter-link) + fallback grup. */
+    public function approverChatIds(): array
     {
-        $sent = 0;
-
         $chatIds = User::whereIn('role', ['super_admin', 'admin'])
             ->whereNotNull('telegram_chat_id')
             ->pluck('telegram_chat_id')
@@ -79,13 +74,86 @@ class TelegramNotifier
             $chatIds[] = $this->adminChatId;
         }
 
-        foreach (array_unique(array_filter($chatIds)) as $chatId) {
+        return array_values(array_unique(array_filter($chatIds)));
+    }
+
+    /**
+     * Kirim ke semua penanggung jawab approval (super_admin/admin yang sudah
+     * link Telegram) + admin_chat_id fallback (grup) bila diset.
+     */
+    public function notifyApprovers(string $text, array $opts = []): int
+    {
+        $sent = 0;
+        foreach ($this->approverChatIds() as $chatId) {
             if ($this->send($chatId, $text, $opts)) {
                 $sent++;
             }
         }
 
         return $sent;
+    }
+
+    /** Kirim pesan & kembalikan message_id (untuk diedit belakangan). Null bila gagal. */
+    public function sendAndGetMessageId(?string $chatId, string $text, array $opts = []): ?int
+    {
+        if (! $this->enabled() || empty($chatId)) {
+            return null;
+        }
+
+        try {
+            $resp = Http::timeout(8)->post("https://api.telegram.org/bot{$this->token}/sendMessage", array_merge([
+                'chat_id'                  => $chatId,
+                'text'                     => $text,
+                'parse_mode'               => 'HTML',
+                'disable_web_page_preview' => true,
+            ], $opts));
+            return $resp->successful() ? (int) data_get($resp->json(), 'result.message_id') : null;
+        } catch (\Throwable $e) {
+            Log::warning('TelegramNotifier sendAndGetMessageId gagal: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /** Edit teks pesan (mis. hapus tombol setelah order dikonfirmasi). Tidak pernah throw. */
+    public function editMessageText(?string $chatId, ?int $messageId, string $text, array $opts = []): bool
+    {
+        if (! $this->enabled() || empty($chatId) || empty($messageId)) {
+            return false;
+        }
+
+        try {
+            $resp = Http::timeout(8)->post("https://api.telegram.org/bot{$this->token}/editMessageText", array_merge([
+                'chat_id'                  => $chatId,
+                'message_id'               => $messageId,
+                'text'                     => $text,
+                'parse_mode'               => 'HTML',
+                'disable_web_page_preview' => true,
+            ], $opts));
+            return $resp->successful();
+        } catch (\Throwable $e) {
+            Log::warning('TelegramNotifier editMessageText gagal: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /** Jawab callback_query (hilangkan loading di tombol inline). Tidak pernah throw. */
+    public function answerCallback(string $callbackId, string $text = '', bool $alert = false): bool
+    {
+        if (! $this->enabled() || $callbackId === '') {
+            return false;
+        }
+
+        try {
+            $resp = Http::timeout(8)->post("https://api.telegram.org/bot{$this->token}/answerCallbackQuery", array_filter([
+                'callback_query_id' => $callbackId,
+                'text'              => $text !== '' ? $text : null,
+                'show_alert'        => $alert,
+            ], fn ($v) => $v !== null));
+            return $resp->successful();
+        } catch (\Throwable $e) {
+            Log::warning('TelegramNotifier answerCallback gagal: ' . $e->getMessage());
+            return false;
+        }
     }
 
     /** Kirim ke user tertentu (mis. karyawan pemohon) bila sudah link Telegram. */
