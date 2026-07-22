@@ -98,11 +98,18 @@ class ProductionOrderService
                 // Sync materials
                 foreach ($data['materials'] ?? [] as $m) {
                     if (empty($m['product_id']) || empty($m['qty_required'])) continue;
+                    // Unit wajib terisi: pakai unit dari form, jika kosong fallback ke base_unit
+                    // produk. Unit ikut menentukan componentSignature() (gabung OP) — unit kosong
+                    // membuat sidik jari beda sehingga OP dari resep sama gagal digabung.
+                    $unit = $m['unit'] ?? null;
+                    if (blank($unit)) {
+                        $unit = \App\Core\Inventory\Product::where('id', $m['product_id'])->value('base_unit');
+                    }
                     ProductionOrderMaterial::create([
                         'production_order_id' => $order->id,
                         'product_id'          => $m['product_id'],
                         'qty_required'        => $m['qty_required'],
-                        'unit'                => $m['unit'] ?? null,
+                        'unit'                => $unit,
                         'notes'               => $m['notes'] ?? null,
                     ]);
                 }
