@@ -79,6 +79,20 @@ class StorefrontController extends Controller
     }
 
     /**
+     * Catat 1 kali produk dilihat pengunjung. Increment via query builder mentah
+     * agar TIDAK menyentuh updated_at (cache katalog tak ikut ter-resync).
+     */
+    public function recordView(string $slug)
+    {
+        $p = StoreProduct::published()->where('slug', $slug)->first(['id']);
+        if ($p) {
+            \Illuminate\Support\Facades\DB::table('store_products')
+                ->where('id', $p->id)->increment('view_count');
+        }
+        return response()->noContent(); // 204
+    }
+
+    /**
      * Stok LIVE per SKU (product_id ERP). ?product_ids=1,2,3
      * available = gudang sellable on_hand − reservasi aktif + preorder_stock.
      */
@@ -91,22 +105,57 @@ class StorefrontController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $onHand = ProductStock::whereIn('product_id', $ids)
+        // Muat produk + relasi bundle → tahu mana SKU bundle & komponennya.
+        $products = Product::whereIn('id', $ids)
+            ->with(['bundleItems', 'bundleComponents'])
+            ->get()->keyBy('id');
+
+        // Kumpulkan semua product_id relevan: SKU diminta + komponen bundle
+        // (stok bundle dihitung dari stok komponennya, bukan on_hand sendiri).
+        $allIds = collect($ids);
+        foreach ($products as $p) {
+            if ($p->sale_type === 'bundle') {
+                $components = $p->bundleItems->isNotEmpty() ? $p->bundleItems : $p->bundleComponents;
+                $allIds = $allIds->merge($components->pluck('component_product_id'));
+            }
+        }
+        $allIds = $allIds->filter()->unique()->values();
+
+        $onHand = ProductStock::whereIn('product_id', $allIds)
             ->whereHas('warehouse', fn($q) => $q->where('is_sellable', true))
             ->selectRaw('product_id, SUM(qty_on_hand) as qty')
             ->groupBy('product_id')->pluck('qty', 'product_id');
 
-        $reserved = StockReservation::whereIn('product_id', $ids)
+        $reserved = StockReservation::whereIn('product_id', $allIds)
             ->where('status', 'active')
             ->selectRaw('product_id, SUM(qty) as qty')
             ->groupBy('product_id')->pluck('qty', 'product_id');
 
-        $preorder = Product::whereIn('id', $ids)->pluck('preorder_stock', 'id');
+        $data = $ids->map(function ($id) use ($products, $onHand, $reserved) {
+            $p = $products->get($id);
 
-        $data = $ids->map(fn($id) => [
-            'product_id' => $id,
-            'available'  => max(0, (float) ($onHand[$id] ?? 0) - (float) ($reserved[$id] ?? 0) + (float) ($preorder[$id] ?? 0)),
-        ]);
+            // SKU bundle: tersedia = MIN antar komponen floor((sellable − reservasi) / qty_dibutuhkan).
+            if ($p && $p->sale_type === 'bundle') {
+                $components = $p->bundleItems->isNotEmpty() ? $p->bundleItems : $p->bundleComponents;
+                $avail = null;
+                foreach ($components as $c) {
+                    $req = (float) ($c->qty_required ?? $c->qty ?? 1);
+                    if ($req <= 0) continue;
+                    $cid  = $c->component_product_id;
+                    $free = (float) ($onHand[$cid] ?? 0) - (float) ($reserved[$cid] ?? 0);
+                    $byComp = (int) floor(max(0, $free) / $req);
+                    $avail = is_null($avail) ? $byComp : min($avail, $byComp);
+                }
+                return ['product_id' => $id, 'available' => max(0, $avail ?? 0)];
+            }
+
+            // Produk biasa / preorder: on_hand sellable − reservasi + preorder_stock.
+            $preorder = $p->preorder_stock ?? 0;
+            return [
+                'product_id' => $id,
+                'available'  => max(0, (float) ($onHand[$id] ?? 0) - (float) ($reserved[$id] ?? 0) + (float) $preorder),
+            ];
+        });
 
         return response()->json(['data' => $data]);
     }
@@ -211,7 +260,10 @@ class StorefrontController extends Controller
 
     private function serializeProduct(StoreProduct $p, array $discounts): array
     {
-        $variants = $p->variants->map(function ($v) use ($discounts) {
+        // Lookup media galeri per id → resolusi gambar per-varian (opsional).
+        $mediaById = $p->media->keyBy('id');
+
+        $variants = $p->variants->map(function ($v) use ($discounts, $mediaById) {
             $price = (float) ($v->product->display_price ?? 0);
             $disc  = $discounts[$v->product_id] ?? null;
             $final = $disc ? max(0, $price - (float) $disc['discount_amount']) : $price;
@@ -223,6 +275,7 @@ class StorefrontController extends Controller
                 'label'          => $v->variant_label,
                 'options'        => $v->option_values,
                 'is_default'     => (bool) $v->is_default,
+                'image_url'      => $v->image_media_id ? optional($mediaById->get($v->image_media_id))->url : null,
                 'price'          => $final,
                 'price_original' => $price,
                 'discount'       => $disc ? [
@@ -239,6 +292,7 @@ class StorefrontController extends Controller
             'short_description' => $p->short_description,
             'description'       => $p->description,
             'is_featured'       => (bool) $p->is_featured,
+            'view_count'        => (int) $p->view_count,
             'sort_order'        => $p->sort_order,
             'category'          => $p->category ? [
                 'id' => $p->category->id, 'slug' => $p->category->slug, 'name' => $p->category->name,

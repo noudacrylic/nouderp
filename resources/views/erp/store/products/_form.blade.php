@@ -12,18 +12,32 @@
         if ($isVariant) {
             $opts = $v->option_values ?? [];
             $key = implode(' / ', $opts);
-            $savedCombos[] = array_merge($entry, ['opts' => $opts, 'key' => $key]);
+            $savedCombos[] = array_merge($entry, [
+                'opts'           => $opts,
+                'key'            => $key,
+                'image_media_id' => $v->image_media_id,
+            ]);
             if ($v->is_default) $defaultKey = $key;
         } else {
             $single = $entry;
         }
     }
+    // Daftar foto galeri (untuk pemilih gambar per-varian).
+    $galleryImages = $product->exists
+        ? $product->media->where('kind', 'image')->sortBy('sort_order')->values()
+            ->map(fn($m, $i) => [
+                'id'    => $m->id,
+                'url'   => $m->url,
+                'label' => ($m->is_primary ? '★ ' : '') . 'Foto ' . ($i + 1),
+            ])->all()
+        : [];
     $vmInit = [
         'mode'        => $isVariant ? 'variant' : 'single',
         'single'      => $single,
         'axes'        => $product->variant_axes ?: [],
         'savedCombos' => $savedCombos,
         'defaultKey'  => $defaultKey,
+        'images'      => $galleryImages,
     ];
 @endphp
 
@@ -161,6 +175,7 @@
                                 <th class="px-3 py-2 text-left" x-text="ax.name || ('Variasi ' + (ai+1))"></th>
                             </template>
                             <th class="px-3 py-2 text-left">SKU</th>
+                            <th class="px-3 py-2 text-left w-56">Gambar <span class="font-normal text-gray-400">(opsional)</span></th>
                             <th class="px-3 py-2 text-center w-20">Default</th>
                         </tr>
                     </thead>
@@ -189,6 +204,24 @@
                                         </div>
                                     </div>
                                 </td>
+                                <td class="px-3 py-2">
+                                    <template x-if="images.length">
+                                        <div class="flex items-center gap-2">
+                                            <select x-model="c.image_media_id" class="border rounded px-2 py-1 text-sm w-full">
+                                                <option value="">— pakai galeri —</option>
+                                                <template x-for="img in images" :key="img.id">
+                                                    <option :value="img.id" x-text="img.label"></option>
+                                                </template>
+                                            </select>
+                                            <template x-if="c.image_media_id">
+                                                <img :src="imgUrl(c.image_media_id)" class="w-8 h-8 object-cover rounded border shrink-0" alt="">
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <template x-if="!images.length">
+                                        <span class="text-gray-400 text-xs">Unggah foto di Galeri dulu</span>
+                                    </template>
+                                </td>
                                 <td class="px-3 py-2 text-center">
                                     <input type="radio" :checked="c.key===defaultKey" @change="defaultKey=c.key" :disabled="!c.product_id">
                                 </td>
@@ -212,6 +245,7 @@
                     <template x-for="(c, fi) in filledCombos()" :key="c.key">
                         <div>
                             <input type="hidden" :name="`variants[${fi}][product_id]`" :value="c.product_id">
+                            <input type="hidden" :name="`variants[${fi}][image_media_id]`" :value="c.image_media_id || ''">
                             <template x-for="(o, oi) in c.opts" :key="oi">
                                 <input type="hidden" :name="`variants[${fi}][options][]`" :value="o">
                             </template>
@@ -273,6 +307,7 @@ function storeVariants(init) {
         combos: [],
         defaultKey: init.defaultKey || null,
         _saved: init.savedCombos || [],
+        images: init.images || [],
 
         init() {
             if (this.mode === 'variant') { this.ensureAxis(); this.rebuild(); }
@@ -304,8 +339,8 @@ function storeVariants(init) {
                 const key = opts.join(' / ');
                 const ex = prev[key];
                 return ex
-                    ? { key, opts, product_id: ex.product_id || null, sku: ex.sku || '', name: ex.name || '', search: '', results: [] }
-                    : { key, opts, product_id: null, sku: '', name: '', search: '', results: [] };
+                    ? { key, opts, product_id: ex.product_id || null, sku: ex.sku || '', name: ex.name || '', image_media_id: ex.image_media_id ? String(ex.image_media_id) : '', search: '', results: [] }
+                    : { key, opts, product_id: null, sku: '', name: '', image_media_id: '', search: '', results: [] };
             });
             if (!this.combos.some(c => c.key === this.defaultKey)) {
                 this.defaultKey = this.combos.length ? this.combos[0].key : null;
@@ -325,6 +360,7 @@ function storeVariants(init) {
         filledCombos() { return this.combos.filter(c => c.product_id); },
         filledDefaultIndex() { const f = this.filledCombos(); const i = f.findIndex(c => c.key === this.defaultKey); return i < 0 ? 0 : i; },
         formatRp(n) { return 'Rp ' + (Number(n) || 0).toLocaleString('id-ID'); },
+        imgUrl(id) { const m = this.images.find(x => String(x.id) === String(id)); return m ? m.url : ''; },
     };
 }
 </script>

@@ -12,15 +12,23 @@ class StoreProductVariant extends Model
         'product_id',
         'variant_label',
         'option_values',
+        'image_media_id',
         'is_default',
         'sort_order',
     ];
 
     protected $casts = [
-        'is_default'    => 'boolean',
-        'sort_order'    => 'integer',
-        'option_values' => 'array',
+        'is_default'     => 'boolean',
+        'sort_order'     => 'integer',
+        'option_values'  => 'array',
+        'image_media_id' => 'integer',
     ];
+
+    /** Foto galeri yang mewakili varian ini (opsional). */
+    public function image()
+    {
+        return $this->belongsTo(StoreProductMedia::class, 'image_media_id');
+    }
 
     /** Perubahan varian menyentuh updated_at induk → sync cache katalog jalan. */
     protected $touches = ['storeProduct'];

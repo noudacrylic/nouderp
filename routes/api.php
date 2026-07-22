@@ -16,6 +16,7 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::get('/categories',        [StorefrontController::class, 'categories'])->name('api.storefront.categories');
     Route::get('/products',          [StorefrontController::class, 'products'])->name('api.storefront.products');
     Route::get('/products/{slug}',   [StorefrontController::class, 'product'])->name('api.storefront.product');
+    Route::post('/products/{slug}/view', [StorefrontController::class, 'recordView'])->name('api.storefront.product.view');
     Route::get('/stock',             [StorefrontController::class, 'stock'])->name('api.storefront.stock');
     Route::get('/promotions',        [StorefrontController::class, 'promotions'])->name('api.storefront.promotions');
 

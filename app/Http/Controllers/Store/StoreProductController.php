@@ -177,11 +177,12 @@ class StoreProductController extends Controller
             'axes.*.name'           => ['required', 'string', 'max:255'],
             'axes.*.options'        => ['required', 'array', 'min:1'],
             'axes.*.options.*'      => ['required', 'string', 'max:255'],
-            'variants'              => ['nullable', 'array'],
-            'variants.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
-            'variants.*.options'    => ['required', 'array'],
-            'variants.*.options.*'  => ['nullable', 'string', 'max:255'],
-            'default_index'         => ['nullable', 'integer'],
+            'variants'                  => ['nullable', 'array'],
+            'variants.*.product_id'     => ['required', 'integer', 'distinct', 'exists:products,id'],
+            'variants.*.options'        => ['required', 'array'],
+            'variants.*.options.*'      => ['nullable', 'string', 'max:255'],
+            'variants.*.image_media_id' => ['nullable', 'integer'],
+            'default_index'             => ['nullable', 'integer'],
         ], [
             'axes.required' => 'Untuk diterbitkan, tambahkan minimal 1 variasi beserta opsinya.',
             'variants.*.product_id.distinct' => 'Ada SKU yang dipakai lebih dari satu kombinasi.',
@@ -218,11 +219,12 @@ class StoreProductController extends Controller
         foreach ($rawVariants as $i => $v) {
             $opts = array_values(array_map('trim', $v['options']));
             $variants[] = [
-                'product_id'    => (int) $v['product_id'],
-                'variant_label' => implode(' / ', $opts),
-                'option_values' => $opts,
-                'is_default'    => $i === $defaultIndex,
-                'sort_order'    => $i,
+                'product_id'     => (int) $v['product_id'],
+                'variant_label'  => implode(' / ', $opts),
+                'option_values'  => $opts,
+                'image_media_id' => !empty($v['image_media_id']) ? (int) $v['image_media_id'] : null,
+                'is_default'     => $i === $defaultIndex,
+                'sort_order'     => $i,
             ];
         }
         if (count($variants) && !collect($variants)->contains('is_default', true)) {
