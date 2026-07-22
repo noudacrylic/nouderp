@@ -74,17 +74,19 @@ class WebPaymentService
             [$min, $max] = [1, 999];
         }
 
+        // Set nominal yang sedang dipakai — pakai INTEGER (rupiah bulat); flip()
+        // atas float memicu "array_flip: can only flip string/integer".
         $takenAmounts = WebPayment::open()
             ->pluck('expected_amount')
-            ->map(fn ($a) => (float) $a)
+            ->map(fn ($a) => (int) round((float) $a))
             ->flip();
 
         $codes = range($min, $max);
         shuffle($codes);
 
         foreach ($codes as $code) {
-            $amount = $base - $code;
-            if ($amount > 0 && ! $takenAmounts->has((float) $amount)) {
+            $amount = (int) round($base) - $code;
+            if ($amount > 0 && ! $takenAmounts->has($amount)) {
                 return $code;
             }
         }

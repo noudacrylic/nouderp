@@ -11,6 +11,7 @@ class Customer extends Model
         'name',
         'email',
         'phone',
+        'web_order_pin',
         'address',
         'shipping_address',
         'city',

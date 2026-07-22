@@ -59,7 +59,38 @@ class CheckoutController extends Controller
             'items'               => $this->rateItems($data['items']),
         ]);
 
-        return response()->json(['data' => $res['rates'], 'errors' => $res['errors']]);
+        // Sisipkan diskon ongkir (promo) per layanan → etalase tampilkan potongannya.
+        $subtotal = $this->goodsSubtotal($data['items']);
+        $rates = collect($res['rates'] ?? [])->map(function ($r) use ($subtotal) {
+            $gross = (float) ($r['price'] ?? 0);
+            $disc  = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, []);
+            $r['discount'] = $disc ? (float) min($disc['discount_amount'], $gross) : 0;
+            return $r;
+        })->all();
+
+        return response()->json(['data' => $rates, 'errors' => $res['errors']]);
+    }
+
+    /** Subtotal barang (setelah diskon item) — dasar min belanja diskon ongkir. */
+    private function goodsSubtotal(array $items): float
+    {
+        $ids = collect($items)->pluck('product_id')->map(fn ($v) => (int) $v)->unique();
+        $products = Product::whereIn('id', $ids)->where('is_sellable', true)->get()->keyBy('id');
+
+        $input = [];
+        foreach ($items as $it) {
+            $p = $products->get((int) $it['product_id']);
+            if (! $p) continue;
+            $input[] = ['product_id' => $p->id, 'qty' => (float) $it['qty'], 'unit_price' => (float) ($p->display_price ?? 0)];
+        }
+        $discounts = $input ? $this->promotions->resolveItemDiscounts($input) : [];
+
+        $subtotal = 0.0;
+        foreach ($input as $pi) {
+            $disc = (float) ($discounts[$pi['product_id']]['discount_amount'] ?? 0);
+            $subtotal += $pi['qty'] * $pi['unit_price'] - $disc;
+        }
+        return max(0, $subtotal);
     }
 
     /** Buat pesanan + instruksi pembayaran. */
@@ -73,6 +104,7 @@ class CheckoutController extends Controller
         $data = $request->validate([
             'customer.name'                => 'required|string|max:200',
             'customer.phone'               => 'required|string|max:30',
+            'customer.pin'                 => 'required|digits_between:4,6',
             'customer.email'               => 'nullable|email|max:200',
             'customer.address'             => 'nullable|string|max:2000',
             'customer.postal_code'         => 'nullable|string|max:10',
@@ -117,7 +149,13 @@ class CheckoutController extends Controller
         }
         unset($line);
 
-        return DB::transaction(function () use ($data, $lineItems, $setting) {
+        // Subtotal barang (setelah diskon item) → dasar diskon ongkir.
+        $subtotal = 0.0;
+        foreach ($lineItems as $l) {
+            $subtotal += (float) $l['qty'] * ((float) $l['unit_price'] - (float) $l['discount_value']);
+        }
+
+        return DB::transaction(function () use ($data, $lineItems, $setting, $subtotal) {
             $customer = $this->resolveCustomer($data['customer']);
 
             $dto = [
@@ -128,8 +166,12 @@ class CheckoutController extends Controller
                 'items'           => $lineItems,
             ];
             if ($data['delivery_method'] === 'kurir') {
-                $dto['shipping_gross'] = (float) $data['shipping']['price'];
-                $dto['courier_name']   = $data['shipping']['service_name'] ?? 'Kurir';
+                $gross = (float) $data['shipping']['price'];
+                $shipDisc = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, []);
+                $dto['shipping_gross']          = $gross;
+                $dto['shipping_discount_type']  = 'nominal';
+                $dto['shipping_discount_value'] = $shipDisc ? (float) min($shipDisc['discount_amount'], $gross) : 0;
+                $dto['courier_name']            = $data['shipping']['service_name'] ?? 'Kurir';
             }
 
             $so = $this->orders->createDraftFromData($dto);
@@ -203,23 +245,116 @@ class CheckoutController extends Controller
         if (! empty($c['destination_label'])) {
             $customer->city = $c['destination_label'];
         }
+        // PIN akun toko online: pertama kali → set; nomor HP yg sudah punya PIN →
+        // wajib cocok (jadi akun aman, PIN tak bisa ditimpa orang lain).
+        $pin = (string) ($c['pin'] ?? '');
+        if ($customer->exists && ! empty($customer->web_order_pin)) {
+            if (! \Illuminate\Support\Facades\Hash::check($pin, $customer->web_order_pin)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'customer.pin' => 'PIN tidak sesuai akun untuk nomor HP ini. Pakai PIN yang sama seperti pesanan sebelumnya.',
+                ]);
+            }
+        } elseif ($pin !== '') {
+            $customer->web_order_pin = \Illuminate\Support\Facades\Hash::make($pin);
+        }
         $customer->save();
 
         return $customer;
+    }
+
+    /** Apakah nomor HP ini sudah punya akun (PIN)? → checkout tahu "buat" vs "masukkan" PIN. */
+    public function pinStatus(Request $request)
+    {
+        $data = $request->validate(['phone' => 'required|string|max:30']);
+
+        $registered = Customer::where('phone', trim($data['phone']))
+            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
+            ->whereNotNull('web_order_pin')
+            ->exists();
+
+        return response()->json(['data' => ['registered' => $registered]]);
+    }
+
+    /**
+     * Lihat daftar pesanan lintas-device via Nomor HP + PIN.
+     * Rate-limited (route) untuk memperlambat tebakan PIN.
+     */
+    public function lookup(Request $request)
+    {
+        $data = $request->validate([
+            'phone' => 'required|string|max:30',
+            'pin'   => 'required|string|max:10',
+        ]);
+
+        $customer = Customer::where('phone', trim($data['phone']))
+            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
+            ->whereNotNull('web_order_pin')
+            ->first();
+
+        if (! $customer || ! \Illuminate\Support\Facades\Hash::check($data['pin'], (string) $customer->web_order_pin)) {
+            return response()->json(['message' => 'Nomor HP atau PIN salah.'], 401);
+        }
+
+        $orders = WebPayment::whereHas('salesOrder', fn ($q) => $q->where('customer_id', $customer->id))
+            ->with('salesOrder')
+            ->latest('id')->limit(50)->get()
+            ->map(fn ($wp) => [
+                'token'        => $wp->public_token,
+                'order_number' => $wp->salesOrder?->order_number,
+                'date'         => optional($wp->created_at)->toIso8601String(),
+                'grand_total'  => (float) ($wp->salesOrder?->grand_total ?? $wp->expected_amount),
+                'status_label' => $wp->statusLabel()['label'],
+                'paid'         => $wp->isConfirmed(),
+            ])->values();
+
+        return response()->json(['data' => ['name' => $customer->name, 'orders' => $orders]]);
     }
 
     /** Instruksi/status pembayaran untuk etalase (tanpa data internal akun kas). */
     private function instructions(WebPayment $wp, PaymentSetting $setting): array
     {
         $so = $wp->salesOrder;
+        $paid = $wp->isConfirmed();
+
+        // Tahap fulfillment untuk timeline pelacakan konsumen:
+        //   1 Dipesan · 2 Dibayar · 3 Diproses · 4 Dikirim · 5 Selesai
+        $stage = 1;
+        $courier = null;
+        $tracking = null;
+        if ($paid) {
+            $stage = 2;
+            $ds = $so ? $so->getDeliveryStatus() : 'not_delivered';
+            $stage = match ($ds) {
+                'partial'   => 4,
+                'delivered' => 5,
+                default     => 3, // not_delivered / disiapkan
+            };
+            // Resi dari surat jalan terbaru yang sudah punya nomor lacak.
+            if ($so) {
+                $d = $so->deliveries()
+                    ->whereNotNull('tracking_number')
+                    ->where('tracking_number', '!=', '')
+                    ->latest('id')->first();
+                if ($d) {
+                    $courier  = $d->courier_name ?: $d->shipping_courier_code;
+                    $tracking = $d->tracking_number;
+                    if ($stage < 4) $stage = 4; // ada resi → minimal "Dikirim"
+                }
+            }
+        } elseif (! $wp->isOpen()) {
+            $stage = 0; // kedaluwarsa/batal
+        }
 
         return [
             'token'           => $wp->public_token,
             'order_number'    => $so?->order_number,
             'status'          => $wp->status,
             'status_label'    => $wp->statusLabel()['label'],
-            'paid'            => $wp->isConfirmed(),
+            'paid'            => $paid,
             'open'            => $wp->isOpen(),
+            'stage'           => $stage,
+            'courier'         => $courier,
+            'tracking_number' => $tracking,
             'grand_total'     => (float) ($so?->grand_total ?? $wp->expected_amount),
             'unique_code'     => (int) $wp->unique_code,
             'expected_amount' => (float) $wp->expected_amount,

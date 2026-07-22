@@ -31,4 +31,6 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::post('/checkout',              [CheckoutController::class, 'checkout'])->name('api.storefront.checkout');
     Route::get ('/orders/{token}',        [CheckoutController::class, 'show'])->name('api.storefront.orders.show');
     Route::post('/orders/{token}/claim',  [CheckoutController::class, 'claim'])->name('api.storefront.orders.claim');
+    Route::post('/orders/lookup',         [CheckoutController::class, 'lookup'])->middleware('throttle:8,1')->name('api.storefront.orders.lookup');
+    Route::post('/orders/pin-status',     [CheckoutController::class, 'pinStatus'])->middleware('throttle:30,1')->name('api.storefront.orders.pin-status');
 });
