@@ -464,7 +464,9 @@
 @php
     $paymentTerms = $quotation->payment_terms ?: $profile->quotation_payment_terms;
     // Rekening hanya tampil bila penawaran ini di-set "tampilkan rekening".
-    $showBank = $quotation->show_bank_account && ($profile->bank_name || $profile->bank_account_number);
+    // Daftar rekening diambil dari relasi multi-bank (partial print-payment-accounts
+    // yang juga fallback ke kolom lama bank_name/bank_account_number bila ada).
+    $showBank = (bool) $quotation->show_bank_account;
 @endphp
 @if($paymentTerms || $showBank)
     <div class="payment-info">
@@ -473,11 +475,7 @@
             <div style="margin-bottom:6px;">{{ $paymentTerms }}</div>
         @endif
         @if($showBank)
-            <table>
-                <tr><td class="k">Nama Bank</td><td class="s">:</td><td>{{ $profile->bank_name ?: '-' }}</td></tr>
-                <tr><td class="k">No. Rekening</td><td class="s">:</td><td>{{ $profile->bank_account_number ?: '-' }}</td></tr>
-                <tr><td class="k">Atas Nama</td><td class="s">:</td><td>{{ $profile->bank_account_holder ?: '-' }}</td></tr>
-            </table>
+            @include('erp._partials.print-payment-accounts', ['profile' => $profile])
         @endif
     </div>
 @endif
