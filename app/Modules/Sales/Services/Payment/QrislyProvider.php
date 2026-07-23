@@ -115,12 +115,20 @@ class QrislyProvider
         $res  = $this->http()->post($this->baseUrl() . '/api/v1/qrisly/generate-qris', $payload);
         $data = $this->unwrap($res->json(), $res->successful(), 'generate-qris');
 
+        // ⚠️ QRISLY menambahkan selisih uniknya sendiri: minta 79.900 → QR jadi 79.903
+        // (`original_amount` vs `final_amount`). Selisih itulah penanda pencocokan
+        // pembayaran mereka, jadi PEMBELI MEMBAYAR final_amount — bukan nominal kita.
+        $final    = $this->pick($data, ['final_amount', 'amount', 'total']);
+        $original = $this->pick($data, ['original_amount']);
+
         return [
-            'history_id' => $this->pick($data, ['history_id', 'id', 'transaction_id']),
-            'qr_string'  => $this->pick($data, ['qris_string', 'qr_string', 'qris', 'string', 'qr']),
-            'expired_at' => $this->pick($data, ['expired_at', 'expires_at', 'expired_date']),
-            'amount'     => ($v = $this->pick($data, ['amount', 'final_amount', 'total'])) !== null ? (float) $v : null,
-            'raw'        => $data,
+            'history_id'      => $this->pick($data, ['history_id', 'id', 'transaction_id']),
+            'qr_string'       => $this->pick($data, ['qris_string', 'qr_string', 'qris', 'string', 'qr']),
+            // Masa berlaku dikirim sebagai `expiry_time` waktu lokal (Asia/Jakarta), ±15 menit.
+            'expired_at'      => $this->pick($data, ['expiry_time', 'expired_at', 'expires_at', 'expired_date']),
+            'amount'          => $final !== null ? (float) $final : null,
+            'original_amount' => $original !== null ? (float) $original : null,
+            'raw'             => $data,
         ];
     }
 

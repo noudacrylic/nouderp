@@ -306,14 +306,15 @@ class SalesInvoiceService
             return 0;
         }
 
+        // Bisa negatif: QRIS menambah selisih unik (lihat WebPaymentService::ensureQris).
         $code = (int) (\App\Modules\Sales\Models\SalesOrder::where('id', $salesOrderId)->value('unique_code') ?? 0);
-        if ($code <= 0) {
+        if ($code === 0) {
             return 0;
         }
 
         $alreadyUsed = SalesInvoice::where('sales_order_id', $salesOrderId)
             ->where('status', '!=', 'void')
-            ->where('unique_code', '>', 0)
+            ->where('unique_code', '!=', 0)
             ->exists();
 
         return $alreadyUsed ? 0 : $code;

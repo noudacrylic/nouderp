@@ -313,10 +313,15 @@ class InvoicePostingService
             $this->createJournalLine($invoice, $discountAccount, 'debit', $invoice->global_discount_amount);
         }
 
-        // Kode unik transfer toko online (Rp1–999): piutang ditagih lebih kecil sebesar
-        // kode ini, jadi selisihnya dibukukan sebagai potongan penjualan agar balance.
-        if ((int) $invoice->unique_code > 0) {
-            $this->createJournalLine($invoice, $discountAccount, 'debit', (int) $invoice->unique_code);
+        // Penyesuaian nominal unik toko online, dibukukan lewat akun potongan penjualan:
+        //  - POSITIF (transfer bank): piutang lebih KECIL dari nilai barang → Dr potongan.
+        //  - NEGATIF (QRIS): penyedia menambah selisih unik sehingga pembeli membayar
+        //    sedikit lebih besar → Cr potongan (mengurangi total potongan penjualan).
+        $uniqueCode = (int) $invoice->unique_code;
+        if ($uniqueCode > 0) {
+            $this->createJournalLine($invoice, $discountAccount, 'debit', $uniqueCode);
+        } elseif ($uniqueCode < 0) {
+            $this->createJournalLine($invoice, $discountAccount, 'credit', abs($uniqueCode));
         }
 
         // Biaya admin/layanan marketplace: pendapatan tetap diakui penuh (Cr 4001 = subtotal),

@@ -118,8 +118,12 @@
         @if($marketplaceFee > 0)
             <div class="row"><span>Biaya Admin Marketplace</span><span class="neg">- {{ number_format($marketplaceFee, 0, ',', '.') }}</span></div>
         @endif
-        @if((int) ($invoice->unique_code ?? 0) > 0)
-            <div class="row"><span>Kode Unik</span><span class="neg">- {{ number_format((int) $invoice->unique_code, 0, ',', '.') }}</span></div>
+        @if((int) ($invoice->unique_code ?? 0) !== 0)
+            @php $uc = (int) $invoice->unique_code; @endphp
+            <div class="row">
+                <span>{{ $uc > 0 ? 'Kode Unik' : 'Penyesuaian QRIS' }}</span>
+                <span class="{{ $uc > 0 ? 'neg' : '' }}">{{ $uc > 0 ? '- ' : '+ ' }}{{ number_format(abs($uc), 0, ',', '.') }}</span>
+            </div>
         @endif
         <hr>
         <div class="grand"><span>Grand Total</span><span>Rp {{ number_format($grandTotal, 0, ',', '.') }}</span></div>

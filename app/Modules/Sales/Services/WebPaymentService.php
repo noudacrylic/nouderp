@@ -173,15 +173,33 @@ class WebPaymentService
                 throw new Exception('QRIS belum diaktifkan di Settings → Integrasi → QRIS.');
             }
 
-            $so  = SalesOrder::find($fresh->sales_order_id);
-            $ref = $so?->order_number ?? ('WP-' . $fresh->id);
-            $res = $provider->generate((float) $fresh->expected_amount, $ref);
+            $so  = SalesOrder::lockForUpdate()->findOrFail($fresh->sales_order_id);
+            $ref = $so->order_number ?? ('WP-' . $fresh->id);
+
+            // Nominal dasar = total pesanan tanpa penyesuaian unik sebelumnya, supaya
+            // pembuatan ulang QR tidak menumpuk selisih.
+            $base = round((float) $so->grand_total + (int) ($so->unique_code ?? 0));
+            $res  = $provider->generate($base, $ref);
+
+            // QRISLY menambah selisih unik pada nominal QR → samakan total pesanan
+            // dengan yang benar-benar dibayar pembeli. Disimpan sebagai unique_code
+            // NEGATIF karena rumus grand total mengurangkan field ini.
+            $final = $res['amount'] !== null ? round((float) $res['amount']) : $base;
+            $delta = (int) round($final - $base);
+
+            if ($delta !== 0) {
+                $so->unique_code = -$delta;
+                $so->grand_total = $final;
+                $so->save();
+            }
 
             $expiredAt = $res['expired_at']
                 ? \Illuminate\Support\Carbon::parse($res['expired_at'])
                 : now()->addMinutes($setting->qrisExpiryMinutes());
 
             $fresh->update([
+                'unique_code'         => -$delta,
+                'expected_amount'     => $final,
                 'qris_history_id'     => $res['history_id'],
                 'qris_string'         => $res['qr_string'],
                 'qris_expires_at'     => $expiredAt,

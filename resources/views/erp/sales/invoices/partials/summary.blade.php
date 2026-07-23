@@ -92,10 +92,14 @@
             </div>
             @endif
 
-            @if((int) ($invoice->unique_code ?? 0) > 0)
+            @if((int) ($invoice->unique_code ?? 0) !== 0)
+            @php $uc = (int) $invoice->unique_code; @endphp
             <div class="flex justify-between mb-2 text-gray-500">
-                <span>Kode Unik <span class="text-[10px] text-gray-400">(pembayaran transfer web)</span></span>
-                <span class="text-red-500">- {{ number_format((int) $invoice->unique_code) }}</span>
+                <span>
+                    {{ $uc > 0 ? 'Kode Unik' : 'Penyesuaian QRIS' }}
+                    <span class="text-[10px] text-gray-400">({{ $uc > 0 ? 'pembayaran transfer web' : 'nominal unik QRIS' }})</span>
+                </span>
+                <span class="{{ $uc > 0 ? 'text-red-500' : 'text-gray-700' }}">{{ $uc > 0 ? '- ' : '+ ' }}{{ number_format(abs($uc)) }}</span>
             </div>
             @endif
 
