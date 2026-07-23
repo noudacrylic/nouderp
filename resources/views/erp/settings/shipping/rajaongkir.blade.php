@@ -63,6 +63,7 @@
                 @endforeach
             </div>
             <p class="text-[10px] text-gray-400 mt-1">Kosong = pakai default. Kurir kargo/instan (J&T Cargo, GoSend) tidak tersedia di sini → tetap manual/WhatsApp.</p>
+            <p class="text-[10px] text-amber-600 mt-1">⚠️ <b>AnterAja</b> dikembalikan RajaOngkir dengan tarif <b>flat ± Rp11.800 yang tidak mengikuti berat</b> (diuji 1/5/15 kg hasilnya sama). Untuk paket berat ongkirnya jauh di bawah biaya sebenarnya — sebaiknya biarkan tidak dicentang.</p>
         </div>
 
         <div class="flex justify-end pt-2 border-t">

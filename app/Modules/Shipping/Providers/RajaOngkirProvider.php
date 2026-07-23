@@ -21,7 +21,13 @@ use Illuminate\Support\Facades\Log;
 class RajaOngkirProvider implements ShippingProvider
 {
     public const DEFAULT_BASE = 'https://rajaongkir.komerce.id/api/v1';
-    public const DEFAULT_COURIERS = ['jne', 'jnt', 'sicepat', 'anteraja', 'pos', 'tiki', 'ninja', 'lion', 'sap', 'ide', 'wahana'];
+    /**
+     * Kurir default bila belum diatur di Settings.
+     * CATATAN: 'anteraja' sengaja TIDAK didefault — RajaOngkir mengembalikan tarif
+     * AnterAja flat (~Rp11.800) yang tidak ikut berat (terbukti 1/5/15 kg sama),
+     * sehingga paket berat berpotensi merugi. Bisa diaktifkan manual di Settings.
+     */
+    public const DEFAULT_COURIERS = ['jne', 'jnt', 'sicepat', 'pos', 'tiki', 'ninja', 'lion', 'sap', 'ide', 'wahana'];
 
     private ShippingSetting $setting;
 

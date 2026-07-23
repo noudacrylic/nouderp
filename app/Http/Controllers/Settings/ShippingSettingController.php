@@ -13,7 +13,7 @@ class ShippingSettingController extends Controller
 {
     /** Kurir domestik RajaOngkir (kode → label) untuk pilihan di form. */
     public const RAJAONGKIR_COURIERS = [
-        'jne' => 'JNE', 'jnt' => 'J&T Express', 'sicepat' => 'SiCepat', 'anteraja' => 'AnterAja',
+        'jne' => 'JNE', 'jnt' => 'J&T Express', 'sicepat' => 'SiCepat', 'anteraja' => 'AnterAja ⚠️ tarif flat',
         'pos' => 'POS Indonesia', 'tiki' => 'TIKI', 'ninja' => 'Ninja Xpress', 'lion' => 'Lion Parcel',
         'sap' => 'SAP Express', 'ide' => 'ID Express', 'wahana' => 'Wahana', 'ncs' => 'NCS',
         'sentral' => 'Sentral Cargo', 'star' => 'Star Cargo', 'jet' => 'JET Express', 'rex' => 'REX',

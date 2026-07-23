@@ -93,6 +93,91 @@ class CheckoutController extends Controller
         return max(0, $subtotal);
     }
 
+    /**
+     * Kuotasi keranjang: subtotal setelah diskon item + diskon "total belanja" (promo
+     * cart_total). Dipakai etalase agar ringkasan checkout sama persis dengan SO
+     * yang nanti dibuat — termasuk saat metode Ambil di Toko (tanpa cek ongkir).
+     * Body: { items:[{product_id, qty}] }.
+     */
+    public function quote(Request $request)
+    {
+        $data = $request->validate([
+            'items'              => 'required|array|min:1',
+            'items.*.product_id' => 'required|integer',
+            'items.*.qty'        => 'required|numeric|min:1',
+        ]);
+
+        $ids      = collect($data['items'])->pluck('product_id')->map(fn ($v) => (int) $v)->unique();
+        $products = Product::whereIn('id', $ids)->where('is_sellable', true)->get()->keyBy('id');
+
+        $input = [];
+        foreach ($data['items'] as $it) {
+            $p = $products->get((int) $it['product_id']);
+            if (! $p) continue;
+            $input[] = ['product_id' => $p->id, 'qty' => (float) $it['qty'], 'unit_price' => (float) ($p->display_price ?? 0)];
+        }
+        $discounts = $input ? $this->promotions->resolveItemDiscounts($input) : [];
+
+        // Rincian per baris: harga normal vs harga promo (per unit) — etalase memakai ini
+        // agar keranjang selalu menampilkan harga terbaru, bukan harga saat ditambahkan.
+        $lines = [];
+        $originalSubtotal = 0.0;
+        $subtotal = 0.0;
+        $promoIds = [];
+        foreach ($input as $pi) {
+            $disc      = $discounts[$pi['product_id']] ?? null;
+            $discAmt   = (float) ($disc['discount_amount'] ?? 0);   // total untuk qty baris ini
+            $unitDisc  = $pi['qty'] > 0 ? $discAmt / $pi['qty'] : 0;
+            $lineGross = $pi['qty'] * $pi['unit_price'];
+
+            $originalSubtotal += $lineGross;
+            $subtotal         += $lineGross - $discAmt;
+            if ($disc) $promoIds[] = (int) $disc['promotion_id'];
+
+            $lines[] = [
+                'product_id'      => $pi['product_id'],
+                'qty'             => $pi['qty'],
+                'price_original'  => round($pi['unit_price']),
+                'price'           => round($pi['unit_price'] - $unitDisc),
+                'discount'        => round($discAmt),
+                'promotion_name'  => $disc['promotion_name'] ?? null,
+            ];
+        }
+        $subtotal = max(0, $subtotal);
+
+        $cart      = $this->promotions->resolveCartTotalDiscount($subtotal);
+        $cartAmt   = $cart ? (float) min($cart['discount_amount'], $subtotal) : 0.0;
+        if ($cartAmt > 0) $promoIds[] = (int) $cart['promotion_id'];
+
+        return response()->json(['data' => [
+            'items'             => $lines,
+            'original_subtotal' => round($originalSubtotal),
+            'item_discount'     => round($originalSubtotal - $subtotal),
+            'subtotal'          => round($subtotal),
+            'cart_discount'     => round($cartAmt),
+            'promotion_name'    => $cartAmt > 0 ? ($cart['promotion_name'] ?? null) : null,
+            'total_discount'    => round($originalSubtotal - $subtotal + $cartAmt),
+            // Batas waktu promo terdekat yang dipakai keranjang ini (untuk urgensi checkout).
+            'promo_ends_at'     => $this->nearestPromoEnd($promoIds),
+        ]]);
+    }
+
+    /** Tanggal berakhir terdekat dari promo yang sedang dipakai (null bila tanpa batas). */
+    private function nearestPromoEnd(array $promotionIds): ?string
+    {
+        $ids = array_values(array_unique(array_filter($promotionIds)));
+        if (empty($ids)) {
+            return null;
+        }
+
+        $end = \App\Modules\Sales\Models\Promotion::whereIn('id', $ids)
+            ->whereNotNull('ends_at')
+            ->where('ends_at', '>', now())
+            ->min('ends_at');
+
+        return $end ? \Illuminate\Support\Carbon::parse($end)->toIso8601String() : null;
+    }
+
     /** Buat pesanan + instruksi pembayaran. */
     public function checkout(Request $request)
     {
@@ -158,12 +243,18 @@ class CheckoutController extends Controller
         return DB::transaction(function () use ($data, $lineItems, $setting, $subtotal) {
             $customer = $this->resolveCustomer($data['customer']);
 
+            // Promo "total belanja" (cart_total) → mengisi diskon global SO.
+            $cartDisc   = $this->promotions->resolveCartTotalDiscount($subtotal);
+            $cartAmount = $cartDisc ? (float) min($cartDisc['discount_amount'], $subtotal) : 0.0;
+
             $dto = [
-                'customer_id'     => $customer->id,
-                'delivery_method' => $data['delivery_method'],
-                'order_date'      => now()->toDateString(),
-                'notes'           => 'Pesanan toko online (noudakrilik.com)',
-                'items'           => $lineItems,
+                'customer_id'           => $customer->id,
+                'delivery_method'       => $data['delivery_method'],
+                'order_date'            => now()->toDateString(),
+                'notes'                 => 'Pesanan toko online (noudakrilik.com)',
+                'global_discount_type'  => 'nominal',
+                'global_discount_value' => $cartAmount,
+                'items'                 => $lineItems,
             ];
             if ($data['delivery_method'] === 'kurir') {
                 $gross = (float) $data['shipping']['price'];

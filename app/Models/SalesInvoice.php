@@ -40,6 +40,7 @@ class SalesInvoice extends Model
         'ppn_amount',
         'pph_amount',
         'grand_total',
+        'unique_code',
         'paid_amount',
         'advance_applied',
         'hpp_total',
@@ -50,6 +51,7 @@ class SalesInvoice extends Model
     protected $casts = [
         'invoice_date' => 'date',
         'status' => \App\Enums\InvoiceStatusEnum::class,
+        'unique_code' => 'integer',
     ];
 
     protected static function booted()

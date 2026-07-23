@@ -92,6 +92,13 @@
             </div>
             @endif
 
+            @if((int) ($invoice->unique_code ?? 0) > 0)
+            <div class="flex justify-between mb-2 text-gray-500">
+                <span>Kode Unik <span class="text-[10px] text-gray-400">(pembayaran transfer web)</span></span>
+                <span class="text-red-500">- {{ number_format((int) $invoice->unique_code) }}</span>
+            </div>
+            @endif
+
             <hr class="my-3 border-gray-100">
             <div class="flex justify-between font-bold text-base text-gray-900">
                 <span>Grand Total</span>

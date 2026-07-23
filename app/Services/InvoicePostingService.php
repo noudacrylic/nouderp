@@ -313,6 +313,12 @@ class InvoicePostingService
             $this->createJournalLine($invoice, $discountAccount, 'debit', $invoice->global_discount_amount);
         }
 
+        // Kode unik transfer toko online (Rp1–999): piutang ditagih lebih kecil sebesar
+        // kode ini, jadi selisihnya dibukukan sebagai potongan penjualan agar balance.
+        if ((int) $invoice->unique_code > 0) {
+            $this->createJournalLine($invoice, $discountAccount, 'debit', (int) $invoice->unique_code);
+        }
+
         // Biaya admin/layanan marketplace: pendapatan tetap diakui penuh (Cr 4001 = subtotal),
         // potongan marketplace dibukukan sbg BEBAN ke akun fee yang dimapping (DEBIT),
         // BUKAN diskon penjualan. Tanpa akun fee → fallback ke akun diskon agar tetap balance.

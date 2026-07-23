@@ -163,13 +163,17 @@ class SalesInvoiceService
             // Biaya admin marketplace mengurangi piutang/payout (bukan diskon penjualan).
             $marketplaceFee = round((float) $dto->marketplace_fee, 2);
 
+            // Kode unik transfer toko online: ikut dari SO supaya faktur menagih persis
+            // sebesar nominal yang ditransfer pembeli (lihat resolveUniqueCode()).
+            $uniqueCode = $this->resolveUniqueCode($dto->sales_order_id);
+
             $grandTotal = round(
                 $dpp
                 + $headerPPN
                 - $headerPPH
                 + $dto->shipping_cost
                 + $dto->additional_fee
-                - $marketplaceFee);
+                - $marketplaceFee) - $uniqueCode;
 
             if ($grandTotal < 0) {
                 throw new Exception("Grand total tidak boleh negatif.");
@@ -182,7 +186,7 @@ class SalesInvoiceService
                 + $dto->additional_fee
                 - $marketplaceFee
                 + $headerPPN
-                - $headerPPH);
+                - $headerPPH) - $uniqueCode;
 
             if ($check !== round($grandTotal)) {
                 throw new Exception("Invoice draft calculation mismatch.");
@@ -237,6 +241,7 @@ class SalesInvoiceService
                 'marketplace_fee' => $marketplaceFee,
 
                 'grand_total' => $grandTotal,
+                'unique_code' => $uniqueCode,
                 'advance_applied' => $advanceApplied,
                 'total_cogs' => 0,
                 'notes' => $dto->notes,
@@ -285,6 +290,33 @@ class SalesInvoiceService
 
             return $invoice;
         });
+    }
+
+    /**
+     * Kode unik pembayaran transfer toko online milik SO (Rp1–999).
+     *
+     * Pembeli mentransfer grand total SO yang SUDAH dikurangi kode unik, jadi faktur
+     * harus ikut dikurangi — kalau tidak, tiap pesanan web menyisakan piutang receh.
+     * Hanya dipakai SEKALI per SO: kalau sudah ada faktur lain (non-void) yang memakai
+     * kode ini, faktur berikutnya (tagihan parsial) menagih penuh.
+     */
+    private function resolveUniqueCode(?int $salesOrderId): int
+    {
+        if (! $salesOrderId) {
+            return 0;
+        }
+
+        $code = (int) (\App\Modules\Sales\Models\SalesOrder::where('id', $salesOrderId)->value('unique_code') ?? 0);
+        if ($code <= 0) {
+            return 0;
+        }
+
+        $alreadyUsed = SalesInvoice::where('sales_order_id', $salesOrderId)
+            ->where('status', '!=', 'void')
+            ->where('unique_code', '>', 0)
+            ->exists();
+
+        return $alreadyUsed ? 0 : $code;
     }
 
     public function updateDraft(SalesInvoice $invoice, SalesInvoiceDTO $dto): SalesInvoice
@@ -440,13 +472,17 @@ class SalesInvoiceService
             // Biaya admin marketplace mengurangi piutang/payout (bukan diskon penjualan).
             $marketplaceFee = round((float) $dto->marketplace_fee, 2);
 
+            // Kode unik dipertahankan saat faktur diedit ulang (nominal transfer pembeli
+            // sudah terlanjur memakai angka ini).
+            $uniqueCode = (int) ($invoice->unique_code ?? 0);
+
             $grandTotal = round(
                 $dpp
                 + $headerPPN
                 - $headerPPH
                 + $dto->shipping_cost
                 + $dto->additional_fee
-                - $marketplaceFee);
+                - $marketplaceFee) - $uniqueCode;
 
             if ($grandTotal < 0) {
                 throw new Exception("Grand total tidak boleh negatif.");
@@ -459,7 +495,7 @@ class SalesInvoiceService
                 + $dto->additional_fee
                 - $marketplaceFee
                 + $headerPPN
-                - $headerPPH);
+                - $headerPPH) - $uniqueCode;
 
             if ($check !== round($grandTotal)) {
                 throw new Exception("Invoice draft calculation mismatch.");

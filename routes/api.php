@@ -28,6 +28,7 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     // Checkout: cek alamat/ongkir, buat pesanan, status & klaim transfer.
     Route::get ('/shipping/areas',        [CheckoutController::class, 'areas'])->name('api.storefront.shipping.areas');
     Route::post('/shipping/rates',        [CheckoutController::class, 'rates'])->name('api.storefront.shipping.rates');
+    Route::post('/cart/quote',            [CheckoutController::class, 'quote'])->name('api.storefront.cart.quote');
     Route::post('/checkout',              [CheckoutController::class, 'checkout'])->name('api.storefront.checkout');
     Route::get ('/orders/{token}',        [CheckoutController::class, 'show'])->name('api.storefront.orders.show');
     Route::post('/orders/{token}/claim',  [CheckoutController::class, 'claim'])->name('api.storefront.orders.claim');
