@@ -115,7 +115,12 @@ class InventoryEngine
             $balance = $lastBalance + $qtyIn - $qtyOut;
 
             // Saldo minus diizinkan khusus pengiriman partial preorder (COGS ditunda).
-            if (!$allowNegative && $balance < 0) {
+            // Stok MASUK murni (qty_out = 0) tidak pernah diblokir: menambah stok mustahil
+            // menyebabkan kekurangan. Kalau saldo masih minus setelahnya, itu minus WARISAN
+            // (mis. SJ dicetak duluan sebelum produksi selesai) — memblokir stock-in justru
+            // mengunci OP/pembelian yang seharusnya memperbaiki minus tersebut.
+            $isPureStockIn = $qtyIn > 0 && $qtyOut <= 0;
+            if (!$allowNegative && !$isPureStockIn && $balance < 0) {
                 throw new \Exception("Stock tidak mencukupi.");
             }
 
