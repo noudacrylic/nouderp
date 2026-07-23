@@ -26,9 +26,10 @@ class WebPayment extends Model
         self::STATUS_MATCHED,
     ];
 
-    /** Metode: transfer bank + kode unik, atau QRIS dinamis (QRISLY). */
+    /** Metode: transfer bank + kode unik, QRIS dinamis (QRISLY), atau Midtrans (Snap). */
     public const METHOD_TRANSFER = 'transfer';
     public const METHOD_QRIS     = 'qris';
+    public const METHOD_MIDTRANS = 'midtrans';
 
     protected $fillable = [
         'sales_order_id',
@@ -71,6 +72,11 @@ class WebPayment extends Model
     public function isQris(): bool
     {
         return $this->method === self::METHOD_QRIS;
+    }
+
+    public function isMidtrans(): bool
+    {
+        return $this->method === self::METHOD_MIDTRANS;
     }
 
     /** QR masih bisa dipindai? (belum kedaluwarsa & string-nya ada) */
@@ -119,8 +125,12 @@ class WebPayment extends Model
 
     public function statusLabel(): array
     {
+        // "Transfer" hanya tepat untuk metode transfer bank; QRIS/Midtrans dibayar
+        // dengan cara lain, jadi labelnya dibuat netral.
+        $menunggu = $this->method === self::METHOD_TRANSFER ? 'Menunggu Transfer' : 'Menunggu Pembayaran';
+
         return match ($this->status) {
-            self::STATUS_AWAITING  => ['label' => 'Menunggu Transfer', 'class' => 'bg-slate-100 text-slate-700'],
+            self::STATUS_AWAITING  => ['label' => $menunggu,             'class' => 'bg-slate-100 text-slate-700'],
             self::STATUS_CLAIMED   => ['label' => 'Diklaim Bayar',      'class' => 'bg-amber-100 text-amber-700'],
             self::STATUS_MATCHED   => ['label' => 'Nominal Cocok',      'class' => 'bg-sky-100 text-sky-700'],
             self::STATUS_CONFIRMED => ['label' => 'Lunas',              'class' => 'bg-green-100 text-green-700'],

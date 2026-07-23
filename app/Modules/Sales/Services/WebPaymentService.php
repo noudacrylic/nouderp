@@ -39,6 +39,9 @@ class WebPaymentService
         if ($method === WebPayment::METHOD_QRIS) {
             return $this->createQrisForOrder($salesOrderId);
         }
+        if ($method === WebPayment::METHOD_MIDTRANS) {
+            return $this->createMidtransForOrder($salesOrderId);
+        }
 
         return DB::transaction(function () use ($salesOrderId) {
             $so = SalesOrder::lockForUpdate()->findOrFail($salesOrderId);
@@ -101,6 +104,101 @@ class WebPaymentService
 
         // Semua kombinasi bertabrakan (sangat jarang) → pakai batas bawah.
         return $min;
+    }
+
+    // ───────────────────────── Midtrans (Snap) ─────────────────────────
+
+    /**
+     * Intent Midtrans: nominal = grand total apa adanya (tanpa kode unik — Midtrans
+     * mencocokkan lewat order_id-nya sendiri). Memakai ULANG MidtransTransaction +
+     * halaman /pay/{token} + webhook yang sudah dipakai penjualan via admin, supaya
+     * hanya ada SATU jalur posting pembayaran Midtrans di seluruh sistem.
+     */
+    public function createMidtransForOrder(int $salesOrderId): WebPayment
+    {
+        return DB::transaction(function () use ($salesOrderId) {
+            $so = SalesOrder::lockForUpdate()->findOrFail($salesOrderId);
+
+            $existing = WebPayment::where('sales_order_id', $so->id)->open()->first();
+            if ($existing) {
+                return $existing;
+            }
+
+            $setting = PaymentSetting::singleton();
+
+            // Kode unik tak dipakai → kembalikan grand total utuh bila sebelumnya dipotong.
+            if ((int) ($so->unique_code ?? 0) !== 0) {
+                $so->grand_total = round((float) $so->grand_total + (int) $so->unique_code);
+                $so->unique_code = 0;
+                $so->save();
+            }
+
+            // Tautan pembayaran (Snap) — dibuat lewat service yang sudah ada.
+            app(\App\Modules\Payment\Services\PaymentLinkService::class)->getOrCreateForSalesOrder($so);
+
+            return WebPayment::create([
+                'sales_order_id'  => $so->id,
+                'customer_id'     => $so->customer_id,
+                'method'          => WebPayment::METHOD_MIDTRANS,
+                'public_token'    => (string) \Illuminate\Support\Str::uuid(),
+                'unique_code'     => 0,
+                'expected_amount' => $so->grand_total,
+                'status'          => WebPayment::STATUS_AWAITING,
+                'expires_at'      => now()->addHours(max(1, (int) $setting->expiry_hours)),
+            ]);
+        });
+    }
+
+    /** Tautan halaman pembayaran Midtrans (/pay/{token}) milik pesanan ini. */
+    public function midtransPayUrl(WebPayment $wp): ?string
+    {
+        if (! $wp->isMidtrans()) {
+            return null;
+        }
+
+        $trx = $this->latestMidtransTrx($wp->sales_order_id);
+
+        return $trx ? app(\App\Modules\Payment\Services\PaymentLinkService::class)->publicUrl($trx) : null;
+    }
+
+    /**
+     * Selaraskan intent dengan status transaksi Midtrans.
+     *
+     * PENTING: pembayaran Midtrans SUDAH diposting oleh MidtransService::handleNotification
+     * (webhook). Di sini intent hanya MENCERMINKAN status itu — jangan posting ulang,
+     * karena akan menggandakan pembayaran pada pesanan yang sama.
+     */
+    public function syncMidtrans(WebPayment $wp): WebPayment
+    {
+        if (! $wp->isMidtrans() || ! $wp->isOpen()) {
+            return $wp;
+        }
+
+        $trx = $this->latestMidtransTrx($wp->sales_order_id);
+        if (! $trx || $trx->status !== 'settlement') {
+            return $wp;
+        }
+
+        $wp->update([
+            'status'              => WebPayment::STATUS_CONFIRMED,
+            'matched_at'          => $wp->matched_at ?? now(),
+            'confirmed_at'        => now(),
+            'confirmed_via'       => 'midtrans',
+            'matched_reference'   => $trx->order_id,
+            'customer_payment_id' => $trx->customer_payment_id,
+        ]);
+
+        return $wp->refresh();
+    }
+
+    private function latestMidtransTrx(?int $salesOrderId)
+    {
+        if (! $salesOrderId) {
+            return null;
+        }
+
+        return \App\Models\MidtransTransaction::where('sales_order_id', $salesOrderId)
+            ->latest('id')->first();
     }
 
     // ───────────────────────── QRIS (QRISLY/Komerce) ─────────────────────────
@@ -362,7 +460,29 @@ class WebPaymentService
                 return $wp;
             }
 
+            // Midtrans memposting pembayaran lewat webhook-nya sendiri; bila pembeli
+            // menutup halaman status, intent bisa masih "menunggu" padahal uang sudah
+            // masuk. Selaraskan dulu agar tidak membatalkan pesanan yang sudah dibayar.
+            if ($wp->isMidtrans()) {
+                $wp = $this->syncMidtrans($wp);
+                if (! $wp->isOpen()) {
+                    return $wp;
+                }
+            }
+
             $so = SalesOrder::lockForUpdate()->find($wp->sales_order_id);
+
+            // Jaring pengaman lintas-metode: JANGAN void pesanan yang sudah ada uangnya
+            // (mis. pembayaran tercatat lewat jalur lain). Tutup intent-nya saja.
+            if ($so && round((float) $so->paid_amount) > 0) {
+                $wp->update([
+                    'status' => WebPayment::STATUS_CANCELLED,
+                    'notes'  => trim((string) ($wp->notes ?? '') . "\nIntent ditutup: pesanan sudah menerima pembayaran, SO tidak dibatalkan."),
+                ]);
+
+                return $wp->refresh();
+            }
+
             if ($so && $so->status === 'confirmed') {
                 StockReservation::where('sales_order_id', $so->id)
                     ->update(['status' => 'cancelled']);

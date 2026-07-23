@@ -199,7 +199,7 @@ class CheckoutController extends Controller
             'items.*.product_id'           => 'required|integer',
             'items.*.qty'                  => 'required|numeric|min:1',
             'delivery_method'              => 'required|in:kurir,ambil_toko',
-            'payment_method'               => 'nullable|in:qris,transfer',
+            'payment_method'               => 'nullable|in:qris,transfer,midtrans',
             'shipping.courier_code'        => 'nullable|string|max:50',
             'shipping.service_name'        => 'nullable|string|max:150',
             'shipping.price'               => 'nullable|numeric|min:0',
@@ -271,14 +271,9 @@ class CheckoutController extends Controller
             $so = $this->orders->createDraftFromData($dto);
             $this->orders->confirm($so->id);              // reservasi stok
 
-            // Metode bayar: QRIS bila diminta & siap, selain itu transfer + kode unik.
-            $wantQris = ($data['payment_method'] ?? ($setting->qrisReady() ? 'qris' : 'transfer')) === 'qris'
-                && $setting->qrisReady();
-
-            $wp = $this->webPayments->createForOrder(
-                $so->id,
-                $wantQris ? WebPayment::METHOD_QRIS : WebPayment::METHOD_TRANSFER
-            );
+            // Metode bayar: ikuti pilihan pembeli bila metodenya memang siap,
+            // selain itu jatuh ke metode pertama yang tersedia.
+            $wp = $this->webPayments->createForOrder($so->id, $this->resolveMethod($data['payment_method'] ?? null, $setting));
 
             $qrisNote = null;
             if ($wp->isQris()) {
@@ -330,7 +325,38 @@ class CheckoutController extends Controller
         if (! $wp) {
             return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
         }
+
+        // Midtrans memposting pembayaran lewat webhook-nya sendiri → cerminkan ke intent
+        // supaya halaman status pembeli ikut berubah jadi "sudah dibayar".
+        if ($wp->isMidtrans()) {
+            $wp = $this->webPayments->syncMidtrans($wp);
+        }
+
         return response()->json(['data' => $this->instructions($wp, PaymentSetting::singleton())]);
+    }
+
+    /** Apakah Midtrans siap dipakai (kunci terisi)? */
+    private function midtransReady(): bool
+    {
+        $m = \App\Models\MidtransSetting::singleton();
+
+        return ! empty($m->server_key) && ! empty($m->client_key);
+    }
+
+    /** Pilihan pembeli → metode yang benar-benar siap; fallback ke yang tersedia. */
+    private function resolveMethod(?string $requested, PaymentSetting $setting): string
+    {
+        $tersedia = array_values(array_filter([
+            $setting->qrisReady()   ? WebPayment::METHOD_QRIS     : null,
+            $this->midtransReady()  ? WebPayment::METHOD_MIDTRANS : null,
+            $setting->isConfigured() ? WebPayment::METHOD_TRANSFER : null,
+        ]));
+
+        if ($requested && in_array($requested, $tersedia, true)) {
+            return $requested;
+        }
+
+        return $tersedia[0] ?? WebPayment::METHOD_TRANSFER;
     }
 
     /** Metode pembayaran yang tersedia — etalase menampilkan pilihan sesuai ini. */
@@ -345,6 +371,14 @@ class CheckoutController extends Controller
                 'label'       => 'QRIS',
                 'description' => 'Scan pakai m-banking atau e-wallet apa pun (BCA, BRI, GoPay, OVO, DANA, ShopeePay…). Nominal otomatis.',
                 'recommended' => true,
+            ];
+        }
+        if ($this->midtransReady()) {
+            $methods[] = [
+                'key'         => 'midtrans',
+                'label'       => 'Virtual Account / Kartu (Midtrans)',
+                'description' => 'Bayar lewat Virtual Account BCA/BNI/BRI/Mandiri/Permata, QRIS, atau kartu kredit. Pembayaran terverifikasi otomatis.',
+                'recommended' => empty($methods),
             ];
         }
         if ($setting->isConfigured()) {
@@ -542,6 +576,8 @@ class CheckoutController extends Controller
             // QRIS: string QR untuk digambar di sisi pembeli + masa berlakunya.
             'qris_string'     => $wp->isQris() ? $wp->qris_string : null,
             'qris_expires_at' => $wp->isQris() ? optional($wp->qris_expires_at)->toIso8601String() : null,
+            // Midtrans: tautan halaman pembayaran (Snap) milik pesanan ini.
+            'pay_url'         => $wp->isMidtrans() ? $this->webPayments->midtransPayUrl($wp) : null,
             'status'          => $wp->status,
             'status_label'    => $wp->statusLabel()['label'],
             'paid'            => $paid,
