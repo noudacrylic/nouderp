@@ -46,11 +46,14 @@ Schedule::command('jubelio:push-prices')->everyFifteenMinutes()->name('jubelio-p
 // & lewat masa jeda (config store.media_gc_days). Harian dini hari.
 Schedule::command('store:gc-media')->dailyAt('03:10')->name('store-gc-media')->withoutOverlapping();
 
-// Pembayaran toko online (Transfer Bank + Kode Unik):
+// Pembayaran toko online (Transfer Bank + Kode Unik, dan QRIS/QRISLY):
 //  1) poll mutasi (email/moota) & cocokkan nominal unik → posting pembayaran, tiap 2 menit;
+//  1b) poll status QRIS — jaring pengaman bila webhook QRISLY tak sampai (baca saja,
+//      tidak generate QR sehingga tidak menambah biaya), tiap 2 menit;
 //  2) eskalasi ke Telegram bila belum tercocokkan setelah N menit, tiap menit;
 //  3) backstop auto-batal order belum-bayar yang kedaluwarsa (24 jam), tiap jam.
 Schedule::command('payments:poll-mutations')->everyTwoMinutes()->name('payments-poll-mutations')->withoutOverlapping();
+Schedule::command('payments:poll-qris')->everyTwoMinutes()->name('payments-poll-qris')->withoutOverlapping();
 Schedule::command('payments:escalate')->everyMinute()->name('payments-escalate')->withoutOverlapping();
 Schedule::command('payments:cancel-expired')->hourly()->name('payments-cancel-expired')->withoutOverlapping();
 

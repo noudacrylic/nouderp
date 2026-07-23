@@ -30,7 +30,9 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::post('/shipping/rates',        [CheckoutController::class, 'rates'])->name('api.storefront.shipping.rates');
     Route::post('/cart/quote',            [CheckoutController::class, 'quote'])->name('api.storefront.cart.quote');
     Route::post('/checkout',              [CheckoutController::class, 'checkout'])->name('api.storefront.checkout');
+    Route::get ('/payment-methods',       [CheckoutController::class, 'paymentMethods'])->name('api.storefront.payment-methods');
     Route::get ('/orders/{token}',        [CheckoutController::class, 'show'])->name('api.storefront.orders.show');
+    Route::post('/orders/{token}/qris',   [CheckoutController::class, 'refreshQris'])->middleware('throttle:10,1')->name('api.storefront.orders.qris');
     Route::post('/orders/{token}/claim',  [CheckoutController::class, 'claim'])->name('api.storefront.orders.claim');
     Route::post('/orders/lookup',         [CheckoutController::class, 'lookup'])->middleware('throttle:8,1')->name('api.storefront.orders.lookup');
     Route::post('/orders/pin-status',     [CheckoutController::class, 'pinStatus'])->middleware('throttle:30,1')->name('api.storefront.orders.pin-status');

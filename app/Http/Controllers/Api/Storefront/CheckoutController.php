@@ -182,7 +182,8 @@ class CheckoutController extends Controller
     public function checkout(Request $request)
     {
         $setting = PaymentSetting::singleton();
-        if (! $setting->isConfigured()) {
+        // Cukup salah satu siap: QRIS ATAU transfer bank + kode unik.
+        if (! $setting->isConfigured() && ! $setting->qrisReady()) {
             return response()->json(['message' => 'Pembayaran belum diaktifkan.'], 503);
         }
 
@@ -198,6 +199,7 @@ class CheckoutController extends Controller
             'items.*.product_id'           => 'required|integer',
             'items.*.qty'                  => 'required|numeric|min:1',
             'delivery_method'              => 'required|in:kurir,ambil_toko',
+            'payment_method'               => 'nullable|in:qris,transfer',
             'shipping.courier_code'        => 'nullable|string|max:50',
             'shipping.service_name'        => 'nullable|string|max:150',
             'shipping.price'               => 'nullable|numeric|min:0',
@@ -240,7 +242,8 @@ class CheckoutController extends Controller
             $subtotal += (float) $l['qty'] * ((float) $l['unit_price'] - (float) $l['discount_value']);
         }
 
-        return DB::transaction(function () use ($data, $lineItems, $setting, $subtotal) {
+        try {
+            return DB::transaction(function () use ($data, $lineItems, $setting, $subtotal) {
             $customer = $this->resolveCustomer($data['customer']);
 
             // Promo "total belanja" (cart_total) → mengisi diskon global SO.
@@ -267,10 +270,57 @@ class CheckoutController extends Controller
 
             $so = $this->orders->createDraftFromData($dto);
             $this->orders->confirm($so->id);              // reservasi stok
-            $wp = $this->webPayments->createForOrder($so->id); // kode unik + intent
 
-            return response()->json(['data' => $this->instructions($wp->fresh('salesOrder'), $setting)], 201);
-        });
+            // Metode bayar: QRIS bila diminta & siap, selain itu transfer + kode unik.
+            $wantQris = ($data['payment_method'] ?? ($setting->qrisReady() ? 'qris' : 'transfer')) === 'qris'
+                && $setting->qrisReady();
+
+            $wp = $this->webPayments->createForOrder(
+                $so->id,
+                $wantQris ? WebPayment::METHOD_QRIS : WebPayment::METHOD_TRANSFER
+            );
+
+            $qrisNote = null;
+            if ($wp->isQris()) {
+                // QR dibuat sekarang supaya pembeli langsung bisa memindai. Bila gagal
+                // (mis. saldo Komerce habis), pesanan JANGAN batal — alihkan ke transfer
+                // bank + kode unik agar pembeli tetap bisa membayar.
+                try {
+                    $wp = $this->webPayments->ensureQris($wp);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('Checkout: QRIS gagal', [
+                        'sales_order_id' => $so->id, 'error' => $e->getMessage(),
+                    ]);
+                    // Tanpa transfer bank yang siap, tak ada jalur bayar → lempar ulang
+                    // supaya transaksi di-rollback (jangan tinggalkan SO & reservasi yatim).
+                    if (! $setting->isConfigured()) {
+                        throw $e;
+                    }
+                    $wp = $this->webPayments->switchToTransfer($wp);
+                    $qrisNote = 'Pembayaran QRIS sedang tidak tersedia — silakan gunakan transfer bank di bawah.';
+                }
+            }
+
+            $payload = $this->instructions($wp->fresh('salesOrder'), $setting);
+            if ($qrisNote) {
+                $payload['notice'] = $qrisNote;
+            }
+
+            return response()->json(['data' => $payload], 201);
+            });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e; // mis. PIN salah → tetap 422 dengan pesan field
+        } catch (\Throwable $e) {
+            // Semua jalur bayar gagal (mis. saldo QRIS habis DAN transfer belum lengkap).
+            // Transaksi sudah di-rollback: tak ada SO/reservasi yatim. Beri pesan yang
+            // bisa ditindaklanjuti pembeli, bukan error mentah 500.
+            \Illuminate\Support\Facades\Log::error('Checkout toko online gagal', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'message' => 'Pembayaran sedang tidak tersedia. Pesananmu belum dibuat — '
+                           . 'silakan coba lagi sebentar lagi atau hubungi kami via WhatsApp.',
+            ], 503);
+        }
     }
 
     /** Status pesanan by token publik. */
@@ -281,6 +331,55 @@ class CheckoutController extends Controller
             return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
         }
         return response()->json(['data' => $this->instructions($wp, PaymentSetting::singleton())]);
+    }
+
+    /** Metode pembayaran yang tersedia — etalase menampilkan pilihan sesuai ini. */
+    public function paymentMethods()
+    {
+        $setting = PaymentSetting::singleton();
+
+        $methods = [];
+        if ($setting->qrisReady()) {
+            $methods[] = [
+                'key'         => 'qris',
+                'label'       => 'QRIS',
+                'description' => 'Scan pakai m-banking atau e-wallet apa pun (BCA, BRI, GoPay, OVO, DANA, ShopeePay…). Nominal otomatis.',
+                'recommended' => true,
+            ];
+        }
+        if ($setting->isConfigured()) {
+            $methods[] = [
+                'key'         => 'transfer',
+                'label'       => 'Transfer Bank',
+                'description' => 'Transfer manual ke rekening toko dengan nominal unik untuk verifikasi.',
+                'recommended' => empty($methods),
+            ];
+        }
+
+        return response()->json(['data' => $methods]);
+    }
+
+    /**
+     * Perbarui QR yang sudah kedaluwarsa (tombol "Buat ulang QR" di halaman pesanan).
+     * Tiap pembuatan QR berbiaya, jadi hanya dilakukan bila QR-nya memang sudah mati.
+     */
+    public function refreshQris(string $token)
+    {
+        $wp = WebPayment::with('salesOrder')->where('public_token', $token)->first();
+        if (! $wp) {
+            return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
+        }
+        if (! $wp->isQris() || ! $wp->isOpen()) {
+            return response()->json(['message' => 'Pesanan ini tidak memakai QRIS aktif.'], 422);
+        }
+
+        try {
+            $wp = $this->webPayments->ensureQris($wp);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'QRIS sedang tidak tersedia. Hubungi kami via WhatsApp.'], 503);
+        }
+
+        return response()->json(['data' => $this->instructions($wp->fresh('salesOrder'), PaymentSetting::singleton())]);
     }
 
     /** Pembeli menyatakan sudah transfer → mulai timer eskalasi. */
@@ -439,6 +538,10 @@ class CheckoutController extends Controller
         return [
             'token'           => $wp->public_token,
             'order_number'    => $so?->order_number,
+            'method'          => $wp->method,
+            // QRIS: string QR untuk digambar di sisi pembeli + masa berlakunya.
+            'qris_string'     => $wp->isQris() ? $wp->qris_string : null,
+            'qris_expires_at' => $wp->isQris() ? optional($wp->qris_expires_at)->toIso8601String() : null,
             'status'          => $wp->status,
             'status_label'    => $wp->statusLabel()['label'],
             'paid'            => $paid,

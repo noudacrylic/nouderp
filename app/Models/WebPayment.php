@@ -26,12 +26,21 @@ class WebPayment extends Model
         self::STATUS_MATCHED,
     ];
 
+    /** Metode: transfer bank + kode unik, atau QRIS dinamis (QRISLY). */
+    public const METHOD_TRANSFER = 'transfer';
+    public const METHOD_QRIS     = 'qris';
+
     protected $fillable = [
         'sales_order_id',
         'customer_id',
+        'method',
         'public_token',
         'unique_code',
         'expected_amount',
+        'qris_history_id',
+        'qris_string',
+        'qris_expires_at',
+        'qris_generate_count',
         'status',
         'buyer_claimed_at',
         'matched_at',
@@ -48,14 +57,30 @@ class WebPayment extends Model
     ];
 
     protected $casts = [
-        'unique_code'      => 'integer',
-        'expected_amount'  => 'decimal:2',
-        'buyer_claimed_at' => 'datetime',
-        'matched_at'       => 'datetime',
-        'confirmed_at'     => 'datetime',
-        'escalated_at'     => 'datetime',
-        'expires_at'       => 'datetime',
+        'unique_code'         => 'integer',
+        'expected_amount'     => 'decimal:2',
+        'buyer_claimed_at'    => 'datetime',
+        'matched_at'          => 'datetime',
+        'confirmed_at'        => 'datetime',
+        'escalated_at'        => 'datetime',
+        'expires_at'          => 'datetime',
+        'qris_expires_at'     => 'datetime',
+        'qris_generate_count' => 'integer',
     ];
+
+    public function isQris(): bool
+    {
+        return $this->method === self::METHOD_QRIS;
+    }
+
+    /** QR masih bisa dipindai? (belum kedaluwarsa & string-nya ada) */
+    public function hasLiveQr(): bool
+    {
+        return $this->isQris()
+            && ! empty($this->qris_string)
+            && $this->qris_expires_at
+            && $this->qris_expires_at->isFuture();
+    }
 
     public function salesOrder()
     {

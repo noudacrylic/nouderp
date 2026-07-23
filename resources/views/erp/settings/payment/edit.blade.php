@@ -125,6 +125,116 @@
                 </p>
             </div>
 
+            {{-- QRIS (QRISLY / Komerce) --}}
+            @php
+                $qrisId     = $setting->conf('qris_id');
+                $qrisSecret = $setting->qrisWebhookSecret();
+            @endphp
+            <div id="qris" class="border-t border-gray-100 pt-5 scroll-mt-24">
+                <h3 class="text-sm font-bold text-gray-700 mb-3">QRIS (QRISLY — Komerce)</h3>
+
+                <label class="flex items-center gap-2 text-sm mb-3">
+                    <input type="hidden" name="qris_enabled" value="0">
+                    <input type="checkbox" name="qris_enabled" value="1" class="w-4 h-4 accent-blue-600"
+                           {{ old('qris_enabled', $setting->conf('qris_enabled')) ? 'checked' : '' }}>
+                    <span>Aktifkan QRIS sebagai metode pembayaran toko online</span>
+                </label>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">API Key QRISLY</label>
+                        <input type="password" name="qris_api_key" autocomplete="new-password"
+                               placeholder="{{ $setting->conf('qris_api_key') ? '•••••• (biarkan kosong = tidak diubah)' : 'Tempel API key QRISLY' }}"
+                               class="w-full border rounded px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Lingkungan</label>
+                        <select name="qris_env" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="sandbox"    @selected(old('qris_env', $setting->conf('qris_env', 'sandbox')) === 'sandbox')>Sandbox (uji coba)</option>
+                            <option value="production" @selected(old('qris_env', $setting->conf('qris_env')) === 'production')>Production (live)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">QRIS ID (statis)</label>
+                        <input type="text" name="qris_id" value="{{ old('qris_id', $setting->conf('qris_id')) }}"
+                               placeholder="Salin dari dashboard Komerce bila QRIS diunggah di sana"
+                               class="w-full border rounded px-3 py-2 text-sm font-mono">
+                        <p class="text-[10px] text-gray-400 mt-1">Isi manual bila QRIS statis sudah diunggah lewat dashboard RajaOngkir/Komerce; atau kosongkan dan pakai form unggah di bawah.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Akun Kas Penampung QRIS</label>
+                        <select name="qris_cash_account_id" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="">— pilih akun —</option>
+                            @foreach($cashAccounts as $acc)
+                                <option value="{{ $acc->id }}" @selected(old('qris_cash_account_id', $setting->qrisCashAccountId()) == $acc->id)>
+                                    {{ $acc->code }} — {{ $acc->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <p class="text-[10px] text-gray-400 mt-1">Uang QRIS baru masuk rekening BCA H+1 &amp; sudah dipotong MDR, jadi ditampung di akun ini dulu.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Akun Beban MDR (opsional)</label>
+                        <select name="qris_fee_account_id" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="">— pilih akun —</option>
+                            @foreach($expenseAccounts as $acc)
+                                <option value="{{ $acc->id }}" @selected(old('qris_fee_account_id', $setting->qrisFeeAccountId()) == $acc->id)>
+                                    {{ $acc->code }} — {{ $acc->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <p class="text-[10px] text-gray-400 mt-1">Dipakai saat mencatat selisih settlement (potongan penerbit QRIS).</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Masa Berlaku QR (menit)</label>
+                        <input type="number" name="qris_expiry_minutes" value="{{ old('qris_expiry_minutes', $setting->qrisExpiryMinutes()) }}"
+                               class="w-full border rounded px-3 py-2 text-sm">
+                        <p class="text-[10px] text-gray-400 mt-1">QR dipakai ulang selama belum kedaluwarsa — tiap pembuatan QR baru berbiaya Rp100.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Eskalasi QRIS (menit)</label>
+                        <input type="number" name="qris_escalation_minutes" value="{{ old('qris_escalation_minutes', $setting->qrisEscalationMinutes()) }}"
+                               class="w-full border rounded px-3 py-2 text-sm">
+                        <p class="text-[10px] text-gray-400 mt-1">Lebih pendek dari transfer: deteksi QRIS bergantung HP listener.</p>
+                    </div>
+                </div>
+
+                <div class="mt-4 rounded border border-gray-100 bg-gray-50 p-3 text-xs space-y-1">
+                    <div>
+                        <span class="font-semibold text-gray-600">QRIS statis terdaftar:</span>
+                        @if($qrisId)
+                            <span class="font-mono text-green-700">{{ $qrisId }}</span>
+                        @else
+                            <span class="text-amber-600">belum ada — unggah di bawah setelah menyimpan API key.</span>
+                        @endif
+                    </div>
+                    <div class="break-all">
+                        <span class="font-semibold text-gray-600">URL webhook (daftarkan di dashboard Komerce → Developer → Webhook):</span><br>
+                        @if($qrisSecret)
+                            @php
+                                $webhookUrl = url('/qrisly/webhook/' . $qrisSecret);
+                                $host       = parse_url($webhookUrl, PHP_URL_HOST);
+                                $isLocal    = in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
+                            @endphp
+                            <span class="font-mono text-gray-700">{{ $webhookUrl }}</span>
+                            @if($isLocal)
+                                <div class="mt-1 text-amber-600">
+                                    ⚠️ Ini alamat lokal — <b>jangan didaftarkan</b>, Komerce tidak bisa menjangkaunya dari internet.
+                                    Pakai URL yang muncul di halaman ini <b>saat dibuka dari server</b> (erp.noudakrilik.com);
+                                    rahasianya berbeda karena databasenya terpisah.
+                                </div>
+                            @endif
+                            <div class="mt-1 text-gray-400">
+                                Tanpa webhook pun pembayaran tetap terdeteksi lewat pengecekan berkala tiap 2 menit —
+                                webhook hanya membuatnya hampir seketika.
+                            </div>
+                        @else
+                            <span class="text-gray-400">akan muncul setelah pengaturan disimpan sekali.</span>
+                        @endif
+                    </div>
+                </div>
+            </div>
+
             {{-- Konfirmasi otomatis --}}
             <div class="border-t border-gray-100 pt-5">
                 <h3 class="text-sm font-bold text-gray-700 mb-3">Konfirmasi Otomatis</h3>
@@ -219,6 +329,33 @@
             <div class="pt-2 border-t border-gray-100">
                 <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">Simpan</button>
             </div>
+        </form>
+    </div>
+
+    {{-- Unggah QRIS statis — form terpisah (upload berkas, bukan bagian form utama) --}}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mt-6">
+        <h3 class="text-sm font-bold text-gray-700 mb-1">Unggah QRIS Statis</h3>
+        <p class="text-xs text-gray-500 mb-4">
+            Cukup sekali. Ambil gambar QRIS statis dari aplikasi <b>Merchant BCA</b>, unggah di sini →
+            QRISLY mengembalikan <span class="font-mono">qris_id</span> yang dipakai membuat QRIS dinamis tiap pesanan.
+            Isi &amp; simpan API key dulu di atas.
+        </p>
+        <form method="POST" action="{{ route('settings.payment.qris-upload') }}" enctype="multipart/form-data"
+              class="flex flex-col sm:flex-row sm:items-end gap-3">
+            @csrf
+            <div class="flex-1">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Berkas QRIS (PNG/JPG)</label>
+                <input type="file" name="qris_image" accept="image/png,image/jpeg" required
+                       class="w-full border rounded px-3 py-2 text-sm">
+            </div>
+            <div class="flex-1">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Nama Identitas</label>
+                <input type="text" name="qris_name" value="{{ $setting->bank_name ? 'Noud Acrylic' : 'Noud Acrylic' }}"
+                       class="w-full border rounded px-3 py-2 text-sm">
+            </div>
+            <button type="submit" class="px-4 py-2 border border-blue-600 text-blue-600 hover:bg-blue-50 rounded text-sm font-semibold whitespace-nowrap">
+                Unggah ke QRISLY
+            </button>
         </form>
     </div>
 </div>

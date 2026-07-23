@@ -44,13 +44,26 @@ class IntegrationsController extends Controller
                 'url'         => route('settings.midtrans.edit'),
             ],
             [
-                'name'        => 'Pembayaran (Transfer Bank)',
+                'name'        => 'Pembayaran Toko Online',
                 'category'    => 'Payment',
-                'description' => 'Transfer bank + kode unik untuk toko online. Konfirmasi otomatis (email/Moota) → eskalasi Telegram → auto-batal 24 jam.',
+                'description' => 'QRIS (QRISLY/Komerce) + transfer bank kode unik. Konfirmasi otomatis → eskalasi Telegram → auto-batal 24 jam.',
                 'icon'        => '🏦',
                 'active'      => $payment->isConfigured(),
                 'mode'        => $payment->is_active ? ucfirst($payment->confirmation_provider) : 'Belum aktif',
                 'url'         => route('settings.payment.edit'),
+            ],
+            [
+                // Kartu terpisah supaya QRIS gampang dicari, isinya blok QRIS di halaman
+                // Pembayaran (satu halaman, satu simpanan).
+                'name'        => 'QRIS (QRISLY)',
+                'category'    => 'Payment',
+                'description' => 'QRIS dinamis dari QRIS statis milik sendiri. Dana masuk langsung ke rekening toko; deteksi via Mobile App Listener.',
+                'icon'        => '🔳',
+                'active'      => $payment->qrisReady(),
+                'mode'        => $payment->conf('qris_enabled')
+                    ? ucfirst((string) $payment->conf('qris_env', 'sandbox'))
+                    : 'Belum aktif',
+                'url'         => route('settings.payment.edit') . '#qris',
             ],
             [
                 'name'        => 'RajaOngkir',

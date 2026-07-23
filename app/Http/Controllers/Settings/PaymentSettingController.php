@@ -21,7 +21,12 @@ class PaymentSettingController extends Controller
             ->whereIn('account_category', ['cash', 'cash_equivalent'])
             ->orderBy('code')->get();
 
-        return view('erp.settings.payment.edit', compact('setting', 'cashAccounts'));
+        // Akun beban untuk MDR penerbit QRIS (dipotong saat settlement).
+        $expenseAccounts = Account::where('is_active', 1)
+            ->where('type', 'expense')
+            ->orderBy('code')->get();
+
+        return view('erp.settings.payment.edit', compact('setting', 'cashAccounts', 'expenseAccounts'));
     }
 
     public function update(Request $request)
@@ -55,6 +60,16 @@ class PaymentSettingController extends Controller
             // Moota (opsional)
             'moota_token'  => 'nullable|string|max:255',
             'moota_secret' => 'nullable|string|max:255',
+
+            // QRIS (QRISLY/Komerce)
+            'qris_enabled'            => 'nullable|boolean',
+            'qris_api_key'            => 'nullable|string|max:255',
+            'qris_id'                 => 'nullable|string|max:100',
+            'qris_env'                => 'nullable|in:sandbox,production',
+            'qris_cash_account_id'    => 'nullable|exists:accounts,id',
+            'qris_fee_account_id'     => 'nullable|exists:accounts,id',
+            'qris_expiry_minutes'     => 'nullable|integer|min:5|max:1440',
+            'qris_escalation_minutes' => 'nullable|integer|min:1|max:1440',
         ]);
 
         $setting = PaymentSetting::singleton();
@@ -68,6 +83,24 @@ class PaymentSettingController extends Controller
         $config['mark_seen'] = $request->boolean('mark_seen');
         if (! empty($data['imap_password'])) {
             $config['imap_password'] = $data['imap_password'];
+        }
+
+        // QRIS: API key kosong = pertahankan yang lama (form tak menampilkan key asli).
+        $config['qris_enabled']            = $request->boolean('qris_enabled');
+        $config['qris_env']                = $data['qris_env'] ?? 'sandbox';
+        $config['qris_cash_account_id']    = $data['qris_cash_account_id'] ?? null;
+        $config['qris_fee_account_id']     = $data['qris_fee_account_id'] ?? null;
+        $config['qris_expiry_minutes']     = $data['qris_expiry_minutes'] ?? 60;
+        $config['qris_escalation_minutes'] = $data['qris_escalation_minutes'] ?? 5;
+        if (! empty($data['qris_api_key'])) {
+            $config['qris_api_key'] = $data['qris_api_key'];
+        }
+        // qris_id boleh diisi manual (QRIS diunggah lewat dashboard Komerce) —
+        // kosongkan hanya bila memang dikosongkan di form.
+        $config['qris_id'] = $data['qris_id'] ?? $config['qris_id'] ?? null;
+        // Rahasia URL webhook dibuat sekali & dipakai selamanya (dipasang di dashboard Komerce).
+        if (empty($config['qris_webhook_secret'])) {
+            $config['qris_webhook_secret'] = \Illuminate\Support\Str::random(40);
         }
 
         // Normalisasi daftar rekening: buang baris tanpa no. rekening.
@@ -101,5 +134,38 @@ class PaymentSettingController extends Controller
 
         return redirect()->route('settings.integrations.index')
             ->with('success', 'Pengaturan Pembayaran tersimpan.');
+    }
+
+    /**
+     * Unggah QRIS statis milik toko ke QRISLY (sekali saja) → simpan qris_id yang
+     * dipakai untuk semua QRIS dinamis berikutnya.
+     */
+    public function uploadQris(Request $request)
+    {
+        $data = $request->validate([
+            'qris_image' => 'required|image|mimes:png,jpg,jpeg|max:4096',
+            'qris_name'  => 'nullable|string|max:100',
+        ]);
+
+        $setting = PaymentSetting::singleton();
+
+        try {
+            $provider = new \App\Modules\Sales\Services\Payment\QrislyProvider($setting);
+            $res = $provider->uploadQris(
+                $data['qris_image']->getRealPath(),
+                $data['qris_name'] ?: config('app.name', 'Noud Acrylic')
+            );
+
+            $qrisId = $res['qris_id'] ?? $res['id'] ?? null;
+            if (! $qrisId) {
+                return back()->with('error', 'Unggah berhasil tapi qris_id tidak ditemukan di respons. Cek log.');
+            }
+
+            $setting->mergeConfig(['qris_id' => (string) $qrisId]);
+
+            return back()->with('success', "QRIS statis terunggah. qris_id: {$qrisId}");
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Gagal unggah QRIS: ' . $e->getMessage());
+        }
     }
 }

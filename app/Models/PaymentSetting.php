@@ -125,10 +125,67 @@ class PaymentSetting extends Model
         return false;
     }
 
-    /** Ambil satu nilai dari config adapter (mis. imap_host). */
+    /** Ambil satu nilai dari config adapter (mis. imap_host, qris_api_key). */
     public function conf(string $key, $default = null)
     {
         return data_get($this->config, $key, $default);
+    }
+
+    /** Tulis beberapa nilai config tanpa menghapus kunci lain (config = encrypted:array). */
+    public function mergeConfig(array $values): self
+    {
+        $this->config = array_merge(is_array($this->config) ? $this->config : [], $values);
+        $this->save();
+
+        return $this;
+    }
+
+    // ───────────────────────── QRIS (QRISLY/Komerce) ─────────────────────────
+
+    /** QRIS siap dipakai pembeli? (aktif + kredensial + akun kas penampung) */
+    public function qrisReady(): bool
+    {
+        return (bool) $this->conf('qris_enabled', false)
+            && ! empty($this->conf('qris_api_key'))
+            && ! empty($this->conf('qris_id'))
+            && ! empty($this->qrisCashAccountId());
+    }
+
+    /**
+     * Akun kas penampung QRIS. Uang QRIS baru masuk rekening BCA H+1 dan sudah
+     * dipotong MDR, jadi saat pembayaran terdeteksi dicatat ke akun penampung
+     * (pola "Saldo Ditahan Marketplace"), bukan langsung ke kas bank.
+     */
+    public function qrisCashAccountId(): ?int
+    {
+        return ($id = (int) $this->conf('qris_cash_account_id')) ?: null;
+    }
+
+    /** Akun beban untuk MDR penerbit QRIS (dipakai saat rekonsiliasi settlement). */
+    public function qrisFeeAccountId(): ?int
+    {
+        return ($id = (int) $this->conf('qris_fee_account_id')) ?: null;
+    }
+
+    /** Masa berlaku satu QRIS dinamis (menit). QR dipakai ulang selama masih hidup. */
+    public function qrisExpiryMinutes(): int
+    {
+        return max(5, (int) ($this->conf('qris_expiry_minutes') ?: 60));
+    }
+
+    /**
+     * Ambang eskalasi Telegram khusus QRIS. Deteksi QRIS bergantung listener di HP,
+     * jadi defaultnya lebih pendek daripada transfer bank.
+     */
+    public function qrisEscalationMinutes(): int
+    {
+        return max(1, (int) ($this->conf('qris_escalation_minutes') ?: 5));
+    }
+
+    /** Rahasia URL webhook QRISLY (dibuat otomatis saat setting disimpan). */
+    public function qrisWebhookSecret(): ?string
+    {
+        return $this->conf('qris_webhook_secret') ?: null;
     }
 
     public function cashAccount()

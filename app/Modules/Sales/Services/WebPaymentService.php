@@ -9,8 +9,10 @@ use App\Core\Inventory\StockReservation;
 use App\Models\PaymentSetting;
 use App\Models\WebPayment;
 use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Sales\Services\Payment\QrislyProvider;
 use Exception;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Pembayaran "Transfer Bank + Kode Unik" untuk toko online (pengganti Midtrans).
@@ -29,9 +31,15 @@ class WebPaymentService
     /**
      * Pasang kode unik ke SO (confirmed/reserved) & buat intent pembayaran.
      * Idempoten: bila intent yang masih terbuka sudah ada, kembalikan apa adanya.
+     *
+     * @param string $method transfer (kode unik) | qris (QRISLY — nominal apa adanya)
      */
-    public function createForOrder(int $salesOrderId): WebPayment
+    public function createForOrder(int $salesOrderId, string $method = WebPayment::METHOD_TRANSFER): WebPayment
     {
+        if ($method === WebPayment::METHOD_QRIS) {
+            return $this->createQrisForOrder($salesOrderId);
+        }
+
         return DB::transaction(function () use ($salesOrderId) {
             $so = SalesOrder::lockForUpdate()->findOrFail($salesOrderId);
 
@@ -95,6 +103,158 @@ class WebPaymentService
         return $min;
     }
 
+    // ───────────────────────── QRIS (QRISLY/Komerce) ─────────────────────────
+
+    /**
+     * Intent QRIS: nominal = grand total apa adanya (tanpa kode unik — nominal sudah
+     * tertanam di QR). QR-nya BELUM dibuat di sini; lihat ensureQris() (berbayar).
+     */
+    public function createQrisForOrder(int $salesOrderId): WebPayment
+    {
+        return DB::transaction(function () use ($salesOrderId) {
+            $so = SalesOrder::lockForUpdate()->findOrFail($salesOrderId);
+
+            $existing = WebPayment::where('sales_order_id', $so->id)->open()->first();
+            if ($existing) {
+                return $existing;
+            }
+
+            $setting = PaymentSetting::singleton();
+
+            // Kode unik tak dipakai di QRIS → pastikan grand total kembali utuh bila
+            // intent transfer sebelumnya pernah memotongnya.
+            if ((int) ($so->unique_code ?? 0) > 0) {
+                $so->grand_total = round((float) $so->grand_total + (int) $so->unique_code);
+                $so->unique_code = 0;
+                $so->save();
+            }
+
+            return WebPayment::create([
+                'sales_order_id'  => $so->id,
+                'customer_id'     => $so->customer_id,
+                'method'          => WebPayment::METHOD_QRIS,
+                'public_token'    => (string) \Illuminate\Support\Str::uuid(),
+                'unique_code'     => 0,
+                'expected_amount' => $so->grand_total,
+                'status'          => WebPayment::STATUS_AWAITING,
+                'expires_at'      => now()->addHours(max(1, (int) $setting->expiry_hours)),
+            ]);
+        });
+    }
+
+    /**
+     * Pastikan intent punya QR yang masih hidup — buat baru HANYA bila belum ada
+     * atau sudah kedaluwarsa.
+     *
+     * ⚠️ Komerce menagih Rp100 SETIAP generate (bukan per pembayaran berhasil), jadi
+     * fungsi ini adalah SATU-SATUNYA tempat generate dipanggil: dikunci baris agar
+     * dua permintaan bersamaan tidak menghasilkan dua QR berbayar, dan hasilnya
+     * disimpan untuk dipakai ulang selama masa berlaku.
+     */
+    public function ensureQris(WebPayment $wp, bool $force = false): WebPayment
+    {
+        if (! $wp->isQris()) {
+            return $wp;
+        }
+
+        return DB::transaction(function () use ($wp, $force) {
+            $fresh = WebPayment::lockForUpdate()->findOrFail($wp->id);
+
+            if (! $fresh->isOpen()) {
+                return $fresh;
+            }
+            if (! $force && $fresh->hasLiveQr()) {
+                return $fresh; // masih hidup → jangan bakar Rp100 lagi
+            }
+
+            $setting  = PaymentSetting::singleton();
+            $provider = new QrislyProvider($setting);
+            if (! $provider->isEnabled()) {
+                throw new Exception('QRIS belum diaktifkan di Settings → Integrasi → QRIS.');
+            }
+
+            $so  = SalesOrder::find($fresh->sales_order_id);
+            $ref = $so?->order_number ?? ('WP-' . $fresh->id);
+            $res = $provider->generate((float) $fresh->expected_amount, $ref);
+
+            $expiredAt = $res['expired_at']
+                ? \Illuminate\Support\Carbon::parse($res['expired_at'])
+                : now()->addMinutes($setting->qrisExpiryMinutes());
+
+            $fresh->update([
+                'qris_history_id'     => $res['history_id'],
+                'qris_string'         => $res['qr_string'],
+                'qris_expires_at'     => $expiredAt,
+                'qris_generate_count' => (int) $fresh->qris_generate_count + 1,
+            ]);
+
+            return $fresh->refresh();
+        });
+    }
+
+    /**
+     * Alihkan intent QRIS yang gagal (mis. saldo Komerce habis) menjadi transfer bank
+     * + kode unik, tanpa membatalkan pesanan. Token publik dipertahankan agar tautan
+     * status yang sudah dipegang pembeli tetap hidup.
+     */
+    public function switchToTransfer(WebPayment $wp): WebPayment
+    {
+        return DB::transaction(function () use ($wp) {
+            $fresh = WebPayment::lockForUpdate()->findOrFail($wp->id);
+            if (! $fresh->isOpen() || ! $fresh->isQris()) {
+                return $fresh;
+            }
+
+            $so      = SalesOrder::lockForUpdate()->findOrFail($fresh->sales_order_id);
+            $setting = PaymentSetting::singleton();
+
+            $base = round((float) $so->grand_total + (int) ($so->unique_code ?? 0));
+            $code = $this->allocateUniqueCode($base, $setting);
+
+            $so->unique_code = $code;
+            $so->grand_total = $base - $code;
+            $so->save();
+
+            $fresh->update([
+                'method'          => WebPayment::METHOD_TRANSFER,
+                'unique_code'     => $code,
+                'expected_amount' => $so->grand_total,
+                'qris_history_id' => null,
+                'qris_string'     => null,
+                'qris_expires_at' => null,
+            ]);
+
+            return $fresh->refresh();
+        });
+    }
+
+    /**
+     * Konfirmasi dari QRISLY (webhook atau polling) berdasarkan history_id.
+     * Mengembalikan null bila intent tak dikenal / sudah selesai.
+     */
+    public function confirmFromQris(string $historyId, ?float $amount = null, string $via = 'qris'): ?WebPayment
+    {
+        $wp = WebPayment::where('qris_history_id', $historyId)->first();
+        if (! $wp) {
+            Log::warning('QRISLY: history_id tak dikenal', ['history_id' => $historyId]);
+            return null;
+        }
+        if (! $wp->isOpen()) {
+            return $wp; // idempoten — webhook boleh datang dua kali
+        }
+
+        // Nominal QR dibuat sistem, jadi seharusnya selalu sama; selisih = anomali.
+        if ($amount !== null && round($amount) !== round((float) $wp->expected_amount)) {
+            Log::warning('QRISLY: nominal tak cocok', [
+                'history_id' => $historyId, 'diterima' => $amount, 'diharapkan' => (float) $wp->expected_amount,
+            ]);
+        }
+
+        $setting = PaymentSetting::singleton();
+
+        return $this->confirm($wp->id, $via, "QRIS {$historyId}", null, $setting->qrisCashAccountId());
+    }
+
     /** Pembeli menyatakan sudah transfer → mulai timer eskalasi Telegram. */
     public function markClaimed(WebPayment $wp): WebPayment
     {
@@ -127,8 +287,10 @@ class WebPaymentService
             }
 
             $setting = PaymentSetting::singleton();
-            // Akun kas: eksplisit (tombol Telegram/manual) → rekening email (auto BRI) → default.
+            // Akun kas: eksplisit (tombol Telegram/manual) → penampung QRIS (uang belum
+            // masuk bank, cair H+1 dipotong MDR) → rekening email (auto BRI) → default.
             $cashId = $cashAccountId
+                ?? ($wp->isQris() ? $setting->qrisCashAccountId() : null)
                 ?? (in_array($via, ['email', 'moota'], true) ? $setting->emailAccountCashId() : null)
                 ?? $setting->defaultCashId();
             if (empty($cashId)) {
@@ -144,7 +306,10 @@ class WebPaymentService
                 'amount'          => $wp->expected_amount,
                 'payment_type'    => 'advance',
                 'sales_order_id'  => $so->id,
-                'notes'           => "Transfer bank toko online (kode unik {$wp->unique_code}) — konfirmasi {$via}"
+                'notes'           => ($wp->isQris()
+                                        ? 'QRIS toko online'
+                                        : "Transfer bank toko online (kode unik {$wp->unique_code})")
+                                     . " — konfirmasi {$via}"
                                      . ($reference ? " · ref {$reference}" : ''),
             ]);
 

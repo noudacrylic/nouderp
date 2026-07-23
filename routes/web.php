@@ -55,6 +55,12 @@ Route::prefix('jubelio/webhook')->middleware('jubelio.signature')->group(functio
 Route::post('/telegram/webhook/{secret}', [\App\Http\Controllers\TelegramWebhookController::class, 'handle'])
     ->name('telegram.webhook');
 
+// ── QRISLY (Komerce) webhook pembayaran QRIS (NO auth/CSRF, server-to-server) ──
+// {secret} = payment_settings.config.qris_webhook_secret. Status selalu diverifikasi
+// ulang ke API sebelum uang diakui.
+Route::post('/qrisly/webhook/{secret}', \App\Http\Controllers\Api\QrislyWebhookController::class)
+    ->name('qrisly.webhook');
+
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');
@@ -107,6 +113,7 @@ Route::prefix('erp')->group(function () {
         // Integrasi — Pembayaran toko online (Transfer Bank + Kode Unik)
         Route::get ('/payment', [\App\Http\Controllers\Settings\PaymentSettingController::class, 'edit'])->name('settings.payment.edit');
         Route::post('/payment', [\App\Http\Controllers\Settings\PaymentSettingController::class, 'update'])->name('settings.payment.update');
+        Route::post('/payment/qris-upload', [\App\Http\Controllers\Settings\PaymentSettingController::class, 'uploadQris'])->name('settings.payment.qris-upload');
 
         // Integrasi — Cloudflare R2 (penyimpanan media etalase / Produk Store)
         Route::get ('/r2',      [\App\Http\Controllers\Settings\R2SettingController::class, 'edit'])->name('settings.r2.edit');
