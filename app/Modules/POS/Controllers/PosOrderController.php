@@ -37,11 +37,57 @@ class PosOrderController extends Controller
             'cashAccounts'    => $cashAccounts,
             'defaultCustomer' => $defaultCustomer,
             'customers'       => $customers,
+            // Pulihkan kunci: bila operator ini punya transaksi QRIS berjalan yang belum
+            // dibayar (mis. setelah popup Snap me-redirect / halaman ter-refresh), kasir
+            // dikunci lagi ke faktur itu agar stok tak jadi faktur "hantu".
+            'pendingSale'     => $this->pendingQrisSale(),
             // QRIS hanya bisa dipakai bila Midtrans sudah terkonfigurasi. Kalau belum,
             // tombol QRIS disembunyikan supaya kasir tidak membuat invoice nyangkut (posted,
             // tak pernah settle → BELUM LUNAS selamanya).
             'qrisEnabled'     => $this->qrisAvailable(),
         ]);
+    }
+
+    /**
+     * Transaksi QRIS Kasir milik operator saat ini yang BELUM dibayar (untuk memulihkan
+     * kunci kasir setelah redirect/refresh). null bila tidak ada.
+     */
+    private function pendingQrisSale(): ?array
+    {
+        $trx = \App\Models\MidtransTransaction::where('created_by', auth()->id())
+            ->where('channel', 'qris')
+            ->where('source', 'instore')
+            ->where('status', 'pending')
+            ->where('expired_at', '>', now())
+            ->whereNotNull('sales_invoice_id')
+            ->latest('id')->first();
+
+        if (! $trx) {
+            return null;
+        }
+
+        $inv = \App\Models\SalesInvoice::with('items.product')->find($trx->sales_invoice_id);
+        if (! $inv || $inv->sales_order_id || round((float) $inv->paid_amount) > 0 || round((float) $inv->remaining_amount) <= 0) {
+            return null;
+        }
+
+        $items = $inv->items->map(fn ($it) => [
+            'name'       => $it->description ?: ($it->product->name ?? 'Item'),
+            'sku'        => $it->product->sku ?? null,
+            'qty'        => (float) $it->qty,
+            'unit_price' => (float) $it->unit_price,
+            'line_total' => (float) $it->subtotal,
+        ])->values()->all();
+
+        return [
+            'invoice_id'  => $inv->id,
+            'invoice_no'  => $inv->invoice_number,
+            'grand_total' => (float) $inv->grand_total,
+            'subtotal'    => (float) $inv->subtotal,
+            'items'       => $items,
+            'qris_url'    => route('sales.midtrans.admin.qris', $inv->id),
+            'print_url'   => route('sales.invoices.print', $inv->id),
+        ];
     }
 
     /**
@@ -239,5 +285,42 @@ class PosOrderController extends Controller
             'status_base' => url('/erp/sales/payment/midtrans'),
             'print_url'   => route('sales.invoices.print', $invoice->id),
         ]);
+    }
+
+    /**
+     * Batalkan transaksi QRIS Kasir yang BELUM dibayar: void faktur (reverse stok +
+     * void SEMUA Surat Jalan + void jurnal) dan tutup transaksi Midtrans pending.
+     * Melindungi stok dari faktur "hantu" saat operator keluar dari QRIS tanpa membayar.
+     */
+    public function voidPending(Request $request, \App\Modules\Sales\Services\SalesInvoiceService $invoices): JsonResponse
+    {
+        $data = $request->validate([
+            'invoice_id' => ['required', 'integer', 'exists:sales_invoices,id'],
+        ]);
+
+        $invoice = \App\Models\SalesInvoice::findOrFail($data['invoice_id']);
+
+        // Jaring pengaman: hanya transaksi POS (tanpa SO) yang belum ada pembayaran.
+        if ($invoice->sales_order_id) {
+            return response()->json(['message' => 'Faktur terhubung Sales Order — tidak bisa dibatalkan dari Kasir.'], 422);
+        }
+        if (round((float) $invoice->paid_amount) > 0) {
+            return response()->json(['message' => 'Faktur sudah menerima pembayaran — tidak bisa dibatalkan.'], 422);
+        }
+
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($invoice, $invoices) {
+                // Tutup transaksi Midtrans pending agar pembayaran telat tidak nyangkut ke faktur ter-void.
+                \App\Models\MidtransTransaction::where('sales_invoice_id', $invoice->id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'cancel']);
+
+                $invoices->voidPosted($invoice); // reverse stok + void semua SJ + void jurnal
+            });
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Gagal membatalkan: ' . $e->getMessage()], 422);
+        }
+
+        return response()->json(['ok' => true]);
     }
 }

@@ -1,20 +1,24 @@
-@php $isSo = $is_so ?? false; @endphp
+@php
+    $isSo = $is_so ?? false;
+    $requireFull = $require_full ?? false; // pesanan website: wajib lunas, tanpa input DP
+    // Nominal dasar: web (lunas) & invoice = tetap; SO DP admin = diisi pembeli (0, dinamis).
+    $payBase = $requireFull ? ($remaining ?? 0) : ($isSo ? 0 : ($base_amount ?? 0));
+@endphp
 
 <div class="px-6 py-5"
      id="paybox"
      data-isso="{{ $isSo ? 1 : 0 }}"
+     data-require-full="{{ $requireFull ? 1 : 0 }}"
      data-fee-threshold="{{ $fee_threshold }}"
      data-fee-amount="{{ $fee_amount }}"
-     data-base="{{ $isSo ? 0 : ($base_amount ?? 0) }}"
-     data-min-dp="{{ $isSo ? ($min_dp ?? 0) : 0 }}"
+     data-base="{{ $payBase }}"
+     data-min-dp="{{ ($isSo && !$requireFull) ? ($min_dp ?? 0) : 0 }}"
      data-remaining="{{ $remaining ?? 0 }}"
-     data-charge-url="{{ route('pay.charge', $trx->link_token) }}"
-     data-status-url="{{ route('pay.status', $trx->link_token) }}"
-     data-done-url="{{ route('pay.done', $trx->link_token) }}">
+     data-channel-fees='@json($channel_fees ?? [])'
+     data-snap-url="{{ route('pay.snap', $trx->link_token) }}">
 
-    {{-- ============ STATE 1: PILIH METODE ============ --}}
-    <div id="pay_select" class="space-y-4 {{ $instruction ? 'hidden' : '' }}">
-        @if($isSo)
+    <div class="space-y-4">
+        @if($isSo && !$requireFull)
             <div>
                 <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Nominal DP yang Dibayar</label>
                 <div class="relative">
@@ -31,62 +35,59 @@
 
         <div>
             <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Pilih Metode Bayar</label>
-            <div class="grid grid-cols-3 gap-2" id="channel_grid">
-                <button type="button" data-channel="qris" class="channel-btn flex flex-col items-center justify-center gap-0.5 border-2 border-emerald-500 bg-emerald-50 text-emerald-700 rounded-xl py-3 transition hover:bg-emerald-100">
-                    <span class="text-xs font-bold uppercase tracking-wide">QRIS</span>
-                    <span class="text-[10px] font-semibold text-emerald-600">Tanpa biaya</span>
-                </button>
-                <button type="button" data-channel="va" class="channel-btn flex flex-col items-center justify-center gap-0.5 border-2 border-gray-200 text-gray-600 rounded-xl py-3 transition hover:border-emerald-300">
-                    <span class="text-xs font-bold uppercase tracking-wide">VA</span>
-                    <span id="va_fee_label" class="text-[10px] font-semibold text-gray-400">Tanpa biaya</span>
-                </button>
-                <button type="button" data-channel="bank_transfer" class="channel-btn flex flex-col items-center justify-center gap-0.5 border-2 border-gray-200 text-gray-600 rounded-xl py-3 transition hover:border-emerald-300">
-                    <span class="text-xs font-bold uppercase tracking-wide">Transfer</span>
-                    <span id="bt_fee_label" class="text-[10px] font-semibold text-gray-400">Tanpa biaya</span>
-                </button>
-            </div>
-            <p id="fee_notice" class="hidden mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
-                Nominal di bawah Rp {{ number_format($fee_threshold, 0, ',', '.') }}: <b>VA</b> &amp; <b>Transfer Bank</b> dikenakan biaya admin <b>Rp {{ number_format($fee_amount, 0, ',', '.') }}</b>. <b>QRIS</b> tanpa biaya.
-            </p>
-        </div>
 
-        <div id="bank_picker" class="hidden">
-            <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Pilih Bank Virtual Account</label>
+            {{-- QRIS ditonjolkan (1 baris besar) — arahkan pembeli ke sini, biaya termurah. --}}
+            <button type="button" data-channel="qris"
+                    class="channel-btn w-full flex items-center justify-between gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition text-left mb-2">
+                <span class="flex flex-col">
+                    <span class="text-base font-extrabold text-gray-800">QRIS</span>
+                    <span class="text-[11px] text-gray-500">Scan pakai m-banking / e-wallet apa pun</span>
+                </span>
+                <span class="flex flex-col items-end">
+                    <span class="fee-label text-sm font-bold">Tanpa biaya</span>
+                    <span class="text-[10px] font-semibold text-emerald-600 whitespace-nowrap">★ Paling hemat</span>
+                </span>
+            </button>
+
+            <p class="text-[11px] text-gray-400 mb-1.5">Metode lain:</p>
             <div class="grid grid-cols-2 gap-2">
-                @foreach (['bca'=>'BCA', 'mandiri'=>'Mandiri', 'bri'=>'BRI', 'permata'=>'Permata'] as $code => $label)
-                    <button type="button" data-bank="{{ $code }}" class="bank-btn border-2 border-gray-200 text-gray-700 rounded-lg py-2.5 text-sm font-semibold hover:border-emerald-300 transition">{{ $label }}</button>
+                @foreach ([
+                    'va'          => 'Virtual Account',
+                    'ewallet'     => 'E-Wallet',
+                    'credit_card' => 'Kartu Kredit',
+                    'alfamart'    => 'Alfamart',
+                    'paylater'    => 'Kredivo / Akulaku',
+                ] as $key => $label)
+                    <button type="button" data-channel="{{ $key }}"
+                            class="channel-btn flex flex-col items-start gap-0.5 border-2 border-gray-200 rounded-lg px-3 py-2 transition text-left hover:border-emerald-300">
+                        <span class="text-xs font-semibold text-gray-700">{{ $label }}</span>
+                        <span class="fee-label text-[10px] font-semibold">Tanpa biaya</span>
+                    </button>
                 @endforeach
             </div>
         </div>
 
         <div class="border-t border-dashed pt-4">
             <div class="flex justify-between text-sm text-gray-600">
-                <span>{{ $isSo ? 'DP' : 'Tagihan' }}</span>
+                <span>{{ ($isSo && !$requireFull) ? 'DP' : 'Tagihan' }}</span>
                 <span>Rp <span id="d_base">0</span></span>
             </div>
-            <div class="flex justify-between text-sm text-gray-600" id="d_fee_row" style="display:none">
+            <div class="flex justify-between text-sm text-gray-600 mt-1" id="d_fee_row" style="display:none">
                 <span>Biaya admin</span>
                 <span>Rp <span id="d_fee">0</span></span>
             </div>
             <div class="flex justify-between text-base font-bold text-gray-900 mt-2 pt-2 border-t">
-                <span>Total Bayar</span>
+                <span>Total Pembayaran</span>
                 <span>Rp <span id="d_total">0</span></span>
             </div>
         </div>
 
         <button id="btn_pay" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl py-3.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
-            Tampilkan Cara Bayar
+            Bayar
         </button>
-        <div id="err_box" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
-    </div>
+        <p class="text-[11px] text-center text-gray-400 -mt-1">Anda akan diarahkan ke halaman pembayaran Midtrans.</p>
 
-    {{-- ============ STATE 2: INSTRUKSI BAYAR ============ --}}
-    <div id="pay_instruction" class="space-y-4 {{ $instruction ? '' : 'hidden' }}">
-        <div id="instruction_body"></div>
-        <div id="pay_status" class="text-center text-xs text-gray-500">Menunggu pembayaran… status diperbarui otomatis.</div>
-        <button id="btn_change" class="w-full border-2 border-gray-200 text-gray-600 hover:border-emerald-300 font-bold rounded-xl py-3 text-sm transition">
-            Ubah metode pembayaran
-        </button>
+        <div id="err_box" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
     </div>
 </div>
 
@@ -96,59 +97,60 @@
     if (!box) return;
 
     const IS_SO = box.dataset.isso === '1';
+    const REQUIRE_FULL = box.dataset.requireFull === '1';   // pesanan web: wajib lunas, tanpa input DP
     const BASE = Number(box.dataset.base) || 0;
     const MIN_DP = Number(box.dataset.minDp) || 0;
     const REMAINING = Number(box.dataset.remaining) || 0;
     const FEE_THRESHOLD = Number(box.dataset.feeThreshold) || 0;
     const FEE_AMOUNT = Number(box.dataset.feeAmount) || 0;
-    const CHARGE_URL = box.dataset.chargeUrl;
-    const STATUS_URL = box.dataset.statusUrl;
-    const DONE_URL = box.dataset.doneUrl;
-    const INITIAL = @json($instruction);
+    const SNAP_URL = box.dataset.snapUrl;
+    let CHANNEL_FEES = {};
+    try { CHANNEL_FEES = JSON.parse(box.dataset.channelFees || '{}') || {}; } catch (e) { CHANNEL_FEES = {}; }
+    if (Array.isArray(CHANNEL_FEES)) CHANNEL_FEES = {};
 
-    const selEl = document.getElementById('pay_select');
-    const instrEl = document.getElementById('pay_instruction');
-    const bodyEl = document.getElementById('instruction_body');
-    const statusEl = document.getElementById('pay_status');
     const errBox = document.getElementById('err_box');
     const btnPay = document.getElementById('btn_pay');
     const dpInput = document.getElementById('dp_input');
 
     let channel = 'qris';
-    let bank = null;
-    let pollTimer = null;
 
     const fmt = n => Number(n).toLocaleString('id-ID');
-    const getAmount = () => IS_SO ? Math.floor(Number(dpInput?.value) || 0) : BASE;
-    const computeFee = amt => (['va', 'bank_transfer'].includes(channel) && amt < FEE_THRESHOLD) ? FEE_AMOUNT : 0;
+    const getAmount = () => (IS_SO && !REQUIRE_FULL) ? Math.floor(Number(dpInput?.value) || 0) : BASE;
+
+    // Cermin logika MidtransFeeCalculator::customerCharge() (per metode, model subsidi).
+    function computeFee(ch, base) {
+        const cf = CHANNEL_FEES[ch];
+        if (cf) {
+            const pct = Math.max(0, (Number(cf.mdr_percent) || 0) - (Number(cf.subsidy_percent) || 0));
+            const flatFull = Math.max(0, (Number(cf.mdr_flat) || 0) - (Number(cf.subsidy_flat) || 0));
+            const thr = Number(cf.flat_threshold) || 0;
+            const flat = (thr <= 0 || base < thr) ? flatFull : 0;
+            return Math.round(base * (pct / 100)) + flat;
+        }
+        // Fallback perilaku lama: VA di bawah threshold → biaya admin flat; lainnya 0.
+        if (base >= FEE_THRESHOLD) return 0;
+        return ch === 'va' ? FEE_AMOUNT : 0;
+    }
 
     function refresh() {
         const amt = getAmount();
+
         document.querySelectorAll('.channel-btn').forEach(b => {
             const active = b.dataset.channel === channel;
-            b.className = 'channel-btn flex flex-col items-center justify-center gap-0.5 border-2 rounded-xl py-3 transition ' +
-                (active ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-600 hover:border-emerald-300');
+            b.classList.toggle('border-emerald-500', active);
+            b.classList.toggle('bg-emerald-50', active);
+            b.classList.toggle('border-gray-200', !active);
+
+            const fee = computeFee(b.dataset.channel, amt);
+            const lbl = b.querySelector('.fee-label');
+            if (lbl) {
+                lbl.textContent = fee > 0 ? '+Rp ' + fmt(fee) : 'Tanpa biaya';
+                lbl.classList.toggle('text-amber-600', fee > 0);
+                lbl.classList.toggle('text-emerald-600', fee <= 0);
+            }
         });
 
-        const feeApplies = amt < FEE_THRESHOLD;
-        ['va_fee_label', 'bt_fee_label'].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.textContent = feeApplies ? '+Rp ' + fmt(FEE_AMOUNT) : 'Tanpa biaya';
-            el.className = 'text-[10px] font-semibold ' + (feeApplies ? 'text-amber-600' : 'text-gray-400');
-        });
-        document.getElementById('fee_notice').classList.toggle('hidden', !feeApplies);
-
-        const needBank = ['va', 'bank_transfer'].includes(channel);
-        document.getElementById('bank_picker').classList.toggle('hidden', !needBank);
-        if (!needBank) bank = null;
-        document.querySelectorAll('.bank-btn').forEach(b => {
-            const active = b.dataset.bank === bank;
-            b.className = 'bank-btn border-2 rounded-lg py-2.5 text-sm font-semibold transition ' +
-                (active ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-700 hover:border-emerald-300');
-        });
-
-        const fee = computeFee(amt);
+        const fee = computeFee(channel, amt);
         document.getElementById('d_base').textContent = fmt(amt);
         document.getElementById('d_fee_row').style.display = fee > 0 ? 'flex' : 'none';
         document.getElementById('d_fee').textContent = fmt(fee);
@@ -157,103 +159,38 @@
 
     document.querySelectorAll('.channel-btn').forEach(b =>
         b.addEventListener('click', () => { channel = b.dataset.channel; refresh(); }));
-    document.querySelectorAll('.bank-btn').forEach(b =>
-        b.addEventListener('click', () => { bank = b.dataset.bank; refresh(); }));
     if (dpInput) dpInput.addEventListener('input', refresh);
 
-    function copyBtn(value) {
-        return `<button type="button" onclick="navigator.clipboard.writeText('${value}'); this.textContent='Tersalin!'; setTimeout(()=>this.textContent='Salin',1500)" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 shrink-0">Salin</button>`;
-    }
-    function field(label, value, mono = true) {
-        return `<div class="mb-3">
-            <div class="text-xs text-gray-500 mb-1">${label}</div>
-            <div class="flex gap-2 items-center">
-                <div class="flex-1 border rounded-lg px-3 py-2 bg-gray-50 ${mono ? 'font-mono' : ''} text-lg font-bold tracking-wide">${value}</div>
-                ${copyBtn(value)}
-            </div>
-        </div>`;
-    }
-
-    function renderInstruction(d) {
-        let html = '';
-        if (d.type === 'va') {
-            html += `<div class="text-center text-sm text-gray-600 mb-3">Bayar via <b>Virtual Account ${d.bank}</b></div>`;
-            html += field('Nomor Virtual Account', d.va_number);
-        } else if (d.type === 'mandiri') {
-            html += `<div class="text-center text-sm text-gray-600 mb-3">Bayar via <b>Mandiri Bill Payment</b></div>`;
-            html += field('Kode Perusahaan (Biller)', d.biller_code);
-            html += field('Kode Bayar (Bill Key)', d.bill_key);
-        } else if (d.type === 'qris') {
-            html += `<div class="text-center text-sm text-gray-600 mb-3">Scan QRIS dengan aplikasi bank / e-wallet</div>`;
-            html += `<div class="flex justify-center"><img src="${d.qr_url}" alt="QRIS" class="w-56 h-56 object-contain border rounded-xl bg-white p-2"></div>`;
-        }
-        html += `<div class="flex justify-between text-base font-bold text-gray-900 mt-4 pt-3 border-t">
-                    <span>Total Bayar</span><span class="text-emerald-700">Rp ${fmt(d.amount)}</span>
-                 </div>`;
-        bodyEl.innerHTML = html;
-        selEl.classList.add('hidden');
-        instrEl.classList.remove('hidden');
-        startPolling();
-    }
-
-    function startPolling() {
-        stopPolling();
-        pollTimer = setInterval(async () => {
-            try {
-                const r = await fetch(STATUS_URL, { headers: { 'Accept': 'application/json' } });
-                const d = await r.json();
-                if (d.paid) {
-                    stopPolling();
-                    statusEl.innerHTML = '<span class="text-emerald-600 font-bold">✓ Pembayaran diterima!</span>';
-                    setTimeout(() => location.href = d.redirect || DONE_URL, 1200);
-                } else if (['expire', 'cancel', 'deny', 'failure'].includes(d.status)) {
-                    stopPolling();
-                    statusEl.innerHTML = `<span class="text-red-600 font-bold">Pembayaran ${d.status}.</span>`;
-                }
-            } catch (e) { /* keep polling */ }
-        }, 3000);
-    }
-    function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
-
-    document.getElementById('btn_change').addEventListener('click', () => {
-        stopPolling();
-        instrEl.classList.add('hidden');
-        selEl.classList.remove('hidden');
-    });
+    function showErr(msg) { errBox.textContent = msg; errBox.classList.remove('hidden'); }
 
     btnPay.addEventListener('click', async () => {
         errBox.classList.add('hidden');
         const amt = getAmount();
 
-        if (IS_SO) {
+        if (IS_SO && !REQUIRE_FULL) {
             if (amt < MIN_DP) { showErr('DP minimal Rp ' + fmt(MIN_DP) + '.'); return; }
             if (amt > REMAINING) { showErr('DP melebihi sisa tagihan (Rp ' + fmt(REMAINING) + ').'); return; }
         }
-        if (['va', 'bank_transfer'].includes(channel) && !bank) { showErr('Silakan pilih bank.'); return; }
 
         btnPay.disabled = true;
-        btnPay.textContent = 'Memproses…';
+        btnPay.textContent = 'Membuka halaman Midtrans…';
         try {
-            const r = await fetch(CHARGE_URL, {
+            const r = await fetch(SNAP_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ channel, bank, amount: IS_SO ? amt : null }),
+                body: JSON.stringify({ channel, amount: IS_SO ? amt : null }),
             });
             const d = await r.json();
-            if (!r.ok) throw new Error(d.error || 'Gagal memproses pembayaran');
-            renderInstruction(d);
+            if (!r.ok || !d.redirect_url) throw new Error(d.error || 'Gagal membuka halaman Midtrans');
+            location.href = d.redirect_url;
         } catch (e) {
             showErr(e.message);
-        } finally {
             btnPay.disabled = false;
-            btnPay.textContent = 'Tampilkan Cara Bayar';
+            btnPay.textContent = 'Bayar';
         }
     });
 
-    function showErr(msg) { errBox.textContent = msg; errBox.classList.remove('hidden'); }
-
     // Init
     refresh();
-    if (INITIAL) renderInstruction(INITIAL);
 })();
 </script>

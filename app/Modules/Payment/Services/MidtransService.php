@@ -197,6 +197,133 @@ class MidtransService
     }
 
     /**
+     * Buat transaksi Snap untuk tautan pembayaran (/pay) → kembalikan redirect_url ke
+     * halaman pembayaran HOSTED milik Midtrans (semua metode aktif tampil, ber-logo
+     * Midtrans). Berbeda dari chargeForLink() yang menampilkan instruksi in-page via
+     * Core API, Snap tidak butuh aktivasi channel Core API dan berjalan penuh di
+     * sandbox — dipakai antara lain untuk tangkapan layar pendaftaran merchant.
+     *
+     * Metode yang benar-benar dipilih pembeli baru diketahui saat webhook settlement
+     * (payment_type) → channel di-update di handleNotification agar jurnal akurat.
+     */
+    public function createSnapForLink(MidtransTransaction $trx, string $channel, ?int $amount = null): MidtransTransaction
+    {
+        $isSo = $trx->sales_order_id && !$trx->sales_invoice_id;
+
+        if ($isSo) {
+            $so = $trx->salesOrder;
+            if (!$so) {
+                throw new RuntimeException('Sales Order tidak ditemukan untuk transaksi ini.');
+            }
+            $base = (int) round($amount ?? 0);
+            $itemId = 'SODP-' . $so->id;
+            $itemName = 'DP ' . $so->order_number;
+        } else {
+            $invoice = $trx->invoice;
+            if (!$invoice) {
+                throw new RuntimeException('Invoice tidak ditemukan untuk transaksi ini.');
+            }
+            $base = (int) round($invoice->remaining_amount);
+            $itemId = 'INV-' . $invoice->id;
+            $itemName = 'Invoice ' . $invoice->invoice_number;
+        }
+
+        if ($base <= 0) {
+            throw new RuntimeException('Nominal pembayaran tidak valid atau sudah lunas.');
+        }
+
+        // Biaya admin AKURAT per metode (customer memilih metode di halaman kita → Snap
+        // difilter ke metode itu, jadi biaya yang tampil = biaya yang ditagih).
+        $customerFee = $this->fees->customerCharge($base, $channel);
+        $gross = $base + $customerFee;
+
+        $expiryDays = max(1, (int) ($this->settings()->link_expiry_days ?: 1));
+        $orderId = $this->links->makeOrderId($isSo ? 'SODP' : 'LINK');
+
+        $items = [[
+            'id' => $itemId,
+            'price' => $base,
+            'quantity' => 1,
+            'name' => mb_substr($itemName, 0, 50),
+        ]];
+        if ($customerFee > 0) {
+            $items[] = ['id' => 'ADMIN-FEE', 'price' => $customerFee, 'quantity' => 1, 'name' => 'Biaya Admin'];
+        }
+
+        $payload = [
+            'transaction_details' => ['order_id' => $orderId, 'gross_amount' => $gross],
+            'item_details' => $items,
+            'customer_details' => $this->customerDetails($trx),
+            'callbacks' => ['finish' => url('/pay/' . $trx->link_token . '/done')],
+            'expiry' => ['unit' => 'day', 'duration' => $expiryDays],
+            'enabled_payments' => $this->enabledPaymentsForGroup($channel),
+        ];
+
+        $response = Http::withHeaders([
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json',
+                'Authorization' => $this->authHeader(),
+            ])
+            ->timeout(20)
+            ->post($this->snapBase() . '/snap/v1/transactions', $payload);
+
+        $data = $response->json() ?? [];
+        if (!$response->successful() || empty($data['redirect_url'])) {
+            Log::error('Midtrans Snap link failed', [
+                'order_id' => $orderId,
+                'http_status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            throw new RuntimeException('Midtrans menolak pembuatan halaman pembayaran: ' . ($data['error_messages'][0] ?? $response->body()));
+        }
+
+        $trx->update([
+            'order_id' => $orderId,
+            'channel' => $channel, // group metode (qris/va/ewallet/credit_card/alfamart/paylater)
+            'gross_amount' => $gross,
+            'base_amount' => $base,
+            'customer_admin_fee' => $customerFee,
+            'snap_token' => $data['token'] ?? null,
+            'snap_redirect_url' => $data['redirect_url'],
+            'status' => 'pending',
+            'raw_response' => json_encode($data),
+        ]);
+
+        return $trx->fresh();
+    }
+
+    /** Petakan payment_type webhook → grup channel internal (untuk jurnal). */
+    protected function channelFromPaymentType(array $payload): ?string
+    {
+        return match ($payload['payment_type'] ?? null) {
+            'bank_transfer', 'echannel', 'permata' => 'va',
+            'qris' => 'qris',
+            'gopay', 'shopeepay' => 'ewallet',
+            'cstore' => 'alfamart',
+            'akulaku', 'kredivo' => 'paylater',
+            'credit_card' => 'credit_card',
+            default => null,
+        };
+    }
+
+    /**
+     * Kode enabled_payments Snap per grup metode → Snap difilter hanya menampilkan
+     * metode yang dipilih pembeli di halaman kita (agar biaya admin = yang ditagih).
+     */
+    protected function enabledPaymentsForGroup(string $group): array
+    {
+        return match ($group) {
+            'qris' => ['qris', 'other_qris'],
+            'va' => ['bca_va', 'bni_va', 'bri_va', 'cimb_va', 'permata_va', 'echannel', 'other_va'],
+            'ewallet' => ['gopay', 'shopeepay'],
+            'credit_card' => ['credit_card'],
+            'alfamart' => ['alfamart'],
+            'paylater' => ['akulaku', 'kredivo'],
+            default => [],
+        };
+    }
+
+    /**
      * Buat QRIS in-store via Snap (filter ke QRIS-only) — Snap overlay langsung tampilkan QR
      * karena enabled_payments cuma QRIS. Lebih portable dari Core API /v2/charge yang butuh
      * aktivasi acquirer khusus di Sandbox.
@@ -206,6 +333,18 @@ class MidtransService
         $base = (int) round($invoice->remaining_amount);
         if ($base <= 0) {
             throw new RuntimeException('Invoice ini sudah lunas.');
+        }
+
+        // "Tampilkan QRIS yang tadi": pakai ulang QR pending yang masih hidup untuk
+        // invoice ini (hindari QR/trx menumpuk saat operator menampilkan ulang).
+        $live = MidtransTransaction::where('sales_invoice_id', $invoice->id)
+            ->where('channel', 'qris')
+            ->where('status', 'pending')
+            ->where('expired_at', '>', now())
+            ->whereNotNull('snap_token')
+            ->latest('id')->first();
+        if ($live) {
+            return $live;
         }
 
         $expiryMin = (int) ($this->settings()->qris_expiry_minutes ?: 15);
@@ -239,6 +378,10 @@ class MidtransService
             ]],
             'customer_details' => $this->customerDetails($trx),
             'enabled_payments' => ['qris', 'other_qris'],
+            // Kalau Snap menutup/redirect (mis. popup ditutup), kembali ke Kasir —
+            // BUKAN ke finish URL default dashboard (example.com). Status tetap dipantau
+            // via polling backend + webhook.
+            'callbacks' => ['finish' => route('pos.kasir')],
             'expiry' => [
                 'unit' => 'minute',
                 'duration' => $expiryMin,
@@ -410,6 +553,16 @@ class MidtransService
 
             if ($newStatus === 'settlement') {
                 $update['settled_at'] = now();
+            }
+
+            // Snap: metode baru diketahui saat settlement → set channel dari payment_type
+            // agar jurnal (mdr/beban gateway) mengikuti metode yang benar-benar dipakai.
+            if ($trx->channel === 'snap') {
+                $mapped = $this->channelFromPaymentType($payload);
+                if ($mapped) {
+                    $update['channel'] = $mapped;
+                    $update['bank'] = $payload['va_numbers'][0]['bank'] ?? $trx->bank;
+                }
             }
 
             $trx->update($update);

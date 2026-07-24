@@ -107,40 +107,54 @@
                 </div>
             </div>
 
-            {{-- ===== Tarif MDR ===== --}}
-            <div>
-                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Tarif Potongan Midtrans (MDR)</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">VA / Transfer Bank (Rp, flat)</label>
-                        <input type="number" min="0" step="1" name="va_fee"
-                               value="{{ old('va_fee', (int) $setting->va_fee) }}" class="w-full border rounded px-3 py-2">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">QRIS (% dari nominal)</label>
-                        <input type="number" min="0" max="100" step="0.001" name="qris_fee_percent"
-                               value="{{ old('qris_fee_percent', $setting->qris_fee_percent) }}" class="w-full border rounded px-3 py-2">
-                    </div>
-                </div>
-                <p class="text-xs text-gray-500 mt-2">Dipakai membukukan beban gateway secara otomatis saat pembayaran settle (bukan dari webhook).</p>
-            </div>
+            {{-- Field lama disimpan sebagai fallback (dipakai bila channel_fees kosong). --}}
+            <input type="hidden" name="va_fee" value="{{ old('va_fee', (int) $setting->va_fee) }}">
+            <input type="hidden" name="qris_fee_percent" value="{{ old('qris_fee_percent', $setting->qris_fee_percent) }}">
+            <input type="hidden" name="customer_fee_threshold" value="{{ old('customer_fee_threshold', (int) $setting->customer_fee_threshold) }}">
+            <input type="hidden" name="customer_fee_amount" value="{{ old('customer_fee_amount', (int) $setting->customer_fee_amount) }}">
 
-            {{-- ===== Biaya admin customer ===== --}}
+            {{-- ===== Tarif & subsidi per metode ===== --}}
+            @php
+                $cfLabels = \App\Modules\Payment\Services\MidtransFeeCalculator::channelLabels();
+                $cfDefaults = \App\Modules\Payment\Services\MidtransFeeCalculator::channelDefaults();
+                $cfStored = old('channel_fees', $setting->channel_fees ?? []);
+            @endphp
             <div>
-                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Biaya Admin Customer (VA/Transfer)</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Batas Nominal (Rp)</label>
-                        <input type="number" min="0" step="1" name="customer_fee_threshold"
-                               value="{{ old('customer_fee_threshold', (int) $setting->customer_fee_threshold) }}" class="w-full border rounded px-3 py-2">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Biaya Admin (Rp)</label>
-                        <input type="number" min="0" step="1" name="customer_fee_amount"
-                               value="{{ old('customer_fee_amount', (int) $setting->customer_fee_amount) }}" class="w-full border rounded px-3 py-2">
-                    </div>
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-1">Tarif &amp; Subsidi per Metode</h3>
+                <p class="text-xs text-gray-500 mb-3">
+                    <b>MDR</b> = potongan Midtrans. <b>Subsidi</b> = bagian yang toko tanggung.
+                    Yang dibebankan ke pembeli = <b>MDR − subsidi</b> = <code>(MDR% − Subsidi%) × nominal + (MDR Rp − Subsidi Rp)</code>.
+                    Biaya <b>flat (Rp)</b> hanya dikenakan bila nominal <b>di bawah Batas</b> (isi <b>0</b> = selalu dikenakan).
+                    Isi Subsidi = MDR agar pembeli <b>tidak</b> dikenakan biaya.
+                </p>
+                <div class="overflow-x-auto border rounded-lg">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50 text-gray-600 text-xs">
+                            <tr>
+                                <th class="text-left px-3 py-2 font-semibold">Metode</th>
+                                <th class="px-2 py-2 font-semibold">MDR %</th>
+                                <th class="px-2 py-2 font-semibold">MDR Rp</th>
+                                <th class="px-2 py-2 font-semibold">Subsidi %</th>
+                                <th class="px-2 py-2 font-semibold">Subsidi Rp</th>
+                                <th class="px-2 py-2 font-semibold">Batas flat (Rp)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            @foreach($cfLabels as $key => $label)
+                                @php $row = ($cfStored[$key] ?? null) ?: $cfDefaults[$key]; @endphp
+                                <tr>
+                                    <td class="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">{{ $label }}</td>
+                                    <td class="px-2 py-1"><input type="number" min="0" max="100" step="0.001" name="channel_fees[{{ $key }}][mdr_percent]"     value="{{ $row['mdr_percent'] ?? 0 }}"     class="w-20 border rounded px-2 py-1 text-right"></td>
+                                    <td class="px-2 py-1"><input type="number" min="0" step="1"              name="channel_fees[{{ $key }}][mdr_flat]"        value="{{ (int)($row['mdr_flat'] ?? 0) }}"        class="w-24 border rounded px-2 py-1 text-right"></td>
+                                    <td class="px-2 py-1"><input type="number" min="0" max="100" step="0.001" name="channel_fees[{{ $key }}][subsidy_percent]" value="{{ $row['subsidy_percent'] ?? 0 }}" class="w-20 border rounded px-2 py-1 text-right"></td>
+                                    <td class="px-2 py-1"><input type="number" min="0" step="1"              name="channel_fees[{{ $key }}][subsidy_flat]"    value="{{ (int)($row['subsidy_flat'] ?? 0) }}"    class="w-24 border rounded px-2 py-1 text-right"></td>
+                                    <td class="px-2 py-1"><input type="number" min="0" step="1"              name="channel_fees[{{ $key }}][flat_threshold]"  value="{{ (int)($row['flat_threshold'] ?? 0) }}"  class="w-28 border rounded px-2 py-1 text-right"></td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
                 </div>
-                <p class="text-xs text-gray-500 mt-2">Tagihan VA/Transfer di <b>bawah</b> batas nominal dikenakan biaya admin ini (ditanggung customer). QRIS tidak kena. Tarif VA tidak boleh lebih kecil dari biaya admin ini.</p>
+                <p class="text-xs text-gray-500 mt-2">Dipakai untuk (a) biaya admin yang tampil ke pembeli di halaman bayar, dan (b) pembukuan Beban Gateway otomatis saat settle. Sesuaikan tarif MDR dengan tarif asli Midtrans setelah channel aktif.</p>
             </div>
 
             {{-- ===== Akun ===== --}}

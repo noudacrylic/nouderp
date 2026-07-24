@@ -250,8 +250,16 @@ class CheckoutController extends Controller
             $cartDisc   = $this->promotions->resolveCartTotalDiscount($subtotal);
             $cartAmount = $cartDisc ? (float) min($cartDisc['discount_amount'], $subtotal) : 0.0;
 
+            // Nomor pesanan toko online — format YYMM-XXXXXXX (mis. 2607-8373645), acak &
+            // 100% terpisah dari seri SO internal. Dipakai sebagai nomor SO sekaligus No.
+            // Pesanan (customer_po_number), sehingga saat difakturkan di ERP invoice ikut
+            // nomor ini → SO, faktur web, dan faktur ERP bernomor sama (audit mudah).
+            $webNumber = \App\Services\NumberGeneratorService::webOrderNumber();
+
             $dto = [
                 'customer_id'           => $customer->id,
+                'order_number'          => $webNumber,
+                'customer_po_number'    => $webNumber,
                 'delivery_method'       => $data['delivery_method'],
                 'order_date'            => now()->toDateString(),
                 'notes'                 => 'Pesanan toko online (noudakrilik.com)',
@@ -335,28 +343,33 @@ class CheckoutController extends Controller
         return response()->json(['data' => $this->instructions($wp, PaymentSetting::singleton())]);
     }
 
-    /** Apakah Midtrans siap dipakai (kunci terisi)? */
+    /**
+     * Midtrans dipakai di etalase HANYA bila sudah LIVE (mode Production aktif). Selama
+     * masih sandbox / menunggu approval, kunci sudah terisi tapi belum boleh dipakai
+     * pelanggan → checkout memakai Transfer Bank + kode unik dulu. Begitu Production
+     * dinyalakan di Pengaturan → Midtrans, checkout otomatis SWITCH ke Midtrans.
+     */
     private function midtransReady(): bool
     {
         $m = \App\Models\MidtransSetting::singleton();
 
-        return ! empty($m->server_key) && ! empty($m->client_key);
+        return ! empty($m->server_key) && ! empty($m->client_key) && (bool) $m->is_production;
     }
 
-    /** Pilihan pembeli → metode yang benar-benar siap; fallback ke yang tersedia. */
+    /** Metode checkout: Midtrans bila sudah live, selain itu Transfer Bank + kode unik. */
     private function resolveMethod(?string $requested, PaymentSetting $setting): string
     {
-        $tersedia = array_values(array_filter([
-            $setting->qrisReady()   ? WebPayment::METHOD_QRIS     : null,
-            $this->midtransReady()  ? WebPayment::METHOD_MIDTRANS : null,
-            $setting->isConfigured() ? WebPayment::METHOD_TRANSFER : null,
-        ]));
-
-        if ($requested && in_array($requested, $tersedia, true)) {
-            return $requested;
+        if ($this->midtransReady()) {
+            return WebPayment::METHOD_MIDTRANS;
+        }
+        if ($setting->isConfigured()) {
+            return WebPayment::METHOD_TRANSFER; // transfer bank + kode unik (default pra-Midtrans)
+        }
+        if ($setting->qrisReady()) {
+            return WebPayment::METHOD_QRIS;
         }
 
-        return $tersedia[0] ?? WebPayment::METHOD_TRANSFER;
+        return WebPayment::METHOD_TRANSFER;
     }
 
     /** Metode pembayaran yang tersedia — etalase menampilkan pilihan sesuai ini. */
@@ -381,14 +394,8 @@ class CheckoutController extends Controller
                 'recommended' => empty($methods),
             ];
         }
-        if ($setting->isConfigured()) {
-            $methods[] = [
-                'key'         => 'transfer',
-                'label'       => 'Transfer Bank',
-                'description' => 'Transfer manual ke rekening toko dengan nominal unik untuk verifikasi.',
-                'recommended' => empty($methods),
-            ];
-        }
+        // Transfer bank manual + kode unik tidak lagi ditawarkan ke pembeli —
+        // digantikan Midtrans (Virtual Account) yang biayanya setara & otomatis.
 
         return response()->json(['data' => $methods]);
     }
@@ -578,6 +585,8 @@ class CheckoutController extends Controller
             'qris_expires_at' => $wp->isQris() ? optional($wp->qris_expires_at)->toIso8601String() : null,
             // Midtrans: tautan halaman pembayaran (Snap) milik pesanan ini.
             'pay_url'         => $wp->isMidtrans() ? $this->webPayments->midtransPayUrl($wp) : null,
+            // Faktur web (struk) — tersedia setelah pembayaran diterima.
+            'faktur_url'      => $paid ? url('/faktur/' . $wp->public_token) : null,
             'status'          => $wp->status,
             'status_label'    => $wp->statusLabel()['label'],
             'paid'            => $paid,

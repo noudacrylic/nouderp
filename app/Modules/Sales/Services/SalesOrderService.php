@@ -43,8 +43,13 @@ class SalesOrderService
 
             $deliveryMethod = $this->normalizeDeliveryMethod($dto['delivery_method'] ?? 'kurir');
 
+            // Nomor eksternal (mis. toko online / marketplace) boleh dioper agar SO memakai
+            // nomor itu — memudahkan audit (SO = INV = nomor pesanan).
+            $overrideNumber = trim((string) ($dto['order_number'] ?? ''));
+
             $so = SalesOrder::create([
-                'order_number'    => NumberGeneratorService::forCustomer('SO', $customerId, null),
+                'order_number'    => $overrideNumber !== '' ? $overrideNumber : NumberGeneratorService::forCustomer('SO', $customerId, null),
+                'customer_po_number' => $dto['customer_po_number'] ?? null,
                 'customer_id'     => $customerId,
                 'warehouse_id'    => $warehouseId,
                 'delivery_method' => $deliveryMethod,

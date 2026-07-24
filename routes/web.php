@@ -34,10 +34,14 @@ Route::get('/', function () {
 // ── Midtrans public pay & webhook (NO auth) ──────────────────────────
 Route::get ('/pay/{token}',          [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'show'])->name('pay.show');
 Route::post('/pay/{token}/charge',   [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'charge'])->name('pay.charge');
+Route::post('/pay/{token}/snap',     [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'snap'])->name('pay.snap');
 Route::get ('/pay/{token}/status',   [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'status'])->name('pay.status');
 Route::get ('/pay/{token}/done',     [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'done'])->name('pay.done');
 Route::get ('/pay/{token}/invoice.pdf', [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'invoicePdf'])->name('pay.invoice.pdf');
 Route::get ('/pay/{token}/so.pdf',      [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'soPdf'])->name('pay.so.pdf');
+
+// Faktur versi web (struk gaya marketplace) untuk pesanan etalase — publik via public_token.
+Route::get ('/faktur/{token}',          [\App\Http\Controllers\WebFakturController::class, 'show'])->name('faktur.web');
 Route::post('/midtrans/notify',   [\App\Modules\Payment\Controllers\MidtransWebhookController::class, 'handle'])
     ->middleware('midtrans.signature')->name('midtrans.notify');
 
@@ -836,6 +840,8 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::get('/kasir',          [\App\Modules\POS\Controllers\PosOrderController::class, 'kasir'])->name('kasir');
     Route::get('/kasir/search',   [\App\Modules\POS\Controllers\PosOrderController::class, 'search'])->name('kasir.search');
     Route::post('/kasir/checkout', [\App\Modules\POS\Controllers\PosOrderController::class, 'checkout'])->name('kasir.checkout');
+    // Batalkan transaksi QRIS yang belum dibayar (void invoice + SJ + balik stok) → boleh transaksi baru.
+    Route::post('/kasir/void-pending', [\App\Modules\POS\Controllers\PosOrderController::class, 'voidPending'])->name('kasir.void-pending');
     // Resolve promo untuk Kasir (akses lewat menu pos, supaya kasir non-admin tetap bisa).
     Route::get('/kasir/promo-resolve', [\App\Http\Controllers\Sales\PromosiController::class, 'resolveApi'])->name('kasir.promo-resolve');
 

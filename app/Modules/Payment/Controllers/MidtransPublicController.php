@@ -43,10 +43,12 @@ class MidtransPublicController extends Controller
             'customer' => $trx->customer,
             'fee_threshold' => $this->fees->customerFeeThreshold(),
             'fee_amount' => $this->fees->customerFeeAmount(),
+            'channel_fees' => $this->fees->effectiveChannelFees(),
             'client_key' => $setting->client_key ?: config('services.midtrans.client_key'),
             'is_production' => (bool) $setting->is_production,
             'expired' => $trx->isExpired(),
             'instruction' => $this->instructionFrom($trx),
+            'require_full' => false, // default; pesanan web memaksa bayar penuh (lihat SO branch)
         ];
 
         if ($this->isSo($trx)) {
@@ -55,13 +57,15 @@ class MidtransPublicController extends Controller
                 return view('pay.invalid', ['reason' => 'Pesanan tidak ditemukan.']);
             }
             $remaining = (int) round($so->grand_total - $so->paid_amount);
+            $requireFull = $this->requiresFullPayment($trx); // pesanan dari website → wajib lunas
 
             return view('pay.show', array_merge($common, [
                 'so' => $so,
                 'grand_total' => (int) round($so->grand_total),
                 'paid_amount' => (int) round($so->paid_amount),
                 'remaining' => $remaining,
-                'min_dp' => $this->minDpFor($trx, $so, $remaining),
+                'min_dp' => $requireFull ? $remaining : $this->minDpFor($trx, $so, $remaining),
+                'require_full' => $requireFull,
                 'pdf_url' => route('pay.so.pdf', $token),
             ]));
         }
@@ -111,17 +115,21 @@ class MidtransPublicController extends Controller
                 return response()->json(['error' => 'Pesanan tidak ditemukan'], 404);
             }
             $remaining = (int) round($so->grand_total - $so->paid_amount);
-            $minDp = $this->minDpFor($trx, $so, $remaining);
-            $amount = (int) clean_number($data['amount'] ?? 0);
-
             if ($remaining <= 0) {
                 return response()->json(['error' => 'Pesanan ini sudah lunas.'], 422);
             }
-            if ($amount < $minDp) {
-                return response()->json(['error' => 'DP minimal Rp ' . number_format($minDp, 0, ',', '.') . '.'], 422);
-            }
-            if ($amount > $remaining) {
-                return response()->json(['error' => 'DP melebihi sisa tagihan (Rp ' . number_format($remaining, 0, ',', '.') . ').'], 422);
+
+            if ($this->requiresFullPayment($trx)) {
+                $amount = $remaining; // pesanan website: wajib lunas
+            } else {
+                $minDp = $this->minDpFor($trx, $so, $remaining);
+                $amount = (int) clean_number($data['amount'] ?? 0);
+                if ($amount < $minDp) {
+                    return response()->json(['error' => 'DP minimal Rp ' . number_format($minDp, 0, ',', '.') . '.'], 422);
+                }
+                if ($amount > $remaining) {
+                    return response()->json(['error' => 'DP melebihi sisa tagihan (Rp ' . number_format($remaining, 0, ',', '.') . ').'], 422);
+                }
             }
         }
 
@@ -137,6 +145,59 @@ class MidtransPublicController extends Controller
         }
 
         return response()->json($instr);
+    }
+
+    /**
+     * Buat halaman pembayaran Snap (hosted Midtrans) → kembalikan redirect_url.
+     * POST /pay/{token}/snap
+     */
+    public function snap(Request $request, string $token): JsonResponse
+    {
+        $trx = $this->links->findByToken($token);
+        if (!$trx) {
+            return response()->json(['error' => 'Link tidak valid'], 404);
+        }
+        if ($trx->isExpired() || $trx->isPaid()) {
+            return response()->json(['error' => 'Link sudah tidak aktif'], 410);
+        }
+
+        $data = $request->validate([
+            'channel' => 'required|in:qris,va,ewallet,credit_card,alfamart,paylater',
+            'amount' => 'nullable',
+        ]);
+
+        $amount = null;
+        if ($this->isSo($trx)) {
+            $so = $trx->salesOrder;
+            if (!$so) {
+                return response()->json(['error' => 'Pesanan tidak ditemukan'], 404);
+            }
+            $remaining = (int) round($so->grand_total - $so->paid_amount);
+            if ($remaining <= 0) {
+                return response()->json(['error' => 'Pesanan ini sudah lunas.'], 422);
+            }
+
+            if ($this->requiresFullPayment($trx)) {
+                $amount = $remaining; // pesanan website: wajib lunas
+            } else {
+                $minDp = $this->minDpFor($trx, $so, $remaining);
+                $amount = (int) clean_number($data['amount'] ?? 0);
+                if ($amount < $minDp) {
+                    return response()->json(['error' => 'DP minimal Rp ' . number_format($minDp, 0, ',', '.') . '.'], 422);
+                }
+                if ($amount > $remaining) {
+                    return response()->json(['error' => 'DP melebihi sisa tagihan (Rp ' . number_format($remaining, 0, ',', '.') . ').'], 422);
+                }
+            }
+        }
+
+        try {
+            $trx = $this->midtrans->createSnapForLink($trx, $data['channel'], $amount);
+        } catch (Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+
+        return response()->json(['redirect_url' => $trx->snap_redirect_url]);
     }
 
     /**
@@ -225,6 +286,17 @@ class MidtransPublicController extends Controller
     protected function isSo($trx): bool
     {
         return $trx->sales_order_id && !$trx->sales_invoice_id;
+    }
+
+    /**
+     * Pesanan dari WEBSITE wajib dibayar LUNAS (tak boleh DP sebagian). Penanda: SO
+     * tersebut punya WebPayment (dibuat saat checkout etalase). Link DP yang dibuat admin
+     * TIDAK punya WebPayment → tetap boleh DP.
+     */
+    protected function requiresFullPayment($trx): bool
+    {
+        return $this->isSo($trx)
+            && \App\Models\WebPayment::where('sales_order_id', $trx->sales_order_id)->exists();
     }
 
     /**

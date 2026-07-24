@@ -6,7 +6,7 @@
 <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
     <div class="bg-emerald-600 px-6 py-5 text-white">
         <div class="text-xs uppercase tracking-widest opacity-80">Noud Acrylic</div>
-        <div class="text-lg font-bold mt-1">Uang Muka (DP) — {{ $so->order_number }}</div>
+        <div class="text-lg font-bold mt-1">{{ ($require_full ?? false) ? 'Pembayaran Pesanan' : 'Uang Muka (DP)' }} — {{ $so->order_number }}</div>
     </div>
 
     <div class="px-6 py-5 border-b">

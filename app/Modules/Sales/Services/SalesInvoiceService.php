@@ -217,8 +217,15 @@ class SalesInvoiceService
             // Marketplace: invoice_number ikut No. Pesanan (customer_po_number SO).
             $marketplaceRef = $so?->customer_po_number;
 
+            // Pesanan eksternal (toko online / marketplace) menandai dirinya dengan
+            // order_number === customer_po_number. Faktur memakai nomor yang sama agar
+            // SO, faktur web, dan faktur ERP bernomor identik → audit mudah.
+            $externalNumber = ($so && $so->order_number && $so->order_number === $so->customer_po_number)
+                ? $so->order_number
+                : null;
+
             $invoice = SalesInvoice::create([
-                'invoice_number' => NumberGeneratorService::forCustomer('SI', $dto->customer_id, $marketplaceRef),
+                'invoice_number' => $externalNumber ?? NumberGeneratorService::forCustomer('SI', $dto->customer_id, $marketplaceRef),
                 'sales_order_id' => $dto->sales_order_id,
                 'customer_id' => $dto->customer_id,
                 'warehouse_id' => $dto->warehouse_id,

@@ -56,6 +56,21 @@ class MidtransSettingController extends Controller
         $data['show_payment_method'] = $request->boolean('show_payment_method');
         $data['pos_qris_enabled'] = $request->boolean('pos_qris_enabled');
 
+        // Tarif & subsidi per metode. Input <number> → dikirim kanonik (titik = desimal),
+        // jadi cast langsung; JANGAN clean_number (bisa salah baca desimal persen).
+        $channelFees = [];
+        foreach (array_keys(\App\Modules\Payment\Services\MidtransFeeCalculator::channelLabels()) as $ch) {
+            $row = (array) $request->input("channel_fees.$ch", []);
+            $channelFees[$ch] = [
+                'mdr_percent'     => max(0, (float) ($row['mdr_percent'] ?? 0)),
+                'mdr_flat'        => max(0, (int) ($row['mdr_flat'] ?? 0)),
+                'subsidy_percent' => max(0, (float) ($row['subsidy_percent'] ?? 0)),
+                'subsidy_flat'    => max(0, (int) ($row['subsidy_flat'] ?? 0)),
+                'flat_threshold'  => max(0, (int) ($row['flat_threshold'] ?? 0)),
+            ];
+        }
+        $data['channel_fees'] = $channelFees;
+
         MidtransSetting::singleton()->update($data);
 
         return redirect()->route('settings.integrations.index')

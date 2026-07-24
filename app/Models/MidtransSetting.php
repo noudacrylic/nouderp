@@ -20,6 +20,7 @@ class MidtransSetting extends Model
         'qris_fee_percent',
         'customer_fee_threshold',
         'customer_fee_amount',
+        'channel_fees',
         'cash_account_id',
         'fee_account_id',
     ];
@@ -34,7 +35,16 @@ class MidtransSetting extends Model
         'qris_fee_percent' => 'decimal:3',
         'customer_fee_threshold' => 'decimal:2',
         'customer_fee_amount' => 'decimal:2',
+        'channel_fees' => 'array',
     ];
+
+    /** Konfigurasi tarif/subsidi 1 channel (null bila belum diatur → pakai fallback lama). */
+    public function channelFee(string $channel): ?array
+    {
+        $all = $this->channel_fees ?? [];
+
+        return $all[$channel] ?? null;
+    }
 
     public static function singleton(): self
     {

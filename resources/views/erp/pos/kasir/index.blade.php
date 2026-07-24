@@ -84,6 +84,15 @@
                 <button id="btnQris" type="button" class="px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white">📲 Bayar QRIS</button>
                 @endif
             </div>
+
+            {{-- Terkunci: ada transaksi QRIS berjalan yang belum dibayar. --}}
+            <div id="lockedBar" class="hidden mt-2 space-y-2">
+                <div class="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
+                    Transaksi <b id="lockedInv"></b> menunggu pembayaran QRIS. Selesaikan pembayaran, atau buat transaksi baru — transaksi ini akan <b>dibatalkan</b>.
+                </div>
+                <button id="btnNewTx" type="button" class="w-full px-3 py-2.5 rounded-lg text-sm font-bold border-2 border-red-300 text-red-700 hover:bg-red-50">➕ Buat Transaksi Baru (batalkan yang ini)</button>
+            </div>
+
             <p id="posError" class="hidden text-xs text-red-600 mt-2"></p>
         </div>
     </div>
@@ -180,6 +189,7 @@
     const RESOLVE_URL = @json(route('pos.kasir.promo-resolve'));
 
     let cart = [];   // {id, sku, name, price, qty, dtype, dval, manual, promoName, origPrice}
+    let pendingSale = null;   // faktur QRIS POS yg BELUM dibayar → kunci kasir sampai lunas/void
     let pollTimer = null;
     let manualGlobal = false;   // user mengubah diskon global secara manual → jangan ditimpa promo
     let voucherCode = '';
@@ -227,6 +237,7 @@
     }
 
     window.posAdd = function (p) {
+        if (pendingSale) { showError('Selesaikan atau batalkan transaksi yang sedang berlangsung dulu.'); return; }
         const found = cart.find(x => x.id === p.id);
         if (found) { found.qty += 1; }
         else {
@@ -238,6 +249,31 @@
         applyCartPromos();
     };
 
+    // Tampilan keranjang READ-ONLY saat ada transaksi QRIS berjalan (terkunci).
+    // Sumber item: data server (setelah reload) atau cart lokal (setelah checkout baru).
+    function renderLockedCart() {
+        const box = el('posCart');
+        let items, subtotal, grand;
+        if (pendingSale.items) {
+            items = pendingSale.items.map(it => ({ name: it.name, sku: it.sku, qty: it.qty, price: it.unit_price, line: it.line_total }));
+            subtotal = (pendingSale.subtotal != null) ? pendingSale.subtotal : pendingSale.grand_total;
+            grand = pendingSale.grand_total;
+        } else {
+            items = cart.map(it => ({ name: it.name, sku: it.sku, qty: it.qty, price: it.price, line: lineSubtotal(it) }));
+            const t = calcTotals(); subtotal = t.subtotal; grand = t.grand;
+        }
+        box.innerHTML = items.length ? items.map(it => `
+            <div class="p-2 flex items-start gap-2">
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-semibold text-gray-800 leading-tight">${escapeHtml(it.name)}</div>
+                    <div class="text-[11px] text-gray-400">${escapeHtml(it.sku || '-')} · ${fmtQty(it.qty)} × ${rupiah0(it.price)}</div>
+                </div>
+                <div class="w-24 text-right text-sm font-semibold">${rupiah(it.line)}</div>
+            </div>`).join('') : '<div class="text-sm text-gray-400 p-4 text-center">Transaksi berjalan.</div>';
+        el('sumSubtotal').textContent = rupiah(subtotal);
+        el('sumGrand').textContent = rupiah(grand);
+    }
+
     // ---------- Keranjang ----------
     function lineSubtotal(it) {
         const gross = it.qty * it.price;
@@ -246,6 +282,7 @@
     }
 
     function renderCart() {
+        if (pendingSale) { renderLockedCart(); return; }   // transaksi berjalan → tampilan read-only
         const box = el('posCart');
         if (!cart.length) { box.innerHTML = '<div class="text-sm text-gray-400 p-4 text-center">Keranjang kosong.</div>'; recalc(); return; }
         box.innerHTML = cart.map((it, i) => `
@@ -349,6 +386,7 @@
     }
 
     function recalc() {
+        if (pendingSale) { renderLockedCart(); return; }   // terkunci → total mengikuti transaksi berjalan
         const t = calcTotals();
         el('sumSubtotal').textContent = rupiah(t.subtotal);
         el('sumGrand').textContent = rupiah(t.grand);
@@ -426,15 +464,40 @@
     // ----- QRIS ----- (tombol hanya ada bila Midtrans terkonfigurasi)
     el('btnQris')?.addEventListener('click', function () {
         clearError();
+
+        // Sudah ada transaksi berjalan → JANGAN buat faktur baru; tampilkan lagi QRIS-nya.
+        if (pendingSale) { openQris(pendingSale); return; }
+
         if (!cart.length) return showError('Keranjang masih kosong.');
         this.disabled = true;
         postCheckout(buildPayload('qris'))
             .then(({ ok, data }) => {
                 if (!ok) { showError(data.message || 'Gagal.'); return; }
+                pendingSale = data;   // kunci kasir ke faktur ini sampai lunas / dibatalkan
+                setLocked(true);
                 openQris(data);
             })
             .catch(() => showError('Gagal menghubungi server.'))
             .finally(() => { this.disabled = false; });
+    });
+
+    // Batalkan transaksi berjalan (void faktur + SJ + stok) → boleh mulai transaksi baru.
+    el('btnNewTx')?.addEventListener('click', function () {
+        if (!pendingSale) return;
+        if (!confirm('Transaksi ' + (pendingSale.invoice_no || '') + ' akan DIBATALKAN (faktur & surat jalan di-void, stok dikembalikan). Lanjutkan?')) return;
+        this.disabled = true; this.textContent = 'Membatalkan…';
+        fetch(@json(route('pos.kasir.void-pending')), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @json(csrf_token()) },
+            body: JSON.stringify({ invoice_id: pendingSale.invoice_id }),
+        })
+            .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+            .then(({ ok, data }) => {
+                if (!ok) { alert(data.message || 'Gagal membatalkan.'); return; }
+                posNewSale();   // reset cart + pendingSale + buka kunci
+            })
+            .catch(() => alert('Gagal menghubungi server.'))
+            .finally(() => { this.disabled = false; this.textContent = '➕ Buat Transaksi Baru (batalkan yang ini)'; });
     });
 
     function openQris(checkout) {
@@ -465,6 +528,8 @@
                     const s = el('qrisStatus');
                     if (d.status === 'settlement') {
                         stopPolling();
+                        closeSnapPopup(); // tutup popup Midtrans (Snap tak menutup sendiri saat lunas via webhook/simulasi)
+                        pendingSale = null; setLocked(false);   // lunas → buka kunci kasir
                         if (s) s.outerHTML = '<div class="text-emerald-600 font-bold text-lg py-4">✓ Pembayaran diterima!</div>';
                         setTimeout(() => { posCloseQris(); showDone(checkout, null); }, 1200);
                     } else if (['expire', 'cancel', 'deny', 'failure'].includes(d.status)) {
@@ -475,6 +540,23 @@
         }, 3000);
     }
     function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+    // Tutup paksa popup Snap Midtrans. Saat pembayaran tuntas via webhook (atau simulasi
+    // sandbox), Snap tidak selalu menutup sendiri — jadi kita bereskan overlay-nya.
+    function closeSnapPopup() {
+        try { if (window.snap && typeof window.snap.hide === 'function') window.snap.hide(); } catch (e) {}
+        // Snap menyuntik overlay sebagai anak langsung <body>; naik dari iframe-nya
+        // sampai level body lalu buang seluruh kontainernya.
+        document.querySelectorAll('iframe[src*="midtrans"]').forEach(f => {
+            let node = f;
+            while (node.parentElement && node.parentElement !== document.body) node = node.parentElement;
+            node.remove();
+        });
+        document.querySelectorAll('[id*="snap"], [class*="snap"]').forEach(e => {
+            if (e.querySelector && e.querySelector('iframe[src*="midtrans"]')) e.remove();
+        });
+        document.body.style.overflow = '';
+    }
 
     function loadSnapJs(clientKey, isProd) {
         return new Promise((resolve, reject) => {
@@ -503,6 +585,7 @@
     }
 
     window.posNewSale = function () {
+        pendingSale = null; setLocked(false);   // buka kunci kasir
         cart = [];
         manualGlobal = false; voucherCode = '';
         el('gdiscValue').value = 0; el('gdiscType').value = 'nominal'; el('ppnPercent').value = 0;
@@ -517,7 +600,29 @@
     function showModal(id) { const m = el(id); m.classList.remove('hidden'); m.classList.add('flex'); }
     function hideModal(id) { const m = el(id); m.classList.add('hidden'); m.classList.remove('flex'); }
     window.posCloseCash = () => hideModal('cashModal');
+    // Tutup tampilan QRIS TANPA membatalkan transaksi — kasir tetap terkunci ke faktur
+    // berjalan (lihat pendingSale). Operator bisa "Tampilkan QRIS" lagi atau buat transaksi baru.
     window.posCloseQris = () => { stopPolling(); hideModal('qrisModal'); };
+
+    // Kunci/buka kasir saat ada transaksi QRIS berjalan yang belum dibayar.
+    function setLocked(locked) {
+        const cashBtn = el('btnCash'), qrisBtn = el('btnQris'), bar = el('lockedBar');
+        // Input yang dibekukan selama transaksi berjalan.
+        ['gdiscValue', 'gdiscType', 'ppnPercent', 'voucherInput', 'posSearch'].forEach(id => {
+            const e = el(id); if (e) e.disabled = locked;
+        });
+        if (locked) {
+            if (cashBtn) cashBtn.classList.add('hidden');
+            if (qrisBtn) { qrisBtn.textContent = '📲 Tampilkan QRIS'; qrisBtn.classList.add('col-span-2'); }
+            if (bar) bar.classList.remove('hidden');
+            if (pendingSale && el('lockedInv')) el('lockedInv').textContent = pendingSale.invoice_no || '';
+        } else {
+            if (cashBtn) cashBtn.classList.remove('hidden');
+            if (qrisBtn) { qrisBtn.textContent = '📲 Bayar QRIS'; qrisBtn.classList.remove('col-span-2'); }
+            if (bar) bar.classList.add('hidden');
+        }
+        renderCart();   // beralih antara tampilan read-only ↔ editable
+    }
 
     function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function fmtQty(n) { n = parseFloat(n) || 0; return Number.isInteger(n) ? n : n.toFixed(2).replace(/\.?0+$/, ''); }
@@ -560,6 +665,11 @@
 
     renderCart();
     runSearch('');   // tampilkan produk default saat halaman dibuka (tetap bisa di-search)
+
+    // Pulihkan kunci bila server mendeteksi transaksi QRIS berjalan yang belum dibayar
+    // (mis. setelah popup Snap me-redirect atau halaman ter-refresh).
+    const SERVER_PENDING = @json($pendingSale ?? null);
+    if (SERVER_PENDING) { pendingSale = SERVER_PENDING; setLocked(true); }
 })();
 </script>
 @endsection

@@ -15,6 +15,25 @@ class NumberGeneratorService
      * mengikuti No. Pesanan marketplace ($marketplaceRef). Untuk customer
      * biasa, jatuh ke generator standar.
      */
+    /**
+     * Nomor pesanan TOKO ONLINE — format `YYMM-XXXXXXX` (mis. 2607-8373645): tahun-bulan
+     * + 7 digit acak. Sengaja 100% berbeda dari seri internal SO/INV. Dipakai sebagai
+     * nomor SO sekaligus No. Pesanan, lalu diwarisi faktur agar SO = faktur = nomor sama.
+     */
+    public static function webOrderNumber(): string
+    {
+        $prefix = now()->format('ym'); // 2607
+
+        for ($i = 0; $i < 25; $i++) {
+            $candidate = $prefix . '-' . random_int(1_000_000, 9_999_999);
+            if (! \Illuminate\Support\Facades\DB::table('sales_orders')->where('order_number', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
+
+        return $prefix . '-' . random_int(1_000_000, 9_999_999);
+    }
+
     public static function forCustomer(string $type, ?int $customerId, ?string $marketplaceRef = null): string
     {
         $ref = trim((string) $marketplaceRef);
