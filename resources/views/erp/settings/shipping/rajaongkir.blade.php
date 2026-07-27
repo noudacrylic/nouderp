@@ -34,20 +34,21 @@
             <p class="text-[10px] text-gray-400 mt-1">Disimpan di <code>shipping_settings</code>. Jangan dibagikan.</p>
         </div>
 
-        {{-- Alamat asal (origin) — destination_id RajaOngkir. --}}
-        <div>
-            @include('partials.area-search', [
-                'id'          => 'ro_origin',
-                'url'         => route('settings.shipping.rajaongkir.areas'),
-                'hiddenName'  => 'origin_id',
-                'label'       => 'Alamat Asal Pengiriman (gudang)',
-                'value'       => $originId,
-                'text'        => $originLabel,
-                'placeholder' => 'Ketik kecamatan/kota asal, mis. Banyumanik…',
-                'required'    => true,
-            ])
-            <input type="hidden" name="origin_label" id="ro_origin_label" value="{{ $originLabel }}">
-            <p class="text-[10px] text-gray-400 mt-1">Titik asal perhitungan ongkir. Pilih dari daftar pencarian.</p>
+        {{-- Alamat asal (origin) kini diatur di Gudang penjualan, bukan di sini. --}}
+        <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600">
+            <b>Alamat asal ongkir</b> diambil dari <b>Gudang penjualan default</b>.
+            @php $wo = \App\Core\Inventory\Warehouse::shippingOrigin(); @endphp
+            @if($wo && $wo->rajaongkir_origin_id)
+                Saat ini: <span class="font-medium text-gray-800">{{ $wo->rajaongkir_origin_label ?: ('ID ' . $wo->rajaongkir_origin_id) }}</span>
+                (gudang {{ $wo->name }}).
+                <a href="{{ route('inventory.warehouses.edit', $wo->id) }}" class="text-blue-600 hover:underline">Ubah di Gudang →</a>
+            @elseif($wo)
+                <span class="text-amber-600">Belum diatur.</span>
+                Set <b>Area RajaOngkir</b> di
+                <a href="{{ route('inventory.warehouses.edit', $wo->id) }}" class="text-blue-600 hover:underline">gudang {{ $wo->name }} →</a>
+            @else
+                <span class="text-amber-600">Belum ada gudang penjualan aktif.</span> Buat gudang (tandai "Bisa dijual") lalu isi Area RajaOngkir-nya.
+            @endif
         </div>
 
         {{-- Kurir yang ditampilkan. --}}
@@ -71,13 +72,4 @@
         </div>
     </form>
 </div>
-
-<script>
-    // Simpan label asal terpilih (teks pencarian) ke hidden origin_label saat submit.
-    document.getElementById('roForm').addEventListener('submit', function () {
-        var s = document.getElementById('ro_origin_search');
-        var l = document.getElementById('ro_origin_label');
-        if (s && l && s.value.trim()) l.value = s.value.trim();
-    });
-</script>
 @endsection

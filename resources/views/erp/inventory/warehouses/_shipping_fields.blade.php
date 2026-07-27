@@ -3,6 +3,7 @@
     // Pemilih provider area: tampil hanya bila KiriminAja diaktifkan di Settings.
     $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
     $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
+    $roOn = \App\Models\ShippingSetting::for('rajaongkir')->is_enabled;
     $areaProviders = [];
     if ($kaOn) {
         if ($btOn) $areaProviders['biteship'] = 'Biteship';
@@ -48,6 +49,24 @@
         ],
     ])
 
+    @if($roOn)
+        {{-- Asal ongkir RajaOngkir (destination_id RajaOngkir — sistem ID tersendiri). --}}
+        <div>
+            @include('partials.area-search', [
+                'id'          => 'wh_ro_area',
+                'url'         => route('inventory.warehouses.areas') . '?provider=rajaongkir',
+                'hiddenName'  => 'rajaongkir_origin_id',
+                'label'       => 'Area RajaOngkir (asal ongkir)',
+                'value'       => old('rajaongkir_origin_id', $w?->rajaongkir_origin_id ?? ''),
+                'text'        => old('rajaongkir_origin_label', $w?->rajaongkir_origin_label ?? ''),
+                'placeholder' => 'Ketik kecamatan/kota asal, mis. Banyumanik…',
+            ])
+            <input type="hidden" name="rajaongkir_origin_label" id="wh_ro_area_label"
+                   value="{{ old('rajaongkir_origin_label', $w?->rajaongkir_origin_label ?? '') }}">
+            <p class="text-[11px] text-gray-400 mt-1">Titik asal perhitungan ongkir RajaOngkir untuk gudang ini. Pilih dari daftar pencarian.</p>
+        </div>
+    @endif
+
     <div class="grid grid-cols-3 gap-3">
         <div>
             <label class="block text-xs font-bold text-gray-500 mb-1">Kode Pos</label>
@@ -75,3 +94,18 @@
         <p class="text-[11px] text-gray-400 mt-1">Wajib jika gudang ini jadi asal pengiriman <b>kurir instant</b> (Grab/GoSend/Lalamove). Google Maps → klik titik → Share → paste link.</p>
     </div>
 </div>
+
+@if($roOn)
+<script>
+    // Simpan label area RajaOngkir terpilih (teks pencarian) ke hidden saat submit.
+    (function () {
+        var s = document.getElementById('wh_ro_area_search');
+        var l = document.getElementById('wh_ro_area_label');
+        if (!s || !l) return;
+        var form = s.closest('form');
+        if (form) form.addEventListener('submit', function () {
+            if (s.value.trim()) l.value = s.value.trim();
+        });
+    })();
+</script>
+@endif

@@ -26,12 +26,11 @@ class ShippingSettingController extends Controller
         $setting  = ShippingSetting::for('rajaongkir');
         $selected = $setting->config['couriers'] ?? RajaOngkirProvider::DEFAULT_COURIERS;
 
+        // Catatan: alamat asal ongkir kini diatur di Gudang penjualan (bukan di sini).
         return view('erp.settings.shipping.rajaongkir', [
             'setting'          => $setting,
             'couriers'         => self::RAJAONGKIR_COURIERS,
             'selectedCouriers' => $selected,
-            'originId'         => $setting->config['origin_id'] ?? '',
-            'originLabel'      => $setting->config['origin_label'] ?? '',
         ]);
     }
 
@@ -40,16 +39,14 @@ class ShippingSettingController extends Controller
         $data = $request->validate([
             'is_enabled'   => 'nullable|boolean',
             'api_key'      => 'nullable|string|max:500',
-            'origin_id'    => 'nullable|string|max:50',
-            'origin_label' => 'nullable|string|max:255',
             'couriers'     => 'nullable|array',
             'couriers.*'   => 'string|max:50',
         ]);
 
+        // Origin tidak lagi disimpan di sini — sumbernya gudang (warehouses.rajaongkir_origin_id).
+        // Nilai origin_id/label lama di config dibiarkan sebagai fallback transisi.
         $setting = ShippingSetting::for('rajaongkir');
         $config  = $setting->config ?? [];
-        $config['origin_id']    = !empty($data['origin_id']) ? (int) $data['origin_id'] : null;
-        $config['origin_label'] = $data['origin_label'] ?? null;
         $config['couriers']     = array_values(array_unique($request->input('couriers', [])));
 
         $setting->update([

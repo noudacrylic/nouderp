@@ -11,7 +11,8 @@ use Illuminate\Support\Facades\Log;
 /**
  * Adapter RajaOngkir (Komerce) — CEK ONGKIR saja (rate-only).
  * Kredensial di shipping_settings(provider='rajaongkir'): api_key = "Shipping Cost" key,
- * config = ['origin_id' => int, 'origin_label' => string, 'couriers' => string[]].
+ * config = ['couriers' => string[]]. Asal ongkir (origin) diambil dari GUDANG penjualan
+ * default (warehouses.rajaongkir_origin_id) — lihat Warehouse::rajaongkirOriginId().
  *
  * Base PRODUKSI https://rajaongkir.komerce.id/api/v1, header `key`. Asal & tujuan pakai
  * destination_id database RajaOngkir (bukan area_id/postal Biteship). Booking/cetak resi
@@ -51,8 +52,17 @@ class RajaOngkirProvider implements ShippingProvider
         return $this->setting->effectiveBaseUrl() ?: self::DEFAULT_BASE;
     }
 
+    /**
+     * Asal ongkir diambil dari GUDANG penjualan default (kolom rajaongkir_origin_id).
+     * Fallback ke config lama shipping_settings demi kompatibilitas transisi.
+     */
     private function originId(): ?int
     {
+        $fromWarehouse = \App\Core\Inventory\Warehouse::rajaongkirOriginId();
+        if ($fromWarehouse) {
+            return $fromWarehouse;
+        }
+
         return ((int) ($this->setting->config['origin_id'] ?? 0)) ?: null;
     }
 

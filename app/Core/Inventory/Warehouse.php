@@ -15,6 +15,8 @@ class Warehouse extends Model
         'postal_code',
         'biteship_area_id',
         'kiriminaja_area_id',
+        'rajaongkir_origin_id',
+        'rajaongkir_origin_label',
         'latitude',
         'longitude',
         'contact_name',
@@ -80,6 +82,25 @@ class Warehouse extends Model
         return collect([$this->address, $this->city, $this->province, $this->postal_code])
             ->filter()
             ->implode(', ');
+    }
+
+    /**
+     * Gudang penjualan default sebagai asal ongkir. Prioritas: aktif + sellable,
+     * dahulukan bernama "Utama"; jatuh ke id terkecil.
+     */
+    public static function shippingOrigin(): ?Warehouse
+    {
+        return static::where('is_active', true)->where('is_sellable', true)
+            ->orderByRaw("LOWER(name) = 'utama' DESC")
+            ->orderBy('id')
+            ->first();
+    }
+
+    /** destination_id RajaOngkir dari gudang asal (null bila belum diatur). */
+    public static function rajaongkirOriginId(): ?int
+    {
+        $id = optional(static::shippingOrigin())->rajaongkir_origin_id;
+        return $id ? (int) $id : null;
     }
 
     /**
