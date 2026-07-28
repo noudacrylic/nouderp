@@ -118,7 +118,7 @@
                     </td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
                         <span class="px-2 py-0.5 rounded text-xs uppercase {{ $statusCls }}"
-                              @if($order->status === 'merged' && $order->mergedInto) title="Digabung ke {{ $order->mergedInto->order_number }}" @endif>{{ $order->status_label }}</span>
+                              @if($order->mergedInto) title="Digabung ke {{ $order->mergedInto->order_number }}" @endif>{{ $order->status_label }}</span>
                         @if(in_array($order->status, ['confirmed', 'in_progress']))
                             @php
                                 // Langkah yang sedang dikerjakan, atau langkah antre paling depan

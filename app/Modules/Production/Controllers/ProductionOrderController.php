@@ -612,7 +612,11 @@ class ProductionOrderController extends Controller
                 'bom', 'salesOrder', 'outputs.product', 'steps.department',
                 'steps.executors.karyawan', 'steps.executor.karyawan', 'steps.timeLogs',
             ])
-            ->where('status', 'finalized');
+            ->where('status', 'finalized')
+            // Task hasil penggabungan ikut berstatus Selesai mengikuti induknya, tapi tidak
+            // ditampilkan di sini: hasil produksinya tercatat di induk (baris anak qty 0) dan
+            // aksi Edit Finalisasi hanya boleh dijalankan pada induk.
+            ->whereNull('merged_into_id');
 
         if ($search !== '') {
             $query->where(function ($q) use ($search) {

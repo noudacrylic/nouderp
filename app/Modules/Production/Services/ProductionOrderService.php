@@ -1020,6 +1020,13 @@ class ProductionOrderService
 
             $order->update(['status' => 'finalized', 'finalized_at' => now()]);
 
+            // Task yang diserap lewat penggabungan ikut ditandai Selesai — pekerjaannya memang
+            // sudah dikerjakan & masuk stok lewat induk ini. Tanpa ini status 'merged' menggantung
+            // selamanya dan masih dianggap "produksi aktif" oleh AutoProductionService dan
+            // pengecekan kesiapan SO (FulfillmentReadinessService), sehingga produk yang habis
+            // tidak pernah memicu OP otomatis lagi.
+            $this->syncMergedChildrenStatus($order->refresh());
+
             // Auto-advance dokumen sumber Perbaikan → "Selesai Diperbaiki".
             // Garansi: received/posted → repaired, sehingga SJ Garansi bisa langsung dibuat.
             if ($order->isRepairLike()
@@ -1031,10 +1038,56 @@ class ProductionOrderService
         });
     }
 
+    /**
+     * Samakan status task anak hasil penggabungan dengan induknya.
+     *
+     * Induk 'finalized' → anak ikut 'finalized' (+ finalized_at sama): pekerjaannya sudah
+     * dikerjakan dan hasilnya masuk stok atas nama induk, jadi anak tidak boleh terus
+     * dihitung sebagai produksi yang masih berjalan.
+     * Induk kembali aktif (void / edit finalisasi) → anak dikembalikan ke 'merged'.
+     *
+     * Rantai penggabungan bertingkat (anak dari anak) ikut ditelusuri. Hanya baris berstatus
+     * 'merged'/'finalized' yang disentuh, sehingga anak yang pernah dibatalkan tidak terbawa.
+     */
+    private function syncMergedChildrenStatus(ProductionOrder $induk): void
+    {
+        $isFinal     = $induk->status === 'finalized';
+        $status      = $isFinal ? 'finalized' : 'merged';
+        $finalizedAt = $isFinal ? $induk->finalized_at : null;
+
+        $parentIds = [$induk->id];
+        $depth     = 0;
+
+        while ($parentIds !== [] && $depth++ < 20) {
+            $childIds = ProductionOrder::whereIn('merged_into_id', $parentIds)
+                ->whereIn('status', ['merged', 'finalized'])
+                ->pluck('id')
+                ->all();
+
+            if ($childIds === []) {
+                break;
+            }
+
+            ProductionOrder::whereIn('id', $childIds)->update([
+                'status'       => $status,
+                'finalized_at' => $finalizedAt,
+                'updated_at'   => now(),
+            ]);
+
+            $parentIds = $childIds;
+        }
+    }
+
     public function void(int $orderId): void
     {
         DB::transaction(function () use ($orderId) {
             $order = ProductionOrder::with(['outputs', 'steps'])->lockForUpdate()->findOrFail($orderId);
+
+            if ($order->merged_into_id !== null) {
+                throw new Exception(
+                    "Task {$order->order_number} adalah hasil penggabungan — void dilakukan di task induknya."
+                );
+            }
 
             if ($order->status !== 'finalized') {
                 throw new Exception('Hanya order yang sudah difinalisasi yang dapat di-void.');
@@ -1047,6 +1100,9 @@ class ProductionOrderService
             // - Last step TIDAK dibalik ke pending → step memang sudah selesai dikerjakan.
             // Yang dibatalkan oleh void hanyalah finalisasi (FIFO stockIn + jurnal closing WIP), bukan kerja produksinya.
             $order->update(['status' => 'pending', 'finalized_at' => null]);
+
+            // Induk tidak lagi selesai → anak gabungan dikembalikan ke status 'Digabung'.
+            $this->syncMergedChildrenStatus($order->refresh());
         });
     }
 
@@ -1172,6 +1228,12 @@ class ProductionOrderService
             $order = ProductionOrder::with(['outputs', 'steps'])
                 ->lockForUpdate()
                 ->findOrFail($orderId);
+
+            if ($order->merged_into_id !== null) {
+                throw new Exception(
+                    "Task {$order->order_number} adalah hasil penggabungan — edit finalisasi dilakukan di task induknya."
+                );
+            }
 
             if ($order->status !== 'finalized') {
                 throw new Exception('Hanya order yang sudah difinalisasi yang dapat diedit.');

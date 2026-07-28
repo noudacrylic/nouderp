@@ -109,7 +109,12 @@ class AutoProductionService
         // retur/garansi (bukan mengisi ulang stok jual), jadi tidak boleh menghalangi
         // auto-produksi. Hanya produksi asli (ready_stock/custom) yang menambah stok
         // jual yang dianggap duplikat.
-        $hasActive = ProductionOrder::whereNotIn('status', ['finalized', 'cancelled'])
+        //
+        // KECUALIKAN juga status 'merged': task itu sudah diserap ke task induk dan tidak
+        // dikerjakan sendiri lagi — induknyalah yang (kalau memang masih jalan) muncul di
+        // pengecekan ini. Tanpa pengecualian ini satu task gabungan memblokir auto-produksi
+        // produknya SELAMANYA, sehingga stok habis tapi tidak ada OP baru yang terbentuk.
+        $hasActive = ProductionOrder::whereNotIn('status', ['finalized', 'cancelled', 'merged'])
             ->whereNotIn('type', ProductionOrder::REPAIR_TYPES)
             ->whereHas('outputs', function ($q) use ($product) {
                 $q->where('product_id', $product->id)
