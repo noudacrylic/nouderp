@@ -24,7 +24,7 @@
     }
     // Daftar foto galeri (untuk pemilih gambar per-varian).
     $galleryImages = $product->exists
-        ? $product->media->where('kind', 'image')->sortBy('sort_order')->values()
+        ? $product->media->where('group', 'gallery')->where('kind', 'image')->sortBy('sort_order')->values()
             ->map(fn($m, $i) => [
                 'id'    => $m->id,
                 'url'   => $m->url,
@@ -257,9 +257,10 @@
         </div>
     </div>
 
-    {{-- Galeri media (foto/video) --}}
+    {{-- Galeri media (foto/video) + galeri instansi (bukti sosial) --}}
     @if($product->exists)
         @include('erp.store.products._media')
+        @include('erp.store.products._showcase')
     @endif
 
     {{-- SEO --}}

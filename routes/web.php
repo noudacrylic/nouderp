@@ -429,6 +429,7 @@ Route::prefix('erp/store')->group(function () {
     Route::put('/products/{id}/media/reorder',            [\App\Http\Controllers\Store\StoreProductMediaController::class, 'reorder'])->name('store.products.media.reorder');
     Route::put('/products/{id}/media/{mediaId}/primary',  [\App\Http\Controllers\Store\StoreProductMediaController::class, 'setPrimary'])->name('store.products.media.primary');
     Route::put('/products/{id}/media/{mediaId}/alt',      [\App\Http\Controllers\Store\StoreProductMediaController::class, 'updateAlt'])->name('store.products.media.alt');
+    Route::put('/products/{id}/media/{mediaId}/caption',  [\App\Http\Controllers\Store\StoreProductMediaController::class, 'updateCaption'])->name('store.products.media.caption');
     Route::delete('/products/{id}/media/{mediaId}',       [\App\Http\Controllers\Store\StoreProductMediaController::class, 'destroy'])->name('store.products.media.destroy');
 
     // Blog/Artikel SEO

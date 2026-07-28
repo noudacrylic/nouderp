@@ -12,20 +12,26 @@ class StoreProductMediaController extends Controller
 {
     public function __construct(private StoreMediaService $media) {}
 
-    /** Upload satu/lebih foto. */
+    /**
+     * Upload satu/lebih foto.
+     * group=gallery (default) → galeri produk; group=showcase → foto instansi pemesan.
+     */
     public function storeImages(Request $request, $id)
     {
         $product = StoreProduct::findOrFail($id);
 
-        $request->validate([
+        $data = $request->validate([
+            'group'    => ['nullable', 'in:gallery,showcase'],
             'images'   => ['required', 'array', 'min:1'],
             'images.*' => ['file', 'mimes:' . implode(',', config('store.image_mimes')),
                            'max:' . config('store.image_max_kb')],
         ]);
 
+        $group = $data['group'] ?? 'gallery';
+
         $created = [];
         foreach ($request->file('images') as $file) {
-            $created[] = $this->present($this->media->uploadImage($product, $file));
+            $created[] = $this->present($this->media->uploadImage($product, $file, $group));
         }
 
         return response()->json(['ok' => true, 'media' => $created]);
@@ -95,14 +101,26 @@ class StoreProductMediaController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /** Simpan caption (nama instansi) sebuah foto showcase. */
+    public function updateCaption(Request $request, $id, $mediaId)
+    {
+        $product = StoreProduct::findOrFail($id);
+        $media = StoreProductMedia::where('store_product_id', $product->id)->findOrFail($mediaId);
+        $data = $request->validate(['caption' => 'nullable|string|max:255']);
+        $media->update(['caption' => $data['caption'] ?? null]);
+        return response()->json(['ok' => true]);
+    }
+
     private function present(StoreProductMedia $m): array
     {
         return [
             'id'         => $m->id,
+            'group'      => $m->group,
             'kind'       => $m->kind,
             'source'     => $m->source,
             'url'        => $m->url,
             'alt_text'   => $m->alt_text,
+            'caption'    => $m->caption,
             'is_primary' => (bool) $m->is_primary,
             'sort_order' => $m->sort_order,
         ];

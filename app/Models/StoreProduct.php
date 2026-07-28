@@ -42,20 +42,35 @@ class StoreProduct extends Model
         return $this->hasMany(StoreProductVariant::class)->orderBy('sort_order');
     }
 
-    /** Galeri aktif (foto + video), foto lama yang menunggu GC tersembunyi via softdelete. */
+    /**
+     * SEMUA media aktif (galeri + showcase); foto lama yang menunggu GC
+     * tersembunyi via softdelete. Dipakai operasi per-id (urut, hapus, GC).
+     */
     public function media()
     {
         return $this->hasMany(StoreProductMedia::class)->orderBy('sort_order');
     }
 
+    /** Galeri produk — yang tampil di carousel halaman produk. */
+    public function galleryMedia()
+    {
+        return $this->media()->where('group', 'gallery');
+    }
+
+    /** Foto instansi/klien yang pernah memesan produk ini (bukti sosial). */
+    public function showcaseMedia()
+    {
+        return $this->media()->where('group', 'showcase');
+    }
+
     public function images()
     {
-        return $this->media()->where('kind', 'image');
+        return $this->galleryMedia()->where('kind', 'image');
     }
 
     public function videos()
     {
-        return $this->media()->where('kind', 'video');
+        return $this->galleryMedia()->where('kind', 'video');
     }
 
     public function scopePublished($query)

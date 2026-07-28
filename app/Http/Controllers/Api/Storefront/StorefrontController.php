@@ -299,7 +299,7 @@ class StorefrontController extends Controller
             ] : null,
             'has_variants'      => $p->hasVariants(),
             'variant_axes'      => $p->variant_axes,
-            'media'             => $p->media->map(fn($m) => [
+            'media'             => $p->media->where('group', 'gallery')->map(fn($m) => [
                 'kind'       => $m->kind,
                 'source'     => $m->source,
                 'url'        => $m->url,
@@ -307,6 +307,14 @@ class StorefrontController extends Controller
                 'is_primary' => (bool) $m->is_primary,
                 'sort_order' => $m->sort_order,
             ])->values(),
+            // Foto instansi/klien yang pernah memesan — bukti sosial di bawah deskripsi.
+            'showcase'          => $p->media->where('group', 'showcase')
+                ->sortBy('sort_order')
+                ->map(fn($m) => [
+                    'url'     => $m->url,
+                    'caption' => $m->caption,
+                    'alt'     => $m->alt_text,
+                ])->values(),
             'variants'          => $variants->values(),
             'price_from'        => $variants->min('price'),
             'meta'              => [

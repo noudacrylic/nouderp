@@ -40,17 +40,24 @@ class StoreMediaService
         return $this->fs = Storage::disk(config('store.local_disk', 'public'));
     }
 
-    public function uploadImage(StoreProduct $product, UploadedFile $file): StoreProductMedia
+    /**
+     * $group: 'gallery' (galeri produk) atau 'showcase' (foto instansi pemesan).
+     * Foto showcase tidak pernah jadi foto utama — utama hanya untuk galeri.
+     */
+    public function uploadImage(StoreProduct $product, UploadedFile $file, string $group = 'gallery'): StoreProductMedia
     {
         $key = $this->store($product, $file);
+        $isGallery = $group !== 'showcase';
 
         return $product->media()->create([
+            'group'      => $isGallery ? 'gallery' : 'showcase',
             'kind'       => 'image',
             'source'     => 'r2',
             'url'        => $this->fs()->url($key),
             'r2_key'     => $key,
-            'is_primary' => !$product->media()->where('kind', 'image')->exists(), // foto pertama jadi utama
-            'sort_order' => $this->nextSortOrder($product),
+            // foto galeri pertama otomatis jadi utama
+            'is_primary' => $isGallery && !$product->galleryMedia()->where('kind', 'image')->exists(),
+            'sort_order' => $this->nextSortOrder($product, $group),
         ]);
     }
 
@@ -59,6 +66,7 @@ class StoreMediaService
         $key = $this->store($product, $file);
 
         return $product->media()->create([
+            'group'      => 'gallery',   // video hanya untuk galeri produk
             'kind'       => 'video',
             'source'     => 'r2',
             'url'        => $this->fs()->url($key),
@@ -70,6 +78,7 @@ class StoreMediaService
     public function addYoutube(StoreProduct $product, string $url): StoreProductMedia
     {
         return $product->media()->create([
+            'group'      => 'gallery',
             'kind'       => 'video',
             'source'     => 'youtube',
             'url'        => $url,
@@ -85,17 +94,17 @@ class StoreMediaService
         $product = $media->storeProduct;
         $media->delete();
 
-        // Bila foto utama dihapus, promosikan foto tersisa pertama.
+        // Bila foto utama dihapus, promosikan foto galeri tersisa pertama.
         if ($wasPrimary && $product) {
-            $next = $product->media()->where('kind', 'image')->orderBy('sort_order')->first();
+            $next = $product->galleryMedia()->where('kind', 'image')->orderBy('sort_order')->first();
             if ($next) $next->update(['is_primary' => true]);
         }
     }
 
     public function setPrimary(StoreProduct $product, int $mediaId): void
     {
-        $product->media()->where('kind', 'image')->update(['is_primary' => false]);
-        $product->media()->where('id', $mediaId)->where('kind', 'image')->update(['is_primary' => true]);
+        $product->galleryMedia()->where('kind', 'image')->update(['is_primary' => false]);
+        $product->galleryMedia()->where('id', $mediaId)->where('kind', 'image')->update(['is_primary' => true]);
     }
 
     /** $orderedIds = array id media sesuai urutan baru. */
@@ -166,8 +175,9 @@ class StoreMediaService
         return $this->fs()->putFileAs($dir, $file, $name, 'public');
     }
 
-    private function nextSortOrder(StoreProduct $product): int
+    /** Urutan dihitung per kelompok supaya galeri & showcase tidak saling geser. */
+    private function nextSortOrder(StoreProduct $product, string $group = 'gallery'): int
     {
-        return (int) $product->media()->max('sort_order') + 1;
+        return (int) $product->media()->where('group', $group)->max('sort_order') + 1;
     }
 }

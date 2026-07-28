@@ -13,11 +13,13 @@ class StoreProductMedia extends Model
 
     protected $fillable = [
         'store_product_id',
+        'group',        // gallery | showcase
         'kind',
         'source',
         'url',
         'r2_key',
         'alt_text',
+        'caption',      // nama instansi / keterangan (dipakai showcase)
         'is_primary',
         'sort_order',
     ];
