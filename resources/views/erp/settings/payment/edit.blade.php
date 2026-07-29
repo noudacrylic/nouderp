@@ -23,7 +23,6 @@
 
             {{-- Rekening tujuan (bisa lebih dari satu: mis. BRI auto-email + BCA manual-Telegram) --}}
             @php
-                $accOptions = $cashAccounts->map(fn($a) => ['id' => (string) $a->id, 'label' => $a->code.' — '.$a->name])->values();
                 $initRows = collect(old('bank_accounts', $setting->accounts()))->map(fn($r) => [
                     'bank_name'       => $r['bank_name'] ?? '',
                     'account_number'  => $r['account_number'] ?? '',
@@ -36,7 +35,7 @@
                 }
             @endphp
             <div class="border-t border-gray-100 pt-5"
-                 x-data="{ rows: @js($initRows), opts: @js($accOptions) }">
+                 x-data="{ rows: @js($initRows) }">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-bold text-gray-700">Rekening Tujuan</h3>
                     <button type="button" class="text-xs text-blue-600 hover:underline"
@@ -65,12 +64,16 @@
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 items-end">
                             <div class="sm:col-span-1">
                                 <label class="block text-xs font-semibold text-gray-600 mb-1">Akun Kas ERP</label>
+                                {{-- Opsi dirender server-side (BUKAN <template x-for>): x-model menyeleksi
+                                     nilai awal dengan menelusuri el.options saat init, sedangkan x-for bersarang
+                                     baru mengisi <option> setelahnya → pilihan tersimpan tampil kosong dan
+                                     ikut terkirim kosong saat disimpan ulang. --}}
                                 <select x-model="row.cash_account_id" :name="`bank_accounts[${i}][cash_account_id]`"
                                         class="w-full border rounded px-3 py-2 text-sm">
                                     <option value="">— akun kas —</option>
-                                    <template x-for="o in opts" :key="o.id">
-                                        <option :value="o.id" x-text="o.label"></option>
-                                    </template>
+                                    @foreach ($cashAccounts as $a)
+                                        <option value="{{ $a->id }}">{{ $a->code }} — {{ $a->name }}</option>
+                                    @endforeach
                                 </select>
                             </div>
                             <div class="sm:col-span-1">
