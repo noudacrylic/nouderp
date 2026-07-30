@@ -24,8 +24,11 @@
         ])->all()
         : (old('lines') ?: []);
 
+    // Label akun: hutang ditandai supaya tidak tertukar dengan beban.
+    $accLabel = fn($a) => $a->code . ' — ' . $a->name . ($a->type === 'liability' ? ' [Hutang]' : '');
+
     $typeSubtitles = [
-        'general'         => 'Beban / akun pengeluaran → Kas/Bank',
+        'general'         => 'Beban / hutang / akun pengeluaran → Kas/Bank',
         'freight'         => 'Titipan Ongkir (1203) → Kas/Bank, ambil otomatis dari faktur',
         'customer_refund' => 'Overpay Pelanggan (2106) → Kas/Bank',
     ];
@@ -193,7 +196,7 @@
 
     <datalist id="expenseAccountList">
         @foreach($expenseAccounts as $acc)
-            <option data-id="{{ $acc->id }}" value="{{ $acc->code }} — {{ $acc->name }}"></option>
+            <option data-id="{{ $acc->id }}" value="{{ $accLabel($acc) }}"></option>
         @endforeach
     </datalist>
 
@@ -215,7 +218,7 @@
 </div>
 
 <script>
-const expenseAccounts = {!! json_encode($expenseAccounts->map(fn($a)=>['id'=>$a->id,'code'=>$a->code,'name'=>$a->name,'label'=>$a->code.' — '.$a->name])->values()) !!};
+const expenseAccounts = {!! json_encode($expenseAccounts->map(fn($a)=>['id'=>$a->id,'code'=>$a->code,'name'=>$a->name,'label'=>$accLabel($a)])->values()) !!};
 const titipanAccount = {!! json_encode($titipanAccount ? ['id'=>$titipanAccount->id,'label'=>$titipanAccount->code.' — '.$titipanAccount->name] : null) !!};
 const overpayAccount = {!! json_encode($overpayAccount ? ['id'=>$overpayAccount->id,'label'=>$overpayAccount->code.' — '.$overpayAccount->name] : null) !!};
 const initialLines = {!! json_encode($existingLines) !!};

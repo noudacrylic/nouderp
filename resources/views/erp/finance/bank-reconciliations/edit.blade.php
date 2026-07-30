@@ -554,11 +554,15 @@ const QM_QUICK_DISB_URL  = @json(route('finance.cash-bank.disbursements.quick-st
 const QM_QUICK_RCPT_URL  = @json(route('finance.cash-bank.receipts.quick-store'));
 const QM_CSRF            = @json(csrf_token());
 
+@php
+    // Hutang ditandai supaya tidak tertukar dengan beban/pendapatan.
+    $qmLabel = fn($a) => $a->code . ' — ' . $a->name . ($a->type === 'liability' ? ' [Hutang]' : '');
+@endphp
 const QM_EXPENSE_ACCOUNTS = @json($disbursementAccounts->map(fn($a) => [
-    'id' => $a->id, 'label' => $a->code . ' — ' . $a->name,
+    'id' => $a->id, 'label' => $qmLabel($a),
 ])->values());
 const QM_REVENUE_ACCOUNTS = @json($revenueAccounts->map(fn($a) => [
-    'id' => $a->id, 'label' => $a->code . ' — ' . $a->name,
+    'id' => $a->id, 'label' => $qmLabel($a),
 ])->values());
 
 let qmAccountByLabel = {};

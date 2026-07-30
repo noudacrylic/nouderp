@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Finance\Models\CashReceipt;
 use App\Modules\Finance\Services\CashReceiptService;
 use App\Core\Accounting\Account;
+use App\Enums\AccountCodeEnum;
 use App\Models\Supplier;
 use Illuminate\Http\Request;
 
@@ -201,8 +202,15 @@ class CashReceiptController extends Controller
         $cashAccounts = Account::whereIn('account_category', ['cash', 'cash_equivalent'])
             ->where('is_active', 1)->orderBy('code')->get();
 
-        $revenueAccounts = Account::where('type', 'revenue')
-            ->where('is_active', 1)->orderBy('code')->get();
+        // Akun kredit Pemasukan Umum: pendapatan + hutang (kas masuk yang bukan
+        // pendapatan — pinjaman bank, hutang ke pemilik, dsb → Dr Kas / Cr Hutang).
+        // Akun hutang bersubledger dikecualikan supaya buku besar tetap cocok
+        // dengan modulnya (AP faktur pembelian, uang muka & lebih bayar customer).
+        $revenueAccounts = Account::whereIn('type', ['revenue', 'liability'])
+            ->whereNotIn('code', AccountCodeEnum::SUBLEDGER_LIABILITY_CODES)
+            ->where('is_active', 1)
+            ->orderByRaw("FIELD(type, 'revenue', 'liability')")
+            ->orderBy('code')->get();
 
         // Suppliers dengan saldo overpay (sum dari supplier_overpayments).
         // Untuk type=supplier_refund: hanya tampilkan yang saldo > 0, plus current supplier (edit mode).

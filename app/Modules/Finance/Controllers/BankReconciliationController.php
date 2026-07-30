@@ -217,15 +217,21 @@ class BankReconciliationController extends Controller
         // Akun untuk modal quick-add Pembayaran/Pemasukan.
         $expenseAccounts = Account::where('type', 'expense')
             ->where('is_active', 1)->orderBy('code')->get();
-        $revenueAccounts = Account::where('type', 'revenue')
-            ->where('is_active', 1)->orderBy('code')->get();
+        // Akun kredit untuk modal Pemasukan: pendapatan + hutang (terima pinjaman).
+        // Selaras dgn CashReceiptController::formData().
+        $revenueAccounts = Account::whereIn('type', ['revenue', 'liability'])
+            ->whereNotIn('code', \App\Enums\AccountCodeEnum::SUBLEDGER_LIABILITY_CODES)
+            ->where('is_active', 1)
+            ->orderByRaw("FIELD(type, 'revenue', 'liability')")
+            ->orderBy('code')->get();
 
         // Akun debit untuk modal + Pengeluaran Umum: beban + ekuitas (Prive/penarikan
-        // modal). Ekuitas berbasis-debit spt Prive valid di-debit saat kas keluar.
-        // Selaras dgn CashDisbursementController::formData().
-        $disbursementAccounts = Account::whereIn('type', ['expense', 'equity'])
+        // modal) + hutang (pelunasan pinjaman). Ekuitas berbasis-debit spt Prive valid
+        // di-debit saat kas keluar. Selaras dgn CashDisbursementController::formData().
+        $disbursementAccounts = Account::whereIn('type', ['expense', 'equity', 'liability'])
+            ->whereNotIn('code', \App\Enums\AccountCodeEnum::SUBLEDGER_LIABILITY_CODES)
             ->where('is_active', 1)
-            ->orderByRaw("FIELD(type, 'expense', 'equity')")
+            ->orderByRaw("FIELD(type, 'expense', 'equity', 'liability')")
             ->orderBy('code')->get();
 
         // Akun kas lawan untuk modal quick-add Transfer Bank: semua kas/bank aktif

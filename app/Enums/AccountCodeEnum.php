@@ -21,4 +21,17 @@ class AccountCodeEnum
     const WIP = '1140'; // Barang Dalam Proses Produksi
     const SHIPPING_DEPOSIT = '1203'; // Titipan Pengiriman (ongkir dibayar customer lewat kita)
     const SERVICE_REVENUE = '4010'; // Pendapatan Jasa (jasa perbaikan garansi)
+
+    const AP_PAYABLE = '2101'; // Hutang Usaha (dibentuk faktur pembelian)
+
+    /**
+     * Akun hutang yang saldonya dikendalikan subledger (faktur pembelian,
+     * uang muka & lebih bayar customer). Jangan dibuka untuk input manual di
+     * Kas & Bank — buku besar bakal beda dengan modul asalnya.
+     */
+    const SUBLEDGER_LIABILITY_CODES = [
+        self::AP_PAYABLE,
+        self::SALES_ADVANCE,
+        self::CUSTOMER_OVERPAY,
+    ];
 }

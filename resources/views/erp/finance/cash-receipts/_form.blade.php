@@ -27,8 +27,11 @@
         ])->all()
         : (old('lines') ?: []);
 
+    // Label akun: hutang ditandai supaya tidak tertukar dengan pendapatan.
+    $accLabel = fn($a) => $a->code . ' — ' . $a->name . ($a->type === 'liability' ? ' [Hutang]' : '');
+
     $typeSubtitles = [
-        'general'         => 'Kas/Bank ← Akun Pendapatan',
+        'general'         => 'Kas/Bank ← Akun Pendapatan / Hutang',
         'supplier_refund' => 'Kas/Bank ← Piutang Lebih Bayar Pemasok (1108)',
     ];
 @endphp
@@ -143,7 +146,7 @@
 
     <datalist id="revenueAccountList">
         @foreach($revenueAccounts as $acc)
-            <option data-id="{{ $acc->id }}" value="{{ $acc->code }} — {{ $acc->name }}"></option>
+            <option data-id="{{ $acc->id }}" value="{{ $accLabel($acc) }}"></option>
         @endforeach
     </datalist>
 
@@ -163,7 +166,7 @@
 </div>
 
 <script>
-const revenueAccounts = {!! json_encode($revenueAccounts->map(fn($a) => ['id' => $a->id, 'label' => $a->code . ' — ' . $a->name])->values()) !!};
+const revenueAccounts = {!! json_encode($revenueAccounts->map(fn($a) => ['id' => $a->id, 'label' => $accLabel($a)])->values()) !!};
 const supplierOverpayAccount = {!! json_encode($supplierOverpayAccount ? ['id' => $supplierOverpayAccount->id, 'label' => $supplierOverpayAccount->code . ' — ' . $supplierOverpayAccount->name] : null) !!};
 const initialLines = {!! json_encode($existingLines) !!};
 const typeSubtitles = {!! json_encode($typeSubtitles) !!};
@@ -204,7 +207,7 @@ function renderGeneralRow(line){
     return `
         <td class="px-2 py-1">
             <input type="text" list="revenueAccountList" value="${esc(accLabel)}"
-                   class="border rounded px-2 py-1 w-full account-search" placeholder="Ketik kode/nama akun pendapatan…">
+                   class="border rounded px-2 py-1 w-full account-search" placeholder="Ketik kode/nama akun pendapatan / hutang…">
             <input type="hidden" name="lines[][account_id]" value="${esc(accId)}" class="account-id">
         </td>
         <td class="px-2 py-1">

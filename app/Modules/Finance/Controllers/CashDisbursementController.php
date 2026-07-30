@@ -449,11 +449,14 @@ class CashDisbursementController extends Controller
             ->where('is_active', 1)->orderBy('code')->get();
 
         // Akun debit Pengeluaran Umum: beban + ekuitas (Prive/penarikan modal, dividen
-        // dari Laba Ditahan, dll). Ekuitas berbasis-debit seperti Prive valid di-debit
-        // saat kas keluar.
-        $expenseAccounts = Account::whereIn('type', ['expense', 'equity'])
+        // dari Laba Ditahan, dll) + hutang (pelunasan pinjaman → Dr Hutang / Cr Kas).
+        // Ekuitas berbasis-debit seperti Prive valid di-debit saat kas keluar.
+        // Akun hutang bersubledger dikecualikan supaya buku besar tetap cocok
+        // dengan modulnya (AP faktur pembelian, uang muka & lebih bayar customer).
+        $expenseAccounts = Account::whereIn('type', ['expense', 'equity', 'liability'])
+            ->whereNotIn('code', \App\Enums\AccountCodeEnum::SUBLEDGER_LIABILITY_CODES)
             ->where('is_active', 1)
-            ->orderByRaw("FIELD(type, 'expense', 'equity')")
+            ->orderByRaw("FIELD(type, 'expense', 'equity', 'liability')")
             ->orderBy('code')->get();
 
         // Customers dengan saldo overpay (sum dari customer_overpayments).

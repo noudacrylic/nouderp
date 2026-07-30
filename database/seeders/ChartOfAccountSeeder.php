@@ -38,6 +38,11 @@ class ChartOfAccountSeeder extends Seeder
             ['code' => '2111', 'name' => 'Hutang BPJS Ketenagakerjaan', 'type' => 'liability', 'normal_balance' => 'credit', 'is_system' => 1],
             ['code' => '2112', 'name' => 'Hutang PPh 21', 'type' => 'liability', 'normal_balance' => 'credit', 'is_system' => 1],
             ['code' => '2113', 'name' => 'Hutang Gaji Karyawan', 'type' => 'liability', 'normal_balance' => 'credit', 'is_system' => 1],
+            // Hutang non-subledger: dipakai manual di Kas & Bank (terima pinjaman /
+            // lunasi pinjaman). Bukan is_system, boleh dirapikan lewat menu Akun.
+            ['code' => '2120', 'name' => 'Hutang Bank / Pinjaman', 'type' => 'liability', 'normal_balance' => 'credit', 'is_system' => 0],
+            ['code' => '2121', 'name' => 'Hutang Pemilik', 'type' => 'liability', 'normal_balance' => 'credit', 'is_system' => 0],
+            ['code' => '2130', 'name' => 'Hutang Lain-lain', 'type' => 'liability', 'normal_balance' => 'credit', 'is_system' => 0],
 
             // ===== EQUITY =====
             ['code' => '3000', 'name' => 'Modal Awal', 'type' => 'equity', 'normal_balance' => 'credit', 'is_system' => 1],
