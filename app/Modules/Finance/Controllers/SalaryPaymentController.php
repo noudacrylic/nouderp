@@ -260,8 +260,7 @@ class SalaryPaymentController extends Controller
             ->where('is_active', 1)->orderBy('code')->get();
         $expenseAccounts = Account::where('type', 'expense')
             ->where('is_active', 1)->orderBy('code')->get();
-        $defaultAdminFeeAccountId = Account::where('account_category', 'bank_admin_fee')
-            ->where('is_active', 1)->value('id');
+        $defaultAdminFeeAccountId = Account::bankAdminFeeDefaultId();
         $setting = PayrollSetting::singleton();
         return compact('karyawans', 'cashAccounts', 'expenseAccounts', 'defaultAdminFeeAccountId', 'setting');
     }

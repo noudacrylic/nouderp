@@ -288,8 +288,7 @@ class AttendanceController extends Controller
             ->where('is_active', 1)->orderBy('code')->get(['id', 'code', 'name']);
         $expenseAccounts = Account::where('type', 'expense')
             ->where('is_active', 1)->orderBy('code')->get(['id', 'code', 'name']);
-        $defaultAdminFeeAccountId = Account::where('account_category', 'bank_admin_fee')
-            ->where('is_active', 1)->value('id');
+        $defaultAdminFeeAccountId = Account::bankAdminFeeDefaultId();
 
         return view('erp.sdm.absensi.dashboard', compact(
             'karyawans', 'karyawan', 'bulan', 'tahun', 'bulanOptions',

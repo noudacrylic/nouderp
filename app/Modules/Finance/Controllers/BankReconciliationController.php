@@ -242,8 +242,7 @@ class BankReconciliationController extends Controller
             ->where('is_active', 1)
             ->where('id', '!=', $br->account_id)
             ->orderBy('code')->get();
-        $defaultAdminFeeAccountId = Account::where('account_category', 'bank_admin_fee')
-            ->where('is_active', 1)->value('id');
+        $defaultAdminFeeAccountId = Account::bankAdminFeeDefaultId();
 
         return view('erp.finance.bank-reconciliations.edit', compact(
             'br', 'matchedSum', 'unmatchedSum',
