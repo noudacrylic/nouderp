@@ -3,6 +3,7 @@
 namespace App\Modules\Payment\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\MidtransSetting;
 use App\Models\MidtransTransaction;
 use App\Models\SalesInvoice;
 use App\Modules\Payment\Services\MidtransService;
@@ -115,8 +116,8 @@ class MidtransAdminController extends Controller
             'trx_id' => $trx->id,
             'order_id' => $trx->order_id,
             'snap_token' => $trx->snap_token,
-            'client_key' => config('services.midtrans.client_key'),
-            'is_production' => (bool) config('services.midtrans.is_production'),
+            'client_key' => MidtransSetting::resolvedClientKey(),
+            'is_production' => MidtransSetting::resolvedIsProduction(),
             'amount' => (int) $trx->gross_amount,
             'expires_at' => $trx->expired_at?->toIso8601String(),
             'poll_url' => route('sales.midtrans.admin.status', $trx->id),
@@ -148,8 +149,8 @@ class MidtransAdminController extends Controller
             'trx_id' => $trx->id,
             'order_id' => $trx->order_id,
             'snap_token' => $trx->snap_token,
-            'client_key' => config('services.midtrans.client_key'),
-            'is_production' => (bool) config('services.midtrans.is_production'),
+            'client_key' => MidtransSetting::resolvedClientKey(),
+            'is_production' => MidtransSetting::resolvedIsProduction(),
             'amount' => (int) $trx->gross_amount,
             'expires_at' => $trx->expired_at?->toIso8601String(),
             'poll_url' => route('sales.midtrans.admin.status', $trx->id),

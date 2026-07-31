@@ -36,7 +36,6 @@ class MidtransPublicController extends Controller
             return view('pay.invalid', ['reason' => 'Link tidak ditemukan.']);
         }
 
-        $setting = MidtransSetting::singleton();
         $common = [
             'trx' => $trx,
             'is_so' => $this->isSo($trx),
@@ -44,8 +43,8 @@ class MidtransPublicController extends Controller
             'fee_threshold' => $this->fees->customerFeeThreshold(),
             'fee_amount' => $this->fees->customerFeeAmount(),
             'channel_fees' => $this->fees->effectiveChannelFees(),
-            'client_key' => $setting->client_key ?: config('services.midtrans.client_key'),
-            'is_production' => (bool) $setting->is_production,
+            'client_key' => MidtransSetting::resolvedClientKey(),
+            'is_production' => MidtransSetting::resolvedIsProduction(),
             'expired' => $trx->isExpired(),
             'instruction' => $this->instructionFrom($trx),
             'require_full' => false, // default; pesanan web memaksa bayar penuh (lihat SO branch)

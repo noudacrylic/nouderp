@@ -67,6 +67,25 @@ class MidtransSetting extends Model
         return (string) (self::singleton()->server_key ?: config('services.midtrans.server_key'));
     }
 
+    /** Client key yang BERLAKU — pasangan resolvedServerKey(), .env hanya cadangan. */
+    public static function resolvedClientKey(): string
+    {
+        return (string) (self::singleton()->client_key ?: config('services.midtrans.client_key'));
+    }
+
+    /**
+     * Mode production yang BERLAKU — kolom ini saja, TANPA cadangan .env.
+     *
+     * MidtransService memilih endpoint (api.midtrans vs api.sandbox.midtrans) dari
+     * kolom ini, jadi sisi browser yang memuat snap.js WAJIB memakai sumber yang sama.
+     * Kalau tidak: token diterbitkan server production lalu dimuat snap.js sandbox,
+     * popup gagal terbuka dan kasir tidak tahu kenapa.
+     */
+    public static function resolvedIsProduction(): bool
+    {
+        return (bool) self::singleton()->is_production;
+    }
+
     public function cashAccount()
     {
         return $this->belongsTo(Account::class, 'cash_account_id');
