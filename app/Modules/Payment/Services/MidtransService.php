@@ -56,7 +56,8 @@ class MidtransService
 
     protected function serverKey(): string
     {
-        $key = (string) ($this->settings()->server_key ?: config('services.midtrans.server_key'));
+        // Satu sumber dengan VerifyMidtransSignature — lihat MidtransSetting::resolvedServerKey().
+        $key = MidtransSetting::resolvedServerKey();
         if ($key === '') {
             throw new RuntimeException('MIDTRANS_SERVER_KEY belum dikonfigurasi di Pengaturan → Midtrans.');
         }
@@ -592,6 +593,80 @@ class MidtransService
         }
 
         return $trx;
+    }
+
+    /**
+     * Tarik status semua transaksi yang masih `pending` langsung dari Midtrans.
+     *
+     * JARING PENGAMAN, bukan jalur utama. Jalur normalnya webhook — tapi webhook bisa
+     * tidak sampai karena hal-hal di luar kode: server sedang restart, deploy berjalan,
+     * URL notifikasi salah, atau tunnel mati. Tanpa penarikan seperti ini, notifikasi
+     * yang hilang TIDAK PERNAH tersusul: pelanggan sudah membayar, ERP diam saja.
+     *
+     * Aman dijalankan berulang — handleNotification() punya penjaga idempoten, jadi
+     * transaksi yang sudah settlement dan sudah dibuatkan pembayaran tidak diproses lagi.
+     *
+     * Kegagalan satu transaksi tidak menghentikan sisanya: yang paling mungkin gagal
+     * justru transaksi lama yang tidak dikenal Midtrans, dan itu tidak boleh menghalangi
+     * transaksi baru yang benar-benar perlu diperbarui.
+     *
+     * @param  int   $limit    batas transaksi per jalan, menjaga cron tidak berlarut
+     * @param  bool  $dryRun   hanya melaporkan, tidak menyentuh data
+     * @return array{checked: int, updated: array<int,array{order_id: string, from: string, to: string}>,
+     *               unchanged: int, not_found: int, failed: array<int,array{order_id: string, error: string}>}
+     */
+    public function reconcilePending(int $limit = 200, bool $dryRun = false): array
+    {
+        $pending = MidtransTransaction::where('status', 'pending')
+            ->orderBy('created_at')
+            ->limit($limit)
+            ->get();
+
+        $out = ['checked' => 0, 'updated' => [], 'unchanged' => 0, 'not_found' => 0, 'failed' => []];
+
+        foreach ($pending as $trx) {
+            $out['checked']++;
+
+            try {
+                $response = Http::withHeaders([
+                        'Accept'        => 'application/json',
+                        'Authorization' => $this->authHeader(),
+                    ])
+                    ->timeout(15)
+                    ->get($this->apiBase() . '/v2/' . $trx->order_id . '/status');
+
+                if ($response->status() === 404) {
+                    // Transaksi tidak pernah benar-benar dibuat di Midtrans (mis. Snap
+                    // dibuat tapi pelanggan tidak pernah membuka halaman bayarnya).
+                    $out['not_found']++;
+                    continue;
+                }
+
+                if (!$response->successful()) {
+                    $out['failed'][] = ['order_id' => $trx->order_id, 'error' => 'HTTP ' . $response->status()];
+                    continue;
+                }
+
+                $payload   = $response->json();
+                $newStatus = $this->mapStatus($payload['transaction_status'] ?? 'pending');
+
+                if ($newStatus === 'pending') {
+                    $out['unchanged']++;
+                    continue;
+                }
+
+                if (!$dryRun) {
+                    $this->handleNotification($payload);
+                }
+
+                $out['updated'][] = ['order_id' => $trx->order_id, 'from' => 'pending', 'to' => $newStatus];
+            } catch (\Throwable $e) {
+                Log::warning('Midtrans reconcile gagal', ['order_id' => $trx->order_id, 'error' => $e->getMessage()]);
+                $out['failed'][] = ['order_id' => $trx->order_id, 'error' => $e->getMessage()];
+            }
+        }
+
+        return $out;
     }
 
     /* ===================================================================

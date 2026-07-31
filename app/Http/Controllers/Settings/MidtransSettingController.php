@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Core\Accounting\Account;
 use App\Http\Controllers\Controller;
 use App\Models\MidtransSetting;
+use App\Modules\Payment\Services\MidtransService;
 use Illuminate\Http\Request;
 
 class MidtransSettingController extends Controller
@@ -20,6 +21,29 @@ class MidtransSettingController extends Controller
             ->orderBy('code')->get();
 
         return view('erp.settings.midtrans.edit', compact('setting', 'cashAccounts', 'expenseAccounts'));
+    }
+
+    /**
+     * Tarik status transaksi pending dari Midtrans sekarang juga.
+     *
+     * Logikanya sama persis dengan yang dijalankan cron tiap 15 menit — dipanggil dari
+     * dua tempat, bukan disalin. Tombol ini ada supaya tidak perlu menunggu jadwal
+     * berikutnya saat pelanggan menelepon bilang "saya sudah bayar".
+     */
+    public function reconcilePending(MidtransService $midtrans)
+    {
+        $r = $midtrans->reconcilePending();
+
+        $pesan = "Dicek {$r['checked']} transaksi pending: "
+            . count($r['updated']) . ' berubah status, '
+            . $r['unchanged'] . ' masih pending, '
+            . $r['not_found'] . ' tidak dikenal Midtrans.';
+
+        if ($r['failed']) {
+            return back()->with('error', $pesan . ' ' . count($r['failed']) . ' gagal dicek — lihat log.');
+        }
+
+        return back()->with('success', $pesan);
     }
 
     public function update(Request $request)

@@ -113,6 +113,7 @@ Route::prefix('erp')->group(function () {
 
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');
+        Route::post('/midtrans/reconcile', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'reconcilePending'])->name('settings.midtrans.reconcile');
 
         // Integrasi — Pembayaran toko online (Transfer Bank + Kode Unik)
         Route::get ('/payment', [\App\Http\Controllers\Settings\PaymentSettingController::class, 'edit'])->name('settings.payment.edit');

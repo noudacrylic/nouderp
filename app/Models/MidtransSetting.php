@@ -51,6 +51,22 @@ class MidtransSetting extends Model
         return self::firstOrCreate(['id' => 1]);
     }
 
+    /**
+     * Server key yang BERLAKU — satu-satunya sumber untuk seluruh aplikasi.
+     *
+     * Pengaturan → Midtrans menyimpan kunci ke tabel ini, bukan ke .env. Kalau ada
+     * bagian aplikasi yang membaca .env sendiri, ia akan memakai kunci lama begitu
+     * kunci diganti lewat UI — dan yang paling berbahaya adalah verifikasi tanda
+     * tangan webhook: pelanggan membayar, notifikasinya ditolak 403, tidak ada tanda
+     * apa pun di layar. Karena itu resolusinya dikumpulkan di sini.
+     *
+     * .env hanya cadangan untuk instalasi yang belum pernah membuka halaman Pengaturan.
+     */
+    public static function resolvedServerKey(): string
+    {
+        return (string) (self::singleton()->server_key ?: config('services.midtrans.server_key'));
+    }
+
     public function cashAccount()
     {
         return $this->belongsTo(Account::class, 'cash_account_id');

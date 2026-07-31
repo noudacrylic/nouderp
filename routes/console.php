@@ -57,6 +57,11 @@ Schedule::command('payments:poll-qris')->everyTwoMinutes()->name('payments-poll-
 Schedule::command('payments:escalate')->everyMinute()->name('payments-escalate')->withoutOverlapping();
 Schedule::command('payments:cancel-expired')->hourly()->name('payments-cancel-expired')->withoutOverlapping();
 
+// Midtrans — jaring pengaman kalau notifikasi webhook tidak sampai (server restart, deploy
+// berjalan, URL notifikasi salah). Tanpa ini pembayaran yang notifikasinya hilang tidak
+// pernah tersusul. Tiap 15 menit sudah cukup: webhook tetap jalur utama yang seketika.
+Schedule::command('midtrans:reconcile-pending')->everyFifteenMinutes()->name('midtrans-reconcile-pending')->withoutOverlapping();
+
 // Jubelio riwayat sinkron — buang log lebih lama dari 90 hari (jejak audit, bukan sumber kebenaran).
 Schedule::call(fn() => \App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog::where('created_at', '<', now()->subDays(90))->delete())
     ->dailyAt('02:30')->name('jubelio-prune-sync-logs');

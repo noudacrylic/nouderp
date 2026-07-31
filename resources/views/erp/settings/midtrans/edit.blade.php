@@ -27,6 +27,29 @@
             </div>
         </div>
 
+        {{-- Jaring pengaman kalau notifikasi tidak sampai. Form terpisah dari form
+             pengaturan di bawahnya supaya menekan tombol ini tidak ikut menyimpan
+             kunci yang mungkin sedang setengah diketik. --}}
+        @php $pending = \App\Models\MidtransTransaction::where('status', 'pending')->count(); @endphp
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-6">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h3 class="text-sm font-bold text-slate-800 mb-1">Status Pembayaran Tertunda</h3>
+                    <p class="text-xs text-slate-600">
+                        Ada <b>{{ number_format($pending, 0, ',', '.') }}</b> transaksi berstatus <i>pending</i>.
+                        Status ditarik otomatis tiap 15 menit; tombol ini menariknya sekarang juga —
+                        berguna saat pelanggan bilang sudah membayar tapi ERP belum mencatatnya.
+                    </p>
+                </div>
+                <form method="POST" action="{{ route('settings.midtrans.reconcile') }}">
+                    @csrf
+                    <button class="border border-slate-300 hover:bg-slate-100 text-slate-700 px-4 py-2 rounded text-sm font-semibold whitespace-nowrap transition">
+                        Tarik Status Sekarang
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <form method="POST" action="{{ route('settings.midtrans.update') }}" class="space-y-8">
             @csrf
 
