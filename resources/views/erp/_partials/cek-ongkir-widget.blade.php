@@ -9,7 +9,9 @@
 @php
     $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
     $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
+    $jsOn = \App\Models\ShippingSetting::for('jubelio_shipment')->is_enabled;
     $areaProviders = [];
+    if ($jsOn) $areaProviders['jubelio_shipment'] = 'Jubelio';
     if ($kaOn) {
         if ($btOn) $areaProviders['biteship'] = 'Biteship';
         $areaProviders['kiriminaja'] = 'KiriminAja';

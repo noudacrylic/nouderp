@@ -403,8 +403,11 @@
         setHint(coordHint, 'Melacak alamat…', 'text-gray-400');
         resolveBtn.disabled = true;
         // Provider tujuan terpilih (multi-provider) → resolve area di provider yang sama.
+        // Pemilih provider hanya dirender bila ada LEBIH DARI SATU provider aktif.
+        // Saat cuma satu (kondisi normal sekarang), pakai default dari server —
+        // dulu di-hardcode 'biteship' sehingga reverse geocode selalu gagal.
         const provSel = document.getElementById('dest_area_provider_sel');
-        const prov = provSel ? provSel.value : 'biteship';
+        const prov = provSel ? provSel.value : @json($shippingManager->defaultProviderKey() ?? '');
         fetch(@json(route('sales.cek-ongkir.resolve')) + '?point=' + encodeURIComponent(lat + ',' + lng) + '&provider=' + encodeURIComponent(prov),
               { headers: { 'Accept': 'application/json' } })
             .then(function (r) { return r.json(); })
@@ -417,6 +420,9 @@
                     if (ph) ph.value = d.area_id;
                     if (destSearch) destSearch.value = d.area_label || '';
                     if (destLabel)  destLabel.value  = d.area_label || '';
+                    // Kode pos ikut disetel: Jubelio menolak hitung tarif tanpa ini.
+                    const pc = document.getElementById('dest_postal');
+                    if (pc && d.postal_code) pc.value = d.postal_code;
                     setHint(destHint, 'Area terpilih ✓' + (d.postal_code ? ' · ' + d.postal_code : ''), 'text-green-600');
                 }
                 if (d.address) {

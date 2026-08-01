@@ -19,7 +19,11 @@
     // Pemilih provider area (tujuan customer): tampil hanya bila KiriminAja diaktifkan.
     $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
     $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
+    $jsOn = \App\Models\ShippingSetting::for('jubelio_shipment')->is_enabled;
+    // Provider aktif → dipakai JS sebagai default saat hanya ada satu (tanpa pemilih).
+    $activeProviderKey = app(\App\Modules\Shipping\ShippingManager::class)->defaultProviderKey();
     $areaProviders = [];
+    if ($jsOn) $areaProviders['jubelio_shipment'] = 'Jubelio';
     if ($kaOn) {
         if ($btOn) $areaProviders['biteship'] = 'Biteship';
         $areaProviders['kiriminaja'] = 'KiriminAja';
@@ -175,7 +179,7 @@
                 'cityTargetId'     => 'addr_city',
                 'districtTargetId' => 'addr_district',
                 'providers'        => $areaProviders,
-                'providerNames'    => ['biteship' => 'cust_area_biteship_unused', 'kiriminaja' => 'cust_area_kiriminaja_unused'],
+                'providerNames'    => ['jubelio_shipment' => 'cust_area_jubelio_unused', 'biteship' => 'cust_area_biteship_unused', 'kiriminaja' => 'cust_area_kiriminaja_unused'],
             ])
             <p class="text-[11px] text-gray-400 -mt-1">Provinsi, kota, kecamatan & kode pos terisi otomatis dari pilihan di atas.</p>
 
@@ -236,6 +240,7 @@
     // ---- state alamat customer terpilih ----
     let area = '';   // biteship_area_id customer
     let areaKa = ''; // kiriminaja_area_id customer
+    const ACTIVE_PROVIDER = @json($activeProviderKey ?? '');
     let destLat = null, destLong = null; // koordinat tujuan (untuk kurir instant)
 
     // Baca area id per-provider dari popup (multi-provider) dengan fallback ke hidden tunggal lama.
@@ -338,6 +343,7 @@
                 $id('addr_postal').value   = d.postal_code || '';
                 setAreaVal('biteship', d.biteship_area_id || '');
                 setAreaVal('kiriminaja', d.kiriminaja_area_id || '');
+                setAreaVal('jubelio_shipment', d.jubelio_area_id || '');
                 if ($id('cust_area_id')) $id('cust_area_id').value = d.biteship_area_id || d.kiriminaja_area_id || '';
                 $id('cust_area_search').value = d.full_address || '';
                 $id('addr_location_point').value = d.location_point || '';
@@ -363,6 +369,7 @@
             postal_code:      $id('addr_postal').value,
             biteship_area_id: areaVal('biteship'),
             kiriminaja_area_id: areaVal('kiriminaja'),
+            jubelio_area_id: areaVal('jubelio_shipment'),
             location_point:   $id('addr_location_point').value,
         };
         fetch('/erp/api/customers/' + cid + '/shipping', {
@@ -444,8 +451,11 @@
             .then(r=>r.json()).then(function(d){
                 if (!d.success){ $id('addr_map_hint').textContent = d.error || 'Gagal melacak alamat.'; return; }
                 // Isi area otomatis hanya jika belum dipilih (jangan timpa pilihan user).
-                if (d.area_id && !areaVal('biteship')){
-                    setAreaVal('biteship', d.area_id);
+                // Area diisi untuk provider yang AKTIF; sebelumnya selalu biteship,
+                // sehingga area hasil pelacakan tak pernah terpakai setelah ganti agregator.
+                const prov = ACTIVE_PROVIDER || 'biteship';
+                if (d.area_id && !areaVal(prov)){
+                    setAreaVal(prov, d.area_id);
                     if ($id('cust_area_id')) $id('cust_area_id').value = d.area_id;
                     $id('cust_area_search').value = d.area_label || '';
                     if (d.postal_code) $id('addr_postal').value = d.postal_code;

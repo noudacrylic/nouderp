@@ -23,7 +23,11 @@ class ReverseGeocodeController extends Controller
         // Provider pencari area = yang AKTIF. Dulu dipaku ke Biteship; begitu Biteship
         // dinonaktifkan, provider() mengembalikan null dan "Lacak Alamat" gagal diam-diam
         // (alamat & kode pos tidak pernah terisi, kurir instant lalu tak bisa dihitung).
-        $provider = $manager->provider($request->input('provider') ?: (string) $manager->defaultProviderKey());
+        // Pemanggil lama bisa saja masih mengirim ?provider=biteship. Jangan menolak —
+        // jatuhkan ke provider yang aktif, karena tujuan endpoint ini cuma menerjemahkan
+        // koordinat jadi alamat + area.
+        $provider = $manager->provider((string) $request->input('provider'))
+            ?: $manager->provider((string) $manager->defaultProviderKey());
 
         if (!$provider) {
             return response()->json([
