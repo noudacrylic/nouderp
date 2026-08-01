@@ -214,6 +214,50 @@ class JubelioShipmentProviderTest extends TestCase
         $this->assertSame('13', $res['rates'][0]['courier_code']);
     }
 
+    public function test_mode_instant_meminta_kategori_instant_saja(): void
+    {
+        Http::fake([
+            '*/auth/generate-token' => Http::response($this->fakeToken()),
+            '*/rates'               => Http::response([]),
+        ]);
+
+        $this->provider()->rates([
+            'mode'                    => 'instant',
+            'origin_postal_code'      => '50267',
+            'destination_postal_code' => '50133',
+            'items'                   => [['weight' => 1000, 'quantity' => 1]],
+        ]);
+
+        $sent = collect(Http::recorded())->first(fn ($p) => str_contains($p[0]->url(), '/rates'));
+        $this->assertSame(JubelioShipmentProvider::CATEGORY_INSTANT, $sent[0]->data()['service_category_id']);
+    }
+
+    /**
+     * Tarif instant berkali lipat tarif reguler (mis. Rp36.000 vs Rp6.500 untuk rute
+     * yang sama) dan butuh titik lokasi. Tercampur di daftar yang sama, operator bisa
+     * memilihnya tanpa sadar.
+     */
+    public function test_mode_reguler_menyembunyikan_kurir_instant(): void
+    {
+        Http::fake([
+            '*/auth/generate-token' => Http::response($this->fakeToken()),
+            '*/rates/all'           => Http::response([
+                ['courier_id' => 11, 'courier_service_id' => 1101, 'service_category_id' => 1, 'courier_service_category' => 'REGULER', 'rates' => 8000],
+                ['courier_id' => 40, 'courier_service_id' => 4001, 'service_category_id' => 4, 'courier_service_category' => 'INSTANT', 'rates' => 36000],
+            ]),
+        ]);
+
+        $res = $this->provider()->rates([
+            'mode'                    => 'regular',
+            'origin_postal_code'      => '50267',
+            'destination_postal_code' => '50133',
+            'items'                   => [['weight' => 1000, 'quantity' => 1]],
+        ]);
+
+        $this->assertCount(1, $res['rates']);
+        $this->assertSame('11', $res['rates'][0]['courier_code']);
+    }
+
     public function test_create_order_mengirim_id_kurir_dan_mengembalikan_resi(): void
     {
         Http::fake([

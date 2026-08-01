@@ -9,17 +9,28 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Reverse geocode: koordinat (link Google Maps / "lat,long") → alamat + area Biteship.
+ * Reverse geocode: koordinat (link Google Maps / "lat,long") → alamat + area kurir.
  * Dipakai di Cek Ongkir untuk kurir instant: paste titik lokasi → tahu alamatnya.
  *
- * Biteship hanya punya pencarian area dari teks, jadi koordinat di-reverse dulu via
- * OpenStreetMap Nominatim (gratis, tanpa API key), lalu hasilnya dipakai mencari area_id.
+ * Agregator kurir hanya punya pencarian area dari TEKS, jadi koordinat di-reverse dulu
+ * via OpenStreetMap Nominatim (gratis, tanpa API key), lalu hasilnya dipakai mencari
+ * area di provider yang sedang aktif.
  */
 class ReverseGeocodeController extends Controller
 {
     public function __invoke(Request $request, ShippingManager $manager)
     {
-        $biteship = $manager->provider($request->input('provider', 'biteship')) ?: $manager->provider('biteship');
+        // Provider pencari area = yang AKTIF. Dulu dipaku ke Biteship; begitu Biteship
+        // dinonaktifkan, provider() mengembalikan null dan "Lacak Alamat" gagal diam-diam
+        // (alamat & kode pos tidak pernah terisi, kurir instant lalu tak bisa dihitung).
+        $provider = $manager->provider($request->input('provider') ?: (string) $manager->defaultProviderKey());
+
+        if (!$provider) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'Belum ada kurir aktif. Aktifkan agregator di Settings → Integrasi.',
+            ]);
+        }
         $point = trim((string) $request->input('point', ''));
         $coord = parse_lat_long($point);
 
@@ -69,7 +80,7 @@ class ReverseGeocodeController extends Controller
             if (mb_strlen($q) < 3) {
                 continue;
             }
-            $search = $biteship->searchAreas($q);
+            $search = $provider->searchAreas($q);
             if (($search['success'] ?? false) && !empty($search['areas'])) {
                 $area = $search['areas'][0];
                 break;
@@ -85,7 +96,7 @@ class ReverseGeocodeController extends Controller
             'area_label'  => $area['name'] ?? null,
             'postal_code' => $area['postal_code'] ?? $postal,
             'error'       => $address
-                ? ($area ? null : 'Alamat ketemu tapi area Biteship belum cocok — kurir instant tetap bisa dari titik lokasi.')
+                ? ($area ? null : 'Alamat ketemu tapi area kurir belum cocok — kurir instant tetap bisa dari titik lokasi.')
                 : 'Alamat tidak ditemukan dari koordinat (kurir instant tetap bisa dari titik lokasi).',
         ]);
     }

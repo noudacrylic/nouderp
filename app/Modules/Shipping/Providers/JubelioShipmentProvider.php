@@ -39,6 +39,9 @@ class JubelioShipmentProvider implements ShippingProvider
     private const EP_CATEGORIES = '/services/categories';
     private const EP_REGIONS    = '/regions';
 
+    /** Kategori INSTANT (kurir on-demand: GoSend/Grab/Paxel Instant). */
+    public const CATEGORY_INSTANT = 4;
+
     /** Kategori layanan bawaan kontrak v1.8 (dipakai bila /services/categories gagal). */
     public const DEFAULT_CATEGORIES = [
         1 => 'REGULER',
@@ -344,6 +347,13 @@ class JubelioShipmentProvider implements ShippingProvider
             $body['package_detail'] = $pkg;
         }
 
+        // mode 'instant' → hanya kategori INSTANT (GoSend/Grab/Paxel Instant), yang di
+        // Jubelio adalah service_category_id 4. Kurir instant menghitung tarif dari
+        // KOORDINAT, jadi tanpa titik lokasi hasilnya bisa kosong walau kode pos benar.
+        if (($payload['mode'] ?? null) === 'instant') {
+            $payload['service_category_id'] = self::CATEGORY_INSTANT;
+        }
+
         // /rates/all mengembalikan semua kurir sekaligus. /rates (tunggal) mewajibkan
         // service_category_id, jadi hanya dipakai bila pemanggil meminta 1 kategori.
         $categoryId = (int) ($payload['service_category_id'] ?? 0);
@@ -362,8 +372,16 @@ class JubelioShipmentProvider implements ShippingProvider
         $allowed = $this->enabledCategoryIds();
         $rates   = [];
 
+        $hideInstant = ($payload['mode'] ?? null) === 'regular';
+
         foreach ((array) $rows as $r) {
             if (!is_array($r)) {
+                continue;
+            }
+            // Mode reguler: kurir instant disembunyikan supaya tidak tercampur —
+            // tarifnya jauh lebih mahal dan butuh titik lokasi yang belum tentu ada.
+            if ($hideInstant && ((int) ($r['service_category_id'] ?? 0) === self::CATEGORY_INSTANT
+                || strtoupper((string) ($r['courier_service_category'] ?? '')) === 'INSTANT')) {
                 continue;
             }
             if ($allowed && !in_array((int) ($r['service_category_id'] ?? 0), $allowed, true)
