@@ -94,6 +94,55 @@ class CheckoutController extends Controller
         ]]);
     }
 
+    /**
+     * Alamat tersimpan pembeli. Body { phone, pin } — sama seperti "Lacak Pesanan",
+     * jadi tidak ada konsep sesi/login baru yang perlu dijaga.
+     *
+     * Gunanya: pembeli lama tidak perlu mengetik alamat atau menaruh pin di peta lagi.
+     * Karena itu jawabannya harus cukup untuk MENGHITUNG ONGKIR tanpa bantuan apa pun —
+     * area kurir yang belum pernah tersimpan (pesanan sebelum kolomnya diisi) dicarikan
+     * di sini dari kode pos, bukan dibiarkan kosong lalu gagal di layar pembeli.
+     */
+    public function profile(Request $request)
+    {
+        $data = $request->validate([
+            'phone' => 'required|string|max:30',
+            'pin'   => 'required|string|max:10',
+        ]);
+
+        $customer = Customer::where('phone', trim($data['phone']))
+            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
+            ->whereNotNull('web_order_pin')
+            ->first();
+
+        if (! $customer || ! \Illuminate\Support\Facades\Hash::check($data['pin'], (string) $customer->web_order_pin)) {
+            return response()->json(['message' => 'Nomor HP atau PIN salah.'], 401);
+        }
+
+        $areaId = $customer->jubelio_area_id;
+        $label  = $customer->city;
+
+        if (! $areaId && $customer->postal_code) {
+            $key      = $this->rateProviderKey();
+            $provider = $key ? $this->shipping->provider($key) : null;
+            $search   = $provider ? $provider->searchAreas((string) $customer->postal_code) : ['areas' => []];
+            $area     = $search['areas'][0] ?? null;
+            $areaId   = $area['id'] ?? null;
+            $label    = $label ?: ($area['name'] ?? null);
+        }
+
+        return response()->json(['data' => [
+            'name'              => $customer->name,
+            'email'             => $customer->email,
+            'address'           => $customer->shipping_address ?: $customer->address,
+            'postal_code'       => $customer->postal_code,
+            'destination_label' => $label,
+            'area_id'           => $areaId ? (string) $areaId : null,
+            'latitude'          => $customer->latitude !== null ? (float) $customer->latitude : null,
+            'longitude'         => $customer->longitude !== null ? (float) $customer->longitude : null,
+        ]]);
+    }
+
     /** Cek ongkir: body { destination_area_id, destination_postal_code?, items:[...] }. */
     public function rates(Request $request)
     {
@@ -265,6 +314,7 @@ class CheckoutController extends Controller
             'customer.address'             => 'nullable|string|max:2000',
             'customer.postal_code'         => 'nullable|string|max:10',
             'customer.destination_label'   => 'nullable|string|max:255',
+            'customer.destination_area_id' => 'nullable|string|max:50',
             'items'                        => 'required|array|min:1',
             'items.*.product_id'           => 'required|integer',
             'items.*.qty'                  => 'required|numeric|min:1',
@@ -560,6 +610,11 @@ class CheckoutController extends Controller
         }
         if (! empty($c['destination_label'])) {
             $customer->city = $c['destination_label'];
+        }
+        // Area kurir ikut disimpan supaya pesanan berikutnya bisa langsung dihitung
+        // ongkirnya dari alamat tersimpan, tanpa pembeli mencari wilayahnya lagi.
+        if (! empty($c['destination_area_id'])) {
+            $customer->jubelio_area_id = $c['destination_area_id'];
         }
         // PIN akun toko online: pertama kali → set; nomor HP yg sudah punya PIN →
         // wajib cocok (jadi akun aman, PIN tak bisa ditimpa orang lain).

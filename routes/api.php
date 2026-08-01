@@ -40,4 +40,7 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::post('/orders/{token}/claim',  [CheckoutController::class, 'claim'])->name('api.storefront.orders.claim');
     Route::post('/orders/lookup',         [CheckoutController::class, 'lookup'])->middleware('throttle:8,1')->name('api.storefront.orders.lookup');
     Route::post('/orders/pin-status',     [CheckoutController::class, 'pinStatus'])->middleware('throttle:30,1')->name('api.storefront.orders.pin-status');
+    // Alamat tersimpan (HP + PIN). Dibatasi ketat: jawabannya berisi alamat pembeli,
+    // dan PIN cuma 4-6 digit — tanpa rem ini bisa ditebak beruntun.
+    Route::post('/orders/profile',        [CheckoutController::class, 'profile'])->middleware('throttle:8,1')->name('api.storefront.orders.profile');
 });

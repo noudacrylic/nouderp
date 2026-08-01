@@ -69,8 +69,8 @@ class StorefrontInstantPointTest extends TestCase
                     'postcode'      => '50132',
                 ],
             ]),
-            '*/auth/login'  => Http::response(['token' => 'token-uji', 'expires_in' => 86400]),
-            '*/regions*'    => Http::response(['data' => [[
+            '*/auth/generate-token' => Http::response(['token' => 'token-uji', 'expires_in' => 86400]),
+            '*/regions*'            => Http::response(['data' => [[
                 'area_id'  => '4823',
                 'name'     => 'Semarang Tengah, Kota Semarang',
                 'zipcode'  => '50132',
@@ -83,6 +83,9 @@ class StorefrontInstantPointTest extends TestCase
         $res->assertOk();
         $this->assertSame('50132', $res->json('data.postal_code'));
         $this->assertStringContainsString('Semarang', (string) $res->json('data.address'));
+        // Area kurir ikut terbawa: tanpa ini pesanan kurir biasa dari titik peta tidak
+        // bisa dihitung ongkirnya.
+        $this->assertSame('4823', $res->json('data.area_id'));
     }
 
     public function test_ongkir_instant_boleh_tanpa_area_id_tapi_wajib_kode_pos_dan_koordinat(): void
