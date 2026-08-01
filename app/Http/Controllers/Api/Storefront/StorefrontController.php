@@ -264,9 +264,13 @@ class StorefrontController extends Controller
         $mediaById = $p->media->keyBy('id');
 
         $variants = $p->variants->map(function ($v) use ($discounts, $mediaById) {
-            $price = (float) ($v->product->display_price ?? 0);
+            // Dibulatkan 2 desimal di SATU tempat ini, bukan di tiap konsumen. Pengurangan
+            // diskon dalam float biner menghasilkan ekor seperti 454999.08999999997, dan
+            // angka itu ikut ke JSON-LD Schema.org (lowPrice) yang dibaca Google, ke kartu
+            // produk, dan ke keranjang. Di layar tidak kelihatan karena diformat rupiah().
+            $price = round((float) ($v->product->display_price ?? 0), 2);
             $disc  = $discounts[$v->product_id] ?? null;
-            $final = $disc ? max(0, $price - (float) $disc['discount_amount']) : $price;
+            $final = $disc ? round(max(0, $price - (float) $disc['discount_amount']), 2) : $price;
 
             return [
                 'id'             => $v->id,
@@ -280,7 +284,7 @@ class StorefrontController extends Controller
                 'price_original' => $price,
                 'discount'       => $disc ? [
                     'name'   => $disc['promotion_name'],
-                    'amount' => (float) $disc['discount_amount'],
+                    'amount' => round((float) $disc['discount_amount'], 2),
                 ] : null,
             ];
         });
