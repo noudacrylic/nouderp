@@ -4,18 +4,20 @@
 <div class="max-w-screen-2xl mx-auto py-4">
     <div class="flex items-center justify-between mb-4">
         <h1 class="text-lg font-semibold">Cek Ongkir</h1>
-        <a href="{{ route('settings.shipping.rajaongkir') }}" class="text-xs text-blue-600 hover:underline">⚙️ Setting RajaOngkir</a>
+        <a href="{{ route('settings.integrations.index') }}" class="text-xs text-blue-600 hover:underline">⚙️ Setting Kurir</a>
     </div>
 
     @php
-        $rajaongkir = \App\Models\ShippingSetting::for('rajaongkir');
-        // Kurir aktif tunggal (RajaOngkir) → tidak perlu pemilih provider tujuan.
-        $areaProviders = [];
+        // Provider tujuan mengikuti yang AKTIF di Pengaturan — halaman ini dulu terikat
+        // ke RajaOngkir, sehingga tetap menyuruh mengisi API key RajaOngkir bahkan
+        // setelah agregatornya diganti.
+        $shippingManager = app(\App\Modules\Shipping\ShippingManager::class);
+        $areaProviders   = $shippingManager->activeProviderOptions();
     @endphp
-    @if(!$rajaongkir->isConfigured())
+    @if(empty($areaProviders))
         <div class="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded mb-4 text-sm">
-            Belum ada kurir aktif. Isi API key & alamat asal di
-            <a href="{{ route('settings.shipping.rajaongkir') }}" class="font-bold underline">Settings → RajaOngkir</a> agar ongkir bisa diambil.
+            Belum ada kurir aktif. Aktifkan salah satu agregator di
+            <a href="{{ route('settings.integrations.index') }}" class="font-bold underline">Settings → Integrasi</a> agar ongkir bisa diambil.
         </div>
     @endif
 
@@ -115,15 +117,21 @@
                     'districtTargetId' => 'dest_district',
                     'providers'        => $areaProviders,
                     'providerField'    => 'destination_provider',
-                    'providerNames'    => ['biteship' => 'destination_area_id', 'kiriminaja' => 'destination_kiriminaja_id'],
+                    'providerNames'    => [
+                        'jubelio_shipment' => 'destination_jubelio_id',
+                        'biteship'         => 'destination_area_id',
+                        'kiriminaja'       => 'destination_kiriminaja_id',
+                    ],
                     'providerValues'   => [
-                        'biteship'   => $input['destination_area_id'] ?? '',
-                        'kiriminaja' => $input['destination_kiriminaja_id'] ?? '',
+                        'jubelio_shipment' => $input['destination_jubelio_id'] ?? '',
+                        'biteship'         => $input['destination_area_id'] ?? '',
+                        'kiriminaja'       => $input['destination_kiriminaja_id'] ?? '',
                     ],
                 ])
                 <input type="hidden" name="destination_label" id="dest_label" value="{{ $input['destination_label'] ?? '' }}">
-                {{-- Detail alamat (utk simpan ke pelanggan saat Buat SO) --}}
-                <input type="hidden" id="dest_postal">
+                {{-- Detail alamat (utk simpan ke pelanggan saat Buat SO). Kode pos ikut
+                     DIKIRIM karena Jubelio Shipment mewajibkannya untuk hitung tarif. --}}
+                <input type="hidden" name="destination_postal_code" id="dest_postal" value="{{ $input['destination_postal_code'] ?? '' }}">
                 <input type="hidden" id="dest_province">
                 <input type="hidden" id="dest_city">
                 <input type="hidden" id="dest_district">
@@ -498,8 +506,9 @@
                 city:             $g('dest_city')?.value || '',
                 district:         $g('dest_district')?.value || '',
                 postal_code:      $g('dest_postal')?.value || '',
-                biteship_area_id:   ($g('dest_area_biteship_id') || $g('dest_area_id'))?.value || '',
+                biteship_area_id:   $g('dest_area_biteship_id')?.value || '',
                 kiriminaja_area_id: $g('dest_area_kiriminaja_id')?.value || '',
+                jubelio_area_id:    ($g('dest_area_jubelio_shipment_id') || $g('dest_area_id'))?.value || '',
                 location_point:   (latEl.value && longEl.value) ? (latEl.value + ',' + longEl.value) : '',
             };
         }
@@ -509,7 +518,7 @@
                 const cid = csId.value;
                 if (!cid){ reject('Pilih pelanggan dulu.'); return; }
                 const p = destPayload();
-                if (!p.biteship_area_id && !p.kiriminaja_area_id && !p.location_point){ reject('Belum ada area / titik tujuan. Cek ongkir dulu.'); return; }
+                if (!p.biteship_area_id && !p.kiriminaja_area_id && !p.jubelio_area_id && !p.postal_code && !p.location_point){ reject('Belum ada area / titik tujuan. Cek ongkir dulu.'); return; }
                 fetch('/erp/api/customers/' + cid + '/shipping', {method:'POST',
                     headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':pageCsrf()},
                     body: JSON.stringify(p)})
