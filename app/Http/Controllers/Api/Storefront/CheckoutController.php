@@ -62,6 +62,11 @@ class CheckoutController extends Controller
             // Jubelio MEWAJIBKAN kode pos tujuan; etalase mengirimnya balik dari hasil
             // pencarian wilayah (endpoint areas sudah menyertakan postal_code).
             'destination_postal_code' => 'nullable|string|max:10',
+            // Kurir instant (GoSend/Grab/Paxel) menghitung tarif dari TITIK LOKASI,
+            // jadi pembeli menaruh pin di peta; kode pos tetap dikirim untuk validasi.
+            'mode'                => 'nullable|in:instant,regular',
+            'destination_latitude'  => 'nullable|numeric|between:-90,90',
+            'destination_longitude' => 'nullable|numeric|between:-180,180',
             'items'               => 'required|array|min:1',
             'items.*.product_id'  => 'required|integer',
             'items.*.qty'         => 'required|numeric|min:1',
@@ -76,6 +81,9 @@ class CheckoutController extends Controller
             'destination_area_id'     => $data['destination_area_id'],
             'destination_jubelio_id'  => $data['destination_area_id'],
             'destination_postal_code' => $data['destination_postal_code'] ?? null,
+            'mode'                    => $data['mode'] ?? 'regular',
+            'destination_latitude'    => $data['destination_latitude'] ?? null,
+            'destination_longitude'   => $data['destination_longitude'] ?? null,
             'items'                   => $this->rateItems($data['items']),
         ]);
 
@@ -218,15 +226,25 @@ class CheckoutController extends Controller
             'items'                        => 'required|array|min:1',
             'items.*.product_id'           => 'required|integer',
             'items.*.qty'                  => 'required|numeric|min:1',
-            'delivery_method'              => 'required|in:kurir,ambil_toko',
+            'delivery_method'              => 'required|in:kurir,instant,ambil_toko',
+            'customer.latitude'            => 'nullable|numeric|between:-90,90',
+            'customer.longitude'           => 'nullable|numeric|between:-180,180',
             'payment_method'               => 'nullable|in:qris,transfer,midtrans',
             'shipping.courier_code'        => 'nullable|string|max:50',
             'shipping.service_name'        => 'nullable|string|max:150',
             'shipping.price'               => 'nullable|numeric|min:0',
         ]);
 
-        if ($data['delivery_method'] === 'kurir' && ! isset($data['shipping']['price'])) {
+        $needsCourier = in_array($data['delivery_method'], ['kurir', 'instant'], true);
+
+        if ($needsCourier && ! isset($data['shipping']['price'])) {
             return response()->json(['message' => 'Ongkir belum dipilih.'], 422);
+        }
+        // Tanpa titik lokasi, kurir instant tidak bisa dijemput — tolak di sini supaya
+        // pesanan tidak terlanjur dibuat lalu mentok saat booking resi.
+        if ($data['delivery_method'] === 'instant'
+            && (empty($data['customer']['latitude']) || empty($data['customer']['longitude']))) {
+            return response()->json(['message' => 'Titik lokasi belum dipilih untuk pengiriman instant.'], 422);
         }
 
         // Validasi produk (harus dijual) + susun baris + harga promo.
@@ -287,7 +305,7 @@ class CheckoutController extends Controller
                 'global_discount_value' => $cartAmount,
                 'items'                 => $lineItems,
             ];
-            if ($data['delivery_method'] === 'kurir') {
+            if ($needsCourier) {
                 $gross = (float) $data['shipping']['price'];
                 $shipDisc = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, []);
                 $dto['shipping_gross']          = $gross;
@@ -493,6 +511,11 @@ class CheckoutController extends Controller
         $customer->address          = $c['address'] ?? $customer->address;
         $customer->shipping_address = $c['address'] ?? $customer->shipping_address;
         $customer->postal_code      = $c['postal_code'] ?? $customer->postal_code;
+        // Titik lokasi dari peta checkout — kurir instant menjemput ke koordinat ini.
+        if (!empty($c['latitude']) && !empty($c['longitude'])) {
+            $customer->latitude  = $c['latitude'];
+            $customer->longitude = $c['longitude'];
+        }
         if (! empty($c['destination_label'])) {
             $customer->city = $c['destination_label'];
         }
