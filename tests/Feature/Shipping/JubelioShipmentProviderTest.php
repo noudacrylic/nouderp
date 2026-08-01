@@ -233,6 +233,35 @@ class JubelioShipmentProviderTest extends TestCase
     }
 
     /**
+     * Estimasi tiba kurir instant dihitung dalam JAM. Dibulatkan ke hari, "1-2 jam"
+     * jadi "1 hari" — terbaca seperti kurir biasa padahal justru itu yang dibayar mahal.
+     */
+    public function test_estimasi_kurir_instant_ditulis_dalam_jam(): void
+    {
+        Http::fake([
+            '*/auth/generate-token' => Http::response($this->fakeToken()),
+            '*/rates'               => Http::response([[
+                'courier_id'               => 19,
+                'courier_service_id'       => 1939,
+                'service_category_id'      => 4,
+                'courier_service_category' => 'INSTANT',
+                'rates'                    => 34000,
+                'eta_from'                 => now()->addHour()->toIso8601String(),
+                'eta_to'                   => now()->addHours(2)->toIso8601String(),
+            ]]),
+        ]);
+
+        $res = $this->provider()->rates([
+            'mode'                    => 'instant',
+            'origin_postal_code'      => '50267',
+            'destination_postal_code' => '50133',
+            'items'                   => [['weight' => 1000, 'quantity' => 1]],
+        ]);
+
+        $this->assertSame('1-2 jam', $res['rates'][0]['etd']);
+    }
+
+    /**
      * Tarif instant berkali lipat tarif reguler (mis. Rp36.000 vs Rp6.500 untuk rute
      * yang sama) dan butuh titik lokasi. Tercampur di daftar yang sama, operator bisa
      * memilihnya tanpa sadar.

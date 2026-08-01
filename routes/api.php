@@ -28,6 +28,10 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     // Checkout: cek alamat/ongkir, buat pesanan, status & klaim transfer.
     Route::get ('/shipping/areas',        [CheckoutController::class, 'areas'])->name('api.storefront.shipping.areas');
     Route::post('/shipping/rates',        [CheckoutController::class, 'rates'])->name('api.storefront.shipping.rates');
+    // Peta checkout (kurir instant): titik pembeli → alamat/area, dan titik toko sebagai pusat awal peta.
+    // Dibatasi karena reverse geocode-nya menumpang layanan gratis (Nominatim).
+    Route::post('/shipping/point',        [CheckoutController::class, 'resolvePoint'])->middleware('throttle:30,1')->name('api.storefront.shipping.point');
+    Route::get ('/shipping/origin',       [CheckoutController::class, 'originPoint'])->name('api.storefront.shipping.origin');
     Route::post('/cart/quote',            [CheckoutController::class, 'quote'])->name('api.storefront.cart.quote');
     Route::post('/checkout',              [CheckoutController::class, 'checkout'])->name('api.storefront.checkout');
     Route::get ('/payment-methods',       [CheckoutController::class, 'paymentMethods'])->name('api.storefront.payment-methods');

@@ -11,6 +11,7 @@ use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Services\PromotionService;
 use App\Modules\Sales\Services\SalesOrderService;
 use App\Modules\Sales\Services\WebPaymentService;
+use App\Modules\Shipping\Services\PointAddressResolver;
 use App\Modules\Shipping\ShippingManager;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -54,19 +55,60 @@ class CheckoutController extends Controller
         return response()->json(['data' => $res['areas'] ?? [], 'provider' => $key]);
     }
 
+    /**
+     * Titik peta pembeli → alamat + area kurir + kode pos.
+     * Body { latitude, longitude }.
+     *
+     * Kurir instant memang menghitung tarif dari KOORDINAT, tapi Jubelio tetap
+     * mewajibkan kode pos & area tujuan; pin di peta karena itu harus diterjemahkan
+     * dulu di sini — etalase tidak boleh menebak kamus wilayah agregator sendiri.
+     */
+    public function resolvePoint(Request $request, PointAddressResolver $resolver)
+    {
+        $data = $request->validate([
+            'latitude'  => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+        ]);
+
+        $key      = $this->rateProviderKey();
+        $provider = $key ? $this->shipping->provider($key) : null;
+
+        return response()->json([
+            'data' => $resolver->resolve((float) $data['latitude'], (float) $data['longitude'], $provider),
+        ]);
+    }
+
+    /**
+     * Titik toko (gudang penjualan default) — pusat awal peta checkout, dipakai saat
+     * pembeli menolak izin lokasi. Diambil dari master gudang supaya pindah toko tidak
+     * perlu menyentuh kode etalase.
+     */
+    public function originPoint()
+    {
+        $wh = \App\Core\Inventory\Warehouse::shippingOrigin();
+
+        return response()->json(['data' => [
+            'latitude'  => $wh && $wh->latitude !== null ? (float) $wh->latitude : null,
+            'longitude' => $wh && $wh->longitude !== null ? (float) $wh->longitude : null,
+            'label'     => $wh->name ?? null,
+        ]]);
+    }
+
     /** Cek ongkir: body { destination_area_id, destination_postal_code?, items:[...] }. */
     public function rates(Request $request)
     {
         $data = $request->validate([
-            'destination_area_id' => 'required|string|max:50',
+            // Mode instant memakai pin di peta: area_id ikut bila reverse geocode
+            // mengenalinya, tapi tidak wajib — yang menentukan tarif adalah koordinat.
+            'destination_area_id' => 'required_unless:mode,instant|nullable|string|max:50',
             // Jubelio MEWAJIBKAN kode pos tujuan; etalase mengirimnya balik dari hasil
             // pencarian wilayah (endpoint areas sudah menyertakan postal_code).
-            'destination_postal_code' => 'nullable|string|max:10',
+            'destination_postal_code' => 'required_if:mode,instant|nullable|string|max:10',
             // Kurir instant (GoSend/Grab/Paxel) menghitung tarif dari TITIK LOKASI,
             // jadi pembeli menaruh pin di peta; kode pos tetap dikirim untuk validasi.
             'mode'                => 'nullable|in:instant,regular',
-            'destination_latitude'  => 'nullable|numeric|between:-90,90',
-            'destination_longitude' => 'nullable|numeric|between:-180,180',
+            'destination_latitude'  => 'required_if:mode,instant|nullable|numeric|between:-90,90',
+            'destination_longitude' => 'required_if:mode,instant|nullable|numeric|between:-180,180',
             'items'               => 'required|array|min:1',
             'items.*.product_id'  => 'required|integer',
             'items.*.qty'         => 'required|numeric|min:1',
@@ -78,8 +120,8 @@ class CheckoutController extends Controller
             'provider'            => $key,
             // Kirim area id ke SEMUA kunci provider — nilainya memang berasal dari
             // provider aktif itu sendiri, dan provider lain sedang tidak dipakai.
-            'destination_area_id'     => $data['destination_area_id'],
-            'destination_jubelio_id'  => $data['destination_area_id'],
+            'destination_area_id'     => $data['destination_area_id'] ?? null,
+            'destination_jubelio_id'  => $data['destination_area_id'] ?? null,
             'destination_postal_code' => $data['destination_postal_code'] ?? null,
             'mode'                    => $data['mode'] ?? 'regular',
             'destination_latitude'    => $data['destination_latitude'] ?? null,

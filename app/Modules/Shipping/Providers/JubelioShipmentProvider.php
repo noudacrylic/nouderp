@@ -672,7 +672,7 @@ class JubelioShipmentProvider implements ShippingProvider
         return max(1000, $total);
     }
 
-    /** "2-3 hari" dari eta_from/eta_to; "-" bila tidak tersedia. */
+    /** "2-3 hari" (atau "1-2 jam" untuk kurir instant) dari eta_from/eta_to; "-" bila kosong. */
     private function etaText(?string $from, ?string $to): string
     {
         if (!$from && !$to) {
@@ -680,13 +680,25 @@ class JubelioShipmentProvider implements ShippingProvider
         }
 
         try {
-            $now  = now();
-            $days = [];
+            $now   = now();
+            $hours = [];
             foreach ([$from, $to] as $t) {
                 if ($t) {
-                    $days[] = max(0, (int) ceil($now->diffInHours(\Illuminate\Support\Carbon::parse($t), false) / 24));
+                    $hours[] = max(0, (int) ceil($now->diffInHours(\Illuminate\Support\Carbon::parse($t), false)));
                 }
             }
+
+            // Kurir instant tiba dalam hitungan jam. Dibulatkan ke hari, estimasi 1-2 jam
+            // jadi "1 hari" — terbaca seperti kurir biasa, padahal itu justru yang dibayar
+            // mahal oleh pembeli.
+            $short = array_values(array_unique(array_filter($hours, fn ($h) => $h > 0 && $h <= 12)));
+            if ($short && max($hours) <= 12) {
+                return count($short) >= 2
+                    ? min($short) . '-' . max($short) . ' jam'
+                    : $short[0] . ' jam';
+            }
+
+            $days = array_map(fn ($h) => (int) ceil($h / 24), $hours);
             $days = array_values(array_unique(array_filter($days, fn ($d) => $d > 0)));
 
             if (count($days) >= 2) {
