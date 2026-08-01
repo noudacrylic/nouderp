@@ -29,6 +29,7 @@ class SalesInvoice extends Model
         'shipping_courier_code',
         'shipping_service_code',
         'shipping_service_name',
+        'shipping_provider',
         'package_length',
         'package_width',
         'package_height',

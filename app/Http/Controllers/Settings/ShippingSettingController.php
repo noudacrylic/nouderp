@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\ShippingSetting;
 use App\Modules\Shipping\Providers\BiteshipProvider;
+use App\Modules\Shipping\Providers\JubelioShipmentProvider;
 use App\Modules\Shipping\Providers\KiriminAjaProvider;
 use App\Modules\Shipping\Providers\RajaOngkirProvider;
 use Illuminate\Http\Request;
@@ -165,5 +166,78 @@ class ShippingSettingController extends Controller
 
         return redirect()->route('settings.integrations.index')
             ->with('success', 'Pengaturan KiriminAja tersimpan.');
+    }
+
+    // ───────────── Jubelio Shipment (J&T Cargo dkk, tanpa badan usaha) ─────────────
+
+    public function jubelioShipment(JubelioShipmentProvider $provider)
+    {
+        $setting = ShippingSetting::for('jubelio_shipment');
+
+        // Kategori diambil live hanya bila kredensial sudah terisi; kalau belum,
+        // pakai daftar dari kontrak v1.8 supaya halaman tetap bisa dipelajari.
+        $categories = JubelioShipmentProvider::DEFAULT_CATEGORIES;
+        $liveError  = null;
+        if ($provider->isReady()) {
+            $res = $provider->serviceCategories();
+            $categories = $res['categories'];
+            $liveError  = $res['success'] ? null : $res['error'];
+        }
+
+        $selected = $provider->enabledCategoryIds();
+
+        return view('erp.settings.shipping.jubelio-shipment', [
+            'setting'            => $setting,
+            'provider'           => $provider,
+            'categories'         => $categories,
+            'selectedCategories' => $selected ?: array_keys($categories),
+            'liveError'          => $liveError,
+            'webhookUrl'         => route('shipping.jubelio.webhook'),
+        ]);
+    }
+
+    public function updateJubelioShipment(Request $request)
+    {
+        $data = $request->validate([
+            'is_enabled'    => 'nullable|boolean',
+            'is_production' => 'nullable|boolean',
+            'client_id'     => 'nullable|string|max:255',
+            'api_key'       => 'nullable|string|max:500',
+            'base_url'      => 'nullable|string|max:255',
+            'webhook_token' => 'nullable|string|max:255',
+            'categories'    => 'nullable|array',
+            'categories.*'  => 'integer',
+        ]);
+
+        $setting = ShippingSetting::for('jubelio_shipment');
+
+        $config = $setting->config ?? [];
+        $config['client_id']  = trim((string) ($data['client_id'] ?? ''));
+        $config['categories'] = array_values(array_unique(array_map('intval', $request->input('categories', []))));
+
+        $setting->update([
+            'is_enabled'    => $request->boolean('is_enabled'),
+            'is_production' => $request->boolean('is_production'),
+            'api_key'       => $data['api_key'] ?? null,
+            // base_url kosong → null, biar provider memilih sandbox/produksi sendiri.
+            'base_url'      => $data['base_url'] ?: null,
+            'webhook_token' => $data['webhook_token'] ?? null,
+            'config'        => $config,
+        ]);
+
+        // Kredensial/base URL berubah → token lama tidak berlaku lagi.
+        app(JubelioShipmentProvider::class, ['setting' => $setting->fresh()])->forgetToken();
+
+        return redirect()->route('settings.shipping.jubelio-shipment')
+            ->with('success', 'Pengaturan Jubelio Shipment tersimpan.');
+    }
+
+    /** Uji kredensial dari halaman Pengaturan (ambil token + daftar kategori). */
+    public function testJubelioShipment(JubelioShipmentProvider $provider)
+    {
+        $res = $provider->testConnection();
+
+        return redirect()->route('settings.shipping.jubelio-shipment')
+            ->with($res['success'] ? 'success' : 'error', 'Uji koneksi Jubelio Shipment: ' . $res['message']);
     }
 }

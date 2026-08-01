@@ -27,6 +27,7 @@ class IntegrationsController extends Controller
         $rajaongkir = ShippingSetting::for('rajaongkir');
         $biteship   = ShippingSetting::for('biteship');
         $kiriminaja = ShippingSetting::for('kiriminaja');
+        $jubelioShipment = ShippingSetting::for('jubelio_shipment');
         $jubelio    = JubelioSetting::singleton();
         $telegram   = TelegramSetting::current();
         $anthropic  = AnthropicSetting::current();
@@ -73,6 +74,15 @@ class IntegrationsController extends Controller
                 'active'      => $rajaongkir->isConfigured(),
                 'mode'        => 'Production',
                 'url'         => route('settings.shipping.rajaongkir'),
+            ],
+            [
+                'name'        => 'Jubelio Shipment',
+                'category'    => 'Kurir / Pengiriman',
+                'description' => 'Agregator kurir Jubelio — terbit resi tanpa badan usaha, termasuk layanan CARGO (J&T Cargo). Cek ongkir, resi, batal, tracking.',
+                'icon'        => '🚛',
+                'active'      => app(\App\Modules\Shipping\Providers\JubelioShipmentProvider::class)->isReady(),
+                'mode'        => $jubelioShipment->is_production ? 'Production' : 'Sandbox',
+                'url'         => route('settings.shipping.jubelio-shipment'),
             ],
             [
                 'name'        => 'Biteship',

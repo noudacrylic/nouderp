@@ -8,6 +8,7 @@
     $sdVal   = old('shipping_discount_value', $m->shipping_discount_value ?? 0);
     $scCode  = old('shipping_courier_code', $m->shipping_courier_code ?? '');
     $scSvc   = old('shipping_service_code', $m->shipping_service_code ?? '');
+    $scProv  = old('shipping_provider', $m->shipping_provider ?? '');
     $scName  = old('shipping_service_name', $m->shipping_service_name ?? '');
     $pkgL    = old('package_length', $m->package_length ?? '');
     $pkgW    = old('package_width',  $m->package_width ?? '');
@@ -140,6 +141,8 @@
     <input type="hidden" name="shipping_courier_code" id="shipping_courier_code" value="{{ $scCode }}">
     <input type="hidden" name="shipping_service_code" id="shipping_service_code" value="{{ $scSvc }}">
     <input type="hidden" name="shipping_service_name" id="shipping_service_name" value="{{ $scName }}">
+    {{-- Provider pemilik tarif terpilih — penentu ke agregator mana resi dipesan nanti. --}}
+    <input type="hidden" name="shipping_provider" id="shipping_provider" value="{{ $scProv }}">
 </div>
 
 {{-- ===== POPUP ALAMAT ===== --}}
@@ -511,6 +514,8 @@
         $id('ongkir_hint').textContent = 'Mengambil ongkir…';
         // Kirim id kedua provider bila ada; tiap provider pakai id-nya sendiri (bandingkan ongkir).
         const params = {warehouse_id: wh, weight_gram: weight, mode: mode};
+        // customer_id: server melengkapi area/kode pos tujuan milik provider yang belum terisi.
+        if (cid)    params.customer_id = cid;
         if (area)   params.destination_area_id = area;
         if (areaKa) params.destination_kiriminaja_id = areaKa;
         // Koordinat tujuan → kurir instant (Grab/GoSend/Lalamove) ikut muncul.
@@ -553,7 +558,7 @@
                         const sep = (gi > 0 && ii === 0) ? ' border-t-2 border-gray-100' : '';
                         const label = ((r.courier_name || g.name || '') + ' ' + (r.service_name || r.service_code || '')).replace(/"/g, '');
                         html += '<div class="px-3 py-1.5 cursor-pointer hover:bg-blue-50 flex justify-between gap-2 items-center ongkir-row' + sep + '"'
-                            + ' data-code="' + (r.courier_code || '') + '" data-service="' + (r.service_code || '') + '" data-name="' + label + '" data-price="' + (r.price || 0) + '">'
+                            + ' data-code="' + (r.courier_code || '') + '" data-service="' + (r.service_code || '') + '" data-name="' + label + '" data-price="' + (r.price || 0) + '" data-provider="' + (r.provider || '') + '">'
                             + '<span class="min-w-0 truncate"><span class="font-bold text-gray-700">' + esc(g.name) + '</span> <span class="text-gray-600">' + esc(r.service_name || r.service_code || '') + '</span></span>'
                             + '<span class="text-gray-400 text-[11px] whitespace-nowrap">' + esc(r.etd || '') + '</span>'
                             + '<span class="font-bold text-gray-800 whitespace-nowrap">Rp ' + fmt(r.price || 0) + '</span></div>';
@@ -573,6 +578,7 @@
         $id('shipping_courier_code').value = row.dataset.code || '';
         $id('shipping_service_code').value = row.dataset.service || '';
         $id('shipping_service_name').value = row.dataset.name || '';
+        if ($id('shipping_provider')) $id('shipping_provider').value = row.dataset.provider || '';
         $id('ship_courier_picked').textContent = (row.dataset.code||'').toUpperCase() + ' · ' + (row.dataset.name||'');
         $id('ongkir_results').classList.add('hidden');
         clearManualHighlight();
@@ -584,6 +590,7 @@
         $id('shipping_courier_code').value = chip.dataset.code || '';
         $id('shipping_service_code').value = '';
         $id('shipping_service_name').value = chip.dataset.name || '';
+        if ($id('shipping_provider')) $id('shipping_provider').value = '';   // kurir manual: tak ada agregator
         $id('ship_courier_picked').textContent = (chip.dataset.name||'') + ' · ongkir manual';
         $id('ongkir_results').classList.add('hidden');
         clearManualHighlight();

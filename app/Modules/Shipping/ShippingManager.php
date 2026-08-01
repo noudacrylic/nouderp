@@ -4,21 +4,30 @@ namespace App\Modules\Shipping;
 
 use App\Modules\Shipping\Contracts\ShippingProvider;
 use App\Modules\Shipping\Providers\BiteshipProvider;
+use App\Modules\Shipping\Providers\JubelioShipmentProvider;
 use App\Modules\Shipping\Providers\KiriminAjaProvider;
 use App\Modules\Shipping\Providers\RajaOngkirProvider;
 
 /**
  * Resolver kurir → provider. Menggabungkan ongkir lintas provider yang aktif.
  *
- * AKTIF (21 Jul 2026): RajaOngkir (cek ongkir, ramah perorangan). Biteship & KiriminAja
- * DINONAKTIFKAN (butuh badan usaha / verifikasi macet) — kelasnya tetap ada, tinggal
- * di-uncomment di PROVIDERS bila verifikasi cair.
+ * AKTIF (1 Agu 2026): Jubelio Shipment — satu-satunya provider, dipilih karena bisa
+ * terbit resi tanpa badan usaha DAN menyediakan layanan CARGO (J&T Cargo dkk).
+ * RajaOngkir dimatikan lewat Pengaturan (kelasnya tetap ada) supaya operator tidak
+ * disodori tarif ganda untuk kurir yang sama. Biteship & KiriminAja tetap dinonaktifkan
+ * (butuh badan usaha / verifikasi macet).
+ *
+ * Etalase memakai provider aktif PERTAMA (CheckoutController::rateProviderKey), jadi
+ * berganti agregator cukup lewat Pengaturan tanpa menyentuh kode.
  */
 class ShippingManager
 {
     /** @return array<string, class-string<ShippingProvider>> */
     private const PROVIDERS = [
-        'rajaongkir' => RajaOngkirProvider::class,
+        'rajaongkir'       => RajaOngkirProvider::class,
+        // Jubelio Shipment: terbit resi tanpa badan usaha (termasuk J&T Cargo). Ikut
+        // aktif hanya bila client id/secret sudah diisi — isReady() yang menjaga.
+        'jubelio_shipment' => JubelioShipmentProvider::class,
         // 'biteship'   => BiteshipProvider::class,   // dinonaktifkan (wajib badan usaha)
         // 'kiriminaja' => KiriminAjaProvider::class, // dinonaktifkan (verifikasi macet)
     ];
@@ -49,9 +58,10 @@ class ShippingManager
 
     /** Label tampilan per provider (untuk pemilih area di form). */
     public const LABELS = [
-        'rajaongkir' => 'RajaOngkir',
-        'biteship'   => 'Biteship',
-        'kiriminaja' => 'KiriminAja',
+        'rajaongkir'       => 'RajaOngkir',
+        'jubelio_shipment' => 'Jubelio Shipment',
+        'biteship'         => 'Biteship',
+        'kiriminaja'       => 'KiriminAja',
     ];
 
     /** Key provider aktif pertama (fallback untuk pencarian area default). */

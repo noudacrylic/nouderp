@@ -4,7 +4,9 @@
     $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
     $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
     $roOn = \App\Models\ShippingSetting::for('rajaongkir')->is_enabled;
+    $jsOn = \App\Models\ShippingSetting::for('jubelio_shipment')->is_enabled;
     $areaProviders = [];
+    if ($jsOn) $areaProviders['jubelio_shipment'] = 'Jubelio';
     if ($kaOn) {
         if ($btOn) $areaProviders['biteship'] = 'Biteship';
         $areaProviders['kiriminaja'] = 'KiriminAja';
@@ -42,10 +44,11 @@
         'placeholder'    => 'Ketik kelurahan / kecamatan untuk cari area…',
         'postalTargetId' => 'wh_postal_code',
         'providers'      => $areaProviders,
-        'providerNames'  => ['biteship' => 'biteship_area_id', 'kiriminaja' => 'kiriminaja_area_id'],
+        'providerNames'  => ['jubelio_shipment' => 'jubelio_area_id', 'biteship' => 'biteship_area_id', 'kiriminaja' => 'kiriminaja_area_id'],
         'providerValues' => [
-            'biteship'   => old('biteship_area_id', $w?->biteship_area_id ?? ''),
-            'kiriminaja' => old('kiriminaja_area_id', $w?->kiriminaja_area_id ?? ''),
+            'jubelio_shipment' => old('jubelio_area_id', $w?->jubelio_area_id ?? ''),
+            'biteship'         => old('biteship_area_id', $w?->biteship_area_id ?? ''),
+            'kiriminaja'       => old('kiriminaja_area_id', $w?->kiriminaja_area_id ?? ''),
         ],
     ])
 

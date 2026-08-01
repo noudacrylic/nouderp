@@ -7,7 +7,12 @@
     // Pemilih provider area: tampil hanya bila KiriminAja diaktifkan di Settings.
     $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
     $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
+    // Jubelio Shipment: kamus wilayahnya sendiri (area_id 10 digit + kode pos),
+    // dan kode pos itu WAJIB untuk cek ongkirnya — jadi pemilihnya selalu tampil
+    // begitu providernya aktif, tidak menunggu provider lain.
+    $jsOn = \App\Models\ShippingSetting::for('jubelio_shipment')->is_enabled;
     $areaProviders = [];
+    if ($jsOn) $areaProviders['jubelio_shipment'] = 'Jubelio';
     if ($kaOn) {
         if ($btOn) $areaProviders['biteship'] = 'Biteship';
         $areaProviders['kiriminaja'] = 'KiriminAja';
@@ -46,10 +51,11 @@
         'cityTargetId'     => 'cust_city',
         'districtTargetId' => 'cust_district',
         'providers'        => $areaProviders,
-        'providerNames'    => ['biteship' => 'biteship_area_id', 'kiriminaja' => 'kiriminaja_area_id'],
+        'providerNames'    => ['jubelio_shipment' => 'jubelio_area_id', 'biteship' => 'biteship_area_id', 'kiriminaja' => 'kiriminaja_area_id'],
         'providerValues'   => [
-            'biteship'   => old('biteship_area_id', $c?->biteship_area_id ?? ''),
-            'kiriminaja' => old('kiriminaja_area_id', $c?->kiriminaja_area_id ?? ''),
+            'jubelio_shipment' => old('jubelio_area_id', $c?->jubelio_area_id ?? ''),
+            'biteship'         => old('biteship_area_id', $c?->biteship_area_id ?? ''),
+            'kiriminaja'       => old('kiriminaja_area_id', $c?->kiriminaja_area_id ?? ''),
         ],
     ])
     <p class="text-xs text-gray-400 mt-1">Provinsi, kota, kecamatan & kode pos terisi otomatis dari pilihan di atas.</p>

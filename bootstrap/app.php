@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'midtrans/notify',
             'pay/*',
             'jubelio/webhook/*',
+            'jubelio-shipment/webhook',
             'telegram/webhook/*',
         ]);
 

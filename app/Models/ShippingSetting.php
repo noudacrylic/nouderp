@@ -27,6 +27,8 @@ class ShippingSetting extends Model
         // KiriminAja: sandbox=tdev, produksi=client. Biarkan null → KiriminAjaProvider
         // otomatis pilih tdev (sandbox) / client (produksi) sesuai is_production.
         'kiriminaja' => null,
+        // Jubelio Shipment: sama polanya — null → provider pilih sandbox/produksi sendiri.
+        'jubelio_shipment' => null,
     ];
 
     /** Ambil (atau buat) baris setting untuk provider tertentu. */

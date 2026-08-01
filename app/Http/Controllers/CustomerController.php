@@ -118,6 +118,7 @@ class CustomerController extends Controller
             'postal_code'        => 'nullable|string|max:10',
             'biteship_area_id'   => 'nullable|string|max:100',
             'kiriminaja_area_id' => 'nullable|string|max:100',
+            'jubelio_area_id'    => 'nullable|string|max:100',
             'location_point'     => 'nullable|string|max:500',
         ]);
 

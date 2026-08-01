@@ -29,7 +29,17 @@ class CheckoutController extends Controller
         private PromotionService $promotions,
     ) {}
 
-    /** Cari wilayah tujuan → destination_id RajaOngkir. ?q= (min 3 huruf). */
+    /**
+     * Provider ongkir etalase — satu saja, supaya pembeli tidak disodori tarif ganda
+     * untuk kurir yang sama. Diambil dari provider aktif pertama (lihat ShippingManager),
+     * jadi mengganti agregator cukup lewat Pengaturan, tanpa menyentuh kode ini lagi.
+     */
+    private function rateProviderKey(): ?string
+    {
+        return $this->shipping->defaultProviderKey();
+    }
+
+    /** Cari wilayah tujuan → area id + kode pos milik provider aktif. ?q= (min 3 huruf). */
     public function areas(Request $request)
     {
         $q = trim((string) $request->get('q'));
@@ -37,26 +47,36 @@ class CheckoutController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $provider = $this->shipping->provider('rajaongkir');
-        $res = $provider ? $provider->searchAreas($q) : ['areas' => []];
+        $key      = $this->rateProviderKey();
+        $provider = $key ? $this->shipping->provider($key) : null;
+        $res      = $provider ? $provider->searchAreas($q) : ['areas' => []];
 
-        return response()->json(['data' => $res['areas'] ?? []]);
+        return response()->json(['data' => $res['areas'] ?? [], 'provider' => $key]);
     }
 
-    /** Cek ongkir: body { destination_area_id, items:[{product_id, qty}] }. */
+    /** Cek ongkir: body { destination_area_id, destination_postal_code?, items:[...] }. */
     public function rates(Request $request)
     {
         $data = $request->validate([
             'destination_area_id' => 'required|string|max:50',
+            // Jubelio MEWAJIBKAN kode pos tujuan; etalase mengirimnya balik dari hasil
+            // pencarian wilayah (endpoint areas sudah menyertakan postal_code).
+            'destination_postal_code' => 'nullable|string|max:10',
             'items'               => 'required|array|min:1',
             'items.*.product_id'  => 'required|integer',
             'items.*.qty'         => 'required|numeric|min:1',
         ]);
 
+        $key = $this->rateProviderKey();
+
         $res = $this->shipping->rates([
-            'provider'            => 'rajaongkir',
-            'destination_area_id' => $data['destination_area_id'],
-            'items'               => $this->rateItems($data['items']),
+            'provider'            => $key,
+            // Kirim area id ke SEMUA kunci provider — nilainya memang berasal dari
+            // provider aktif itu sendiri, dan provider lain sedang tidak dipakai.
+            'destination_area_id'     => $data['destination_area_id'],
+            'destination_jubelio_id'  => $data['destination_area_id'],
+            'destination_postal_code' => $data['destination_postal_code'] ?? null,
+            'items'                   => $this->rateItems($data['items']),
         ]);
 
         // Sisipkan diskon ongkir (promo) per layanan → etalase tampilkan potongannya.

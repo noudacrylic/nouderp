@@ -15,6 +15,7 @@ class Warehouse extends Model
         'postal_code',
         'biteship_area_id',
         'kiriminaja_area_id',
+        'jubelio_area_id',
         'rajaongkir_origin_id',
         'rajaongkir_origin_label',
         'latitude',
@@ -69,6 +70,7 @@ class Warehouse extends Model
         return array_filter([
             'origin_area_id'      => $this->biteship_area_id ?: null,
             'origin_kiriminaja_id' => $this->kiriminaja_area_id ?: null,
+            'origin_jubelio_id'  => $this->jubelio_area_id ?: null,
             'origin_postal_code' => $this->postal_code ?: null,
             // Koordinat asal — wajib agar kurir instant (Grab/GoSend/Lalamove) muncul.
             'origin_latitude'    => $this->latitude !== null ? (float) $this->latitude : null,

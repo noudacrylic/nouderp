@@ -182,6 +182,8 @@
         }
         $id('ckw_hint').textContent = 'Mengambil ongkir…';
         const params = { warehouse_id: whId, weight_gram: $id('ckw_weight').value || 1000, mode: mode };
+        // customer_id: server melengkapi area/kode pos tujuan milik provider yang belum terisi.
+        if (cid)    params.customer_id = cid;
         if (area)   params.destination_area_id = area;
         if (areaKa) params.destination_kiriminaja_id = areaKa;
         if (destLat != null && destLong != null) { params.destination_latitude = destLat; params.destination_longitude = destLong; }

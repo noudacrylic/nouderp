@@ -54,6 +54,11 @@ Route::prefix('jubelio/webhook')->middleware('jubelio.signature')->group(functio
     Route::post('/stock/{token?}',       [\App\Modules\Marketplace\Jubelio\Controllers\JubelioWebhookController::class, 'stock'])->name('jubelio.webhook.stock');
 });
 
+// ── Jubelio SHIPMENT webhook (status pengiriman) — beda produk dari webhook di atas ──
+// Dijaga tanda tangan `x-jubelio-signature`, jadi tidak perlu token di path.
+Route::post('/jubelio-shipment/webhook', [\App\Modules\Shipping\Controllers\JubelioShipmentWebhookController::class, 'handle'])
+    ->name('shipping.jubelio.webhook');
+
 // ── Telegram "Noud Bot" webhook (NO auth/CSRF, server-to-server) ──
 // {secret} = telegram_settings.webhook_secret. Menangkap chat_id saat /start.
 Route::post('/telegram/webhook/{secret}', [\App\Http\Controllers\TelegramWebhookController::class, 'handle'])
@@ -149,6 +154,9 @@ Route::prefix('erp')->group(function () {
         Route::post('/shipping/biteship', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'updateBiteship'])->name('settings.shipping.biteship.update');
         Route::get('/shipping/kiriminaja', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'kiriminaja'])->name('settings.shipping.kiriminaja');
         Route::post('/shipping/kiriminaja', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'updateKiriminaja'])->name('settings.shipping.kiriminaja.update');
+        Route::get('/shipping/jubelio-shipment', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'jubelioShipment'])->name('settings.shipping.jubelio-shipment');
+        Route::post('/shipping/jubelio-shipment', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'updateJubelioShipment'])->name('settings.shipping.jubelio-shipment.update');
+        Route::post('/shipping/jubelio-shipment/test', [\App\Http\Controllers\Settings\ShippingSettingController::class, 'testJubelioShipment'])->name('settings.shipping.jubelio-shipment.test');
 
         // Jasa Kirim — kurir manual (ekspedisi non-API)
         Route::get('/shipping-couriers', [\App\Http\Controllers\Settings\ManualCourierController::class, 'index'])->name('settings.shipping-couriers.index');
