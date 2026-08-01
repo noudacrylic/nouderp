@@ -23,7 +23,9 @@ class PreorderAutoProductionService
      * Berbeda dengan AutoProductionService (ready stock):
      * - Trigger reaktif (saat SO confirmed), bukan scan periodik
      * - Tidak ada cek skip-if-running — tiap pesanan customer berdiri sendiri
-     * - planned_cycles dipetakan 1:1 dari qty SO item (BOM wajib qty_per_cycle=1)
+     * - planned_cycles = SISA qty produk yang belum direncanakan di SO ini, 1 siklus = 1 unit
+     *   (BOM wajib qty_per_cycle=1). Dipakai sisa, bukan qty baris, karena 1 produk bisa
+     *   tersebar di beberapa baris SO — lihat runForItem().
      *
      * Return: list result per item untuk reporting/logging.
      */
@@ -86,22 +88,36 @@ class PreorderAutoProductionService
             return array_merge($base, ['reason' => "BOM {$bom->bom_number} tidak valid untuk preorder (qty per siklus harus = 1)."]);
         }
 
-        // Idempotent: jangan buat OP dobel kalau SUDAH ADA order produksi (non-cancelled) yang
-        // menghasilkan produk ini untuk SO yang sama — TERMASUK OP yang dibuat manual oleh tim.
-        // Dulu cek ini hanya menyaring created_via='auto_preorder', sehingga bila tim membuat OP
-        // custom manual lebih dulu (sering langsung difinalisasi) lalu DP diposting, auto-produksi
-        // tetap membuat OP kedua yang nyangkut di 'confirmed' → SO terjebak di "Belum Siap"
-        // (bucketing fulfillment butuh SEMUA OP finalized). (Trigger dari DP juga bisa >1 kali.)
-        $alreadyExists = ProductionOrder::where('sales_order_id', $so->id)
-            ->where('status', '!=', 'cancelled')
-            ->whereHas('outputs', fn($q) => $q->where('output_type', 'main')
-                                              ->where('product_id', $product->id))
-            ->exists();
-        if ($alreadyExists) {
-            return array_merge($base, ['reason' => 'Order produksi untuk produk ini sudah ada, dilewati.']);
+        // Idempotensi BERBASIS QTY, bukan sekadar "OP-nya sudah ada atau belum".
+        //
+        // Cek lama hanya bertanya ada/tidak ada OP untuk (SO + produk). Karena loop di atas
+        // berjalan PER BARIS SO, sedangkan cek-nya per produk, satu produk yang dipesan lewat
+        // >1 baris SO (lazim di pesanan marketplace: channel memecah SKU sama jadi beberapa
+        // baris) hanya diproduksi sebanyak baris pertama — baris berikutnya diblokir oleh OP
+        // yang baru saja dibuat baris pertama. Kasus nyata TP-585249530329007489: 2 baris @1 pcs,
+        // OP hanya 1 pcs, sisanya keluar lewat SJ tanpa pernah diproduksi (stok jadi minus).
+        //
+        // Sekarang: hitung SISA = total qty produk ini di SELURUH baris SO − qty yang sudah
+        // direncanakan OP milik SO ini. Karena dihitung ulang dari data setiap kali, semua
+        // sumber "sudah direncanakan" ikut otomatis: pemicu yang jalan >1 kali (DP kedua,
+        // retry webhook) maupun OP manual yang dibuat tim lebih dulu (kasus SO/2026/06/00013).
+        $orderedQty = (float) $so->items
+            ->where('product_id', $product->id)
+            ->sum(fn ($i) => (float) $i->qty * (float) ($i->conversion_to_base ?: 1));
+
+        $plannedQty = $this->plannedQtyForSalesOrder((int) $so->id, (int) $product->id);
+        $remaining  = round($orderedQty - $plannedQty, 4);
+
+        if ($remaining <= 0) {
+            return array_merge($base, [
+                'reason' => 'Produksi produk ini sudah direncanakan penuh ('
+                    . $this->fmtQty($plannedQty) . ' dari ' . $this->fmtQty($orderedQty) . '), dilewati.',
+            ]);
         }
 
-        $cycles = (int) max(1, (int) ($item->qty * ($item->conversion_to_base ?? 1)));
+        // 1 siklus = 1 unit (BOM preorder wajib qty_per_cycle = 1, sudah divalidasi di atas).
+        // Dibulatkan ke ATAS supaya qty pecahan tidak menyisakan kekurangan produksi.
+        $cycles = (int) max(1, (int) ceil($remaining - 0.0001));
 
         $materials = $this->bomService->calculateMaterials($bom->id, $cycles);
         $outputs   = $this->bomService->calculateOutputs($bom->id, $cycles);
@@ -109,6 +125,13 @@ class PreorderAutoProductionService
 
         $customerName = $so->customer?->name ?? '-';
         $notes = "Auto-produksi pre-order dari SO {$so->order_number} (Customer: {$customerName}, item baris #{$lineNo}).";
+        // Satu produk bisa tersebar di beberapa baris SO → OP ini menutup SISA qty produk
+        // tersebut untuk seluruh SO, bukan cuma baris yang sedang diproses. Dicatat di notes
+        // supaya tim produksi tidak bingung melihat qty OP > qty baris.
+        if ($remaining > (float) $item->qty * (float) ($item->conversion_to_base ?: 1)) {
+            $notes .= " Mencakup sisa qty produk {$product->sku} dari seluruh baris SO: "
+                . $this->fmtQty($remaining) . ' dari ' . $this->fmtQty($orderedQty) . ' dipesan.';
+        }
 
         try {
             $order = DB::transaction(function () use ($bom, $so, $cycles, $materials, $outputs, $steps, $notes) {
@@ -158,5 +181,50 @@ class PreorderAutoProductionService
             ]);
             return array_merge($base, ['reason' => 'Gagal membuat order: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Total qty sebuah produk yang SUDAH direncanakan produksi untuk satu SO
+     * (semua OP non-cancelled milik SO tsb, apa pun created_via-nya).
+     *
+     * Penggabungan OP (merge) menyerap output anak ke induk TAPI baris output milik anak tetap
+     * ada (lihat ProductionOrderService::merge). Kalau semua output dijumlah mentah, qty anak
+     * terhitung dua kali; dan karena induk bisa menyerap anak dari SO LAIN, induk jadi seolah
+     * merencanakan lebih banyak dari yang dipesan SO-nya sendiri — cukup untuk membuat sisa
+     * qty terbaca 0 dan kekurangan produksi tak pernah terdeteksi. Karena itu output tiap OP
+     * dikurangi output anak-anak yang di-merge ke dalamnya; kontribusi anak tetap terhitung
+     * lewat barisnya sendiri, di SO-nya masing-masing.
+     */
+    private function plannedQtyForSalesOrder(int $salesOrderId, int $productId): float
+    {
+        $orderIds = ProductionOrder::where('sales_order_id', $salesOrderId)
+            ->where('status', '!=', 'cancelled')
+            ->pluck('id');
+
+        if ($orderIds->isEmpty()) {
+            return 0.0;
+        }
+
+        $planned = (float) DB::table('production_order_outputs')
+            ->whereIn('production_order_id', $orderIds)
+            ->where('output_type', 'main')
+            ->where('product_id', $productId)
+            ->sum('qty_planned');
+
+        $absorbed = (float) DB::table('production_order_outputs as poo')
+            ->join('production_orders as child', 'child.id', '=', 'poo.production_order_id')
+            ->whereIn('child.merged_into_id', $orderIds)
+            ->where('child.status', '!=', 'cancelled')
+            ->where('poo.output_type', 'main')
+            ->where('poo.product_id', $productId)
+            ->sum('poo.qty_planned');
+
+        return round($planned - $absorbed, 4);
+    }
+
+    /** Qty untuk pesan log/notes: buang nol di belakang koma (2.0000 → 2). */
+    private function fmtQty(float $qty): string
+    {
+        return rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.');
     }
 }
