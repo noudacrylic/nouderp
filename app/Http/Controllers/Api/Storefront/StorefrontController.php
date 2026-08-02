@@ -131,7 +131,9 @@ class StorefrontController extends Controller
             ->selectRaw('product_id, SUM(qty) as qty')
             ->groupBy('product_id')->pluck('qty', 'product_id');
 
-        $data = $ids->map(function ($id) use ($products, $onHand, $reserved) {
+        $sold = $this->soldCounts($ids);
+
+        $data = $ids->map(function ($id) use ($products, $onHand, $reserved, $sold) {
             $p = $products->get($id);
 
             // SKU bundle: tersedia = MIN antar komponen floor((sellable − reservasi) / qty_dibutuhkan).
@@ -146,7 +148,7 @@ class StorefrontController extends Controller
                     $byComp = (int) floor(max(0, $free) / $req);
                     $avail = is_null($avail) ? $byComp : min($avail, $byComp);
                 }
-                return ['product_id' => $id, 'available' => max(0, $avail ?? 0)];
+                return ['product_id' => $id, 'available' => max(0, $avail ?? 0), 'sold' => (int) ($sold[$id] ?? 0)];
             }
 
             // Produk biasa / preorder: on_hand sellable − reservasi + preorder_stock.
@@ -154,10 +156,48 @@ class StorefrontController extends Controller
             return [
                 'product_id' => $id,
                 'available'  => max(0, (float) ($onHand[$id] ?? 0) - (float) ($reserved[$id] ?? 0) + (float) $preorder),
+                'sold'       => (int) ($sold[$id] ?? 0),
             ];
         });
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Jumlah unit terjual per SKU, sepanjang waktu — untuk bukti sosial di etalase.
+     *
+     * Dasarnya ITEM FAKTUR berstatus posted, bukan pesanan penjualan: pesanan masih
+     * bisa batal, sedangkan faktur berarti barang benar-benar keluar. Basis ini juga
+     * otomatis mencakup semua kanal — web, marketplace (Jubelio), kasir POS yang
+     * menerbitkan faktur tanpa SO, dan penjualan offline.
+     *
+     * Retur TIDAK dikurangkan (keputusan 2 Agu 2026): selisihnya kecil dan tidak
+     * sebanding dengan biaya query tambahan di jalur yang dipanggil tiap halaman
+     * produk dibuka.
+     *
+     * @return array<int,int> product_id => qty
+     */
+    private function soldCounts(\Illuminate\Support\Collection $ids): array
+    {
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        // Angka ini cuma bukti sosial: data 15 menit lalu sama meyakinkannya dengan
+        // data detik ini, jadi tidak perlu memukul database tiap halaman dibuka.
+        $key = 'storefront:sold:' . md5($ids->sort()->implode(','));
+
+        return \Illuminate\Support\Facades\Cache::remember($key, now()->addMinutes(15), function () use ($ids) {
+            return \Illuminate\Support\Facades\DB::table('sales_invoice_items as i')
+                ->join('sales_invoices as inv', 'inv.id', '=', 'i.sales_invoice_id')
+                ->where('inv.status', 'posted')
+                ->whereIn('i.product_id', $ids)
+                ->groupBy('i.product_id')
+                ->selectRaw('i.product_id, SUM(i.qty) as qty')
+                ->pluck('qty', 'product_id')
+                ->map(fn ($q) => (int) round((float) $q))
+                ->all();
+        });
     }
 
     /** Promosi aktif (untuk harga coret & info diskon di etalase). */
