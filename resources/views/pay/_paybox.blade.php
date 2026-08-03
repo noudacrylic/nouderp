@@ -74,6 +74,20 @@
                     atau isi sendiri nominalnya &mdash; minimal <b>Rp {{ number_format($min_dp, 0, ',', '.') }}</b>,
                     maksimal Rp {{ number_format($remaining, 0, ',', '.') }}.
                 </p>
+
+                {{-- Ketentuan DP ditaruh tepat di bawah pilihannya, bukan di bagian lain
+                     halaman: pembeli memutuskan besaran bayar di sini, dan kewajiban
+                     melunasi sebelum barang berpindah harus terbaca pada detik itu juga. --}}
+                @if($adaPilihanDp)
+                    <div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900">
+                        <p class="font-bold mb-1">Ketentuan pembayaran DP</p>
+                        <ul class="list-disc pl-4 space-y-0.5">
+                            <li>DP minimal <b>{{ $dpPersen }}%</b> dari total pesanan sebagai <b>tanda jadi</b>.</li>
+                            <li><b>Ambil di toko:</b> pelunasan dilakukan saat barang diambil.</li>
+                            <li><b>Kirim via kurir / instant:</b> pelunasan harus dilakukan <b>sebelum</b> barang dikirim.</li>
+                        </ul>
+                    </div>
+                @endif
             </div>
         @endif
 
