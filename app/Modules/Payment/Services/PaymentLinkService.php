@@ -6,6 +6,7 @@ use App\Models\MidtransSetting;
 use App\Models\MidtransTransaction;
 use App\Models\SalesInvoice;
 use App\Modules\Sales\Models\SalesOrder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class PaymentLinkService
@@ -94,6 +95,79 @@ class PaymentLinkService
     public function findByToken(string $token): ?MidtransTransaction
     {
         return MidtransTransaction::where('link_token', $token)->first();
+    }
+
+    /**
+     * Hidupkan kembali tautan yang pembayarannya sudah settle padahal dokumennya
+     * masih bersisa — kasus paling sering: DP sudah dibayar, tinggal pelunasan.
+     *
+     * Satu baris MidtransTransaction = SATU pembayaran (nominal, order_id, dan
+     * jurnalnya sendiri), jadi pelunasan harus jadi transaksi baru. Yang tidak boleh
+     * ikut baru adalah TAUTANNYA: alamat itu sudah dikirim ke pembeli lewat WhatsApp
+     * dan mereka akan membukanya lagi saat melunasi. Karena itu token dipindahkan ke
+     * transaksi penerus, bukan diterbitkan ulang.
+     *
+     * Mengembalikan null bila memang tidak perlu dilanjutkan (belum dibayar, atau
+     * dokumennya sudah lunas).
+     */
+    public function continueForRemaining(MidtransTransaction $trx): ?MidtransTransaction
+    {
+        if (! $trx->isPaid() || ! $trx->link_token) {
+            return null;
+        }
+
+        $remaining = $this->remainingOf($trx);
+        if ($remaining <= 0) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($trx, $remaining) {
+            $current = MidtransTransaction::whereKey($trx->id)->lockForUpdate()->first();
+
+            // Permintaan lain (klik ganda) sudah memindahkan tokennya lebih dulu —
+            // pakai transaksi penerus yang sudah ada, jangan bikin kembar.
+            if (! $current || ! $current->isPaid() || ! $current->link_token) {
+                return MidtransTransaction::where('link_token', $trx->link_token)->first();
+            }
+
+            $token = $current->link_token;
+            $current->update(['link_token' => null]);
+
+            $expiryDays = (int) (MidtransSetting::singleton()->link_expiry_days ?: 7);
+            $isSo = $current->sales_order_id && ! $current->sales_invoice_id;
+
+            return MidtransTransaction::create([
+                'order_id' => $this->makeOrderId($isSo ? 'SODP' : 'LINK'),
+                'sales_invoice_id' => $current->sales_invoice_id,
+                'sales_order_id' => $current->sales_order_id,
+                'customer_id' => $current->customer_id,
+                'source' => 'link',
+                'link_token' => $token,
+                'channel' => 'snap_auto',
+                'gross_amount' => 0,
+                'base_amount' => 0,
+                // Sisa tagihan dibayar penuh: DP adalah tanda jadi yang berlaku sekali,
+                // sesuai ketentuan yang tertulis di halaman bayar. Admin masih bisa
+                // menurunkan batas ini lewat tombol tautan pembayaran bila perlu.
+                'min_dp_amount' => $isSo ? $remaining : null,
+                'customer_admin_fee' => 0,
+                'status' => 'pending',
+                'expired_at' => now()->addDays($expiryDays),
+                'created_by' => $current->created_by,
+            ]);
+        });
+    }
+
+    /** Sisa tagihan dokumen yang digantung transaksi ini (rupiah, dibulatkan). */
+    private function remainingOf(MidtransTransaction $trx): int
+    {
+        if ($trx->sales_invoice_id) {
+            return (int) round((float) ($trx->invoice?->remaining_amount ?? 0));
+        }
+
+        $so = $trx->salesOrder;
+
+        return $so ? (int) round((float) $so->grand_total - (float) $so->paid_amount) : 0;
     }
 
     public function makeOrderId(string $prefix): string

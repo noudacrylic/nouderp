@@ -35,6 +35,10 @@ class MidtransPublicController extends Controller
         if (!$trx) {
             return view('pay.invalid', ['reason' => 'Link tidak ditemukan.']);
         }
+        // Halaman ikut dilanjutkan (bukan hanya saat tombol Bayar ditekan) supaya batas
+        // nominal yang tampil sama dengan yang divalidasi server. Aman diulang: begitu
+        // token pindah, transaksi lama tidak lagi berstatus "sudah dibayar + bertoken".
+        $trx = $this->links->continueForRemaining($trx) ?? $trx;
 
         $common = [
             'trx' => $trx,
@@ -96,6 +100,10 @@ class MidtransPublicController extends Controller
         if (!$trx) {
             return response()->json(['error' => 'Link tidak valid'], 404);
         }
+        // Sama seperti snap(): tautan yang DP-nya sudah lunas dipakai lagi untuk
+        // pelunasan lewat transaksi penerus.
+        $trx = $this->links->continueForRemaining($trx) ?? $trx;
+
         if ($trx->isExpired() || $trx->isPaid()) {
             return response()->json(['error' => 'Link sudah tidak aktif'], 410);
         }
@@ -159,6 +167,11 @@ class MidtransPublicController extends Controller
         if (!$trx) {
             return response()->json(['error' => 'Link tidak valid'], 404);
         }
+        // DP-nya sudah dibayar tapi pesanan masih bersisa → pelunasan memakai TAUTAN
+        // YANG SAMA. Transaksi penerus dibuat di sini (bukan saat halaman dibuka)
+        // supaya baris baru hanya lahir ketika pembeli benar-benar hendak membayar.
+        $trx = $this->links->continueForRemaining($trx) ?? $trx;
+
         if ($trx->isExpired() || $trx->isPaid()) {
             return response()->json(['error' => 'Link sudah tidak aktif'], 410);
         }
