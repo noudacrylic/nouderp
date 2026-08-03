@@ -36,16 +36,43 @@
 
     <div class="space-y-4">
         @if($isSo && !$requireFull)
+            @php
+                // Persentase DP minimal, untuk label tombol pintasan ("DP 50%").
+                $dpPersen = $remaining > 0 ? (int) round($min_dp / $remaining * 100) : 0;
+                $adaPilihanDp = $min_dp > 0 && $min_dp < $remaining;
+            @endphp
             <div>
-                <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Nominal DP yang Dibayar</label>
+                <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Nominal yang Dibayar</label>
                 <div class="relative">
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">Rp</span>
+                    {{-- Bawaannya TAGIHAN PENUH, bukan DP minimal. Saat isian ini langsung
+                         menampilkan setengah tagihan, pembeli membacanya seperti potongan
+                         harga dan bingung kenapa yang ditagih lebih kecil dari total
+                         pesanan. Yang ingin mencicil menekan tombol DP di bawah. --}}
                     <input id="dp_input" type="number" inputmode="numeric"
-                           min="{{ $min_dp }}" max="{{ $remaining }}" value="{{ $min_dp }}"
+                           min="{{ $min_dp }}" max="{{ $remaining }}" value="{{ $remaining }}"
                            class="w-full border-2 border-gray-200 rounded-xl pl-9 pr-3 py-3 text-lg font-bold focus:border-emerald-400 focus:outline-none">
                 </div>
-                <p class="text-xs text-gray-500 mt-1">
-                    Minimal DP <b>Rp {{ number_format($min_dp, 0, ',', '.') }}</b> &middot; maksimal Rp {{ number_format($remaining, 0, ',', '.') }}.
+
+                @if($adaPilihanDp)
+                    <div class="flex gap-2 mt-2">
+                        <button type="button" class="dp-quick flex-1 border-2 border-gray-200 rounded-lg px-3 py-2 text-xs font-semibold text-gray-700 transition hover:border-emerald-300"
+                                data-amount="{{ (int) $remaining }}">
+                            Bayar Lunas
+                            <span class="block text-[11px] font-bold text-gray-500">Rp {{ number_format($remaining, 0, ',', '.') }}</span>
+                        </button>
+                        <button type="button" class="dp-quick flex-1 border-2 border-gray-200 rounded-lg px-3 py-2 text-xs font-semibold text-gray-700 transition hover:border-emerald-300"
+                                data-amount="{{ (int) $min_dp }}">
+                            DP {{ $dpPersen }}%
+                            <span class="block text-[11px] font-bold text-gray-500">Rp {{ number_format($min_dp, 0, ',', '.') }}</span>
+                        </button>
+                    </div>
+                @endif
+
+                <p class="text-xs text-gray-500 mt-2">
+                    Bawaannya <b>bayar lunas</b>. Ingin membayar uang muka dulu? Tekan <b>DP {{ $dpPersen }}%</b>
+                    atau isi sendiri nominalnya &mdash; minimal <b>Rp {{ number_format($min_dp, 0, ',', '.') }}</b>,
+                    maksimal Rp {{ number_format($remaining, 0, ',', '.') }}.
                 </p>
             </div>
         @endif
@@ -169,6 +196,15 @@
             }
         });
 
+        // Tandai pintasan yang nilainya sedang dipakai — termasuk saat nominal diketik
+        // manual, supaya tidak ada dua tombol yang sama-sama terlihat "terpilih".
+        document.querySelectorAll('.dp-quick').forEach(b => {
+            const active = Number(b.dataset.amount) === amt;
+            b.classList.toggle('border-emerald-500', active);
+            b.classList.toggle('bg-emerald-50', active);
+            b.classList.toggle('border-gray-200', !active);
+        });
+
         const fee = computeFee(channel, amt);
         document.getElementById('d_base').textContent = fmt(amt);
         document.getElementById('d_fee_row').style.display = fee > 0 ? 'flex' : 'none';
@@ -179,6 +215,13 @@
     document.querySelectorAll('.channel-btn').forEach(b =>
         b.addEventListener('click', () => { channel = b.dataset.channel; refresh(); }));
     if (dpInput) dpInput.addEventListener('input', refresh);
+
+    document.querySelectorAll('.dp-quick').forEach(b =>
+        b.addEventListener('click', () => {
+            if (!dpInput) return;
+            dpInput.value = b.dataset.amount;
+            refresh();
+        }));
 
     function showErr(msg) { errBox.textContent = msg; errBox.classList.remove('hidden'); }
 
