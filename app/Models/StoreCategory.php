@@ -10,6 +10,7 @@ class StoreCategory extends Model
         'parent_id',
         'slug',
         'name',
+        'description',
         'sort_order',
     ];
 

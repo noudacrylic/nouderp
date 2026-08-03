@@ -82,8 +82,9 @@ class StoreCategoryController extends Controller
             'name'       => ['required', 'string', 'max:255'],
             'slug'       => ['nullable', 'string', 'max:255', 'alpha_dash',
                               Rule::unique('store_categories', 'slug')->ignore($ignoreId)],
-            'parent_id'  => ['nullable', 'integer', 'exists:store_categories,id'],
-            'sort_order' => ['nullable', 'integer'],
+            'parent_id'   => ['nullable', 'integer', 'exists:store_categories,id'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'sort_order'  => ['nullable', 'integer'],
         ]);
 
         $validated['slug'] = !empty($validated['slug'])

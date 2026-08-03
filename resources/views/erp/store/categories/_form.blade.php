@@ -28,6 +28,18 @@
     </div>
 </div>
 
+<div class="mt-4">
+    <label class="block text-xs text-gray-500 mb-1">Deskripsi Kategori</label>
+    <textarea name="description" rows="4" maxlength="2000"
+              class="border rounded px-2 py-1.5 w-full"
+              placeholder="mis. Box charger akrilik untuk sekolah, kantor, dan masjid. Tersedia 5 sampai 20 kotak, bisa custom logo instansi.">{{ old('description', $category->description ?? '') }}</textarea>
+    <p class="text-xs text-gray-400 mt-1">
+        Tampil sebagai paragraf pengantar di halaman <i>/kategori/{{ $category->slug ?? 'slug' }}</i> toko online,
+        sekaligus jadi deskripsi meta di hasil pencarian Google. Isi 1&ndash;2 kalimat yang memakai kata kunci
+        yang dicari pembeli.
+    </p>
+</div>
+
 <div class="flex gap-2 mt-5">
     <button class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Simpan</button>
     <a href="{{ route('store.categories.index') }}" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm">Batal</a>

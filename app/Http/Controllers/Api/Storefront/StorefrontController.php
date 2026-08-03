@@ -27,7 +27,7 @@ class StorefrontController extends Controller
     public function categories()
     {
         $cats = StoreCategory::orderBy('sort_order')->orderBy('name')
-            ->get(['id', 'parent_id', 'slug', 'name', 'sort_order']);
+            ->get(['id', 'parent_id', 'slug', 'name', 'description', 'sort_order']);
 
         return response()->json(['data' => $cats]);
     }
