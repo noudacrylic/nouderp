@@ -7,6 +7,26 @@ route/view/console tidak perlu clear cache manual.)
 
 ---
 
+## Rilis 2026-08-03 — Metode bayar Midtrans yang ditawarkan bisa diatur
+
+Halaman `/pay` sebelumnya memajang keenam metode apa adanya, termasuk Alfamart dan
+Kredivo/Akulaku yang butuh **pengajuan terpisah** ke Midtrans. Pembeli yang memilih metode
+belum-disetujui mentok di halaman Snap tanpa penjelasan.
+
+`deploy.sh` sudah menjalankan `migrate`, jadi tidak ada langkah teknis tambahan. Bawaannya
+aman: **QRIS + Virtual Account + E-Wallet** saja.
+
+### Yang perlu dicek sekali setelah deploy
+**Pengaturan → Midtrans → tabel "Tarif & Subsidi per Metode" → kolom Aktif.** Centang metode
+hanya setelah channel-nya benar-benar disetujui di dashboard Midtrans. Kartu Kredit dibiarkan
+tidak aktif karena statusnya belum dikonfirmasi — centang bila sudah aktif.
+
+Etalase (repo `web`) memajang logo metode di footer & halaman `/cara-belanja`. Daftar itu
+masih ditulis manual di `lib/site.ts`, jadi **kalau kolom Aktif berubah, perbarui juga di
+sana** supaya situs tidak menjanjikan metode yang tak bisa dipilih.
+
+---
+
 ## Rilis 2026-06-29 — Modul Store (Produk Store + Media R2 + API Etalase)
 
 Fondasi website toko (noudakrilik.com): menu **Store** (Kategori + Produk Store dengan varian),
