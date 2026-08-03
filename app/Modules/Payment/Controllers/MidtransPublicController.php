@@ -43,6 +43,9 @@ class MidtransPublicController extends Controller
             'fee_threshold' => $this->fees->customerFeeThreshold(),
             'fee_amount' => $this->fees->customerFeeAmount(),
             'channel_fees' => $this->fees->effectiveChannelFees(),
+            // Metode yang boleh DIPILIH pembeli. channel_fees tetap lengkap (dipakai
+            // menghitung biaya), tapi yang ditawarkan hanya yang sudah aktif di Midtrans.
+            'active_channels' => MidtransSetting::singleton()->activeChannels(),
             'client_key' => MidtransSetting::resolvedClientKey(),
             'is_production' => MidtransSetting::resolvedIsProduction(),
             'expired' => $trx->isExpired(),
@@ -164,6 +167,15 @@ class MidtransPublicController extends Controller
             'channel' => 'required|in:qris,va,ewallet,credit_card,alfamart,paylater',
             'amount' => 'nullable',
         ]);
+
+        // Penjaga sisi server: daftar metode di halaman sudah disaring, tapi permintaan
+        // bisa datang dari halaman yang sudah lama terbuka saat metodenya dimatikan.
+        // Lebih baik ditolak dengan kalimat jelas daripada mentok di halaman Snap.
+        if (! MidtransSetting::singleton()->channelActive($data['channel'])) {
+            return response()->json([
+                'error' => 'Metode pembayaran itu sedang tidak tersedia. Muat ulang halaman lalu pilih metode lain.',
+            ], 422);
+        }
 
         $amount = null;
         if ($this->isSo($trx)) {

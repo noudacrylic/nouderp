@@ -21,6 +21,7 @@ class MidtransSetting extends Model
         'customer_fee_threshold',
         'customer_fee_amount',
         'channel_fees',
+        'active_channels',
         'cash_account_id',
         'fee_account_id',
     ];
@@ -36,7 +37,14 @@ class MidtransSetting extends Model
         'customer_fee_threshold' => 'decimal:2',
         'customer_fee_amount' => 'decimal:2',
         'channel_fees' => 'array',
+        'active_channels' => 'array',
     ];
+
+    /**
+     * Metode yang tidak butuh pengajuan terpisah ke Midtrans — aman jadi bawaan bila
+     * pengaturannya belum pernah disimpan (instalasi lama, atau setelah migrasi).
+     */
+    public const DEFAULT_ACTIVE_CHANNELS = ['qris', 'va', 'ewallet'];
 
     /** Konfigurasi tarif/subsidi 1 channel (null bila belum diatur → pakai fallback lama). */
     public function channelFee(string $channel): ?array
@@ -44,6 +52,31 @@ class MidtransSetting extends Model
         $all = $this->channel_fees ?? [];
 
         return $all[$channel] ?? null;
+    }
+
+    /**
+     * Metode bayar yang BOLEH dipilih pembeli.
+     *
+     * Beda dengan channel_fees yang selalu memuat SEMUA metode (tarifnya tetap
+     * diperlukan untuk jurnal bila suatu saat ada transaksi lewat metode itu):
+     * daftar ini menentukan apa yang tampil di halaman /pay. Metode yang belum
+     * disetujui Midtrans tidak boleh ditawarkan — pembeli akan mentok di Snap.
+     *
+     * @return string[]
+     */
+    public function activeChannels(): array
+    {
+        $stored = array_values(array_filter(
+            (array) ($this->active_channels ?? []),
+            fn ($ch) => is_string($ch) && $ch !== ''
+        ));
+
+        return $stored ?: self::DEFAULT_ACTIVE_CHANNELS;
+    }
+
+    public function channelActive(string $channel): bool
+    {
+        return in_array($channel, $this->activeChannels(), true);
     }
 
     public static function singleton(): self

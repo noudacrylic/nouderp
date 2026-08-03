@@ -141,6 +141,7 @@
                 $cfLabels = \App\Modules\Payment\Services\MidtransFeeCalculator::channelLabels();
                 $cfDefaults = \App\Modules\Payment\Services\MidtransFeeCalculator::channelDefaults();
                 $cfStored = old('channel_fees', $setting->channel_fees ?? []);
+                $aktifChannels = (array) old('active_channels', $setting->activeChannels());
             @endphp
             <div>
                 <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-1">Tarif &amp; Subsidi per Metode</h3>
@@ -154,6 +155,7 @@
                     <table class="w-full text-sm">
                         <thead class="bg-gray-50 text-gray-600 text-xs">
                             <tr>
+                                <th class="px-2 py-2 font-semibold">Aktif</th>
                                 <th class="text-left px-3 py-2 font-semibold">Metode</th>
                                 <th class="px-2 py-2 font-semibold">MDR %</th>
                                 <th class="px-2 py-2 font-semibold">MDR Rp</th>
@@ -166,6 +168,11 @@
                             @foreach($cfLabels as $key => $label)
                                 @php $row = ($cfStored[$key] ?? null) ?: $cfDefaults[$key]; @endphp
                                 <tr>
+                                    <td class="px-2 py-1 text-center">
+                                        <input type="checkbox" name="active_channels[]" value="{{ $key }}"
+                                               {{ in_array($key, $aktifChannels, true) ? 'checked' : '' }}
+                                               class="rounded border-gray-300">
+                                    </td>
                                     <td class="px-3 py-2 font-semibold text-gray-700 whitespace-nowrap">{{ $label }}</td>
                                     <td class="px-2 py-1"><input type="number" min="0" max="100" step="0.001" name="channel_fees[{{ $key }}][mdr_percent]"     value="{{ $row['mdr_percent'] ?? 0 }}"     class="w-20 border rounded px-2 py-1 text-right"></td>
                                     <td class="px-2 py-1"><input type="number" min="0" step="1"              name="channel_fees[{{ $key }}][mdr_flat]"        value="{{ (int)($row['mdr_flat'] ?? 0) }}"        class="w-24 border rounded px-2 py-1 text-right"></td>
@@ -178,6 +185,12 @@
                     </table>
                 </div>
                 <p class="text-xs text-gray-500 mt-2">Dipakai untuk (a) biaya admin yang tampil ke pembeli di halaman bayar, dan (b) pembukuan Beban Gateway otomatis saat settle. Sesuaikan tarif MDR dengan tarif asli Midtrans setelah channel aktif.</p>
+                <p class="text-xs text-gray-500 mt-1">
+                    <b>Kolom Aktif</b> menentukan metode yang <b>ditawarkan ke pembeli</b> di halaman bayar.
+                    Alfamart, Kredivo/Akulaku, dan Kartu Kredit butuh <b>pengajuan terpisah ke Midtrans</b> —
+                    jangan dicentang sebelum disetujui, karena pembeli yang memilihnya akan mentok di halaman Midtrans.
+                    Tarif di baris yang tidak aktif tetap disimpan untuk pembukuan.
+                </p>
             </div>
 
             {{-- ===== Akun ===== --}}

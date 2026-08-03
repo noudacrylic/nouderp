@@ -3,6 +3,22 @@
     $requireFull = $require_full ?? false; // pesanan website: wajib lunas, tanpa input DP
     // Nominal dasar: web (lunas) & invoice = tetap; SO DP admin = diisi pembeli (0, dinamis).
     $payBase = $requireFull ? ($remaining ?? 0) : ($isSo ? 0 : ($base_amount ?? 0));
+
+    // Hanya metode yang sudah AKTIF di Midtrans yang ditawarkan. Alfamart,
+    // Kredivo/Akulaku, dan Kartu Kredit butuh pengajuan terpisah; menawarkannya sebelum
+    // disetujui membuat pembeli mentok di halaman Snap tepat saat ia hendak membayar.
+    // Diatur di Pengaturan → Midtrans.
+    $aktif = $active_channels ?? \App\Models\MidtransSetting::DEFAULT_ACTIVE_CHANNELS;
+    $lainnya = collect([
+        'va'          => 'Virtual Account',
+        'ewallet'     => 'E-Wallet',
+        'credit_card' => 'Kartu Kredit',
+        'alfamart'    => 'Alfamart',
+        'paylater'    => 'Kredivo / Akulaku',
+    ])->filter(fn ($label, $key) => in_array($key, $aktif, true));
+    $qrisAktif = in_array('qris', $aktif, true);
+    // Pilihan awal: QRIS bila aktif, kalau tidak metode aktif pertama.
+    $channelAwal = $qrisAktif ? 'qris' : ($lainnya->keys()->first() ?? 'qris');
 @endphp
 
 <div class="px-6 py-5"
@@ -15,6 +31,7 @@
      data-min-dp="{{ ($isSo && !$requireFull) ? ($min_dp ?? 0) : 0 }}"
      data-remaining="{{ $remaining ?? 0 }}"
      data-channel-fees='@json($channel_fees ?? [])'
+     data-default-channel="{{ $channelAwal }}"
      data-snap-url="{{ route('pay.snap', $trx->link_token) }}">
 
     <div class="space-y-4">
@@ -36,35 +53,35 @@
         <div>
             <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Pilih Metode Bayar</label>
 
-            {{-- QRIS ditonjolkan (1 baris besar) — arahkan pembeli ke sini, biaya termurah. --}}
-            <button type="button" data-channel="qris"
-                    class="channel-btn w-full flex items-center justify-between gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition text-left mb-2">
-                <span class="flex flex-col">
-                    <span class="text-base font-extrabold text-gray-800">QRIS</span>
-                    <span class="text-[11px] text-gray-500">Scan pakai m-banking / e-wallet apa pun</span>
-                </span>
-                <span class="flex flex-col items-end">
-                    <span class="fee-label text-sm font-bold">Tanpa biaya</span>
-                    <span class="text-[10px] font-semibold text-emerald-600 whitespace-nowrap">★ Paling hemat</span>
-                </span>
-            </button>
+            @if($qrisAktif)
+                {{-- QRIS ditonjolkan (1 baris besar) — arahkan pembeli ke sini, biaya termurah. --}}
+                <button type="button" data-channel="qris"
+                        class="channel-btn w-full flex items-center justify-between gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition text-left mb-2">
+                    <span class="flex flex-col">
+                        <span class="text-base font-extrabold text-gray-800">QRIS</span>
+                        <span class="text-[11px] text-gray-500">Scan pakai m-banking / e-wallet apa pun</span>
+                    </span>
+                    <span class="flex flex-col items-end">
+                        <span class="fee-label text-sm font-bold">Tanpa biaya</span>
+                        <span class="text-[10px] font-semibold text-emerald-600 whitespace-nowrap">★ Paling hemat</span>
+                    </span>
+                </button>
+            @endif
 
-            <p class="text-[11px] text-gray-400 mb-1.5">Metode lain:</p>
-            <div class="grid grid-cols-2 gap-2">
-                @foreach ([
-                    'va'          => 'Virtual Account',
-                    'ewallet'     => 'E-Wallet',
-                    'credit_card' => 'Kartu Kredit',
-                    'alfamart'    => 'Alfamart',
-                    'paylater'    => 'Kredivo / Akulaku',
-                ] as $key => $label)
-                    <button type="button" data-channel="{{ $key }}"
-                            class="channel-btn flex flex-col items-start gap-0.5 border-2 border-gray-200 rounded-lg px-3 py-2 transition text-left hover:border-emerald-300">
-                        <span class="text-xs font-semibold text-gray-700">{{ $label }}</span>
-                        <span class="fee-label text-[10px] font-semibold">Tanpa biaya</span>
-                    </button>
-                @endforeach
-            </div>
+            @if($lainnya->isNotEmpty())
+                @if($qrisAktif)
+                    <p class="text-[11px] text-gray-400 mb-1.5">Metode lain:</p>
+                @endif
+                <div class="grid grid-cols-2 gap-2">
+                    @foreach ($lainnya as $key => $label)
+                        <button type="button" data-channel="{{ $key }}"
+                                class="channel-btn flex flex-col items-start gap-0.5 border-2 border-gray-200 rounded-lg px-3 py-2 transition text-left hover:border-emerald-300">
+                            <span class="text-xs font-semibold text-gray-700">{{ $label }}</span>
+                            <span class="fee-label text-[10px] font-semibold">Tanpa biaya</span>
+                        </button>
+                    @endforeach
+                </div>
+            @endif
         </div>
 
         <div class="border-t border-dashed pt-4">
@@ -112,7 +129,9 @@
     const btnPay = document.getElementById('btn_pay');
     const dpInput = document.getElementById('dp_input');
 
-    let channel = 'qris';
+    // Bukan selalu 'qris': kalau QRIS dimatikan di Pengaturan, tombolnya tidak ada dan
+    // pilihan awal harus jatuh ke metode aktif pertama.
+    let channel = box.dataset.defaultChannel || 'qris';
 
     const fmt = n => Number(n).toLocaleString('id-ID');
     const getAmount = () => (IS_SO && !REQUIRE_FULL) ? Math.floor(Number(dpInput?.value) || 0) : BASE;

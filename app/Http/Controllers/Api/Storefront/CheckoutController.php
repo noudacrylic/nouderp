@@ -517,10 +517,27 @@ class CheckoutController extends Controller
             ];
         }
         if ($this->midtransReady()) {
+            // Keterangan dibangun dari metode yang BENAR-BENAR aktif. Sebelumnya kalimat
+            // ini menjanjikan kartu kredit padahal channel-nya belum disetujui Midtrans —
+            // pembeli baru tahu setelah sampai halaman bayar.
+            $labels = [
+                'qris'        => 'QRIS',
+                'va'          => 'Virtual Account bank',
+                'ewallet'     => 'GoPay/ShopeePay',
+                'credit_card' => 'kartu kredit',
+                'alfamart'    => 'Alfamart',
+                'paylater'    => 'Kredivo/Akulaku',
+            ];
+            $aktif = array_values(array_intersect(
+                array_keys($labels),
+                \App\Models\MidtransSetting::singleton()->activeChannels()
+            ));
+            $daftar = collect($aktif)->map(fn ($ch) => $labels[$ch])->implode(', ');
+
             $methods[] = [
                 'key'         => 'midtrans',
-                'label'       => 'Virtual Account / Kartu (Midtrans)',
-                'description' => 'Bayar lewat Virtual Account BCA/BNI/BRI/Mandiri/Permata, QRIS, atau kartu kredit. Pembayaran terverifikasi otomatis.',
+                'label'       => 'Pembayaran Otomatis (Midtrans)',
+                'description' => 'Bayar lewat ' . $daftar . '. Pembayaran terverifikasi otomatis.',
                 'recommended' => empty($methods),
             ];
         }

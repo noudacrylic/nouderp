@@ -95,6 +95,18 @@ class MidtransSettingController extends Controller
         }
         $data['channel_fees'] = $channelFees;
 
+        // Metode yang ditawarkan ke pembeli. Disaring ke daftar yang dikenal, dan tidak
+        // boleh kosong — halaman bayar tanpa satu pun metode berarti pesanan yang sudah
+        // dibuat tidak bisa dibayar sama sekali.
+        $known = array_keys(\App\Modules\Payment\Services\MidtransFeeCalculator::channelLabels());
+        $active = array_values(array_intersect($known, (array) $request->input('active_channels', [])));
+        if (empty($active)) {
+            return back()->withInput()->withErrors([
+                'active_channels' => 'Pilih minimal satu metode pembayaran yang aktif.',
+            ]);
+        }
+        $data['active_channels'] = $active;
+
         MidtransSetting::singleton()->update($data);
 
         return redirect()->route('settings.integrations.index')
