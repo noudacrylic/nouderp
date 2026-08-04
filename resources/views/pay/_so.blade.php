@@ -1,6 +1,10 @@
 @php
     $lunas  = $remaining <= 0;
     $canPay = !$lunas && !$expired;
+
+    // Produk preorder = dibuat setelah dipesan (termasuk pesanan custom). Produksinya
+    // baru dimulai begitu DP masuk — lihat PreorderAutoProductionService.
+    $adaPreorder = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder');
 @endphp
 
 <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
@@ -48,6 +52,27 @@
             Download Pesanan (PDF)
         </a>
     </div>
+
+    @if($canPay && $so->status === 'draft')
+        {{-- Pesanan draft belum memesan stok — sampaikan apa adanya supaya pembeli tahu
+             kenapa membayar lebih cepat itu penting. --}}
+        <div class="px-6 pt-4">
+            <div class="flex gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-[13px] leading-relaxed text-amber-800">
+                <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                <span>Stok <b>belum kami tahan</b>. Barang baru dialokasikan untuk Anda setelah pembayaran atau DP diterima — sebelum itu masih bisa terjual ke pembeli lain.</span>
+            </div>
+        </div>
+    @endif
+
+    @if($canPay && $adaPreorder)
+        {{-- Pesanan custom/preorder: produksi baru jalan setelah ada uang masuk. --}}
+        <div class="px-6 pt-3">
+            <div class="flex gap-2 rounded-xl bg-sky-50 border border-sky-200 px-3 py-2.5 text-[13px] leading-relaxed text-sky-800">
+                <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <span>Pesanan ini dibuat <b>sesuai pesanan (custom/preorder)</b>. Produksi kami mulai setelah pembayaran atau <b>DP</b> diterima — jadi semakin cepat dibayar, semakin cepat barang Anda dikerjakan.</span>
+            </div>
+        </div>
+    @endif
 
     @if($canPay)
         @include('pay._paybox')

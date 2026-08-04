@@ -60,6 +60,16 @@ class CustomerPaymentService
                 }
             }
 
+            // Pesanan boleh dibuat & dikirimi link pembayaran selagi DRAFT: draft TIDAK
+            // menahan stok (kebijakan penjualan — barang tetap dijual ke siapa saja sampai
+            // ada DP). Begitu uang mukanya masuk, SO di-post supaya stoknya dipesankan.
+            // Ditaruh di sini agar SEMUA jalur DP berperilaku sama (link Midtrans, QRIS
+            // kasir, catat manual), dan HARUS sebelum allocateToItems() karena
+            // SalesAdvanceObserver (pemicu OP preorder) mengharapkan SO sudah confirmed.
+            if ($payment->payment_type === 'advance' && !empty($soIds)) {
+                $this->confirmDraftSalesOrders($soIds);
+            }
+
             if (($payment->admin_fee ?? 0) < 0) {
                 throw new Exception("Biaya admin tidak valid.");
             }
@@ -144,6 +154,101 @@ class CustomerPaymentService
 
             return $payment;
         });
+    }
+
+    /**
+     * Post SO yang masih draft karena uang mukanya baru saja diterima.
+     *
+     * Idempoten: status diperiksa ulang setelah kegagalan agar webhook Midtrans yang
+     * di-retry (atau polling QRIS yang berbarengan) tidak melempar "SO not in draft
+     * status." dan ikut menggagalkan posting pembayaran yang uangnya sudah masuk.
+     */
+    protected function confirmDraftSalesOrders(array $soIds): void
+    {
+        $orders = \App\Modules\Sales\Models\SalesOrder::whereIn('id', $soIds)
+            ->where('status', 'draft')
+            ->get();
+
+        foreach ($orders as $so) {
+            try {
+                app(SalesOrderService::class)->confirm($so->id);
+            } catch (\Throwable $e) {
+                if ($so->fresh()?->status === 'draft') {
+                    // Benar-benar gagal → jangan ditelan, biar transaksi di-rollback dan
+                    // pembayaran di-retry. Lebih baik gagal daripada uang tercatat masuk
+                    // tapi pesanannya tidak pernah memesan stok.
+                    throw $e;
+                }
+
+                \Illuminate\Support\Facades\Log::info(
+                    'DP: SO sudah dikonfirmasi jalur lain, lanjut posting pembayaran',
+                    ['so' => $so->id]
+                );
+
+                continue;
+            }
+
+            $this->warnIfStockShort($so->fresh());
+        }
+    }
+
+    /**
+     * Konsekuensi kebijakan "stok tidak ditahan sampai ada DP": saat uangnya akhirnya
+     * masuk, barangnya bisa sudah keburu terjual ke pesanan lain. Pembayaran TIDAK
+     * ditolak (uang sudah diterima) — admin cukup diberi tahu agar bisa langsung
+     * menjadwalkan produksi/pembelian, bukan baru ketahuan saat mau kirim.
+     */
+    protected function warnIfStockShort(?\App\Modules\Sales\Models\SalesOrder $so): void
+    {
+        if (! $so) {
+            return;
+        }
+
+        try {
+            $short = [];
+
+            foreach ($so->items()->with('product')->get() as $item) {
+                $product = $item->product;
+                if (! $product || in_array($product->sale_type, ['service', 'non_stock', 'preorder'], true)) {
+                    continue;
+                }
+
+                // Selaras dengan kolom "Tersedia" di halaman Stok: on-hand gudang JUAL
+                // dikurangi reservasi aktif (reservasi SO ini sudah ikut terhitung).
+                $onHand = (float) \App\Core\Inventory\ProductStock::where('product_id', $product->id)
+                    ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', true))
+                    ->sum('qty_on_hand');
+                $reserved = (float) \App\Core\Inventory\StockReservation::where('product_id', $product->id)
+                    ->where('status', 'active')
+                    ->sum('qty');
+
+                $available = $onHand - $reserved;
+                if ($available < 0) {
+                    $short[] = '• ' . $product->sku . ' — kurang ' . format_qty(abs($available));
+                }
+            }
+
+            if (empty($short)) {
+                return;
+            }
+
+            $text = "⚠️ <b>Stok kurang setelah pembayaran</b>\n"
+                . "Pesanan <b>{$so->order_number}</b> sudah dibayar, tetapi stoknya keburu terjual:\n"
+                . implode("\n", $short)
+                . "\n\nSegera jadwalkan produksi atau pembelian.";
+
+            // Kirim SETELAH commit: panggilan HTTP Telegram (timeout 8 dtk per penerima)
+            // tidak boleh menahan transaksi pembayaran yang sedang memegang lock.
+            DB::afterCommit(function () use ($text) {
+                app(\App\Modules\Notifications\Services\TelegramNotifier::class)->notifyApprovers($text);
+            });
+        } catch (\Throwable $e) {
+            // Notifikasi tidak boleh menggagalkan posting pembayaran.
+            \Illuminate\Support\Facades\Log::warning('DP: gagal menyiapkan notifikasi stok kurang', [
+                'so'  => $so->id,
+                'err' => $e->getMessage(),
+            ]);
+        }
     }
 
     protected function calculateTotal(array $invoiceIds, array $billingIds, array $soIds): float

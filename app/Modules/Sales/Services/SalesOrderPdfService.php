@@ -66,13 +66,14 @@ class SalesOrderPdfService
     }
 
     /**
-     * Pastikan payment link Midtrans tersedia (QR di Print SO) untuk SO yang sudah
-     * dikonfirmasi & masih ada sisa tagihan. Draft dilewati. Gagal = diabaikan.
+     * Pastikan payment link Midtrans tersedia (QR di Print SO) untuk SO draft maupun
+     * confirmed yang masih ada sisa tagihan. Draft sengaja ikut: pesanan boleh dikirim
+     * ke pembeli selagi draft (stok baru ditahan setelah DP masuk). Gagal = diabaikan.
      */
     private function ensurePaymentLink(SalesOrder $order): void
     {
         $remaining = (float) $order->grand_total - (float) ($order->paid_amount ?? 0);
-        if ($order->status !== 'confirmed' || $remaining <= 0) {
+        if (! in_array($order->status, ['draft', 'confirmed'], true) || $remaining <= 0) {
             return;
         }
         try {

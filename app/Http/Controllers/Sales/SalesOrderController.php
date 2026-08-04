@@ -1067,13 +1067,15 @@ class SalesOrderController extends Controller
 
     /**
      * Pastikan SO punya link pembayaran Midtrans aktif (untuk QR di Print SO).
-     * Hanya untuk SO confirmed yang belum lunas. Cuma insert lokal (tanpa panggil API),
-     * idempotent (reuse link yang masih aktif). Tidak boleh menggagalkan proses cetak.
+     * Untuk SO draft & confirmed yang belum lunas — draft sengaja ikut karena pesanan
+     * boleh dikirim ke pembeli selagi draft (stok baru ditahan setelah DP masuk).
+     * Cuma insert lokal (tanpa panggil API), idempotent (reuse link yang masih aktif).
+     * Tidak boleh menggagalkan proses cetak.
      */
     private function ensurePaymentLink(SalesOrder $order): void
     {
         $remaining = (float) $order->grand_total - (float) ($order->paid_amount ?? 0);
-        if ($order->status !== 'confirmed' || $remaining <= 0) {
+        if (! in_array($order->status, ['draft', 'confirmed'], true) || $remaining <= 0) {
             return;
         }
         try {

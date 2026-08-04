@@ -57,8 +57,11 @@ class MidtransAdminController extends Controller
     {
         $order = SalesOrder::with('customer')->findOrFail($so);
 
-        if ($order->status !== 'confirmed') {
-            return response()->json(['error' => 'Sales Order harus berstatus confirmed.'], 422);
+        // Draft ikut diizinkan: kebijakan penjualan adalah stok TIDAK ditahan sampai ada
+        // DP/pembayaran. SO dibiarkan draft (tanpa reservasi) sambil link dikirim ke
+        // pembeli; begitu pembayaran masuk, MidtransService memposting SO otomatis.
+        if (! in_array($order->status, ['draft', 'confirmed'], true)) {
+            return response()->json(['error' => 'Link pembayaran hanya untuk Sales Order draft atau confirmed.'], 422);
         }
         if ($order->isFullyInvoiced()) {
             return response()->json(['error' => 'Sales Order sudah full invoiced.'], 422);
@@ -132,8 +135,10 @@ class MidtransAdminController extends Controller
     {
         $order = SalesOrder::findOrFail($so);
 
-        if ($order->status !== 'confirmed') {
-            return response()->json(['error' => 'Sales Order harus berstatus confirmed.'], 422);
+        // Draft ikut diizinkan — lihat catatan di generateSoLink(). Settlement QRIS
+        // menempuh jalur webhook yang sama, jadi SO draft juga di-post otomatis.
+        if (! in_array($order->status, ['draft', 'confirmed'], true)) {
+            return response()->json(['error' => 'Pembayaran QRIS hanya untuk Sales Order draft atau confirmed.'], 422);
         }
         if ((float) $order->grand_total - (float) $order->paid_amount <= 0) {
             return response()->json(['error' => 'Sales Order ini sudah lunas.'], 422);
