@@ -15,6 +15,10 @@
     // Diskon ongkir promo hanya diterapkan saat buat SO/Penawaran baru. Di faktur & semua mode
     // edit, diskon ongkir DIWARISI dari dokumen sumber (SO) — promo tidak boleh menimpanya.
     const allowShip = (window.__promoAllowShipping !== false);
+    // Dokumen terkunci (mode edit / faktur dari SO): diskon yang tersimpan adalah kebenaran,
+    // termasuk diskon 0. Promo tidak boleh menyentuh baris yang sudah ada kecuali user
+    // menekan tombol "Pakai" (trigger manual).
+    let locked = (window.__promoLocked === true);
 
     // ── Kumpulkan item dari DOM ──
     function itemsFromDom() {
@@ -119,7 +123,13 @@
             })
             .catch(() => {});
     }
-    function scheduleApply() { clearTimeout(promoTimer); promoTimer = setTimeout(doApply, 350); }
+    // Selama dokumen terkunci, promo tidak boleh jalan sendiri — termasuk untuk baris yang
+    // dimuat belakangan via JS (mis. faktur yang memilih SO dari dropdown).
+    function scheduleApply() {
+        if (locked) return;
+        clearTimeout(promoTimer);
+        promoTimer = setTimeout(doApply, 350);
+    }
 
     // ── Hook saat produk dipilih (dipanggil dari transaction-form) ──
     window._promoOnPick = function (row) {
@@ -152,23 +162,40 @@
             sec.insertBefore(wrap, sec.children[1] || null); // setelah subtotal
             document.getElementById('promoVoucherApply').addEventListener('click', function () {
                 voucher = (document.getElementById('promoVoucherInput').value || '').trim();
+                // Trigger manual: buka kunci dokumen agar promo boleh menghitung ulang.
+                if (locked) {
+                    if (!confirm('Terapkan promo? Diskon item, diskon total, dan diskon ongkir pada dokumen ini akan dihitung ulang oleh promo.')) return;
+                    locked = false;
+                    manualGlobal = false;
+                    manualShip = false;
+                    document.querySelectorAll('#items tr.item-row[data-promo-lock="1"]').forEach(row => {
+                        row.removeAttribute('data-promo-manual');
+                        row.removeAttribute('data-promo-lock');
+                    });
+                }
                 doApply();
             });
         }
-        // Lindungi diskon yang SUDAH tersimpan (mode edit / konversi quotation) agar
-        // tidak ditimpa promo saat resolusi awal. Tandai baris ber-diskon > 0 sebagai
-        // manual, dan set manualGlobal/manualShip bila diskon global/ongkir existing > 0.
-        // (Baris ber-diskon 0 tetap boleh diisi promo — fitur entry baru tetap jalan.)
+        // Lindungi diskon yang SUDAH tersimpan agar tidak ditimpa promo.
+        //  - dokumen terkunci (edit / faktur): SEMUA baris bawaan dilindungi apa adanya,
+        //    termasuk yang diskonnya 0 — diskon 0 itu keputusan, bukan baris kosong.
+        //  - dokumen baru: hanya baris ber-diskon > 0 yang dilindungi, baris ber-diskon 0
+        //    tetap boleh diisi promo supaya entry baru tetap jalan.
         document.querySelectorAll('#items tr.item-row').forEach(row => {
-            if (num(row.querySelector('.discount-value')?.value) > 0) {
+            if (locked) {
+                // Baris bawaan dokumen: lindungi apa adanya (termasuk diskon 0).
+                row.setAttribute('data-promo-manual', '1');
+                row.setAttribute('data-promo-lock', '1');
+            } else if (num(row.querySelector('.discount-value')?.value) > 0) {
                 row.setAttribute('data-promo-manual', '1');
             }
         });
-        if (num(document.getElementById('globalDiscount')?.value) > 0) manualGlobal = true;
-        if (num(document.getElementById('ship_disc_value')?.value) > 0) manualShip = true;
+        if (locked || num(document.getElementById('globalDiscount')?.value) > 0) manualGlobal = true;
+        if (locked || num(document.getElementById('ship_disc_value')?.value) > 0) manualShip = true;
 
-        // resolusi awal (mis. saat edit / load dari quotation)
-        setTimeout(scheduleApply, 600);
+        // Resolusi awal hanya untuk dokumen baru (mis. load dari quotation).
+        // Dokumen terkunci menunggu trigger manual tombol "Pakai".
+        if (!locked) setTimeout(scheduleApply, 600);
     });
 })();
 </script>

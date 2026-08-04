@@ -177,6 +177,42 @@ class SalesOrderController extends Controller
         ));
     }
 
+    /**
+     * Baca kesepakatan batas DP dari form → kolom SO.
+     *
+     * Hanya SATU kolom yang diisi, mengikuti kotak mana yang terakhir diubah admin
+     * (`min_dp_basis`): persen bila kesepakatannya "DP 30%" (ikut menyesuaikan saat total
+     * SO berubah), nominal bila yang disepakati angka rupiah pasti. Keduanya dikosongkan
+     * bila kolomnya dibiarkan kosong — artinya pakai bawaan 50%.
+     *
+     * Angka 0 BUKAN kosong: itu berarti sengaja tanpa batas minimal (pembeli boleh
+     * membayar berapa pun sebagai DP).
+     */
+    private function minDpFromRequest(Request $request): array
+    {
+        $kosong = fn ($v) => $v === null || trim((string) $v) === '';
+
+        $basis = $request->input('min_dp_basis') === 'nominal' ? 'nominal' : 'percent';
+        $percent = $request->input('min_dp_percent');
+        $amount = $request->input('min_dp_amount');
+
+        if ($basis === 'nominal' && ! $kosong($amount)) {
+            return [
+                'min_dp_percent' => null,
+                'min_dp_amount' => max(0, (float) clean_number($amount)),
+            ];
+        }
+
+        if ($basis === 'percent' && ! $kosong($percent)) {
+            return [
+                'min_dp_percent' => min(100, max(0, (float) clean_number($percent))),
+                'min_dp_amount' => null,
+            ];
+        }
+
+        return ['min_dp_percent' => null, 'min_dp_amount' => null];
+    }
+
     public function create(Request $request)
     {
         $customers = Customer::all();
@@ -435,7 +471,8 @@ class SalesOrderController extends Controller
                 'pph_percent' => $pphPercent,
                 'pph_amount' => $pphAmount,
                 'grand_total' => $grandTotal,
-            ]);
+                'allow_backorder' => $request->boolean('allow_backorder'),
+            ] + $this->minDpFromRequest($request));
 
             $action = $request->input('_after_save', '');
             if (in_array($action, ['post', 'print'], true)) {
@@ -603,7 +640,8 @@ class SalesOrderController extends Controller
                 'pph_percent' => $pphPercent,
                 'pph_amount' => $pphAmount,
                 'grand_total' => $grandTotal,
-            ]);
+                'allow_backorder' => $request->boolean('allow_backorder'),
+            ] + $this->minDpFromRequest($request));
 
             $action = $request->input('_after_save', '');
             if (in_array($action, ['post', 'print'], true) && $so->status === SalesOrderStatus::DRAFT->value) {
@@ -1128,6 +1166,30 @@ class SalesOrderController extends Controller
             'Content-Type'        => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="' . $pdfService->filename($order) . '"',
         ]);
+    }
+
+    /**
+     * Nyalakan/matikan kesepakatan keep stock dari halaman SO.
+     *
+     * Ada di halaman lihat (bukan hanya form) karena kesepakatannya sering lahir
+     * belakangan: pembeli menelepon setelah tautan dikirim dan pembayarannya tertahan
+     * karena stok kurang. SO yang sudah dikonfirmasi tidak bisa diedit lewat form, jadi
+     * tanpa ini satu-satunya jalan adalah void — terlalu mahal untuk satu centang.
+     */
+    public function updateBackorder(Request $request, $id)
+    {
+        $so = SalesOrder::findOrFail($id);
+
+        if (in_array($so->status, ['void', 'cancelled'], true)) {
+            return back()->with('error', 'Sales Order ini sudah dibatalkan.');
+        }
+
+        $so->allow_backorder = $request->boolean('allow_backorder');
+        $so->save();
+
+        return back()->with('success', $so->allow_backorder
+            ? 'Kesepakatan keep stock diaktifkan — pembayaran tetap diterima walau stok kurang.'
+            : 'Kesepakatan keep stock dimatikan — pembayaran ditolak bila stok tidak cukup.');
     }
 
     public function updateNotes(Request $request, $id)

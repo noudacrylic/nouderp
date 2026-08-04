@@ -7,6 +7,7 @@ use App\Models\MidtransTransaction;
 use App\Models\SalesInvoice;
 use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class PaymentLinkService
@@ -95,6 +96,68 @@ class PaymentLinkService
     public function findByToken(string $token): ?MidtransTransaction
     {
         return MidtransTransaction::where('link_token', $token)->first();
+    }
+
+    /**
+     * Matikan semua transaksi Midtrans yang masih menggantung untuk sebuah invoice.
+     * Dipakai saat invoice di-void / dihapus.
+     */
+    public function deactivateForInvoice(int $invoiceId): int
+    {
+        return $this->deactivatePending(
+            MidtransTransaction::where('sales_invoice_id', $invoiceId)
+        );
+    }
+
+    /**
+     * Matikan transaksi menggantung milik sebuah Sales Order — termasuk tautan DP.
+     * Transaksi yang sudah punya invoice sendiri TIDAK ikut dimatikan di sini; nasibnya
+     * mengikuti invoice tersebut (SO tidak bisa di-void selama invoice-nya masih aktif).
+     */
+    public function deactivateForSalesOrder(int $soId): int
+    {
+        return $this->deactivatePending(
+            MidtransTransaction::where('sales_order_id', $soId)->whereNull('sales_invoice_id')
+        );
+    }
+
+    /**
+     * Batalkan transaksi berstatus pending: di Midtrans (agar VA/QRIS yang sudah terbit
+     * tak bisa dibayar lagi) sekaligus di ERP. Token tautan SENGAJA dipertahankan supaya
+     * pembeli yang membuka link lama mendapat keterangan jelas, bukan halaman "tidak
+     * ditemukan" — halaman publik menolak berdasarkan status dokumennya.
+     *
+     * Yang sudah settlement tidak disentuh: uangnya benar-benar masuk dan harus tetap
+     * terlihat pada pembukuan meski dokumennya kemudian dibatalkan.
+     */
+    private function deactivatePending($query): int
+    {
+        $rows = (clone $query)->where('status', 'pending')->get();
+        if ($rows->isEmpty()) {
+            return 0;
+        }
+
+        $midtrans = app(MidtransService::class);
+        $killed = 0;
+
+        foreach ($rows as $trx) {
+            try {
+                $midtrans->expireAtGateway($trx);
+            } catch (\Throwable $e) {
+                Log::warning('Gagal expire transaksi Midtrans saat dokumen dibatalkan', [
+                    'order_id' => $trx->order_id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            $trx->update([
+                'status' => 'cancel',
+                'expired_at' => now(),
+            ]);
+            $killed++;
+        }
+
+        return $killed;
     }
 
     /**

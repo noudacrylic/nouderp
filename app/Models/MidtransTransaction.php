@@ -82,6 +82,51 @@ class MidtransTransaction extends Model
         return $this->status === 'settlement' && $this->fraud_status !== 'deny';
     }
 
+    /**
+     * Alasan tautan ini TIDAK boleh dipakai membayar karena dokumennya sudah mati
+     * (di-void atau dihapus), atau null bila dokumennya masih sah.
+     *
+     * Dicek ulang di setiap permintaan — bukan sekadar mengandalkan status transaksi —
+     * supaya tautan lama yang sudah terlanjur beredar (termasuk yang dibuat sebelum
+     * penonaktifan otomatis ada) tetap mati begitu dokumennya dibatalkan.
+     */
+    public function documentBlockedReason(): ?string
+    {
+        if ($this->sales_invoice_id) {
+            $invoice = $this->invoice;
+            if (! $invoice) {
+                return 'Faktur untuk tautan ini sudah dihapus.';
+            }
+            if (in_array(self::statusValue($invoice->status), ['void', 'cancelled', 'canceled'], true)) {
+                return 'Faktur ' . $invoice->invoice_number . ' sudah dibatalkan.';
+            }
+
+            return null;
+        }
+
+        if ($this->sales_order_id) {
+            $so = $this->salesOrder;
+            if (! $so) {
+                return 'Pesanan untuk tautan ini sudah dihapus.';
+            }
+            if (in_array(self::statusValue($so->status), ['void', 'cancelled', 'canceled'], true)) {
+                return 'Pesanan ' . $so->order_number . ' sudah dibatalkan.';
+            }
+
+            return null;
+        }
+
+        // Tanpa rujukan dokumen sama sekali: FK-nya `nullOnDelete`, jadi ini justru jejak
+        // dokumen yang sudah dihapus. Tidak ada yang bisa ditagih — tautan harus mati.
+        return 'Dokumen untuk tautan ini sudah dihapus.';
+    }
+
+    /** Nilai status apa adanya, baik yang di-cast enum (invoice) maupun string biasa (SO). */
+    protected static function statusValue($status): string
+    {
+        return strtolower((string) ($status instanceof \BackedEnum ? $status->value : $status));
+    }
+
     public static function cashAccountCodeFor(string $channel): string
     {
         // Akun tunggal: semua channel masuk ke "Saldo Midtrans" supaya cocok dgn

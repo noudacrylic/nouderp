@@ -157,6 +157,14 @@
                         :shippingCost="$model->shipping_cost ?? $model->shipping_charge ?? 0"
                         :additionalFee="$model->additional_fee ?? $model->selling_expense ?? $model->expense ?? 0"
                     />
+
+                    {{-- Batas minimal DP hanya relevan untuk Sales Order: tautan DP memang
+                         hanya terbit dari SO. Sengaja di luar .summary-section agar mengetik
+                         di sini tidak memicu recalculate() ringkasan. --}}
+                    @if($type === 'sales_order')
+                        @include('erp.sales.orders._min-dp-field', ['so' => $so ?? null])
+                        @include('erp.sales.orders._backorder-field', ['so' => $so ?? null])
+                    @endif
                 </div>
             </div>
         </div>
@@ -486,6 +494,10 @@
         // Bulatkan ke rupiah penuh agar tidak ada koma pada nilai yang disimpan.
         if (document.getElementById('subtotal_input')) document.getElementById('subtotal_input').value = Math.round(result.subtotal);
         if (document.getElementById('grand_total_input')) document.getElementById('grand_total_input').value = Math.round(result.grand_total);
+
+        // Bagian lain yang ikut bergantung pada grand total (mis. batas minimal DP di SO)
+        // menumpang di sini, bukan menyalin ulang rumusnya.
+        document.dispatchEvent(new CustomEvent('erp:recalculated', { detail: result }));
     }
 
     function renderSummary(summary) {
@@ -1231,6 +1243,16 @@
     // diputuskan untuk customer). Faktur & semua mode edit WAJIB mewarisi diskon ongkir dari
     // dokumen sumber (SO) — jangan dihitung ulang dari promo.
     $promoAllowShipping = ($type !== 'invoice') && (strtoupper($method) === 'POST');
+
+    // Promo TIDAK boleh berjalan sendiri pada dokumen yang isinya sudah diputuskan:
+    //  - mode edit (PUT) → diskon yang tersimpan adalah kebenaran, termasuk diskon 0
+    //  - faktur (semua mode) → nilainya diwarisi dari SO; promo sudah diputuskan di sana,
+    //    termasuk saat SO dipilih lewat dropdown dan item dimuat via JS
+    // Pada kondisi ini promo hanya jalan bila user menekan tombol "Pakai" (trigger manual).
+    $promoLocked = strtoupper($method) === 'PUT' || $type === 'invoice';
 @endphp
-<script>window.__promoAllowShipping = {{ $promoAllowShipping ? 'true' : 'false' }};</script>
+<script>
+    window.__promoAllowShipping = {{ $promoAllowShipping ? 'true' : 'false' }};
+    window.__promoLocked = {{ $promoLocked ? 'true' : 'false' }};
+</script>
 @include('erp.sales._partials.promo-form-script')

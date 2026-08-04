@@ -1,6 +1,13 @@
 @php
     $lunas  = $remaining <= 0;
-    $canPay = !$lunas && !$expired;
+
+    // Stok sudah tidak cukup → pembayaran ditutup. Tautan boleh disebar sejak SO draft,
+    // jadi dua pembeli bisa memegang tautan atas barang yang sama; yang membayar
+    // belakangan tidak boleh membuat stok minus. Kecuali SO ini memang disepakati
+    // sebagai pesanan yang stoknya menyusul (keep stock).
+    $kurangStok = $stock_shortages ?? [];
+
+    $canPay = !$lunas && !$expired && empty($kurangStok);
 
     // Produk preorder = dibuat setelah dipesan (termasuk pesanan custom). Produksinya
     // baru dimulai begitu DP masuk — lihat PreorderAutoProductionService.
@@ -78,6 +85,28 @@
         @include('pay._paybox')
     @elseif($lunas)
         <div class="px-6 py-6 text-center text-sm text-emerald-700 font-semibold">Pesanan ini sudah lunas. Terima kasih!</div>
+    @elseif(!$expired && !empty($kurangStok))
+        <div class="px-6 py-5">
+            <div class="rounded-xl bg-red-50 border border-red-200 px-4 py-3.5">
+                <div class="flex gap-2">
+                    <svg class="w-5 h-5 shrink-0 text-red-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                    <div class="text-[13px] leading-relaxed text-red-800">
+                        <div class="font-bold">Stok tersisa tidak mencukupi</div>
+                        <p class="mt-1">Sebagian barang pada pesanan ini sudah habis diambil pembeli lain, jadi pembayaran kami tutup untuk sementara. <b>Mohon hubungi admin kami lagi</b> — pesanan Anda masih bisa dilanjutkan setelah stoknya kami siapkan.</p>
+                        <ul class="mt-2 space-y-0.5">
+                            @foreach($kurangStok as $k)
+                                <li class="flex justify-between gap-3 border-t border-red-200/70 pt-1">
+                                    <span class="font-semibold">{{ $k['name'] }}</span>
+                                    <span class="whitespace-nowrap">dipesan {{ format_qty($k['needed']) }} &middot; tersisa {{ format_qty($k['available']) }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <a href="{{ $pdf_url }}" class="mt-3 block text-center text-xs text-gray-500 hover:text-gray-700">Unduh rincian pesanan (PDF)</a>
+        </div>
     @else
         <div class="px-6 py-6 text-center text-sm text-gray-500">Link sudah kadaluarsa. Silakan hubungi Noud Acrylic untuk link baru.</div>
     @endif

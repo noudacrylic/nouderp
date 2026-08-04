@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use Throwable;
 
 class MidtransService
 {
@@ -569,11 +570,56 @@ class MidtransService
             $trx->update($update);
 
             if ($newStatus === 'settlement' && $fraud !== 'deny' && !$trx->customer_payment_id) {
-                $this->postCustomerPayment($trx->fresh());
+                // Uang masuk untuk dokumen yang sudah dibatalkan (pembeli membayar VA lama
+                // tepat sebelum/sesudah void). Uangnya nyata, tapi tidak boleh dialokasikan
+                // ke dokumen mati — catat sebagai peringatan agar admin menanganinya manual
+                // (jadikan uang muka pelanggan atau proses refund).
+                if ($reason = $trx->fresh()->documentBlockedReason()) {
+                    Log::warning('Pembayaran Midtrans masuk untuk dokumen yang sudah dibatalkan — TIDAK diposting otomatis', [
+                        'order_id' => $trx->order_id,
+                        'amount' => (float) $trx->gross_amount,
+                        'alasan' => $reason,
+                    ]);
+                } else {
+                    $this->postCustomerPayment($trx->fresh());
+                }
             }
 
             return $trx->fresh();
         });
+    }
+
+    /**
+     * Matikan transaksi yang masih pending DI SISI MIDTRANS (/v2/{order_id}/expire).
+     *
+     * Penting untuk dokumen yang dibatalkan: menonaktifkan tautan di ERP saja tidak cukup
+     * kalau nomor VA / QRIS-nya sudah terlanjur terbit — pembeli masih bisa membayarnya
+     * dari aplikasi bank tanpa membuka halaman kita lagi.
+     *
+     * Best-effort: transaksi yang belum pernah di-charge memang belum dikenal Midtrans,
+     * dan kegagalan jaringan tidak boleh menggagalkan proses void/hapus dokumen.
+     */
+    public function expireAtGateway(MidtransTransaction $trx): bool
+    {
+        // Belum pernah di-charge → tidak ada apa pun di Midtrans untuk di-expire.
+        if (! $trx->raw_response && ! $trx->snap_token && ! $trx->qris_payload) {
+            return false;
+        }
+
+        try {
+            $response = Http::withHeaders([
+                    'Accept' => 'application/json',
+                    'Authorization' => $this->authHeader(),
+                ])
+                ->timeout(15)
+                ->post($this->apiBase() . '/v2/' . $trx->order_id . '/expire');
+
+            return $response->successful();
+        } catch (Throwable $e) {
+            Log::warning('Midtrans expire gagal', ['order_id' => $trx->order_id, 'error' => $e->getMessage()]);
+
+            return false;
+        }
     }
 
     /**

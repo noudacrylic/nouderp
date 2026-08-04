@@ -22,7 +22,23 @@ class MidtransPublicController extends Controller
         protected PaymentLinkService $links,
         protected MidtransService $midtrans,
         protected MidtransFeeCalculator $fees,
+        protected \App\Modules\Sales\Services\SalesOrderStockCheck $stock,
     ) {
+    }
+
+    /** Pesan penolakan bila stok pesanan sudah tidak cukup, atau null bila aman. */
+    protected function stockBlockedReason($trx): ?string
+    {
+        if (! $this->isSo($trx)) {
+            return null;
+        }
+
+        $so = $trx->salesOrder;
+        if (! $so || $so->allow_backorder || $this->stock->boleh($so)) {
+            return null;
+        }
+
+        return 'Maaf, stok yang tersisa tidak mencukupi untuk pesanan ini. Mohon hubungi admin kami lagi.';
     }
 
     /**
@@ -34,6 +50,9 @@ class MidtransPublicController extends Controller
         $trx = $this->links->findByToken($token);
         if (!$trx) {
             return view('pay.invalid', ['reason' => 'Link tidak ditemukan.']);
+        }
+        if ($reason = $trx->documentBlockedReason()) {
+            return view('pay.invalid', ['reason' => $reason]);
         }
         // Halaman ikut dilanjutkan (bukan hanya saat tombol Bayar ditekan) supaya batas
         // nominal yang tampil sama dengan yang divalidasi server. Aman diulang: begitu
@@ -73,6 +92,9 @@ class MidtransPublicController extends Controller
                 'min_dp' => $requireFull ? $remaining : $this->minDpFor($trx, $so, $remaining),
                 'require_full' => $requireFull,
                 'pdf_url' => route('pay.so.pdf', $token),
+                // Stok dicek saat halaman dibuka, bukan saat SO dibuat: tautan draft bisa
+                // beredar ke beberapa pembeli sekaligus atas barang yang sama.
+                'stock_shortages' => $so->allow_backorder ? [] : $this->stock->shortages($so),
             ]));
         }
 
@@ -100,12 +122,18 @@ class MidtransPublicController extends Controller
         if (!$trx) {
             return response()->json(['error' => 'Link tidak valid'], 404);
         }
+        if ($reason = $trx->documentBlockedReason()) {
+            return response()->json(['error' => $reason], 410);
+        }
         // Sama seperti snap(): tautan yang DP-nya sudah lunas dipakai lagi untuk
         // pelunasan lewat transaksi penerus.
         $trx = $this->links->continueForRemaining($trx) ?? $trx;
 
         if ($trx->isExpired() || $trx->isPaid()) {
             return response()->json(['error' => 'Link sudah tidak aktif'], 410);
+        }
+        if ($reason = $this->stockBlockedReason($trx)) {
+            return response()->json(['error' => $reason], 422);
         }
 
         $data = $request->validate([
@@ -167,6 +195,9 @@ class MidtransPublicController extends Controller
         if (!$trx) {
             return response()->json(['error' => 'Link tidak valid'], 404);
         }
+        if ($reason = $trx->documentBlockedReason()) {
+            return response()->json(['error' => $reason], 410);
+        }
         // DP-nya sudah dibayar tapi pesanan masih bersisa → pelunasan memakai TAUTAN
         // YANG SAMA. Transaksi penerus dibuat di sini (bukan saat halaman dibuka)
         // supaya baris baru hanya lahir ketika pembeli benar-benar hendak membayar.
@@ -174,6 +205,11 @@ class MidtransPublicController extends Controller
 
         if ($trx->isExpired() || $trx->isPaid()) {
             return response()->json(['error' => 'Link sudah tidak aktif'], 410);
+        }
+        // Penjaga sisi server: halaman sudah mematikan tombolnya, tapi halaman yang sudah
+        // lama terbuka bisa saja dibuka sebelum stoknya habis diambil pembeli lain.
+        if ($reason = $this->stockBlockedReason($trx)) {
+            return response()->json(['error' => $reason], 422);
         }
 
         $data = $request->validate([
@@ -233,6 +269,9 @@ class MidtransPublicController extends Controller
         if (!$trx) {
             return response()->json(['error' => 'Link tidak valid'], 404);
         }
+        if ($reason = $trx->documentBlockedReason()) {
+            return response()->json(['error' => $reason], 410);
+        }
 
         if ($trx->status === 'pending' && !$trx->isExpired()) {
             try {
@@ -258,6 +297,11 @@ class MidtransPublicController extends Controller
         if (!$trx) {
             return view('pay.invalid', ['reason' => 'Link tidak ditemukan.']);
         }
+        // Pembayaran yang SUDAH masuk tetap boleh dilihat bukti tibanya meski dokumennya
+        // kemudian dibatalkan — uangnya nyata, pembeli berhak melihat konfirmasinya.
+        if (! $trx->isPaid() && ($reason = $trx->documentBlockedReason())) {
+            return view('pay.invalid', ['reason' => $reason]);
+        }
         return view('pay.done', [
             'trx' => $trx,
             'is_so' => $this->isSo($trx),
@@ -272,7 +316,7 @@ class MidtransPublicController extends Controller
     public function invoicePdf(string $token)
     {
         $trx = $this->links->findByToken($token);
-        if (!$trx || !$trx->invoice) {
+        if (!$trx || !$trx->invoice || $trx->documentBlockedReason()) {
             abort(404);
         }
         $invoice = $trx->invoice->load(['customer', 'items.product']);
@@ -289,7 +333,7 @@ class MidtransPublicController extends Controller
     public function soPdf(string $token)
     {
         $trx = $this->links->findByToken($token);
-        if (!$trx || !$trx->salesOrder) {
+        if (!$trx || !$trx->salesOrder || $trx->documentBlockedReason()) {
             abort(404);
         }
         $order = $trx->salesOrder->load(['customer', 'warehouse', 'items.product', 'advances']);
@@ -324,14 +368,16 @@ class MidtransPublicController extends Controller
     }
 
     /**
-     * Batas minimal DP: pakai override admin (min_dp_amount) bila ada,
-     * jika tidak default 50% grand total dikurangi yang sudah dibayar, dibatasi sisa.
+     * Batas minimal DP: pakai nilai yang tercatat di tautan bila ada (disalin dari SO saat
+     * tautan dibuat), selain itu hitung dari kesepakatan yang tersimpan di SO — bukan
+     * angka 50% yang dipatok di sini, supaya SO ber-kesepakatan khusus tetap terhormati
+     * meski tautannya terbit sebelum kesepakatan itu dicatat.
      */
     protected function minDpFor($trx, $so, int $remaining): int
     {
         $min = $trx->min_dp_amount !== null
             ? (int) round($trx->min_dp_amount)
-            : (int) max(0, (int) round($so->grand_total * 0.5) - (int) round($so->paid_amount));
+            : $so->minDpAmount();
 
         return (int) min($min, max(0, $remaining));
     }

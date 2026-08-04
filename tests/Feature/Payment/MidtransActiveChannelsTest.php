@@ -34,8 +34,22 @@ class MidtransActiveChannelsTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        // Tautan selalu menggantung pada sebuah dokumen — tanpa itu halaman /pay menolak
+        // permintaan (dianggap sisa dokumen yang sudah dihapus), dan penjagaan metode
+        // bayar yang diuji di sini tidak akan pernah tercapai.
+        $invoiceId = \App\Models\SalesInvoice::create([
+            'invoice_number' => 'INV-UJI-CHANNEL',
+            'customer_id'    => $customerId,
+            'warehouse_id'   => \App\Core\Inventory\Warehouse::firstOrCreate(['name' => 'Gudang Test'])->id,
+            'invoice_date'   => now()->toDateString(),
+            'due_date'       => now()->addDays(7)->toDateString(),
+            'status'         => 'posted',
+            'grand_total'    => 100000,
+        ])->id;
+
         $this->trx = MidtransTransaction::forceCreate([
             'order_id'     => 'NOUD-CH',
+            'sales_invoice_id' => $invoiceId,
             'customer_id'  => $customerId,
             'source'       => 'link',
             'channel'      => 'qris',

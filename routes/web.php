@@ -813,6 +813,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
 
     // ── Update Notes (works on any status) ──────────────────────────────
     Route::post('/orders/{id}/update-notes', [SalesOrderController::class, 'updateNotes'])->name('orders.update-notes');
+    Route::post('/orders/{id}/keep-stock', [SalesOrderController::class, 'updateBackorder'])->name('orders.keep-stock');
     Route::post('/quotations/{id}/update-notes', [QuotationController::class, 'updateNotes'])->name('quotations.update-notes');
     Route::post('/invoices/{id}/update-notes', [\App\Http\Controllers\DebugInvoiceController::class, 'updateNotes'])->name('invoices.update-notes');
 

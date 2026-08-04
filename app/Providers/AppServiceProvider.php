@@ -15,6 +15,8 @@ use App\Modules\Tasks\Observers\SalesOrderObserver as TasksSalesOrderObserver;
 use App\Modules\Tasks\Observers\StockMovementObserver as TasksStockMovementObserver;
 use App\Modules\Production\Observers\SalesAdvanceObserver;
 use App\Models\ProductPrice;
+use App\Models\SalesInvoice;
+use App\Modules\Payment\Observers\PaymentLinkDocumentObserver;
 use App\Modules\Marketplace\Jubelio\Observers\InventoryLedgerObserver as JubelioInventoryLedgerObserver;
 use App\Modules\Marketplace\Jubelio\Observers\ProductPriceObserver as JubelioProductPriceObserver;
 use App\Modules\Marketplace\Jubelio\Observers\StockReservationObserver as JubelioStockReservationObserver;
@@ -55,5 +57,9 @@ class AppServiceProvider extends ServiceProvider
         StockReservation::observe(JubelioStockReservationObserver::class);
         // Perubahan harga produk → tandai untuk push harga ke Jubelio (Fase 3).
         ProductPrice::observe(JubelioProductPriceObserver::class);
+        // SO/Invoice di-void atau dihapus → tautan bayar Midtrans-nya dimatikan
+        // (di ERP maupun di Midtrans, supaya VA/QRIS yang terbit tak bisa dibayar lagi).
+        SalesOrder::observe(PaymentLinkDocumentObserver::class);
+        SalesInvoice::observe(PaymentLinkDocumentObserver::class);
     }
 }

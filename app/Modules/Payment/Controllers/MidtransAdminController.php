@@ -29,6 +29,9 @@ class MidtransAdminController extends Controller
     {
         $inv = SalesInvoice::with('customer')->findOrFail($invoice);
 
+        if ($this->isDead($inv)) {
+            return response()->json(['error' => 'Invoice ini sudah di-void — tautan pembayaran tidak bisa dibuat.'], 422);
+        }
         if ($inv->remaining_amount <= 0) {
             return response()->json(['error' => 'Invoice ini sudah lunas.'], 422);
         }
@@ -72,12 +75,10 @@ class MidtransAdminController extends Controller
             return response()->json(['error' => 'Sales Order sudah lunas.'], 422);
         }
 
-        // Default minimal DP = 50% grand total dikurangi yang sudah dibayar, dibatasi sisa.
-        $defaultMin = (int) min($remaining, max(0, (int) round($order->grand_total * 0.5) - (int) round($order->paid_amount)));
-        // Admin boleh menurunkan batas (approval DP < 50%).
-        $minDp = $request->filled('min_dp')
-            ? (int) max(0, min($remaining, (int) clean_number($request->input('min_dp'))))
-            : $defaultMin;
+        // Batas DP diambil dari kesepakatan yang tercatat di SO (bawaan 50% bila tidak ada).
+        // Diubahnya di halaman SO — bukan di modal ini — supaya tidak ada dua tempat yang
+        // bisa berbeda isinya untuk pesanan yang sama.
+        $minDp = $order->minDpAmount();
 
         $trx = $this->links->getOrCreateForSalesOrder($order, auth()->id(), $minDp);
 
@@ -87,6 +88,9 @@ class MidtransAdminController extends Controller
             'url' => $this->links->publicUrl($trx),
             'expires_at' => $trx->expired_at?->format('Y-m-d H:i'),
             'min_dp' => $minDp,
+            'min_dp_percent' => $order->minDpPercent(),
+            'min_dp_custom' => $order->hasCustomMinDp(),
+            'so_url' => route('sales.orders.show', $order->id),
             'remaining' => $remaining,
             'wa_text' => $this->links->waTextSo(
                 $trx,
@@ -105,6 +109,9 @@ class MidtransAdminController extends Controller
     {
         $inv = SalesInvoice::findOrFail($invoice);
 
+        if ($this->isDead($inv)) {
+            return response()->json(['error' => 'Invoice ini sudah di-void — pembayaran QRIS tidak bisa dibuat.'], 422);
+        }
         if ($inv->remaining_amount <= 0) {
             return response()->json(['error' => 'Invoice ini sudah lunas.'], 422);
         }
@@ -160,6 +167,14 @@ class MidtransAdminController extends Controller
             'expires_at' => $trx->expired_at?->toIso8601String(),
             'poll_url' => route('sales.midtrans.admin.status', $trx->id),
         ]);
+    }
+
+    /** Invoice yang sudah dibatalkan tidak boleh lagi menerbitkan tautan/QRIS baru. */
+    private function isDead(SalesInvoice $invoice): bool
+    {
+        $status = $invoice->status instanceof \BackedEnum ? $invoice->status->value : $invoice->status;
+
+        return in_array(strtolower((string) $status), ['void', 'cancelled', 'canceled'], true);
     }
 
     /**

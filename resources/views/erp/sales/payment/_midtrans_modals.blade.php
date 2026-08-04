@@ -165,13 +165,14 @@
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
 
-    function showSoLink(soId, minDp) {
+    // Batas minimal DP tidak lagi dikirim dari sini — sumbernya kesepakatan yang
+    // tercatat di Sales Order (lihat form & halaman SO).
+    function showSoLink(soId) {
         linkModal.classList.remove('hidden');
         linkModal.classList.add('flex');
         linkBody.innerHTML = '<div class="text-center text-sm text-gray-500 py-6">Memuat...</div>';
 
-        let url = `/erp/sales/payment/sales-order/${soId}/midtrans-link`;
-        if (minDp != null && minDp !== '') url += `?min_dp=${encodeURIComponent(minDp)}`;
+        const url = `/erp/sales/payment/sales-order/${soId}/midtrans-link`;
 
         fetch(url, { headers: { 'Accept': 'application/json' } })
         .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
@@ -197,12 +198,15 @@
                     </div>
                 </div>
                 <div class="border-t pt-3">
-                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Minimal DP (Rp)</label>
-                    <div class="flex gap-2">
-                        <input id="md_mindp" type="text" inputmode="numeric" value="${window.formatThousands ? window.formatThousands(String(data.min_dp)) : data.min_dp}" class="rupiah-input flex-1 border rounded-lg px-3 py-2 text-sm">
-                        <button onclick="window._midtransSoApplyMin(${soId})" class="px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600">Terapkan</button>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Minimal DP</label>
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-sm font-bold text-gray-800">Rp ${Number(data.min_dp).toLocaleString('id-ID')}</span>
+                        <span class="text-[11px] text-gray-500">${String(data.min_dp_percent).replace('.', ',')}% dari total${data.min_dp_custom ? ' &middot; kesepakatan' : ' &middot; bawaan'}</span>
                     </div>
-                    <p class="text-[11px] text-gray-400 mt-1">Default 50% dari total. Sisa tagihan Rp ${Number(data.remaining).toLocaleString('id-ID')}. Turunkan untuk mengizinkan DP &lt; 50% (approval).</p>
+                    <p class="text-[11px] text-gray-400 mt-1">
+                        Sisa tagihan Rp ${Number(data.remaining).toLocaleString('id-ID')}.
+                        Untuk mengubah batas ini, edit <a href="${data.so_url}" class="text-blue-600 hover:underline font-semibold">Sales Order</a>-nya.
+                    </p>
                 </div>
                 <div class="text-xs text-gray-500">Berlaku hingga ${data.expires_at}</div>
             `;
@@ -216,12 +220,8 @@
         if (mode === 'link') showLink(invoiceId);
         else if (mode === 'qris') showQris(invoiceId);
     };
-    window._midtransOpenSo = function(soId) { showSoLink(soId, null); };
+    window._midtransOpenSo = function(soId) { showSoLink(soId); };
     window._midtransOpenSoQris = function(soId) { showSoQris(soId); };
-    window._midtransSoApplyMin = function(soId) {
-        const v = window.cleanNumber(document.getElementById('md_mindp')?.value);
-        showSoLink(soId, v);
-    };
     window._midtransCloseQris = function() {
         stopPolling();
         qrisModal.classList.add('hidden');

@@ -55,6 +55,9 @@ class SalesOrder extends Model
 
         'grand_total',
         'paid_amount',
+        'min_dp_percent',
+        'min_dp_amount',
+        'allow_backorder',
         'status',
     ];
 
@@ -62,7 +65,70 @@ class SalesOrder extends Model
         'picked_up_at' => 'datetime',
         'pickup_date'  => 'date',
         'process_failed_at' => 'datetime',
+        'allow_backorder' => 'boolean',
     ];
+
+    /** Batas DP bawaan bila SO tidak menyepakati apa pun. */
+    public const DEFAULT_MIN_DP_PERCENT = 50;
+
+    /**
+     * Batas minimal DP yang berlaku untuk SO ini, dalam rupiah, SUDAH dikurangi yang
+     * sudah dibayar dan dibatasi sisa tagihan — inilah angka yang dipakai tautan bayar.
+     *
+     * Urutan: persen kesepakatan → nominal kesepakatan → bawaan 50%.
+     */
+    public function minDpAmount(): int
+    {
+        $total = (int) round((float) $this->grand_total);
+        $paid = (int) round((float) $this->paid_amount);
+        $remaining = max(0, $total - $paid);
+
+        if ($this->min_dp_percent !== null) {
+            $batas = (int) round($total * (float) $this->min_dp_percent / 100);
+        } elseif ($this->min_dp_amount !== null) {
+            $batas = (int) round((float) $this->min_dp_amount);
+        } else {
+            $batas = (int) round($total * self::DEFAULT_MIN_DP_PERCENT / 100);
+        }
+
+        return (int) min(max(0, $batas - $paid), $remaining);
+    }
+
+    /** Batas DP apa adanya (belum dikurangi pembayaran) — untuk ditampilkan di layar. */
+    public function minDpBaseAmount(): int
+    {
+        $total = (int) round((float) $this->grand_total);
+
+        if ($this->min_dp_percent !== null) {
+            return (int) round($total * (float) $this->min_dp_percent / 100);
+        }
+        if ($this->min_dp_amount !== null) {
+            return (int) round((float) $this->min_dp_amount);
+        }
+
+        return (int) round($total * self::DEFAULT_MIN_DP_PERCENT / 100);
+    }
+
+    /** Persentase batas DP terhadap grand total, untuk label. */
+    public function minDpPercent(): float
+    {
+        if ($this->min_dp_percent !== null) {
+            return (float) $this->min_dp_percent;
+        }
+
+        $total = (float) $this->grand_total;
+        if ($this->min_dp_amount !== null && $total > 0) {
+            return round((float) $this->min_dp_amount / $total * 100, 2);
+        }
+
+        return (float) self::DEFAULT_MIN_DP_PERCENT;
+    }
+
+    /** SO ini memakai batas DP hasil kesepakatan, bukan bawaan 50%. */
+    public function hasCustomMinDp(): bool
+    {
+        return $this->min_dp_percent !== null || $this->min_dp_amount !== null;
+    }
 
     public const DELIVERY_METHODS = [
         'kurir'      => 'Kurir',
