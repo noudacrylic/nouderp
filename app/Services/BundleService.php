@@ -7,6 +7,7 @@ use App\Core\Inventory\ProductBundle;
 use App\Core\Inventory\ProductStock;
 use App\Core\Inventory\StockReservation;
 use App\Core\Inventory\InventoryEngine;
+use App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink;
 
 class BundleService
 {
@@ -19,9 +20,16 @@ class BundleService
      *
      * @param bool $physical true = pakai ON-HAND komponen murni (tanpa kurangi reservasi).
      * @param bool $excludeMarketplaceReserved (hanya berlaku bila $physical=false) true =
-     *                       kurangi HANYA reservasi NON-marketplace (SO tanpa JubelioOrderLink).
-     *                       Dipakai saat mendorong "stok Jubelio" = fisik − dipesan non-MP,
-     *                       karena reservasi marketplace sudah dikelola Jubelio sendiri.
+     *                       jangan kurangi bagian reservasi komponen yang pasangannya SUDAH
+     *                       ditahan Jubelio atas item BUNDLE INI (lihat
+     *                       JubelioOrderLink::coveredReservationQty). Dipakai saat mendorong
+     *                       "stok Jubelio" agar pesanan bundle tidak terpotong dua kali.
+     *
+     *                       Penting: yang dikecualikan HANYA pesanan marketplace atas bundle
+     *                       ini sendiri. Pesanan marketplace atas KOMPONEN-nya (dijual satuan)
+     *                       tetap dikurangkan — Jubelio menahan item komponen, bukan item
+     *                       bundle, jadi tanpa pengurangan ini bundle masih ditawarkan penuh
+     *                       padahal bahannya sudah terjual.
      */
     public function getBundleStock(int $bundleId, ?int $warehouseId = null, bool $physical = false, bool $excludeMarketplaceReserved = false): int
     {
@@ -53,18 +61,24 @@ class BundleService
             if ($warehouseId) {
                 $reservedQuery->where('warehouse_id', $warehouseId);
             }
-            if ($excludeMarketplaceReserved) {
-                // Abaikan reservasi milik SO marketplace (sudah direservasi di Jubelio).
-                $reservedQuery->whereNotIn('sales_order_id', function ($q) {
-                    $q->select('sales_order_id')
-                      ->from('jubelio_order_links')
-                      ->whereNotNull('sales_order_id');
-                });
+            $reservedQty = (float) $reservedQuery->sum('qty');
+
+            $qtyRequired = $component->{$qtyField} ?? 1;
+
+            if ($excludeMarketplaceReserved && $qtyRequired > 0) {
+                // Pesanan marketplace atas bundle INI sudah ditahan Jubelio di item bundle-nya;
+                // kalau ikut dikurangkan di sini, satu pesanan terpotong dua kali. Dikonversi
+                // ke satuan komponen: 1 bundle memakai $qtyRequired komponen.
+                $covered = JubelioOrderLink::coveredReservationQty(
+                    $bundleId,
+                    $component->component_product_id,
+                    $warehouseId
+                ) * $qtyRequired;
+
+                $reservedQty = max(0.0, $reservedQty - $covered);
             }
-            $reservedQty = $reservedQuery->sum('qty');
 
             $availableComponent = max(0, $stockQty - ($physical ? 0 : $reservedQty));
-            $qtyRequired = $component->{$qtyField} ?? 1;
 
             if ($qtyRequired <= 0) {
                 $bundlePossible = 0;

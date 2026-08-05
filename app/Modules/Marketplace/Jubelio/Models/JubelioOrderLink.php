@@ -4,6 +4,7 @@ namespace App\Modules\Marketplace\Jubelio\Models;
 
 use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Link 1 pesanan Jubelio ke 1 Sales Order ERP, dengan flag idempotensi per tahap.
@@ -74,6 +75,48 @@ class JubelioOrderLink extends Model
     public function salesOrder()
     {
         return $this->belongsTo(SalesOrder::class, 'sales_order_id');
+    }
+
+    /**
+     * Berapa banyak dari reservasi ERP atas produk $reservedProductId yang sudah punya
+     * PASANGAN reservasi di Jubelio atas item $jubelioItemProductId — yaitu bagian yang
+     * TIDAK boleh dikurangkan lagi saat mendorong stok, karena Jubelio menahannya sendiri.
+     *
+     * Kenapa dua parameter produk, bukan satu:
+     *   Jubelio menahan stok per ITEM yang benar-benar dipesan pembeli, sedangkan ERP
+     *   mereservasi per produk yang benar-benar dipakai. Untuk penjualan biasa keduanya
+     *   produk yang sama. Untuk BUNDLE keduanya BERBEDA: pembeli memesan item bundle,
+     *   ERP mereservasi komponennya. Karena itu:
+     *     - dorong produk biasa P : coveredReservationQty(P, P)
+     *     - dorong bundle B       : coveredReservationQty(B, komponen) × qty_per_bundle
+     *   Menyamakan keduanya (menganggap "semua reservasi pesanan marketplace sudah ditahan
+     *   Jubelio") adalah sumber oversell: order bundle menahan item BUNDLE di Jubelio, tapi
+     *   item KOMPONEN di sana tidak tersentuh — kalau reservasi komponen ikut dikecualikan,
+     *   komponen tetap ditawarkan penuh dan barang yang sama dijanjikan dua kali.
+     *
+     * Diukur dari baris pesanan (bukan jumlah reservasi) supaya satu SO yang memuat bundle
+     * SEKALIGUS komponennya tetap terhitung tepat: hanya sebanyak baris langsungnya yang
+     * dikecualikan, sisanya (bagian dari bundle) tetap dikurangkan.
+     *
+     * Dibatasi ke SO yang MASIH menahan reservasi aktif atas $reservedProductId — begitu
+     * Surat Jalan terbit reservasinya hilang dan stok fisik yang turun, jadi baris pesanan
+     * lama tidak boleh terus dipotong.
+     */
+    public static function coveredReservationQty(int $jubelioItemProductId, int $reservedProductId, ?int $warehouseId = null): float
+    {
+        return (float) DB::table('sales_order_items as i')
+            ->join('jubelio_order_links as j', 'j.sales_order_id', '=', 'i.sales_order_id')
+            ->where('i.product_id', $jubelioItemProductId)
+            ->whereIn('i.sales_order_id', function ($q) use ($reservedProductId, $warehouseId) {
+                $q->select('sales_order_id')
+                  ->from('stock_reservations')
+                  ->where('product_id', $reservedProductId)
+                  ->where('status', 'active');
+                if ($warehouseId) {
+                    $q->where('warehouse_id', $warehouseId);
+                }
+            })
+            ->sum(DB::raw('i.qty * COALESCE(i.conversion_to_base, 1)'));
     }
 
     /** Resi sudah didapat (rantai WMS tuntas). */

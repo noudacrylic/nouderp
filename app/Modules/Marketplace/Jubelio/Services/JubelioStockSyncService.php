@@ -20,9 +20,12 @@ use Illuminate\Support\Facades\Log;
  * Jubelio, supaya stok yang TERSEDIA dijual tetap sama di kedua sisi.
  *
  * Kapan stok didorong (sisanya tidak perlu didorong sama sekali):
- *  1. Pesanan Jubelio  → TIDAK didorong: Jubelio kirim detail pesanan ke ERP, kedua sisi
- *     memotong sendiri-sendiri. Mendorongnya balik = potong dua kali (lihat loop-prevention
- *     di InventoryLedgerObserver & StockReservationObserver).
+ *  1. Pesanan Jubelio  → TIDAK didorong untuk item yang dipesan itu sendiri: Jubelio kirim
+ *     detail pesanan ke ERP, kedua sisi memotong sendiri-sendiri. Mendorongnya balik = potong
+ *     dua kali (lihat loop-prevention di InventoryLedgerObserver & StockReservationObserver).
+ *     PENGECUALIAN: pesanan BUNDLE. Jubelio menahan item bundle, sedangkan ERP mereservasi
+ *     KOMPONEN — item komponen di Jubelio tidak tersentuh, jadi komponen (dan bundle lain yang
+ *     memakainya) TETAP harus didorong. Lihat JubelioOrderLink::coveredReservationQty.
  *  2. Pesanan webstore/ERP → didorong (fisik Jubelio dipotong sebesar reservasi non-marketplace).
  *  3. Penjualan bundle → didorong: bundle hanya ada di ERP, stoknya tak dikenal Jubelio.
  *  4. Produksi selesai  → didorong (ledger 'production_order').
@@ -136,15 +139,17 @@ class JubelioStockSyncService
             return 'skipped_unmatched';
         }
 
-        // Dorong "STOK JUBELIO" = stok fisik (on-hand) DIKURANGI reservasi pesanan
-        // NON-marketplace saja. Alasannya:
-        //  - Reservasi marketplace TIDAK dikurangi: Jubelio sudah mereservasi pesanannya
-        //    sendiri, jadi menguranginya di sini = pengurangan ganda (available Jubelio minus).
-        //  - Reservasi non-marketplace (SO dibuat di ERP) TIDAK diketahui Jubelio & belum
-        //    memotong stok fisik sampai Surat Jalan terbit → tanpa dikurangi di sini, Jubelio
-        //    bisa oversell barang yang sudah dipesan offline. Saat DO terbit, fisik turun &
-        //    reservasi hilang, sehingga (fisik − reservasi_nonMP) tetap → cocok kembali.
-        // Bundle: hitung dari komponen, kurangi reservasi non-MP komponen (excludeMarketplace).
+        // Dorong "STOK JUBELIO" = stok fisik (on-hand) DIKURANGI reservasi yang BELUM
+        // tercermin di Jubelio. Yang dikecualikan hanya reservasi yang pasangannya ditahan
+        // Jubelio atas ITEM YANG SAMA (pesanan marketplace dengan baris atas produk ini):
+        //  - Kalau ikut dikurangi, satu pesanan terpotong dua kali (available Jubelio minus).
+        //  - Reservasi lain (SO dibuat di ERP, atau reservasi komponen yang lahir dari pesanan
+        //    BUNDLE) TIDAK diketahui Jubelio pada item ini & belum memotong stok fisik sampai
+        //    Surat Jalan terbit → tanpa dikurangi di sini, Jubelio oversell barang yang sudah
+        //    dijanjikan. Saat DO terbit, fisik turun & reservasi hilang sehingga hasilnya tetap
+        //    → cocok kembali. Lihat JubelioOrderLink::coveredReservationQty untuk aturannya.
+        // Bundle: hitung dari komponen; reservasi komponen yang berasal dari pesanan marketplace
+        // atas bundle ini yang dikecualikan (excludeMarketplaceReserved).
         //
         // ANTI-OVERSELL (plafon FIFO): stok fisik yang didorong = min(onHand ledger, sisa FIFO
         // layer). Surat Jalan mengonsumsi FIFO layer, jadi apa pun yang melebihi sisa layer TIDAK
@@ -163,7 +168,7 @@ class JubelioStockSyncService
                     'product' => $product->id, 'sku' => $product->sku, 'onhand' => $onHand, 'fifo' => $fifo,
                 ]);
             }
-            $available = round($physical - $this->nonMarketplaceReserved($product->id), 4);
+            $available = round($physical - $this->reservedNotHeldByJubelio($product->id), 4);
         }
 
         // Jangan pernah kirim stok negatif ke Jubelio (mis. oversold sebelum DO).
@@ -309,20 +314,29 @@ class JubelioStockSyncService
     }
 
     /**
-     * Total reservasi AKTIF produk dari SO NON-marketplace (SO yang TIDAK punya
-     * JubelioOrderLink). Reservasi marketplace sengaja dikecualikan agar tidak terjadi
-     * pengurangan ganda terhadap reservasi yang sudah dikelola Jubelio sendiri.
+     * Reservasi AKTIF produk yang BELUM tercermin di Jubelio — inilah yang harus dipotong
+     * dari stok fisik sebelum didorong.
+     *
+     * Yang dikecualikan hanya reservasi yang pasangannya benar-benar ditahan Jubelio atas
+     * ITEM YANG SAMA, yaitu pesanan marketplace dengan baris atas produk ini sendiri.
+     * Pengecualian versi lama berlaku untuk SELURUH pesanan marketplace, dan itu bocor pada
+     * bundle: pembeli memesan item bundle (Jubelio menahan item bundle), sementara reservasi
+     * ERP jatuh di KOMPONEN. Komponen jadi ikut dikecualikan padahal Jubelio tak pernah
+     * menahannya → komponen tetap ditawarkan penuh → barang yang sama dijanjikan dua kali
+     * (5 bundle + 10 satuan dari 10 unit fisik) sampai stok tersedia minus dalam.
      */
-    private function nonMarketplaceReserved(int $productId): float
+    private function reservedNotHeldByJubelio(int $productId): float
     {
-        return (float) \App\Core\Inventory\StockReservation::where('product_id', $productId)
+        $reserved = (float) \App\Core\Inventory\StockReservation::where('product_id', $productId)
             ->where('status', 'active')
-            ->whereNotIn('sales_order_id', function ($q) {
-                $q->select('sales_order_id')
-                  ->from('jubelio_order_links')
-                  ->whereNotNull('sales_order_id');
-            })
             ->sum('qty');
+
+        $covered = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::coveredReservationQty(
+            $productId,
+            $productId
+        );
+
+        return max(0.0, round($reserved - $covered, 4));
     }
 
     /** Resolusi item_id Jubelio dari produk (cache di kolom; fallback via SKU). */
