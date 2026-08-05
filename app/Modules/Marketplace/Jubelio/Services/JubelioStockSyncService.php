@@ -13,12 +13,28 @@ use Illuminate\Support\Facades\Log;
  * Push stok ERP → Jubelio (ERP = sumber kebenaran). Referensi = stok AVAILABLE
  * (sudah dikurangi reservasi SO), bukan stok fisik.
  *
- * Stok di Jubelio diubah via adjustment DELTA. Baseline delta:
- *  - mode normal  : products.jubelio_synced_qty (nilai yang ERP tahu ada di Jubelio).
- *  - mode reconcile: GET stok aktual Jubelio (koreksi drift), fallback ke baseline lokal.
+ * Yang disamakan adalah STOK FISIK, dengan invarian:
+ *     fisik Jubelio == fisik ERP − pesanan yang hanya ada di ERP
+ * Jadi fisik ERP dan fisik Jubelio memang sengaja BERBEDA. Pesanan webstore/ERP belum
+ * menurunkan fisik ERP (fisik baru turun saat Surat Jalan) tapi langsung memotong fisik
+ * Jubelio, supaya stok yang TERSEDIA dijual tetap sama di kedua sisi.
  *
- * Karena ERP satu-satunya penulis stok Jubelio (webhook stok inbound diabaikan),
- * baseline lokal cukup akurat untuk push harian; reconcile 2 jam menambal drift.
+ * Kapan stok didorong (sisanya tidak perlu didorong sama sekali):
+ *  1. Pesanan Jubelio  → TIDAK didorong: Jubelio kirim detail pesanan ke ERP, kedua sisi
+ *     memotong sendiri-sendiri. Mendorongnya balik = potong dua kali (lihat loop-prevention
+ *     di InventoryLedgerObserver & StockReservationObserver).
+ *  2. Pesanan webstore/ERP → didorong (fisik Jubelio dipotong sebesar reservasi non-marketplace).
+ *  3. Penjualan bundle → didorong: bundle hanya ada di ERP, stoknya tak dikenal Jubelio.
+ *  4. Produksi selesai  → didorong (ledger 'production_order').
+ *  5. Stok opname       → didorong (ledger 'adjustment_in'/'adjustment_out').
+ *  6. Transfer stok     → didorong (ledger 'transfer_in'/'transfer_out').
+ *
+ * Stok di Jubelio diubah via adjustment DELTA, jadi delta HARUS dihitung dari kondisi Jubelio
+ * yang benar-benar diukur (GET end_qty) tiap kali kita menulis. `products.jubelio_synced_qty`
+ * cuma CACHE hasil push terakhir (asumsi, bukan pengukuran) dan dipakai sebatas penyaring murah
+ * agar push yang tak mengubah apa pun tidak menembak HTTP. Cache di-null-kan tiap kali gagal.
+ * Menebak baseline DILARANG — lihat alasannya di pushProduct(). Cron reconcile 2 jam tetap
+ * jadi jaring pengaman untuk drift yang lolos penyaring.
  */
 class JubelioStockSyncService
 {
@@ -159,20 +175,53 @@ class JubelioStockSyncService
             $available += (float) ($product->preorder_stock ?? 0);
         }
 
-        // Baseline untuk hitung delta.
-        $baseline = $product->jubelio_synced_qty !== null ? (float) $product->jubelio_synced_qty : null;
-        if ($reconcile || $baseline === null) {
-            $remote = $this->client->getItemAvailable($itemId, $locationId);
-            if ($remote !== null) {
-                $baseline = $remote;
-            } elseif ($baseline === null) {
-                $baseline = 0.0; // belum diketahui — anggap 0 (Jubelio akan diset = available)
-            }
+        // ─────────────────────── Baseline untuk hitung delta ───────────────────────
+        // Adjustment Jubelio bersifat DELTA terhadap saldo FISIK di sana, jadi angka yang
+        // dikirim hanya benar bila kita tahu PERSIS isi Jubelio saat ini. Invarian targetnya:
+        //     fisik Jubelio == fisik ERP − pesanan yang hanya ada di ERP   (== $available)
+        // Fisik ERP dan fisik Jubelio memang SENGAJA berbeda (SO webstore/ERP memotong Jubelio
+        // lebih dulu supaya stok TERSEDIA sama, padahal fisik ERP baru turun saat Surat Jalan),
+        // sehingga baseline TIDAK BOLEH direkonstruksi dari stok fisik ERP. Satu-satunya sumber
+        // sah = GET end_qty Jubelio.
+        //
+        // `jubelio_synced_qty` hanyalah CACHE hasil push terakhir — sebuah asumsi, bukan hasil
+        // pengukuran. Ia rutin basi karena Jubelio bergerak sendiri untuk hal yang sengaja tidak
+        // kita dorong (pesanan marketplace memotong stoknya sendiri, retur/cancel, edit manual
+        // di dashboard). Karena itu cache dipakai HANYA sebagai penyaring murah: kalau cache
+        // bilang tidak ada yang berubah, lewati tanpa HTTP (drift-nya ditambal cron reconcile).
+        // Begitu kita benar-benar akan MENULIS, wajib ukur ulang dulu.
+        $cached = $product->jubelio_synced_qty !== null ? (float) $product->jubelio_synced_qty : null;
+        if (!$reconcile && $cached !== null && abs($available - $cached) < 0.0001) {
+            return 'skipped';
+        }
+
+        // Ukur kondisi Jubelio sekarang. Delta selalu dihitung dari hasil ukur ini, sehingga
+        // hasil akhirnya dijamin == $available (yang sudah di-clamp ≥ 0) — mustahil mendorong
+        // stok Jubelio ke bawah nol, penyebab error 500 beruntun yang dulu terjadi.
+        $baseline = $this->client->getItemAvailable($itemId, $locationId);
+        if ($baseline === null) {
+            // Stok Jubelio tak terbaca → BATALKAN, jangan menebak. Dulu di sini di-anggap 0;
+            // itu berbahaya karena delta jadi = SELURUH stok available dan DITAMBAHKAN ke saldo
+            // fisik Jubelio yang sudah ada → stok dobel → oversell + valuasi Jubelio kacau
+            // (adjustment membawa cost). Tak bisa ditambal dengan "larang delta positif":
+            // delta positif itu sah (produksi selesai, opname naik, SO lokal di-void).
+            // Baseline di-null-kan agar percobaan berikutnya mengukur lagi, bukan menebak.
+            $product->forceFill(['jubelio_synced_qty' => null])->save();
+            Log::warning('Jubelio stok: gagal membaca stok Jubelio — push dibatalkan (anti tebak-0)', [
+                'product' => $product->id, 'sku' => $product->sku, 'item_id' => $itemId,
+            ]);
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::FAIL, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => 'Stok Jubelio tidak terbaca — push dibatalkan agar stok tidak dobel. Akan dicoba lagi otomatis.',
+                'meta'       => ['available' => $available, 'baseline' => null],
+            ]);
+            return 'failed';
         }
 
         $delta = round($available - $baseline, 4);
         if (abs($delta) < 0.0001) {
-            // Sudah sinkron; pastikan baseline tersimpan.
+            // Sudah sinkron; pastikan cache menyimpan hasil ukur.
             if ($product->jubelio_synced_qty === null || (float) $product->jubelio_synced_qty !== $available) {
                 $product->forceFill(['jubelio_synced_qty' => $available])->save();
             }
@@ -191,6 +240,10 @@ class JubelioStockSyncService
         ]], 'Sinkron stok Noud ERP (available)');
 
         if (!$resp['success']) {
+            // Batalkan cache: setelah gagal kita TIDAK tahu lagi isi Jubelio (adjustment bisa
+            // saja sebagian masuk / balasannya timeout). Membiarkan cache lama membuat penyaring
+            // murah di atas bisa salah menyimpulkan "tidak ada perubahan" dan melewatkan koreksi.
+            $product->forceFill(['jubelio_synced_qty' => null])->save();
             Log::warning('Jubelio stok: adjustment gagal', ['product' => $product->id, 'delta' => $delta, 'error' => $resp['error']]);
             JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, JubelioSyncLog::FAIL, $product->name, [
                 'reference'  => $product->sku,
