@@ -203,7 +203,26 @@ class FulfillmentReadinessService
 
         // SO toko biasa (non-marketplace) SEPERTI biasa, DITAMBAH SO marketplace yang punya
         // link Jubelio (dibuat oleh sinkron pesanan) agar bisa diproses via rantai WMS.
+        //
+        // Riwayat marketplace yang sudah tuntas dibuang di SQL, bukan di PHP. Pesanan dengan
+        // faktur diposting & tuntas di WMS > 3 hari lalu PASTI jatuh ke bucket 'selesai' lalu
+        // ditandai archived — dan setiap konsumen soRows() membuang baris archived. Tanpa
+        // saringan ini seluruh riwayat (ribuan SO beserta customer/items/deliveries/invoices)
+        // dihidrasi hanya untuk langsung dibuang, sampai menembus memory_limit PHP.
+        //
+        // Order yang diretur DIKECUALIKAN dari saringan: di buildSoRow() bucket 'retur'
+        // diperiksa SEBELUM invoice_posted, jadi baris ini belum tentu terarsip.
+        // Kondisi ditulis sebagai OR "yang dipertahankan" (bukan NOT) supaya NULL pada
+        // wms_completed_at/last_status tidak diam-diam menjatuhkan baris.
+        $archiveCutoff = now()->subDays(3);
         $linkedSoIds = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::whereNotNull('sales_order_id')
+            ->where(function ($q) use ($archiveCutoff) {
+                $q->where('invoice_posted', false)
+                  ->orWhereNull('wms_completed_at')
+                  ->orWhere('wms_completed_at', '>=', $archiveCutoff)
+                  ->orWhere('last_status', 'returned')
+                  ->orWhere('return_created', true);
+            })
             ->pluck('sales_order_id')->all();
 
         $orders = SalesOrder::query()
