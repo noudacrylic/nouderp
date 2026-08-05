@@ -36,3 +36,8 @@ Thumbs.db
 # Artefak lokal sesi debug (backup impor DB server, recovery mysql)
 /_*.sql
 /_quarantine_*/
+
+# Artefak maintenance di server produksi — BERISI RAHASIA / DATA PELANGGAN
+.env.bak_*
+/backup_*.sql.gz
+/deploy/SERVER-LOCAL-NOTES.md
