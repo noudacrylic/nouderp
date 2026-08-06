@@ -19,6 +19,7 @@ use App\Enums\AccountCodeEnum;
 use App\Core\Accounting\Account;
 use App\Services\NumberGeneratorService;
 use App\Modules\Production\Models\ProductionOrderCost;
+use App\Modules\Production\Services\ProductionOrderService;
 
 class ProductionMaterialAdditionController extends Controller
 {
@@ -60,7 +61,7 @@ class ProductionMaterialAdditionController extends Controller
                 'executors',
             ])
             ->whereIn('status', ['in_progress', 'paused'])
-            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', ['in_progress']))
+            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', ['in_progress', 'partial']))
             ->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
             ->orderBy('started_at', 'desc')
             ->get();
@@ -72,7 +73,7 @@ class ProductionMaterialAdditionController extends Controller
                 'department',
             ])
             ->where('status', 'pending')
-            ->whereHas('productionOrder', fn($q) => $q->where('status', 'in_progress'))
+            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', ['in_progress', 'partial']))
             ->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
             ->get()
             ->filter(function ($step) {
@@ -256,8 +257,30 @@ class ProductionMaterialAdditionController extends Controller
         }
 
         $order = $addition->productionOrder;
-        if (!$order || $order->status !== 'in_progress') {
+        if (!$order || !in_array($order->status, ['in_progress', 'partial'], true)) {
             return back()->with('error', 'Tidak bisa membatalkan: pengerjaan produksi sudah selesai atau difinalisasi. Void hanya bisa selagi order masih dikerjakan.');
+        }
+
+        // Order yang hasilnya sudah diambil sebagian: biaya penambahan ini mungkin sudah
+        // ikut terlepas ke stok. Menariknya kembali akan membuat WIP minus, jadi ditolak —
+        // batalkan pengambilan terakhir dulu baru koreksi bahannya.
+        if ($order->status === 'partial') {
+            $wipAccountId = Account::where('code', AccountCodeEnum::WIP)->value('id');
+
+            $additionWip = (float) \App\Core\Journal\JournalLine::where('account_id', $wipAccountId)
+                ->whereHas('journal', fn($q) => $q
+                    ->whereIn('reference_type', ['production_material_addition', 'production_cost_addition'])
+                    ->where('reference_id', $addition->id)
+                    ->where('status', '!=', 'void'))
+                ->sum('debit');
+
+            $wip = app(ProductionOrderService::class)->wipSummary($order->id);
+
+            if ($additionWip > $wip['remaining'] + 0.01) {
+                return back()->with('error',
+                    'Tidak bisa membatalkan: biaya penambahan bahan ini sudah ikut terlepas ke stok lewat pengambilan hasil. ' .
+                    'Batalkan pengambilan terakhir dulu di halaman order produksi.');
+            }
         }
 
         DB::transaction(function () use ($addition, $order) {

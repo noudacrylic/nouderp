@@ -1068,6 +1068,10 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('orders/{id}/cancel', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'cancel'])->name('orders.cancel');
     Route::get('orders/{id}/finalize-confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'finalizeConfirm'])->name('orders.finalize-confirm');
     Route::post('orders/{id}/finalize', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'finalize'])->name('orders.finalize');
+    Route::get('orders/{id}/partial-confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'partialConfirm'])->name('orders.partial-confirm');
+    Route::post('orders/{id}/partial', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'partial'])->name('orders.partial');
+    Route::post('orders/{id}/finalizations/{batchId}/void', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'voidBatch'])->name('orders.finalizations.void');
+    Route::post('orders/{id}/revise-target', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'reviseTarget'])->name('orders.revise-target');
     Route::post('orders/{id}/void', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'void'])->name('orders.void');
     Route::post('orders/{id}/edit-finalize', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'editFinalize'])->name('orders.edit-finalize');
     Route::post('orders/{id}/steps', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'storeStep'])->name('orders.steps.store');

@@ -80,6 +80,29 @@ class ProductionOrder extends Model
         return $this->hasMany(ProductionOrderCost::class);
     }
 
+    /** Batch pelepasan hasil ke stok (partial + penutup), urut sesuai urutan pengambilan. */
+    public function finalizations()
+    {
+        return $this->hasMany(ProductionFinalization::class)->orderBy('sequence');
+    }
+
+    /** Batch yang masih berlaku (belum dibatalkan). */
+    public function activeFinalizations()
+    {
+        return $this->finalizations()->whereNull('voided_at');
+    }
+
+    public function targetRevisions()
+    {
+        return $this->hasMany(ProductionTargetRevision::class)->latest('id');
+    }
+
+    /** Bahan yang ditambahkan setelah order berjalan — ikut menambah WIP. */
+    public function materialAdditions()
+    {
+        return $this->hasMany(ProductionMaterialAddition::class)->orderBy('id');
+    }
+
     /** OP induk tempat OP ini diserap (hasil penggabungan task). */
     public function mergedInto()
     {
@@ -145,6 +168,7 @@ class ProductionOrder extends Model
             'draft'       => 'Draft',
             'confirmed'   => 'Dikonfirmasi',
             'in_progress' => 'Dalam Proses',
+            'partial'     => 'Selesai Sebagian',
             'completed'   => 'Menunggu Finalisasi',
             'pending'     => 'Menunggu Stok',
             'finalized'   => 'Selesai',

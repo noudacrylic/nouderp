@@ -286,7 +286,7 @@ class ProductionOrderController extends Controller
         }
     }
 
-    public function show(int $id)
+    public function show(int $id, ProductionOrderService $service)
     {
         $order = ProductionOrder::with([
             'bom', 'salesOrder.customer', 'warehouse',
@@ -294,9 +294,17 @@ class ProductionOrderController extends Controller
             'steps.department', 'steps.executor', 'steps.executors', 'steps.timeLogs',
             'sources.product',
             'costs.cashAccount',
+            'finalizations.items.product',
+            'targetRevisions.user',
+            // Hanya dipakai untuk menghitung jumlah pencatatan di panel Neraca WIP.
+            'materialAdditions',
         ])->findOrFail($id);
 
         $departments = Department::produksi()->where('is_active', true)->with('activeExecutors')->get();
+
+        // Batch pelepasan hasil (partial + penutup) & batch terakhir yang boleh dibatalkan.
+        $batches         = $order->finalizations;
+        $lastActiveBatch = $batches->whereNull('voided_at')->sortByDesc('sequence')->first();
 
         // Map stok tersedia per material di gudang order — buat audit "kurang berapa"
         // di tabel Material. Hanya relevan untuk material yang belum dikonsumsi.
@@ -342,7 +350,15 @@ class ProductionOrderController extends Controller
             };
         }
 
-        return view('erp.production.orders.show', compact('order', 'departments', 'materialStock', 'repairSource'));
+        // Neraca WIP order: rincian yang masuk (bahan, biaya, penambahan) vs yang sudah
+        // dilepas ke persediaan per batch — panel audit "sisa WIP harus nol saat ditutup".
+        $wip          = $service->wipSummary($id);
+        $wipBreakdown = $service->wipBreakdown($id);
+
+        return view('erp.production.orders.show', compact(
+            'order', 'departments', 'materialStock', 'repairSource', 'batches', 'lastActiveBatch',
+            'wip', 'wipBreakdown'
+        ));
     }
 
     public function confirm(int $id, ProductionOrderService $service)
@@ -368,7 +384,7 @@ class ProductionOrderController extends Controller
         }
     }
 
-    public function finalizeConfirm(int $id)
+    public function finalizeConfirm(int $id, ProductionOrderService $service)
     {
         $order = ProductionOrder::with([
             'outputs.product',
@@ -378,10 +394,16 @@ class ProductionOrderController extends Controller
             'steps.timeLogs',
         ])->findOrFail($id);
 
-        if (!in_array($order->status, ['completed', 'pending'])) {
+        if (!in_array($order->status, ['completed', 'pending', 'partial'])) {
             return redirect()->route('production.orders.show', $id)
-                ->with('error', 'Order ini tidak dalam status menunggu finalisasi atau menunggu stok.');
+                ->with('error', 'Order ini tidak dalam status menunggu finalisasi, menunggu stok, atau selesai sebagian.');
         }
+
+        // Order yang hasilnya sudah diambil sebagian: qty penutup di-default ke SISA target,
+        // dan sisa WIP-nya ditampilkan supaya jelas berapa yang akan ditutup.
+        $wip         = $service->wipSummary($id);
+        $releasedQty = $wip['released_qty'];
+        $batches     = $order->finalizations()->with('items.product')->get();
 
         // Ringkasan waktu per divisi
         $deptSummary = $order->steps
@@ -407,7 +429,93 @@ class ProductionOrderController extends Controller
         $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
         $defaultWarehouseId = Warehouse::defaultId();
 
-        return view('erp.production.orders.finalize-confirm', compact('order', 'deptSummary', 'totalDur', 'warehouses', 'defaultWarehouseId'));
+        return view('erp.production.orders.finalize-confirm', compact(
+            'order', 'deptSummary', 'totalDur', 'warehouses', 'defaultWarehouseId',
+            'wip', 'releasedQty', 'batches'
+        ));
+    }
+
+    /**
+     * Form penyelesaian sebagian — dibuka dari papan proses saat langkah terakhir berjalan.
+     */
+    public function partialConfirm(int $id, ProductionOrderService $service)
+    {
+        $order = ProductionOrder::with(['outputs.product', 'steps.department'])->findOrFail($id);
+
+        if (!in_array($order->status, ['in_progress', 'partial'], true)) {
+            return redirect()->route('production.orders.show', $id)
+                ->with('error', 'Penyelesaian sebagian hanya bisa dilakukan saat produksi sedang berjalan.');
+        }
+
+        $wip         = $service->wipSummary($id);
+        $releasedQty = $wip['released_qty'];
+        $batches     = $order->finalizations()->with('items.product')->get();
+
+        $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
+        $defaultWarehouseId = Warehouse::defaultId();
+
+        return view('erp.production.orders.partial-confirm', compact(
+            'order', 'wip', 'releasedQty', 'batches', 'warehouses', 'defaultWarehouseId'
+        ));
+    }
+
+    /**
+     * Lepas sebagian hasil ke stok. Langkah & timer tidak disentuh — order tetap di papan proses.
+     */
+    public function partial(Request $request, int $id, ProductionOrderService $service)
+    {
+        $request->validate([
+            'outputs'                    => 'required|array|min:1',
+            'outputs.*.output_id'        => 'required|integer',
+            'outputs.*.qty_produced'     => 'required|numeric|min:0',
+            'outputs.*.variance_notes'   => 'nullable|string|max:500',
+            'outputs.*.allocations'                => 'nullable|array',
+            'outputs.*.allocations.*.warehouse_id' => 'required_with:outputs.*.allocations|integer|exists:warehouses,id',
+            'outputs.*.allocations.*.qty'          => 'required_with:outputs.*.allocations|numeric|min:0',
+        ]);
+
+        try {
+            $service->finalizePartial($id, $request->outputs);
+            return redirect(list_url('production.process.index'))
+                ->with('success', 'Sebagian hasil masuk stok. Produksi sisa unit tetap berjalan — timer tidak terganggu.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage())->withInput();
+        }
+    }
+
+    /**
+     * Batalkan satu pengambilan hasil (hanya yang terakhir).
+     */
+    public function voidBatch(int $id, int $batchId, ProductionOrderService $service)
+    {
+        try {
+            $service->voidBatch($batchId);
+            return back()->with('success', 'Pengambilan hasil dibatalkan. Stok, FIFO, dan jurnalnya sudah dibalik.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Revisi target produksi (qty & siklus rencana) selama order masih berjalan.
+     */
+    public function reviseTarget(Request $request, int $id, ProductionOrderService $service)
+    {
+        $request->validate([
+            'planned_cycles'          => 'required|numeric|min:0.0001',
+            'planned_qty'             => 'nullable|numeric|min:0',
+            'reason'                  => 'required|string|max:255',
+            'outputs'                 => 'nullable|array',
+            'outputs.*.output_id'     => 'required|integer',
+            'outputs.*.qty_planned'   => 'required|numeric|min:0',
+        ]);
+
+        try {
+            $service->reviseTarget($id, $request->only(['planned_cycles', 'planned_qty', 'reason', 'outputs']));
+            return back()->with('success', 'Target produksi direvisi. Pengambilan berikutnya memakai target baru sebagai pembagi biaya.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 
     public function finalize(Request $request, int $id, ProductionOrderService $service)
@@ -436,7 +544,7 @@ class ProductionOrderController extends Controller
     {
         try {
             $service->void($id);
-            return back()->with('success', 'Finalisasi dibatalkan. Order kembali ke status Menunggu Stok / Finalisasi — silakan finalisasi ulang setelah stok atau koreksi siap.');
+            return back()->with('success', 'Pengambilan hasil terakhir dibatalkan. Stok output keluar lagi dan biayanya kembali ke WIP — silakan finalisasi ulang setelah koreksi siap.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }

@@ -11,7 +11,7 @@
             </div>
             <h1 class="text-xl font-bold text-gray-800 flex items-center gap-3">
                 {{ $order->order_number }}
-                @php $sc = match($order->status) { 'draft'=>'bg-amber-100 text-amber-700 border-amber-200','confirmed'=>'bg-blue-100 text-blue-700 border-blue-200','in_progress'=>'bg-indigo-100 text-indigo-700 border-indigo-200','completed'=>'bg-green-100 text-green-700 border-green-200','pending'=>'bg-orange-100 text-orange-700 border-orange-200','finalized'=>'bg-emerald-100 text-emerald-700 border-emerald-200','cancelled'=>'bg-gray-100 text-gray-400 border-gray-200','merged'=>'bg-purple-100 text-purple-700 border-purple-200',default=>'bg-gray-100 text-gray-400 border-gray-200' }; @endphp
+                @php $sc = match($order->status) { 'draft'=>'bg-amber-100 text-amber-700 border-amber-200','confirmed'=>'bg-blue-100 text-blue-700 border-blue-200','in_progress'=>'bg-indigo-100 text-indigo-700 border-indigo-200','partial'=>'bg-sky-100 text-sky-700 border-sky-200','completed'=>'bg-green-100 text-green-700 border-green-200','pending'=>'bg-orange-100 text-orange-700 border-orange-200','finalized'=>'bg-emerald-100 text-emerald-700 border-emerald-200','cancelled'=>'bg-gray-100 text-gray-400 border-gray-200','merged'=>'bg-purple-100 text-purple-700 border-purple-200',default=>'bg-gray-100 text-gray-400 border-gray-200' }; @endphp
                 <span class="text-sm px-3 py-1 rounded-full font-black uppercase tracking-widest border {{ $sc }}">{{ $order->status_label }}</span>
                 @if($order->mergedInto)
                     <a href="{{ route('production.orders.show', $order->mergedInto->id) }}"
@@ -59,6 +59,8 @@
                 $allDone = $totalSteps > 0 && $completedSteps === $totalSteps;
                 $finalStatus = match(true) {
                     $order->status === 'finalized'                 => 'completed',
+                    // 'partial': sebagian hasil sudah masuk stok, finalisasi penutup belum jalan.
+                    $order->status === 'partial'                   => 'in_progress',
                     $order->status === 'completed' || $allDone     => 'in_progress',
                     default                                        => 'pending',
                 };
@@ -531,6 +533,177 @@
             </div>
             @endif
 
+            {{-- Riwayat pengambilan hasil (partial + penutup) --}}
+            @if($batches->isNotEmpty())
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-bold text-gray-700">Pengambilan Hasil</h3>
+                        <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-widest">
+                            Hanya yang terakhir bisa dibatalkan
+                        </span>
+                    </div>
+
+                    <div class="space-y-2">
+                        @foreach($batches as $b)
+                            <div class="border rounded-xl px-4 py-3 {{ $b->voided_at ? 'border-gray-100 bg-gray-50/50 opacity-60' : 'border-gray-100' }}">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="font-bold text-gray-800 text-sm {{ $b->voided_at ? 'line-through' : '' }}">{{ $b->label() }}</span>
+                                            @if($b->is_closing)
+                                                <span class="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-black">PENUTUP</span>
+                                            @else
+                                                <span class="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded font-black">SEBAGIAN</span>
+                                            @endif
+                                            @if($b->voided_at)
+                                                <span class="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-black">DIBATALKAN</span>
+                                            @endif
+                                            <span class="text-xs text-gray-400">{{ $b->created_at?->format('d/m/Y H:i') }}</span>
+                                        </div>
+                                        <div class="mt-1 space-y-0.5">
+                                            @foreach($b->items as $it)
+                                                <div class="text-xs text-gray-500">
+                                                    {{ rtrim(rtrim(number_format($it->qty, 2, ',', '.'), '0'), ',') }} ×
+                                                    <span class="font-semibold text-gray-600">{{ $it->product?->name ?? '—' }}</span>
+                                                    <span class="text-gray-400">@ {{ rupiah($it->unit_cost) }}/unit</span>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                    <div class="text-right flex-shrink-0">
+                                        <div class="font-black text-gray-800 text-sm {{ $b->voided_at ? 'line-through' : '' }}">{{ rupiah($b->wip_released) }}</div>
+                                        @if(!$b->voided_at && $lastActiveBatch && $lastActiveBatch->id === $b->id)
+                                            <form action="{{ route('production.orders.finalizations.void', [$order->id, $b->id]) }}" method="POST" class="mt-1.5"
+                                                  onsubmit="return confirm('Batalkan {{ $b->label() }}?\n\nStok hasilnya dikeluarkan lagi dan biayanya kembali ke WIP. Hanya bisa kalau stok tersebut belum terpakai dokumen lain.')">
+                                                @csrf
+                                                <button type="submit"
+                                                        class="text-[11px] font-semibold text-red-600 hover:underline">
+                                                    Batalkan
+                                                </button>
+                                            </form>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            {{-- Neraca WIP: audit "berapa masuk, berapa keluar, sisa berapa".
+                 Sisa wajib nol setelah batch penutup — kalau tidak, ada biaya yang tertinggal. --}}
+            @php
+                $wipIn        = (float) $wipBreakdown['total'];
+                $wipOut       = (float) $wip['released'];
+                $wipLeft      = (float) $wip['total'] - $wipOut;
+                $activeBatches = $batches->whereNull('voided_at');
+                // Order lama diselesaikan lewat jalur finalisasi tanpa batch — angka "dilepas"
+                // tidak tercatat per batch, jadi sisa di sini bukan ukuran yang berarti.
+                $wipLegacy    = $order->status === 'finalized' && $activeBatches->isEmpty();
+                $wipSettled   = abs($wipLeft) < 0.005;
+            @endphp
+            @if(abs($wipIn) > 0.005 || $wipOut > 0.005)
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-bold text-gray-700">Neraca WIP</h3>
+                        @unless($wipLegacy)
+                            <span class="text-[11px] font-black px-2 py-1 rounded
+                                {{ $wipLeft < -0.005 ? 'bg-red-100 text-red-700'
+                                   : ($wipSettled ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700') }}">
+                                Sisa WIP {{ rupiah($wipLeft) }}
+                            </span>
+                        @endunless
+                    </div>
+
+                    <table class="w-full text-sm">
+                        <tbody>
+                            <tr>
+                                <td class="pb-1 text-[10px] font-black text-gray-400 uppercase" colspan="2">Masuk</td>
+                            </tr>
+                            @php
+                                $wipRows = [
+                                    ['Bahan baku (konfirmasi order)', $wipBreakdown['material'], null],
+                                    ['Biaya produksi (saat buat order)', $wipBreakdown['cost'], null],
+                                    ['Penambahan bahan', $wipBreakdown['addition_material'],
+                                        $order->materialAdditions->filter(fn($a) => !$a->isVoided())->count() . ' pencatatan'],
+                                    ['Biaya tambahan', $wipBreakdown['addition_cost'], null],
+                                ];
+                            @endphp
+                            @foreach($wipRows as [$label, $value, $hint])
+                                @if(abs((float) $value) > 0.005)
+                                    <tr class="border-b border-gray-50">
+                                        <td class="py-2 text-gray-600">
+                                            {{ $label }}
+                                            @if($hint)<span class="text-gray-400 text-xs">· {{ $hint }}</span>@endif
+                                        </td>
+                                        <td class="py-2 text-right font-bold text-gray-800 tabular-nums">{{ rupiah($value) }}</td>
+                                    </tr>
+                                @endif
+                            @endforeach
+                            <tr class="border-b-2 border-gray-200">
+                                <td class="py-2 font-bold text-gray-700">Total masuk WIP</td>
+                                <td class="py-2 text-right font-black text-gray-900 tabular-nums">{{ rupiah($wipIn) }}</td>
+                            </tr>
+
+                            <tr>
+                                <td class="pt-4 pb-1 text-[10px] font-black text-gray-400 uppercase" colspan="2">
+                                    Keluar — dilepas ke persediaan
+                                </td>
+                            </tr>
+                            @forelse($activeBatches as $b)
+                                <tr class="border-b border-gray-50">
+                                    <td class="py-2 text-gray-600">
+                                        {{ $b->label() }}
+                                        <span class="text-gray-400 text-xs">
+                                            · {{ $b->items->map(fn($it) => rtrim(rtrim(number_format($it->qty, 2, ',', '.'), '0'), ',') . ' ' . ($it->product?->name ?? '—'))->join(', ') }}
+                                        </span>
+                                    </td>
+                                    <td class="py-2 text-right font-bold text-gray-800 tabular-nums">{{ rupiah($b->wip_released) }}</td>
+                                </tr>
+                            @empty
+                                <tr class="border-b border-gray-50">
+                                    <td class="py-2 text-gray-400 italic" colspan="2">
+                                        {{ $wipLegacy
+                                            ? 'Diselesaikan lewat finalisasi lama (tanpa batch) — nilai pelepasan tidak tercatat per batch.'
+                                            : 'Belum ada hasil yang diambil.' }}
+                                    </td>
+                                </tr>
+                            @endforelse
+                            @unless($wipLegacy)
+                                <tr class="border-b-2 border-gray-200">
+                                    <td class="py-2 font-bold text-gray-700">Total dilepas</td>
+                                    <td class="py-2 text-right font-black text-gray-900 tabular-nums">{{ rupiah($wipOut) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="pt-2 font-black text-gray-800">Sisa WIP</td>
+                                    <td class="pt-2 text-right font-black tabular-nums
+                                        {{ $wipLeft < -0.005 ? 'text-red-600' : ($wipSettled ? 'text-green-600' : 'text-gray-900') }}">
+                                        {{ rupiah($wipLeft) }}
+                                    </td>
+                                </tr>
+                            @endunless
+                        </tbody>
+                    </table>
+
+                    @unless($wipLegacy)
+                        @if($wipLeft < -0.005)
+                            <div class="mt-3 px-3 py-2 rounded-lg bg-red-50 border border-red-100 text-[11px] text-red-800">
+                                Sisa WIP negatif — nilai yang dilepas melebihi biaya yang masuk. Periksa pengambilan hasil & penambahan bahan yang dibatalkan.
+                            </div>
+                        @elseif($wipSettled && $activeBatches->isNotEmpty())
+                            <div class="mt-3 px-3 py-2 rounded-lg bg-green-50 border border-green-100 text-[11px] text-green-800">
+                                Sisa WIP nol — seluruh biaya produksi order ini sudah pindah ke persediaan.
+                            </div>
+                        @elseif($wip['reserved_byproduct'] > 0.005)
+                            <div class="mt-3 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 text-[11px] text-blue-800">
+                                Dari sisa itu, {{ rupiah($wip['reserved_byproduct']) }} dicadangkan untuk produk sampingan yang belum keluar;
+                                {{ rupiah($wip['main_pool']) }} untuk unit utama yang belum diambil.
+                            </div>
+                        @endif
+                    @endunless
+                </div>
+            @endif
+
             {{-- Finalisasi (completed) --}}
             @if($order->status === 'completed' && $order->outputs->where('qty_produced', 0)->isNotEmpty())
                 <div class="bg-white rounded-2xl border border-green-200 shadow-sm p-5">
@@ -584,7 +757,7 @@
                         </form>
                     @endif
 
-                    @if(in_array($order->status, ['confirmed', 'in_progress']))
+                    @if(in_array($order->status, ['confirmed', 'in_progress', 'partial']))
                         @php
                             // Divisi tempat order ini sedang diproses: langkah yang sedang dikerjakan,
                             // atau kalau belum ada — langkah antre paling depan (nomor terkecil).
@@ -599,6 +772,18 @@
                                 <span class="block text-[11px] font-semibold text-indigo-100 mt-0.5">→ Divisi {{ $activeStep->department->name }}</span>
                             @endif
                         </a>
+
+                        @if($order->status === 'partial')
+                            {{-- Sisa unit boleh ditutup lebih awal (mis. sisanya batal dikerjakan):
+                                 batch penutup akan menyapu seluruh sisa WIP. --}}
+                            <a href="{{ route('production.orders.finalize-confirm', $order->id) }}"
+                               class="block w-full text-center border border-green-300 text-green-700 hover:bg-green-50 py-2.5 rounded-xl text-sm font-semibold transition">
+                                Selesaikan &amp; Tutup Order
+                            </a>
+                            <p class="text-[11px] text-gray-400 leading-snug">
+                                Sisa WIP disapu ke unit yang keluar di batch penutup.
+                            </p>
+                        @endif
 
                         @if($order->status === 'confirmed' && $order->canBeCancelled())
                             <form action="{{ route('production.orders.cancel', $order->id) }}" method="POST"
@@ -659,6 +844,88 @@
                     <p class="text-xs text-gray-400">Prioritas terkunci karena order {{ $order->status_label }}.</p>
                 @endif
             </div>
+
+            {{-- Revisi Target — pembagi biaya penyelesaian sebagian --}}
+            @if(in_array($order->status, ['confirmed', 'in_progress', 'partial', 'pending', 'completed']))
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5" x-data="{ open: false }">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-gray-600 text-sm">Target Produksi</h3>
+                        <button type="button" @click="open = !open"
+                                class="text-[11px] font-semibold text-blue-600 hover:underline">
+                            <span x-show="!open">✏️ Revisi</span>
+                            <span x-show="open" x-cloak>Tutup</span>
+                        </button>
+                    </div>
+
+                    <div class="mt-2 text-xs text-gray-500">
+                        <span class="font-bold text-gray-700">{{ rtrim(rtrim(number_format($order->planned_qty, 2, ',', '.'), '0'), ',') }}</span> unit
+                        · {{ rtrim(rtrim(number_format($order->planned_cycles, 4, ',', '.'), '0'), ',') }} siklus
+                    </div>
+
+                    <div x-show="open" x-cloak class="mt-3 pt-3 border-t border-gray-100">
+                        <form action="{{ route('production.orders.revise-target', $order->id) }}" method="POST" class="space-y-3">
+                            @csrf
+                            @foreach($order->outputs as $o)
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">
+                                        {{ $o->product?->name ?? '—' }}
+                                        @if($o->output_type === 'by_product')
+                                            <span class="text-gray-400 font-normal">(sampingan)</span>
+                                        @endif
+                                    </label>
+                                    <input type="hidden" name="outputs[{{ $loop->index }}][output_id]" value="{{ $o->id }}">
+                                    <input type="number" step="0.01" min="0" required
+                                           name="outputs[{{ $loop->index }}][qty_planned]"
+                                           value="{{ rtrim(rtrim(number_format((float) $o->qty_planned, 2, '.', ''), '0'), '.') }}"
+                                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-right focus:outline-none focus:ring-2 focus:ring-blue-400">
+                                </div>
+                            @endforeach
+
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-500 mb-1">Siklus *</label>
+                                <input type="number" step="0.0001" min="0.0001" required
+                                       name="planned_cycles"
+                                       value="{{ rtrim(rtrim(number_format((float) $order->planned_cycles, 4, '.', ''), '0'), '.') }}"
+                                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-right focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            </div>
+
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-500 mb-1">Alasan *</label>
+                                <input type="text" name="reason" required maxlength="255"
+                                       placeholder="cth: operator potong 10 lembar, rencana 8"
+                                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            </div>
+
+                            <button type="submit"
+                                    class="w-full border border-blue-300 text-blue-700 hover:bg-blue-50 py-2 rounded-xl text-sm font-semibold transition">
+                                Simpan Revisi Target
+                            </button>
+
+                            <p class="text-[10px] text-gray-400 leading-snug">
+                                Hanya mengubah angka rencana (pembagi biaya pengambilan berikutnya). Bahan yang benar-benar
+                                keluar gudang tetap dicatat lewat <b>Penambahan Bahan</b>.
+                            </p>
+                        </form>
+                    </div>
+
+                    @if($order->targetRevisions->isNotEmpty())
+                        <div class="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                            @foreach($order->targetRevisions->take(3) as $rev)
+                                <div class="text-[11px] text-gray-500">
+                                    <span class="font-bold text-gray-600">
+                                        {{ rtrim(rtrim(number_format($rev->from_planned_qty, 2, ',', '.'), '0'), ',') }}
+                                        → {{ rtrim(rtrim(number_format($rev->to_planned_qty, 2, ',', '.'), '0'), ',') }}
+                                    </span>
+                                    · {{ $rev->reason }}
+                                    <span class="text-gray-400">
+                                        ({{ $rev->created_at?->format('d/m/Y') }}{{ $rev->user ? ' · ' . $rev->user->name : '' }})
+                                    </span>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
+            @endif
 
             {{-- Info --}}
             <div class="bg-gray-50 rounded-2xl border border-gray-100 p-4 text-xs text-gray-500 space-y-1">

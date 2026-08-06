@@ -427,7 +427,7 @@ class DashboardService
                 'executors.karyawan:id,name',
             ])
             ->whereIn('status', ['pending', 'in_progress', 'paused'])
-            ->whereHas('productionOrder', fn ($q) => $q->whereIn('status', ['confirmed', 'in_progress']))
+            ->whereHas('productionOrder', fn ($q) => $q->whereIn('status', ['confirmed', 'in_progress', 'partial']))
             ->get()
             ->filter(function ($s) {
                 if ($s->status !== 'pending') {

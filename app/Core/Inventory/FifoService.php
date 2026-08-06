@@ -139,8 +139,9 @@ class FifoService
             transactionId: $transactionId
         );
 
-        // 2. Record FIFO Layer
-        $this->createLayer($productId, $warehouseId, $qty, $cost, strtolower($type), $transactionId);
+        // 2. Record FIFO Layer — dikembalikan supaya pemanggil bisa menandai layer
+        //    (mis. batch finalisasi produksi) tanpa menebak lewat query "layer terakhir".
+        return $this->createLayer($productId, $warehouseId, $qty, $cost, strtolower($type), $transactionId);
     }
 
     public function updateOpeningLayer($productId, $warehouseId, $qty, $cost, $transactionId)

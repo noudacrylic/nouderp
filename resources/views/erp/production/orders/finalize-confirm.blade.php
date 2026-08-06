@@ -44,8 +44,14 @@
                         @php
                             $qtyActualSaved = (float) ($out->qty_produced ?? 0);
                             $qtyPlanned     = (float) $out->qty_planned;
+                            // Qty yang sudah dilepas ke stok lewat penyelesaian sebagian.
+                            $qtyReleased    = (float) ($releasedQty[$out->id] ?? 0);
+                            $sisaTarget     = max(0, $qtyPlanned - $qtyReleased);
                             // Default qty aktual = target jika belum diisi, supaya admin lihat angka jelas.
-                            $qtyDefault     = $qtyActualSaved > 0 ? $qtyActualSaved : $qtyPlanned;
+                            // Kalau sebagian sudah diambil, yang ditanyakan tinggal SISA-nya.
+                            $qtyDefault     = $qtyReleased > 0
+                                ? $sisaTarget
+                                : ($qtyActualSaved > 0 ? $qtyActualSaved : $qtyPlanned);
                             $pctSaved       = (float) $out->percentage;
                             $savedAlloc     = is_array($out->warehouse_allocations) ? $out->warehouse_allocations : null;
                             // Default alokasi = gudang Utama; fallback ke gudang order.
@@ -64,7 +70,30 @@
                                          this.allocations = [{ warehouse_id: this.defWh, qty: this.qty }];
                                      } else {
                                          this.allocations = this.allocations.map(a => ({ warehouse_id: a.warehouse_id, qty: parseFloat(a.qty) || 0 }));
+                                         // Alokasi tersimpan berasal dari batch/qty SEBELUMNYA. Kalau jumlahnya
+                                         // tak lagi sama dengan qty yang sedang ditanyakan (mis. qty penutup),
+                                         // server menolak. Pertahankan pilihan gudangnya, samakan angkanya.
+                                         this.rescale();
                                      }
+                                 },
+                                 rescale() {
+                                     const target = parseFloat(this.qty) || 0;
+                                     const s = this.sum();
+                                     if (Math.abs(s - target) < 1e-6) return;
+                                     if (s <= 0 || this.allocations.length === 1) {
+                                         this.allocations.forEach((a, i) => { a.qty = i === 0 ? target : 0; });
+                                         return;
+                                     }
+                                     let acc = 0;
+                                     const last = this.allocations.length - 1;
+                                     this.allocations.forEach((a, i) => {
+                                         if (i === last) {
+                                             a.qty = Math.round((target - acc) * 10000) / 10000;
+                                         } else {
+                                             a.qty = Math.round((a.qty / s) * target * 100) / 100;
+                                             acc += a.qty;
+                                         }
+                                     });
                                  },
                                  sum() { return Math.round(this.allocations.reduce((s, a) => s + (parseFloat(a.qty) || 0), 0) * 10000) / 10000; },
                                  balanced() { return Math.abs(this.sum() - (parseFloat(this.qty) || 0)) < 1e-6; },
@@ -88,15 +117,25 @@
                                 @endif
                             </div>
 
-                            <div class="grid grid-cols-3 gap-3">
+                            <div class="{{ $qtyReleased > 0 ? 'grid grid-cols-4' : 'grid grid-cols-3' }} gap-3">
                                 <div>
                                     <label class="block text-[10px] font-bold text-gray-500 mb-1">Target</label>
                                     <div class="text-sm font-bold text-gray-600 bg-gray-100 rounded-lg px-3 py-2 text-right">
                                         {{ number_format($qtyPlanned, 2) }}
                                     </div>
                                 </div>
+                                @if($qtyReleased > 0)
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Sudah Diambil</label>
+                                        <div class="text-sm font-bold text-blue-700 bg-blue-50 rounded-lg px-3 py-2 text-right">
+                                            {{ number_format($qtyReleased, 2) }}
+                                        </div>
+                                    </div>
+                                @endif
                                 <div>
-                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Aktual *</label>
+                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">
+                                        {{ $qtyReleased > 0 ? 'Qty Penutup *' : 'Qty Aktual *' }}
+                                    </label>
                                     <input type="number"
                                            name="outputs[{{ $i }}][qty_produced]"
                                            x-model.number="qty" @input="syncSingle()"
@@ -208,6 +247,48 @@
                         <p class="text-xs text-gray-400 text-center py-4">Tidak ada data waktu produksi.</p>
                     @endif
                 </div>
+
+                @if($batches->isNotEmpty())
+                    {{-- Order yang hasilnya sudah diambil bertahap: tampilkan apa yang sudah keluar
+                         dan berapa sisa WIP yang akan disapu oleh finalisasi penutup ini. --}}
+                    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                        <h2 class="font-bold text-gray-800 mb-3">Pengambilan Sebelumnya</h2>
+                        <div class="space-y-2 mb-4">
+                            @foreach($batches as $b)
+                                <div class="flex items-center justify-between text-xs border border-gray-100 rounded-lg px-3 py-2 {{ $b->voided_at ? 'opacity-50 line-through' : 'bg-gray-50/50' }}">
+                                    <div>
+                                        <span class="font-bold text-gray-700">{{ $b->label() }}</span>
+                                        <span class="text-gray-400 ml-2">{{ $b->created_at?->format('d/m/Y H:i') }}</span>
+                                        <div class="text-gray-500 mt-0.5">
+                                            {{ $b->items->map(fn($it) => rtrim(rtrim(number_format($it->qty, 2, ',', '.'), '0'), ',') . ' × ' . ($it->product?->name ?? '—'))->join(', ') }}
+                                        </div>
+                                    </div>
+                                    <span class="font-bold text-gray-700 flex-shrink-0 ml-3">{{ rupiah($b->wip_released) }}</span>
+                                </div>
+                            @endforeach
+                        </div>
+
+                        <div class="space-y-2 text-sm pt-3 border-t border-gray-100">
+                            <div class="flex justify-between">
+                                <span class="text-gray-500">WIP keseluruhan order</span>
+                                <span class="font-bold text-gray-800">{{ rupiah($wip['total']) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500">Sudah dilepas</span>
+                                <span class="font-bold text-gray-600">{{ rupiah($wip['released']) }}</span>
+                            </div>
+                            <div class="flex justify-between pt-2 border-t border-gray-100">
+                                <span class="font-black text-gray-600 uppercase text-xs">Ditutup sekarang</span>
+                                <span class="font-black text-indigo-700">{{ rupiah($wip['remaining']) }}</span>
+                            </div>
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-3 leading-relaxed">
+                            Finalisasi penutup menyapu seluruh sisa WIP: kekurangan qty menaikkan HPP unit terakhir,
+                            kelebihan qty menurunkannya. Kalau qty menyimpang jauh karena bahan bertambah, pastikan
+                            bahannya sudah dicatat lewat Penambahan Bahan.
+                        </p>
+                    </div>
+                @endif
 
                 {{-- Info warning --}}
                 <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800">

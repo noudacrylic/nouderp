@@ -313,6 +313,14 @@
                 Selesai
             </button>
 
+            @if($isLastStep)
+                {{-- Ambil sebagian hasil tanpa menutup langkah — timer tetap berjalan. --}}
+                <a href="{{ route('production.orders.partial-confirm', $order->id) }}"
+                   class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
+                    Ambil Sebagian
+                </a>
+            @endif
+
         @elseif($panel === 'paused')
             <form action="{{ route('production.process.steps.resume', $step->id) }}" method="POST" class="inline">
                 @csrf
@@ -321,6 +329,13 @@
                     Resume
                 </button>
             </form>
+
+            @if($isLastStep)
+                <a href="{{ route('production.orders.partial-confirm', $order->id) }}"
+                   class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
+                    Ambil Sebagian
+                </a>
+            @endif
         @endif
 
         <a href="{{ route('production.material-additions.create', array_filter(['department_id' => $step->department_id, 'step_id' => $step->id])) }}"

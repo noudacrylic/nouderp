@@ -30,7 +30,7 @@ class ProductionProcessController extends Controller
             'executors',
             'timeLogs',
         ])->whereHas('productionOrder', fn($q) =>
-            $q->whereIn('status', ['confirmed', 'in_progress'])
+            $q->whereIn('status', ['confirmed', 'in_progress', 'partial'])
         )->when($departmentId, fn($q) => $q->where('department_id', $departmentId));
 
         // Hanya tampilkan pending step yang step sebelumnya sudah selesai (atau step pertama).
@@ -121,7 +121,7 @@ class ProductionProcessController extends Controller
             'productionOrder.outputs.product',
             'productionOrder.steps',
         ])->whereHas('productionOrder', fn($q) =>
-            $q->whereIn('status', ['confirmed', 'in_progress'])
+            $q->whereIn('status', ['confirmed', 'in_progress', 'partial'])
         )->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
          ->where('status', 'pending')
          ->get()
@@ -167,7 +167,7 @@ class ProductionProcessController extends Controller
 
         $steps = ProductionOrderStep::with(['timeLogs'])
             ->whereIn('status', ['in_progress', 'paused'])
-            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', ['confirmed', 'in_progress']))
+            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', ['confirmed', 'in_progress', 'partial']))
             ->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
             ->get();
 

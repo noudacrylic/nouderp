@@ -9,6 +9,9 @@ use App\Modules\Production\Models\ProductionOrderOutput;
 use App\Modules\Production\Models\ProductionOrderStep;
 use App\Modules\Production\Models\ProductionOrderSource;
 use App\Modules\Production\Models\ProductionOrderCost;
+use App\Modules\Production\Models\ProductionFinalization;
+use App\Modules\Production\Models\ProductionFinalizationItem;
+use App\Modules\Production\Models\ProductionTargetRevision;
 use App\Modules\Production\Models\ProductionStepTimeLog;
 use App\Modules\Production\Models\ProductionStepExecutorStatus;
 use App\Modules\Production\Models\DepartmentExecutor;
@@ -477,7 +480,7 @@ class ProductionOrderService
             $testing = \App\Models\ProductionSetting::isTestingMode();
             $this->assertExecutorsReady($executorIds, strict: !$force, bypassReady: $testing);
 
-            if (!in_array($order->status, ['confirmed', 'in_progress'])) {
+            if (!in_array($order->status, ['confirmed', 'in_progress', 'partial'])) {
                 throw new Exception('Order belum dikonfirmasi.');
             }
 
@@ -594,13 +597,23 @@ class ProductionOrderService
             }
 
             // Langkah terakhir → simpan qty aktual + persentase + keterangan dari operator.
+            //
+            // Bila sebagian hasil sudah pernah dilepas ke stok, qty_produced adalah AKUMULASI
+            // yang dipegang batch — angka operator di sini (qty batch penutup) tidak boleh
+            // menimpanya. Qty penutupnya ditanyakan lagi di layar finalisasi.
+            $hasReleases = ProductionFinalization::where('production_order_id', $order->id)
+                ->whereNull('voided_at')
+                ->exists();
+
             foreach ($actualOutputs as $out) {
                 $outputRecord = $order->outputs()->find($out['output_id'] ?? null);
                 if (!$outputRecord) continue;
                 $payload = [
-                    'qty_produced'   => (float) ($out['qty_produced'] ?? 0),
                     'variance_notes' => $out['variance_notes'] ?? null,
                 ];
+                if (!$hasReleases) {
+                    $payload['qty_produced'] = (float) ($out['qty_produced'] ?? 0);
+                }
                 if (isset($out['percentage']) && $out['percentage'] !== '' && $out['percentage'] !== null) {
                     $payload['percentage'] = (float) $out['percentage'];
                 }
@@ -658,7 +671,7 @@ class ProductionOrderService
                 throw new Exception('Langkah ini tidak dalam status pending (paused).');
             }
 
-            if (!in_array($order->status, ['confirmed', 'in_progress'])) {
+            if (!in_array($order->status, ['confirmed', 'in_progress', 'partial'])) {
                 throw new Exception('Order tidak dalam status aktif.');
             }
 
@@ -732,7 +745,7 @@ class ProductionOrderService
             $prev->timeLogs()->delete(); // timer kembali 00:00:00 — operator mulai sesi baru
 
             // Order harus tetap aktif agar antrean memunculkan langkah sebelumnya.
-            if (!in_array($order->status, ['confirmed', 'in_progress'])) {
+            if (!in_array($order->status, ['confirmed', 'in_progress', 'partial'])) {
                 $order->update(['status' => 'in_progress']);
             }
         });
@@ -791,25 +804,194 @@ class ProductionOrderService
         return $result;
     }
 
+    /**
+     * Ringkasan WIP order untuk layar finalisasi & penyelesaian sebagian.
+     *
+     * @return array{total: float, released: float, remaining: float, reserved_byproduct: float, main_pool: float, released_qty: array<int,float>}
+     */
+    public function wipSummary(int $orderId): array
+    {
+        $order = ProductionOrder::with('outputs')->findOrFail($orderId);
+
+        $total    = $this->getWipCost($orderId);
+        $released = (float) ProductionFinalization::where('production_order_id', $orderId)
+            ->whereNull('voided_at')
+            ->sum('wip_released');
+
+        $tallies   = $this->releasedTallies($orderId);
+        $remaining = max(0.0, $total - $released);
+        $reserved  = $this->reservedByproductCost($order, $total, $tallies['cost']);
+
+        return [
+            'total'              => $total,
+            'released'           => $released,
+            'remaining'          => $remaining,
+            'reserved_byproduct' => $reserved,
+            'main_pool'          => max(0.0, $remaining - $reserved),
+            'released_qty'       => $tallies['qty'],
+        ];
+    }
+
+    /**
+     * Revisi target produksi pada OP yang sedang berjalan.
+     *
+     * Angka rencana adalah PEMBAGI penyelesaian sebagian (sisa WIP ÷ sisa qty), jadi begitu
+     * qty nyata menyimpang — mis. operator memotong 10 lembar padahal rencana 8 — pembaginya
+     * harus ikut dikoreksi supaya batch berikutnya tidak salah harga. Kalau penyimpangannya
+     * baru ketahuan di batch penutup, revisi tidak perlu: batch penutup menyapu sisa WIP.
+     *
+     * SENGAJA TIDAK menyentuh kebutuhan material. Bahan yang benar-benar keluar gudang dicatat
+     * lewat Penambahan Bahan; kalau qty_required ikut dinaikkan di sini, finalisasi akan
+     * menarik selisihnya sekali lagi dari stok (konsumsi ganda).
+     *
+     * @param  array{planned_qty?: mixed, planned_cycles?: mixed, reason?: mixed, outputs?: array}  $data
+     */
+    public function reviseTarget(int $orderId, array $data): ProductionTargetRevision
+    {
+        return DB::transaction(function () use ($orderId, $data) {
+            $order = ProductionOrder::with('outputs.product')->lockForUpdate()->findOrFail($orderId);
+
+            if (!in_array($order->status, ['confirmed', 'in_progress', 'partial', 'pending', 'completed'], true)) {
+                throw new Exception('Target hanya bisa direvisi selama order produksi belum ditutup.');
+            }
+
+            $reason = trim((string) ($data['reason'] ?? ''));
+            if ($reason === '') {
+                throw new Exception('Alasan revisi target wajib diisi.');
+            }
+
+            $newCycles = (float) ($data['planned_cycles'] ?? $order->planned_cycles);
+            if ($newCycles <= 0) {
+                throw new Exception('Jumlah siklus harus lebih dari 0.');
+            }
+
+            $tallies       = $this->releasedTallies($orderId);
+            $outputsBefore = [];
+            $outputsAfter  = [];
+            $mainQtyAfter  = 0.0;
+
+            foreach ($order->outputs as $out) {
+                $outputsBefore[] = ['output_id' => $out->id, 'qty_planned' => (float) $out->qty_planned];
+            }
+
+            foreach ($data['outputs'] ?? [] as $row) {
+                $rec = $order->outputs->firstWhere('id', $row['output_id'] ?? null);
+                if (!$rec) continue;
+
+                $newQty = (float) ($row['qty_planned'] ?? 0);
+                if ($newQty < 0) {
+                    throw new Exception('Target qty tidak boleh negatif.');
+                }
+
+                // Target tidak boleh turun di bawah qty yang SUDAH masuk stok — sisa qty akan
+                // jadi nol/negatif dan pembagi alokasi partial berikutnya rusak.
+                $released = (float) ($tallies['qty'][$rec->id] ?? 0);
+                if ($newQty + 1e-9 < $released) {
+                    $name = $rec->product?->name ?? 'Output';
+                    throw new Exception(
+                        "Target {$name} tidak boleh di bawah qty yang sudah masuk stok (" .
+                        rtrim(rtrim(number_format($released, 4, ',', '.'), '0'), ',') . ")."
+                    );
+                }
+
+                $rec->update(['qty_planned' => $newQty]);
+            }
+
+            $order->refresh()->load('outputs');
+            foreach ($order->outputs as $out) {
+                $outputsAfter[] = ['output_id' => $out->id, 'qty_planned' => (float) $out->qty_planned];
+                if ($out->output_type !== 'by_product') {
+                    $mainQtyAfter += (float) $out->qty_planned;
+                }
+            }
+
+            $fromQty    = (float) $order->planned_qty;
+            $fromCycles = (float) $order->planned_cycles;
+
+            // planned_qty order mengikuti total target produk utama bila tidak dikirim eksplisit.
+            $newQtyTotal = array_key_exists('planned_qty', $data) && $data['planned_qty'] !== null && $data['planned_qty'] !== ''
+                ? (float) $data['planned_qty']
+                : $mainQtyAfter;
+
+            $order->update([
+                'planned_qty'    => $newQtyTotal,
+                'planned_cycles' => $newCycles,
+            ]);
+
+            return ProductionTargetRevision::create([
+                'production_order_id' => $order->id,
+                'from_planned_qty'    => $fromQty,
+                'to_planned_qty'      => $newQtyTotal,
+                'from_planned_cycles' => $fromCycles,
+                'to_planned_cycles'   => $newCycles,
+                'outputs_before'      => $outputsBefore,
+                'outputs_after'       => $outputsAfter,
+                'reason'              => $reason,
+                'user_id'             => auth()->id(),
+            ]);
+        });
+    }
+
+    /**
+     * Finalisasi PENUTUP: melepas seluruh SISA WIP ke stok lalu menutup order.
+     *
+     * Aturan alokasi (berlaku untuk semua batch): setiap rupiah WIP hanya dibebankan ke unit
+     * yang BELUM keluar. Batch penutup karena itu menyapu sisa WIP berapa pun qty-nya —
+     * kekurangan qty otomatis menaikkan HPP unit terakhir, kelebihan qty menurunkannya.
+     */
     public function finalize(int $orderId, array $actualOutputs): void
+    {
+        $this->releaseOutputs($orderId, $actualOutputs, closing: true);
+    }
+
+    /**
+     * PENYELESAIAN SEBAGIAN: ambil hasil yang sudah jadi lebih dulu (mis. mengejar batas
+     * kirim marketplace) sementara sisanya masih dikerjakan.
+     *
+     * Timer & langkah TIDAK disentuh sama sekali — order hanya berpindah ke status 'partial'
+     * dan tetap dihitung sebagai produksi aktif. Biaya yang dilepas dihitung dari sisa WIP
+     * dibagi sisa qty, setelah jatah produk sampingan disisihkan lebih dulu.
+     */
+    public function finalizePartial(int $orderId, array $actualOutputs): void
+    {
+        $this->releaseOutputs($orderId, $actualOutputs, closing: false);
+    }
+
+    /**
+     * Mesin bersama finalisasi penutup & penyelesaian sebagian.
+     *
+     * Tiap pelepasan tercatat sebagai satu batch (production_finalizations) lengkap dengan
+     * jurnal, FIFO layer, dan rincian per output-nya sendiri, sehingga bisa dibatalkan
+     * per batch (LIFO) tanpa mengganggu batch lain.
+     */
+    private function releaseOutputs(int $orderId, array $actualOutputs, bool $closing): void
     {
         // Pre-flight di luar transaksi: cek status & ketersediaan stok untuk material tertunda.
         // Kalau gagal, kita ingin status 'pending' tetap tersimpan walau finalize dibatalkan.
-        $order = ProductionOrder::with(['materials.product'])->findOrFail($orderId);
+        $order = ProductionOrder::with(['materials.product', 'steps'])->findOrFail($orderId);
 
-        if (!in_array($order->status, ['completed', 'pending'], true)) {
-            throw new Exception('Order produksi belum siap difinalisasi (harus berstatus Menunggu Finalisasi atau Menunggu Stok).');
+        if ($closing) {
+            if (!in_array($order->status, ['completed', 'pending', 'partial'], true)) {
+                throw new Exception('Order produksi belum siap difinalisasi (harus berstatus Menunggu Finalisasi, Menunggu Stok, atau Selesai Sebagian).');
+            }
+
+            // Self-heal: order LAMA (sebelum ada batch) yang pernah difinalisasi lalu di-void
+            // meninggalkan jurnal 'production_order_finalize' yang masih posted. Tandai void
+            // supaya pengecekan double-posting tidak memblokir finalisasi ulang.
+            \App\Core\Journal\Journal::where('reference_type', 'production_order_finalize')
+                ->where('reference_id', $orderId)
+                ->where('status', '!=', 'void')
+                ->update(['status' => 'void', 'voided_at' => now()]);
+        } else {
+            $this->assertPartialAllowed($order);
         }
 
-        // Self-heal: kalau order sebelumnya pernah difinalisasi lalu di-void/reset (status sekarang
-        // bukan 'finalized'), pastikan jurnal finalisasi yang lama ditandai 'void' supaya pengecekan
-        // double-posting di JournalPostingService tidak memblokir percobaan finalisasi ulang.
-        \App\Core\Journal\Journal::where('reference_type', 'production_order_finalize')
-            ->where('reference_id', $orderId)
-            ->where('status', '!=', 'void')
-            ->update(['status' => 'void', 'voided_at' => now()]);
-
         // Material yang masih punya sisa belum dikonsumsi (termasuk sebagian, akibat merge).
+        //
+        // Penyelesaian sebagian pun mengkonsumsi SELURUH sisa material, bukan proporsional:
+        // biaya per unit dihitung dari WIP dibagi qty rencana, jadi basis biayanya harus sudah
+        // lengkap di WIP. Bahan yang benar-benar bertambah di tengah jalan masuk lewat
+        // Penambahan Bahan, bukan lewat jalur ini.
         $unconsumed = $order->materials->filter(fn($m) => (float) $m->qty_consumed < (float) $m->qty_required - 1e-9);
 
         if ($unconsumed->isNotEmpty()) {
@@ -841,7 +1023,11 @@ class ProductionOrderService
 
             if (!empty($insufficient)) {
                 // Tandai pending agar UI menampilkan kondisi blokir + memberi entry point retry.
-                $order->update(['status' => 'pending']);
+                // Pada penyelesaian sebagian status TIDAK diubah — order harus tetap berada di
+                // papan proses karena sisa unitnya masih dikerjakan.
+                if ($closing) {
+                    $order->update(['status' => 'pending']);
+                }
 
                 $details = collect($insufficient)
                     ->map(fn($i) => "• {$i['sku']} {$i['name']} — butuh " .
@@ -852,14 +1038,17 @@ class ProductionOrderService
                         rtrim(rtrim(number_format($i['short'], 4, ',', '.'), '0'), ','))
                     ->join("\n");
 
+                $head = $closing
+                    ? 'Finalisasi ditolak. Stok material belum mencukupi (status diubah ke Menunggu Stok). '
+                    : 'Penyelesaian sebagian ditolak. Stok material belum mencukupi. ';
+
                 throw new Exception(
-                    "Finalisasi ditolak. Stok material belum mencukupi (status diubah ke Menunggu Stok). " .
-                    "Lengkapi pembelian/adjustment untuk:\n{$details}"
+                    $head . "Lengkapi pembelian/adjustment untuk:\n{$details}"
                 );
             }
         }
 
-        DB::transaction(function () use ($orderId, $actualOutputs) {
+        DB::transaction(function () use ($orderId, $actualOutputs, $closing) {
             $order = ProductionOrder::with(['outputs.product', 'materials'])
                 ->lockForUpdate()
                 ->findOrFail($orderId);
@@ -871,106 +1060,80 @@ class ProductionOrderService
                 $this->consumeOrderMaterials($order, $unconsumed);
             }
 
-            // Hitung ulang WIP setelah semua konsumsi material (termasuk Penambahan Bahan).
-            $totalWipCost = $this->getWipCost($orderId);
+            // ── Basis biaya ──
+            // WIP keseluruhan OP (seumur hidup) dikurangi yang sudah dilepas batch sebelumnya.
+            $totalWip = $this->getWipCost($orderId);
+            $released = (float) ProductionFinalization::where('production_order_id', $orderId)
+                ->whereNull('voided_at')
+                ->sum('wip_released');
+            $sisaWip  = max(0.0, $totalWip - $released);
 
-            // Hitung total qty output untuk distribusi cost
-            $totalOutputQty = array_sum(array_column($actualOutputs, 'qty_produced'));
+            // Baris output yang benar-benar dilepas di batch ini.
+            $rows = [];
+            foreach ($actualOutputs as $out) {
+                $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
+                if (!$rec) continue;
+                $qty = (float) ($out['qty_produced'] ?? 0);
+                if ($qty <= 0) continue;
+                $rows[] = ['rec' => $rec, 'input' => $out, 'qty' => $qty];
+            }
 
-            if ($totalOutputQty <= 0) {
+            if ($rows === []) {
                 throw new Exception('Qty output harus lebih dari 0.');
             }
 
-            // ── Alokasi biaya output ──
-            // Bila order punya produk sampingan, alokasi berbasis PERSENTASE dari WIP; utama menyerap sisa.
-            //  • DENGAN BOM (fixed per-unit): sampingan = unit% × (qty/siklus) → di-recompute dari qty
-            //    hasil produksi, sehingga kerusakan sampingan otomatis menambah HPP produk utama.
-            //  • TANPA BOM: ukuran material beda → persentase di-input/di-override manual operator;
-            //    pakai persentase yang dikirim (fallback ke nilai tersimpan di OP).
-            //  Bila tidak ada sampingan (mayoritas / data lama), pertahankan alokasi rasio qty.
-            $cycles = max(1e-9, (float) ($order->planned_cycles ?: 1));
-            // Order repair-like (perbaikan/garansi/repair) pakai alokasi RASIO QTY = nilai
-            // (material + biaya tambahan) dibagi RATA PER UNIT output. Tidak ada konsep %
-            // sampingan. Sesuai aturan: biaya perbaikan/penggantian komponen dibagi rata.
-            $usePctMode = !$order->isRepairLike()
-                && $order->outputs->contains(fn($o) => $o->output_type === 'by_product');
-            $bomFixed   = $order->bom_id !== null;
+            $tallies = $this->releasedTallies($orderId);
 
-            // Pra-hitung persentase per output (output_id => pct) untuk mode persentase.
-            $pctMap = [];
-            if ($usePctMode) {
-                $sumBp = 0.0;
-                foreach ($actualOutputs as $out) {
-                    $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
-                    if (!$rec || $rec->output_type !== 'by_product') continue;
-                    // BOM dgn % master → recompute dari qty. Sampingan manual (unit_percentage null)
-                    // tetap hormati persentase tersimpan/dikirim meski order pakai BOM.
-                    if ($bomFixed && $rec->unit_percentage !== null) {
-                        $unitPct = (float) $rec->unit_percentage;
-                        $pct = round($unitPct * ((float) $out['qty_produced'] / $cycles), 4);
-                    } else {
-                        $pct = (isset($out['percentage']) && $out['percentage'] !== '' && $out['percentage'] !== null)
-                            ? round((float) $out['percentage'], 4)
-                            : round((float) $rec->percentage, 4);
-                    }
-                    $pctMap[$out['output_id']] = $pct;
-                    $sumBp += $pct;
-                }
-                if ($sumBp > 100 + 0.01) {
-                    $shown = rtrim(rtrim(number_format($sumBp, 4, '.', ''), '0'), '.');
-                    throw new Exception("Total persentase produk sampingan melebihi 100% ({$shown}%). Periksa qty / persentase hasil produksi.");
-                }
-                $mainPct = round(100 - $sumBp, 4);
-                foreach ($actualOutputs as $out) {
-                    $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
-                    if ($rec && $rec->output_type === 'main') {
-                        $pctMap[$out['output_id']] = $mainPct;
-                    }
-                }
-            }
+            $costs = $closing
+                ? $this->allocateClosingCost($order, $rows, $totalWip, $sisaWip)
+                : $this->allocatePartialCost($order, $rows, $totalWip, $sisaWip, $tallies);
 
-            $costPerUnit = $totalWipCost > 0 ? $totalWipCost / $totalOutputQty : 0;
+            $sequence = (int) (ProductionFinalization::where('production_order_id', $orderId)->max('sequence') ?? 0) + 1;
 
-            $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
-            $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
+            $batch = ProductionFinalization::create([
+                'production_order_id' => $orderId,
+                'sequence'            => $sequence,
+                'is_closing'          => $closing,
+                'wip_released'        => 0,
+                'wip_total_snapshot'  => $totalWip,
+                'created_by'          => auth()->id(),
+            ]);
 
-            $totalOutputCost = 0;
+            $totalOutputCost = 0.0;
             $fifo = app(FifoService::class);
 
-            foreach ($actualOutputs as $out) {
-                $outputRecord = $order->outputs()->find($out['output_id']);
-                if (!$outputRecord || $out['qty_produced'] <= 0) continue;
-
-                $qtyProduced = (float) $out['qty_produced'];
-
-                // Mode persentase: biaya = pct% × WIP. Mode lama: rasio qty × costPerUnit.
-                if ($usePctMode) {
-                    $pct      = (float) ($pctMap[$out['output_id']] ?? 0);
-                    $itemCost = $totalWipCost * $pct / 100;
-                } else {
-                    $pct      = null;
-                    $itemCost = $costPerUnit * $qtyProduced;
-                }
+            foreach ($rows as $row) {
+                $outputRecord = $row['rec'];
+                $qtyProduced  = $row['qty'];
+                $itemCost     = (float) ($costs[$outputRecord->id]['cost'] ?? 0);
+                $pct          = $costs[$outputRecord->id]['pct'] ?? null;
 
                 // Alokasi hasil produksi ke satu/beberapa gudang. Fallback: semua ke gudang order
                 // (default Utama). Biaya per unit seragam lintas gudang (produk & WIP sama).
-                $allocations = $this->resolveOutputAllocations($out, $qtyProduced, (int) $order->warehouse_id);
+                $allocations = $this->resolveOutputAllocations($row['input'], $qtyProduced, (int) $order->warehouse_id);
                 $unitCost    = $qtyProduced > 0 ? $itemCost / $qtyProduced : 0;
 
-                // Update qty_produced + percentage (hasil recalc otoritatif) + variance_notes + alokasi gudang
+                // qty_produced = AKUMULASI qty yang sudah masuk stok lintas batch, bukan angka
+                // batch ini saja — supaya semua layar lama (kartu output, laporan) tetap benar.
+                $releasedBefore = (float) ($tallies['qty'][$outputRecord->id] ?? 0);
+
                 $updatePayload = [
-                    'qty_produced'          => $qtyProduced,
-                    'variance_notes'        => $out['variance_notes'] ?? null,
+                    'qty_produced'          => $releasedBefore + $qtyProduced,
                     'warehouse_allocations' => $allocations,
                 ];
+                if (array_key_exists('variance_notes', $row['input'])) {
+                    $updatePayload['variance_notes'] = $row['input']['variance_notes'];
+                }
                 if ($pct !== null) {
-                    $updatePayload['percentage'] = $pct;
+                    $updatePayload['percentage'] = round($pct, 4);
                 }
                 $outputRecord->update($updatePayload);
 
                 // Stock IN: output masuk persediaan via FIFO, dipecah per gudang sesuai alokasi.
+                // Tiap layer ditandai batch-nya supaya pembatalan batch tidak menyentuh layer
+                // batch lain (source_id dipakai bersama oleh semua batch pada satu OP).
                 foreach ($allocations as $alloc) {
-                    $fifo->stockIn(
+                    $layer = $fifo->stockIn(
                         productId:     $outputRecord->product_id,
                         warehouseId:   $alloc['warehouse_id'],
                         type:          'production_order',
@@ -979,27 +1142,44 @@ class ProductionOrderService
                         cost:          $unitCost,
                         transactionId: $order->id
                     );
+
+                    if ($layer) {
+                        $layer->update(['production_finalization_id' => $batch->id]);
+                    }
                 }
 
                 // Untuk custom order: tag FIFO layer dengan sales_order_id
                 if ($order->type === 'custom' && $order->sales_order_id) {
-                    StockLayer::where('source_type', 'production_order')
-                        ->where('source_id', $order->id)
+                    StockLayer::where('production_finalization_id', $batch->id)
                         ->where('product_id', $outputRecord->product_id)
-                        ->latest()
                         ->update(['sales_order_id' => $order->sales_order_id]);
                 }
+
+                ProductionFinalizationItem::create([
+                    'production_finalization_id' => $batch->id,
+                    'production_order_output_id' => $outputRecord->id,
+                    'product_id'                 => $outputRecord->product_id,
+                    'qty'                        => $qtyProduced,
+                    'cost'                       => $itemCost,
+                    'unit_cost'                  => $unitCost,
+                    'percentage'                 => $pct !== null ? round($pct, 4) : null,
+                    'warehouse_allocations'      => $allocations,
+                    'variance_notes'             => $row['input']['variance_notes'] ?? null,
+                ]);
 
                 $totalOutputCost += $itemCost;
             }
 
-            // Jurnal: Dr. Persediaan / Cr. WIP
+            // Jurnal: Dr. Persediaan / Cr. WIP — per batch, bukan per order.
             if ($totalOutputCost > 0) {
-                app(JournalPostingService::class)->post(new JournalEntryDTO(
+                $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
+                $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
+
+                $journal = app(JournalPostingService::class)->post(new JournalEntryDTO(
                     date:             now()->format('Y-m-d'),
-                    reference_type:   'production_order_finalize',
-                    reference_id:     $order->id,
-                    description:      "Produksi Selesai - {$order->order_number}",
+                    reference_type:   'production_order_release',
+                    reference_id:     $batch->id,
+                    description:      ($closing ? 'Produksi Selesai - ' : 'Produksi Selesai Sebagian - ') . $order->order_number,
                     lines: [
                         new JournalLineDTO(
                             account_id:  $inventoryAccount->id,
@@ -1011,11 +1191,22 @@ class ProductionOrderService
                             account_id:  $wipAccount->id,
                             debit:       0,
                             credit:      (float) $totalOutputCost,
-                            description: 'Closing WIP produksi'
+                            description: $closing ? 'Closing WIP produksi' : 'Pelepasan sebagian WIP produksi'
                         ),
                     ],
-                    reference_number: $order->order_number
+                    reference_number: $closing ? $order->order_number : "{$order->order_number}/{$sequence}"
                 ));
+
+                $batch->journal_id = $journal->id;
+            }
+
+            $batch->wip_released = $totalOutputCost;
+            $batch->save();
+
+            if (!$closing) {
+                // Produksi masih berjalan: langkah & timer tidak disentuh sama sekali.
+                $order->update(['status' => 'partial']);
+                return;
             }
 
             $order->update(['status' => 'finalized', 'finalized_at' => now()]);
@@ -1036,6 +1227,260 @@ class ProductionOrderService
                     ->markRepairedFromProduction((int) $order->repair_source_id);
             }
         });
+    }
+
+    /**
+     * Penyelesaian sebagian hanya boleh di AKHIR proses: semua langkah sebelum langkah
+     * terakhir sudah selesai dan langkah terakhir sedang dikerjakan/dijeda.
+     *
+     * Sengaja TIDAK menutup langkah: sisa unit masih dikerjakan di langkah yang sama, jadi
+     * timer harus terus berjalan tanpa event pause/complete palsu.
+     */
+    private function assertPartialAllowed(ProductionOrder $order): void
+    {
+        if (!in_array($order->status, ['in_progress', 'partial'], true)) {
+            throw new Exception('Penyelesaian sebagian hanya bisa dilakukan saat produksi sedang berjalan.');
+        }
+
+        if ($order->merged_into_id !== null) {
+            throw new Exception(
+                "Task {$order->order_number} adalah hasil penggabungan — penyelesaian sebagian dilakukan di task induknya."
+            );
+        }
+
+        $steps = $order->steps->sortBy('step_number')->values();
+        if ($steps->isEmpty()) {
+            throw new Exception('Order produksi belum punya langkah kerja.');
+        }
+
+        $last = $steps->last();
+        if (!in_array($last->status, ['in_progress', 'paused'], true)) {
+            throw new Exception(
+                "Penyelesaian sebagian hanya bisa saat langkah terakhir ({$last->name}) sedang dikerjakan."
+            );
+        }
+
+        $before = $steps->slice(0, $steps->count() - 1);
+        if ($before->contains(fn($s) => $s->status !== 'completed')) {
+            throw new Exception('Masih ada langkah sebelum langkah terakhir yang belum selesai — penyelesaian sebagian hanya di akhir proses.');
+        }
+    }
+
+    /**
+     * Qty & biaya yang sudah dilepas ke stok per baris output (batch aktif saja).
+     *
+     * @return array{qty: array<int,float>, cost: array<int,float>}
+     */
+    private function releasedTallies(int $orderId): array
+    {
+        $rows = ProductionFinalizationItem::query()
+            ->join('production_finalizations as f', 'f.id', '=', 'production_finalization_items.production_finalization_id')
+            ->where('f.production_order_id', $orderId)
+            ->whereNull('f.voided_at')
+            ->selectRaw('production_order_output_id as oid, SUM(qty) as total_qty, SUM(cost) as total_cost')
+            ->groupBy('production_order_output_id')
+            ->get();
+
+        $qty = [];
+        $cost = [];
+        foreach ($rows as $r) {
+            $qty[(int) $r->oid]  = (float) $r->total_qty;
+            $cost[(int) $r->oid] = (float) $r->total_cost;
+        }
+
+        return ['qty' => $qty, 'cost' => $cost];
+    }
+
+    /**
+     * Alokasi biaya batch PENUTUP.
+     *
+     *  • Produk sampingan mengambil persentasenya dari WIP KESELURUHAN order (bukan dari sisa
+     *    WIP), sesuai kesepakatan: jatah sampingan lahir dari seluruh proses, bukan dari
+     *    sisa di akhir. Dengan BOM, persentase di-recompute dari qty aktual sehingga sampingan
+     *    yang rusak otomatis mengembalikan jatahnya ke produk utama.
+     *  • Produk utama menyerap SELURUH sisa WIP setelah jatah sampingan → WIP order pasti nol.
+     *
+     * @param  array<int,array{rec: ProductionOrderOutput, input: array, qty: float}>  $rows
+     * @return array<int,array{cost: float, pct: float|null}>  keyed by output id
+     */
+    private function allocateClosingCost(ProductionOrder $order, array $rows, float $totalWip, float $sisaWip): array
+    {
+        // Order repair-like (perbaikan/garansi/repair) pakai alokasi RASIO QTY = nilai
+        // (material + biaya tambahan) dibagi RATA PER UNIT output. Tidak ada konsep %
+        // sampingan. Sesuai aturan: biaya perbaikan/penggantian komponen dibagi rata.
+        $usePctMode = !$order->isRepairLike()
+            && $order->outputs->contains(fn($o) => $o->output_type === 'by_product');
+
+        $result = [];
+
+        if (!$usePctMode) {
+            $totalQty = array_sum(array_column($rows, 'qty'));
+            foreach ($rows as $row) {
+                $result[$row['rec']->id] = [
+                    'cost' => $totalQty > 0 ? $sisaWip * $row['qty'] / $totalQty : 0.0,
+                    'pct'  => null,
+                ];
+            }
+            return $result;
+        }
+
+        $cycles   = max(1e-9, (float) ($order->planned_cycles ?: 1));
+        $bomFixed = $order->bom_id !== null;
+
+        // ── Produk sampingan: persentase × WIP keseluruhan ──
+        $sumBp = 0.0;
+        foreach ($rows as $row) {
+            $rec = $row['rec'];
+            if ($rec->output_type !== 'by_product') continue;
+
+            // BOM dgn % master → recompute dari qty. Sampingan manual (unit_percentage null)
+            // tetap hormati persentase tersimpan/dikirim meski order pakai BOM.
+            if ($bomFixed && $rec->unit_percentage !== null) {
+                $pct = round((float) $rec->unit_percentage * ($row['qty'] / $cycles), 4);
+            } else {
+                $in  = $row['input'];
+                $pct = (isset($in['percentage']) && $in['percentage'] !== '' && $in['percentage'] !== null)
+                    ? round((float) $in['percentage'], 4)
+                    : round((float) $rec->percentage, 4);
+            }
+
+            $sumBp += $pct;
+            $result[$rec->id] = ['cost' => $totalWip * $pct / 100, 'pct' => $pct];
+        }
+
+        if ($sumBp > 100 + 0.01) {
+            $shown = rtrim(rtrim(number_format($sumBp, 4, '.', ''), '0'), '.');
+            throw new Exception("Total persentase produk sampingan melebihi 100% ({$shown}%). Periksa qty / persentase hasil produksi.");
+        }
+
+        $byproductCost = array_sum(array_column($result, 'cost'));
+
+        // Pengaman: jatah sampingan tidak boleh melebihi sisa WIP yang benar-benar tersedia
+        // (bisa terjadi bila sampingan aktual jauh melebihi rencana setelah banyak partial).
+        // Tanpa clamp ini biaya produk utama bisa negatif.
+        if ($byproductCost > $sisaWip && $byproductCost > 0) {
+            $scale = $sisaWip / $byproductCost;
+            foreach ($result as $id => $r) {
+                $result[$id]['cost'] = $r['cost'] * $scale;
+                $result[$id]['pct']  = $totalWip > 0 ? $result[$id]['cost'] / $totalWip * 100 : $r['pct'];
+            }
+            $byproductCost = $sisaWip;
+        }
+
+        // ── Produk utama: menyerap seluruh sisa ──
+        $mainPool = max(0.0, $sisaWip - $byproductCost);
+        $mainQty  = 0.0;
+        foreach ($rows as $row) {
+            if ($row['rec']->output_type !== 'by_product') {
+                $mainQty += $row['qty'];
+            }
+        }
+
+        foreach ($rows as $row) {
+            $rec = $row['rec'];
+            if ($rec->output_type === 'by_product') continue;
+
+            $cost = $mainQty > 0 ? $mainPool * $row['qty'] / $mainQty : 0.0;
+            $result[$rec->id] = [
+                'cost' => $cost,
+                'pct'  => $totalWip > 0 ? round($cost / $totalWip * 100, 4) : null,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Alokasi biaya batch PARTIAL.
+     *
+     *   biaya batch = (sisa WIP − cadangan sampingan) × qty batch / sisa qty
+     *
+     * Pembaginya "sisa dibagi sisa", bukan total: biaya apa pun yang masuk belakangan
+     * (mis. Penambahan Bahan) otomatis hanya membebani unit yang belum keluar, dan batch
+     * penutup pasti menghabiskan WIP tanpa penyesuaian manual.
+     *
+     * @param  array<int,array{rec: ProductionOrderOutput, input: array, qty: float}>  $rows
+     * @return array<int,array{cost: float, pct: float|null}>  keyed by output id
+     */
+    private function allocatePartialCost(ProductionOrder $order, array $rows, float $totalWip, float $sisaWip, array $tallies): array
+    {
+        // Sampingan hanya dicatat di batch penutup: persentasenya baru pasti setelah seluruh
+        // produksi selesai (mis. sampingan yang rusak mengembalikan jatah ke produk utama).
+        foreach ($rows as $row) {
+            if ($row['rec']->output_type === 'by_product') {
+                throw new Exception(
+                    'Produk sampingan hanya bisa dicatat saat finalisasi penutup. Pada penyelesaian sebagian isi qty produk utama saja.'
+                );
+            }
+        }
+
+        $cadangan = $this->reservedByproductCost($order, $totalWip, $tallies['cost']);
+        $pool     = max(0.0, $sisaWip - $cadangan);
+
+        // Sisa qty menurut TARGET TERKINI (bisa berubah lewat Revisi Target) dikurangi
+        // yang sudah dilepas batch sebelumnya.
+        $sisaQty = 0.0;
+        foreach ($order->outputs as $o) {
+            if ($o->output_type === 'by_product') continue;
+            $sisaQty += max(0.0, (float) $o->qty_planned - (float) ($tallies['qty'][$o->id] ?? 0));
+        }
+
+        $batchQty = array_sum(array_column($rows, 'qty'));
+
+        // Clamp: qty batch yang melebihi sisa target tidak boleh menarik biaya lebih dari
+        // sisa WIP yang tersedia. Selisih targetnya diperbaiki lewat Revisi Target.
+        $ratio     = $sisaQty > 1e-9 ? min(1.0, $batchQty / $sisaQty) : 1.0;
+        $batchCost = $pool * $ratio;
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[$row['rec']->id] = [
+                'cost' => $batchQty > 0 ? $batchCost * $row['qty'] / $batchQty : 0.0,
+                'pct'  => null,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Jatah biaya produk sampingan yang harus DISISIHKAN selama produksi masih berjalan.
+     *
+     * Basisnya WIP keseluruhan (bukan sisa WIP), sesuai aturan alokasi sampingan. Tanpa
+     * cadangan ini batch partial pertama ikut menyedot jatah yang bukan miliknya, sehingga
+     * unit yang identik berbeda HPP hanya karena urutan keluarnya.
+     *
+     * @param  array<int,float>  $releasedCost  biaya sampingan yang sudah terlanjur dilepas
+     */
+    private function reservedByproductCost(ProductionOrder $order, float $totalWip, array $releasedCost): float
+    {
+        if ($order->isRepairLike()) {
+            return 0.0;
+        }
+
+        $cycles   = max(1e-9, (float) ($order->planned_cycles ?: 1));
+        $bomFixed = $order->bom_id !== null;
+        $pct      = 0.0;
+        $already  = 0.0;
+
+        foreach ($order->outputs as $o) {
+            if ($o->output_type !== 'by_product') continue;
+
+            // Sumber persentase harus SAMA dengan yang dipakai batch penutup, kalau tidak
+            // cadangannya meleset dari jatah yang benar-benar diambil nanti:
+            //  • order ber-BOM  → % per unit PER SIKLUS × qty rencana (menaikkan siklus otomatis
+            //    mengecilkan jatah per pcs, jadi total jatah tetap proporsional terhadap WIP).
+            //  • tanpa BOM      → persentase manual yang tersimpan di baris output.
+            $pct += ($bomFixed && $o->unit_percentage !== null)
+                ? (float) $o->unit_percentage * ((float) $o->qty_planned / $cycles)
+                : (float) $o->percentage;
+
+            $already += (float) ($releasedCost[$o->id] ?? 0);
+        }
+
+        $reserved = $totalWip * min(100.0, max(0.0, $pct)) / 100;
+
+        return max(0.0, $reserved - $already);
     }
 
     /**
@@ -1078,6 +1523,25 @@ class ProductionOrderService
         }
     }
 
+    /**
+     * Batch pelepasan hasil terakhir yang masih berlaku (null bila order lama tanpa batch).
+     */
+    private function latestActiveBatch(int $orderId): ?ProductionFinalization
+    {
+        return ProductionFinalization::with('items')
+            ->where('production_order_id', $orderId)
+            ->whereNull('voided_at')
+            ->orderByDesc('sequence')
+            ->first();
+    }
+
+    /**
+     * Batalkan pelepasan hasil TERAKHIR.
+     *
+     * Order yang hasilnya diambil bertahap dibatalkan mundur satu per satu (LIFO): alokasi
+     * biaya tiap batch dihitung dari sisa WIP saat itu, jadi membatalkan batch tengah akan
+     * membuat batch sesudahnya salah harga.
+     */
     public function void(int $orderId): void
     {
         DB::transaction(function () use ($orderId) {
@@ -1089,6 +1553,14 @@ class ProductionOrderService
                 );
             }
 
+            $batch = $this->latestActiveBatch($orderId);
+
+            if ($batch) {
+                $this->reverseBatch($order, $batch);
+                return;
+            }
+
+            // Order lama (difinalisasi sebelum fitur batch) — jalur reverse tunggal.
             if ($order->status !== 'finalized') {
                 throw new Exception('Hanya order yang sudah difinalisasi yang dapat di-void.');
             }
@@ -1107,8 +1579,165 @@ class ProductionOrderService
     }
 
     /**
+     * Batalkan satu batch tertentu (dipanggil dari riwayat pengambilan di halaman order).
+     * Hanya batch terakhir yang boleh dibatalkan.
+     */
+    public function voidBatch(int $finalizationId): void
+    {
+        DB::transaction(function () use ($finalizationId) {
+            $batch = ProductionFinalization::with('items')->lockForUpdate()->findOrFail($finalizationId);
+
+            if ($batch->voided_at !== null) {
+                throw new Exception('Pengambilan ini sudah dibatalkan sebelumnya.');
+            }
+
+            $order = ProductionOrder::with(['outputs', 'steps'])
+                ->lockForUpdate()
+                ->findOrFail($batch->production_order_id);
+
+            if ($order->merged_into_id !== null) {
+                throw new Exception(
+                    "Task {$order->order_number} adalah hasil penggabungan — pembatalan dilakukan di task induknya."
+                );
+            }
+
+            $latest = $this->latestActiveBatch($order->id);
+            if (!$latest || $latest->id !== $batch->id) {
+                throw new Exception(
+                    "Hanya pengambilan terakhir yang bisa dibatalkan — biaya batch sesudahnya dihitung dari sisa WIP setelah batch ini. " .
+                    "Batalkan {$latest?->label()} lebih dulu."
+                );
+            }
+
+            $this->reverseBatch($order, $batch);
+        });
+    }
+
+    /**
+     * Balik efek satu batch: jurnal, ledger, FIFO layer, qty kumulatif, lalu status order.
+     * Asumsi: $order & $batch sudah di-lockForUpdate dan $batch adalah batch aktif terakhir.
+     */
+    private function reverseBatch(ProductionOrder $order, ProductionFinalization $batch): void
+    {
+        // Layer batch ini harus masih utuh — kalau stoknya sudah dipakai dokumen lain,
+        // membalik akan mengorupsi FIFO.
+        $layers = StockLayer::where('production_finalization_id', $batch->id)->get();
+
+        foreach ($layers as $layer) {
+            if ((float) $layer->qty_remaining < (float) $layer->qty_in) {
+                throw new Exception(
+                    "Stok hasil {$batch->label()} sudah sebagian terpakai sehingga tidak bisa dibatalkan. Batalkan dulu dokumen yang memakai stok ini."
+                );
+            }
+        }
+
+        // Jurnal balik: Dr. WIP / Cr. Persediaan — biaya kembali menggantung di WIP dan
+        // otomatis jadi jatah unit yang belum keluar.
+        if ((float) $batch->wip_released > 0) {
+            $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
+            $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
+
+            $journal = app(JournalPostingService::class)->post(new JournalEntryDTO(
+                date:             now()->format('Y-m-d'),
+                reference_type:   'production_order_release_void',
+                reference_id:     $batch->id,
+                description:      "Batal {$batch->label()} Produksi - {$order->order_number}",
+                lines: [
+                    new JournalLineDTO(
+                        account_id:  $wipAccount->id,
+                        debit:       (float) $batch->wip_released,
+                        credit:      0,
+                        description: 'Balik WIP dari pembatalan pelepasan hasil'
+                    ),
+                    new JournalLineDTO(
+                        account_id:  $inventoryAccount->id,
+                        debit:       0,
+                        credit:      (float) $batch->wip_released,
+                        description: 'Balik persediaan dari pembatalan pelepasan hasil'
+                    ),
+                ],
+                reference_number: "{$order->order_number}/{$batch->sequence}"
+            ));
+
+            $batch->void_journal_id = $journal->id;
+        }
+
+        // Balancing qty_out ke inventory_ledgers supaya saldo & product_stocks kembali seperti
+        // sebelum batch ini (hapus StockLayer saja tidak cukup — ledger sumber terpisah).
+        $engine = app(InventoryEngine::class);
+        foreach ($layers as $layer) {
+            $qty = (float) $layer->qty_in;
+            if ($qty <= 0) continue;
+
+            $engine->ledger(
+                productId:     (int) $layer->product_id,
+                warehouseId:   (int) $layer->warehouse_id,
+                qtyIn:         0,
+                qtyOut:        $qty,
+                type:          'production_order_void',
+                reference:     $order->order_number,
+                notes:         null,
+                transactionId: $order->id
+            );
+        }
+
+        StockLayer::where('production_finalization_id', $batch->id)->delete();
+
+        // Jurnal pelepasan batch ini ditandai void supaya tidak ikut terhitung lagi.
+        if ($batch->journal_id) {
+            \App\Core\Journal\Journal::where('id', $batch->journal_id)
+                ->where('status', '!=', 'void')
+                ->update(['status' => 'void', 'voided_at' => now()]);
+        }
+
+        // qty_produced kumulatif dikurangi porsi batch ini.
+        foreach ($batch->items as $item) {
+            $output = $order->outputs->firstWhere('id', $item->production_order_output_id);
+            if (!$output) continue;
+
+            $output->update([
+                'qty_produced' => max(0.0, (float) $output->qty_produced - (float) $item->qty),
+            ]);
+        }
+
+        $batch->voided_at = now();
+        $batch->save();
+
+        $this->recomputeStatusAfterBatchVoid($order);
+    }
+
+    /**
+     * Status order setelah sebuah batch dibatalkan.
+     *  • Masih ada batch aktif  → 'partial' (sebagian hasil tetap di stok, produksi belum tuntas).
+     *  • Tidak ada lagi         → kembali ke antrean finalisasi bila semua langkah sudah selesai,
+     *                             atau ke 'in_progress' bila langkah terakhir masih dikerjakan.
+     */
+    private function recomputeStatusAfterBatchVoid(ProductionOrder $order): void
+    {
+        $hasActive = ProductionFinalization::where('production_order_id', $order->id)
+            ->whereNull('voided_at')
+            ->exists();
+
+        if ($hasActive) {
+            $order->update(['status' => 'partial', 'finalized_at' => null]);
+        } else {
+            $steps   = $order->steps()->get();
+            $allDone = $steps->isEmpty() || $steps->every(fn($s) => $s->status === 'completed');
+
+            $order->update([
+                'status'       => $allDone ? 'pending' : 'in_progress',
+                'finalized_at' => null,
+            ]);
+        }
+
+        // Induk tidak lagi selesai → anak gabungan dikembalikan ke status 'Digabung'.
+        $this->syncMergedChildrenStatus($order->refresh());
+    }
+
+    /**
      * Balik (reverse) efek finalisasi pada FIFO & jurnal — TANPA mengubah status order.
-     * Dipakai oleh void() (lalu set 'pending') dan editFinalization() (lalu re-apply finalize).
+     * Dipakai HANYA untuk order lama yang difinalisasi sebelum ada batch (tidak punya baris
+     * production_finalizations), karena penandanya cuma production_order_id.
      *
      * Yang dibalik: jurnal Dr.WIP/Cr.Persediaan, balancing qty_out ledger, hapus StockLayer
      * output, dan tandai jurnal finalisasi lama 'void'. Material yang sudah dikonsumsi TIDAK
@@ -1213,14 +1842,13 @@ class ProductionOrderService
     }
 
     /**
-     * Edit hasil finalisasi: balik efek lama lalu terapkan ulang dengan qty/persentase output
-     * baru — ATOMIK. FIFO (layer + ledger) DAN jurnal ikut teredit dalam satu transaksi:
-     * reversal lama + posting finalisasi baru. finalize() di dalam berjalan sebagai savepoint,
-     * sehingga bila apa pun gagal seluruh edit (termasuk reversal) ikut di-rollback dan data
-     * finalisasi lama tetap utuh.
+     * Edit hasil pelepasan TERAKHIR (koreksi salah input): balik efek lama lalu terapkan ulang
+     * dengan qty/persentase output baru — ATOMIK. FIFO (layer + ledger) DAN jurnal ikut teredit
+     * dalam satu transaksi. Bila apa pun gagal, seluruh edit di-rollback dan data lama tetap utuh.
      *
-     * Status tetap 'finalized'. Biaya WIP yang dikapitalisasi tidak berubah (material sudah
-     * dikonsumsi) — hanya dialokasikan ulang ke qty output baru.
+     * Batch partial diedit sebagai partial, batch penutup sebagai penutup — sifat batch tidak
+     * berubah karena diedit. Biaya WIP yang dikapitalisasi tidak berubah (material sudah
+     * dikonsumsi), hanya dialokasikan ulang ke qty output baru.
      */
     public function editFinalization(int $orderId, array $actualOutputs): void
     {
@@ -1235,21 +1863,26 @@ class ProductionOrderService
                 );
             }
 
+            $batch = $this->latestActiveBatch($orderId);
+
+            if ($batch) {
+                $wasClosing = (bool) $batch->is_closing;
+
+                // 1) Balik batch terakhir (guard "stok sudah terpakai" ada di dalam).
+                $this->reverseBatch($order, $batch);
+
+                // 2) Terapkan ulang dengan sifat batch yang sama.
+                $this->releaseOutputs($orderId, $actualOutputs, $wasClosing);
+                return;
+            }
+
+            // Order lama tanpa batch — jalur legacy.
             if ($order->status !== 'finalized') {
                 throw new Exception('Hanya order yang sudah difinalisasi yang dapat diedit.');
             }
 
-            // 1) Balik efek finalisasi lama (jurnal reversal + ledger qty_out + hapus FIFO layer).
-            //    Guard di dalam: bila output sudah terpakai downstream → throw → rollback.
             $this->reverseFinalizationInternal($order);
-
-            // 2) Set 'pending' agar finalize() menerima order untuk re-apply.
-            //    Material sudah terkonsumsi sejak finalisasi awal → tak ada pre-flight stok terpicu.
             $order->update(['status' => 'pending', 'finalized_at' => null]);
-
-            // 3) Terapkan ulang dengan output baru. finalize() membuka transaksi sendiri
-            //    (savepoint dalam transaksi ini) → FIFO stockIn baru + jurnal finalisasi baru +
-            //    status kembali 'finalized'. Bila gagal, transaksi luar ini ikut di-rollback.
             $this->finalize($orderId, $actualOutputs);
         });
     }
@@ -1443,6 +2076,9 @@ class ProductionOrderService
     /**
      * Apakah OP layak digabung (bukan repair, status aktif, belum pernah digabung,
      * dan punya langkah aktif). Dipakai controller untuk menampilkan checkbox.
+     *
+     * Status 'partial' sengaja TIDAK ikut: sebagian hasilnya sudah masuk stok dengan biaya
+     * yang dihitung dari WIP order ini, jadi materialnya tidak bisa lagi dipindah ke induk.
      */
     public function isMergeEligible(ProductionOrder $o): bool
     {
@@ -1486,6 +2122,8 @@ class ProductionOrderService
                     throw new Exception("Task {$o->order_number} adalah Perbaikan dan tidak bisa digabung.");
                 }
                 if (!in_array($o->status, ['confirmed', 'in_progress'], true)) {
+                    // 'partial' ikut ditolak di sini: hasil yang sudah dilepas ke stok terikat
+                    // pada WIP task ini, sehingga materialnya tidak bisa dipindah ke induk.
                     throw new Exception("Task {$o->order_number} berstatus {$o->status_label} — hanya task aktif yang bisa digabung.");
                 }
                 if ($o->merged_into_id !== null) {
@@ -1631,41 +2269,64 @@ class ProductionOrderService
 
     private function getWipCost(int $orderId): float
     {
-        // Ambil total debit ke WIP dari semua jurnal yang berkontribusi ke order ini:
-        //  - production_order_confirm  → konsumsi material awal (reference_id = order_id)
-        //  - production_order_cost     → biaya produksi saat buat order (reference_id = order_id)
-        //  - production_material_addition → penambahan bahan (reference_id = addition_id)
-        //  - production_cost_addition  → biaya tambahan saat penambahan bahan (reference_id = addition_id)
+        return $this->wipBreakdown($orderId)['total'];
+    }
+
+    /**
+     * Rincian biaya yang MASUK ke WIP order ini, per sumbernya — dipakai panel audit WIP
+     * di halaman order sekaligus jadi sumber tunggal angka total WIP.
+     *
+     * Jurnal yang berkontribusi:
+     *  - production_order_confirm  → konsumsi material awal (reference_id = order_id)
+     *  - production_order_cost     → biaya produksi saat buat order (reference_id = order_id)
+     *  - production_material_addition → penambahan bahan (reference_id = addition_id)
+     *  - production_cost_addition  → biaya tambahan saat penambahan bahan (reference_id = addition_id)
+     *
+     * Dihitung NETTO (debit − kredit): pembatalan penambahan bahan memasang jurnal balik
+     * Cr. WIP dengan reference_type *_void, bukan mem-void jurnal aslinya. Kalau hanya debit
+     * yang dijumlah, WIP order tetap menghitung bahan yang sudah dikembalikan ke gudang →
+     * batch penutup melepas lebih besar dari saldo WIP nyata dan akun WIP jadi minus.
+     *
+     * Pelepasan hasil (production_order_release) SENGAJA tidak ikut: itu sisi keluar, sudah
+     * dihitung terpisah lewat wip_released tiap batch di wipSummary().
+     *
+     * @return array{material: float, cost: float, addition_material: float, addition_cost: float, total: float}
+     */
+    public function wipBreakdown(int $orderId): array
+    {
+        $empty = ['material' => 0.0, 'cost' => 0.0, 'addition_material' => 0.0, 'addition_cost' => 0.0, 'total' => 0.0];
+
         $wipAccount = Account::where('code', AccountCodeEnum::WIP)->first();
-        if (!$wipAccount) return 0;
+        if (!$wipAccount) return $empty;
 
-        // (a) Direct: jurnal yang reference_id-nya = order_id (konsumsi material + biaya produksi
-        //     yang diinput saat membuat order). Tanpa 'production_order_cost', biaya produksi
-        //     saat create nyangkut di WIP & tak ikut ditutup ke persediaan saat finalisasi.
-        $directDebit = (float) \App\Core\Journal\JournalLine::where('account_id', $wipAccount->id)
-            ->whereHas('journal', function ($q) use ($orderId) {
-                $q->whereIn('reference_type', ['production_order_confirm', 'production_order_cost'])
-                  ->where('reference_id', $orderId)
-                  ->where('status', '!=', 'void');
-            })
-            ->sum('debit');
-
-        // (b) Indirect: jurnal yang reference_id-nya = id penambahan bahan order ini
         $additionIds = \App\Modules\Production\Models\ProductionMaterialAddition::where('production_order_id', $orderId)
-            ->pluck('id');
+            ->pluck('id')->all();
 
-        $additionDebit = 0.0;
-        if ($additionIds->isNotEmpty()) {
-            $additionDebit = (float) \App\Core\Journal\JournalLine::where('account_id', $wipAccount->id)
-                ->whereHas('journal', function ($q) use ($additionIds) {
-                    $q->whereIn('reference_type', ['production_material_addition', 'production_cost_addition'])
-                      ->whereIn('reference_id', $additionIds)
+        $net = function (array $types, array $refIds) use ($wipAccount): float {
+            if (!$refIds) return 0.0;
+
+            $row = \App\Core\Journal\JournalLine::where('account_id', $wipAccount->id)
+                ->whereHas('journal', function ($q) use ($types, $refIds) {
+                    $q->whereIn('reference_type', $types)
+                      ->whereIn('reference_id', $refIds)
                       ->where('status', '!=', 'void');
                 })
-                ->sum('debit');
-        }
+                ->selectRaw('COALESCE(SUM(debit), 0) as d, COALESCE(SUM(credit), 0) as c')
+                ->first();
 
-        return $directDebit + $additionDebit;
+            return (float) $row->d - (float) $row->c;
+        };
+
+        $breakdown = [
+            // production_order_cancel mengkredit WIP saat order dibatalkan → netto jadi nol.
+            'material'          => $net(['production_order_confirm', 'production_order_cancel'], [$orderId]),
+            'cost'              => $net(['production_order_cost'], [$orderId]),
+            'addition_material' => $net(['production_material_addition', 'production_material_addition_void'], $additionIds),
+            'addition_cost'     => $net(['production_cost_addition', 'production_cost_addition_void'], $additionIds),
+        ];
+        $breakdown['total'] = array_sum($breakdown);
+
+        return $breakdown;
     }
 
 /**

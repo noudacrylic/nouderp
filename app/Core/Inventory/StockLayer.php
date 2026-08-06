@@ -13,6 +13,9 @@ class StockLayer extends Model
         'qty_remaining',
         'unit_cost',
         'source_type',
-        'source_id'
+        'source_id',
+        // Batch finalisasi produksi (nullable) — pembeda antar batch pada satu OP yang
+        // hasilnya diambil sebagian, karena source_id dipakai bersama semua batch.
+        'production_finalization_id',
     ];
 }
