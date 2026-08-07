@@ -1,10 +1,18 @@
 @extends('layouts.erp')
 
 @section('content')
+@php
+    $judul = match($tahap) {
+        'belum-siap'  => ['Belum Siap', 'Produksi belum selesai atau stok fisik belum cukup — juga pesanan marketplace yang belum dibayar. Tombol proses sengaja dimatikan.'],
+        'belum-lunas' => ['Belum Lunas', 'Barang sudah siap, tinggal menunggu pelunasan. Pesanan yang boleh dikirim sebelum lunas ditetapkan admin lewat tempo di form SO.'],
+        'perlu-ukur'  => ['Perlu Ukur', 'Timbang & ukur kardus setelah dipacking supaya resi terbit dengan ongkir yang benar. Kolom sudah terisi taksiran — kalau sudah pas, simpan saja.'],
+        default       => ['Siap Proses', 'Klik "Proses" untuk generate Faktur + Surat Jalan (kode booking wajib bila ambil di toko).'],
+    };
+@endphp
 <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
     <div>
-        <h1 class="text-lg font-semibold">Perlu Diproses</h1>
-        <p class="text-xs text-gray-500">Pesanan siap diproses. Klik "Proses" untuk generate Faktur + Surat Jalan (wajib lunas{{ '' }} & kode booking bila ambil di toko).</p>
+        <h1 class="text-lg font-semibold">{{ $judul[0] }}</h1>
+        <p class="text-xs text-gray-500">{{ $judul[1] }}</p>
     </div>
     {{-- Tarik manual pesanan marketplace terbaru (tanpa menunggu sinkron terjadwal). --}}
     <form method="POST" action="{{ route('pos.fulfillment.sync-marketplace') }}">
@@ -15,9 +23,39 @@
     </form>
 </div>
 
+@include('erp.pos.fulfillment._subtabs', ['items' => [
+    [
+        'label'  => 'Belum Siap',
+        'url'    => route('pos.fulfillment.perlu-diproses', ['tahap' => 'belum-siap']),
+        'active' => $tahap === 'belum-siap',
+        'count'  => $counts['belum_siap'] ?? 0,
+    ],
+    [
+        'label'  => 'Belum Lunas',
+        'url'    => route('pos.fulfillment.perlu-diproses', ['tahap' => 'belum-lunas']),
+        'active' => $tahap === 'belum-lunas',
+        'count'  => $counts['belum_lunas'] ?? 0,
+    ],
+    [
+        'label'  => 'Perlu Ukur',
+        'url'    => route('pos.fulfillment.perlu-diproses', ['tahap' => 'perlu-ukur']),
+        'active' => $tahap === 'perlu-ukur',
+        'count'  => $counts['perlu_ukur'] ?? 0,
+    ],
+    [
+        'label'   => 'Siap Proses',
+        'url'     => route('pos.fulfillment.perlu-diproses'),
+        'active'  => $tahap === 'siap',
+        'count'   => $counts['perlu_diproses'] ?? 0,
+        'instant' => $counts['instant'] ?? 0,
+        'pickup'  => $counts['pickup'] ?? 0,
+    ],
+]])
 
 @include('erp.pos.fulfillment._filters', ['couriers' => $couriers])
 
+{{-- Aksi massal & tombol proses ulang hanya relevan di sub-tab "Siap Proses". --}}
+@if($tahap === 'siap')
 {{-- Tombol pintas: pilih semua pesanan yang GAGAL diproses untuk diproses ulang.
      Muncul hanya bila ada kegagalan (dihitung dari kartu via JS). --}}
 <div id="failedBar" class="hidden mb-3 flex items-center gap-2 flex-wrap">
@@ -45,28 +83,59 @@
     <input type="hidden" name="print_after" id="bulkPrintAfter" value="0">
     <div id="bulkIdsContainer"></div>
 </form>
+@endif
 
 <div class="space-y-5">
     @forelse($rows as $row)
         @if($row['kind'] === 'garansi')
-            <div class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-rose-400 shadow-md hover:shadow-lg transition-shadow p-4">
+            <div data-so-number="{{ $row['number'] }}" class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-rose-400 shadow-md hover:shadow-lg transition-shadow p-4">
                 <div class="flex items-start justify-between gap-3">
                     @include('erp.pos.fulfillment._card_top', ['row' => $row])
-                    <a href="{{ route('sales.warranty.show', $row['id']) }}"
-                       class="shrink-0 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold">Proses Garansi →</a>
+                    @if($tahap === 'siap')
+                        <a href="{{ route('sales.warranty.show', $row['id']) }}"
+                           class="shrink-0 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold">Proses Garansi →</a>
+                    @else
+                        <span class="shrink-0 px-2 py-0.5 rounded text-[11px] bg-gray-100 text-gray-500">⏳ {{ $row['reason'] }}</span>
+                    @endif
+                </div>
+            </div>
+        @elseif($row['kind'] === 'mp_pending')
+            {{-- Pesanan marketplace yang belum jadi SO (belum dibayar) — kartu info read-only. --}}
+            <div data-so-number="{{ $row['number'] }}" class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-amber-400 shadow-md p-4">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">🛒 {{ $row['channel'] }}</span>
+                    @php $copyNumber = marketplace_copy_number($row['number'], true); @endphp
+                    <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $row['number'] }}</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">⏳ Belum jadi SO</span>
+                    <span class="ml-auto text-xs text-gray-500 whitespace-nowrap">
+                        {{ $row['date'] ? \Carbon\Carbon::parse($row['date'])->format('d M Y') : '' }}
+                    </span>
+                </div>
+                <div class="mt-2 flex items-center gap-x-4 gap-y-1 flex-wrap text-[13px] text-gray-600">
+                    <span class="font-bold text-gray-800">{{ $row['customer'] }}</span>
+                    @if($row['item_count'])<span class="text-gray-400">{{ $row['item_count'] }} item</span>@endif
+                    <span>Total <b class="text-gray-800">Rp {{ number_format($row['grand_total'], 0, ',', '.') }}</b></span>
+                </div>
+                <div class="mt-1.5">
+                    <span class="inline-block px-2 py-0.5 rounded text-[11px] bg-gray-100 text-gray-500">⏳ {{ $row['reason'] }}</span>
                 </div>
             </div>
         @else
-            @include('erp.pos.fulfillment._so_card', ['row' => $row, 'mode' => 'perlu_diproses'])
+            @include('erp.pos.fulfillment._so_card', ['row' => $row, 'mode' => $bucket])
         @endif
     @empty
-        <div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400 text-sm">Tidak ada pesanan yang perlu diproses.</div>
+        <div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400 text-sm">
+            {{ $tahap === 'siap' ? 'Tidak ada pesanan yang siap diproses.' : 'Tidak ada pesanan di tahap ini.' }}
+        </div>
     @endforelse
 </div>
 
 @include('erp.sales.payment._midtrans_modals')
 @include('erp.pos.fulfillment._seller_notes_js')
 @include('erp.pos.fulfillment._copy_js')
+@include('erp.pos.fulfillment._fokus_js')
+
+@if($tahap === 'siap')
 @include('erp.pos.fulfillment._bulk_sticky_js', ['barId' => 'bulkBar'])
 
 <script>
@@ -116,10 +185,10 @@
     function submitProses() {
         const sel = selected();
         if (!sel.length) return;
-        const notLunas = sel.filter(c => c.dataset.lunas !== '1').length;
+        const tertahan = sel.filter(c => c.dataset.canprocess !== '1').length;
         const pickup   = sel.filter(c => c.dataset.pickup === '1').length;
         let warn = '';
-        if (notLunas) warn += `\n• ${notLunas} belum lunas akan dilewati.`;
+        if (tertahan) warn += `\n• ${tertahan} belum boleh diproses akan dilewati.`;
         if (pickup)   warn += `\n• ${pickup} ambil-di-toko butuh kode booking (proses satu-per-satu).`;
         if (!confirm(`Proses ${sel.length} pesanan?${warn}`)) return;
 
@@ -153,4 +222,5 @@
     });
 })();
 </script>
+@endif
 @endsection

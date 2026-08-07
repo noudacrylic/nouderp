@@ -108,4 +108,5 @@
 </div>
 
 @include('erp.pos.fulfillment._copy_js')
+@include('erp.pos.fulfillment._fokus_js')
 @endsection

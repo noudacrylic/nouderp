@@ -63,10 +63,17 @@ class JubelioShipmentWebhookController extends Controller
             'shipping_raw'    => $request->all(),
         ], fn ($v) => $v !== null));
 
+        // DELIVERED = paket diterima pembeli → tandai sampai supaya pesanan pindah sendiri dari
+        // tab "Dikirim" ke "Selesai" tanpa ada yang harus menekan tombol. Idempoten: Jubelio
+        // boleh mengirim status yang sama berkali-kali.
+        $autoSelesai = $internal === 'delivered' && $delivery->markDelivered();
+
         return response()->json([
             'ok'              => true,
             'delivery_number' => $delivery->delivery_number,
             'status'          => $internal ?? $status,
+            'delivered'       => $delivery->delivered_at !== null,
+            'auto_selesai'    => $autoSelesai,
         ]);
     }
 }

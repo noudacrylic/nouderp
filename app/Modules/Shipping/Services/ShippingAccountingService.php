@@ -15,42 +15,52 @@ use DomainException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Fase 5 — akuntansi ongkir Biteship.
- *  - postBooking : saat resi dibuat → Dr Titipan Ongkir / Cr Saldo Biteship (ongkir aktual).
+ * Fase 5 — akuntansi ongkir agregator (Biteship & Jubelio Shipment).
+ *  - postBooking : saat resi dibuat → Dr Titipan Ongkir / Cr Saldo provider (ongkir aktual).
  *  - settleOrder : saat invoice posted / booking → selisih (N customer − C aktual) ke Pendapatan/Diskon ongkir.
  *  - reverseBooking : saat SJ di-void → balik jurnal booking + re-settle.
- *  - reconcileSaldo : samakan saldo buku vs saldo asli Biteship → selisih ke Beban Layanan Biteship.
+ *  - reconcileSaldo : samakan saldo buku vs saldo asli provider → selisih ke Beban Layanan.
+ *
+ * Semula terkunci ke Biteship karena dulu memang agregator tunggal. Sejak Jubelio Shipment
+ * jadi satu-satunya yang dipakai, kuncinya diganti daftar provider ber-saldo prabayar —
+ * masing-masing punya akun kas sendiri (lihat FreightSetting::saldoAccountId).
  */
 class ShippingAccountingService
 {
     private const TITIPAN_CODE = '1203';
 
+    /** Provider yang ongkirnya dipotong dari deposit → perlu dijurnal di sini. */
+    private const PROVIDERS = ['biteship', 'jubelio_shipment'];
+
     public function __construct(protected \App\Core\Period\PeriodService $periodService) {}
 
-    /** Jurnal saat booking resi sukses: Dr Titipan (aktual) / Cr Saldo Biteship. */
+    /** Jurnal saat booking resi sukses: Dr Titipan (aktual) / Cr Saldo provider. */
     public function postBooking(SalesDelivery $delivery): void
     {
-        if ($delivery->shipping_provider !== 'biteship') return;
+        $provider = (string) $delivery->shipping_provider;
+        if (!in_array($provider, self::PROVIDERS, true)) return;
 
-        $cost = (float) $delivery->shipping_cost; // ongkir aktual (price Biteship)
+        $cost = (float) $delivery->shipping_cost; // ongkir aktual (tarif provider)
         if ($cost <= 0) return;
 
-        // Idempotent
-        if (Journal::where('reference_type', 'shipping_booking')->where('reference_id', $delivery->id)
-            ->where('status', '!=', 'void')->exists()) {
+        // Idempotent: lewati kalau booking-nya masih aktif (belum dibalik). SJ yang pernah
+        // di-void lalu dibooking ulang HARUS bisa dijurnal lagi — karena itu yang dihitung
+        // selisih jumlah jurnal booking vs jurnal baliknya, bukan sekadar "sudah pernah ada".
+        if ($this->activeBookingCount($delivery) > 0) {
             return;
         }
 
-        $saldoId   = $this->saldoAccountId();
+        $saldoId   = $this->saldoAccountId($provider);
         $titipanId = $this->accId(self::TITIPAN_CODE);
         $date      = Carbon::parse($delivery->delivery_date ?: now());
+        $label     = FreightSetting::providerLabel($provider);
 
-        DB::transaction(function () use ($delivery, $cost, $saldoId, $titipanId, $date) {
+        DB::transaction(function () use ($delivery, $cost, $saldoId, $titipanId, $date, $label) {
             $journal = $this->makeJournal('shipping_booking', $delivery->id, $delivery->delivery_number,
                 'Booking ongkir ' . $delivery->delivery_number, $date);
 
             $this->line($journal, $titipanId, $cost, 0, 'Titipan ongkir ' . $delivery->delivery_number, 'shipping_booking', $delivery->id, $delivery->delivery_number);
-            $this->line($journal, $saldoId, 0, $cost, 'Potong Saldo Biteship ' . $delivery->delivery_number, 'shipping_booking', $delivery->id, $delivery->delivery_number);
+            $this->line($journal, $saldoId, 0, $cost, "Potong Saldo {$label} " . $delivery->delivery_number, 'shipping_booking', $delivery->id, $delivery->delivery_number);
         });
 
         // Coba settle kalau invoice sudah ada.
@@ -66,11 +76,11 @@ class ShippingAccountingService
     public function settleOrder(SalesOrder $so): void
     {
         $booked = SalesDelivery::where('sales_order_id', $so->id)
-            ->where('shipping_provider', 'biteship')
+            ->whereIn('shipping_provider', self::PROVIDERS)
             ->where('shipping_status', 'booked')
             ->where('status', '!=', 'void')
             ->get();
-        if ($booked->isEmpty()) return; // non-Biteship → alur manual (Bayar Ongkir)
+        if ($booked->isEmpty()) return; // kurir manual → alur manual (Bayar Ongkir)
 
         $N = (float) SalesInvoice::where('sales_order_id', $so->id)
             ->where('status', 'posted')->sum('shipping_cost'); // ongkir ditagih customer (net)
@@ -110,69 +120,101 @@ class ShippingAccountingService
     /** Balik jurnal booking saat SJ di-void; lalu re-settle (C berkurang). */
     public function reverseBooking(SalesDelivery $delivery): void
     {
-        $orig = Journal::where('reference_type', 'shipping_booking')
-            ->where('reference_id', $delivery->id)->where('status', '!=', 'void')->first();
-        if (!$orig) return;
+        // Tidak ada booking aktif → tidak ada yang perlu dibalik (dan jangan dibalik dua kali).
+        if ($this->activeBookingCount($delivery) <= 0) return;
 
         $cost      = (float) $delivery->shipping_cost;
-        $saldoId   = $this->saldoAccountId();
+        $provider  = (string) $delivery->shipping_provider;
+        $saldoId   = $this->saldoAccountId($provider);
         $titipanId = $this->accId(self::TITIPAN_CODE);
+        $label     = FreightSetting::providerLabel($provider);
 
-        DB::transaction(function () use ($delivery, $cost, $saldoId, $titipanId, $orig) {
+        // Jurnal BALIK, bukan meng-void jurnal aslinya. Dulu keduanya dilakukan sekaligus —
+        // padahal saldo di seluruh aplikasi dihitung dengan membuang jurnal ber-status void,
+        // jadi ongkirnya kembali DUA KALI dan saldo deposit ikut menggelembung. Jurnal balik
+        // juga lebih benar secara akuntansi: pembatalannya tercatat di tanggal terjadinya,
+        // bukan menghapus jejak di periode yang mungkin sudah ditutup.
+        DB::transaction(function () use ($delivery, $cost, $saldoId, $titipanId, $label) {
             $journal = $this->makeJournal('shipping_booking_void', $delivery->id, $delivery->delivery_number,
                 'Void booking ongkir ' . $delivery->delivery_number, Carbon::now());
-            // Balik: kembalikan Saldo Biteship, hapus titipan.
-            $this->line($journal, $saldoId, $cost, 0, 'Refund Saldo Biteship ' . $delivery->delivery_number, 'shipping_booking_void', $delivery->id, $delivery->delivery_number);
+            // Balik: kembalikan saldo provider, hapus titipan.
+            $this->line($journal, $saldoId, $cost, 0, "Refund Saldo {$label} " . $delivery->delivery_number, 'shipping_booking_void', $delivery->id, $delivery->delivery_number);
             $this->line($journal, $titipanId, 0, $cost, 'Balik titipan ongkir ' . $delivery->delivery_number, 'shipping_booking_void', $delivery->id, $delivery->delivery_number);
-
-            $orig->update(['status' => 'void']);
         });
     }
 
     /**
-     * Rekonsiliasi saldo: $actual = saldo asli di dashboard Biteship.
-     * Selisih (buku − asal) di-jurnal ke Beban Layanan Biteship (biaya cek ongkir/resi dll).
+     * Berapa jurnal booking SJ ini yang masih berdiri (belum ada jurnal baliknya).
+     * 0 = belum pernah dibooking, atau sudah dibooking lalu dibalik.
+     */
+    private function activeBookingCount(SalesDelivery $delivery): int
+    {
+        $hitung = fn (string $type) => Journal::where('reference_type', $type)
+            ->where('reference_id', $delivery->id)
+            ->where('status', '!=', 'void')
+            ->count();
+
+        return $hitung('shipping_booking') - $hitung('shipping_booking_void');
+    }
+
+    /**
+     * Rekonsiliasi saldo: $actual = saldo asli di dashboard provider (Jubelio Shipment
+     * prabayar "Coins"; kontrak API v1.8 tidak punya endpoint saldo, jadi angkanya diketik).
+     * Selisih (buku − asli) di-jurnal ke Beban Layanan provider (biaya cek ongkir/resi dll).
+     *
      * @return array{posted:bool, diff:float, book:float}
      */
-    public function reconcileSaldo(float $actual, ?Carbon $date = null): array
+    public function reconcileSaldo(float $actual, ?Carbon $date = null, string $provider = 'biteship'): array
     {
-        $saldoId = $this->saldoAccountId();
-        $feeId   = FreightSetting::singleton()->biteship_fee_account_id;
-        if (!$feeId) throw new DomainException("Akun 'Beban Layanan Biteship' belum diset di Settings → Pengaturan Ongkir.");
+        $label   = FreightSetting::providerLabel($provider);
+        $saldoId = $this->saldoAccountId($provider);
+        $feeId   = FreightSetting::singleton()->feeAccountId($provider);
+        if (!$feeId) throw new DomainException("Akun 'Beban Layanan {$label}' belum diset di Settings → Pengaturan Ongkir.");
 
-        $book = (float) JournalLine::where('account_id', $saldoId)
-            ->whereHas('journal', fn ($q) => $q->where('status', '!=', 'void'))
-            ->sum(DB::raw('debit - credit'));
+        $book = $this->saldoBook($saldoId);
 
-        $diff = round($book - $actual, 2); // buku > asal → ada biaya yg belum tercatat
+        $diff = round($book - $actual, 2); // buku > asli → ada biaya yg belum tercatat
         if (abs($diff) < 0.005) {
             return ['posted' => false, 'diff' => 0, 'book' => $book];
         }
 
         $date = $date ?: Carbon::now();
-        DB::transaction(function () use ($diff, $saldoId, $feeId, $date) {
-            $journal = $this->makeJournal('shipping_recon', 0, null, 'Penyesuaian Saldo Biteship (biaya layanan)', $date);
+        DB::transaction(function () use ($diff, $saldoId, $feeId, $date, $label) {
+            $journal = $this->makeJournal('shipping_recon', 0, null, "Penyesuaian Saldo {$label} (biaya layanan)", $date);
             if ($diff > 0) {
                 // Buku lebih tinggi → biaya keluar: Dr Beban / Cr Saldo.
-                $this->line($journal, $feeId, $diff, 0, 'Biaya layanan Biteship', 'shipping_recon', 0, null);
-                $this->line($journal, $saldoId, 0, $diff, 'Penyesuaian Saldo Biteship', 'shipping_recon', 0, null);
+                $this->line($journal, $feeId, $diff, 0, "Biaya layanan {$label}", 'shipping_recon', 0, null);
+                $this->line($journal, $saldoId, 0, $diff, "Penyesuaian Saldo {$label}", 'shipping_recon', 0, null);
             } else {
-                // Asal lebih tinggi (mis. bonus/koreksi): Dr Saldo / Cr Beban (pulihkan beban).
+                // Asli lebih tinggi (mis. bonus/koreksi): Dr Saldo / Cr Beban (pulihkan beban).
                 $amt = abs($diff);
-                $this->line($journal, $saldoId, $amt, 0, 'Penyesuaian Saldo Biteship', 'shipping_recon', 0, null);
-                $this->line($journal, $feeId, 0, $amt, 'Koreksi biaya layanan Biteship', 'shipping_recon', 0, null);
+                $this->line($journal, $saldoId, $amt, 0, "Penyesuaian Saldo {$label}", 'shipping_recon', 0, null);
+                $this->line($journal, $feeId, 0, $amt, "Koreksi biaya layanan {$label}", 'shipping_recon', 0, null);
             }
         });
 
         return ['posted' => true, 'diff' => $diff, 'book' => $book];
     }
 
+    /** Saldo buku sebuah akun deposit provider (dipakai panel rekonsiliasi). */
+    public function saldoBook(?int $accountId): float
+    {
+        if (!$accountId) return 0.0;
+
+        return (float) JournalLine::where('account_id', $accountId)
+            ->whereHas('journal', fn ($q) => $q->where('status', '!=', 'void'))
+            ->sum(DB::raw('debit - credit'));
+    }
+
     // ---------- helpers ----------
 
-    private function saldoAccountId(): int
+    private function saldoAccountId(string $provider): int
     {
-        $id = FreightSetting::singleton()->biteship_saldo_account_id;
-        if (!$id) throw new DomainException("Akun 'Saldo Biteship' belum diset di Settings → Pengaturan Ongkir.");
+        $id = FreightSetting::singleton()->saldoAccountId($provider);
+        if (!$id) {
+            $label = FreightSetting::providerLabel($provider);
+            throw new DomainException("Akun 'Saldo {$label}' belum diset di Settings → Pengaturan Ongkir.");
+        }
         return (int) $id;
     }
 

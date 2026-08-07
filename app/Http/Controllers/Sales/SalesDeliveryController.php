@@ -418,22 +418,39 @@ class SalesDeliveryController extends Controller
         $src      = $delivery->order ?: $delivery->invoice;
         $customer = $delivery->order?->customer ?: $delivery->invoice?->customer;
 
-        $defaultWeight = 0;
-        foreach ($delivery->items as $it) {
-            $p = $it->product;
-            if (!$p || in_array($p->sale_type, ['service', 'non_stock'], true)) continue;
-            $defaultWeight += (int) ($p->weight_gram ?? 0) * max(1, (int) ceil((float) $it->qty));
+        // Berat bawaan: hasil timbang kardus (sub-tab "Perlu Ukur") kalau ada, baru jatuh ke
+        // penjumlahan berat master produk. Popup ini SELALU mengirim weight_gram sebagai
+        // override — kalau di sini diisi taksiran, hasil timbang operator ketimpa diam-diam.
+        $defaultWeight = (int) ($src->package_weight_gram ?? 0);
+        if ($defaultWeight <= 0) {
+            foreach ($delivery->items as $it) {
+                $p = $it->product;
+                if (!$p || in_array($p->sale_type, ['service', 'non_stock'], true)) continue;
+                $defaultWeight += (int) ($p->weight_gram ?? 0) * max(1, (int) ceil((float) $it->qty));
+            }
         }
 
         $courierCode = $src->shipping_courier_code ?? null;
+        $provider    = $src->shipping_provider ?? null;
+
+        // Jubelio mengenali kurir lewat ID angka — menampilkannya ("17 J&T Cargo") cuma bikin
+        // bingung, jadi untuk provider itu cukup nama layanannya.
+        $courierLabel = $provider === 'jubelio_shipment'
+            ? ($src->shipping_service_name ?: 'Jubelio Shipment')
+            : ($courierCode ? (strtoupper($courierCode) . ' ' . ($src->shipping_service_name ?? '')) : null);
 
         return response()->json([
             'delivery_number' => $delivery->delivery_number,
             'courier_code'    => $courierCode,
             'service_code'    => $src->shipping_service_code ?? null,
-            'courier_label'   => $courierCode ? (strtoupper($courierCode) . ' ' . ($src->shipping_service_name ?? '')) : null,
+            'courier_label'   => $courierLabel,
+            'provider'        => $provider,
             'mode'            => $delivery->delivery_method === 'instant' ? 'instant' : 'regular',
             'warehouse_id'    => $delivery->warehouse_id,
+            // Tiap agregator punya kamus wilayahnya sendiri. Kirim customer_id juga supaya
+            // cek ongkir bisa mengambil area yang benar untuk provider yang sedang dipakai —
+            // `area` di bawah khusus Biteship dan kosong untuk pesanan Jubelio.
+            'customer_id'     => $customer?->id,
             'area'            => $customer?->biteship_area_id,
             'dest_lat'        => ($customer && $customer->latitude  !== null) ? (float) $customer->latitude  : null,
             'dest_lng'        => ($customer && $customer->longitude !== null) ? (float) $customer->longitude : null,
@@ -465,7 +482,11 @@ class SalesDeliveryController extends Controller
             return back()->with('success', 'Resi berhasil dibuat: ' . ($result['tracking'] ?: 'menunggu dari kurir') . '.');
         }
         if ($result['level'] === 'warning') {
-            return back()->with('error', $result['message'] . ' Cek akun Saldo Biteship di Pengaturan Ongkir.');
+            // Resi SUDAH terbit, yang gagal jurnalnya — sebut akun provider yang benar,
+            // bukan "Saldo Biteship" yang sejak Agustus 2026 tidak dipakai lagi.
+            $label = \App\Models\FreightSetting::providerLabel((string) $delivery->shipping_provider);
+
+            return back()->with('error', $result['message'] . " Cek akun Saldo {$label} di Settings → Pengaturan Ongkir.");
         }
         return back()->with('error', 'Booking resi gagal — ' . $result['message']);
     }

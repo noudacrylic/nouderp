@@ -41,3 +41,7 @@ Thumbs.db
 .env.bak_*
 /backup_*.sql.gz
 /deploy/SERVER-LOCAL-NOTES.md
+
+# Artefak lokal sesi ini: cadangan .env & PDF kontrak vendor (bukan bagian aplikasi)
+.env.backup-*
+/exel marketplace/

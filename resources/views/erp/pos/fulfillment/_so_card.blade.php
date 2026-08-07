@@ -19,6 +19,9 @@
     $pickupDone       = $r['is_pickup'] && (($r['pickup_status'] ?? null) === 'picked_up');
     $fullyShipped     = $pickupDone || ($shipCount > 0 && $resiCount === $shipCount);
     $partlyShipped    = !$fullyShipped && $resiCount > 0;
+    // Sampai di pembeli — penanda manual di tab "Dikirim", ini yang memindahkan ke "Selesai".
+    $deliveredCount   = $shipDeliveries->filter(fn ($d) => $d->delivered_at !== null)->count();
+    $allDelivered     = $shipCount > 0 && $deliveredCount === $shipCount;
 
     // ID untuk aksi massal di tab "Telah Diproses".
     $bulkInvoiceId = $r['invoice']->id ?? '';
@@ -52,14 +55,25 @@
 
     // Tandai kartu yang GAGAL diproses (perlu_diproses) dgn warna merah agar menonjol.
     $isFailed = $mode === 'perlu_diproses' && !empty($r['process_failed']);
+
+    // Boleh diproses: lunas atau pesanan tempo (bayar belakangan memang kesepakatannya).
+    // Tempo/tidaknya ditetapkan admin di form SO — bukan keputusan bagian packing.
+    $canProcess = !empty($r['is_lunas']) || !empty($r['is_tempo']);
 @endphp
-<div class="bg-white rounded-xl border shadow-md hover:shadow-lg transition-shadow p-4 {{ $isFailed ? 'border-red-300 border-l-4 border-l-red-500' : 'border-gray-300 border-l-4 border-l-emerald-500' }}">
-    {{-- Header: nomor + kurir/ambil-toko + status/batas waktu --}}
-    <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 rounded-t-xl border-b {{ $isFailed ? 'bg-red-100 border-red-200' : 'bg-emerald-100 border-emerald-200' }}">
+<div data-so-number="{{ $r['number'] }}"
+     class="bg-white rounded-xl border shadow-md hover:shadow-lg transition-shadow p-4 {{ $isFailed ? 'border-red-300 border-l-4 border-l-red-500' : 'border-gray-300 border-l-4 border-l-emerald-500' }}">
+    {{-- Header: nomor + kurir/ambil-toko + status/batas waktu.
+         Latarnya warna pekat supaya batas antar kartu terbaca sekali lihat di daftar panjang.
+         Aturan kontras di dalamnya: chip tetap berlatar terang (pastel/putih) dengan tulisan
+         gelap, teks lepas memakai putih. JANGAN memakai teks berwarna gelap (text-*-600) di
+         sini — hilang tertelan latar. --}}
+    <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 rounded-t-xl border-b {{ $isFailed ? 'bg-red-600 border-red-700' : 'bg-emerald-600 border-emerald-700' }}">
         @if($mode === 'perlu_diproses')
             <input type="checkbox" class="js-bulk-check w-4 h-4 accent-indigo-600 cursor-pointer"
                    value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
-                   data-lunas="{{ $r['is_lunas'] ? 1 : 0 }}" data-pickup="{{ $r['is_pickup'] ? 1 : 0 }}"
+                   {{-- "Boleh diproses", bukan "lunas": pesanan tempo juga lolos, jadi
+                        peringatan massal tak boleh memakai status lunas. --}}
+                   data-canprocess="{{ $canProcess ? 1 : 0 }}" data-pickup="{{ $r['is_pickup'] ? 1 : 0 }}"
                    data-failed="{{ !empty($r['process_failed']) ? 1 : 0 }}"
                    title="Pilih untuk aksi massal">
         @elseif($mode === 'telah_diproses' && empty($r['is_marketplace']))
@@ -85,7 +99,7 @@
             // bagian tengah di antara '-'; marketplace lain buang prefix; non-MP utuh.
             $copyNumber = marketplace_copy_number($r['number'], !empty($r['is_marketplace']));
         @endphp
-        <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $r['number'] }}</span>
+        <span class="js-copy text-sm font-bold text-white cursor-pointer hover:text-white/70" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $r['number'] }}</span>
         @php
             // Untuk pesanan marketplace, tampilkan nama kurir Jubelio (mis. "J&T REG",
             // "Grab Instant") bila ada — lebih informatif daripada label generik "Kurir".
@@ -94,23 +108,45 @@
                 : ($r['delivery_display'] ?? null);
         @endphp
         @if(!empty($courierLabel))
-            <span class="px-2 py-0.5 rounded text-[10px] font-bold {{ $r['is_pickup'] ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700' }}">
+            {{-- Ambil di toko ditebalkan setara ⚡ INSTANT: pembelinya menunggu di tempat,
+                 jadi sama mendesaknya dengan kurir on-demand. --}}
+            <span class="px-2 py-0.5 rounded text-[10px] {{ $r['is_pickup'] ? 'font-black bg-amber-100 text-amber-700 ring-1 ring-amber-300' : 'font-bold bg-sky-100 text-sky-700' }}"
+                  @if($r['is_pickup']) title="Pembeli mengambil sendiri di toko — dahulukan" @endif>
                 {{ $r['is_pickup'] ? '🏬' : '🚚' }} {{ $courierLabel }}
             </span>
         @endif
-        @if(!empty($r['j_is_instant']))
+        @if(!empty($r['is_instant']) || !empty($r['j_is_instant']))
             <span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-700 ring-1 ring-orange-300"
                   title="Pesanan instant courier — proses & serahkan ke kurir segera">⚡ INSTANT</span>
         @endif
-        @if($isFailed)
-            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white" title="{{ $r['process_error'] ?? '' }}">⚠ GAGAL PROSES</span>
+        @if(!empty($r['is_draft']))
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-gray-200 text-gray-600"
+                  title="Pesanan belum diposting — stok belum direservasi, belum bisa diproses">DRAFT</span>
         @endif
-        @if($mode === 'belum_siap' && !empty($r['reason']))
-            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500">⏳ {{ $r['reason'] }}</span>
+        @if(!empty($r['is_tempo']))
+            {{-- Tempo boleh jalan tanpa uang masuk; yang lewat jatuh tempo dimerahkan supaya
+                 piutangnya tidak tenggelam di antara pesanan lain. --}}
+            @if(!empty($r['tempo_overdue']))
+                <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-red-700 ring-1 ring-red-300"
+                      title="Sisa {{ rupiah($r['remaining']) }} belum dibayar">
+                    📅 TEMPO LEWAT {{ abs($r['tempo_days_left']) }} HARI
+                </span>
+            @else
+                <span class="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300"
+                      title="Pembayaran tempo{{ $r['tempo_due_date'] ? ' — jatuh tempo ' . $r['tempo_due_date']->format('d/m/Y') : ' tanpa batas waktu' }}">
+                    📅 TEMPO{{ $r['tempo_days'] ? ' ' . $r['tempo_days'] . ' HARI' : '' }}
+                </span>
+            @endif
+        @endif
+        @if($isFailed)
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-red-700 ring-1 ring-red-300" title="{{ $r['process_error'] ?? '' }}">⚠ GAGAL PROSES</span>
+        @endif
+        @if(in_array($mode, ['belum_siap', 'belum_bayar', 'belum_lunas', 'perlu_ukur'], true) && !empty($r['reason']))
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700">⏳ {{ $r['reason'] }}</span>
         @elseif($isFinal)
-            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-green-600 text-white">✓ SELESAI</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-emerald-700 ring-1 ring-emerald-300">✓ SELESAI</span>
         @elseif($mode === 'dikirim')
-            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-sky-600 text-white">🚚 DIKIRIM</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-sky-700 ring-1 ring-sky-300">🚚 DIKIRIM</span>
         @elseif($mode === 'telah_diproses')
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700">✓ DIPROSES</span>
         @endif
@@ -124,17 +160,22 @@
         @elseif($mode === 'telah_diproses' && ($r['resi_state'] ?? null) === 'belum_generate')
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700">⚙ Belum di-generate</span>
         @endif
-        @if($isDone && $fullyShipped)
-            <span class="ml-auto text-xs whitespace-nowrap text-green-600 font-semibold">
-                ✓ {{ $pickupDone ? 'Sudah diambil' : 'Sudah dikirim' }}
+        @if($isDone && ($pickupDone || $allDelivered))
+            <span class="ml-auto text-xs whitespace-nowrap text-white font-semibold">
+                ✓ {{ $pickupDone ? 'Sudah diambil' : 'Sudah sampai' }}
+            </span>
+        @elseif($isDone && $fullyShipped)
+            <span class="ml-auto text-xs whitespace-nowrap text-white font-semibold">
+                🚚 {{ $deliveredCount > 0 ? "Sampai {$deliveredCount}/{$shipCount}" : 'Di jalan' }}
             </span>
         @elseif($isDone && $partlyShipped)
-            <span class="ml-auto text-xs whitespace-nowrap text-sky-600 font-semibold">
+            <span class="ml-auto text-xs whitespace-nowrap text-white font-semibold">
                 🚚 Sebagian dikirim ({{ $resiCount }}/{{ $shipCount }})
             </span>
         @elseif($r['is_pickup'] && !empty($r['pickup_date']))
             @php $pickupOverdue = \Carbon\Carbon::parse($r['pickup_date'])->lt(\Carbon\Carbon::today()); @endphp
-            <span class="ml-auto text-xs whitespace-nowrap {{ $pickupOverdue ? 'text-red-600 font-bold' : 'text-amber-700 font-semibold' }}">
+            {{-- Yang lewat batas naik jadi pil putih supaya tetap menyala di atas latar pekat. --}}
+            <span class="ml-auto text-xs whitespace-nowrap {{ $pickupOverdue ? 'px-2 py-0.5 rounded bg-white text-red-700 font-bold' : 'text-white font-semibold' }}">
                 🏬 Ambil {{ \Carbon\Carbon::parse($r['pickup_date'])->format('d M Y') }}{{ $pickupOverdue ? ' (lewat)' : '' }}
             </span>
         @elseif($deadline && !in_array($mode, ['dikirim', 'selesai'], true))
@@ -149,15 +190,17 @@
                       : ($abs >= 60 ? intdiv($abs, 60) . ' jam' : max(1, $abs) . ' mnt');
                 $countdown = $r['is_overdue'] ? "lewat {$cd}" : "{$cd} lagi";
                 $urgent = !$r['is_overdue'] && $mins <= 720; // < 12 jam → tandai mendesak
-                $cls = $r['is_overdue'] ? 'text-red-600 font-bold'
-                     : ($urgent ? 'text-amber-700 font-semibold' : 'text-gray-500');
+                // Lewat batas & mendesak dinaikkan jadi pil (putih / kuning) — teks berwarna
+                // gelap tak terbaca di atas latar header yang pekat.
+                $cls = $r['is_overdue'] ? 'px-2 py-0.5 rounded bg-white text-red-700 font-bold'
+                     : ($urgent ? 'px-2 py-0.5 rounded bg-amber-200 text-amber-900 font-bold' : 'text-white font-semibold');
             @endphp
             @if($hasTime)
                 <span class="ml-auto text-xs whitespace-nowrap {{ $cls }}" title="Batas kirim {{ $deadline->format('d M Y H:i') }} WIB">
                     ⏱ Batas kirim {{ $deadline->format('d M') }} {{ $deadline->format('H:i') }} · {{ $countdown }}
                 </span>
             @else
-                <span class="ml-auto text-xs whitespace-nowrap {{ $r['is_overdue'] ? 'text-red-600 font-bold' : 'text-gray-500' }}">
+                <span class="ml-auto text-xs whitespace-nowrap {{ $r['is_overdue'] ? 'px-2 py-0.5 rounded bg-white text-red-700 font-bold' : 'text-white font-semibold' }}">
                     ⏱ Batas kirim {{ $deadline->format('d M Y') }}{{ $r['is_overdue'] ? ' (lewat)' : '' }}
                 </span>
             @endif
@@ -300,14 +343,94 @@
                                inputmode="numeric" maxlength="5"
                                class="border rounded px-2.5 py-1.5 text-xs w-32 font-mono tracking-widest">
                     @endif
-                    <button type="submit" name="print_after" value="0" {{ $r['is_lunas'] ? '' : 'disabled' }}
-                            class="px-3 py-1.5 rounded text-xs font-bold text-white {{ $r['is_lunas'] ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed' }}">✅ Proses</button>
+                    <button type="submit" name="print_after" value="0" {{ $canProcess ? '' : 'disabled' }}
+                            class="px-3 py-1.5 rounded text-xs font-bold text-white {{ $canProcess ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed' }}">✅ Proses</button>
                 </form>
             </div>
         </div>
-        @unless($r['is_lunas'])
+        @if(!empty($r['measured_at']))
+            {{-- Ukuran yang akan dipakai saat resi terbit — ditampilkan supaya salah timbang
+                 masih bisa ketahuan sebelum pesanan diproses. --}}
+            @php $m = $r['measure'] ?? []; @endphp
+            <div class="mt-1 flex items-center justify-end gap-2 flex-wrap">
+                <span class="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-0.5">
+                    📏 {{ $m['weight_gram'] ? number_format($m['weight_gram'], 0, ',', '.') . ' g' : 'berat belum diisi' }}
+                    @if($m['length'] ?? null) · {{ rtrim(rtrim(number_format($m['length'], 1, ',', '.'), '0'), ',') }}×{{ rtrim(rtrim(number_format($m['width'] ?? 0, 1, ',', '.'), '0'), ',') }}×{{ rtrim(rtrim(number_format($m['height'] ?? 0, 1, ',', '.'), '0'), ',') }} cm @endif
+                </span>
+                <form action="{{ route('pos.fulfillment.batal-ukur', $r['id']) }}" method="POST"
+                      onsubmit="return confirm('Ukur ulang {{ $r['number'] }}? Pesanan kembali ke Perlu Ukur.')">
+                    @csrf
+                    <button type="submit" class="text-[11px] text-gray-500 hover:text-indigo-600 font-semibold">Ukur ulang</button>
+                </form>
+            </div>
+        @endif
+        @if(!$r['is_lunas'] && !empty($r['is_tempo']))
+            <p class="text-[11px] text-indigo-600 mt-1 text-right">
+                Tempo — boleh dikirim dulu, sisa {{ rupiah($r['remaining']) }} ditagih
+                {{ $r['tempo_due_date'] ? 'sampai ' . $r['tempo_due_date']->format('d/m/Y') : 'belakangan' }}.
+            </p>
+        @elseif(!$r['is_lunas'])
             <p class="text-[11px] text-amber-600 mt-1 text-right">Belum lunas — selesaikan pembayaran dulu untuk memproses.</p>
-        @endunless
+        @endif
+
+    @elseif($mode === 'belum_bayar' || $mode === 'belum_lunas')
+        <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
+            <a href="{{ route('sales.orders.show', $r['id']) }}"
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">👁 Buka SO</a>
+            <a href="{{ route('sales.orders.print', $r['id']) }}"
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
+
+            {{-- Draft belum bisa ditagih (belum diposting); marketplace dibayar di channel-nya. --}}
+            @if(empty($r['is_draft']) && empty($r['is_marketplace']))
+                <a href="{{ route('sales.payment.create', ['customer_id' => $r['customer_id'], 'so_id' => $r['id'], 'mode' => 'uang_muka']) }}"
+                   class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">💵 Cash</a>
+                <button type="button" onclick="window._midtransOpenSo({{ $r['id'] }})"
+                        class="text-xs px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">💳 Link</button>
+                <button type="button" onclick="window._midtransOpenSoQris({{ $r['id'] }})"
+                        class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">QRIS</button>
+            @endif
+        </div>
+        @if($mode === 'belum_lunas')
+            <p class="text-[11px] text-gray-400 mt-1 text-right">
+                Otomatis pindah ke "Siap Proses" begitu pelunasan masuk.
+            </p>
+        @endif
+
+    @elseif($mode === 'perlu_ukur')
+        {{-- Timbang & ukur kardus setelah dipacking. Kolom sudah terisi ukuran yang tersimpan di
+             SO, atau taksiran dari master produk bila SO belum punya — operator tinggal
+             mengoreksi. Yang menandai "sudah diukur" adalah tombolnya, bukan terisinya angka,
+             jadi yang menilai taksirannya sudah benar cukup menekan Simpan. --}}
+        @php $m = $r['measure'] ?? []; @endphp
+        <form action="{{ route('pos.fulfillment.ukur', $r['id']) }}" method="POST"
+              class="mt-3 border-t border-gray-50 pt-3 flex items-end gap-2 flex-wrap">
+            @csrf
+            <div>
+                <label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Berat (gram)</label>
+                <input type="number" name="weight_gram" value="{{ $m['weight_gram'] ?? '' }}" min="0" step="1"
+                       class="border rounded px-2.5 py-1.5 text-xs w-28 font-mono" placeholder="0">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">P × L × T (cm)</label>
+                <div class="flex items-center gap-1">
+                    <input type="number" name="package_length" value="{{ $m['length'] ?? '' }}" min="0" step="0.1"
+                           class="border rounded px-2 py-1.5 text-xs w-16 font-mono" placeholder="P">
+                    <span class="text-gray-300 text-xs">×</span>
+                    <input type="number" name="package_width" value="{{ $m['width'] ?? '' }}" min="0" step="0.1"
+                           class="border rounded px-2 py-1.5 text-xs w-16 font-mono" placeholder="L">
+                    <span class="text-gray-300 text-xs">×</span>
+                    <input type="number" name="package_height" value="{{ $m['height'] ?? '' }}" min="0" step="0.1"
+                           class="border rounded px-2 py-1.5 text-xs w-16 font-mono" placeholder="T">
+                </div>
+            </div>
+            <button type="submit"
+                    class="px-3 py-1.5 rounded text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700">📏 Simpan Ukuran</button>
+            <a href="{{ route('sales.orders.print', $r['id']) }}"
+               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
+            <span class="ml-auto text-[11px] text-gray-400 italic">
+                Ongkir pesanan tidak diubah — selisihnya masuk titipan ongkir.
+            </span>
+        </form>
 
     @elseif($mode === 'belum_siap')
         <div class="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-50 pt-3">
@@ -421,6 +544,32 @@
                             @endif
                             <a href="{{ route('sales.deliveries.print', $d->id) }}"
                                class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Cetak SJ</a>
+                            {{-- Penanda sampai: yang memindahkan pesanan dari "Dikirim" ke "Selesai".
+                                 Biasanya terisi SENDIRI dari webhook Jubelio (status DELIVERED);
+                                 tombolnya jalan manual bila status kurir tak kunjung datang.
+                                 Ambil di toko tidak punya paket yang ditunggu → tak perlu tombol ini. --}}
+                            @if($d->delivery_method !== 'ambil_toko')
+                                @if($d->delivered_at)
+                                    <span class="px-2 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold"
+                                          title="Ditandai sampai {{ $d->delivered_at->format('d/m/Y H:i') }}{{ $d->delivered_by ? '' : ' — otomatis dari status kurir' }}">
+                                        ✓ Sampai {{ $d->delivered_at->format('d/m') }}{{ $d->delivered_by ? '' : ' ⚡' }}
+                                    </span>
+                                    <form action="{{ route('pos.fulfillment.batal-sampai', $d->id) }}" method="POST"
+                                          onsubmit="return confirm('Tarik kembali penandaan sampai {{ $d->delivery_number }}?')">
+                                        @csrf
+                                        <button type="submit" class="px-2 py-1 text-gray-400 hover:text-red-600 font-semibold">batal</button>
+                                    </form>
+                                @else
+                                    <form action="{{ route('pos.fulfillment.sampai', $d->id) }}" method="POST"
+                                          onsubmit="return confirm('Tandai {{ $d->delivery_number }} sudah sampai di pembeli?')">
+                                        @csrf
+                                        <button type="submit"
+                                                class="px-2.5 py-1 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">
+                                            📦 Sudah Sampai
+                                        </button>
+                                    </form>
+                                @endif
+                            @endif
                         </div>
                     </div>
                 @endforeach

@@ -42,6 +42,9 @@ Schedule::command('jubelio:push-stock')->everyFiveMinutes()->name('jubelio-push-
 Schedule::command('jubelio:reconcile-stock')->everyTwoHours()->name('jubelio-reconcile-stock')->withoutOverlapping();
 // Jubelio harga — push perubahan harga tiap 15 menit (promo tetap diatur di Jubelio).
 Schedule::command('jubelio:push-prices')->everyFifteenMinutes()->name('jubelio-push-prices')->withoutOverlapping();
+// Pengiriman — segarkan status kurir Jubelio Shipment & tandai paket yang sudah sampai.
+// Webhook Jubelio yang jadi andalan (real-time); ini penyapu bila ada webhook yang terlewat.
+Schedule::command('shipping:sync-status')->everyThirtyMinutes()->name('shipping-sync-status')->withoutOverlapping();
 // Store — garbage collector media: hapus file foto/video yang sudah di-soft-delete
 // & lewat masa jeda (config store.media_gc_days). Harian dini hari.
 Schedule::command('store:gc-media')->dailyAt('03:10')->name('store-gc-media')->withoutOverlapping();

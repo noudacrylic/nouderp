@@ -814,6 +814,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     // ── Update Notes (works on any status) ──────────────────────────────
     Route::post('/orders/{id}/update-notes', [SalesOrderController::class, 'updateNotes'])->name('orders.update-notes');
     Route::post('/orders/{id}/keep-stock', [SalesOrderController::class, 'updateBackorder'])->name('orders.keep-stock');
+    Route::post('/orders/{id}/tempo',      [SalesOrderController::class, 'updateTempo'])->name('orders.tempo');
     Route::post('/quotations/{id}/update-notes', [QuotationController::class, 'updateNotes'])->name('quotations.update-notes');
     Route::post('/invoices/{id}/update-notes', [\App\Http\Controllers\DebugInvoiceController::class, 'updateNotes'])->name('invoices.update-notes');
 
@@ -856,8 +857,15 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     // Resolve promo untuk Kasir (akses lewat menu pos, supaya kasir non-admin tetap bisa).
     Route::get('/kasir/promo-resolve', [\App\Http\Controllers\Sales\PromosiController::class, 'resolveApi'])->name('kasir.promo-resolve');
 
+    Route::get('/fulfillment/semua',          [\App\Modules\POS\Controllers\FulfillmentController::class, 'semua'])->name('fulfillment.semua');
+    Route::get('/fulfillment/belum-bayar',    [\App\Modules\POS\Controllers\FulfillmentController::class, 'belumBayar'])->name('fulfillment.belum-bayar');
+    // Tab lama "Belum Siap" kini sub-tab dari Perlu Diproses — tautan/bookmark lama dialihkan.
     Route::get('/fulfillment/belum-siap',     [\App\Modules\POS\Controllers\FulfillmentController::class, 'belumSiap'])->name('fulfillment.belum-siap');
     Route::get('/fulfillment/perlu-diproses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'perluDiproses'])->name('fulfillment.perlu-diproses');
+    Route::post('/fulfillment/so/{so}/ukur',              [\App\Modules\POS\Controllers\FulfillmentController::class, 'simpanUkuran'])->whereNumber('so')->name('fulfillment.ukur');
+    Route::post('/fulfillment/so/{so}/batal-ukur',        [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalUkuran'])->whereNumber('so')->name('fulfillment.batal-ukur');
+    Route::post('/fulfillment/sj/{delivery}/sampai',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiSampai'])->whereNumber('delivery')->name('fulfillment.sampai');
+    Route::post('/fulfillment/sj/{delivery}/batal-sampai', [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalSampai'])->whereNumber('delivery')->name('fulfillment.batal-sampai');
     Route::get('/fulfillment/telah-diproses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'telahDiproses'])->name('fulfillment.telah-diproses');
     Route::get('/fulfillment/dikirim',        [\App\Modules\POS\Controllers\FulfillmentController::class, 'dikirim'])->name('fulfillment.dikirim');
     Route::get('/fulfillment/selesai',        [\App\Modules\POS\Controllers\FulfillmentController::class, 'selesai'])->name('fulfillment.selesai');

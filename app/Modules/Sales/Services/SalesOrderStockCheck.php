@@ -61,6 +61,98 @@ class SalesOrderStockCheck
         return $hasil;
     }
 
+    /**
+     * Kekurangan stok untuk BANYAK SO sekaligus — jawabannya sama persis dengan memanggil
+     * shortages() satu per satu, tapi stok, reservasi & produknya diambil sekali untuk semua.
+     *
+     * Dipakai layar Pemrosesan Pesanan yang mengklasifikasi puluhan pesanan tiap muat halaman;
+     * jalur satuan (gerbang pembayaran) tetap pakai shortages().
+     *
+     * SO ber-`allow_backorder` selalu kosong: sudah disepakati boleh jalan walau stok kurang.
+     *
+     * @param  iterable<SalesOrder> $orders SO dengan relasi items.product sudah di-load
+     * @return array<int, array<int, array{sku:string,name:string,needed:float,available:float,short:float}>>
+     *         keyed sales_order_id; SO tanpa kekurangan tidak muncul sama sekali.
+     */
+    public function shortagesForMany(iterable $orders): array
+    {
+        $needsPerSo = [];
+        foreach ($orders as $so) {
+            if ($so->allow_backorder) {
+                continue;
+            }
+            $needs = $this->kebutuhanPerProduk($so);
+            if ($needs) {
+                $needsPerSo[$so->id] = ['so' => $so, 'needs' => $needs];
+            }
+        }
+        if (empty($needsPerSo)) {
+            return [];
+        }
+
+        $productIds = collect($needsPerSo)->flatMap(fn ($e) => array_keys($e['needs']))->unique()->values()->all();
+        $produk = Product::whereIn('id', $productIds)->get(['id', 'sku', 'name', 'sale_type', 'preorder_stock'])->keyBy('id');
+
+        // On-hand per (produk, gudang) & reservasi aktif per (produk, gudang, SO pemilik).
+        $onHand = ProductStock::whereIn('product_id', $productIds)
+            ->get(['product_id', 'warehouse_id', 'qty_on_hand'])
+            ->groupBy('product_id');
+
+        $reservasi = StockReservation::whereIn('product_id', $productIds)
+            ->where('status', 'active')
+            ->get(['product_id', 'warehouse_id', 'qty', 'sales_order_id'])
+            ->groupBy('product_id');
+
+        // Gudang jualan — dipakai saat SO tidak menyebut gudang, meniru cabang else di tersediaUntuk().
+        $gudangJual = \App\Core\Inventory\Warehouse::where('is_sellable', true)->pluck('id')->all();
+
+        $hasil = [];
+        foreach ($needsPerSo as $soId => $entry) {
+            $so = $entry['so'];
+            $kurang = [];
+
+            foreach ($entry['needs'] as $productId => $needed) {
+                $p = $produk->get($productId);
+                if (! $p || in_array($p->sale_type, self::TANPA_STOK, true)) {
+                    continue;
+                }
+
+                $stokRows = $onHand->get($productId, collect());
+                $resRows  = $reservasi->get($productId, collect());
+
+                if ($so->warehouse_id) {
+                    $stokRows = $stokRows->where('warehouse_id', $so->warehouse_id);
+                    $resRows  = $resRows->where('warehouse_id', $so->warehouse_id);
+                } else {
+                    $stokRows = $stokRows->whereIn('warehouse_id', $gudangJual);
+                }
+
+                // Reservasi milik SO ini sendiri bukan saingan — itu jatah dia.
+                $resRows = $resRows->filter(fn ($r) => $r->sales_order_id === null || (int) $r->sales_order_id !== (int) $so->id);
+
+                $available = (float) $stokRows->sum('qty_on_hand')
+                    - (float) $resRows->sum('qty')
+                    + (float) ($p->preorder_stock ?? 0);
+
+                if ($needed > $available) {
+                    $kurang[] = [
+                        'sku' => $p->sku,
+                        'name' => $p->name,
+                        'needed' => (float) $needed,
+                        'available' => (float) max(0, $available),
+                        'short' => (float) ($needed - max(0, $available)),
+                    ];
+                }
+            }
+
+            if ($kurang) {
+                $hasil[$soId] = $kurang;
+            }
+        }
+
+        return $hasil;
+    }
+
     /** SO ini boleh dibayar dari sisi stok? Kesepakatan keep stock membebaskan cek. */
     public function boleh(SalesOrder $so): bool
     {
@@ -81,7 +173,11 @@ class SalesOrderStockCheck
     {
         $needs = [];
 
-        foreach ($so->items()->with('product')->get() as $item) {
+        // Pakai relasi yang sudah di-load bila ada — jalur batch memuatnya sekali di depan,
+        // dan query ulang di sini akan mengembalikan N+1 yang justru mau dihindari.
+        $items = $so->relationLoaded('items') ? $so->items : $so->items()->with('product')->get();
+
+        foreach ($items as $item) {
             $product = $item->product;
             if (! $product) {
                 continue;

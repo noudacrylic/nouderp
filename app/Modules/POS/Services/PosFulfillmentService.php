@@ -40,8 +40,10 @@ class PosFulfillmentService
         if (SalesInvoice::where('sales_order_id', $so->id)->where('status', 'posted')->exists()) {
             throw new DomainException('Sales Order ini sudah memiliki invoice yang diposting.');
         }
+        // Belum lunas → tertahan, KECUALI pesanannya memang tempo — kesepakatan yang
+        // ditetapkan admin di form SO (bukan keputusan bagian packing).
         $remaining = round((float) $so->grand_total - (float) $so->paid_amount, 2);
-        if ($remaining > 0.01) {
+        if ($remaining > 0.01 && !$so->is_tempo) {
             throw new DomainException('Pesanan belum lunas. Sisa Rp ' . number_format($remaining, 0, ',', '.') . ' harus dibayar dulu.');
         }
 

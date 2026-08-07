@@ -213,6 +213,35 @@ class SalesOrderController extends Controller
         return ['min_dp_percent' => null, 'min_dp_amount' => null];
     }
 
+    /**
+     * Kesepakatan pembayaran tempo. Tanggal jatuh tempo DIHITUNG SEKALI di sini lalu disimpan,
+     * bukan diturunkan ulang tiap dibaca — supaya termin yang sudah disepakati tidak diam-diam
+     * bergeser kalau tanggal SO belakangan dikoreksi.
+     *
+     * Tempo tanpa termin tetap sah (ada pelanggan yang temponya tak berbatas waktu); yang hilang
+     * hanya peringatan jatuh temponya.
+     */
+    private function tempoFromRequest(Request $request, $orderDate = null): array
+    {
+        if (! $request->boolean('is_tempo')) {
+            return ['is_tempo' => false, 'tempo_days' => null, 'tempo_due_date' => null];
+        }
+
+        $days = $request->input('tempo_days');
+        $days = ($days === null || trim((string) $days) === '') ? null : (int) clean_number($days);
+        if ($days !== null && $days <= 0) {
+            $days = null;
+        }
+
+        $basis = $orderDate ? \Carbon\Carbon::parse($orderDate) : now();
+
+        return [
+            'is_tempo'       => true,
+            'tempo_days'     => $days,
+            'tempo_due_date' => $days ? $basis->copy()->addDays($days)->toDateString() : null,
+        ];
+    }
+
     public function create(Request $request)
     {
         $customers = Customer::all();
@@ -472,7 +501,7 @@ class SalesOrderController extends Controller
                 'pph_amount' => $pphAmount,
                 'grand_total' => $grandTotal,
                 'allow_backorder' => $request->boolean('allow_backorder'),
-            ] + $this->minDpFromRequest($request));
+            ] + $this->minDpFromRequest($request) + $this->tempoFromRequest($request, $date));
 
             $action = $request->input('_after_save', '');
             if (in_array($action, ['post', 'print'], true)) {
@@ -641,7 +670,7 @@ class SalesOrderController extends Controller
                 'pph_amount' => $pphAmount,
                 'grand_total' => $grandTotal,
                 'allow_backorder' => $request->boolean('allow_backorder'),
-            ] + $this->minDpFromRequest($request));
+            ] + $this->minDpFromRequest($request) + $this->tempoFromRequest($request, $date));
 
             $action = $request->input('_after_save', '');
             if (in_array($action, ['post', 'print'], true) && $so->status === SalesOrderStatus::DRAFT->value) {
@@ -1190,6 +1219,33 @@ class SalesOrderController extends Controller
         return back()->with('success', $so->allow_backorder
             ? 'Kesepakatan keep stock diaktifkan — pembayaran tetap diterima walau stok kurang.'
             : 'Kesepakatan keep stock dimatikan — pembayaran ditolak bila stok tidak cukup.');
+    }
+
+    /**
+     * Nyalakan/matikan kesepakatan tempo dari halaman SO — alasannya sama dengan keep stock:
+     * kesepakatan tempo sering lahir setelah SO dikonfirmasi, dan SO terkonfirmasi tidak bisa
+     * diedit lewat form.
+     *
+     * Jatuh tempo dihitung dari TANGGAL SO, bukan hari ini, supaya angkanya sama dengan yang
+     * muncul di form dan tidak bergeser hanya karena disepakatinya belakangan.
+     */
+    public function updateTempo(Request $request, $id)
+    {
+        $so = SalesOrder::findOrFail($id);
+
+        if (in_array($so->status, ['void', 'cancelled'], true)) {
+            return back()->with('error', 'Sales Order ini sudah dibatalkan.');
+        }
+
+        $so->fill($this->tempoFromRequest($request, $so->order_date))->save();
+
+        if (! $so->is_tempo) {
+            return back()->with('success', 'Kesepakatan tempo dimatikan — pesanan kembali menunggu pembayaran.');
+        }
+
+        return back()->with('success', $so->tempo_due_date
+            ? 'Kesepakatan tempo aktif — jatuh tempo ' . $so->tempo_due_date->format('d/m/Y') . '.'
+            : 'Kesepakatan tempo aktif tanpa batas waktu.');
     }
 
     public function updateNotes(Request $request, $id)

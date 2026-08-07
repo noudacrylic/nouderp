@@ -4,10 +4,38 @@
 <div class="flex items-center justify-between mb-3">
     <div>
         <h1 class="text-lg font-semibold">Telah Diproses</h1>
-        <p class="text-xs text-gray-500">Sudah diproses, menunggu penyelesaian: generate resi (non-marketplace) / transaksi marketplace selesai. Setelah resi terbit atau transaksi selesai → pindah ke "Selesai".</p>
+        <p class="text-xs text-gray-500">Sudah diproses, paket belum diserahkan ke jasa kirim: menunggu resi di-generate &amp; dicetak (non-marketplace) / diproses Jubelio (marketplace). Setelah diserahkan ke kurir → pindah ke "Dikirim".</p>
     </div>
 </div>
 
+
+@include('erp.pos.fulfillment._subtabs', ['items' => [
+    [
+        'label'  => 'Semua',
+        'url'    => route('pos.fulfillment.telah-diproses'),
+        'active' => !request('resi'),
+        'count'  => $resiCounts['semua'] ?? 0,
+    ],
+    [
+        'label'  => 'Belum di-generate',
+        'url'    => route('pos.fulfillment.telah-diproses', ['resi' => 'belum_generate']),
+        'active' => request('resi') === 'belum_generate',
+        'count'  => $resiCounts['belum_generate'] ?? 0,
+        'alert'  => true,
+    ],
+    [
+        'label'  => 'Belum dicetak',
+        'url'    => route('pos.fulfillment.telah-diproses', ['resi' => 'belum_cetak']),
+        'active' => request('resi') === 'belum_cetak',
+        'count'  => $resiCounts['belum_cetak'] ?? 0,
+    ],
+    [
+        'label'  => 'Sudah dicetak',
+        'url'    => route('pos.fulfillment.telah-diproses', ['resi' => 'sudah_cetak']),
+        'active' => request('resi') === 'sudah_cetak',
+        'count'  => $resiCounts['sudah_cetak'] ?? 0,
+    ],
+]])
 
 @include('erp.pos.fulfillment._filters', ['couriers' => $couriers])
 
@@ -57,6 +85,7 @@
 
 @include('erp.pos.fulfillment._seller_notes_js')
 @include('erp.pos.fulfillment._copy_js')
+@include('erp.pos.fulfillment._fokus_js')
 @include('erp.pos.fulfillment._bulk_sticky_js', ['barId' => 'tdBulkBar'])
 
 {{-- ===== POPUP GENERATE RESI: cek ulang berat & dimensi + ongkir ===== --}}
@@ -119,13 +148,17 @@
     function closeModal(){ modal.classList.add('hidden'); modal.classList.remove('flex'); }
 
     function cek() {
-        if (!cfg.area) { out.textContent = 'Cek ongkir live butuh area customer. Lengkapi alamat (area) di SO.'; out.className = 'text-sm text-amber-600'; return; }
+        // Tiap agregator punya kamus wilayahnya sendiri: `area` itu milik Biteship dan KOSONG
+        // untuk pesanan Jubelio. Kirim customer_id saja — sisi server yang mengambil area
+        // sesuai provider yang sedang dipakai.
+        if (!cfg.area && !cfg.customer_id) { out.textContent = 'Cek ongkir live butuh alamat customer. Lengkapi alamat di SO.'; out.className = 'text-sm text-amber-600'; return; }
         var p = new URLSearchParams({
             warehouse_id: cfg.warehouse_id,
-            destination_area_id: cfg.area,
             weight_gram: Math.max(1, parseInt(elW.value || '1', 10)),
             mode: cfg.mode,
         });
+        if (cfg.area) p.set('destination_area_id', cfg.area);
+        if (cfg.customer_id) p.set('customer_id', cfg.customer_id);
         if (cfg.dest_lat != null && cfg.dest_lng != null) { p.set('destination_latitude', cfg.dest_lat); p.set('destination_longitude', cfg.dest_lng); }
         if (parseFloat(elL.value) > 0) p.set('package_length', elL.value);
         if (parseFloat(elWd.value) > 0) p.set('package_width', elWd.value);

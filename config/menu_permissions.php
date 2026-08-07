@@ -90,11 +90,14 @@ return [
             // Pemrosesan Pesanan — dashboard fulfillment tim packing (umbrella + 3 sub-tab gaya Absensi).
             'pos.fulfillment' => [
                 'label' => 'Pemrosesan Pesanan',
-                'url'   => '/erp/pos/fulfillment/belum-siap',
+                'url'   => '/erp/pos/fulfillment/perlu-diproses',
                 'route_patterns' => ['pos.fulfillment.*'],
                 'subtabs' => [
-                    ['label' => 'Belum Siap',     'url' => '/erp/pos/fulfillment/belum-siap',     'route_patterns' => ['pos.fulfillment.belum-siap*'], 'badge' => 'belum_siap'],
-                    ['label' => 'Perlu Diproses', 'url' => '/erp/pos/fulfillment/perlu-diproses', 'route_patterns' => ['pos.fulfillment.perlu-diproses*'], 'badge' => 'perlu_diproses'],
+                    // "Semua" sengaja TANPA badge: isinya seluruh riwayat, angkanya tidak menuntut tindakan.
+                    ['label' => 'Semua',          'url' => '/erp/pos/fulfillment/semua',          'route_patterns' => ['pos.fulfillment.semua*']],
+                    ['label' => 'Belum Bayar',    'url' => '/erp/pos/fulfillment/belum-bayar',    'route_patterns' => ['pos.fulfillment.belum-bayar*'], 'badge' => 'belum_bayar'],
+                    // Badge = yang benar-benar siap dikerjakan; yang tertahan punya badge di sub-tab-nya.
+                    ['label' => 'Perlu Diproses', 'url' => '/erp/pos/fulfillment/perlu-diproses', 'route_patterns' => ['pos.fulfillment.perlu-diproses*', 'pos.fulfillment.belum-siap*'], 'badge' => 'perlu_diproses'],
                     ['label' => 'Telah Diproses', 'url' => '/erp/pos/fulfillment/telah-diproses', 'route_patterns' => ['pos.fulfillment.telah-diproses*'], 'badge' => 'telah_diproses'],
                     ['label' => 'Dikirim',        'url' => '/erp/pos/fulfillment/dikirim',        'route_patterns' => ['pos.fulfillment.dikirim*'], 'badge' => 'dikirim'],
                     ['label' => 'Retur',          'url' => '/erp/pos/fulfillment/retur',          'route_patterns' => ['pos.fulfillment.retur*'], 'badge' => 'retur', 'badge_style' => 'alert'],

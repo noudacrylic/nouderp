@@ -48,6 +48,9 @@ class SalesOrder extends Model
         'package_length',
         'package_width',
         'package_height',
+        'package_weight_gram',
+        'measured_at',
+        'measured_by',
         'shipping_settled',
         'additional_fee',
         'marketplace_fee',
@@ -58,6 +61,9 @@ class SalesOrder extends Model
         'min_dp_percent',
         'min_dp_amount',
         'allow_backorder',
+        'is_tempo',
+        'tempo_days',
+        'tempo_due_date',
         'status',
     ];
 
@@ -65,8 +71,31 @@ class SalesOrder extends Model
         'picked_up_at' => 'datetime',
         'pickup_date'  => 'date',
         'process_failed_at' => 'datetime',
+        'measured_at' => 'datetime',
         'allow_backorder' => 'boolean',
+        'is_tempo' => 'boolean',
+        'tempo_due_date' => 'date',
     ];
+
+    /** Sisa hari menuju jatuh tempo; negatif = sudah lewat. Null bila bukan tempo/tanpa tanggal. */
+    public function tempoDaysLeft(): ?int
+    {
+        if (!$this->is_tempo || !$this->tempo_due_date) {
+            return null;
+        }
+
+        return (int) now()->startOfDay()->diffInDays($this->tempo_due_date->copy()->startOfDay(), false);
+    }
+
+    /** Tempo yang sudah lewat jatuh tempo DAN belum lunas. */
+    public function isTempoOverdue(): bool
+    {
+        $left = $this->tempoDaysLeft();
+
+        return $left !== null
+            && $left < 0
+            && round((float) $this->grand_total - (float) $this->paid_amount, 2) > 0.01;
+    }
 
     /** Batas DP bawaan bila SO tidak menyepakati apa pun. */
     public const DEFAULT_MIN_DP_PERCENT = 50;

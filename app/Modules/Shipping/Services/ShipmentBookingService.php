@@ -108,7 +108,13 @@ class ShipmentBookingService
         }
 
         // Override berat/dimensi (popup) > dimensi paket SO/Invoice > per-produk.
+        // Berat: override popup > hasil timbang paket di SO/Invoice (sub-tab "Perlu Ukur") >
+        // jumlah berat per-produk. Hasil timbang lebih dipercaya daripada penjumlahan master
+        // produk karena yang naik ke kurir adalah kardusnya, bukan barangnya telanjang.
         $reqWeight = (int) clean_number($overrides['weight_gram'] ?? 0);
+        if ($reqWeight <= 0) {
+            $reqWeight = (int) ($src->package_weight_gram ?? 0);
+        }
         $pkgL = isset($overrides['package_length']) && $overrides['package_length'] !== '' ? (float) clean_number($overrides['package_length']) : (float) ($src->package_length ?? 0);
         $pkgW = isset($overrides['package_width'])  && $overrides['package_width']  !== '' ? (float) clean_number($overrides['package_width'])  : (float) ($src->package_width ?? 0);
         $pkgH = isset($overrides['package_height']) && $overrides['package_height'] !== '' ? (float) clean_number($overrides['package_height']) : (float) ($src->package_height ?? 0);
@@ -349,7 +355,13 @@ class ShipmentBookingService
             $items[] = $item;
         }
 
+        // Berat: override popup > hasil timbang paket di SO/Invoice (sub-tab "Perlu Ukur") >
+        // jumlah berat per-produk. Hasil timbang lebih dipercaya daripada penjumlahan master
+        // produk karena yang naik ke kurir adalah kardusnya, bukan barangnya telanjang.
         $reqWeight = (int) clean_number($overrides['weight_gram'] ?? 0);
+        if ($reqWeight <= 0) {
+            $reqWeight = (int) ($src->package_weight_gram ?? 0);
+        }
         $pkgL = isset($overrides['package_length']) && $overrides['package_length'] !== '' ? (float) clean_number($overrides['package_length']) : (float) ($src->package_length ?? 0);
         $pkgW = isset($overrides['package_width'])  && $overrides['package_width']  !== '' ? (float) clean_number($overrides['package_width'])  : (float) ($src->package_width ?? 0);
         $pkgH = isset($overrides['package_height']) && $overrides['package_height'] !== '' ? (float) clean_number($overrides['package_height']) : (float) ($src->package_height ?? 0);

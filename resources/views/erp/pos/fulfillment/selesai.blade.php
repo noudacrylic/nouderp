@@ -4,7 +4,7 @@
 <div class="flex items-center justify-between mb-3">
     <div>
         <h1 class="text-lg font-semibold">Selesai</h1>
-        <p class="text-xs text-gray-500">Pesanan tuntas — marketplace: faktur terbit / transaksi selesai · non-marketplace: sudah ber-resi atau tak perlu resi (ambil di toko / kurir manual). Otomatis terarsip &gt; 3 hari.</p>
+        <p class="text-xs text-gray-500">Pesanan tuntas — marketplace: faktur terbit / transaksi selesai · non-marketplace: semua paket sudah ditandai sampai, atau barang diambil sendiri di toko. Otomatis terarsip &gt; 3 hari sejak sampai/diambil.</p>
     </div>
 </div>
 
@@ -37,4 +37,5 @@
 
 @include('erp.pos.fulfillment._seller_notes_js')
 @include('erp.pos.fulfillment._copy_js')
+@include('erp.pos.fulfillment._fokus_js')
 @endsection

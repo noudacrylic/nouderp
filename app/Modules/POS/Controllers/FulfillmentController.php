@@ -17,13 +17,34 @@ use Illuminate\Support\Facades\Log;
 
 class FulfillmentController extends Controller
 {
-    public function belumSiap(Request $request, FulfillmentReadinessService $svc)
+    /** Tab Semua: seluruh riwayat SO + status terkininya — untuk audit, bukan antrean kerja. */
+    public function semua(Request $request, FulfillmentReadinessService $svc)
     {
-        return view('erp.pos.fulfillment.belum-siap', [
-            'rows'     => $svc->bucket('belum_siap', $request->q, $request->only(['channel', 'courier'])),
-            'counts'   => $svc->counts(),
-            'couriers' => $svc->courierOptions('belum_siap'),
+        return view('erp.pos.fulfillment.semua', [
+            'rows'   => $svc->allPaginated(
+                $request->q,
+                $request->only(['channel', 'status', 'from', 'to']),
+                per_page_size()
+            ),
+            'counts' => $svc->counts(),
         ]);
+    }
+
+    /** Tab Belum Bayar: pesanan tanpa pembayaran sama sekali, termasuk yang masih draft. */
+    public function belumBayar(Request $request, FulfillmentReadinessService $svc)
+    {
+        return view('erp.pos.fulfillment.belum-bayar', [
+            'rows'      => $svc->bucket('belum_bayar', $request->q, $request->only(['channel', 'courier', 'prioritas'])),
+            'counts'    => $svc->counts(),
+            'couriers'  => $svc->courierOptions('belum_bayar'),
+            'prioritas' => $svc->prioritasCounts('belum_bayar'),
+        ]);
+    }
+
+    /** Tautan lama "Belum Siap" — sekarang sub-tab dari Perlu Diproses. */
+    public function belumSiap(Request $request)
+    {
+        return redirect()->route('pos.fulfillment.perlu-diproses', ['tahap' => 'belum-siap'] + $request->query());
     }
 
     /** Tarik manual pesanan marketplace baru (cepat — hanya ready-to-process, tak menunggu sinkron 5 menit). */
@@ -46,23 +67,131 @@ class FulfillmentController extends Controller
         return back()->with('success', $msg);
     }
 
+    /**
+     * Tab Perlu Diproses dengan 4 sub-tab (?tahap=):
+     *   belum-siap  → produksi belum selesai / stok belum cukup (tombol proses mati)
+     *   belum-lunas → barang siap, menunggu pelunasan
+     *   perlu-ukur  → lunas, kardusnya belum ditimbang & diukur
+     *   siap        → benar-benar bisa dikerjakan sekarang (bawaan)
+     */
     public function perluDiproses(Request $request, FulfillmentReadinessService $svc)
     {
+        $tahap  = in_array($request->tahap, ['belum-siap', 'belum-lunas', 'perlu-ukur'], true) ? $request->tahap : 'siap';
+        $bucket = match ($tahap) {
+            'belum-siap'  => 'belum_siap',
+            'belum-lunas' => 'belum_lunas',
+            'perlu-ukur'  => 'perlu_ukur',
+            default       => 'perlu_diproses',
+        };
+
         return view('erp.pos.fulfillment.perlu-diproses', [
-            'rows'     => $svc->bucket('perlu_diproses', $request->q, $request->only(['channel', 'courier'])),
-            'counts'   => $svc->counts(),
-            'couriers' => $svc->courierOptions('perlu_diproses'),
+            'rows'      => $svc->bucket($bucket, $request->q, $request->only(['channel', 'courier', 'prioritas'])),
+            'counts'    => $svc->counts(),
+            'couriers'  => $svc->courierOptions($bucket),
+            'prioritas' => $svc->prioritasCounts($bucket),
+            'tahap'     => $tahap,
+            'bucket'    => $bucket,
         ]);
     }
 
+    /**
+     * Tab Telah Diproses dengan 3 sub-tab (?resi=): belum_generate | belum_cetak | sudah_cetak.
+     * Tanpa parameter → semua. Filternya memang sudah ada, di sini dinaikkan jadi sub-tab.
+     */
     public function telahDiproses(Request $request, FulfillmentReadinessService $svc)
     {
         return view('erp.pos.fulfillment.telah-diproses', [
-            'rows'       => $svc->bucket('telah_diproses', $request->q, $request->only(['channel', 'courier', 'resi'])),
+            'rows'       => $svc->bucket('telah_diproses', $request->q, $request->only(['channel', 'courier', 'resi', 'prioritas'])),
             'counts'     => $svc->counts(),
             'couriers'   => $svc->courierOptions('telah_diproses'),
             'resiFilter' => true,
+            'resiCounts' => $svc->resiCounts(),
+            'prioritas'  => $svc->prioritasCounts('telah_diproses'),
         ]);
+    }
+
+    /**
+     * Simpan hasil timbang & ukur kardus (sub-tab "Perlu Ukur"), lalu pesanan pindah ke
+     * "Siap Proses". Ukurannya menempel di SO dan otomatis dipakai saat resi diterbitkan.
+     *
+     * Kolomnya boleh dikosongkan: operator yang menilai ukuran yang sudah ada masih benar
+     * cukup menekan tombolnya — yang menandai "sudah diukur" adalah `measured_at`, bukan
+     * terisinya angka. Ongkir SO SENGAJA tidak ikut dihitung ulang: selisih antara yang
+     * ditagih ke pelanggan dan ongkir aktual sudah ditangani jurnal titipan ongkir (1203).
+     */
+    public function simpanUkuran(Request $request, int $so)
+    {
+        $data = $request->validate([
+            'weight_gram'    => 'nullable|numeric|min:0|max:1000000',
+            'package_length' => 'nullable|numeric|min:0|max:1000',
+            'package_width'  => 'nullable|numeric|min:0|max:1000',
+            'package_height' => 'nullable|numeric|min:0|max:1000',
+        ], [], [
+            'weight_gram'    => 'berat',
+            'package_length' => 'panjang',
+            'package_width'  => 'lebar',
+            'package_height' => 'tinggi',
+        ]);
+
+        $order = SalesOrder::findOrFail($so);
+
+        $isi = fn (string $key) => ($data[$key] ?? null) !== null && $data[$key] !== ''
+            ? (float) clean_number($data[$key])
+            : null;
+
+        $order->update(array_filter([
+            'package_weight_gram' => ($w = $isi('weight_gram')) ? (int) round($w) : null,
+            'package_length'      => $isi('package_length'),
+            'package_width'       => $isi('package_width'),
+            'package_height'      => $isi('package_height'),
+        ], fn ($v) => $v !== null) + [
+            'measured_at' => now(),
+            'measured_by' => auth()->id(),
+        ]);
+
+        return back()->with('success', "Ukuran {$order->order_number} tersimpan — pesanan pindah ke Siap Proses.");
+    }
+
+    /**
+     * Tandai satu Surat Jalan SUDAH SAMPAI di pembeli. Begitu semua paket sebuah pesanan
+     * ditandai sampai, kartunya pindah dari tab "Dikirim" ke "Selesai".
+     *
+     * Ditandai manual (biasanya setelah operator membuka "Lacak"): status kurir tidak ditarik
+     * otomatis, jadi yang memutuskan sampai/belum tetap orang.
+     */
+    public function tandaiSampai(int $delivery)
+    {
+        $sj = SalesDelivery::findOrFail($delivery);
+
+        if ($sj->status !== 'posted') {
+            return back()->with('error', "Surat Jalan {$sj->delivery_number} belum diposting.");
+        }
+        if ($sj->delivery_method === 'ambil_toko') {
+            return back()->with('error', 'Pesanan ambil di toko tidak perlu ditandai sampai.');
+        }
+        if (! $sj->markDelivered(auth()->id())) {
+            return back()->with('error', "Surat Jalan {$sj->delivery_number} sudah ditandai sampai.");
+        }
+
+        return back()->with('success', "Surat Jalan {$sj->delivery_number} ditandai sudah sampai.");
+    }
+
+    /** Tarik kembali penandaan sampai — pesanan kembali ke tab "Dikirim". */
+    public function batalSampai(int $delivery)
+    {
+        $sj = SalesDelivery::findOrFail($delivery);
+        $sj->forceFill(['delivered_at' => null, 'delivered_by' => null])->save();
+
+        return back()->with('success', "Penandaan sampai {$sj->delivery_number} dibatalkan — kembali ke Dikirim.");
+    }
+
+    /** Batalkan penandaan sudah-diukur; pesanan kembali ke sub-tab "Perlu Ukur". */
+    public function batalUkuran(int $so)
+    {
+        $order = SalesOrder::findOrFail($so);
+        $order->update(['measured_at' => null, 'measured_by' => null]);
+
+        return back()->with('success', "Penandaan ukur {$order->order_number} dibatalkan — kembali ke Perlu Ukur.");
     }
 
     /** Tab Dikirim: pesanan marketplace yang sudah diserahkan ke jasa kirim (Jubelio shipped / resi dicetak + H+1). */

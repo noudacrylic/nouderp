@@ -57,6 +57,71 @@
     </div>
 @endif
 
+{{-- Kesepakatan pembayaran TEMPO. Sama seperti keep stock, ada di halaman lihat karena
+     kesepakatan tempo sering lahir setelah SO dikonfirmasi — dan SO terkonfirmasi tidak
+     bisa diedit lewat form. --}}
+@if($so->status !== 'void')
+    @php $tempoLewat = $so->isTempoOverdue(); @endphp
+    <div class="mt-3 p-3 rounded-lg border text-sm
+        {{ $tempoLewat ? 'bg-red-50 border-red-200' : ($so->is_tempo ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-200') }}">
+        <form method="POST" action="{{ route('sales.orders.tempo', $so->id) }}" class="flex items-start gap-2">
+            @csrf
+            <input type="hidden" name="is_tempo" value="{{ $so->is_tempo ? 0 : 1 }}">
+            <input type="hidden" name="tempo_days" value="{{ $so->tempo_days }}">
+            <input type="checkbox" onchange="this.form.submit()" {{ $so->is_tempo ? 'checked' : '' }}
+                class="mt-0.5 rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 cursor-pointer">
+            <div class="flex-1">
+                <div class="font-bold {{ $tempoLewat ? 'text-red-800' : ($so->is_tempo ? 'text-indigo-800' : 'text-gray-700') }}">
+                    Pembayaran Tempo
+                    @if($so->is_tempo && $so->tempo_days)
+                        <span class="ml-1 px-1.5 py-0.5 rounded bg-indigo-200 text-indigo-900 text-[10px] font-bold uppercase tracking-wide">{{ $so->tempo_days }} hari</span>
+                    @endif
+                </div>
+                <div class="text-[11px] text-gray-500 mt-0.5">
+                    @if($tempoLewat)
+                        <span class="text-red-700 font-semibold">
+                            Lewat jatuh tempo {{ abs($so->tempoDaysLeft()) }} hari ({{ $so->tempo_due_date->format('d/m/Y') }})
+                            — sisa {{ format_rupiah(max(0, (float) $so->grand_total - (float) $so->paid_amount)) }}.
+                        </span>
+                    @elseif($so->is_tempo && $so->tempo_due_date)
+                        Barang boleh dikirim sebelum dibayar. Jatuh tempo <b>{{ $so->tempo_due_date->format('d/m/Y') }}</b>
+                        ({{ $so->tempoDaysLeft() }} hari lagi).
+                    @elseif($so->is_tempo)
+                        Barang boleh dikirim sebelum dibayar, tanpa batas waktu yang disepakati.
+                    @else
+                        Centang bila pembeli membayar belakangan — pesanan langsung masuk antrean kerja
+                        tanpa menunggu DP maupun pelunasan.
+                    @endif
+                </div>
+            </div>
+        </form>
+
+        {{-- Termin dipisah dari kotak centangnya (form sendiri, tak boleh bersarang) supaya
+             lama tempo bisa dikoreksi tanpa harus mematikan lalu menyalakan ulang tempo.
+             Dikosongkan = tempo tanpa batas waktu, sama seperti di form SO. --}}
+        @if($so->is_tempo)
+            <form method="POST" action="{{ route('sales.orders.tempo', $so->id) }}"
+                  class="mt-2 pl-6 flex items-center gap-2 flex-wrap">
+                @csrf
+                <input type="hidden" name="is_tempo" value="1">
+                <span class="text-[11px] text-gray-500">Termin</span>
+                <input type="text" name="tempo_days" inputmode="numeric" value="{{ $so->tempo_days }}"
+                       placeholder="30"
+                       class="border border-gray-300 rounded px-2 py-1 w-20 text-right text-sm bg-white focus:ring-blue-500 focus:border-blue-500">
+                <span class="text-[11px] text-gray-500">hari</span>
+                <button type="submit"
+                        class="text-[11px] px-2.5 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">
+                    Simpan
+                </button>
+                <span class="text-[11px] text-gray-400">
+                    dihitung dari tanggal SO ({{ $so->order_date ? \Carbon\Carbon::parse($so->order_date)->format('d/m/Y') : '—' }});
+                    kosongkan = tanpa batas waktu
+                </span>
+            </form>
+        @endif
+    </div>
+@endif
+
 {{-- Kesepakatan keep stock + kondisi stok saat ini. Ada di sini karena kesepakatannya
      sering lahir setelah SO dikonfirmasi (pembeli menelepon saat pembayarannya tertahan),
      dan SO yang sudah dikonfirmasi tidak bisa diedit lewat form. --}}

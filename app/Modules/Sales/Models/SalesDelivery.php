@@ -26,13 +26,34 @@ class SalesDelivery extends Model
         'courier_name',
         'tracking_number',
         'resi_printed_at',
+        'delivered_at',
+        'delivered_by',
         'status'
     ];
 
     protected $casts = [
         'shipping_raw'    => 'array',
         'resi_printed_at' => 'datetime',
+        'delivered_at'    => 'datetime',
     ];
+
+    /**
+     * Tandai paket SUDAH SAMPAI di pembeli — pintu tunggal pengisian `delivered_at`, dipakai
+     * webhook Jubelio Shipment, sinkron status berkala, dan tombol manual di Pemrosesan Pesanan.
+     *
+     * `delivered_by` null = ditandai sistem dari status kurir, bukan orang. Mengembalikan false
+     * bila sudah pernah ditandai (idempoten — webhook Jubelio bisa datang berkali-kali).
+     */
+    public function markDelivered(?int $userId = null): bool
+    {
+        if ($this->delivered_at) {
+            return false;
+        }
+
+        $this->forceFill(['delivered_at' => now(), 'delivered_by' => $userId])->save();
+
+        return true;
+    }
 
     public function isBooked(): bool
     {

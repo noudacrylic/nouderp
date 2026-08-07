@@ -4,7 +4,7 @@
 <div class="flex items-center justify-between mb-3">
     <div>
         <h1 class="text-lg font-semibold">Dikirim</h1>
-        <p class="text-xs text-gray-500">Pesanan marketplace yang sudah diserahkan ke jasa kirim (status Jubelio: dikirim). Masih bisa cetak ulang resi/faktur. Pindah ke "Selesai" saat transaksi marketplace selesai.</p>
+        <p class="text-xs text-gray-500">Paket sudah diserahkan ke jasa kirim dan masih di jalan. Non-marketplace: cek posisi paket lewat "Lacak", lalu tekan "Sudah Sampai" pada Surat Jalannya — pesanan pindah ke "Selesai" begitu semua paketnya sampai. Marketplace mengikuti status Jubelio.</p>
     </div>
 </div>
 
@@ -20,4 +20,5 @@
 
 @include('erp.pos.fulfillment._seller_notes_js')
 @include('erp.pos.fulfillment._copy_js')
+@include('erp.pos.fulfillment._fokus_js')
 @endsection

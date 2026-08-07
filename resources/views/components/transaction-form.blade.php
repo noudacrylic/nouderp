@@ -164,6 +164,7 @@
                     @if($type === 'sales_order')
                         @include('erp.sales.orders._min-dp-field', ['so' => $so ?? null])
                         @include('erp.sales.orders._backorder-field', ['so' => $so ?? null])
+                        @include('erp.sales.orders._tempo-field', ['so' => $so ?? null])
                     @endif
                 </div>
             </div>

@@ -121,6 +121,9 @@ class JubelioFulfillmentBucketingTest extends TestCase
             'order_number' => 'SO-TOKO-1', 'customer_id' => $cust->id, 'warehouse_id' => $this->warehouseId(),
             'order_date' => now()->toDateString(), 'global_discount_type' => 'nominal',
             'status' => 'confirmed', 'grand_total' => 50000, 'paid_amount' => 50000,
+            // Yang diuji di sini bendera marketplace, bukan gerbang ukur — tanpa penanda ini
+            // pesanan berhenti di "Perlu Ukur" dan tak pernah sampai ke bucket yang dicek.
+            'measured_at' => now(),
         ]);
 
         $row = app(FulfillmentReadinessService::class)->bucket('perlu_diproses')->firstWhere('id', $so->id);
