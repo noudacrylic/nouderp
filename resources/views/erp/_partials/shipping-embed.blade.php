@@ -244,6 +244,16 @@
                || document.querySelector('input[name="_token"]')?.value || '';
 
     function num(v){ return (typeof cleanNumber === 'function') ? cleanNumber(v) : (parseFloat(String(v).replace(/[^0-9.-]/g,''))||0); }
+    /**
+     * Angka dari <input type="number">. WAJIB dipakai untuk dimensi paket — JANGAN num().
+     *
+     * `.value` sebuah input number SELALU berdesimal titik ("71.2") apa pun locale layarnya,
+     * sedangkan num() memakai cleanNumber() yang membuang semua titik sebagai pemisah ribuan:
+     * 71.2 berubah jadi 712. Dimensi 71,2 × 25,3 cm terkirim sebagai 712 × 253 cm, volumetriknya
+     * meledak, dan ongkir J&T Cargo 288.000 tertagih 28.104.000. cleanNumber tetap benar untuk
+     * kolom rupiah yang memang diketik format Indonesia.
+     */
+    function numDec(v){ const n = parseFloat(String(v ?? '').trim()); return isFinite(n) ? n : 0; }
     function fmt(n){ return (typeof formatIDR === 'function') ? formatIDR(n) : Math.round(n).toLocaleString('id-ID'); }
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
@@ -307,9 +317,9 @@
             $id('shipping_service_name').value = d.service_name;
             $id('ship_courier_picked').textContent = d.courier_code ? (String(d.courier_code).toUpperCase() + ' · ' + (d.service_name||'')) : '';
         }
-        if (d.package_length != null && $id('pkg_length'))  $id('pkg_length').value  = num(d.package_length) > 0 ? d.package_length : '';
-        if (d.package_width  != null && $id('pkg_width'))   $id('pkg_width').value   = num(d.package_width)  > 0 ? d.package_width  : '';
-        if (d.package_height != null && $id('pkg_height'))  $id('pkg_height').value  = num(d.package_height) > 0 ? d.package_height : '';
+        if (d.package_length != null && $id('pkg_length'))  $id('pkg_length').value  = numDec(d.package_length) > 0 ? d.package_length : '';
+        if (d.package_width  != null && $id('pkg_width'))   $id('pkg_width').value   = numDec(d.package_width)  > 0 ? d.package_width  : '';
+        if (d.package_height != null && $id('pkg_height'))  $id('pkg_height').value  = numDec(d.package_height) > 0 ? d.package_height : '';
         computeNet();
     };
 
@@ -543,7 +553,7 @@
         // Koordinat tujuan → kurir instant (Grab/GoSend/Lalamove) ikut muncul.
         if (destLat != null && destLong != null){ params.destination_latitude = destLat; params.destination_longitude = destLong; }
         // Dimensi paket manual (volumetrik) → pilihan kendaraan instant yang tepat (Pickup utk barang besar).
-        const pl = num($id('pkg_length')?.value), pw = num($id('pkg_width')?.value), ph = num($id('pkg_height')?.value);
+        const pl = numDec($id('pkg_length')?.value), pw = numDec($id('pkg_width')?.value), ph = numDec($id('pkg_height')?.value);
         if (pl > 0) params.package_length = pl;
         if (pw > 0) params.package_width  = pw;
         if (ph > 0) params.package_height = ph;
