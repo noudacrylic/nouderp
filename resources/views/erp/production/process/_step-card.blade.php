@@ -179,8 +179,15 @@
                 @if($mainOut)<span class="text-gray-400 font-bold"> ({{ number_format((float)$mainOut->qty_planned, 0) }})</span>@endif
             </div>
             <div class="flex items-center gap-1.5 flex-wrap leading-tight mt-0.5">
-                <a href="{{ route('production.orders.show', $order->id) }}"
-                   class="text-[11px] font-bold text-blue-600 hover:underline">{{ $order->order_number }}</a>
+                {{-- Nomor OP jadi tautan hanya bagi yang boleh membuka Order Produksi; bagi
+                     operator divisi ia tetap tampil sebagai teks (tombol "Detil" di bawah
+                     memakai modal, jadi rinciannya tetap terjangkau). --}}
+                @if(user_can_access('production.orders'))
+                    <a href="{{ route('production.orders.show', $order->id) }}"
+                       class="text-[11px] font-bold text-blue-600 hover:underline">{{ $order->order_number }}</a>
+                @else
+                    <span class="text-[11px] font-bold text-gray-600">{{ $order->order_number }}</span>
+                @endif
                 <span class="text-[10px] px-1.5 py-0.5 rounded font-black {{ $tc }} @if($isRepair) ring-1 ring-orange-300 shadow-sm @endif">@if($isRepair)🔧 @endif{{ strtoupper($order->type_label) }}</span>
                 @if($order->bom)
                     <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold bg-teal-50 text-teal-700 border border-teal-100"
@@ -315,7 +322,7 @@
 
             @if($isLastStep)
                 {{-- Ambil sebagian hasil tanpa menutup langkah — timer tetap berjalan. --}}
-                <a href="{{ route('production.orders.partial-confirm', $order->id) }}"
+                <a href="{{ route('production.process.partial-confirm', $order->id) }}"
                    class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
                     Ambil Sebagian
                 </a>
@@ -331,7 +338,7 @@
             </form>
 
             @if($isLastStep)
-                <a href="{{ route('production.orders.partial-confirm', $order->id) }}"
+                <a href="{{ route('production.process.partial-confirm', $order->id) }}"
                    class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
                     Ambil Sebagian
                 </a>

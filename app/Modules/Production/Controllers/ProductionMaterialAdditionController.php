@@ -238,9 +238,32 @@ class ProductionMaterialAdditionController extends Controller
             }
         });
 
-        // Arahkan kembali ke posisi task di Proses Produksi (divisi task tsb)
-        return redirect(route('production.process.index', array_filter(['department_id' => $redirectDeptId])))
+        // Arahkan kembali ke posisi task di Proses Produksi (divisi task tsb) — TAPI hanya bila
+        // penggunanya memang boleh membuka papan divisi itu. Operator divisi lain (mis. Assembling
+        // mencatat bahan untuk langkah CNC) akan ditolak middleware di halaman tujuan, dan
+        // penyimpanan yang sebenarnya sudah berhasil jadi terlihat seperti gagal.
+        return redirect($this->bolehBukaProses($redirectDeptId)
+                ? route('production.process.index', array_filter(['department_id' => $redirectDeptId]))
+                : route('production.material-additions.index'))
             ->with('success', 'Penambahan bahan berhasil dicatat dan stok telah dikurangi.');
+    }
+
+    /**
+     * Pengguna saat ini boleh membuka papan Proses Produksi divisi ini? Aturannya disamakan
+     * dengan EnsureMenuAccess: admin bebas, user divisi hanya papan divisinya sendiri.
+     */
+    private function bolehBukaProses(?int $departmentId): bool
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return false;
+        }
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return app(\App\Services\MenuRegistry::class)
+            ->userCanAccessProcessRoute($departmentId, fn ($key) => $user->hasMenuPermission($key));
     }
 
     /**

@@ -500,7 +500,7 @@ class PartialFinalizationTest extends TestCase
         $mainId = $this->mainOutput($order)->id;
 
         $this->actingAs($this->admin())
-            ->get(route('production.orders.partial-confirm', $order->id))
+            ->get(route('production.process.partial-confirm', $order->id))
             ->assertOk()
             ->assertSee('Selesaikan Sebagian');
 
@@ -539,6 +539,38 @@ class PartialFinalizationTest extends TestCase
             'production_order_id' => $order->id,
             'reason'              => 'operator potong 10 lembar, rencana 8',
         ]);
+    }
+
+    /**
+     * Yang menjalankan "Ambil Sebagian" adalah operator divisi (role user), bukan admin. Rutenya
+     * SENGAJA dinamai `production.process.*` supaya izinnya ikut menu Proses Produksi — waktu
+     * masih bernama `production.orders.*` ia terkunci di balik menu Order Produksi yang tidak
+     * dipegang operator, sehingga tombolnya ada tapi selalu berujung "akses ditolak".
+     */
+    public function test_operator_divisi_bisa_membuka_halaman_ambil_sebagian(): void
+    {
+        $order = $this->makeOrder(wip: 2_800_000, byproductQty: null);
+
+        $this->actingAs($this->operator())
+            ->get(route('production.process.partial-confirm', $order->id))
+            ->assertOk()
+            ->assertSee('Selesaikan Sebagian');
+    }
+
+    /** Operator divisi: role user dengan izin papan Proses Produksi divisinya saja. */
+    private function operator(): \App\Models\User
+    {
+        $deptId = DB::table('production_departments')->insertGetId([
+            'code' => 'CNC', 'name' => 'CNC', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $user = \App\Models\User::factory()->create(['role' => 'user', 'is_active' => true]);
+        DB::table('user_menu_permissions')->insert([
+            'user_id' => $user->id, 'menu_key' => "production.process.{$deptId}",
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $user;
     }
 
     private function admin(): \App\Models\User

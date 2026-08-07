@@ -109,15 +109,25 @@
                 @endif
             </p>
         </div>
-        <a href="{{ route('production.orders.index') }}"
-           class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">
-            ← Order Produksi
-        </a>
+        {{-- Operator divisi tidak memegang menu Order Produksi — tombolnya disembunyikan, bukan
+             dibiarkan mengantar ke layar "akses ditolak". --}}
+        @if(user_can_access('production.orders'))
+            <a href="{{ route('production.orders.index') }}"
+               class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">
+                ← Order Produksi
+            </a>
+        @endif
     </div>
 
     @if(!empty($testingMode))
         <div class="mb-5 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-2.5 text-sm font-semibold">
-            🧪 <span>Mode Testing aktif — task bisa dimulai tanpa scan sidik jari. Matikan di <a href="{{ route('production.settings') }}" class="underline">Pengaturan Produksi</a> untuk produksi nyata.</span>
+            🧪 <span>Mode Testing aktif — task bisa dimulai tanpa scan sidik jari. Matikan di
+                @if(user_can_access('settings.production'))
+                    <a href="{{ route('production.settings') }}" class="underline">Pengaturan Produksi</a>
+                @else
+                    Pengaturan Produksi
+                @endif
+                untuk produksi nyata.</span>
         </div>
     @endif
 

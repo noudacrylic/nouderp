@@ -443,8 +443,10 @@ class ProductionOrderController extends Controller
         $order = ProductionOrder::with(['outputs.product', 'steps.department'])->findOrFail($id);
 
         if (!in_array($order->status, ['in_progress', 'partial'], true)) {
-            return redirect()->route('production.orders.show', $id)
-                ->with('error', 'Penyelesaian sebagian hanya bisa dilakukan saat produksi sedang berjalan.');
+            // back(), bukan orders.show: yang memakai halaman ini operator divisi, dan mereka
+            // tidak punya akses ke menu Order Produksi — dilempar ke sana artinya pesan
+            // kesalahannya berubah jadi layar "akses ditolak".
+            return back()->with('error', 'Penyelesaian sebagian hanya bisa dilakukan saat produksi sedang berjalan.');
         }
 
         $wip         = $service->wipSummary($id);

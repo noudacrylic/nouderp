@@ -1076,8 +1076,12 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('orders/{id}/cancel', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'cancel'])->name('orders.cancel');
     Route::get('orders/{id}/finalize-confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'finalizeConfirm'])->name('orders.finalize-confirm');
     Route::post('orders/{id}/finalize', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'finalize'])->name('orders.finalize');
-    Route::get('orders/{id}/partial-confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'partialConfirm'])->name('orders.partial-confirm');
-    Route::post('orders/{id}/partial', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'partial'])->name('orders.partial');
+    // Ambil hasil sebagian: dinamai `process.*` (bukan `orders.*`) DENGAN SENGAJA. Aksinya
+    // dijalankan operator dari papan Proses Produksi dan kembali ke sana, jadi izinnya harus
+    // ikut menu Proses Produksi — kalau ikut `orders.*` ia terkunci di balik menu Order
+    // Produksi yang tidak dipegang user divisi. URL-nya tidak berubah.
+    Route::get('orders/{id}/partial-confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'partialConfirm'])->name('process.partial-confirm');
+    Route::post('orders/{id}/partial', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'partial'])->name('process.partial');
     Route::post('orders/{id}/finalizations/{batchId}/void', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'voidBatch'])->name('orders.finalizations.void');
     Route::post('orders/{id}/revise-target', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'reviseTarget'])->name('orders.revise-target');
     Route::post('orders/{id}/void', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'void'])->name('orders.void');

@@ -17,7 +17,7 @@
         </a>
     </div>
 
-    <form action="{{ route('production.orders.partial', $order->id) }}" method="POST">
+    <form action="{{ route('production.process.partial', $order->id) }}" method="POST">
         @csrf
 
         <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
