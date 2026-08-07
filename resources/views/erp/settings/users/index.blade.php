@@ -59,11 +59,15 @@
                 <tbody>
                     @forelse($users as $user)
                         @php
+                            // Fallback WAJIB: role 'karyawan' (akun PWA /me) lahir dari self-register dan
+                            // dulu tidak ada di peta ini → seluruh halaman 500 "Undefined array key".
+                            // Role baru apa pun cukup jatuh ke badge netral, bukan bikin halaman mati.
                             $roleBadge = [
                                 'super_admin' => ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'label' => 'Super Admin'],
                                 'admin'       => ['bg' => 'bg-blue-100',   'text' => 'text-blue-700',   'label' => 'Admin'],
                                 'user'        => ['bg' => 'bg-gray-100',   'text' => 'text-gray-700',   'label' => 'User'],
-                            ][$user->role];
+                                'karyawan'    => ['bg' => 'bg-teal-100',   'text' => 'text-teal-700',   'label' => 'Karyawan (PWA)'],
+                            ][$user->role] ?? ['bg' => 'bg-gray-100', 'text' => 'text-gray-500', 'label' => $user->role];
                             $userJsonPayload = [
                                 'id' => $user->id,
                                 'username' => $user->username,
@@ -207,6 +211,9 @@
                                         <option value="admin">Admin (akses penuh + manage user)</option>
                                     @endif
                                     <option value="user">User (per-menu)</option>
+                                    {{-- Tanpa opsi ini, membuka modal Edit akun PWA (role 'karyawan') menampilkan
+                                         opsi pertama dan menyimpannya diam-diam MENGUBAH role-nya. --}}
+                                    <option value="karyawan">Karyawan (PWA absensi /me)</option>
                                 </select>
                             </div>
                             <div>

@@ -165,7 +165,7 @@ class UserController extends Controller
             'name'     => ['required', 'string', 'max:100'],
             'email'    => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
             'password' => [$existing ? 'nullable' : 'required', 'string', 'min:6', 'max:60'],
-            'role'     => ['required', Rule::in(['super_admin', 'admin', 'user'])],
+            'role'     => ['required', Rule::in(['super_admin', 'admin', 'user', 'karyawan'])],
             'karyawan_id' => ['nullable', 'integer', 'exists:sdm_karyawan,id', Rule::unique('users', 'karyawan_id')->ignore($userId)],
             'permissions'   => 'array',
             'permissions.*' => 'string|max:80',
