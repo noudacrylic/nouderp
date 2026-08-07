@@ -10,9 +10,17 @@
     $scSvc   = old('shipping_service_code', $m->shipping_service_code ?? '');
     $scProv  = old('shipping_provider', $m->shipping_provider ?? '');
     $scName  = old('shipping_service_name', $m->shipping_service_name ?? '');
-    $pkgL    = old('package_length', $m->package_length ?? '');
-    $pkgW    = old('package_width',  $m->package_width ?? '');
-    $pkgH    = old('package_height', $m->package_height ?? '');
+    // Berat & dimensi bawaan: tersimpan di dokumen dulu, baru taksiran master produk (lihat
+    // PackageDefaults). Dokumen BARU (create) tidak punya keduanya — di sana angkanya diisi
+    // JS recalcWeight() begitu barisnya terisi.
+    $pkgDefaults = app(\App\Modules\Shipping\Services\PackageDefaults::class)->for($m);
+    $pkgL    = old('package_length', $pkgDefaults['length'] ?? '');
+    $pkgW    = old('package_width',  $pkgDefaults['width'] ?? '');
+    $pkgH    = old('package_height', $pkgDefaults['height'] ?? '');
+    $pkgWeight = old('weight_gram', $pkgDefaults['weight_gram'] ?? '');
+    // Berat hasil timbang TIDAK boleh ditimpa hitung-ulang otomatis dari master produk;
+    // taksiran boleh (angkanya memang sementara, ikut berubah saat barisnya berubah).
+    $pkgWeightTerkunci = ($pkgDefaults['weight_gram'] ?? null) && !$pkgDefaults['estimated_weight'];
     $fmtDim  = fn ($v) => ($v !== '' && $v !== null && (float) $v > 0) ? rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.') : '';
     $pkDate  = old('pickup_date', ($m && $m->pickup_date) ? \Carbon\Carbon::parse($m->pickup_date)->format('Y-m-d') : '');
     $manualCouriers = \App\Models\ManualCourier::active()->get(['code', 'name']);
@@ -75,7 +83,9 @@
         <div class="flex items-end gap-2 flex-wrap">
             <div>
                 <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Berat (gram)</label>
-                <input type="number" id="ship_weight" value="1000" min="1"
+                <input type="number" id="ship_weight" name="weight_gram" value="{{ $pkgWeight }}" min="1"
+                    placeholder="0"
+                    @if($pkgWeightTerkunci) data-tersimpan="1" title="Hasil timbang yang tersimpan di dokumen ini" @endif
                     class="form-control border border-gray-200 rounded-lg px-3 py-2 text-sm w-24">
             </div>
             <button type="button" id="btn_cek_ongkir"
@@ -476,7 +486,9 @@
 
     // ---- auto berat dari item produk ----
     let weightTimer = null;
-    let weightManual = false; // user mengetik manual → jangan ditimpa
+    // Jangan ditimpa hitung-ulang otomatis bila user mengetik sendiri, ATAU bila kolomnya
+    // sudah berisi hasil timbang yang tersimpan di dokumen (data-tersimpan).
+    let weightManual = !!document.getElementById('ship_weight')?.dataset.tersimpan;
     function collectItems(){
         const rows = document.querySelectorAll('#items .item-row');
         const items = [];

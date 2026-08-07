@@ -836,40 +836,7 @@ class FulfillmentReadinessService
      */
     private function measureDefaults(SalesOrder $so): array
     {
-        $weight = (int) ($so->package_weight_gram ?? 0);
-        $len    = (float) ($so->package_length ?? 0);
-        $wid    = (float) ($so->package_width ?? 0);
-        $hei    = (float) ($so->package_height ?? 0);
-
-        if ($weight <= 0 || ($len <= 0 && $wid <= 0 && $hei <= 0)) {
-            $estWeight = 0;
-            $estL = $estW = $estH = 0.0;
-
-            foreach ($so->items as $it) {
-                $p = $it->product;
-                if (!$p || in_array($p->sale_type ?? null, ['service', 'non_stock'], true)) continue;
-
-                $qty = (float) $it->qty * (float) ($it->conversion_to_base ?? 1);
-                $estWeight += (int) ($p->weight_gram ?? 0) * $qty;
-                $estL = max($estL, (float) ($p->length_cm ?? 0));
-                $estW = max($estW, (float) ($p->width_cm ?? 0));
-                $estH = max($estH, (float) ($p->height_cm ?? 0));
-            }
-
-            if ($weight <= 0) $weight = (int) round($estWeight);
-            if ($len <= 0 && $wid <= 0 && $hei <= 0) {
-                $len = $estL;
-                $wid = $estW;
-                $hei = $estH;
-            }
-        }
-
-        return [
-            'weight_gram' => $weight ?: null,
-            'length'      => $len ?: null,
-            'width'       => $wid ?: null,
-            'height'      => $hei ?: null,
-        ];
+        return app(\App\Modules\Shipping\Services\PackageDefaults::class)->for($so);
     }
 
     /** Kekurangan stok SO ini, dari peta yang sudah dihitung sekali untuk seluruh halaman. */

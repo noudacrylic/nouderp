@@ -488,7 +488,6 @@ class SalesOrderController extends Controller
                 'shipping_courier_code'   => $ship['courier_code'],
                 'shipping_service_code'   => $ship['service_code'],
                 'shipping_service_name'   => $ship['service_name'],
-            'shipping_provider'       => $ship['provider'] ?? null,
                 'shipping_provider'       => $ship['provider'] ?? null,
                 'package_length'          => $ship['pkg_length'],
                 'package_width'           => $ship['pkg_width'],
@@ -657,7 +656,6 @@ class SalesOrderController extends Controller
                 'shipping_courier_code'   => $ship['courier_code'],
                 'shipping_service_code'   => $ship['service_code'],
                 'shipping_service_name'   => $ship['service_name'],
-            'shipping_provider'       => $ship['provider'] ?? null,
                 'shipping_provider'       => $ship['provider'] ?? null,
                 'package_length'          => $ship['pkg_length'],
                 'package_width'           => $ship['pkg_width'],
@@ -700,7 +698,7 @@ class SalesOrderController extends Controller
     {
         if ($deliveryMethod === 'ambil_toko') {
             return ['gross' => 0, 'disc_type' => 'nominal', 'disc_value' => 0, 'net' => 0, 'courier_code' => null, 'service_code' => null, 'service_name' => null,
-                    'pkg_length' => null, 'pkg_width' => null, 'pkg_height' => null];
+                    'pkg_length' => null, 'pkg_width' => null, 'pkg_height' => null, 'pkg_weight' => null];
         }
 
         $gross    = clean_number($request->shipping_gross ?? $request->shipping_cost ?? 0);
@@ -723,6 +721,12 @@ class SalesOrderController extends Controller
             'pkg_length'   => $dim($request->package_length),
             'pkg_width'    => $dim($request->package_width),
             'pkg_height'   => $dim($request->package_height),
+            // Berat yang dipakai saat cek ongkir ikut disimpan: kalau tidak, membuka form ini
+            // lagi hanya memperlihatkan taksiran master produk, sementara ongkir yang sudah
+            // tersimpan dihitung dari angka lain — dua angka yang tidak pernah bertemu.
+            'pkg_weight'   => ($request->filled('weight_gram') && (int) clean_number($request->weight_gram) > 0)
+                ? (int) clean_number($request->weight_gram)
+                : null,
         ];
     }
 
@@ -857,6 +861,8 @@ class SalesOrderController extends Controller
             'package_length'          => $ship['pkg_length'],
             'package_width'           => $ship['pkg_width'],
             'package_height'          => $ship['pkg_height'],
+            // Hasil timbang yang sudah ada tidak ditimpa nilai kosong dari form.
+            'package_weight_gram'     => $ship['pkg_weight'] ?: $so->package_weight_gram,
             'grand_total'             => $grandTotal,
         ]);
 
@@ -875,7 +881,6 @@ class SalesOrderController extends Controller
                 'shipping_courier_code'   => $ship['courier_code'],
                 'shipping_service_code'   => $ship['service_code'],
                 'shipping_service_name'   => $ship['service_name'],
-            'shipping_provider'       => $ship['provider'] ?? null,
                 'shipping_provider'       => $ship['provider'] ?? null,
                 'package_length'          => $ship['pkg_length'],
                 'package_width'           => $ship['pkg_width'],

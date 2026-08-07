@@ -421,14 +421,10 @@ class SalesDeliveryController extends Controller
         // Berat bawaan: hasil timbang kardus (sub-tab "Perlu Ukur") kalau ada, baru jatuh ke
         // penjumlahan berat master produk. Popup ini SELALU mengirim weight_gram sebagai
         // override — kalau di sini diisi taksiran, hasil timbang operator ketimpa diam-diam.
-        $defaultWeight = (int) ($src->package_weight_gram ?? 0);
-        if ($defaultWeight <= 0) {
-            foreach ($delivery->items as $it) {
-                $p = $it->product;
-                if (!$p || in_array($p->sale_type, ['service', 'non_stock'], true)) continue;
-                $defaultWeight += (int) ($p->weight_gram ?? 0) * max(1, (int) ceil((float) $it->qty));
-            }
-        }
+        // Ditaksir dari BARIS SURAT JALAN ini (kiriman parsial hanya membawa sebagian barang),
+        // bukan dari seluruh isi SO.
+        $defaultWeight = app(\App\Modules\Shipping\Services\PackageDefaults::class)
+            ->weightFor($src, $delivery->items);
 
         $courierCode = $src->shipping_courier_code ?? null;
         $provider    = $src->shipping_provider ?? null;
