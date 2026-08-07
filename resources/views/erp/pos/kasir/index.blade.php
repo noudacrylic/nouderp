@@ -506,7 +506,10 @@
         fetch(checkout.qris_url, { headers: { 'Accept': 'application/json' } })
             .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
             .then(({ ok, data }) => {
-                if (!ok) { el('qrisBody').innerHTML = `<div class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">${data.error || 'Gagal'}</div>`; return; }
+                // `error` = pesan bisnis dari MidtransAdminController; `message` = pesan
+                // framework (403 akses menu, 419 sesi kedaluwarsa). Tampilkan keduanya —
+                // "Gagal" polos menyembunyikan penyebab sebenarnya.
+                if (!ok) { el('qrisBody').innerHTML = `<div class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">${escapeHtml(data.error || data.message || 'Gagal memuat QRIS.')}</div>`; return; }
                 el('qrisBody').innerHTML = `
                     <div class="text-2xl font-bold text-emerald-700 mb-2">${rupiah(data.amount)}</div>
                     <div class="text-xs text-gray-400 mb-3">Faktur ${escapeHtml(checkout.invoice_no)}</div>
