@@ -69,7 +69,10 @@ return [
             'sales.deliveries'  => ['label' => 'Pengiriman',  'url' => '/erp/sales/deliveries',     'route_patterns' => ['sales.deliveries.*']],
             'sales.invoices'    => ['label' => 'Invoice',     'url' => '/erp/sales/invoices',       'route_patterns' => ['sales.invoices.*']],
             'sales.billing'     => ['label' => 'Billing',     'url' => '/erp/sales/billing',        'route_patterns' => ['sales.billing.*']],
-            'sales.payment'     => ['label' => 'Payment',     'url' => '/erp/sales/payment',        'route_patterns' => ['sales.payment.*', 'sales.payments.*']],
+            // `sales.midtrans.admin.*` = aksi bayar Midtrans (link/QRIS/poll status) yang
+            // hidup di /erp/sales/payment/*. Tanpa pola ini route-nya tak punya menu_key →
+            // EnsureMenuAccess menolak SEMUA user non-admin (mis. QRIS Kasir gagal terbuka).
+            'sales.payment'     => ['label' => 'Payment',     'url' => '/erp/sales/payment',        'route_patterns' => ['sales.payment.*', 'sales.payments.*', 'sales.midtrans.admin.*']],
             'sales.returns'     => ['label' => 'Retur',       'url' => '/erp/sales/returns',        'route_patterns' => ['sales.returns.*']],
             'sales.warranty'    => ['label' => 'Garansi',     'url' => '/erp/sales/warranty',       'route_patterns' => ['sales.warranty.*']],
             'sales.cek-ongkir'  => ['label' => 'Cek Ongkir',  'url' => '/erp/sales/cek-ongkir',     'route_patterns' => ['sales.cek-ongkir*']],
