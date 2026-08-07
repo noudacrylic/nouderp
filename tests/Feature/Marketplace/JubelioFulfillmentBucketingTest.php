@@ -105,13 +105,94 @@ class JubelioFulfillmentBucketingTest extends TestCase
         $this->assertNull($svc->bucket('perlu_diproses')->firstWhere('id', $so->id));
     }
 
-    public function test_unpaid_marketplace_order_is_belum_siap(): void
+    /**
+     * Belum dibayar di channel = "Belum Bayar", BUKAN "Belum Siap". "Belum Siap" khusus pesanan
+     * yang uangnya sudah masuk tapi barangnya belum ada — dua keadaan yang berbeda tindakannya:
+     * yang satu ditunggu/ditagih, yang satu dikejar produksi/stoknya.
+     */
+    public function test_unpaid_marketplace_order_is_belum_bayar(): void
     {
         $so = $this->marketplaceSo(['dp_posted' => false]);
 
-        $row = app(FulfillmentReadinessService::class)->bucket('belum_siap')->firstWhere('id', $so->id);
+        $svc = app(FulfillmentReadinessService::class);
+        $row = $svc->bucket('belum_bayar')->firstWhere('id', $so->id);
         $this->assertNotNull($row);
         $this->assertSame('Menunggu pembayaran marketplace', $row['reason']);
+        $this->assertNull($svc->bucket('belum_siap')->firstWhere('id', $so->id));
+    }
+
+    /** Pesanan marketplace yang bahkan belum jadi SO (belum dibayar) ikut ke "Belum Bayar". */
+    public function test_marketplace_pending_link_is_belum_bayar_dan_halamannya_terbuka(): void
+    {
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 888, 'jubelio_salesorder_no' => 'SP-BELUM-BAYAR',
+            // last_status diisi seperti hasil sinkron Jubelio: baris ber-status NULL memang
+            // tersaring keluar oleh mpPendingRows() (`!= 'canceled'` bernilai NULL untuk NULL).
+            'last_status' => 'pending', 'store' => 'Shopee',
+            'snap_customer' => 'Pembeli Shopee', 'snap_grand_total' => 45000,
+        ]);
+
+        $svc = app(FulfillmentReadinessService::class);
+        $row = $svc->bucket('belum_bayar')->firstWhere('number', 'SP-BELUM-BAYAR');
+        $this->assertNotNull($row);
+        $this->assertSame('mp_pending', $row['kind']);
+        $this->assertNull($svc->bucket('belum_siap')->firstWhere('number', 'SP-BELUM-BAYAR'));
+
+        // Kartu "belum jadi SO" berbeda bentuk dari kartu SO — halamannya harus tetap terender.
+        $admin = \App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->actingAs($admin)
+            ->get(route('pos.fulfillment.belum-bayar'))
+            ->assertOk()
+            ->assertSee('Belum jadi SO');
+    }
+
+    /**
+     * Sudah dibayar di channel bukan berarti barangnya ada. Pesanan preorder yang OP-nya masih
+     * berjalan harus tertahan di "Belum Siap" — kalau tidak, tim packing mengejar barang yang
+     * belum jadi (dulu marketplace dilewatkan dari semua cek kesiapan).
+     */
+    public function test_marketplace_dengan_produksi_belum_selesai_masuk_belum_siap(): void
+    {
+        $so = $this->marketplaceSo();
+        $produk = \App\Core\Inventory\Product::create([
+            'sku' => 'PO-MP-1', 'name' => 'Box Charger Custom', 'sale_type' => 'preorder', 'lead_time_days' => 3,
+        ]);
+        \App\Modules\Sales\Models\SalesOrderItem::create([
+            'sales_order_id' => $so->id, 'product_id' => $produk->id, 'qty' => 2,
+            'conversion_to_base' => 1, 'unit_price' => 50000, 'net_unit_price' => 50000,
+            'line_subtotal' => 100000, 'line_discount' => 0, 'line_total' => 100000,
+        ]);
+        \App\Modules\Production\Models\ProductionOrder::create([
+            'order_number' => 'OP-MP-1', 'sales_order_id' => $so->id, 'type' => 'custom',
+            'warehouse_id' => $this->warehouseId(), 'planned_qty' => 2, 'status' => 'in_progress',
+            'production_date' => now()->toDateString(),
+        ]);
+
+        $svc = app(FulfillmentReadinessService::class);
+        $row = $svc->bucket('belum_siap')->firstWhere('id', $so->id);
+        $this->assertNotNull($row, 'produksi belum selesai harus menahan pesanan marketplace');
+        $this->assertSame('Produksi belum selesai', $row['reason']);
+        $this->assertNull($svc->bucket('perlu_diproses')->firstWhere('id', $so->id));
+    }
+
+    /** Stok fisik 0/minus juga menahan pesanan marketplace, bukan cuma pesanan toko. */
+    public function test_marketplace_dengan_stok_kurang_masuk_belum_siap(): void
+    {
+        $so = $this->marketplaceSo();
+        $produk = \App\Core\Inventory\Product::create([
+            'sku' => 'RDY-MP-1', 'name' => 'Rak Bolpoin', 'sale_type' => 'ready',
+        ]);
+        \App\Modules\Sales\Models\SalesOrderItem::create([
+            'sales_order_id' => $so->id, 'product_id' => $produk->id, 'qty' => 3,
+            'conversion_to_base' => 1, 'unit_price' => 20000, 'net_unit_price' => 20000,
+            'line_subtotal' => 60000, 'line_discount' => 0, 'line_total' => 60000,
+        ]);
+        // Stok gudang 0 → kurang 3.
+
+        $svc = app(FulfillmentReadinessService::class);
+        $row = $svc->bucket('belum_siap')->firstWhere('id', $so->id);
+        $this->assertNotNull($row);
+        $this->assertStringContainsString('RDY-MP-1', $row['reason']);
     }
 
     public function test_non_marketplace_order_unaffected(): void

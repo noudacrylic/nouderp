@@ -482,9 +482,11 @@ class FulfillmentReadinessService
         // diposting. Marketplace tak pernah tempo — uangnya diatur channel.
         $isTempo = !$link && (bool) $so->is_tempo;
 
-        // Kekurangan stok fisik (ready stock). Marketplace dikecualikan: stoknya sudah dipotong
-        // di sisi Jubelio, dan "kurang" di ERP bukan sesuatu yang bisa ditindak tim packing.
-        $shortages = $link ? [] : $this->shortagesFor($so);
+        // Kekurangan stok fisik (ready stock) — dihitung untuk SEMUA pesanan, termasuk
+        // marketplace. Marketplace dulu dikecualikan dengan alasan stoknya sudah dipotong di
+        // sisi Jubelio; kenyataannya barang yang tidak ada di gudang tetap tidak bisa dipacking,
+        // dan pesanannya lebih baik terlihat di "Belum Siap" daripada mengambang di antrean kerja.
+        $shortages = $this->shortagesFor($so);
 
         // Paket belum ditimbang & diukur setelah dipacking → tertahan di sub-tab "Perlu Ukur".
         $needsMeasure = $this->needsMeasurement($so, $link);
@@ -547,9 +549,18 @@ class FulfillmentReadinessService
             } elseif ($link->awb_requested || $link->last_status === 'processed' || $link->sj_created) {
                 $bucket = 'telah_diproses';
             } elseif ($link->dp_posted) {
-                $bucket = 'perlu_diproses';
+                // Sudah dibayar di channel — tapi barangnya tetap harus ADA. Marketplace dulu
+                // langsung masuk antrean kerja tanpa cek kesiapan sama sekali, sehingga pesanan
+                // preorder yang produksinya masih jalan (atau stoknya 0/minus) nongol di "Siap
+                // Proses" dan tim packing mengejar barang yang belum jadi.
+                $bucket = ($isCustom && !$prodFinalized) || $shortages
+                    ? 'belum_siap'
+                    : 'perlu_diproses';
             } else {
-                $bucket = 'belum_siap';
+                // Belum dibayar di channel-nya → "Belum Bayar", sejajar dengan pesanan non-
+                // marketplace tanpa DP. "Belum Siap" khusus pesanan yang UANGNYA SUDAH MASUK
+                // tapi barangnya belum ada — dua keadaan yang menuntut tindakan berbeda.
+                $bucket = 'belum_bayar';
             }
         } elseif ($postedInvoice) {
             // Non-marketplace sudah diproses. Tiga tahap, sejajar dengan marketplace:
@@ -600,9 +611,7 @@ class FulfillmentReadinessService
         // Alasan tertahan (belum_bayar / belum_siap / belum_lunas / perlu_ukur)
         $reason = null;
         if ($bucket === 'belum_siap') {
-            if ($link) {
-                $reason = 'Menunggu pembayaran marketplace';
-            } elseif ($isCustom && !$prodFinalized) {
+            if ($isCustom && !$prodFinalized) {
                 $reason = 'Produksi belum selesai';
             } elseif ($shortages) {
                 // Sebut SKU-nya: "stok kurang" tanpa barangnya tak bisa ditindak siapa pun.
@@ -614,9 +623,11 @@ class FulfillmentReadinessService
                 $reason = 'Belum siap diproses';
             }
         } elseif ($bucket === 'belum_bayar') {
-            $reason = $so->status === 'draft'
-                ? 'Masih draft — perlu diposting dulu'
-                : 'Belum ada pembayaran / DP';
+            $reason = match (true) {
+                (bool) $link              => 'Menunggu pembayaran marketplace',
+                $so->status === 'draft'   => 'Masih draft — perlu diposting dulu',
+                default                   => 'Belum ada pembayaran / DP',
+            };
         } elseif ($bucket === 'belum_lunas') {
             $reason = 'Menunggu pelunasan — sisa ' . rupiah($remaining);
         } elseif ($bucket === 'perlu_ukur') {
@@ -1054,7 +1065,8 @@ class FulfillmentReadinessService
                 'customer'    => $link->snap_customer ?: '-',
                 'date'        => $link->snap_order_date,
                 'date_sort'   => (string) ($link->snap_order_date ?? $link->updated_at ?? $link->created_at),
-                'bucket'      => 'belum_siap',
+                // Belum jadi SO = belum dibayar di channel → sekelompok dengan "Belum Bayar".
+                'bucket'      => 'belum_bayar',
                 'reason'      => $reason,
                 'archived'    => false,
                 'is_marketplace' => true,

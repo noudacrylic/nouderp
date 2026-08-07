@@ -3,7 +3,7 @@
 @section('content')
 @php
     $judul = match($tahap) {
-        'belum-siap'  => ['Belum Siap', 'Produksi belum selesai atau stok fisik belum cukup — juga pesanan marketplace yang belum dibayar. Tombol proses sengaja dimatikan.'],
+        'belum-siap'  => ['Belum Siap', 'Uangnya sudah masuk (DP atau lunas) tapi barangnya belum ada: produksi belum selesai atau stok fisik belum cukup. Tombol proses sengaja dimatikan.'],
         'belum-lunas' => ['Belum Lunas', 'Barang sudah siap, tinggal menunggu pelunasan. Pesanan yang boleh dikirim sebelum lunas ditetapkan admin lewat tempo di form SO.'],
         'perlu-ukur'  => ['Perlu Ukur', 'Timbang & ukur kardus setelah dipacking supaya resi terbit dengan ongkir yang benar. Kolom sudah terisi taksiran — kalau sudah pas, simpan saja.'],
         default       => ['Siap Proses', 'Klik "Proses" untuk generate Faktur + Surat Jalan (kode booking wajib bila ambil di toko).'],
@@ -87,42 +87,11 @@
 
 <div class="space-y-5">
     @forelse($rows as $row)
-        @if($row['kind'] === 'garansi')
-            <div data-so-number="{{ $row['number'] }}" class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-rose-400 shadow-md hover:shadow-lg transition-shadow p-4">
-                <div class="flex items-start justify-between gap-3">
-                    @include('erp.pos.fulfillment._card_top', ['row' => $row])
-                    @if($tahap === 'siap')
-                        <a href="{{ route('sales.warranty.show', $row['id']) }}"
-                           class="shrink-0 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold">Proses Garansi →</a>
-                    @else
-                        <span class="shrink-0 px-2 py-0.5 rounded text-[11px] bg-gray-100 text-gray-500">⏳ {{ $row['reason'] }}</span>
-                    @endif
-                </div>
-            </div>
-        @elseif($row['kind'] === 'mp_pending')
-            {{-- Pesanan marketplace yang belum jadi SO (belum dibayar) — kartu info read-only. --}}
-            <div data-so-number="{{ $row['number'] }}" class="bg-white rounded-xl border border-gray-300 border-l-4 border-l-amber-400 shadow-md p-4">
-                <div class="flex items-center gap-2 flex-wrap">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">🛒 {{ $row['channel'] }}</span>
-                    @php $copyNumber = marketplace_copy_number($row['number'], true); @endphp
-                    <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $row['number'] }}</span>
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">⏳ Belum jadi SO</span>
-                    <span class="ml-auto text-xs text-gray-500 whitespace-nowrap">
-                        {{ $row['date'] ? \Carbon\Carbon::parse($row['date'])->format('d M Y') : '' }}
-                    </span>
-                </div>
-                <div class="mt-2 flex items-center gap-x-4 gap-y-1 flex-wrap text-[13px] text-gray-600">
-                    <span class="font-bold text-gray-800">{{ $row['customer'] }}</span>
-                    @if($row['item_count'])<span class="text-gray-400">{{ $row['item_count'] }} item</span>@endif
-                    <span>Total <b class="text-gray-800">Rp {{ number_format($row['grand_total'], 0, ',', '.') }}</b></span>
-                </div>
-                <div class="mt-1.5">
-                    <span class="inline-block px-2 py-0.5 rounded text-[11px] bg-gray-100 text-gray-500">⏳ {{ $row['reason'] }}</span>
-                </div>
-            </div>
-        @else
-            @include('erp.pos.fulfillment._so_card', ['row' => $row, 'mode' => $bucket])
-        @endif
+        @include('erp.pos.fulfillment._row', [
+            'row'                => $row,
+            'mode'               => $bucket,
+            'warrantyActionable' => $tahap === 'siap',
+        ])
     @empty
         <div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400 text-sm">
             {{ $tahap === 'siap' ? 'Tidak ada pesanan yang siap diproses.' : 'Tidak ada pesanan di tahap ini.' }}

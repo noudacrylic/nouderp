@@ -5,8 +5,8 @@
     <div>
         <h1 class="text-lg font-semibold">Belum Bayar</h1>
         <p class="text-xs text-gray-500">
-            Pesanan yang belum menerima pembayaran sama sekali — termasuk yang masih draft (belum diposting).
-            Otomatis pindah begitu pembayaran/DP masuk.
+            Pesanan yang belum menerima pembayaran sama sekali — termasuk yang masih draft (belum diposting)
+            dan pesanan marketplace yang belum dibayar di channel-nya. Otomatis pindah begitu pembayaran/DP masuk.
         </p>
     </div>
 </div>
@@ -15,7 +15,7 @@
 
 <div class="space-y-5">
     @forelse($rows as $row)
-        @include('erp.pos.fulfillment._so_card', ['row' => $row, 'mode' => 'belum_bayar'])
+        @include('erp.pos.fulfillment._row', ['row' => $row, 'mode' => 'belum_bayar'])
     @empty
         <div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400 text-sm">
             Tidak ada pesanan yang menunggu pembayaran.

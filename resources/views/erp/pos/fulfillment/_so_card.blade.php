@@ -394,6 +394,12 @@
             <p class="text-[11px] text-gray-400 mt-1 text-right">
                 Otomatis pindah ke "Siap Proses" begitu pelunasan masuk.
             </p>
+        @elseif(!empty($r['is_marketplace']))
+            {{-- Marketplace tak bisa ditagih dari sini — uangnya diatur channel. Beri tahu apa
+                 yang sedang terjadi supaya kartunya tidak dikira nyangkut. --}}
+            <p class="text-[11px] text-gray-400 mt-1 text-right italic">
+                Stok sudah ter-reserve. Otomatis pindah ke "Perlu Diproses" saat dibayar di marketplace.
+            </p>
         @endif
 
     @elseif($mode === 'perlu_ukur')
@@ -450,9 +456,7 @@
                 @endunless
             @endif
             <span class="ml-auto text-[11px] text-gray-400 italic">
-                {{ !empty($r['is_marketplace'])
-                    ? 'Stok sudah ter-reserve. Otomatis pindah ke "Perlu Diproses" saat dibayar di marketplace.'
-                    : 'Otomatis pindah ke "Perlu Diproses" saat syarat terpenuhi.' }}
+                Otomatis pindah ke "Perlu Diproses" saat syarat terpenuhi.
             </span>
         </div>
 
