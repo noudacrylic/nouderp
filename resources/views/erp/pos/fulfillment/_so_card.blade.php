@@ -364,6 +364,21 @@
                 </form>
             </div>
         @endif
+        {{-- Pesanan yang lolos lewat pembebasan paksa harus KELIHATAN lolosnya lewat mana.
+             Kalau tidak, tim packing mengira produksinya memang sudah selesai. --}}
+        @if(!empty($r['waived']))
+            <div class="mt-1 flex items-center justify-end gap-2 flex-wrap">
+                <span class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5"
+                      title="Gerbang produksi dilepas manual — barangnya tidak datang dari order produksi ERP">
+                    🔓 Dibebaskan dari gerbang produksi
+                </span>
+                <form action="{{ route('pos.fulfillment.batal-bebas', $r['id']) }}" method="POST"
+                      onsubmit="return confirm('Tarik kembali pembebasan {{ $r['number'] }}?')">
+                    @csrf
+                    <button type="submit" class="text-[11px] text-gray-500 hover:text-red-600 font-semibold">tarik kembali</button>
+                </form>
+            </div>
+        @endif
         @if(!$r['is_lunas'] && !empty($r['is_tempo']))
             <p class="text-[11px] text-indigo-600 mt-1 text-right">
                 Tempo — boleh dikirim dulu, sisa {{ rupiah($r['remaining']) }} ditagih
@@ -455,6 +470,26 @@
                             class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">QRIS</button>
                 @endunless
             @endif
+            {{-- Pembebasan gerbang produksi. Hanya muncul kalau memang GERBANG ITU yang menahan;
+                 pesanan yang tertahan karena stok kurang tidak ditawari — membebaskannya tidak
+                 menciptakan barang. Sengaja outline kecil, bukan tombol utama: ini jalan darurat,
+                 bukan langkah normal. --}}
+            @if(!empty($r['can_waive']))
+                <form action="{{ route('pos.fulfillment.bebaskan-produksi', $r['id']) }}" method="POST"
+                      class="flex items-center gap-1.5"
+                      onsubmit="if (!this.reason.value.trim()) { alert('Isi alasan pembebasan dulu.'); return false; }
+                                return confirm('Bebaskan {{ $r['number'] }} dari gerbang produksi? Pastikan barangnya benar-benar sudah ada.')">
+                    @csrf
+                    <input type="text" name="reason" maxlength="255" required
+                           placeholder="Alasan (mis. barang sisa order batal)"
+                           class="text-[11px] border border-gray-200 rounded px-2 py-1 w-56">
+                    <button type="submit"
+                            class="text-xs px-3 py-1.5 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 font-semibold whitespace-nowrap">
+                        🔓 Bebaskan Produksi
+                    </button>
+                </form>
+            @endif
+
             <span class="ml-auto text-[11px] text-gray-400 italic">
                 Otomatis pindah ke "Perlu Diproses" saat syarat terpenuhi.
             </span>

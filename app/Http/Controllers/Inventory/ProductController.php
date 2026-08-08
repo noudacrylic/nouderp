@@ -233,6 +233,22 @@ class ProductController extends Controller
         return response()->json(['success' => true, 'is_sellable' => (bool) $product->is_sellable]);
     }
 
+    /**
+     * Toggle penanda "Dibuat khusus per pesanan" langsung dari index produk.
+     *
+     * Ada di index (bukan cuma di form setup) karena penyetelan awalnya adalah pekerjaan
+     * sekali jalan atas puluhan produk sekaligus — memaksa buka-tutup form satu per satu
+     * cuma membuat orang menunda, lalu penandanya salah semua diam-diam.
+     */
+    public function updateMadeToOrder(Request $request)
+    {
+        $product = Product::findOrFail($request->product_id);
+        $product->made_to_order = $request->boolean('made_to_order');
+        $product->save();
+
+        return response()->json(['success' => true, 'made_to_order' => (bool) $product->made_to_order]);
+    }
+
     /** Toggle flag "Sinkron ke Jubelio" langsung dari index produk (tanpa buka edit). */
     public function updateSyncJubelio(Request $request)
     {
@@ -516,12 +532,14 @@ class ProductController extends Controller
     {
         $request->validate([
             'preorder_stock' => 'required|integer|min:0',
-            'lead_time_days' => 'required|integer|min:0'
+            'lead_time_days' => 'required|integer|min:0',
+            'made_to_order'  => 'required|boolean',
         ]);
 
         $product->update([
             'preorder_stock' => $request->preorder_stock,
-            'lead_time_days' => $request->lead_time_days
+            'lead_time_days' => $request->lead_time_days,
+            'made_to_order'  => $request->boolean('made_to_order'),
         ]);
 
         return back()->with('success', 'Preorder configuration saved successfully.');

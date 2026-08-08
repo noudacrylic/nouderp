@@ -1008,7 +1008,7 @@ class SalesOrderController extends Controller
         // Mass-update tidak memicu observer reservasi → tandai manual untuk push ke Jubelio.
         $this->flagJubelioStockPending($so->id);
 
-        $this->cancelAutoPreorderProductions($so);
+        $gagalBatal = $this->cancelAutoPreorderProductions($so);
 
         $so->status = 'void';
         $so->save();
@@ -1028,13 +1028,22 @@ class SalesOrderController extends Controller
             }
         }
 
+        // Produksi yang tidak bisa dibatalkan HARUS disebut. Kalau cuma masuk log, barangnya
+        // tetap dibuat tanpa ada yang tahu, lalu muncul sebagai stok tak terjelaskan berminggu
+        // kemudian — persis cara deadstock selama ini terbentuk.
+        if ($gagalBatal) {
+            return back()->with('warning', 'SO berhasil di-void, tetapi order produksi '
+                . implode(', ', $gagalBatal) . ' sudah dikerjakan sehingga tidak bisa dibatalkan. '
+                . 'Barangnya tetap akan jadi dan masuk stok.');
+        }
+
         return back()->with('success', 'SO berhasil di-void');
     }
 
     /**
-     * PO produksi auto preorder yang masih draft → cancel.
-     * Yang sudah confirmed/in_progress/completed → biarkan jalan (material sudah dikonsumsi),
-     * cukup log warning agar bisa di-review manual.
+     * Batalkan order produksi auto-preorder milik SO yang di-void.
+     *
+     * @return string[] nomor OP yang TIDAK bisa dibatalkan (sudah dikerjakan / terlibat merge).
      */
     /**
      * Tandai produk yang reservasinya berubah karena void/hapus SO agar didorong ulang ke
@@ -1066,28 +1075,44 @@ class SalesOrderController extends Controller
         }
     }
 
-    private function cancelAutoPreorderProductions(SalesOrder $so): void
+    private function cancelAutoPreorderProductions(SalesOrder $so): array
     {
+        $gagal = [];
+
         $pos = ProductionOrder::where('sales_order_id', $so->id)
             ->where('created_via', 'auto_preorder')
             ->whereNotIn('status', ['cancelled', 'finalized'])
             ->get();
 
         foreach ($pos as $po) {
-            if ($po->status === 'draft') {
-                $po->update([
-                    'status' => 'cancelled',
-                    'notes'  => trim(($po->notes ?? '') . "\n[Auto-cancel: SO {$so->order_number} di-void]"),
-                ]);
-            } else {
-                Log::warning('PO auto_preorder tidak di-cancel karena sudah dikerjakan', [
+            // Dulu di sini hanya `status === 'draft'` yang dibatalkan. Padahal OP preorder
+            // LAHIR langsung 'confirmed' (soft-confirm di PreorderAutoProductionService),
+            // jadi cabang itu praktis tak pernah jalan: semua OP jatuh ke else dan cuma
+            // ditulis ke log. Akibatnya OP yang masih antre tetap dikerjakan setelah
+            // pesanannya batal, dan barangnya menumpuk jadi deadstock.
+            //
+            // ProductionOrderService::cancel() sudah punya guard yang benar — menolak OP
+            // yang sudah mulai dikerjakan atau yang terlibat penggabungan, dan mengembalikan
+            // material yang terlanjur dikonsumsi. Yang gagal dibatalkan tetap dicatat, bukan
+            // digagalkan: void SO tidak boleh batal hanya karena produksinya sudah jalan.
+            try {
+                app(\App\Modules\Production\Services\ProductionOrderService::class)->cancel($po->id);
+                $po->forceFill([
+                    'notes' => trim(($po->notes ?? '') . "\n[Auto-cancel: SO {$so->order_number} di-void]"),
+                ])->save();
+            } catch (\Throwable $e) {
+                Log::warning('PO auto_preorder tidak bisa dibatalkan saat SO di-void', [
                     'production_order_id' => $po->id,
                     'order_number'        => $po->order_number,
                     'status'              => $po->status,
                     'sales_order_id'      => $so->id,
+                    'message'             => $e->getMessage(),
                 ]);
+                $gagal[] = $po->order_number;
             }
         }
+
+        return $gagal;
     }
 
     public function print($id)

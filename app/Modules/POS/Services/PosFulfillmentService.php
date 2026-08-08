@@ -47,11 +47,17 @@ class PosFulfillmentService
             throw new DomainException('Pesanan belum lunas. Sisa Rp ' . number_format($remaining, 0, ',', '.') . ' harus dibayar dulu.');
         }
 
-        // Custom/preorder: produksi wajib finalized (cegah error COGS mentah saat posting).
-        // Dikecualikan bila pesanannya di-waive — barang preorder yang fisiknya sudah ada tanpa
-        // lewat produksi ERP (mis. barang sisa order batal, masuk via Stock Opname) tak akan
-        // pernah punya OP finalized. Stoknya tetap dijaga jalur FIFO saat posting faktur.
-        $isCustom = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder');
+        // Preorder DIBUAT KHUSUS per pesanan: produksi wajib finalized (cegah error COGS mentah
+        // saat posting). Dikecualikan bila pesanannya di-waive — barang yang fisiknya sudah ada
+        // tanpa lewat produksi ERP (mis. masuk via Stock Opname) tak akan pernah punya OP
+        // finalized. Stoknya tetap dijaga jalur FIFO saat posting faktur.
+        //
+        // Preorder berspesifikasi tetap TIDAK lewat sini: barangnya bisa datang dari stok yang
+        // sudah ada (termasuk sisa pesanan yang batal), jadi menuntut OP finalized berarti
+        // menahan pesanan yang barangnya jelas-jelas siap. Kecukupan stoknya dijaga
+        // SalesOrderStockCheck + jalur FIFO saat posting.
+        $isCustom = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder'
+            && optional($i->product)->made_to_order);
         if ($isCustom && !$so->production_waived_at && !$this->productionFinalized($so->id)) {
             throw new DomainException('Produksi pesanan custom belum selesai (finalisasi OP dulu).');
         }

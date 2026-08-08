@@ -79,6 +79,24 @@
     .jubelio-toggle:checked + .jubelio-switch { background: #6366f1; }
     .jubelio-toggle:checked + .jubelio-switch::after { transform: translateX(16px); }
     .jubelio-toggle:focus-visible + .jubelio-switch { box-shadow: 0 0 0 3px rgba(99,102,241,.35); }
+
+    /* Toggle "Dibuat Khusus" (made_to_order) — amber, karena menyala berarti pesanan
+       selalu memicu produksi sendiri (lebih berat), bukan keadaan netral. */
+    .mto-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .mto-switch {
+        position: relative; display: inline-block; flex: 0 0 auto;
+        width: 36px; height: 20px; border-radius: 9999px;
+        background: #d1d5db; transition: background .15s ease;
+    }
+    .mto-switch::after {
+        content: ''; position: absolute; top: 2px; left: 2px;
+        width: 16px; height: 16px; border-radius: 9999px;
+        background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25);
+        transition: transform .15s ease;
+    }
+    .mto-toggle:checked + .mto-switch { background: #d97706; }
+    .mto-toggle:checked + .mto-switch::after { transform: translateX(16px); }
+    .mto-toggle:focus-visible + .mto-switch { box-shadow: 0 0 0 3px rgba(217,119,6,.35); }
 </style>
 
 <div id="list-results">
@@ -91,6 +109,7 @@
                 <th class="px-3 py-2 text-center">Status</th>
                 <th class="px-3 py-2 text-center">Dijual</th>
                 <th class="px-3 py-2 text-center">Jubelio</th>
+                <th class="px-3 py-2 text-center">Dibuat Khusus</th>
                 <th class="px-3 py-2 text-left">Unit</th>
                 <th class="px-3 py-2 text-right">Harga Dasar</th>
                 <th class="px-3 py-2 text-center w-40">Aksi</th>
@@ -143,6 +162,19 @@
                             <span class="jubelio-switch"></span>
                             <span class="jubelio-label text-xs font-semibold {{ $product->sync_to_jubelio ? 'text-indigo-600' : 'text-gray-400' }}">{{ $product->sync_to_jubelio ? 'Sinkron' : 'Tidak' }}</span>
                         </label>
+                    </td>
+                    {{-- Penanda hanya berarti untuk produk preorder: tipe lain tak punya
+                         order produksi otomatis maupun gerbang kesiapan yang dipengaruhinya. --}}
+                    <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
+                        @if ($product->sale_type === 'preorder')
+                            <label class="inline-flex items-center gap-2 cursor-pointer select-none" title="Klik untuk ubah: barangnya mengikuti permintaan pembeli, tidak bisa dipakai untuk pesanan orang lain">
+                                <input type="checkbox" class="mto-toggle" data-product-id="{{ $product->id }}" @checked($product->made_to_order)>
+                                <span class="mto-switch"></span>
+                                <span class="mto-label text-xs font-semibold {{ $product->made_to_order ? 'text-amber-600' : 'text-gray-400' }}">{{ $product->made_to_order ? 'Khusus' : 'Umum' }}</span>
+                            </label>
+                        @else
+                            <span class="text-gray-300 text-xs">—</span>
+                        @endif
                     </td>
                     <td class="px-3 py-2 text-gray-600">{{ $product->base_unit ?? '-' }}</td>
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
@@ -310,6 +342,35 @@
                         label.textContent = data.sync_to_jubelio ? 'Sinkron' : 'Tidak';
                         label.classList.toggle('text-indigo-600', data.sync_to_jubelio);
                         label.classList.toggle('text-gray-400', !data.sync_to_jubelio);
+                    }
+                } else {
+                    el.checked = !on; // gagal → kembalikan
+                }
+            })
+            .catch(() => { el.checked = !on; })
+            .finally(() => { el.disabled = false; });
+    });
+
+    // Toggle "Dibuat Khusus" (made_to_order) — penyetelan awalnya menyentuh puluhan produk
+    // sekaligus, jadi harus bisa dari satu layar tanpa buka-tutup form.
+    document.addEventListener('change', function (e) {
+        const el = e.target.closest('.mto-toggle');
+        if (!el) return;
+        const on = el.checked;
+        const label = el.closest('label')?.querySelector('.mto-label');
+        el.disabled = true;
+        fetch('/erp/inventory/products/update-made-to-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+            body: JSON.stringify({ product_id: el.dataset.productId, made_to_order: on ? 1 : 0 })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (label) {
+                        label.textContent = data.made_to_order ? 'Khusus' : 'Umum';
+                        label.classList.toggle('text-amber-600', data.made_to_order);
+                        label.classList.toggle('text-gray-400', !data.made_to_order);
                     }
                 } else {
                     el.checked = !on; // gagal → kembalikan

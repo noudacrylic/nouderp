@@ -13,6 +13,7 @@ class Product extends Model
         'base_unit',
         'preorder_stock',
         'lead_time_days',
+        'made_to_order',
         'income_account_id', // keep legacy field if still used elsewhere
         'expense_account_id',
         'revenue_account_id',
@@ -44,6 +45,7 @@ class Product extends Model
         'needs_printing' => 'boolean',
         'is_active' => 'boolean',
         'is_sellable' => 'boolean',
+        'made_to_order' => 'boolean',
         'sync_to_jubelio' => 'boolean',
         'jubelio_sync_pending' => 'boolean',
         'jubelio_price_pending' => 'boolean',
@@ -73,6 +75,20 @@ class Product extends Model
     public function setUnitAttribute($value)
     {
         $this->attributes['base_unit'] = $value;
+    }
+
+    /**
+     * Produk preorder yang satu unitnya bisa menggantikan unit lain — penanda "dibuat khusus
+     * per pesanan" dilepas. Hanya untuk produk INI yang boleh:
+     *   - stok yang sudah ada menutup pesanan baru (tak perlu order produksi lagi), dan
+     *   - sisa produksi pesanan batal dipakai pesanan berikutnya.
+     *
+     * Produk yang dibuat mengikuti permintaan pembeli (CS1, CS2, …) tidak pernah begitu:
+     * SKU-nya cuma wadah, dua unit di bawahnya bisa berbeda barang.
+     */
+    public function sharesStockAcrossOrders(): bool
+    {
+        return $this->sale_type === 'preorder' && ! $this->made_to_order;
     }
 
     public function bundleComponents()

@@ -115,6 +115,34 @@ class PreorderAutoProductionService
             ]);
         }
 
+        // Produk yang unitnya bisa saling menggantikan: kebutuhan boleh ditutup barang yang
+        // SUDAH ADA, tak peduli dulu dibuat untuk siapa. Tanpa ini, sisa produksi pesanan yang
+        // batal tak pernah terpakai — tiap pesanan baru memicu OP baru dan unit lamanya
+        // mengendap jadi deadstock.
+        //
+        // Nettingnya GLOBAL per produk, bukan per-SO. Kalau per-SO, dua pesanan yang datang
+        // hampir bersamaan sama-sama melihat "stok sisa sudah dipesan orang lain" lalu
+        // sama-sama membuat OP — overproduksi satu unit. Dihitung global, pesanan kedua
+        // melihat kebutuhannya sudah tertutup OP milik pesanan pertama.
+        //
+        // Produk yang dibuat mengikuti permintaan pembeli (CS1, CS2, …) TIDAK ikut: SKU-nya
+        // cuma wadah, unit di bawahnya bisa beda barang, dan HPP-nya menempel pada OP-nya
+        // sendiri. Untuk mereka perilakunya tetap satu pesanan = satu OP.
+        if ($product->sharesStockAcrossOrders()) {
+            $belumTertutup = $this->uncoveredDemand((int) $product->id, (int) $so->warehouse_id);
+
+            if ($belumTertutup <= 0) {
+                return array_merge($base, [
+                    'reason' => 'Kebutuhan produk ' . $product->sku
+                        . ' sudah tertutup stok yang ada / produksi yang sedang berjalan, dilewati.',
+                ]);
+            }
+
+            // Jangan memproduksi melebihi kebutuhan SO ini sendiri — sisa kebutuhan pesanan
+            // lain diurus saat pemicu pesanan itu berjalan.
+            $remaining = min($remaining, $belumTertutup);
+        }
+
         // 1 siklus = 1 unit (BOM preorder wajib qty_per_cycle = 1, sudah divalidasi di atas).
         // Dibulatkan ke ATAS supaya qty pecahan tidak menyisakan kekurangan produksi.
         $cycles = (int) max(1, (int) ceil($remaining - 0.0001));
@@ -215,6 +243,65 @@ class PreorderAutoProductionService
             ->join('production_orders as child', 'child.id', '=', 'poo.production_order_id')
             ->whereIn('child.merged_into_id', $orderIds)
             ->where('child.status', '!=', 'cancelled')
+            ->where('poo.output_type', 'main')
+            ->where('poo.product_id', $productId)
+            ->sum('poo.qty_planned');
+
+        return round($planned - $absorbed, 4);
+    }
+
+    /**
+     * Kebutuhan sebuah produk yang BELUM tertutup apa pun, di satu gudang:
+     *
+     *     Σ reservasi aktif  −  stok fisik  −  Σ qty rencana OP yang masih berjalan
+     *
+     * OP `finalized` sengaja TIDAK dihitung: hasilnya sudah masuk stok fisik, jadi
+     * menghitungnya lagi berarti mengurangi kebutuhan dua kali dan produksi yang benar-benar
+     * perlu tidak akan pernah dibuat.
+     *
+     * Hasil ≤ 0 berarti semua permintaan sudah ada penutupnya — entah barangnya sudah di rak,
+     * atau sedang dikerjakan.
+     */
+    private function uncoveredDemand(int $productId, int $warehouseId): float
+    {
+        $diminta = (float) DB::table('stock_reservations')
+            ->where('product_id', $productId)
+            ->where('warehouse_id', $warehouseId)
+            ->where('status', 'active')
+            ->sum('qty');
+
+        $stok = (float) DB::table('product_stocks')
+            ->where('product_id', $productId)
+            ->where('warehouse_id', $warehouseId)
+            ->sum('qty_on_hand');
+
+        return round($diminta - $stok - $this->plannedQtyInProgress($productId), 4);
+    }
+
+    /**
+     * Qty produk ini yang sedang direncanakan seluruh OP berjalan (semua SO).
+     *
+     * Sama seperti plannedQtyForSalesOrder, output OP anak yang sudah diserap induk lewat
+     * penggabungan dikurangkan — barisnya tetap ada di anak, jadi kalau tidak dikurangi
+     * qty-nya terhitung dua kali dan kebutuhan tampak lebih tertutup dari kenyataan.
+     */
+    private function plannedQtyInProgress(int $productId): float
+    {
+        $orderIds = ProductionOrder::whereNotIn('status', ['cancelled', 'finalized'])->pluck('id');
+        if ($orderIds->isEmpty()) {
+            return 0.0;
+        }
+
+        $planned = (float) DB::table('production_order_outputs')
+            ->whereIn('production_order_id', $orderIds)
+            ->where('output_type', 'main')
+            ->where('product_id', $productId)
+            ->sum('qty_planned');
+
+        $absorbed = (float) DB::table('production_order_outputs as poo')
+            ->join('production_orders as child', 'child.id', '=', 'poo.production_order_id')
+            ->whereIn('child.merged_into_id', $orderIds)
+            ->whereNotIn('child.status', ['cancelled', 'finalized'])
             ->where('poo.output_type', 'main')
             ->where('poo.product_id', $productId)
             ->sum('poo.qty_planned');

@@ -231,7 +231,7 @@ class FulfillmentReadinessService
     {
         $q = SalesOrder::query()->with([
             'customer:id,name,is_marketplace,phone,address,shipping_address,city',
-            'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock',
+            'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock,made_to_order',
             'deliveries' => fn ($d) => $d->where('status', '!=', 'void'),
             'deliveries.items',
             'invoices'   => fn ($i) => $i->where('status', '!=', 'void'),
@@ -300,7 +300,7 @@ class FulfillmentReadinessService
         // Kekurangan stok seluruh halaman dihitung sekali (logikanya milik SalesOrderStockCheck,
         // di sini hanya dipanggil versi batch-nya) lalu dibaca per baris lewat shortagesFor().
         $this->shortageMap = $soIds
-            ? app(\App\Modules\Sales\Services\SalesOrderStockCheck::class)->shortagesForMany($orders)
+            ? app(\App\Modules\Sales\Services\SalesOrderStockCheck::class)->shortagesForFulfillment($orders)
             : [];
 
         return $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo) {
@@ -450,7 +450,7 @@ class FulfillmentReadinessService
             })
             ->with([
                 'customer:id,name,is_marketplace,phone,address,shipping_address,city',
-                'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock',
+                'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock,made_to_order',
                 'deliveries' => fn ($q) => $q->where('status', '!=', 'void'),
                 'deliveries.items',
                 'invoices' => fn ($q) => $q->where('status', '!=', 'void'),
@@ -471,7 +471,16 @@ class FulfillmentReadinessService
         $isLunas  = $remaining <= 0.01;
         $hasPayment = $paid > 0.01;
 
-        $isCustom = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder');
+        // Gerbang produksi hanya berlaku untuk preorder yang DIBUAT KHUSUS per pesanan.
+        //
+        // Dulu semua produk preorder masuk sini, sehingga pesanan hanya lolos kalau order
+        // produksi MILIKNYA SENDIRI sudah difinalisasi. Untuk produk berspesifikasi tetap itu
+        // bertanya pada dokumen, bukan pada barang: unit sisa pesanan yang batal tidak pernah
+        // dianggap ada, pesanan baru ditahan sampai OP barunya jadi, dan unit lama mengendap.
+        // Sekarang produk semacam itu dinilai lewat $shortages seperti barang lain.
+        $adaPreorder = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder');
+        $isCustom = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder'
+            && optional($i->product)->made_to_order);
 
         $isInstant = $link
             ? (bool) $link->is_instant_courier
@@ -498,8 +507,10 @@ class FulfillmentReadinessService
             $deadline  = $link->mp_due_date;
             $isOverdue = $deadline->isPast();
         } else {
+            // Batas kirim ikut SEMUA item preorder, bukan cuma yang dibuat khusus — barang
+            // preorder berspesifikasi tetap pun tetap butuh waktu kerja.
             $leadDays = 1;
-            if ($isCustom) {
+            if ($adaPreorder) {
                 foreach ($so->items as $i) {
                     if (optional($i->product)->sale_type === 'preorder') {
                         $leadDays = max($leadDays, (int) ($i->product->lead_time_days ?? 0));
@@ -617,6 +628,11 @@ class FulfillmentReadinessService
             $archived = $completedAt !== null && $completedAt->lt(now()->subDays(3));
         }
 
+        // Boleh dibebaskan paksa dari gerbang produksi? Hanya kalau memang GERBANG ITU yang
+        // menahan. Pesanan yang tertahan karena stok kurang tidak boleh ditawari waiver —
+        // membebaskannya tidak menciptakan barang, cuma memindahkan kekacauan ke tim packing.
+        $bolehWaive = $bucket === 'belum_siap' && $isCustom && !$prodFinalized;
+
         // Alasan tertahan (belum_bayar / belum_siap / belum_lunas / perlu_ukur)
         $reason = null;
         if ($bucket === 'belum_siap') {
@@ -687,6 +703,11 @@ class FulfillmentReadinessService
             'remaining'   => $remaining,
             'is_lunas'    => $isLunas,
             'is_custom'   => $isCustom,
+
+            // Gerbang produksi: boleh dibebaskan paksa, dan sudah pernah dibebaskan atau belum.
+            // `waived` ditampilkan supaya pembebasan tidak jadi keputusan tak terlihat.
+            'can_waive'   => $bolehWaive,
+            'waived'      => (bool) $so->production_waived_at,
 
             'is_draft'        => $so->status === 'draft',
 

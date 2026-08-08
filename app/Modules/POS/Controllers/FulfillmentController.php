@@ -186,6 +186,52 @@ class FulfillmentController extends Controller
         return back()->with('success', "Penandaan sampai {$sj->delivery_number} dibatalkan — kembali ke Dikirim.");
     }
 
+    /**
+     * Bebaskan pesanan dari gerbang produksi tanpa order produksi yang difinalisasi.
+     *
+     * Untuk produk yang dibuat khusus per pesanan, kesiapan dinilai dari OP miliknya sendiri.
+     * Kadang barangnya sudah ada tanpa pernah lewat produksi di ERP — misalnya sisa pesanan
+     * yang batal yang dimasukkan lewat Stock Opname. Pesanan seperti itu tak akan pernah punya
+     * OP finalized, jadi tanpa pintu ini ia menetap di "Belum Siap" selamanya.
+     *
+     * Yang dilepas HANYA gerbang produksi. Kecukupan stok tetap dihitung: barang yang memang
+     * tidak ada tetap menahan pesanannya, karena membebaskannya tidak menciptakan barang.
+     */
+    public function waiveProduksi(Request $request, int $so)
+    {
+        $data = $request->validate(
+            ['reason' => 'required|string|max:255'],
+            [],
+            ['reason' => 'alasan']
+        );
+
+        $order = SalesOrder::findOrFail($so);
+
+        if ($order->production_waived_at) {
+            return back()->with('error', "Pesanan {$order->order_number} sudah dibebaskan sebelumnya.");
+        }
+
+        // Alasan WAJIB diisi. Pembebasan ini melangkahi satu-satunya pemeriksaan yang menjamin
+        // barangnya ada; tanpa catatan, bulan depan tidak ada yang bisa menjelaskan kenapa
+        // pesanan ini lolos — dan itu persis cara masalah lama bersembunyi.
+        $order->update([
+            'production_waived_at'     => now(),
+            'production_waived_reason' => trim($data['reason']),
+        ]);
+
+        return back()->with('success', "Pesanan {$order->order_number} dibebaskan dari gerbang produksi — "
+            . 'pastikan barangnya benar-benar ada sebelum dipacking.');
+    }
+
+    /** Tarik kembali pembebasan gerbang produksi. */
+    public function batalWaiveProduksi(int $so)
+    {
+        $order = SalesOrder::findOrFail($so);
+        $order->update(['production_waived_at' => null, 'production_waived_reason' => null]);
+
+        return back()->with('success', "Pembebasan {$order->order_number} ditarik kembali.");
+    }
+
     /** Batalkan penandaan sudah-diukur; pesanan kembali ke sub-tab "Perlu Ukur". */
     public function batalUkuran(int $so)
     {

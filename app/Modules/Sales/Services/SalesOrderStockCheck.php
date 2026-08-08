@@ -62,11 +62,25 @@ class SalesOrderStockCheck
     }
 
     /**
-     * Kekurangan stok untuk BANYAK SO sekaligus — jawabannya sama persis dengan memanggil
-     * shortages() satu per satu, tapi stok, reservasi & produknya diambil sekali untuk semua.
+     * Kekurangan barang untuk BANYAK SO sekaligus, dipakai gerbang PEMROSESAN (bukan pembayaran).
      *
-     * Dipakai layar Pemrosesan Pesanan yang mengklasifikasi puluhan pesanan tiap muat halaman;
-     * jalur satuan (gerbang pembayaran) tetap pakai shortages().
+     * Sengaja beda aturan dari shortages(), dan bedanya penting — dulu keduanya dianggap sama
+     * dan itulah asal bug preorder yang berlarut-larut. Dua pertanyaannya memang berbeda:
+     *
+     *   shortages()             → "boleh DIBAYAR?"   Preorder selalu boleh: itu inti jualan
+     *                             preorder. Kuota `preorder_stock` yang membatasi.
+     *   shortagesForFulfillment → "boleh DIPACKING?" Hanya kalau barangnya benar-benar ada.
+     *                             Kuota TIDAK dihitung — itu izin jual, bukan barang.
+     *
+     * Produk preorder karena itu ikut dicek di sini, TAPI hanya yang unitnya bisa saling
+     * menggantikan (`made_to_order` dilepas). Yang dibuat mengikuti permintaan pembeli tetap
+     * dikecualikan: angka stok SKU-nya tidak berarti apa-apa karena unit di bawahnya bisa
+     * berbeda barang — kesiapannya dinilai dari order produksinya sendiri.
+     *
+     * Stok dialokasikan URUT PESANAN TERTUA: yang dikurangkan hanya reservasi milik SO yang
+     * lebih dulu (id lebih kecil). Sebelumnya semua reservasi SO lain dikurangkan tanpa
+     * memandang umur, sehingga saat satu unit diperebutkan dua pesanan, KEDUANYA melihat
+     * "tersedia 0" dan sama-sama menunggu — padahal yang tertua sudah bisa jalan.
      *
      * SO ber-`allow_backorder` selalu kosong: sudah disepakati boleh jalan walau stok kurang.
      *
@@ -74,7 +88,7 @@ class SalesOrderStockCheck
      * @return array<int, array<int, array{sku:string,name:string,needed:float,available:float,short:float}>>
      *         keyed sales_order_id; SO tanpa kekurangan tidak muncul sama sekali.
      */
-    public function shortagesForMany(iterable $orders): array
+    public function shortagesForFulfillment(iterable $orders): array
     {
         $needsPerSo = [];
         foreach ($orders as $so) {
@@ -91,7 +105,8 @@ class SalesOrderStockCheck
         }
 
         $productIds = collect($needsPerSo)->flatMap(fn ($e) => array_keys($e['needs']))->unique()->values()->all();
-        $produk = Product::whereIn('id', $productIds)->get(['id', 'sku', 'name', 'sale_type', 'preorder_stock'])->keyBy('id');
+        $produk = Product::whereIn('id', $productIds)
+            ->get(['id', 'sku', 'name', 'sale_type', 'preorder_stock', 'made_to_order'])->keyBy('id');
 
         // On-hand per (produk, gudang) & reservasi aktif per (produk, gudang, SO pemilik).
         $onHand = ProductStock::whereIn('product_id', $productIds)
@@ -113,7 +128,7 @@ class SalesOrderStockCheck
 
             foreach ($entry['needs'] as $productId => $needed) {
                 $p = $produk->get($productId);
-                if (! $p || in_array($p->sale_type, self::TANPA_STOK, true)) {
+                if (! $p || ! $this->dicekSaatPacking($p)) {
                     continue;
                 }
 
@@ -127,12 +142,16 @@ class SalesOrderStockCheck
                     $stokRows = $stokRows->whereIn('warehouse_id', $gudangJual);
                 }
 
-                // Reservasi milik SO ini sendiri bukan saingan — itu jatah dia.
-                $resRows = $resRows->filter(fn ($r) => $r->sales_order_id === null || (int) $r->sales_order_id !== (int) $so->id);
+                // Alokasi tertua duluan: hanya reservasi milik pesanan yang LEBIH DULU yang
+                // mengurangi jatah. Reservasi tanpa pemilik dikurangkan (umurnya tak diketahui,
+                // pilih yang aman). Urutan pakai id — auto-increment, jadi selalu searah waktu
+                // dan tidak butuh query tanggal tambahan.
+                $resRows = $resRows->filter(fn ($r) => $r->sales_order_id === null
+                    || (int) $r->sales_order_id < (int) $so->id);
 
-                $available = (float) $stokRows->sum('qty_on_hand')
-                    - (float) $resRows->sum('qty')
-                    + (float) ($p->preorder_stock ?? 0);
+                // Kuota preorder TIDAK ikut: itu izin menjual melampaui stok, bukan barang yang
+                // bisa dimasukkan kardus.
+                $available = (float) $stokRows->sum('qty_on_hand') - (float) $resRows->sum('qty');
 
                 if ($needed > $available) {
                     $kurang[] = [
@@ -151,6 +170,23 @@ class SalesOrderStockCheck
         }
 
         return $hasil;
+    }
+
+    /**
+     * Produk ini stoknya berarti saat memutuskan boleh-tidaknya dipacking?
+     *
+     * Jasa & non-stok tidak punya barang. Produk preorder yang DIBUAT KHUSUS per pesanan juga
+     * tidak: SKU-nya cuma wadah, "CS1 qty 3" bukan berarti tiga barang yang sama, jadi
+     * angkanya tidak boleh dipakai melepas pesanan siapa pun. Kesiapannya dinilai dari order
+     * produksi miliknya sendiri.
+     */
+    private function dicekSaatPacking(Product $p): bool
+    {
+        if ($p->sale_type === 'preorder') {
+            return $p->sharesStockAcrossOrders();
+        }
+
+        return ! in_array($p->sale_type, self::TANPA_STOK, true);
     }
 
     /** SO ini boleh dibayar dari sisi stok? Kesepakatan keep stock membebaskan cek. */
