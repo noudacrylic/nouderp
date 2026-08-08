@@ -11,6 +11,7 @@ use App\Modules\POS\Services\FulfillmentReadinessService;
 use App\Modules\POS\Services\PosFulfillmentService;
 use App\Modules\Sales\Models\SalesDelivery;
 use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Shipping\Services\ShipmentBookingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -307,6 +308,9 @@ class FulfillmentController extends Controller
 
         $flash = "Pesanan {$salesOrder->order_number} diproses. Invoice {$invoice->invoice_number} + Surat Jalan otomatis dibuat.";
 
+        $resi  = $this->terbitkanResi($salesOrder);
+        $flash .= $this->pesanResi($resi);
+
         // Opsi "Proses + Cetak Resi": langsung buka cetak Surat Jalan yang baru dibuat.
         if ($request->boolean('print_after')) {
             $delivery = SalesDelivery::where('sales_order_id', $salesOrder->id)
@@ -317,7 +321,8 @@ class FulfillmentController extends Controller
             }
         }
 
-        return redirect()->route('pos.fulfillment.telah-diproses')->with('success', $flash);
+        return redirect()->route('pos.fulfillment.telah-diproses', $this->subTabResi($resi))
+            ->with($resi['gagal'] ? 'warning' : 'success', $flash);
     }
 
     /**
@@ -338,6 +343,88 @@ class FulfillmentController extends Controller
     }
 
     /**
+     * Terbitkan resi untuk Surat Jalan kurir-API milik pesanan yang BARU diproses.
+     *
+     * Dulu "Proses Pesanan" berhenti di faktur + Surat Jalan, lalu operator harus menekan
+     * "Generate Resi" sebagai langkah kedua — dan langkah itu menanyakan ulang berat &
+     * dimensi yang sudah dikunci di sub-tab "Perlu Ukur". Dua pertanyaan untuk jawaban yang
+     * sama. Sekarang resi ikut terbit di sini memakai ukuran yang tersimpan di SO, sehingga
+     * pesanan langsung mendarat di sub-tab "Belum dicetak".
+     *
+     * Booking TIDAK boleh menggagalkan proses: faktur & Surat Jalan sudah terlanjur jadi, dan
+     * membatalkannya jauh lebih mahal daripada membiarkan resi menyusul. Kegagalan
+     * dikembalikan sebagai pesan; kartunya tetap duduk di "Belum di-generate" untuk dicoba
+     * ulang manual.
+     *
+     * @return array{ok:string[], gagal:string[]}
+     */
+    private function terbitkanResi(SalesOrder $so): array
+    {
+        $hasil = ['ok' => [], 'gagal' => []];
+
+        // Ambil di toko tidak punya paket; kurir manual tidak punya API yang bisa dipesan.
+        if ($so->isPickup() || \App\Models\ManualCourier::isManualCode($so->shipping_courier_code)) {
+            return $hasil;
+        }
+
+        $deliveries = SalesDelivery::where('sales_order_id', $so->id)
+            ->where('status', 'posted')
+            ->where('delivery_method', '!=', 'ambil_toko')
+            ->get()
+            ->filter(fn (SalesDelivery $d) => empty($d->tracking_number)
+                && !\App\Models\ManualCourier::isManualCode($d->shipping_courier_code));
+
+        foreach ($deliveries as $delivery) {
+            try {
+                $res = app(ShipmentBookingService::class)->book($delivery);
+            } catch (\Throwable $e) {
+                Log::warning("Gagal terbitkan resi SJ {$delivery->delivery_number}: " . $e->getMessage());
+                $hasil['gagal'][] = "{$delivery->delivery_number}: {$e->getMessage()}";
+                continue;
+            }
+
+            // Ada nomor resi = resi nyata sudah terbit & Coins sudah terpotong, apa pun
+            // levelnya. Level 'warning' berarti resinya terbit tapi JURNALNYA gagal — itu
+            // tetap dihitung berhasil di sini, sebabnya dilaporkan lewat cabang di bawah.
+            if (!empty($res['tracking'])) {
+                $hasil['ok'][] = (string) $res['tracking'];
+            }
+            if ($res['level'] !== 'success') {
+                $hasil['gagal'][] = $res['message'];
+            }
+        }
+
+        return $hasil;
+    }
+
+    /** Potongan flash hasil penerbitan resi; kosong bila pesanan memang tak perlu resi. */
+    private function pesanResi(array $resi): string
+    {
+        $teks = '';
+        if ($resi['ok']) {
+            $teks .= ' Resi terbit: ' . implode(', ', $resi['ok']) . '.';
+        }
+        if ($resi['gagal']) {
+            $teks .= ' Resi belum terbit — ' . implode('; ', $resi['gagal'])
+                . '. Coba lagi lewat tombol Generate Resi.';
+        }
+
+        return $teks;
+    }
+
+    /**
+     * Sub-tab tujuan setelah proses: ke tempat pekerjaan berikutnya berada. Resi terbit →
+     * "Belum dicetak"; gagal → "Belum di-generate" supaya masalahnya langsung terlihat.
+     */
+    private function subTabResi(array $resi): array
+    {
+        if ($resi['gagal']) return ['resi' => 'belum_generate'];
+        if ($resi['ok'])    return ['resi' => 'belum_cetak'];
+
+        return [];
+    }
+
+    /**
      * Proses massal beberapa SO sekaligus. SO yang belum lunas / ambil-di-toko (butuh kode
      * booking) otomatis dilewati dengan keterangan. Opsi print_after → langsung cetak gabungan
      * Surat Jalan yang baru dibuat.
@@ -354,6 +441,8 @@ class FulfillmentController extends Controller
         $processed = [];
         $deliveryIds = [];
         $failed = [];
+        $resiOk = [];
+        $resiGagal = [];
 
         $links = JubelioOrderLink::whereIn('sales_order_id', $ids)->get()->keyBy('sales_order_id');
 
@@ -375,6 +464,14 @@ class FulfillmentController extends Controller
                 $posSvc->createInvoiceFromSalesOrder($so); // tanpa pickup_code → ambil-toko otomatis ditolak
                 $so->forceFill(['process_error' => null, 'process_failed_at' => null])->save();
                 $processed[] = $so->order_number;
+
+                // Resi ikut terbit di sini — sama seperti proses satuan, supaya hasil kedua
+                // jalur itu identik dan tidak ada pesanan yang tertinggal tanpa resi hanya
+                // karena operator memakai centang massal.
+                $resi = $this->terbitkanResi($so);
+                $resiOk = array_merge($resiOk, $resi['ok']);
+                $resiGagal = array_merge($resiGagal, $resi['gagal']);
+
                 $sj = SalesDelivery::where('sales_order_id', $so->id)
                     ->where('status', '!=', 'void')->latest('id')->first();
                 if ($sj) $deliveryIds[] = $sj->id;
@@ -384,18 +481,29 @@ class FulfillmentController extends Controller
             }
         }
 
+        $resi = ['ok' => $resiOk, 'gagal' => $resiGagal];
+
         $msg = count($processed) . ' pesanan diproses' . (count($processed) ? ': ' . implode(', ', $processed) : '') . '.';
         if ($failed) {
             $msg .= ' Dilewati ' . count($failed) . ': ' . implode('; ', $failed) . '.';
         }
-        $flashKey = $processed ? 'success' : 'error';
+        $msg .= $this->pesanResi($resi);
+
+        $flashKey = $processed ? ($failed || $resiGagal ? 'warning' : 'success') : 'error';
 
         if ($request->boolean('print_after') && $deliveryIds) {
             return redirect()->route('sales.deliveries.print-bulk', ['ids' => implode(',', $deliveryIds)])
                 ->with($flashKey, $msg);
         }
 
-        return redirect()->route('pos.fulfillment.perlu-diproses')->with($flashKey, $msg);
+        // Yang berhasil pindah ke "Telah Diproses"; hanya kalau semuanya gagal operator
+        // tetap ditinggal di antrean asalnya.
+        if (!$processed) {
+            return redirect()->route('pos.fulfillment.perlu-diproses')->with($flashKey, $msg);
+        }
+
+        return redirect()->route('pos.fulfillment.telah-diproses', $this->subTabResi($resi))
+            ->with($flashKey, $msg);
     }
 
     /**

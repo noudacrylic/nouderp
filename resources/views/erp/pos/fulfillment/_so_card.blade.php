@@ -336,7 +336,7 @@
                 <a href="{{ route('sales.deliveries.createFromSO', $r['id']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">📦 Kirim Sebagian</a>
                 <form action="{{ route('pos.fulfillment.proses', $r['id']) }}" method="POST" class="flex items-center gap-1.5"
-                      onsubmit="return confirm('Proses pesanan {{ $r['number'] }}? Faktur + Surat Jalan akan dibuat otomatis.')">
+                      onsubmit="return confirm('Proses pesanan {{ $r['number'] }}? Faktur + Surat Jalan dibuat otomatis{{ $r['is_pickup'] ? '' : ', dan RESI langsung diterbitkan (order pengiriman nyata & memotong saldo kurir)' }}.')">
                     @csrf
                     @if($r['is_pickup'])
                         <input type="text" name="pickup_code" placeholder="Kode (4 angka)" required
@@ -533,15 +533,11 @@
                                     <a href="{{ route('sales.deliveries.label', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</a>
                                 @elseif($d->shipping_courier_code)
-                                    {{-- Kurir Biteship → generate resi via API --}}
-                                    <button type="button"
-                                            class="js-genresi px-2.5 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold"
-                                            data-id="{{ $d->id }}" data-number="{{ $d->delivery_number }}">📮 Generate Resi</button>
+                                    {{-- Kurir API → generate resi langsung dengan ukuran SO --}}
+                                    @include('erp.pos.fulfillment._genresi_btn', ['d' => $d])
                                 @else
                                     {{-- Kurir belum spesifik → tawarkan keduanya --}}
-                                    <button type="button"
-                                            class="js-genresi px-2.5 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold"
-                                            data-id="{{ $d->id }}" data-number="{{ $d->delivery_number }}">📮 Generate Resi</button>
+                                    @include('erp.pos.fulfillment._genresi_btn', ['d' => $d])
                                     <a href="{{ route('sales.deliveries.label', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</a>
                                 @endif

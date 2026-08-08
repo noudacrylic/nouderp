@@ -24,14 +24,16 @@ class ManualCourier extends Model
         return $query->where('is_active', true)->orderBy('sort_order')->orderBy('name');
     }
 
-    /** Peta code → name (di-memoize per request). */
+    /**
+     * Peta code → name (di-memoize per request).
+     *
+     * Pakai `once()`, bukan `static $map`: variabel statis bertahan seumur PROSES PHP, jadi
+     * kurir manual yang baru ditambah tak pernah terlihat oleh worker antrean yang sudah
+     * berjalan (dan bocor antar-tes). `once()` dibersihkan tiap request/tes.
+     */
     protected static function codeNameMap(): array
     {
-        static $map = null;
-        if ($map === null) {
-            $map = static::pluck('name', 'code')->all();
-        }
-        return $map;
+        return once(fn () => static::pluck('name', 'code')->all());
     }
 
     /** Apakah kode kurir ini termasuk kurir manual? */

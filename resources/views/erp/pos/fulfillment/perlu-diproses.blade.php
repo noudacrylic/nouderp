@@ -159,7 +159,9 @@
         let warn = '';
         if (tertahan) warn += `\n• ${tertahan} belum boleh diproses akan dilewati.`;
         if (pickup)   warn += `\n• ${pickup} ambil-di-toko butuh kode booking (proses satu-per-satu).`;
-        if (!confirm(`Proses ${sel.length} pesanan?${warn}`)) return;
+        // Resi ikut terbit di sini (order pengiriman nyata) — sebutkan supaya jumlah paket
+        // yang akan dibayar terlihat SEBELUM diklik, bukan sesudah saldo terpotong.
+        if (!confirm(`Proses ${sel.length} pesanan? Faktur + Surat Jalan + RESI diterbitkan otomatis (memotong saldo kurir).${warn}`)) return;
 
         const form = document.getElementById('bulkProsesForm');
         const box = document.getElementById('bulkIdsContainer');
