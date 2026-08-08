@@ -134,12 +134,19 @@ class DashboardAuditService
         $accounts = $this->leafAccounts([AccountTypeEnum::REVENUE])
             ->filter(fn ($a) => $this->incomeStatement->isOperatingRevenue($a));
 
+        // Fee admin marketplace dkk. adalah PENGURANG pendapatan (contra-revenue), dan kartu
+        // dashboard memakai Pendapatan NETTO — lihat IncomeStatementService::summary(). Tanpa
+        // barisnya di sini, total rincian selalu lebih besar daripada angka yang di-drill-down.
+        $contra = $this->leafAccounts([AccountTypeEnum::EXPENSE])
+            ->filter(fn ($a) => $this->incomeStatement->isContraRevenueExpense($a));
+
         return $this->ledger(
-            accounts: $accounts,
+            accounts: $accounts->concat($contra)->sortBy('code')->values(),
             from: $from,
             to: $to,
             title: 'Rincian Pendapatan',
-            subtitle: 'Buku besar akun pendapatan penjualan — tahun berjalan (YTD)',
+            subtitle: 'Buku besar akun pendapatan penjualan & pengurangnya — tahun berjalan (YTD)',
+            negateIds: $contra->pluck('id')->all(),
         );
     }
 
@@ -193,8 +200,12 @@ class DashboardAuditService
     /**
      * Bangun struktur buku besar untuk sekumpulan akun leaf.
      * Saldo per akun & total dihitung searah dgn AccountBalanceService.
+     *
+     * @param  array<int>  $negateIds  Akun yang saldonya dibalik tandanya karena berperan
+     *                                 sebagai PENGURANG metric ini (contra-revenue). Kolom
+     *                                 debit/kredit tetap apa adanya — yang dibalik hanya saldo.
      */
-    private function ledger($accounts, ?Carbon $from, Carbon $to, string $title, string $subtitle): array
+    private function ledger($accounts, ?Carbon $from, Carbon $to, string $title, string $subtitle, array $negateIds = []): array
     {
         $accountIds = $accounts->pluck('id')->all();
 
@@ -231,6 +242,9 @@ class DashboardAuditService
             // arah natural: asset/expense naik dgn debit; lainnya (rev/liab/equity) naik dgn credit
             $credClass = in_array($a->type, [AccountTypeEnum::ASSET, AccountTypeEnum::EXPENSE], true);
             $balance = $credClass ? ($debitTotal - $creditTotal) : ($creditTotal - $debitTotal);
+            if (in_array($a->id, $negateIds, true)) {
+                $balance = -$balance; // pengurang metric — tampil sebagai deduksi
+            }
             $grandTotal += $balance;
 
             $accountRows[] = [
