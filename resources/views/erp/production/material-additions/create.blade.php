@@ -251,7 +251,7 @@
                                        class="w-36 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                 <select :name="`costs[${idx}][cash_account_id]`" x-model="c.cash_account_id"
                                         class="w-44 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
-                                    <option value="">— Kas —</option>
+                                    <option value="">— Pilih —</option>
                                     @foreach($cashAccounts as $acc)
                                         <option value="{{ $acc->id }}">{{ $acc->code }} · {{ $acc->name }}</option>
                                     @endforeach
