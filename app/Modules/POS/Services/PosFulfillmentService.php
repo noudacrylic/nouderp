@@ -48,8 +48,11 @@ class PosFulfillmentService
         }
 
         // Custom/preorder: produksi wajib finalized (cegah error COGS mentah saat posting).
+        // Dikecualikan bila pesanannya di-waive — barang preorder yang fisiknya sudah ada tanpa
+        // lewat produksi ERP (mis. barang sisa order batal, masuk via Stock Opname) tak akan
+        // pernah punya OP finalized. Stoknya tetap dijaga jalur FIFO saat posting faktur.
         $isCustom = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder');
-        if ($isCustom && !$this->productionFinalized($so->id)) {
+        if ($isCustom && !$so->production_waived_at && !$this->productionFinalized($so->id)) {
             throw new DomainException('Produksi pesanan custom belum selesai (finalisasi OP dulu).');
         }
 

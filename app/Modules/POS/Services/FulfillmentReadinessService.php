@@ -516,6 +516,15 @@ class FulfillmentReadinessService
             $prodFinalized = $prodOrders->every(fn ($p) => $p->status === 'finalized');
         }
 
+        // Gerbang produksi bisa dikecualikan per-pesanan: barang preorder yang fisiknya sudah
+        // ada tanpa pernah lewat produksi di ERP (mis. barang sisa order batal yang masuk lewat
+        // Stock Opname) tak akan pernah punya OP finalized, jadi tanpa waiver ia menetap di
+        // "Belum Siap" selamanya. Gerbang STOK di bawah tidak ikut dilepas — $shortages tetap
+        // dihitung, jadi barang yang tidak ada tetap menahan pesanannya.
+        if ($so->production_waived_at) {
+            $prodFinalized = true;
+        }
+
         // Faktur DRAFT (belum diposting) dianggap TIDAK ADA di fulfillment — SO tetap
         // diklasifikasi normal sesuai kesiapan. HANYA faktur DIPOSTING yang menandai
         // SO "telah diproses". (Saat Proses, faktur draft yang ada akan diposting.)

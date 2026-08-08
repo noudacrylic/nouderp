@@ -24,6 +24,8 @@ class SalesOrder extends Model
         'seller_notes',
         'process_error',
         'process_failed_at',
+        'production_waived_at',
+        'production_waived_reason',
 
         'subtotal',
         'discount_total',
@@ -71,6 +73,7 @@ class SalesOrder extends Model
         'picked_up_at' => 'datetime',
         'pickup_date'  => 'date',
         'process_failed_at' => 'datetime',
+        'production_waived_at' => 'datetime',
         'measured_at' => 'datetime',
         'allow_backorder' => 'boolean',
         'is_tempo' => 'boolean',
