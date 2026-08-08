@@ -30,7 +30,7 @@ class ShippingAccountingService
     private const TITIPAN_CODE = '1203';
 
     /** Provider yang ongkirnya dipotong dari deposit → perlu dijurnal di sini. */
-    private const PROVIDERS = ['biteship', 'jubelio_shipment'];
+    public const PROVIDERS = ['biteship', 'jubelio_shipment'];
 
     public function __construct(protected \App\Core\Period\PeriodService $periodService) {}
 
@@ -146,8 +146,11 @@ class ShippingAccountingService
     /**
      * Berapa jurnal booking SJ ini yang masih berdiri (belum ada jurnal baliknya).
      * 0 = belum pernah dibooking, atau sudah dibooking lalu dibalik.
+     *
+     * Publik supaya command backfill bisa memakai definisi "belum terjurnal" yang SAMA
+     * dengan jalur live, bukan menebak lewat query jurnal sendiri.
      */
-    private function activeBookingCount(SalesDelivery $delivery): int
+    public function activeBookingCount(SalesDelivery $delivery): int
     {
         $hitung = fn (string $type) => Journal::where('reference_type', $type)
             ->where('reference_id', $delivery->id)
