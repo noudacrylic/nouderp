@@ -75,7 +75,7 @@ class TaskController extends Controller
         $tasks = $q->get();
         $tasksByCategory = $tasks->groupBy(fn($t) => $t->category_id ?? 0);
 
-        $assignableUsers = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
 
         return view('erp.tasks.index', compact(
             'categories', 'allCategories', 'hiddenIds', 'showUncategorized',
@@ -199,7 +199,7 @@ class TaskController extends Controller
         }
 
         $tasks = $q->paginate(25)->withQueryString();
-        $assignableUsers = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
 
         // Task yang user current sembunyikan — supaya tampil sebagai indicator di list dan
         // bisa di-unhide langsung dari halaman ini.
@@ -349,7 +349,7 @@ class TaskController extends Controller
     {
         $this->authorizeModify($task);
         $data = $request->validate([
-            'assignee_user_id' => 'nullable|integer|exists:users,id',
+            'assignee_user_id' => ['nullable', 'integer', User::assignableExistsRule()],
         ]);
 
         $oldId = $task->assignee_user_id;
@@ -480,7 +480,7 @@ class TaskController extends Controller
             'title'            => 'required|string|max:200',
             'description'      => 'nullable|string|max:5000',
             'category_id'      => 'nullable|integer|exists:task_categories,id',
-            'assignee_user_id' => 'nullable|integer|exists:users,id',
+            'assignee_user_id' => ['nullable', 'integer', User::assignableExistsRule()],
             'priority'         => 'required|in:low,normal,high',
             'status'           => 'required|in:open,in_progress,done,cancelled',
             'due_date'         => 'nullable|date',
@@ -527,7 +527,7 @@ class TaskController extends Controller
     private function renderForm(Task $task, string $mode)
     {
         $categories = TaskCategory::active()->orderBy('sort_order')->orderBy('id')->get();
-        $assignableUsers = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
         $taskableTypes = config('tasks.taskable_types', []);
         return view('erp.tasks.form', compact('task', 'categories', 'assignableUsers', 'taskableTypes', 'mode'));
     }

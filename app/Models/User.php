@@ -63,6 +63,29 @@ class User extends Authenticatable
         return in_array($this->role, ['super_admin', 'admin'], true);
     }
 
+    /**
+     * Akun yang boleh dipilih di dropdown penugasan ERP (Task, Jadwal, Otomasi).
+     *
+     * Akun PWA karyawan (role 'karyawan') SENGAJA dikecualikan: aksesnya hanya /me/*,
+     * mereka tidak pernah membuka halaman Task — task yang ditugaskan ke sana tidak
+     * akan pernah terlihat oleh siapa pun.
+     */
+    public function scopeAssignable($query)
+    {
+        return $query->where('is_active', true)->where('role', '!=', 'karyawan');
+    }
+
+    /**
+     * Aturan validasi pasangan scopeAssignable() untuk kolom penerima tugas.
+     * Sengaja TIDAK ikut menyaring is_active supaya task lama yang penugasnya sudah
+     * dinonaktifkan masih bisa disunting; yang dijaga di sini khusus akun PWA.
+     */
+    public static function assignableExistsRule(): \Illuminate\Validation\Rules\Exists
+    {
+        return \Illuminate\Validation\Rule::exists('users', 'id')
+            ->where(fn ($q) => $q->where('role', '!=', 'karyawan'));
+    }
+
     /** Cached untuk hindari N queries per page render. */
     public function getAccessibleMenuKeys(): array
     {

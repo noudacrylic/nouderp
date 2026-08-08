@@ -84,7 +84,7 @@ class TaskScheduleController extends Controller
             'title'            => 'required|string|max:200',
             'description'      => 'nullable|string|max:5000',
             'category_id'      => 'nullable|integer|exists:task_categories,id',
-            'assignee_user_id' => 'nullable|integer|exists:users,id',
+            'assignee_user_id' => ['nullable', 'integer', User::assignableExistsRule()],
             'priority'         => 'required|in:low,normal,high',
             'frequency'        => 'required|in:daily,weekly,monthly,custom_cron',
             'time_of_day'      => 'nullable|date_format:H:i',
@@ -112,7 +112,7 @@ class TaskScheduleController extends Controller
     private function renderForm(TaskSchedule $schedule, string $mode)
     {
         $categories = TaskCategory::active()->orderBy('sort_order')->orderBy('id')->get();
-        $assignableUsers = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
         return view('erp.tasks.schedules.form', compact('schedule', 'categories', 'assignableUsers', 'mode'));
     }
 }

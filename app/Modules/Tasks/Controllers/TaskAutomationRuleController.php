@@ -107,7 +107,7 @@ class TaskAutomationRuleController extends Controller
     {
         return $request->validate([
             'product_id'           => 'required|integer|exists:products,id',
-            'assignee_user_id'     => 'required|integer|exists:users,id',
+            'assignee_user_id'     => ['required', 'integer', User::assignableExistsRule()],
             'category_id'          => 'nullable|integer|exists:task_categories,id',
             'priority'             => 'required|in:low,normal,high',
             'title_template'       => 'nullable|string|max:200',
@@ -118,7 +118,7 @@ class TaskAutomationRuleController extends Controller
     private function renderForm(TaskAutomationRule $rule, string $type, string $mode)
     {
         $categories = TaskCategory::active()->orderBy('sort_order')->orderBy('id')->get();
-        $assignableUsers = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
         // Stok dihitung live via SUM(qty_on_hand) — kolom products.stock tidak dipakai.
         $products = Product::withSum('stocks as stok_fisik', 'qty_on_hand')
             ->orderBy('name')

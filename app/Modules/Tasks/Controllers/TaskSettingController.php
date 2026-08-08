@@ -12,14 +12,14 @@ class TaskSettingController extends Controller
     public function edit()
     {
         $setting = TaskSetting::current();
-        $users = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $users = User::assignable()->orderBy('name')->get(['id', 'name']);
         return view('erp.tasks.settings.edit', compact('setting', 'users'));
     }
 
     public function update(Request $request)
     {
         $data = $request->validate([
-            'printing_default_user_id' => 'nullable|integer|exists:users,id',
+            'printing_default_user_id' => ['nullable', 'integer', User::assignableExistsRule()],
         ]);
         $setting = TaskSetting::current();
         $setting->fill($data)->save();
