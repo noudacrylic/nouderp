@@ -1925,6 +1925,14 @@ class ProductionOrderService
                 throw new Exception('Order sudah mulai dikerjakan (langkah ' . $started->step_number . ' tidak lagi antre) — tidak bisa dibatalkan.');
             }
 
+            // Guard penambahan bahan/biaya: reverseConfirmConsumption() hanya membalik material
+            // bawaan order, bukan penambahan di tengah jalan. Kalau dibiarkan, WIP & stok dari
+            // penambahan itu nyangkut selamanya — jadi minta di-void dulu.
+            $aktif = $order->materialAdditions()->whereNull('voided_at')->count();
+            if ($aktif > 0) {
+                throw new Exception('Order ini punya ' . $aktif . ' penambahan bahan/biaya yang masih aktif. Batalkan (void) penambahan itu dulu di menu Penambahan Bahan, baru order bisa dibatalkan.');
+            }
+
             $restored = $this->reverseConfirmConsumption($order);
 
             $order->update(['status' => 'cancelled']);

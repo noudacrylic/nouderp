@@ -16,11 +16,13 @@
             'status' => match($step->status) {
                 'in_progress' => 'Sedang Dikerjakan',
                 'paused'      => 'Di-Pause',
+                'pending'     => 'Antre',
                 default       => 'Menunggu',
             },
             'statusClass' => match($step->status) {
                 'in_progress' => 'bg-indigo-100 text-indigo-700',
                 'paused'      => 'bg-orange-100 text-orange-700',
+                'pending'     => 'bg-amber-100 text-amber-700',
                 default       => 'bg-gray-100 text-gray-600',
             },
             'dept'   => $step->department?->name ?? '',
@@ -133,7 +135,10 @@
                 {{-- Tambahan Bahan Baku --}}
                 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <div class="flex justify-between items-center mb-3">
-                        <h3 class="font-bold text-gray-700">Tambahan Bahan Baku</h3>
+                        <div>
+                            <h3 class="font-bold text-gray-700">Tambahan Bahan Baku</h3>
+                            <p class="text-[10px] text-gray-400 mt-0.5">Opsional. Boleh dikosongkan bila yang ditambahkan hanya biaya.</p>
+                        </div>
                         <button type="button" @click="addRow()"
                                 class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-3 py-1.5 rounded-lg transition">
                             + Tambah Baris
@@ -181,7 +186,7 @@
                                     <input type="number" step="0.0001" min="0.0001"
                                            :name="`items[${idx}][qty_requested]`"
                                            x-model="row.qty"
-                                           required
+                                           :required="!!row.product_id"
                                            placeholder="0"
                                            class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                     <button type="button" @click="openCalc(idx)" title="Kalkulator"
@@ -278,16 +283,18 @@
 
                     <div class="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700">
                         <p class="font-bold mb-1">Perhatian</p>
-                        <p>Stok bahan akan langsung dikurangi saat disimpan dan dicatat ke jurnal WIP.</p>
+                        <p x-show="hasMaterial">Stok bahan akan langsung dikurangi saat disimpan dan dicatat ke jurnal WIP.</p>
+                        <p x-show="hasCost" :class="hasMaterial ? 'mt-1' : ''">Biaya tambahan langsung mengurangi kas dan masuk WIP produksi.</p>
+                        <p x-show="!hasMaterial && !hasCost">Isi bahan baku, biaya tambahan, atau keduanya. Semuanya langsung dicatat ke jurnal WIP.</p>
                     </div>
 
                     <button type="submit"
-                            :disabled="!selectedStepId || rows.every(r => !r.product_id)"
-                            :class="(selectedStepId && rows.some(r => r.product_id))
+                            :disabled="!canSubmit"
+                            :class="canSubmit
                                 ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
                                 : 'bg-blue-300 cursor-not-allowed'"
-                            class="w-full mt-4 py-2.5 text-white text-sm font-bold rounded-xl transition">
-                        Simpan Penambahan Bahan
+                            class="w-full mt-4 py-2.5 text-white text-sm font-bold rounded-xl transition"
+                            x-text="hasMaterial ? 'Simpan Penambahan Bahan' : (hasCost ? 'Simpan Biaya Tambahan' : 'Simpan Penambahan')">
                     </button>
                 </div>
             </div>
@@ -427,6 +434,19 @@ function materialAdditionForm(stepsData, preSelectedStepId) {
             if (!this.taskSearch) return this.allSteps;
             const q = this.taskSearch.toLowerCase();
             return this.allSteps.filter(s => s.search.includes(q));
+        },
+
+        get hasMaterial() {
+            return this.rows.some(r => r.product_id && parseFloat(r.qty) > 0);
+        },
+
+        get hasCost() {
+            return this.costs.some(c => c.description && parseFloat(c.amount) > 0 && c.cash_account_id);
+        },
+
+        // Penambahan boleh isi bahan saja, biaya saja, atau keduanya — asal tidak kosong.
+        get canSubmit() {
+            return !!this.selectedStepId && (this.hasMaterial || this.hasCost);
         },
 
         selectStep(opt) {

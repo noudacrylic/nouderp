@@ -29,7 +29,7 @@ class ProductionMaterialAdditionController extends Controller
         $dateFrom = $request->get('date_from');
         $dateTo   = $request->get('date_to');
 
-        $additions = ProductionMaterialAddition::with(['productionOrder', 'step', 'items.product'])
+        $additions = ProductionMaterialAddition::with(['productionOrder', 'step', 'items.product', 'costs'])
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
                     $w->where('addition_number', 'LIKE', "%{$q}%")
@@ -54,35 +54,41 @@ class ProductionMaterialAdditionController extends Controller
             ->where('is_active', true)
             ->orderBy('name')->get();
 
-        // Tampilkan order steps yang in_progress atau paused (bukan antre murni)
+        // Status order yang masih berjalan — sama dengan papan Proses Produksi. 'confirmed'
+        // ikut karena order yang langkah pertamanya masih antre memang belum in_progress,
+        // padahal bahannya sudah masuk WIP sejak konfirmasi sehingga boleh ditambah.
+        $openOrderStatuses = ['confirmed', 'in_progress', 'partial'];
+
+        // Tampilkan order steps yang in_progress atau paused
         $activeSteps = ProductionOrderStep::with([
                 'productionOrder.outputs.product',
                 'department',
                 'executors',
             ])
             ->whereIn('status', ['in_progress', 'paused'])
-            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', ['in_progress', 'partial']))
+            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', $openOrderStatuses))
             ->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
             ->orderBy('started_at', 'desc')
             ->get();
 
-        // Juga sertakan order yang confirmed dan punya step pending (sedang antre aktif)
-        // namun sudah ada step sebelumnya yang selesai
+        // Juga sertakan langkah yang masih antre — termasuk langkah PERTAMA yang belum
+        // mulai dikerjakan. Aturan penyaringnya disamakan dengan papan Proses Produksi
+        // (langkah pertama, atau langkah yang pendahulunya sudah selesai) supaya tombol
+        // "+ Bahan" di kartu antrean selalu menemukan task-nya di dropdown ini.
         $pendingActiveSteps = ProductionOrderStep::with([
                 'productionOrder.outputs.product',
+                'productionOrder.steps',
                 'department',
             ])
             ->where('status', 'pending')
-            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', ['in_progress', 'partial']))
+            ->whereHas('productionOrder', fn($q) => $q->whereIn('status', $openOrderStatuses))
             ->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
             ->get()
             ->filter(function ($step) {
-                // Hanya tampilkan jika ada step sebelumnya yang sudah selesai
-                $prevDone = $step->productionOrder->steps()
-                    ->where('step_number', '<', $step->step_number)
-                    ->where('status', 'completed')
-                    ->exists();
-                return $prevDone;
+                $prevStep = $step->productionOrder->steps
+                    ->where('step_number', $step->step_number - 1)
+                    ->first();
+                return $prevStep === null || $prevStep->status === 'completed';
             });
 
         $activeSteps = $activeSteps->concat($pendingActiveSteps)->unique('id')->values();
@@ -99,19 +105,38 @@ class ProductionMaterialAdditionController extends Controller
 
     public function store(Request $request)
     {
+        // Buang baris yang memang tidak diisi (baris bahan bawaan yang dibiarkan kosong,
+        // atau baris biaya yang batal diisi) supaya tidak memicu error validasi palsu.
+        $request->merge([
+            'items' => array_values(array_filter(
+                (array) $request->input('items', []),
+                fn($i) => !empty($i['product_id']) || !empty($i['qty_requested'])
+            )),
+            'costs' => array_values(array_filter(
+                (array) $request->input('costs', []),
+                fn($c) => !empty($c['description']) || !empty($c['amount']) || !empty($c['cash_account_id'])
+            )),
+        ]);
+
         $request->validate([
             'production_order_step_id' => 'required|exists:production_order_steps,id',
             'notes'                    => 'nullable|string|max:1000',
-            'items'                    => 'required|array|min:1',
+            'items'                    => 'nullable|array',
             'items.*.product_id'       => 'required|exists:products,id',
             'items.*.qty_requested'    => 'required|numeric|min:0.0001',
             'items.*.unit'             => 'nullable|string|max:50',
             'items.*.notes'            => 'nullable|string|max:500',
             'costs'                    => 'nullable|array',
-            'costs.*.description'      => 'required_with:costs.*.amount|string|max:255',
-            'costs.*.amount'           => 'required_with:costs.*.description|numeric|min:0.01',
-            'costs.*.cash_account_id'  => 'required_with:costs.*.description|exists:accounts,id',
+            'costs.*.description'      => 'required|string|max:255',
+            'costs.*.amount'           => 'required|numeric|min:0.01',
+            'costs.*.cash_account_id'  => 'required|exists:accounts,id',
         ]);
+
+        // Penambahan boleh berupa bahan saja, biaya saja, atau keduanya — tapi tidak kosong.
+        if (empty($request->input('items')) && empty($request->input('costs'))) {
+            return back()->withInput()
+                ->with('error', 'Isi minimal satu bahan baku atau satu biaya tambahan.');
+        }
 
         // Divisi task — untuk redirect kembali ke posisi task di Proses Produksi
         $redirectDeptId = ProductionOrderStep::where('id', $request->production_order_step_id)->value('department_id');
@@ -133,7 +158,7 @@ class ProductionMaterialAdditionController extends Controller
             $engine = app(InventoryEngine::class);
             $totalCost = 0;
 
-            foreach ($request->items as $item) {
+            foreach ($request->input('items', []) as $item) {
                 ProductionMaterialAdditionItem::create([
                     'addition_id'   => $addition->id,
                     'product_id'    => $item['product_id'],
@@ -245,7 +270,9 @@ class ProductionMaterialAdditionController extends Controller
         return redirect($this->bolehBukaProses($redirectDeptId)
                 ? route('production.process.index', array_filter(['department_id' => $redirectDeptId]))
                 : route('production.material-additions.index'))
-            ->with('success', 'Penambahan bahan berhasil dicatat dan stok telah dikurangi.');
+            ->with('success', empty($request->input('items'))
+                ? 'Biaya tambahan berhasil dicatat ke WIP produksi.'
+                : 'Penambahan bahan berhasil dicatat dan stok telah dikurangi.');
     }
 
     /**
@@ -280,7 +307,7 @@ class ProductionMaterialAdditionController extends Controller
         }
 
         $order = $addition->productionOrder;
-        if (!$order || !in_array($order->status, ['in_progress', 'partial'], true)) {
+        if (!$order || !in_array($order->status, ['confirmed', 'in_progress', 'partial'], true)) {
             return back()->with('error', 'Tidak bisa membatalkan: pengerjaan produksi sudah selesai atau difinalisasi. Void hanya bisa selagi order masih dikerjakan.');
         }
 

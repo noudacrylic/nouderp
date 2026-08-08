@@ -206,6 +206,12 @@ class ProductionOrder extends Model
             return false;
         }
 
+        // Penambahan bahan/biaya di tengah jalan tidak ikut dibalik saat batal — harus
+        // di-void dulu, kalau tidak WIP-nya nyangkut. Lihat ProductionOrderService::cancel().
+        if ($this->materialAdditions()->whereNull('voided_at')->exists()) {
+            return false;
+        }
+
         return $this->steps->every(
             fn ($s) => $s->status === 'pending' && $s->started_at === null
         );

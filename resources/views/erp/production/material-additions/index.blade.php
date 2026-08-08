@@ -42,8 +42,16 @@
                             <span class="text-gray-400">—</span>
                         @endif
                     </td>
-                    <td class="px-3 py-2 text-center">
-                        <span class="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{{ $add->items->count() }} bahan</span>
+                    <td class="px-3 py-2 text-center whitespace-nowrap">
+                        @if($add->items->isNotEmpty())
+                            <span class="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">{{ $add->items->count() }} bahan</span>
+                        @endif
+                        @if($add->costs->isNotEmpty())
+                            <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700">{{ $add->costs->count() }} biaya</span>
+                        @endif
+                        @if($add->items->isEmpty() && $add->costs->isEmpty())
+                            <span class="text-gray-400 text-xs">—</span>
+                        @endif
                     </td>
                     <td class="px-3 py-2">{{ $add->created_at->format('d M Y H:i') }}</td>
                     <td class="px-3 py-2 text-gray-500 max-w-xs truncate">{{ $add->notes ?? '—' }}</td>
@@ -76,6 +84,19 @@
                             {{ $item->unit }}
                         </td>
                         <td colspan="3" class="px-3 py-1 text-gray-400">{{ $item->notes }}</td>
+                    </tr>
+                @endforeach
+                @foreach($add->costs as $cost)
+                    <tr class="border-b bg-emerald-50/30 text-xs">
+                        <td class="pl-8 pr-3 py-1 text-gray-400">↳</td>
+                        <td colspan="2" class="px-3 py-1 text-gray-700">
+                            {{ $cost->description }}
+                            <span class="text-gray-400">· biaya</span>
+                        </td>
+                        <td class="px-3 py-1 text-center font-medium text-gray-700">
+                            Rp {{ number_format((float) $cost->amount, 0, ',', '.') }}
+                        </td>
+                        <td colspan="3" class="px-3 py-1 text-gray-400"></td>
                     </tr>
                 @endforeach
             @empty

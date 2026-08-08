@@ -347,7 +347,7 @@
 
         <a href="{{ route('production.material-additions.create', array_filter(['department_id' => $step->department_id, 'step_id' => $step->id])) }}"
            class="px-3 py-1.5 border border-blue-200 text-blue-600 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
-            + Bahan
+            + Bahan/Biaya
         </a>
 
         <button type="button"

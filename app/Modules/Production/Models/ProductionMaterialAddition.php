@@ -20,14 +20,16 @@ class ProductionMaterialAddition extends Model
     }
 
     /**
-     * Boleh di-void hanya bila belum dibatalkan DAN pengerjaan produksinya belum selesai
-     * (order masih 'in_progress'). Setelah completed/finalized, biaya bahan sudah masuk
-     * barang jadi sehingga tidak bisa dibalik dari sini.
+     * Boleh di-void hanya bila belum dibatalkan DAN pengerjaan produksinya belum selesai.
+     * 'confirmed' ikut karena bahan/biaya kini bisa ditambahkan sejak langkah pertama masih
+     * antre — tanpa ini penambahan yang salah input tidak punya jalan koreksi sampai task
+     * mulai dikerjakan. Setelah completed/finalized, biaya sudah masuk barang jadi sehingga
+     * tidak bisa dibalik dari sini.
      */
     public function canBeVoided(): bool
     {
         return !$this->isVoided()
-            && optional($this->productionOrder)->status === 'in_progress';
+            && in_array(optional($this->productionOrder)->status, ['confirmed', 'in_progress'], true);
     }
 
     public function productionOrder()
