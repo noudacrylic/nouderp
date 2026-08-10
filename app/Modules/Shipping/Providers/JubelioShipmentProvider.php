@@ -458,6 +458,8 @@ class JubelioShipmentProvider implements ShippingProvider
             return ['success' => false, 'order_id' => null, 'tracking_id' => null, 'raw' => [], 'error' => 'courier_id / courier_service_id Jubelio tidak valid. Pilih ulang kurir lewat Cek Ongkir.'];
         }
 
+        $items = $this->mapItems($payload['items'] ?? [], true);
+
         $body = [
             'ref_no'         => $payload['reference'] ?? '[auto]',
             'courier_id'     => $courierId,
@@ -480,7 +482,7 @@ class JubelioShipmentProvider implements ShippingProvider
                 'coordinate' => $this->coordinate($payload['destination_latitude'] ?? null, $payload['destination_longitude'] ?? null),
                 'zipcode' => $payload['destination_postal_code'] ?? null,
             ], fn ($v) => $v !== null && $v !== ''),
-            'items'          => $this->mapItems($payload['items'] ?? [], true),
+            'items'          => $items,
         ];
 
         if (!empty($payload['shipping_insurance'])) {
@@ -490,14 +492,22 @@ class JubelioShipmentProvider implements ShippingProvider
             $body['is_cod'] = (bool) $payload['is_cod'];
         }
 
+        // Beda dengan /rates yang menaruh berat di level atas, saat TERBIT RESI Jubelio
+        // mewajibkan `weight` di dalam package_detail — tanpa itu ditolak VAL_ERR
+        // "/package_detail must have required property 'weight'". Berat dipakai dari
+        // hasil timbang paket bila ada, selain itu jumlah berat item (gram).
+        $pkgWeight = (int) ($payload['package_weight_gram'] ?? 0);
+        if ($pkgWeight <= 0) {
+            $pkgWeight = $this->totalWeight($items);
+        }
+
         $pkg = array_filter([
             'length' => (float) ($payload['package_length'] ?? 0) ?: null,
             'width'  => (float) ($payload['package_width'] ?? 0) ?: null,
             'height' => (float) ($payload['package_height'] ?? 0) ?: null,
         ]);
-        if ($pkg) {
-            $body['package_detail'] = $pkg;
-        }
+        $pkg['weight'] = max(1, $pkgWeight);
+        $body['package_detail'] = $pkg;
 
         $res = $this->call('POST', self::EP_CREATE, $body);
         if (!$res['ok']) {
