@@ -179,10 +179,13 @@ class CheckoutController extends Controller
         ]);
 
         // Sisipkan diskon ongkir (promo) per layanan → etalase tampilkan potongannya.
-        $subtotal = $this->goodsSubtotal($data['items']);
-        $rates = collect($res['rates'] ?? [])->map(function ($r) use ($subtotal) {
+        // Rincian barang WAJIB ikut: promo ongkir yang dibatasi daftar produk menghitung
+        // ambang belanjanya hanya dari produk itu — tanpa items ambangnya selalu 0.
+        $basis    = $this->goodsBasis($data['items']);
+        $subtotal = $basis['subtotal'];
+        $rates = collect($res['rates'] ?? [])->map(function ($r) use ($subtotal, $basis) {
             $gross = (float) ($r['price'] ?? 0);
-            $disc  = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, []);
+            $disc  = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, $basis['items']);
             $r['discount'] = $disc ? (float) min($disc['discount_amount'], $gross) : 0;
             return $r;
         })->all();
@@ -190,8 +193,11 @@ class CheckoutController extends Controller
         return response()->json(['data' => $rates, 'errors' => $res['errors']]);
     }
 
-    /** Subtotal barang (setelah diskon item) — dasar min belanja diskon ongkir. */
-    private function goodsSubtotal(array $items): float
+    /**
+     * Dasar promo ongkir: subtotal barang (setelah diskon item) + rincian barangnya
+     * (product_id/qty/unit_price) untuk promo ongkir yang dibatasi daftar produk.
+     */
+    private function goodsBasis(array $items): array
     {
         $ids = collect($items)->pluck('product_id')->map(fn ($v) => (int) $v)->unique();
         $products = Product::whereIn('id', $ids)->where('is_sellable', true)->get()->keyBy('id');
@@ -209,7 +215,7 @@ class CheckoutController extends Controller
             $disc = (float) ($discounts[$pi['product_id']]['discount_amount'] ?? 0);
             $subtotal += $pi['qty'] * $pi['unit_price'] - $disc;
         }
-        return max(0, $subtotal);
+        return ['subtotal' => max(0, $subtotal), 'items' => $input];
     }
 
     /**
@@ -373,7 +379,7 @@ class CheckoutController extends Controller
         }
 
         try {
-            return DB::transaction(function () use ($data, $lineItems, $setting, $subtotal) {
+            return DB::transaction(function () use ($data, $lineItems, $promoInput, $setting, $subtotal) {
             $customer = $this->resolveCustomer($data['customer']);
 
             // Promo "total belanja" (cart_total) → mengisi diskon global SO.
@@ -399,7 +405,9 @@ class CheckoutController extends Controller
             ];
             if ($needsCourier) {
                 $gross = (float) $data['shipping']['price'];
-                $shipDisc = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, []);
+                // items ikut → promo ongkir berdaftar-produk memakai ambang yang sama
+                // dengan yang sudah ditampilkan di halaman checkout (endpoint rates).
+                $shipDisc = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, $promoInput);
                 $dto['shipping_gross']          = $gross;
                 $dto['shipping_discount_type']  = 'nominal';
                 $dto['shipping_discount_value'] = $shipDisc ? (float) min($shipDisc['discount_amount'], $gross) : 0;
