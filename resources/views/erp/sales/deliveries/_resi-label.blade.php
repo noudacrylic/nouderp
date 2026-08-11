@@ -1,7 +1,16 @@
 {{-- Label resi. Param: $delivery, $origin, $dest, $totalWeight, $barcodeId (id svg) atau pakai class .barcode (bulk). --}}
+@php
+    // Kode kurir dicoba dulu (paling bersih: 'jne', 'jt_cargo'), baru nama layanan.
+    $courierLogo = \App\Modules\Shipping\CourierBrand::logo($delivery->shipping_courier_code, $delivery->courier_name);
+    $courierText = $delivery->shipping_courier_code ? strtoupper($delivery->shipping_courier_code) : $delivery->courier_name;
+@endphp
 <div class="resi-label">
     <div class="rrow">
-        <div class="rcourier">{{ $delivery->shipping_courier_code ? strtoupper($delivery->shipping_courier_code) : $delivery->courier_name }}</div>
+        @if($courierLogo)
+            <img class="rlogo" src="{{ $courierLogo }}" alt="{{ $courierText }}">
+        @else
+            <div class="rcourier">{{ $courierText }}</div>
+        @endif
         <span class="rpill">{{ $delivery->collection_method === 'dropoff' ? 'Drop Off' : 'Pickup' }}</span>
     </div>
     <div class="rservice">{{ $delivery->courier_name }}</div>

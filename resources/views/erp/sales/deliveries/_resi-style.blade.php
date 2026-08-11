@@ -21,6 +21,9 @@
     .resi-label svg { max-width: 100%; height: auto; }
     .resi-label .rrow { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
     .resi-label .rcourier { font-size: 17px; font-weight: 800; text-transform: uppercase; }
+    /* Logo kurir menggantikan teks .rcourier. Tinggi dikunci supaya semua merek
+       sejajar apa pun rasio gambarnya; lebar dibatasi agar pill "Pickup" tetap muat. */
+    .resi-label .rlogo { height: 22px; width: auto; max-width: 46%; object-fit: contain; }
     .resi-label .rpill { font-size: 9px; font-weight: bold; border: 1px solid #111; border-radius: 4px; padding: 2px 5px; text-transform: uppercase; }
     .resi-label .rservice { font-size: 10px; color: #555; }
     .resi-label .rbarcode-wrap { text-align: center; border-top: 1px dashed #999; border-bottom: 1px dashed #999; margin: 6px 0; padding: 5px 0; }
