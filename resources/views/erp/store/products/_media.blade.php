@@ -1,5 +1,5 @@
 {{-- Galeri media Produk Store (foto + video). Dikelola via AJAX, di luar <form> utama. --}}
-<div class="bg-white rounded shadow p-4 mt-6 max-w-5xl"
+<div class="bg-white rounded shadow p-4 mt-6"
      x-data="storeMediaGallery({{ $product->id }}, {{ Js::from($product->media->where('group', 'gallery')->map(fn($m) => [
         'id' => $m->id, 'kind' => $m->kind, 'source' => $m->source,
         'url' => $m->url, 'alt_text' => $m->alt_text, 'is_primary' => (bool) $m->is_primary, 'sort_order' => $m->sort_order,

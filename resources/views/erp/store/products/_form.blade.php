@@ -16,6 +16,8 @@
                 'opts'           => $opts,
                 'key'            => $key,
                 'image_media_id' => $v->image_media_id,
+                'allow_courier'  => (bool) $v->allow_courier,
+                'allow_pickup'   => (bool) $v->allow_pickup,
             ]);
             if ($v->is_default) $defaultKey = $key;
         } else {
@@ -41,7 +43,9 @@
     ];
 @endphp
 
-<div class="max-w-4xl mx-auto" x-data="storeVariants({{ Js::from($vmInit) }})">
+{{-- Lebar penuh: matriks varian punya banyak kolom (opsi × SKU × gambar × 2 jalur kirim),
+     dan SKU yang terlipat jadi beberapa baris membuat tabelnya sulit dibaca. --}}
+<div class="max-w-7xl mx-auto" x-data="storeVariants({{ Js::from($vmInit) }})">
 
     {{-- Informasi utama --}}
     <div class="bg-white rounded shadow p-4 space-y-4">
@@ -176,6 +180,8 @@
                             </template>
                             <th class="px-3 py-2 text-left">SKU</th>
                             <th class="px-3 py-2 text-left w-56">Gambar <span class="font-normal text-gray-400">(opsional)</span></th>
+                            <th class="px-3 py-2 text-center w-24 whitespace-nowrap">Kurir</th>
+                            <th class="px-3 py-2 text-center w-32 whitespace-nowrap">Instant /<br>Ambil Toko</th>
                             <th class="px-3 py-2 text-center w-20">Default</th>
                         </tr>
                     </thead>
@@ -183,12 +189,13 @@
                         <template x-for="c in combos" :key="c.key">
                             <tr class="border-b">
                                 <template x-for="(o, oi) in c.opts" :key="oi">
-                                    <td class="px-3 py-2 font-medium" x-text="o"></td>
+                                    <td class="px-3 py-2 font-medium whitespace-nowrap" x-text="o"></td>
                                 </template>
                                 <td class="px-3 py-2">
-                                    <div x-show="c.product_id" class="flex items-center gap-2">
+                                    {{-- Satu baris per kombinasi: SKU jangan terlipat, nama panjang dipotong (judul penuh di hover). --}}
+                                    <div x-show="c.product_id" class="flex items-center gap-2 whitespace-nowrap">
                                         <span class="font-medium" x-text="c.sku"></span>
-                                        <span class="text-gray-400 text-xs" x-text="'— ' + c.name"></span>
+                                        <span class="text-gray-400 text-xs truncate max-w-[18rem]" x-text="'— ' + c.name" :title="c.name"></span>
                                         <button type="button" @click="clearRow(c)" class="text-red-600 hover:text-red-800 text-xs">Ganti</button>
                                     </div>
                                     <div x-show="!c.product_id" class="relative">
@@ -223,6 +230,12 @@
                                     </template>
                                 </td>
                                 <td class="px-3 py-2 text-center">
+                                    <input type="checkbox" x-model="c.allow_courier">
+                                </td>
+                                <td class="px-3 py-2 text-center">
+                                    <input type="checkbox" x-model="c.allow_pickup">
+                                </td>
+                                <td class="px-3 py-2 text-center">
                                     <input type="radio" :checked="c.key===defaultKey" @change="defaultKey=c.key" :disabled="!c.product_id">
                                 </td>
                             </tr>
@@ -230,6 +243,12 @@
                     </tbody>
                 </table>
             </div>
+            <p x-show="combos.length" x-cloak class="text-xs text-gray-400">
+                <b>Kurir</b> / <b>Instant &amp; Ambil Toko</b>: jalur pengiriman yang dilayani varian. Bawaannya dua-duanya —
+                matikan hanya bila packing varian menuntutnya, mis. bubble tipis jangan lewat ekspedisi (matikan Kurir),
+                atau packing kayu memang untuk dikirim (matikan Instant/Ambil Toko).
+                Di checkout, metode yang tidak dilayani salah satu isi keranjang akan mati sendiri.
+            </p>
 
             {{-- hidden submit: axes + filled combos --}}
             <template x-if="mode==='variant'">
@@ -246,6 +265,9 @@
                         <div>
                             <input type="hidden" :name="`variants[${fi}][product_id]`" :value="c.product_id">
                             <input type="hidden" :name="`variants[${fi}][image_media_id]`" :value="c.image_media_id || ''">
+                            {{-- Centang tak terkirim saat kosong; hidden ini memastikan "tidak dilayani" ikut tersimpan. --}}
+                            <input type="hidden" :name="`variants[${fi}][allow_courier]`" :value="c.allow_courier ? 1 : 0">
+                            <input type="hidden" :name="`variants[${fi}][allow_pickup]`" :value="c.allow_pickup ? 1 : 0">
                             <template x-for="(o, oi) in c.opts" :key="oi">
                                 <input type="hidden" :name="`variants[${fi}][options][]`" :value="o">
                             </template>
@@ -339,9 +361,12 @@ function storeVariants(init) {
             this.combos = res.map(opts => {
                 const key = opts.join(' / ');
                 const ex = prev[key];
+                // Kombinasi baru melayani semua jalur; yang tersimpan mempertahankan centangnya.
                 return ex
-                    ? { key, opts, product_id: ex.product_id || null, sku: ex.sku || '', name: ex.name || '', image_media_id: ex.image_media_id ? String(ex.image_media_id) : '', search: '', results: [] }
-                    : { key, opts, product_id: null, sku: '', name: '', image_media_id: '', search: '', results: [] };
+                    ? { key, opts, product_id: ex.product_id || null, sku: ex.sku || '', name: ex.name || '', image_media_id: ex.image_media_id ? String(ex.image_media_id) : '',
+                        allow_courier: ex.allow_courier !== false, allow_pickup: ex.allow_pickup !== false, search: '', results: [] }
+                    : { key, opts, product_id: null, sku: '', name: '', image_media_id: '',
+                        allow_courier: true, allow_pickup: true, search: '', results: [] };
             });
             if (!this.combos.some(c => c.key === this.defaultKey)) {
                 this.defaultKey = this.combos.length ? this.combos[0].key : null;

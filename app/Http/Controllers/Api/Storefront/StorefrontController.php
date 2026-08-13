@@ -318,6 +318,10 @@ class StorefrontController extends Controller
                 'product_id'     => $v->product_id,
                 'label'          => $v->variant_label,
                 'options'        => $v->option_values,
+                // Jalur pengiriman yang dilayani varian (allow_pickup = instant & ambil di toko).
+                // Etalase memakainya untuk mematikan metode yang tidak cocok di checkout.
+                'allow_courier'  => (bool) $v->allow_courier,
+                'allow_pickup'   => (bool) $v->allow_pickup,
                 'is_default'     => (bool) $v->is_default,
                 'image_url'      => $v->image_media_id ? optional($mediaById->get($v->image_media_id))->url : null,
                 'price'          => $final,

@@ -1,7 +1,7 @@
 {{-- Galeri Instansi: foto klien/instansi yang pernah memesan produk ini.
      Tampil di halaman produk web, di bawah deskripsi (bukti sosial).
      Dikelola via AJAX, di luar <form> utama — sama seperti galeri produk. --}}
-<div class="bg-white rounded shadow p-4 mt-6 max-w-5xl"
+<div class="bg-white rounded shadow p-4 mt-6"
      x-data="storeShowcaseGallery({{ $product->id }}, {{ Js::from($product->media->where('group', 'showcase')->map(fn($m) => [
         'id' => $m->id, 'url' => $m->url, 'alt_text' => $m->alt_text,
         'caption' => $m->caption, 'sort_order' => $m->sort_order,

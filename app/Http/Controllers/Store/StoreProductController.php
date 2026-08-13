@@ -160,10 +160,13 @@ class StoreProductController extends Controller
 
         $this->guardSkus([(int) $pid], $ignoreId);
 
+        // Produk tanpa varian tidak punya pilihan packing → melayani semua jalur.
         return ['product' => $product, 'variants' => [[
             'product_id'    => (int) $pid,
             'variant_label' => null,
             'option_values' => null,
+            'allow_courier' => true,
+            'allow_pickup'  => true,
             'is_default'    => true,
             'sort_order'    => 0,
         ]]];
@@ -182,6 +185,8 @@ class StoreProductController extends Controller
             'variants.*.options'        => ['required', 'array'],
             'variants.*.options.*'      => ['nullable', 'string', 'max:255'],
             'variants.*.image_media_id' => ['nullable', 'integer'],
+            'variants.*.allow_courier'  => ['nullable', 'boolean'],
+            'variants.*.allow_pickup'   => ['nullable', 'boolean'],
             'default_index'             => ['nullable', 'integer'],
         ], [
             'axes.required' => 'Untuk diterbitkan, tambahkan minimal 1 variasi beserta opsinya.',
@@ -218,10 +223,23 @@ class StoreProductController extends Controller
         $variants = [];
         foreach ($rawVariants as $i => $v) {
             $opts = array_values(array_map('trim', $v['options']));
+            // Jalur pengiriman varian. Keduanya mati = varian mustahil dibeli, jadi
+            // ditolak di sini alih-alih menjadi baris yang selamanya gagal di checkout.
+            $courier = filter_var($v['allow_courier'] ?? true, FILTER_VALIDATE_BOOLEAN);
+            $pickup  = filter_var($v['allow_pickup'] ?? true, FILTER_VALIDATE_BOOLEAN);
+            if (! $courier && ! $pickup) {
+                throw ValidationException::withMessages([
+                    'variants' => 'Varian "' . implode(' / ', $opts) . '" tidak melayani jalur pengiriman apa pun. '
+                        . 'Centang minimal satu: Kurir atau Instant/Ambil Toko.',
+                ]);
+            }
+
             $variants[] = [
                 'product_id'     => (int) $v['product_id'],
                 'variant_label'  => implode(' / ', $opts),
                 'option_values'  => $opts,
+                'allow_courier'  => $courier,
+                'allow_pickup'   => $pickup,
                 'image_media_id' => !empty($v['image_media_id']) ? (int) $v['image_media_id'] : null,
                 'is_default'     => $i === $defaultIndex,
                 'sort_order'     => $i,

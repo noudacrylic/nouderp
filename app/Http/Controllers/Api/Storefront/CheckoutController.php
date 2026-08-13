@@ -235,6 +235,12 @@ class CheckoutController extends Controller
         $ids      = collect($data['items'])->pluck('product_id')->map(fn ($v) => (int) $v)->unique();
         $products = Product::whereIn('id', $ids)->where('is_sellable', true)->get()->keyBy('id');
 
+        // Jalur pengiriman per varian. Ikut di kuotasi (bukan hanya di payload produk)
+        // karena keranjang bertahan di localStorage: barang yang ditambahkan sebelum
+        // penandanya diatur tetap dinilai dengan aturan terbaru saat checkout.
+        $lanes = \App\Models\StoreProductVariant::whereIn('product_id', $ids)
+            ->get()->keyBy('product_id');
+
         $input = [];
         foreach ($data['items'] as $it) {
             $p = $products->get((int) $it['product_id']);
@@ -259,6 +265,8 @@ class CheckoutController extends Controller
             $subtotal         += $lineGross - $discAmt;
             if ($disc) $promoIds[] = (int) $disc['promotion_id'];
 
+            $lane = $lanes->get($pi['product_id']);
+
             $lines[] = [
                 'product_id'      => $pi['product_id'],
                 'qty'             => $pi['qty'],
@@ -266,6 +274,9 @@ class CheckoutController extends Controller
                 'price'           => round($pi['unit_price'] - $unitDisc),
                 'discount'        => round($discAmt),
                 'promotion_name'  => $disc['promotion_name'] ?? null,
+                // SKU yang belum terdaftar di etalase dianggap melayani semua jalur.
+                'allow_courier'   => $lane ? (bool) $lane->allow_courier : true,
+                'allow_pickup'    => $lane ? (bool) $lane->allow_pickup : true,
             ];
         }
         $subtotal = max(0, $subtotal);

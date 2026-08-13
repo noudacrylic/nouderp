@@ -12,6 +12,8 @@ class StoreProductVariant extends Model
         'product_id',
         'variant_label',
         'option_values',
+        'allow_courier',
+        'allow_pickup',
         'image_media_id',
         'is_default',
         'sort_order',
@@ -21,6 +23,8 @@ class StoreProductVariant extends Model
         'is_default'     => 'boolean',
         'sort_order'     => 'integer',
         'option_values'  => 'array',
+        'allow_courier'  => 'boolean',
+        'allow_pickup'   => 'boolean',
         'image_media_id' => 'integer',
     ];
 
