@@ -390,7 +390,11 @@ class CheckoutController extends Controller
         }
 
         try {
-            return DB::transaction(function () use ($data, $lineItems, $promoInput, $setting, $subtotal) {
+            // $needsCourier WAJIB ikut: dipakai di dalam closure saat menyusun ongkir DTO.
+            // Tanpa itu PHP melempar warning "Undefined variable" yang oleh Laravel diubah
+            // jadi ErrorException, tertangkap catch-all di bawah, dan pembeli menerima
+            // "Pembayaran sedang tidak tersedia" — padahal jalur bayarnya sehat.
+            return DB::transaction(function () use ($data, $lineItems, $promoInput, $setting, $subtotal, $needsCourier) {
             $customer = $this->resolveCustomer($data['customer']);
 
             // Promo "total belanja" (cart_total) → mengisi diskon global SO.
