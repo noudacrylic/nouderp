@@ -9,7 +9,9 @@ use App\Http\Controllers\Controller;
 use App\Models\StoreArticle;
 use App\Models\StoreArticleCategory;
 use App\Models\StoreCategory;
+use App\Models\StoreHomepageSetting;
 use App\Models\StoreProduct;
+use App\Models\StoreProductMedia;
 use App\Modules\Sales\Models\Promotion;
 use App\Modules\Sales\Services\PromotionService;
 use Illuminate\Http\Request;
@@ -51,9 +53,10 @@ class StorefrontController extends Controller
 
         // Hitung diskon item sekali untuk semua varian di halaman ini.
         $discounts = $this->itemDiscounts($page->getCollection());
+        $sold      = $this->soldCounts($this->variantProductIds($page->getCollection()));
 
         return response()->json([
-            'data' => $page->getCollection()->map(fn($p) => $this->serializeProduct($p, $discounts))->all(),
+            'data' => $page->getCollection()->map(fn($p) => $this->serializeProduct($p, $discounts, $sold))->all(),
             'meta' => [
                 'current_page' => $page->currentPage(),
                 'last_page'    => $page->lastPage(),
@@ -75,7 +78,13 @@ class StorefrontController extends Controller
             return response()->json(['message' => 'Produk tidak ditemukan.'], 404);
         }
 
-        return response()->json(['data' => $this->serializeProduct($p, $this->itemDiscounts(collect([$p])))]);
+        return response()->json([
+            'data' => $this->serializeProduct(
+                $p,
+                $this->itemDiscounts(collect([$p])),
+                $this->soldCounts($this->variantProductIds(collect([$p])))
+            ),
+        ]);
     }
 
     /**
@@ -223,6 +232,73 @@ class StorefrontController extends Controller
         return response()->json(['data' => $promos]);
     }
 
+    /** Isi beranda etalase (Store → Beranda). Teks & gambar saja — produk/kategori tetap dari endpointnya sendiri. */
+    public function homepage()
+    {
+        $data = StoreHomepageSetting::singleton()->toStorefrontArray();
+
+        if ($data['gallery']['show'] ?? false) {
+            $data['gallery']['items'] = $this->showcaseGallery((int) $data['gallery']['limit']);
+        }
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Foto "produk terpasang di tempat nyata" untuk galeri beranda.
+     *
+     * Sumbernya media grup `showcase` milik Produk Store — foto yang sama yang
+     * tampil di bawah deskripsi produk. Sengaja bukan unggahan tersendiri di
+     * halaman Beranda: satu foto yang harus diunggah dua kali cepat atau lambat
+     * diperbarui di satu tempat saja.
+     *
+     * Diambil menyebar — maksimal dua foto per produk — supaya galerinya tidak
+     * habis oleh satu produk yang kebetulan fotonya paling banyak.
+     */
+    private function showcaseGallery(int $limit): array
+    {
+        $rows = StoreProductMedia::query()
+            ->where('group', 'showcase')
+            ->whereHas('storeProduct', fn ($q) => $q->published())
+            ->with('storeProduct:id,slug,name,sort_order')
+            ->orderBy('sort_order')->orderBy('id')
+            ->limit($limit * 4)
+            ->get();
+
+        $perProduct = [];
+        $items      = [];
+
+        foreach ($rows as $m) {
+            $pid = $m->store_product_id;
+            if (($perProduct[$pid] ?? 0) >= 2) {
+                continue;
+            }
+            $perProduct[$pid] = ($perProduct[$pid] ?? 0) + 1;
+
+            $items[] = [
+                'url'          => $m->url,
+                'caption'      => $m->caption,
+                'alt'          => $m->alt_text,
+                'product_slug' => optional($m->storeProduct)->slug,
+                'product_name' => optional($m->storeProduct)->name,
+            ];
+
+            if (count($items) >= $limit) {
+                break;
+            }
+        }
+
+        return $items;
+    }
+
+    /** Semua product_id (SKU ERP) milik varian sekumpulan Produk Store. */
+    private function variantProductIds($products): \Illuminate\Support\Collection
+    {
+        return collect($products)
+            ->flatMap(fn ($p) => $p->variants->pluck('product_id'))
+            ->filter()->unique()->values();
+    }
+
     // ───────────────────────── Blog/Artikel ─────────────────────────
 
     /** Kategori artikel untuk navigasi blog. */
@@ -298,7 +374,7 @@ class StorefrontController extends Controller
         return $items ? $this->promotions->resolveItemDiscounts($items) : [];
     }
 
-    private function serializeProduct(StoreProduct $p, array $discounts): array
+    private function serializeProduct(StoreProduct $p, array $discounts, array $sold = []): array
     {
         // Lookup media galeri per id → resolusi gambar per-varian (opsional).
         $mediaById = $p->media->keyBy('id');
@@ -340,6 +416,11 @@ class StorefrontController extends Controller
             'short_description' => $p->short_description,
             'description'       => $p->description,
             'is_featured'       => (bool) $p->is_featured,
+            // Terjual dijumlahkan lintas varian: bagi pembeli ini satu produk,
+            // bukan beberapa SKU. Ikut payload katalog yang di-cache — angka bukti
+            // sosial tidak perlu sedetik ini, dan menumpangkannya ke panggilan stok
+            // live akan membuat setiap daftar produk memukul ERP.
+            'sold'              => (int) $p->variants->sum(fn ($v) => $sold[$v->product_id] ?? 0),
             'view_count'        => (int) $p->view_count,
             'sort_order'        => $p->sort_order,
             'category'          => $p->category ? [

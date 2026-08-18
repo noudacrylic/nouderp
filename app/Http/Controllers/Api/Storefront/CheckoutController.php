@@ -339,6 +339,7 @@ class CheckoutController extends Controller
             'customer.latitude'            => 'nullable|numeric|between:-90,90',
             'customer.longitude'           => 'nullable|numeric|between:-180,180',
             'payment_method'               => 'nullable|in:qris,transfer,midtrans',
+            'notes'                        => 'nullable|string|max:500',
             'shipping.courier_code'        => 'nullable|string|max:50',
             'shipping.service_name'        => 'nullable|string|max:150',
             'shipping.price'               => 'nullable|numeric|min:0',
@@ -406,6 +407,8 @@ class CheckoutController extends Controller
             // Pesanan (customer_po_number), sehingga saat difakturkan di ERP invoice ikut
             // nomor ini → SO, faktur web, dan faktur ERP bernomor sama (audit mudah).
             $webNumber = \App\Services\NumberGeneratorService::webOrderNumber();
+            // Catatan: token halaman lacak diterbitkan sesudah SO tersimpan
+            // (lihat ensurePublicToken di bawah) — butuh id-nya lebih dulu.
 
             $dto = [
                 'customer_id'           => $customer->id,
@@ -413,7 +416,14 @@ class CheckoutController extends Controller
                 'customer_po_number'    => $webNumber,
                 'delivery_method'       => $data['delivery_method'],
                 'order_date'            => now()->toDateString(),
-                'notes'                 => 'Pesanan toko online (noudakrilik.com)',
+                // Penanda kanal tetap di baris pertama — itu yang membedakan pesanan
+                // web dari marketplace & kasir saat SO dibaca di ERP. Catatan pembeli
+                // ditempel di bawahnya dan diberi label, jadi admin tahu kalimat itu
+                // datang dari pembeli, bukan ditulis staf.
+                'notes'                 => trim(
+                    'Pesanan toko online (noudakrilik.com)'
+                    . (filled($data['notes'] ?? null) ? "\nCatatan pembeli: " . trim($data['notes']) : '')
+                ),
                 'global_discount_type'  => 'nominal',
                 'global_discount_value' => $cartAmount,
                 'items'                 => $lineItems,
@@ -431,6 +441,7 @@ class CheckoutController extends Controller
 
             $so = $this->orders->createDraftFromData($dto);
             $this->orders->confirm($so->id);              // reservasi stok
+            $so->ensurePublicToken();                     // alamat halaman lacak pesanan
 
             // Metode bayar: ikuti pilihan pembeli bila metodenya memang siap,
             // selain itu jatuh ke metode pertama yang tersedia.
@@ -480,11 +491,31 @@ class CheckoutController extends Controller
     }
 
     /** Status pesanan by token publik. */
+    /**
+     * Status pesanan untuk halaman pembeli.
+     *
+     * Menerima DUA jenis token dengan sengaja. Yang lama milik tagihan web dan
+     * sudah tersebar di tautan yang dipegang pembeli — mematikannya berarti
+     * memutus halaman yang sudah mereka simpan. Yang baru milik PESANAN, dan itu
+     * yang membuat pesanan tempo, pesanan berlink-bayar, dan pesanan yang link
+     * bayarnya sudah kedaluwarsa tetap punya halaman.
+     */
     public function show(string $token)
     {
         $wp = WebPayment::with('salesOrder')->where('public_token', $token)->first();
+
         if (! $wp) {
-            return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
+            $so = \App\Modules\Sales\Models\SalesOrder::where('public_token', $token)->first();
+            if (! $so) {
+                return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
+            }
+
+            // Pesanan bertoken sendiri: tagihan webnya boleh ada (pesanan web lama)
+            // atau tidak ada sama sekali (pesanan tempo / link bayar manual).
+            $wp = $so->webPayment;
+            if (! $wp) {
+                return response()->json(['data' => $this->orderOnlyPayload($so)]);
+            }
         }
 
         // Midtrans memposting pembayaran lewat webhook-nya sendiri → cerminkan ke intent
@@ -721,6 +752,191 @@ class CheckoutController extends Controller
         return response()->json(['data' => ['name' => $customer->name, 'orders' => $orders]]);
     }
 
+    /**
+     * Bentuk ringkas untuk pesanan yang TIDAK punya tagihan web — pesanan tempo,
+     * atau pesanan yang tautan bayarnya dibuat manual dari ERP.
+     *
+     * Field pembayaran sengaja tetap ada tapi kosong, bukan dihilangkan: halaman
+     * pembeli membaca bentuk yang sama untuk kedua jenis pesanan, dan bentuk yang
+     * berubah-ubah memaksa setiap pembacanya menebak mana yang sedang ia terima.
+     */
+    private function orderOnlyPayload(\App\Modules\Sales\Models\SalesOrder $so): array
+    {
+        $progress = app(\App\Modules\Sales\Services\OrderProgressService::class)->for($so);
+        $paid     = $progress['payment']['state'] === 'paid';
+
+        return [
+            'token'           => $so->public_token,
+            'track_token'     => $so->public_token,
+            'order_number'    => $so->order_number,
+            'method'          => null,
+            'qris_string'     => null,
+            'qris_expires_at' => null,
+            'pay_url'         => null,
+            'faktur_url'      => null,
+            'status'          => $so->status,
+            'status_label'    => $progress['payment']['label'],
+            'paid'            => $paid,
+            'open'            => $so->status !== 'void',
+            'stage'           => 0,
+            'courier'         => $progress['courier'] ?? null,
+            'tracking_number' => $progress['tracking_number'] ?? null,
+            'grand_total'     => (float) $so->grand_total,
+            'unique_code'     => 0,
+            'expected_amount' => (float) $so->grand_total,
+            'expires_at'      => null,
+            'delivery_method' => $so->delivery_method,
+            'bank_accounts'   => [],
+            'progress'        => $progress,
+            'items'           => $this->orderItems($so),
+        ];
+    }
+
+    /**
+     * Isi pesanan — dipakai halaman pembeli untuk menampilkan rincian sekaligus
+     * memilih produk rekomendasi yang sekategori. Hanya baris yang produknya masih
+     * terbit di etalase yang membawa slug; sisanya tetap tampil sebagai nama saja.
+     */
+    private function orderItems(\App\Modules\Sales\Models\SalesOrder $so): array
+    {
+        $ids = $so->items->pluck('product_id')->filter()->unique();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        // Satu produk etalase bisa punya banyak varian (SKU ERP) — petakan balik
+        // dari product_id varian ke produk etalase induknya.
+        $byVariant = \App\Models\StoreProductVariant::whereIn('product_id', $ids)
+            ->with('storeProduct.category')
+            ->get()->keyBy('product_id');
+
+        return $so->items->map(function ($it) use ($byVariant) {
+            $sp = $byVariant->get($it->product_id)?->storeProduct;
+
+            return [
+                'name'          => $it->description ?: optional($it->product)->name,
+                'qty'           => (float) $it->qty,
+                'slug'          => $sp?->slug,
+                'category_slug' => $sp?->category?->slug,
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * Riwayat perjalanan paket untuk halaman pesanan pembeli.
+     *
+     * Ditaruh di endpoint TERPISAH dari status pesanan dengan sengaja: halaman
+     * pembeli menyegarkan statusnya tiap 15 detik, dan menempelkan pelacakan di
+     * sana berarti satu halaman yang dibiarkan terbuka memukul agregator kurir
+     * ratusan kali sejam. Di sini pembeli yang memintanya, dan hasilnya disimpan
+     * sepuluh menit — kurir sendiri tidak memperbarui posisi lebih cepat dari itu.
+     *
+     * `stale` menandai jawaban yang dilayani dari simpanan saat agregator sedang
+     * tak bisa dihubungi: riwayat lama jauh lebih berguna bagi pembeli daripada
+     * layar kosong bertuliskan gagal.
+     */
+    public function tracking(string $token, \App\Modules\Shipping\ShippingManager $shipping)
+    {
+        $wp = WebPayment::with('salesOrder')->where('public_token', $token)->first();
+        if (! $wp) {
+            return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
+        }
+
+        $delivery = $wp->salesOrder?->deliveries()
+            ->whereNotNull('tracking_number')->where('tracking_number', '!=', '')
+            ->latest('id')->first();
+
+        if (! $delivery) {
+            return response()->json(['data' => [
+                'tracking_number' => null, 'courier' => null, 'status' => null,
+                'history' => [], 'stale' => false, 'message' => 'Nomor resi belum terbit.',
+            ]]);
+        }
+
+        $awb     = $delivery->tracking_number;
+        $courier = $delivery->courier_name ?: $delivery->shipping_courier_code;
+        $cacheKey = 'storefront:tracking:' . md5($awb);
+
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if ($cached) {
+            return response()->json(['data' => $cached + ['stale' => false]]);
+        }
+
+        // Provider yang MEMBOOKING resi ini, bukan yang kebetulan aktif sekarang:
+        // resi lama tetap harus bisa dilacak setelah agregatornya diganti.
+        $provider = $shipping->provider($delivery->shipping_provider ?: 'jubelio_shipment');
+        $res = $provider ? $provider->track($awb) : ['success' => false, 'error' => 'Kurir tidak dikenal.'];
+
+        if (! ($res['success'] ?? false)) {
+            return response()->json(['data' => [
+                'tracking_number' => $awb,
+                'courier'         => $courier,
+                'status'          => $delivery->shipping_status,
+                'history'         => [],
+                'stale'           => true,
+                'message'         => 'Status kurir sedang tidak bisa dihubungi. Coba beberapa saat lagi.',
+            ]]);
+        }
+
+        $payload = [
+            'tracking_number' => $awb,
+            'courier'         => $courier,
+            'status'          => $res['status'] ?? $delivery->shipping_status,
+            'history'         => $this->trackingHistory($res['history'] ?? []),
+            'checked_at'      => now()->toIso8601String(),
+            'message'         => null,
+        ];
+
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $payload, now()->addMinutes(10));
+
+        return response()->json(['data' => $payload + ['stale' => false]]);
+    }
+
+    /**
+     * Samakan bentuk riwayat lintas agregator.
+     *
+     * Nama kolomnya berbeda-beda tiap kurir dan tidak dijamin stabil, jadi tiap
+     * baris dicari lewat daftar kunci yang mungkin — bukan satu kunci pasti. Baris
+     * yang tak punya keterangan sama sekali dibuang: titik kosong di lini masa
+     * membuat pembeli mengira ada tahap yang gagal dimuat.
+     *
+     * Urutan dibalik jadi terbaru-di-atas — itu yang dicari orang saat membuka
+     * halaman ini, dan itu pula kebiasaan semua aplikasi kurir.
+     */
+    private function trackingHistory($raw): array
+    {
+        $pick = function (array $row, array $keys) {
+            foreach ($keys as $k) {
+                if (filled($row[$k] ?? null) && ! is_array($row[$k])) {
+                    return (string) $row[$k];
+                }
+            }
+            return null;
+        };
+
+        return collect(is_array($raw) ? $raw : [])
+            ->map(function ($row) use ($pick) {
+                $row = (array) $row;
+                $note = $pick($row, ['status_detail', 'description', 'desc', 'note', 'remark', 'message']);
+                $stat = $pick($row, ['status', 'status_name', 'state', 'latest_status']);
+                $time = $pick($row, ['date', 'time', 'event_time', 'updated_at', 'created_at', 'datetime', 'timestamp']);
+
+                if (! $note && ! $stat) {
+                    return null;
+                }
+
+                return [
+                    'time'   => $time ? optional(rescue(fn () => \Illuminate\Support\Carbon::parse($time), null, false))?->toIso8601String() : null,
+                    'status' => $stat,
+                    'note'   => $note ?: $stat,
+                ];
+            })
+            ->filter()
+            ->reverse()
+            ->values()
+            ->all();
+    }
+
     /** Instruksi/status pembayaran untuk etalase (tanpa data internal akun kas). */
     private function instructions(WebPayment $wp, PaymentSetting $setting): array
     {
@@ -779,6 +995,9 @@ class CheckoutController extends Controller
             'expected_amount' => (float) $wp->expected_amount,
             'expires_at'      => optional($wp->expires_at)->toIso8601String(),
             'delivery_method' => $so?->delivery_method,
+            'track_token'     => $so?->public_token,
+            'progress'        => $so ? app(\App\Modules\Sales\Services\OrderProgressService::class)->for($so) : null,
+            'items'           => $so ? $this->orderItems($so) : [],
             'bank_accounts'   => collect($setting->accounts())->map(fn ($a) => [
                 'bank_name'      => $a['bank_name'],
                 'account_number' => $a['account_number'],

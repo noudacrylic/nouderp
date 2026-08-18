@@ -14,8 +14,16 @@ return [
     */
     'local_disk' => env('STORE_LOCAL_DISK', 'public'),
 
+    /*
+    | Alamat publik etalase. Dipakai ERP untuk mengantar pembeli dari halaman
+    | bayar ke halaman lacak pesanan — halaman itu tinggal di toko, bukan di ERP.
+    */
+    'storefront_url' => env('STOREFRONT_URL', 'https://noudakrilik.com'),
+
     // Prefix folder di dalam disk.
-    'media_path' => 'store/products',
+    'media_path'    => 'store/products',
+    'article_path'  => 'store/articles',
+    'homepage_path' => 'store/homepage',
 
     /*
     | Garbage collector: file media yang sudah soft-deleted & lebih tua dari

@@ -8,6 +8,28 @@ use App\Core\Inventory\Warehouse;
 
 class SalesOrder extends Model
 {
+    /**
+     * Alamat publik halaman lacak pesanan; dibuat sekali lalu tetap.
+     *
+     * SENGAJA tidak masuk $fillable: token ini adalah satu-satunya pengaman
+     * halaman yang memuat nama, alamat, dan isi pesanan orang. Kalau ikut
+     * mass-assignment, satu form yang lupa disaring cukup untuk membuatnya
+     * bisa disetel dari luar — dan token yang bisa ditebak sama saja dengan
+     * tidak ada token.
+     *
+     * Dipanggil hanya dari jalur yang memang memberi pesanan wajah publik
+     * (checkout web & pembuatan link bayar), jadi pesanan marketplace tetap
+     * tak punya halaman ini.
+     */
+    public function ensurePublicToken(): string
+    {
+        if (blank($this->public_token)) {
+            $this->forceFill(['public_token' => (string) \Illuminate\Support\Str::uuid()])->save();
+        }
+
+        return $this->public_token;
+    }
+
     protected $fillable = [
         'order_number',
         'customer_id',
@@ -219,6 +241,12 @@ class SalesOrder extends Model
     public function deliveries()
     {
         return $this->hasMany(SalesDelivery::class, 'sales_order_id');
+    }
+
+    /** Order produksi yang lahir dari pesanan ini (preorder/custom/perbaikan). */
+    public function productionOrders()
+    {
+        return $this->hasMany(\App\Modules\Production\Models\ProductionOrder::class, 'sales_order_id');
     }
 
     public function returns()

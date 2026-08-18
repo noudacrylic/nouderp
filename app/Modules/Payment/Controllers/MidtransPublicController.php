@@ -84,6 +84,14 @@ class MidtransPublicController extends Controller
             $remaining = (int) round($so->grand_total - $so->paid_amount);
             $requireFull = $this->requiresFullPayment($trx); // pesanan dari website → wajib lunas
 
+            // Halaman lacak ada di TOKO, bukan di ERP. Tautan bayar berumur pendek
+            // (kedaluwarsa beberapa hari), sedangkan pelacakan justru paling
+            // dibutuhkan sesudah dibayar — jadi pembeli diantar ke alamat yang
+            // tetap hidup, sekaligus pulang ke etalase alih-alih ke domain ERP.
+            $trackUrl = $so->public_token
+                ? rtrim((string) config('store.storefront_url'), '/') . '/pesanan/' . $so->public_token
+                : null;
+
             return view('pay.show', array_merge($common, [
                 'so' => $so,
                 'grand_total' => (int) round($so->grand_total),
@@ -95,6 +103,7 @@ class MidtransPublicController extends Controller
                 // Stok dicek saat halaman dibuka, bukan saat SO dibuat: tautan draft bisa
                 // beredar ke beberapa pembeli sekaligus atas barang yang sama.
                 'stock_shortages' => $so->allow_backorder ? [] : $this->stock->shortages($so),
+                'track_url' => $trackUrl,
             ]));
         }
 
@@ -302,11 +311,16 @@ class MidtransPublicController extends Controller
         if (! $trx->isPaid() && ($reason = $trx->documentBlockedReason())) {
             return view('pay.invalid', ['reason' => $reason]);
         }
+        $so = $trx->salesOrder;
+
         return view('pay.done', [
             'trx' => $trx,
             'is_so' => $this->isSo($trx),
             'invoice' => $trx->invoice,
-            'so' => $trx->salesOrder,
+            'so' => $so,
+            'track_url' => $so?->public_token
+                ? rtrim((string) config('store.storefront_url'), '/') . '/pesanan/' . $so->public_token
+                : null,
         ]);
     }
 

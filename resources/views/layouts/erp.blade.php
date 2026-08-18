@@ -26,6 +26,13 @@
             --sidebar-dark: #0f172a; /* Navy */
         }
 
+        /* Alpine dimuat `defer`, jadi antara HTML tampil dan Alpine hidup ada jeda.
+           Tanpa aturan ini, elemen x-show berkedip tampil dulu — pada halaman bertab
+           artinya SEMUA tab sempat terlihat bertumpuk sebelum menyusut ke satu. */
+        [x-cloak] {
+            display: none !important;
+        }
+
         .ts-dropdown {
             z-index: 9999 !important;
         }
@@ -895,6 +902,7 @@
                     $svgAsset      = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h0M9 12h0M9 15h0M9 18h0"/></svg>';
                     $svgSDM        = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.5"/><path d="M22 20v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
                     $svgProduction = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V8l-6 5z"/><path d="M6 18h0M11 18h0M16 18h0"/></svg>';
+                    $svgAnalisa    = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 4-6"/><circle cx="7" cy="15" r="1"/><circle cx="18" cy="7" r="1"/></svg>';
                     $svgCashBank   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9h0M18 15h0"/></svg>';
                     $svgAccounting = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8"/><path d="M8 11h0M12 11h0M16 11h0M8 14h0M12 14h0M8 17h0M12 17h0"/><path d="M16 14v3"/></svg>';
                     $svgReports    = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="13" width="3" height="5"/><rect x="12" y="9" width="3" height="9"/><rect x="17" y="5" width="3" height="13"/></svg>';
@@ -970,6 +978,13 @@
                 @php $isProduction = request()->is('erp/production/*') && !($isSDM ?? false); @endphp
                 <a href="{{ module_landing_url('production') }}" class="menu-single {{ $isProduction ? 'active' : '' }}" data-tip="Produksi">
                     <span class="menu-icon">{!! $svgProduction !!}</span><span class="menu-label">&nbsp;Produksi</span>
+                </a>
+                @endif
+
+                {{-- ================= ANALISA ================= --}}
+                @if(should_show_menu_group('analisa'))
+                <a href="{{ module_landing_url('analisa') }}" class="menu-single {{ request()->is('erp/analisa', 'erp/analisa/*') ? 'active' : '' }}" data-tip="Analisa">
+                    <span class="menu-icon">{!! $svgAnalisa !!}</span><span class="menu-label">&nbsp;Analisa</span>
                 </a>
                 @endif
 

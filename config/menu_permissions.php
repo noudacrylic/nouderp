@@ -116,6 +116,7 @@ return [
         'label' => 'Store',
         'icon' => '🏪',
         'children' => [
+            'store.homepage'   => ['label' => 'Beranda',        'url' => '/erp/store/homepage',   'route_patterns' => ['store.homepage.*']],
             // "Kategori" = tab induk dengan 2 sub-tab: Kategori Produk & Kategori Blog.
             // route_patterns menampung keduanya agar tab aktif & akses menu berlaku untuk keduanya.
             'store.categories' => ['label' => 'Kategori', 'url' => '/erp/store/categories',

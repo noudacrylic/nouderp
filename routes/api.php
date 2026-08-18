@@ -19,6 +19,7 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::post('/products/{slug}/view', [StorefrontController::class, 'recordView'])->name('api.storefront.product.view');
     Route::get('/stock',             [StorefrontController::class, 'stock'])->name('api.storefront.stock');
     Route::get('/promotions',        [StorefrontController::class, 'promotions'])->name('api.storefront.promotions');
+    Route::get('/homepage',          [StorefrontController::class, 'homepage'])->name('api.storefront.homepage');
 
     // Blog/Artikel SEO
     Route::get('/article-categories', [StorefrontController::class, 'articleCategories'])->name('api.storefront.article-categories');
@@ -38,6 +39,10 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::get ('/orders/{token}',        [CheckoutController::class, 'show'])->name('api.storefront.orders.show');
     Route::post('/orders/{token}/qris',   [CheckoutController::class, 'refreshQris'])->middleware('throttle:10,1')->name('api.storefront.orders.qris');
     Route::post('/orders/{token}/claim',  [CheckoutController::class, 'claim'])->name('api.storefront.orders.claim');
+    // Riwayat perjalanan paket. Dibatasi ketat: tiap panggilan yang lolos cache
+    // meneruskan permintaan ke agregator kurir, jadi halaman pembeli tidak boleh
+    // bisa memukulnya sesering ia menyegarkan status.
+    Route::get ('/orders/{token}/tracking', [CheckoutController::class, 'tracking'])->middleware('throttle:20,1')->name('api.storefront.orders.tracking');
     Route::post('/orders/lookup',         [CheckoutController::class, 'lookup'])->middleware('throttle:8,1')->name('api.storefront.orders.lookup');
     Route::post('/orders/pin-status',     [CheckoutController::class, 'pinStatus'])->middleware('throttle:30,1')->name('api.storefront.orders.pin-status');
     // Alamat tersimpan (HP + PIN). Dibatasi ketat: jawabannya berisi alamat pembeli,

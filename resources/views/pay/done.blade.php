@@ -44,6 +44,18 @@
                 </div>
             @endif
             <p class="text-xs text-gray-500 mt-6">Status pembayaran sudah tercatat di sistem kami.</p>
+
+            {{-- Diantar ke halaman lacak di TOKO, bukan berhenti di sini. Tautan bayar
+                 ini kedaluwarsa dalam hitungan hari, sedangkan pertanyaan "pesanan saya
+                 sampai mana" baru muncul sesudahnya — dan halaman itu tinggal di
+                 noudakrilik.com, tempat pembeli semestinya pulang. --}}
+            @if(!empty($track_url))
+                <a href="{{ $track_url }}"
+                   class="mt-6 block w-full rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-700">
+                    Lacak Pesanan Saya →
+                </a>
+                <p class="mt-2 text-xs text-gray-400">Simpan tautannya; status pesanan bisa dicek kapan saja di sana.</p>
+            @endif
         @else
             <div class="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
                 <svg class="w-9 h-9 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>

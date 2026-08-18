@@ -415,6 +415,11 @@ Route::prefix('erp/accounting')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('erp/store')->group(function () {
+    // Beranda etalase — isi halaman depan noudakrilik.com (teks, gambar, FAQ).
+    Route::get   ('/homepage',       [\App\Http\Controllers\Store\StoreHomepageController::class, 'edit'])->name('store.homepage.edit');
+    Route::put   ('/homepage',       [\App\Http\Controllers\Store\StoreHomepageController::class, 'update'])->name('store.homepage.update');
+    Route::post  ('/homepage/reset', [\App\Http\Controllers\Store\StoreHomepageController::class, 'reset'])->name('store.homepage.reset');
+
     // Kategori
     Route::get('/categories',            [\App\Http\Controllers\Store\StoreCategoryController::class, 'index'])->name('store.categories.index');
     Route::get('/categories/create',     [\App\Http\Controllers\Store\StoreCategoryController::class, 'create'])->name('store.categories.create');

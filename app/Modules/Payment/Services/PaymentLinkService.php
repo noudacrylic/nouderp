@@ -76,6 +76,11 @@ class PaymentLinkService
 
         $expiryDays = (int) (MidtransSetting::singleton()->link_expiry_days ?: 7);
 
+        // Pesanan yang tautannya dikirim ke pembeli otomatis punya halaman lacak.
+        // Diterbitkan di sini, bukan saat halaman lacak dibuka, supaya tautannya
+        // sudah bisa ikut disertakan di pesan yang dikirim ke pembeli.
+        $so->ensurePublicToken();
+
         return MidtransTransaction::create([
             'order_id' => $this->makeOrderId('SODP'),
             'sales_order_id' => $so->id,
