@@ -157,11 +157,20 @@ class JubelioStockSyncService
         // tanpa plafon ini ERP menawarkan stok hantu ke marketplace → oversell berulang + fulfillment
         // gagal "Stock not enough for FIFO consume". min() memastikan tiap unit yang ditawarkan
         // benar-benar bisa dikirim. Lihat [[nouderp-stocklayers-ledger-drift-sj-stuck]].
+        // GUDANG JUAL SAJA. Tanpa argumen gudang, onHand()/fifoRemaining() menjumlahkan SEMUA
+        // gudang — termasuk "Perbaikan" (isinya barang retur) dan "Cadangan" — padahal reservasi
+        // dan Surat Jalan selalu memakai gudang jual ini. Yang ditawarkan jadi tidak bisa dikirim:
+        // RP-2x5 sempat menarik 4 order Shopee yang mustahil dipenuhi karena 4 pcs-nya ada di
+        // gudang Perbaikan sementara gudang jual kosong. Plafon min(onHand, fifo) di bawah tidak
+        // menolong untuk kasus itu, sebab keduanya sama-sama dihitung lintas gudang.
+        $sellWarehouse = (int) ($setting->default_warehouse_id
+            ?: \Illuminate\Support\Facades\DB::table('warehouses')->orderBy('id')->value('id'));
+
         if ($product->sale_type === 'bundle') {
-            $available = (float) $this->bundles->getBundleStock($product->id, null, false, true);
+            $available = (float) $this->bundles->getBundleStock($product->id, $sellWarehouse ?: null, false, true);
         } else {
-            $onHand    = $this->inventory->onHand($product->id);
-            $fifo      = $this->inventory->fifoRemaining($product->id);
+            $onHand    = $this->inventory->onHand($product->id, $sellWarehouse ?: null);
+            $fifo      = $this->inventory->fifoRemaining($product->id, $sellWarehouse ?: null);
             $physical  = min($onHand, $fifo);
             if ($onHand - $fifo > 0.0001) {
                 Log::warning('Jubelio stok: drift ledger>FIFO, push diplafon ke FIFO (anti-oversell)', [
