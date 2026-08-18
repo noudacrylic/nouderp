@@ -83,6 +83,53 @@
     <input type="hidden" name="print_after" id="bulkPrintAfter" value="0">
     <div id="bulkIdsContainer"></div>
 </form>
+
+{{-- Panel progres proses massal. Pesanan ditembak SATU PER SATU dari browser supaya tiap
+     request selesai jauh di bawah timeout nginx (60 dtk) — batch besar dulu menembus batas
+     itu dan memunculkan "502", lalu operator menekan Proses lagi di atas proses yang masih
+     berjalan sehingga Jubelio kebanjiran. Di sini progres terlihat, jadi tak ada lagi tebak-
+     tebakan apakah prosesnya masih jalan. --}}
+<div id="bulkProgressOverlay" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div class="px-4 py-3 border-b border-gray-100">
+            <div class="flex items-center justify-between gap-3">
+                <h3 id="bulkProgressTitle" class="text-sm font-bold text-gray-800">Memproses pesanan…</h3>
+                <span id="bulkProgressCounter" class="text-xs font-semibold text-indigo-700">0/0</span>
+            </div>
+            <div class="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div id="bulkProgressBar" class="h-full bg-indigo-500 transition-all duration-300" style="width:0%"></div>
+            </div>
+            <p id="bulkProgressHint" class="mt-2 text-[11px] text-gray-400">
+                Jangan tutup tab ini sampai selesai. Jeda 1,5 detik antar pesanan agar Jubelio tidak kebanjiran.
+            </p>
+        </div>
+
+        <div id="bulkProgressList" class="flex-1 overflow-y-auto px-4 py-3 space-y-1.5 text-xs"></div>
+
+        <div class="px-4 py-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
+            <button type="button" id="bulkProgressRetry"
+                    class="hidden text-xs px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 font-semibold">
+                ↻ Ulangi yang gagal
+            </button>
+            <button type="button" id="bulkProgressPrintResi"
+                    class="hidden text-xs px-3 py-1.5 rounded border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold">
+                🖨 Cetak Resi Marketplace
+            </button>
+            <button type="button" id="bulkProgressPrintSj"
+                    class="hidden text-xs px-3 py-1.5 rounded border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold">
+                🖨 Cetak Surat Jalan
+            </button>
+            <button type="button" id="bulkProgressStop"
+                    class="ml-auto text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">
+                Hentikan
+            </button>
+            <button type="button" id="bulkProgressClose"
+                    class="hidden ml-auto text-xs px-3 py-1.5 rounded bg-gray-800 text-white hover:bg-gray-700 font-semibold">
+                Selesai &amp; muat ulang
+            </button>
+        </div>
+    </div>
+</div>
 @endif
 
 <div class="space-y-5">
@@ -151,6 +198,141 @@
         window.location.href = printBase + '?ids=' + ids.join(',');
     });
 
+    // ── Proses massal: SATU request per pesanan, berurutan. ─────────────────────────────
+    // Dulu seluruh centang dikirim dalam satu request. Tiap pesanan marketplace butuh 6–9
+    // panggilan HTTP berurutan ke Jubelio (5–15 dtk), jadi batch >4 pesanan menembus
+    // fastcgi_read_timeout nginx (60 dtk) → operator melihat "502" padahal proses di server
+    // MASIH jalan (timer PHP tak menghitung waktu tunggu jaringan), lalu menekan Proses lagi
+    // sehingga beberapa proses menumpuk dan membanjiri Jubelio sampai membalas HTTP 500.
+    // Satu-per-satu + jeda menghapus kedua sebab itu sekaligus, dan progresnya kelihatan.
+    // Route::has() — bukan route() langsung — supaya halaman ini TIDAK 500 selama route cache
+    // produksi belum di-rebuild setelah deploy. Selama route baru belum ada di cache, tombol
+    // otomatis memakai jalur form lama; begitu `optimize` dijalankan, jalur AJAX hidup sendiri.
+    // URL relatif (absolute:false) — fetch() dari halaman https ke URL http akan diblokir
+    // browser sebagai mixed content, dan host akses bisa berbeda (domain publik lewat
+    // Cloudflare vs IP LAN). Path relatif selalu ikut host & skema halaman yang sedang dibuka.
+    const ajaxUrl  = @json(\Route::has('pos.fulfillment.proses-ajax') ? route('pos.fulfillment.proses-ajax', ['so' => '__SO__'], false) : null);
+    const resiUrl  = @json(route('pos.fulfillment.jubelio-resi-bulk'));
+    const sjUrl    = @json(route('sales.deliveries.print-bulk'));
+    const csrf     = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const JEDA_MS  = 1500;
+
+    const ov       = document.getElementById('bulkProgressOverlay');
+    const ovList   = document.getElementById('bulkProgressList');
+    const ovBar    = document.getElementById('bulkProgressBar');
+    const ovCount  = document.getElementById('bulkProgressCounter');
+    const ovTitle  = document.getElementById('bulkProgressTitle');
+    const ovHint   = document.getElementById('bulkProgressHint');
+    const btnRetry = document.getElementById('bulkProgressRetry');
+    const btnResi  = document.getElementById('bulkProgressPrintResi');
+    const btnSj    = document.getElementById('bulkProgressPrintSj');
+    const btnStop  = document.getElementById('bulkProgressStop');
+    const btnClose = document.getElementById('bulkProgressClose');
+
+    let stopDiminta = false, gagal = [], soResi = [], sjIds = [];
+
+    const tidur = ms => new Promise(r => setTimeout(r, ms));
+
+    function tambahBaris(item) {
+        const el = document.createElement('div');
+        el.className = 'flex items-start gap-2';
+        el.innerHTML = '<span class="w-4 shrink-0">⏳</span>'
+                     + '<span class="font-mono text-[11px] text-gray-500 shrink-0"></span>'
+                     + '<span class="flex-1 text-gray-400"></span>';
+        el.children[1].textContent = item.label;
+        ovList.appendChild(el);
+        return el;
+    }
+
+    function tandai(el, ikon, teks, warna) {
+        el.children[0].textContent = ikon;
+        el.children[2].textContent = teks;
+        el.children[2].className = 'flex-1 ' + warna;
+    }
+
+    async function jalankan(items) {
+        stopDiminta = false;
+        gagal = [];
+        ov.classList.remove('hidden');
+        ovList.innerHTML = '';
+        ovBar.style.width = '0%';
+        ovCount.textContent = '0/' + items.length;
+        btnRetry.classList.add('hidden');
+        btnResi.classList.add('hidden');
+        btnSj.classList.add('hidden');
+        btnClose.classList.add('hidden');
+        btnStop.classList.remove('hidden');
+        btnStop.textContent = 'Hentikan';
+        ovHint.classList.remove('hidden');
+
+        const rows = items.map(it => ({ it, el: tambahBaris(it) }));
+        let n = 0;
+
+        for (const { it, el } of rows) {
+            if (stopDiminta) { tandai(el, '⏸', 'dilewati — dihentikan operator', 'text-gray-400'); continue; }
+
+            ovTitle.textContent = 'Memproses ' + it.label + '…';
+            tandai(el, '⏳', 'sedang diproses…', 'text-indigo-500');
+            el.scrollIntoView({ block: 'nearest' });
+
+            let data;
+            try {
+                const res = await fetch(ajaxUrl.replace('__SO__', it.id), {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+                });
+                // 419 = sesi kedaluwarsa (tab dibiarkan terbuka lama), 504 = pesanan ini
+                // sendiri melebihi batas waktu nginx. Keduanya membalas HTML, bukan JSON,
+                // jadi sebutkan sebabnya alih-alih memaksa parse dan bilang "koneksi putus".
+                if (res.status === 419) {
+                    data = { ok: false, message: 'Sesi kedaluwarsa — muat ulang halaman lalu ulangi.' };
+                } else if (res.status === 504 || res.status === 502) {
+                    data = { ok: false, message: 'Server terlalu lama menunggu Jubelio untuk pesanan ini — coba Ulangi.' };
+                } else {
+                    data = await res.json();
+                }
+            } catch (e) {
+                data = { ok: false, message: 'Koneksi ke server terputus — coba ulangi.' };
+            }
+
+            n++;
+            ovCount.textContent = n + '/' + rows.length;
+            ovBar.style.width = Math.round(n / rows.length * 100) + '%';
+
+            if (data.ok) {
+                // delivery_id terisi = jalur invoice ERP (punya Surat Jalan sendiri);
+                // kosong = pesanan marketplace, resinya dicetak lewat label Jubelio.
+                if (data.delivery_id) sjIds.push(data.delivery_id); else soResi.push(it.id);
+                tandai(el,
+                    data.resi_gagal ? '⚠' : '✅',
+                    data.tracking_no ? ('resi ' + data.tracking_no) : (data.message || 'diproses'),
+                    data.resi_gagal ? 'text-amber-600' : 'text-green-600');
+            } else {
+                tandai(el, '❌', data.message || 'gagal diproses', 'text-red-600');
+                gagal.push(it);
+            }
+
+            if (n < rows.length && !stopDiminta) await tidur(JEDA_MS);
+        }
+
+        const sukses = rows.length - gagal.length;
+        ovTitle.textContent = stopDiminta
+            ? `Dihentikan — ${sukses} dari ${rows.length} selesai`
+            : `Selesai — ${sukses} dari ${rows.length} berhasil`;
+        ovHint.classList.add('hidden');
+        btnStop.classList.add('hidden');
+        btnClose.classList.remove('hidden');
+        if (gagal.length)  btnRetry.classList.remove('hidden');
+        if (soResi.length) btnResi.classList.remove('hidden');
+        if (sjIds.length)  btnSj.classList.remove('hidden');
+    }
+
+    btnStop.addEventListener('click', () => { stopDiminta = true; btnStop.textContent = 'Menghentikan…'; });
+    btnClose.addEventListener('click', () => window.location.reload());
+    btnRetry.addEventListener('click', () => jalankan(gagal.slice()));
+    btnResi.addEventListener('click', () => window.open(resiUrl + '?so=' + soResi.join(','), '_blank'));
+    btnSj.addEventListener('click',   () => window.open(sjUrl + '?ids=' + sjIds.join(','), '_blank'));
+
     function submitProses() {
         const sel = selected();
         if (!sel.length) return;
@@ -163,8 +345,17 @@
         // yang akan dibayar terlihat SEBELUM diklik, bukan sesudah saldo terpotong.
         if (!confirm(`Proses ${sel.length} pesanan? Faktur + Surat Jalan + RESI diterbitkan otomatis (memotong saldo kurir).${warn}`)) return;
 
+        // Route AJAX belum masuk route cache (deploy baru, `optimize` belum dijalankan) →
+        // pakai jalur lama supaya tombol tidak pernah mati.
+        if (!ajaxUrl) { submitFormLama(sel); return; }
+
+        soResi = []; sjIds = [];
+        jalankan(sel.map(c => ({ id: c.value, label: c.dataset.number || ('#' + c.value) })));
+    }
+
+    function submitFormLama(sel) {
         const form = document.getElementById('bulkProsesForm');
-        const box = document.getElementById('bulkIdsContainer');
+        const box  = document.getElementById('bulkIdsContainer');
         box.innerHTML = '';
         sel.forEach(c => {
             const inp = document.createElement('input');

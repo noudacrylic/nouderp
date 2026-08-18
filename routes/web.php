@@ -879,6 +879,9 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::get('/fulfillment/pembatalan',     [\App\Modules\POS\Controllers\FulfillmentController::class, 'pembatalan'])->name('fulfillment.pembatalan');
     Route::post('/fulfillment/sync-cancel',   [\App\Modules\POS\Controllers\FulfillmentController::class, 'syncCancel'])->name('fulfillment.sync-cancel');
     Route::post('/fulfillment/so/{so}/proses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'prosesPesanan'])->whereNumber('so')->name('fulfillment.proses');
+    Route::post('/fulfillment/so/{so}/proses-ajax', [\App\Modules\POS\Controllers\FulfillmentController::class, 'prosesAjax'])->whereNumber('so')->name('fulfillment.proses-ajax');
+    // Fallback tanpa JS. Jalur normal kini AJAX per-pesanan (lihat prosesAjax) supaya batch
+    // besar tidak menembus timeout nginx 60 dtk.
     Route::post('/fulfillment/proses-bulk', [\App\Modules\POS\Controllers\FulfillmentController::class, 'prosesBulk'])->name('fulfillment.proses-bulk');
     Route::post('/fulfillment/book-bulk', [\App\Modules\POS\Controllers\FulfillmentController::class, 'bookBulk'])->name('fulfillment.book-bulk');
     Route::post('/fulfillment/so/{so}/seller-notes', [\App\Modules\POS\Controllers\FulfillmentController::class, 'updateSellerNotes'])->whereNumber('so')->name('fulfillment.seller-notes');

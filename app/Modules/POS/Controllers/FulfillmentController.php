@@ -493,38 +493,19 @@ class FulfillmentController extends Controller
         $links = JubelioOrderLink::whereIn('sales_order_id', $ids)->get()->keyBy('sales_order_id');
 
         foreach ($ids as $id) {
-            $so = SalesOrder::with('items.product', 'customer')->find($id);
-            if (!$so) { $failed[] = "#{$id} (tidak ditemukan)"; continue; }
+            $hasil = $this->prosesSatuPesanan($id, $posSvc, $links->get($id));
 
-            // Marketplace → rantai WMS Jubelio; selain itu → jalur invoice ERP.
-            if ($link = $links->get($id)) {
-                $res = app(JubelioFulfillmentService::class)->process($link);
-                if ($res['success']) {
-                    $processed[] = $so->order_number;
-                    $this->createMarketplaceDelivery($link->fresh()); // SJ ERP sekaligus
-                } else { $failed[] = "{$so->order_number} ({$res['message']})"; }
-                continue;
+            if (!$hasil['found']) { $failed[] = "#{$id} (tidak ditemukan)"; continue; }
+
+            if ($hasil['ok']) {
+                $processed[] = $hasil['order_number'];
+            } else {
+                $failed[] = "{$hasil['order_number']} ({$hasil['message']})";
             }
 
-            try {
-                $posSvc->createInvoiceFromSalesOrder($so); // tanpa pickup_code → ambil-toko otomatis ditolak
-                $so->forceFill(['process_error' => null, 'process_failed_at' => null])->save();
-                $processed[] = $so->order_number;
-
-                // Resi ikut terbit di sini — sama seperti proses satuan, supaya hasil kedua
-                // jalur itu identik dan tidak ada pesanan yang tertinggal tanpa resi hanya
-                // karena operator memakai centang massal.
-                $resi = $this->terbitkanResi($so);
-                $resiOk = array_merge($resiOk, $resi['ok']);
-                $resiGagal = array_merge($resiGagal, $resi['gagal']);
-
-                $sj = SalesDelivery::where('sales_order_id', $so->id)
-                    ->where('status', '!=', 'void')->latest('id')->first();
-                if ($sj) $deliveryIds[] = $sj->id;
-            } catch (\Throwable $e) {
-                $so->forceFill(['process_error' => $e->getMessage(), 'process_failed_at' => now()])->save();
-                $failed[] = "{$so->order_number} ({$e->getMessage()})";
-            }
+            $resiOk    = array_merge($resiOk, $hasil['resi_ok']);
+            $resiGagal = array_merge($resiGagal, $hasil['resi_gagal']);
+            if ($hasil['delivery_id']) $deliveryIds[] = $hasil['delivery_id'];
         }
 
         $resi = ['ok' => $resiOk, 'gagal' => $resiGagal];
@@ -550,6 +531,119 @@ class FulfillmentController extends Controller
 
         return redirect()->route('pos.fulfillment.telah-diproses', $this->subTabResi($resi))
             ->with($flashKey, $msg);
+    }
+
+    /**
+     * Inti proses SATU pesanan. Sumber kebenaran tunggal yang dipakai bersama oleh proses
+     * massal server-side (fallback tanpa JS) dan endpoint AJAX per-pesanan, supaya kedua
+     * jalur mustahil berbeda perilaku.
+     *
+     * Sengaja tidak melempar exception: semua kegagalan dikembalikan sebagai ok=false agar
+     * pesanan berikutnya dalam antrean tetap jalan.
+     */
+    private function prosesSatuPesanan(int $id, PosFulfillmentService $posSvc, ?JubelioOrderLink $link = null): array
+    {
+        $hasil = [
+            'found'        => true,
+            'ok'           => false,
+            'order_number' => "#{$id}",
+            'message'      => '',
+            'tracking_no'  => null,
+            'delivery_id'  => null,
+            'resi_ok'      => [],
+            'resi_gagal'   => [],
+        ];
+
+        $so = SalesOrder::with('items.product', 'customer')->find($id);
+        if (!$so) {
+            $hasil['found'] = false;
+
+            return $hasil;
+        }
+
+        $hasil['order_number'] = $so->order_number;
+
+        // Marketplace → rantai WMS Jubelio; selain itu → jalur invoice ERP.
+        $link ??= JubelioOrderLink::where('sales_order_id', $id)->first();
+        if ($link) {
+            $res              = app(JubelioFulfillmentService::class)->process($link);
+            $hasil['ok']      = (bool) $res['success'];
+            $hasil['message'] = $res['message'];
+
+            if ($res['success']) {
+                $fresh = $link->fresh();
+                $this->createMarketplaceDelivery($fresh); // SJ ERP sekaligus
+                $hasil['tracking_no'] = $fresh->tracking_no;
+            }
+
+            return $hasil;
+        }
+
+        try {
+            $posSvc->createInvoiceFromSalesOrder($so); // tanpa pickup_code → ambil-toko otomatis ditolak
+            $so->forceFill(['process_error' => null, 'process_failed_at' => null])->save();
+
+            // Resi ikut terbit di sini — sama seperti proses satuan, supaya hasil kedua
+            // jalur itu identik dan tidak ada pesanan yang tertinggal tanpa resi hanya
+            // karena operator memakai centang massal.
+            $resi                = $this->terbitkanResi($so);
+            $hasil['resi_ok']    = $resi['ok'];
+            $hasil['resi_gagal'] = $resi['gagal'];
+
+            $sj = SalesDelivery::where('sales_order_id', $so->id)
+                ->where('status', '!=', 'void')->latest('id')->first();
+            if ($sj) {
+                $hasil['delivery_id'] = $sj->id;
+                $hasil['tracking_no'] = $sj->tracking_number ?: null;
+            }
+
+            $hasil['ok']      = true;
+            $hasil['message'] = 'Faktur + Surat Jalan dibuat.';
+        } catch (\Throwable $e) {
+            $so->forceFill(['process_error' => $e->getMessage(), 'process_failed_at' => now()])->save();
+            $hasil['message'] = $e->getMessage();
+        }
+
+        return $hasil;
+    }
+
+    /**
+     * Proses SATU pesanan lewat AJAX — dipakai tombol "✅ Proses" massal, yang kini menembak
+     * pesanan satu per satu dari browser dan bukan lagi mengirim seluruh centang sekaligus.
+     *
+     * Alasannya: jalur lama menjalankan SEMUA pesanan di dalam satu request web, padahal tiap
+     * pesanan marketplace butuh 6–9 panggilan HTTP berurutan ke Jubelio (terukur 5–15 detik).
+     * Lebih dari ~4 pesanan menembus `fastcgi_read_timeout` nginx (default 60 dtk) → operator
+     * melihat "502" lalu menekan Proses lagi padahal request lama MASIH berjalan (timer PHP
+     * tidak menghitung waktu tunggu jaringan). Proses-proses itu menumpuk dan membanjiri
+     * Jubelio sampai membalas HTTP 500 — 450 dari 495 error sepekan menumpuk di jam 08:00.
+     * Satu pesanan per request membuat tiap request selesai jauh di bawah batas, dan browser
+     * yang memberi jeda antar pesanan.
+     */
+    public function prosesAjax(Request $request, int $so, PosFulfillmentService $posSvc): JsonResponse
+    {
+        $hasil = $this->prosesSatuPesanan($so, $posSvc);
+
+        if (!$hasil['found']) {
+            return response()->json([
+                'ok'           => false,
+                'order_number' => "#{$so}",
+                'message'      => 'Pesanan tidak ditemukan.',
+            ], 404);
+        }
+
+        // Sebab kegagalan resi digabung ke message supaya operator melihatnya langsung di
+        // baris progres, tanpa harus membuka pesanan satu per satu.
+        $pesanResi = $this->pesanResi(['ok' => $hasil['resi_ok'], 'gagal' => $hasil['resi_gagal']]);
+
+        return response()->json([
+            'ok'           => $hasil['ok'],
+            'order_number' => $hasil['order_number'],
+            'message'      => trim($hasil['message'] . $pesanResi),
+            'tracking_no'  => $hasil['tracking_no'] ?: ($hasil['resi_ok'][0] ?? null),
+            'delivery_id'  => $hasil['delivery_id'],
+            'resi_gagal'   => (bool) $hasil['resi_gagal'],
+        ]);
     }
 
     /**
