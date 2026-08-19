@@ -41,6 +41,70 @@ class PreorderAutoProductionService
         return $results;
     }
 
+    /**
+     * Sapuan menyeluruh: jalankan ulang evaluasi auto-produksi pre-order untuk SEMUA pesanan
+     * yang kebutuhannya masih menggantung. Dipakai tombol "Jalankan Auto Produksi".
+     *
+     * Kenapa perlu, padahal sudah ada pemicu otomatis saat DP di-post?
+     * Karena pemicu itu sekali jalan dan menilai keadaan DETIK ITU. Kalau saat DP masuk
+     * stoknya kebetulan cukup, OP sengaja tidak dibuat (lihat runForItem: netting terhadap
+     * barang yang sudah ada). Bila barang itu kemudian LENYAP — stok opname minus, rusak,
+     * dipakai pesanan lain, retur ditolak — tidak ada apa pun yang mengevaluasi ulang, dan
+     * pesanan tinggal menggantung tanpa OP sampai ketahuan manual.
+     * Kasus nyata SP-260818MV4A09ED + SP-260818N01HBVTC (BC-2x2): saat DP masuk 18/8 stok
+     * BC-2x2 ada 2 pcs sehingga dua-duanya di-skip; 19/8 opname ADJ-2026-00016 menetapkan
+     * aktual 0 → 2 pesanan tanpa barang dan tanpa OP.
+     *
+     * Kandidat dipersempit ke pesanan yang memang berhak diproduksi, memakai gerbang yang
+     * SAMA dengan pemicu otomatis (SalesAdvanceObserver) supaya tombol ini tidak pernah
+     * membuat OP yang tidak akan dibuat oleh alur normal:
+     * - punya reservasi stok AKTIF untuk produk pre-order (reservasi lepas begitu SJ dibuat
+     *   atau pesanan batal, jadi ini persis daftar "masih berhutang barang")
+     * - SO confirmed, produksinya tidak di-waive
+     * - DP-nya sudah posted
+     *
+     * Keputusan buat/skip per item tetap sepenuhnya di runForItem — sapuan ini hanya
+     * menentukan SIAPA yang dievaluasi, bukan melonggarkan syaratnya. Pesanan lama
+     * didahulukan (urut id) supaya stok/produksi yang ada dialokasikan ke antrean terdepan.
+     */
+    public function sweepPendingSalesOrders(): array
+    {
+        $salesOrderIds = DB::table('stock_reservations as r')
+            ->join('products as p', 'p.id', '=', 'r.product_id')
+            ->join('sales_orders as so', 'so.id', '=', 'r.sales_order_id')
+            ->where('r.status', 'active')
+            ->where('p.sale_type', 'preorder')
+            ->where('so.status', 'confirmed')
+            ->whereNull('so.production_waived_at')
+            ->whereExists(fn ($q) => $q->selectRaw('1')
+                ->from('sales_advances as a')
+                ->whereColumn('a.sales_order_id', 'so.id')
+                ->where('a.status', 'posted'))
+            ->orderBy('so.id')
+            ->distinct()
+            ->pluck('so.id')
+            ->all();
+
+        $results = [];
+
+        foreach ($salesOrderIds as $salesOrderId) {
+            $so = SalesOrder::with(['items.product', 'customer'])->find($salesOrderId);
+            if (!$so) {
+                continue;
+            }
+
+            // Dievaluasi satu per satu dan BERURUTAN — bukan dikumpulkan dulu. OP yang lahir
+            // dari pesanan sebelumnya langsung terbaca sebagai "produksi berjalan" oleh
+            // pesanan berikutnya (uncoveredDemand dihitung global), sehingga dua pesanan atas
+            // produk yang sama tidak memicu dua OP untuk kebutuhan yang sama.
+            foreach ($this->runForSalesOrder($so) as $result) {
+                $results[] = $result + ['sales_order_number' => $so->order_number];
+            }
+        }
+
+        return $results;
+    }
+
     private function runForItem(SalesOrder $so, SalesOrderItem $item, int $lineNo): array
     {
         $base = [

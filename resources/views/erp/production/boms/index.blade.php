@@ -5,7 +5,7 @@
     <h1 class="text-lg font-semibold">Bill of Materials (BOM)</h1>
     <div class="flex gap-2">
         <form method="POST" action="{{ route('production.boms.run-auto') }}"
-              onsubmit="return confirm('Jalankan auto-produksi sekarang? Sistem akan memeriksa semua BOM dengan auto-produksi aktif dan membuat order produksi untuk produk yang stoknya menipis.')">
+              onsubmit="return confirm('Jalankan auto-produksi sekarang? Sistem memeriksa dua hal: (1) BOM auto-produksi aktif yang produk stoknya menipis/habis, dan (2) pesanan pre-order sudah DP yang barangnya belum ada dan belum punya order produksi. Order produksi dibuat hanya untuk yang benar-benar kurang.')">
             @csrf
             <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm">
                 ⚡ Jalankan Auto Produksi

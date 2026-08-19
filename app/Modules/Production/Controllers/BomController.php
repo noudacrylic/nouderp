@@ -9,6 +9,7 @@ use App\Modules\Production\Models\Department;
 use App\Modules\Production\Services\BomService;
 use App\Modules\Production\Services\BomScoreService;
 use App\Modules\Production\Services\AutoProductionService;
+use App\Modules\Production\Services\PreorderAutoProductionService;
 use App\Models\ProductionSetting;
 use App\Modules\Production\Models\ProductionByproduct;
 use App\Modules\Production\Models\ProductionRawMaterial;
@@ -63,24 +64,53 @@ class BomController extends Controller
         return back()->with('success', "Jumlah siklus BOM {$bom->bom_number} diperbarui menjadi {$data['typical_cycles']}.");
     }
 
-    public function runAuto(AutoProductionService $auto)
+    /**
+     * Tombol "Jalankan Auto Produksi" menjalankan DUA mesin yang saling melengkapi, karena
+     * masing-masing buta terhadap separuh kebutuhan:
+     *
+     * 1. AutoProductionService  — produk READY, dipicu stok menipis/habis. Mesin ini sengaja
+     *    melewati semua produk pre-order (lihat AutoProductionService::runForBom).
+     * 2. PreorderAutoProductionService — produk PRE-ORDER, dipicu pesanan. Normalnya berjalan
+     *    sendiri saat DP di-post, tapi penilaiannya sekali jalan: kalau saat itu stok kebetulan
+     *    menutupi, OP tidak dibuat dan tidak ada yang mengevaluasi ulang bila stok itu kemudian
+     *    hilang (opname minus, rusak, terpakai pesanan lain). Sapuan di sini yang menutup celah
+     *    tersebut — lihat sweepPendingSalesOrders().
+     *
+     * Tanpa nomor 2, tombol ini tidak akan pernah bisa membuat OP untuk pesanan pre-order yang
+     * menggantung, dan satu-satunya jalan adalah bikin OP manual.
+     */
+    public function runAuto(AutoProductionService $auto, PreorderAutoProductionService $preorder)
     {
-        $results = $auto->runAll();
+        $stockResults    = $auto->runAll();
+        $preorderResults = $preorder->sweepPendingSalesOrders();
 
-        $created = collect($results)->where('created', true);
-        $skipped = collect($results)->where('created', false);
+        $createdStock    = collect($stockResults)->where('created', true);
+        $createdPreorder = collect($preorderResults)->where('created', true);
+        $createdCount    = $createdStock->count() + $createdPreorder->count();
 
-        if ($results === []) {
-            return back()->with('info', 'Belum ada BOM dengan auto-produksi yang aktif.');
+        if ($stockResults === [] && $preorderResults === []) {
+            return back()->with('info', 'Belum ada BOM dengan auto-produksi aktif, dan tidak ada pesanan pre-order yang menunggu produksi.');
         }
 
-        if ($created->isEmpty()) {
-            $first = $skipped->take(3)->pluck('reason')->join(' · ');
-            return back()->with('info', "Tidak ada order baru. Diperiksa {$skipped->count()} BOM. " . $first);
+        $bomDiperiksa = count($stockResults);
+        $soDiperiksa  = collect($preorderResults)->pluck('sales_order_id')->unique()->count();
+
+        if ($createdCount === 0) {
+            // Alasan skip ditampilkan dari kedua sisi supaya tidak menyesatkan: kalau hanya
+            // alasan BOM yang muncul, pesanan pre-order yang di-skip terlihat seperti tidak
+            // pernah diperiksa sama sekali.
+            $alasan = collect($stockResults)->where('created', false)->take(2)->pluck('reason')
+                ->merge(collect($preorderResults)->where('created', false)->take(2)->pluck('reason'))
+                ->filter()->join(' · ');
+
+            return back()->with('info', "Tidak ada order baru. Diperiksa {$bomDiperiksa} BOM stok + {$soDiperiksa} pesanan pre-order. " . $alasan);
         }
 
-        $list = $created->map(fn($r) => "{$r['order_number']} ({$r['bom_number']})")->join(', ');
-        return back()->with('success', "{$created->count()} order otomatis dibuat: {$list}.");
+        $list = $createdStock->map(fn($r) => "{$r['order_number']} ({$r['bom_number']})")
+            ->merge($createdPreorder->map(fn($r) => "{$r['order_number']} (pre-order {$r['sales_order_number']})"))
+            ->join(', ');
+
+        return back()->with('success', "{$createdCount} order otomatis dibuat: {$list}. Diperiksa {$bomDiperiksa} BOM stok + {$soDiperiksa} pesanan pre-order.");
     }
 
     public function create()
