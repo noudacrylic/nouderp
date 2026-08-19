@@ -123,6 +123,24 @@ class BundlePackageWeightTest extends TestCase
         $this->assertNull($hasil['length']);
     }
 
+    /**
+     * Kontrak yang dipakai cek ongkir ETALASE. Etalase mengirim tiap produk
+     * sebagai baris terpisah, jadi ia butuh berat per satuan — bukan total paket
+     * — tapi aturannya harus sama persis dengan form Pengiriman di ERP.
+     */
+    public function test_berat_satuan_dipakai_bersama_etalase(): void
+    {
+        [$bundleDitimbang] = $this->bundleTerkemas(3900);
+        [$bundleBelum]     = $this->bundleTerkemas(null);
+        $biasa             = $this->produk(['weight_gram' => 500]);
+
+        $svc = app(PackageDefaults::class);
+
+        $this->assertSame(3900, $svc->beratSatuan($bundleDitimbang));
+        $this->assertSame(1730, $svc->beratSatuan($bundleBelum));
+        $this->assertSame(500, $svc->beratSatuan($biasa));
+    }
+
     public function test_berat_tersimpan_di_dokumen_menang_atas_taksiran(): void
     {
         [$bundle] = $this->bundleTerkemas(3900);

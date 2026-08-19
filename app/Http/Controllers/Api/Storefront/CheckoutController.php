@@ -12,6 +12,7 @@ use App\Modules\Sales\Services\PromotionService;
 use App\Modules\Sales\Services\SalesOrderService;
 use App\Modules\Sales\Services\WebPaymentService;
 use App\Modules\Shipping\Services\PointAddressResolver;
+use App\Modules\Shipping\Services\PackageDefaults;
 use App\Modules\Shipping\ShippingManager;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,7 @@ class CheckoutController extends Controller
         private SalesOrderService $orders,
         private WebPaymentService $webPayments,
         private PromotionService $promotions,
+        private PackageDefaults $package,
     ) {}
 
     /**
@@ -637,17 +639,43 @@ class CheckoutController extends Controller
 
     // ───────────────────────── helpers ─────────────────────────
 
-    /** Susun item untuk cek ongkir (berat gram × qty). */
+    /**
+     * Susun item untuk cek ongkir etalase.
+     *
+     * Beratnya WAJIB lewat PackageDefaults — aturan yang sama dengan form
+     * Pengiriman di ERP. Sebelumnya di sini dibaca langsung dari
+     * `weight_gram`, sehingga bundle yang belum pernah ditimbang terkirim
+     * sebagai 1 gram. Enam bundle Frame Mahar 50x40x6 & 60x40x6 (Packing Kayu /
+     * Instant) persis begitu — barang paling berat yang dijual, ongkirnya
+     * dihitung dari 1 gram, dan Jubelio memakai lantai minimumnya 1 kg.
+     *
+     * Dimensi ikut dikirim karena untuk barang besar seperti itu berat
+     * volumetriknya justru yang lebih besar dari berat asli — dan itulah yang
+     * ditagih kurir. Dilewati bila produknya memang belum diukur; barang akrilik
+     * pipih yang padat memang tidak butuh (lihat catatan titik impas).
+     */
     private function rateItems(array $items): array
     {
         $ids = collect($items)->pluck('product_id')->map(fn ($v) => (int) $v)->unique();
-        $weights = Product::whereIn('id', $ids)->pluck('weight_gram', 'id');
+        $products = Product::whereIn('id', $ids)->get()->keyBy('id');
 
-        return collect($items)->map(fn ($it) => [
-            'name'     => 'Paket',
-            'weight'   => max(1, (int) ($weights[(int) $it['product_id']] ?? 0)),
-            'quantity' => max(1, (int) $it['qty']),
-        ])->all();
+        return collect($items)->map(function ($it) use ($products) {
+            $p = $products[(int) $it['product_id']] ?? null;
+
+            $row = [
+                'name'     => 'Paket',
+                'weight'   => max(1, $p ? $this->package->beratSatuan($p) : 0),
+                'quantity' => max(1, (int) $it['qty']),
+            ];
+
+            foreach (['length' => 'length_cm', 'width' => 'width_cm', 'height' => 'height_cm'] as $k => $col) {
+                if ($p && (float) ($p->{$col} ?? 0) > 0) {
+                    $row[$k] = (float) $p->{$col};
+                }
+            }
+
+            return $row;
+        })->all();
     }
 
     /** Cari customer by no. HP (non-marketplace) atau buat baru; perbarui alamat. */

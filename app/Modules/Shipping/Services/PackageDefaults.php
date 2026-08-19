@@ -97,6 +97,20 @@ class PackageDefaults
     }
 
     /**
+     * Berat satu satuan produk (gram), untuk pemanggil yang menyusun daftar item
+     * sendiri — mis. cek ongkir etalase, yang mengirim tiap produk sebagai baris
+     * terpisah alih-alih satu paket gabungan.
+     *
+     * Ada supaya etalase tidak perlu menulis ulang aturan bundle-nya. Persis itu
+     * yang dulu terjadi di form Pengiriman ERP, dan hasilnya ongkir kurang tagih
+     * selama berbulan-bulan tanpa ada yang tahu.
+     */
+    public function beratSatuan(object $product): int
+    {
+        return (int) round($this->beratProduk($product));
+    }
+
+    /**
      * Berat satu satuan produk.
      *
      * Bundle dipakai BERAT SENDIRINYA, bukan jumlah berat komponennya. Bundle di
