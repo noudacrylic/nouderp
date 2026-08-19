@@ -53,18 +53,33 @@
             </div>
         </div>
 
+        {{-- Kartu ini sengaja hanya memuat ANGKA TOTAL — rinciannya ada di PDF. Label
+             "Download Pesanan" dulu tidak memberi tahu itu, jadi pembeli bertanya
+             "rinciannya mana?". Baris kedua yang menjawabnya; jangan dihapus. --}}
         <a href="{{ $pdf_url }}"
-           class="mt-4 flex items-center justify-center gap-2 w-full border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50 font-bold rounded-xl py-2.5 text-sm transition">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-            Download Pesanan (PDF)
+           class="mt-4 flex items-center justify-center gap-2.5 w-full border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50 rounded-xl py-2.5 px-3 transition">
+            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="text-left leading-tight">
+                <span class="block text-sm font-bold">Unduh Nota Pesanan (PDF)</span>
+                <span class="block text-[11px] font-medium text-emerald-600">Rincian barang, jumlah &amp; harga satuan</span>
+            </span>
         </a>
 
         {{-- Jalan pulang ke toko. Halaman lacak tinggal di noudakrilik.com dan tetap
              hidup setelah tautan bayar ini kedaluwarsa — pertanyaan "pesanan saya
-             sampai mana" justru baru muncul sesudah dibayar. --}}
+             sampai mana" justru baru muncul sesudah dibayar.
+
+             Emas, bukan hijau — warna yang sama dengan penanda "tahap berjalan" di
+             halaman lacak. Bobotnya ikut keadaan: selama masih ada tagihan, yang
+             utama tetap tombol Bayar, jadi tombol ini cukup bergaris (setara tombol
+             nota, tidak kalah). Begitu lunas tombol Bayar hilang dan INI yang jadi
+             langkah berikutnya — barulah ia dipadatkan. --}}
         @if(!empty($track_url))
             <a href="{{ $track_url }}"
-               class="mt-2 flex items-center justify-center gap-2 w-full text-emerald-700 hover:text-emerald-800 font-semibold rounded-xl py-2 text-sm transition">
+               class="mt-2 flex items-center justify-center gap-2 w-full font-bold rounded-xl py-2.5 text-sm transition
+                      {{ $canPay
+                            ? 'border-2 border-[#d99400] text-[#b87a00] hover:bg-amber-50'
+                            : 'bg-[#d99400] hover:bg-[#b87a00] text-white shadow-sm' }}">
                 Lihat status pesanan →
             </a>
         @endif
@@ -115,7 +130,7 @@
                 </div>
             </div>
 
-            <a href="{{ $pdf_url }}" class="mt-3 block text-center text-xs text-gray-500 hover:text-gray-700">Unduh rincian pesanan (PDF)</a>
+            <a href="{{ $pdf_url }}" class="mt-3 block text-center text-xs text-gray-500 hover:text-gray-700">Unduh nota pesanan (PDF) — rincian barang &amp; harga</a>
         </div>
     @else
         <div class="px-6 py-6 text-center text-sm text-gray-500">Link sudah kadaluarsa. Silakan hubungi Noud Acrylic untuk link baru.</div>

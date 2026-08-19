@@ -44,10 +44,15 @@
             </div>
         </div>
 
+        {{-- Sama seperti kartu SO: yang tampil di layar cuma total, rinciannya di PDF.
+             Baris kedua yang memberi tahu pembeli itu. --}}
         <a href="{{ $pdf_url }}"
-           class="mt-4 flex items-center justify-center gap-2 w-full border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50 font-bold rounded-xl py-2.5 text-sm transition">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-            Download Invoice (PDF)
+           class="mt-4 flex items-center justify-center gap-2.5 w-full border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50 rounded-xl py-2.5 px-3 transition">
+            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="text-left leading-tight">
+                <span class="block text-sm font-bold">Unduh Faktur (PDF)</span>
+                <span class="block text-[11px] font-medium text-emerald-600">Rincian barang, jumlah &amp; harga satuan</span>
+            </span>
         </a>
     </div>
 
