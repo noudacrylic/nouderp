@@ -837,12 +837,19 @@ class CheckoutController extends Controller
      */
     public function tracking(string $token, \App\Modules\Shipping\ShippingManager $shipping)
     {
+        // Dua jenis token seperti di show(): token TAGIHAN (web_payments) untuk tautan
+        // lama, dan token PESANAN (sales_orders) yang dipakai halaman /pesanan sekarang.
+        // Pesanan tempo / link bayar manual sama sekali tidak punya tagihan web, jadi
+        // mencari lewat WebPayment saja membuat paketnya tidak pernah bisa dilacak.
         $wp = WebPayment::with('salesOrder')->where('public_token', $token)->first();
-        if (! $wp) {
+        $so = $wp?->salesOrder
+            ?: \App\Modules\Sales\Models\SalesOrder::where('public_token', $token)->first();
+
+        if (! $so) {
             return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
         }
 
-        $delivery = $wp->salesOrder?->deliveries()
+        $delivery = $so->deliveries()
             ->whereNotNull('tracking_number')->where('tracking_number', '!=', '')
             ->latest('id')->first();
 
