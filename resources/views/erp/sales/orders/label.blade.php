@@ -9,10 +9,10 @@
 @include('erp.sales.deliveries._resi-style')
 
 @php
-    $totalWeight = 0;
-    foreach ($order->items as $it) {
-        $totalWeight += (int) ($it->product->weight_gram ?? 0) * (float) $it->qty;
-    }
+    // Satu aturan berat untuk seluruh ERP — lihat PackageDefaults. Berat paket yang
+    // sudah tersimpan di SO menang atas taksiran, dan bundle memakai berat sendirinya.
+    $totalWeight = app(\App\Modules\Shipping\Services\PackageDefaults::class)
+        ->weightFor($order, $order->items);
     // Kurir manual → nama bersih dari master; Biteship → kode + nama layanan.
     $courierName = \App\Models\ManualCourier::nameFor($order->shipping_courier_code)
         ?: (trim(strtoupper((string) ($order->shipping_courier_code ?? '')) . ' ' . (string) ($order->shipping_service_name ?? '')) ?: null);

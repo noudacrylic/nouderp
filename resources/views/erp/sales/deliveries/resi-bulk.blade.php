@@ -12,10 +12,9 @@
     @php
         $delivery = $lbl['delivery'];
         [$origin, $dest] = $lbl['addr'];
-        $totalWeight = 0;
-        foreach ($delivery->items as $it) {
-            $totalWeight += (int) ($it->product->weight_gram ?? 0) * (float) $it->qty;
-        }
+        // Aturan yang sama dengan popup generate resi — lihat catatan di resi.blade.php.
+        $totalWeight = app(\App\Modules\Shipping\Services\PackageDefaults::class)
+            ->weightFor($delivery->order ?: $delivery->invoice, $delivery->items);
     @endphp
     <article class="paper resi-paper" data-label="Resi">
         @include('erp.sales.deliveries._resi-label', [

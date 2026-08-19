@@ -9,10 +9,12 @@
 @include('erp.sales.deliveries._resi-style')
 
 @php
-    $totalWeight = 0;
-    foreach ($delivery->items as $it) {
-        $totalWeight += (int) ($it->product->weight_gram ?? 0) * (float) $it->qty;
-    }
+    // Aturan yang sama dengan popup generate resi (SalesDeliveryController@shipInfo):
+    // hasil timbang tersimpan dulu, baru taksiran master produk — dan bundle memakai
+    // berat sendirinya, bukan jumlah komponennya. Menghitung sendiri di sini membuat
+    // label mencetak berat yang berbeda dari yang dibookingkan ke kurir.
+    $totalWeight = app(\App\Modules\Shipping\Services\PackageDefaults::class)
+        ->weightFor($delivery->order ?: $delivery->invoice, $delivery->items);
 @endphp
 
 <article class="paper resi-paper">
