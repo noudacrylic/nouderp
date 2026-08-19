@@ -2,6 +2,10 @@
 
 namespace App\Modules\Shipping\Services;
 
+use App\Core\Inventory\BundleComponent;
+use App\Core\Inventory\Product;
+use App\Core\Inventory\ProductBundle;
+
 /**
  * Berat & dimensi paket bawaan untuk sebuah dokumen (SO / Faktur).
  *
@@ -12,6 +16,8 @@ namespace App\Modules\Shipping\Services;
  *
  * Dimensi ditaksir dengan mengambil yang TERBESAR per sumbu, bukan dijumlah: angkanya hanya
  * titik awal supaya operator mengoreksi, bukan mengetik dari nol.
+ *
+ * Bundle dipakai berat & dimensi SENDIRINYA. Lihat beratProduk().
  *
  * Satu-satunya sumber aturan ini; dipakai form Pengiriman di SO/Faktur, form ukur di
  * Pemrosesan Pesanan, dan popup generate resi di Surat Jalan.
@@ -81,12 +87,59 @@ class PackageDefaults
             }
 
             $qty = (float) ($item->qty ?? 0) * (float) ($item->conversion_to_base ?? 1);
-            $weight += (float) ($p->weight_gram ?? 0) * $qty;
+            $weight += $this->beratProduk($p) * $qty;
             $len = max($len, (float) ($p->length_cm ?? 0));
             $wid = max($wid, (float) ($p->width_cm ?? 0));
             $hei = max($hei, (float) ($p->height_cm ?? 0));
         }
 
         return [(int) round($weight), $len, $wid, $hei];
+    }
+
+    /**
+     * Berat satu satuan produk.
+     *
+     * Bundle dipakai BERAT SENDIRINYA, bukan jumlah berat komponennya. Bundle di
+     * sini bukan sekadar gabungan barang — ia produk yang sudah dikemas (bubble,
+     * peti kayu), dan kemasan itulah yang membuat beratnya berbeda dari isinya.
+     * Menjumlahkan komponen membuang berat kemasan, dan ongkirnya kurang tagih.
+     *
+     * Komponen hanya jadi CADANGAN, dipakai kalau bundle-nya belum pernah
+     * ditimbang. Itu masih jauh lebih baik daripada 0, tapi tetap taksiran yang
+     * merendahkan — bundle yang berat sendirinya kosong sebaiknya dilengkapi di
+     * master produk.
+     */
+    private function beratProduk(object $p): float
+    {
+        $own = (float) ($p->weight_gram ?? 0);
+        if ($own > 0 || ($p->sale_type ?? null) !== 'bundle' || empty($p->id)) {
+            return $own;
+        }
+
+        return $this->beratKomponenBundle((int) $p->id);
+    }
+
+    /** Σ(berat komponen x qty) — cadangan untuk bundle yang belum ditimbang. */
+    private function beratKomponenBundle(int $bundleId): float
+    {
+        $components = BundleComponent::where('bundle_product_id', $bundleId)->get();
+        $qtyField   = 'qty';
+
+        // Dua tabel bersejarah untuk hal yang sama; yang lama masih dipakai
+        // sebagian data lama.
+        if ($components->isEmpty()) {
+            $components = ProductBundle::where('bundle_product_id', $bundleId)->get();
+            $qtyField   = 'qty_required';
+        }
+
+        $total = 0.0;
+        foreach ($components as $c) {
+            $comp = Product::find($c->component_product_id);
+            if ($comp) {
+                $total += (float) ($comp->weight_gram ?? 0) * (float) ($c->{$qtyField} ?? 1);
+            }
+        }
+
+        return $total;
     }
 }

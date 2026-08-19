@@ -499,6 +499,11 @@
     // Jangan ditimpa hitung-ulang otomatis bila user mengetik sendiri, ATAU bila kolomnya
     // sudah berisi hasil timbang yang tersimpan di dokumen (data-tersimpan).
     let weightManual = !!document.getElementById('ship_weight')?.dataset.tersimpan;
+    // Dimensi ikut aturan yang sama: begitu operator mengetik salah satu sumbu, taksiran
+    // berhenti menimpanya. Kolom yang sudah terisi saat halaman dibuka berarti sudah
+    // pernah diukur orang — jangan ditawar-tawar lagi oleh taksiran master produk.
+    let dimManual = ['pkg_length','pkg_width','pkg_height']
+        .some(id => (document.getElementById(id)?.value || '').trim() !== '');
     function collectItems(){
         const rows = document.querySelectorAll('#items .item-row');
         const items = [];
@@ -523,6 +528,17 @@
             body: JSON.stringify({items}),
         }).then(r=>r.json()).then(d=>{
             if (d.weight_gram > 0 && !weightManual){ $id('ship_weight').value = d.weight_gram; }
+
+            // Dimensi dipakai kurir menghitung berat volumetrik, dan untuk sebagian
+            // barang akrilik volumetrik justru yang lebih besar dari berat asli.
+            // Dibiarkan kosong, ia terkirim sebagai 0 dan ongkirnya kurang tagih.
+            if (!dimManual) {
+                [['pkg_length', d.length], ['pkg_width', d.width], ['pkg_height', d.height]]
+                    .forEach(([id, v]) => {
+                        const el = $id(id);
+                        if (el && v != null && numDec(v) > 0) el.value = v;
+                    });
+            }
         }).catch(()=>{});
     }
     function scheduleWeight(){ clearTimeout(weightTimer); weightTimer = setTimeout(recalcWeight, 500); }
@@ -665,6 +681,9 @@
 
         // Auto berat dari item: hitung ulang saat item/qty/unit berubah.
         $id('ship_weight').addEventListener('input', function(){ weightManual = true; });
+        ['pkg_length','pkg_width','pkg_height'].forEach(id => {
+            $id(id)?.addEventListener('input', function(){ dimManual = true; });
+        });
         document.addEventListener('input', function(e){ if (e.target.closest && e.target.closest('#items')) scheduleWeight(); });
         document.addEventListener('change', function(e){ if (e.target.closest && e.target.closest('#items')) scheduleWeight(); });
         document.addEventListener('click', function(e){ if (e.target.closest && e.target.closest('.product-item')) setTimeout(scheduleWeight, 600); });
