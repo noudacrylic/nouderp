@@ -455,6 +455,16 @@ Route::prefix('erp/store')->group(function () {
     Route::delete('/articles/{id}',      [\App\Http\Controllers\Store\StoreArticleController::class, 'destroy'])->name('store.articles.destroy');
     Route::post('/articles/{id}/image',  [\App\Http\Controllers\Store\StoreArticleController::class, 'uploadImage'])->name('store.articles.image');
 
+    // Tutorial pemasangan (tujuan QR pada stiker produk)
+    Route::get('/tutorials',              [\App\Http\Controllers\Store\StoreTutorialController::class, 'index'])->name('store.tutorials.index');
+    Route::get('/tutorials/create',       [\App\Http\Controllers\Store\StoreTutorialController::class, 'create'])->name('store.tutorials.create');
+    Route::post('/tutorials',             [\App\Http\Controllers\Store\StoreTutorialController::class, 'store'])->name('store.tutorials.store');
+    Route::get('/tutorials/{id}/edit',    [\App\Http\Controllers\Store\StoreTutorialController::class, 'edit'])->name('store.tutorials.edit');
+    Route::get('/tutorials/{id}/qr',      [\App\Http\Controllers\Store\StoreTutorialController::class, 'qr'])->name('store.tutorials.qr');
+    Route::put('/tutorials/{id}',         [\App\Http\Controllers\Store\StoreTutorialController::class, 'update'])->name('store.tutorials.update');
+    Route::delete('/tutorials/{id}',      [\App\Http\Controllers\Store\StoreTutorialController::class, 'destroy'])->name('store.tutorials.destroy');
+    Route::post('/tutorials/{id}/image',  [\App\Http\Controllers\Store\StoreTutorialController::class, 'uploadImage'])->name('store.tutorials.image');
+
     // Kategori artikel
     Route::get('/article-categories',              [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'index'])->name('store.article-categories.index');
     Route::get('/article-categories/create',       [\App\Http\Controllers\Store\StoreArticleCategoryController::class, 'create'])->name('store.article-categories.create');

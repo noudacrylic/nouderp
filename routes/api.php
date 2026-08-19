@@ -26,6 +26,13 @@ Route::prefix('storefront')->middleware('storefront.api')->group(function () {
     Route::get('/articles',           [StorefrontController::class, 'articles'])->name('api.storefront.articles');
     Route::get('/articles/{slug}',    [StorefrontController::class, 'article'])->name('api.storefront.article');
 
+    // Tutorial pemasangan. `resolve` dipanggil storefront saat QR di-scan:
+    // kode -> slug, sekaligus mencatat scan.
+    Route::get('/tutorials',              [StorefrontController::class, 'tutorials'])->name('api.storefront.tutorials');
+    Route::get('/tutorials/{slug}',       [StorefrontController::class, 'tutorial'])->name('api.storefront.tutorial');
+    Route::post('/tutorials/{slug}/view', [StorefrontController::class, 'recordTutorialView'])->name('api.storefront.tutorial.view');
+    Route::post('/tutorials/scan/{code}', [StorefrontController::class, 'recordTutorialScan'])->name('api.storefront.tutorial.scan');
+
     // Checkout: cek alamat/ongkir, buat pesanan, status & klaim transfer.
     Route::get ('/shipping/areas',        [CheckoutController::class, 'areas'])->name('api.storefront.shipping.areas');
     Route::post('/shipping/rates',        [CheckoutController::class, 'rates'])->name('api.storefront.shipping.rates');

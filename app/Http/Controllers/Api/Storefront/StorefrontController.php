@@ -12,9 +12,11 @@ use App\Models\StoreCategory;
 use App\Models\StoreHomepageSetting;
 use App\Models\StoreProduct;
 use App\Models\StoreProductMedia;
+use App\Models\StoreTutorial;
 use App\Modules\Sales\Models\Promotion;
 use App\Modules\Sales\Services\PromotionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * API baca jembatan etalase (noudakrilik.com). Dikonsumsi VPS/etalase server-side,
@@ -451,6 +453,90 @@ class StorefrontController extends Controller
                 'description' => $p->meta_description ?: $p->short_description,
             ],
             'updated_at'        => optional($p->updated_at)->toIso8601String(),
+        ];
+    }
+
+    /* ===================================================================
+       Tutorial pemasangan — tujuan QR pada stiker produk
+       =================================================================== */
+
+    /**
+     * Daftar tutorial terbit. Selalu memuat `code` supaya storefront bisa
+     * memetakan kode QR -> slug dari cache, tanpa memanggil balik ERP saat
+     * seseorang men-scan stiker.
+     */
+    public function tutorials(Request $request)
+    {
+        $items = StoreTutorial::published()
+            ->with(['products:id,slug,name'])
+            ->orderBy('sort_order')
+            ->orderBy('code')
+            ->get();
+
+        return response()->json([
+            'data' => $items->map(fn($t) => $this->serializeTutorial($t, false))->all(),
+        ]);
+    }
+
+    /** Detail satu tutorial terbit by slug (dengan langkah bergambar). */
+    public function tutorial(string $slug)
+    {
+        $t = StoreTutorial::published()->with(['products:id,slug,name'])->where('slug', $slug)->first();
+
+        if (!$t) {
+            return response()->json(['message' => 'Tutorial tidak ditemukan.'], 404);
+        }
+
+        return response()->json(['data' => $this->serializeTutorial($t, true)]);
+    }
+
+    public function recordTutorialView(string $slug)
+    {
+        $t = StoreTutorial::published()->where('slug', $slug)->first(['id']);
+        if ($t) {
+            DB::table('store_tutorials')->where('id', $t->id)->increment('view_count');
+        }
+        return response()->noContent(); // 204
+    }
+
+    /**
+     * Dipanggil saat QR di-scan. Terpisah dari view supaya angka "datang dari
+     * stiker fisik" tidak tercampur dengan kunjungan dari Google atau menu situs
+     * — digabung, keduanya kehilangan makna. Ini pengganti langsung statistik
+     * bit.ly yang dilepas.
+     *
+     * Perbandingan kode tidak peduli besar-kecil huruf (QR menyandikan huruf
+     * besar demi kerapatan), dan collation MySQL bawaan sudah begitu.
+     */
+    public function recordTutorialScan(string $code)
+    {
+        $t = StoreTutorial::published()->where('code', $code)->first(['id']);
+        if ($t) {
+            DB::table('store_tutorials')->where('id', $t->id)->increment('scan_count');
+        }
+        return response()->noContent(); // 204
+    }
+
+    private function serializeTutorial(StoreTutorial $t, bool $withContent): array
+    {
+        return [
+            'id'            => $t->id,
+            'code'          => $t->code,
+            'slug'          => $t->slug,
+            'title'         => $t->title,
+            'youtube_id'    => $t->youtube_id,
+            'thumbnail_url' => $t->thumbnailUrl(),
+            'description'   => $t->description,
+            'products'      => $t->products->map(fn($p) => [
+                'id' => $p->id, 'slug' => $p->slug, 'name' => $p->name,
+            ])->all(),
+            'meta'          => [
+                'title'       => $t->meta_title ?: $t->title,
+                'description' => $t->meta_description ?: $t->description,
+            ],
+            'updated_at'    => optional($t->updated_at)->toIso8601String(),
+            // Langkah bergambar hanya di detail (hemat payload listing).
+            'content'       => $withContent ? $t->content : null,
         ];
     }
 

@@ -23,6 +23,7 @@ return [
     // Prefix folder di dalam disk.
     'media_path'    => 'store/products',
     'article_path'  => 'store/articles',
+    'tutorial_path' => 'store/tutorials',
     'homepage_path' => 'store/homepage',
 
     /*
