@@ -26,6 +26,7 @@ class ProductionProcessController extends Controller
             'productionOrder.warehouse',
             'productionOrder.steps',
             'department.executors',
+            'department.selectableExecutors',
             'executor',
             'executors',
             'timeLogs',

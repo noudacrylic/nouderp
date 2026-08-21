@@ -35,6 +35,26 @@ class DepartmentExecutor extends Model
         return $this->hasMany(self::class, 'parent_executor_id');
     }
 
+    /**
+     * Eksekutor yang boleh dipilih saat memulai langkah = yang benar-benar MENGERJAKAN.
+     *
+     * Operator yang menaungi mesin (punya anak) tidak ikut: di CNC yang bekerja mesinnya,
+     * operator hanya menekan play lalu ditinggal. Kalau operator ikut dicentang, jam yang
+     * sama tercatat dua kali dan kapasitasnya jadi tidak bisa dibaca. Barisnya tetap ada
+     * karena hierarki ini yang dipakai auto-pause: scan pulang operator ikut menghentikan
+     * mesin-mesin di bawahnya.
+     */
+    public function scopeSelectable($query)
+    {
+        return $query->where('is_active', true)->whereDoesntHave('children');
+    }
+
+    /** Operator penaung — ada di pohon, tapi tidak pernah jadi pelaku langkah. */
+    public function isSupervisor(): bool
+    {
+        return $this->children()->exists();
+    }
+
     public function getDisplayNameAttribute(): string
     {
         return $this->karyawan?->name ?? $this->name;

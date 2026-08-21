@@ -478,6 +478,19 @@ class ProductionOrderService
             $order = $step->productionOrder;
 
             $testing = \App\Models\ProductionSetting::isTestingMode();
+
+            // Operator penaung tidak boleh jadi pelaku langkah — yang bekerja mesinnya.
+            // Dijaga di sini, bukan hanya di tampilan, karena pilihan ini menentukan
+            // pembagi kapasitas: satu jam yang tercatat dua kali merusak HPP.
+            $supervisors = DepartmentExecutor::whereIn('id', $executorIds)
+                ->whereHas('children')->pluck('name');
+            if ($supervisors->isNotEmpty()) {
+                throw new Exception(
+                    $supervisors->join(', ') . ' adalah operator penaung mesin, bukan pelaku langkah. '
+                    . 'Pilih mesinnya, bukan operatornya.'
+                );
+            }
+
             $this->assertExecutorsReady($executorIds, strict: !$force, bypassReady: $testing);
 
             if (!in_array($order->status, ['confirmed', 'in_progress', 'partial'])) {

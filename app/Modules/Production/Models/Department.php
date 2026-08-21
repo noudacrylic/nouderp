@@ -34,6 +34,15 @@ class Department extends Model
         return $this->hasMany(DepartmentExecutor::class)->where('is_active', true);
     }
 
+    /**
+     * Yang muncul di pilihan "Mulai" — hanya pelaku sebenarnya, tanpa operator penaung.
+     * Lihat DepartmentExecutor::scopeSelectable().
+     */
+    public function selectableExecutors()
+    {
+        return $this->hasMany(DepartmentExecutor::class)->selectable();
+    }
+
     public function steps()
     {
         return $this->hasMany(BomStep::class);

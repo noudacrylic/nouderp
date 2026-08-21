@@ -125,8 +125,9 @@
         'action_url'   => route('production.process.steps.start', $step->id),
         'step_name'    => $step->name,
         'order_number' => $order->order_number,
+        // Operator penaung (Andi) sengaja tidak ikut — yang mengerjakan mesinnya.
         'executors'    => $step->department
-            ? $step->department->executors->map(fn($e) => [
+            ? $step->department->selectableExecutors->map(fn($e) => [
                 'id'   => $e->id,
                 'name' => $e->name,
                 'busy' => in_array($e->id, $busy),

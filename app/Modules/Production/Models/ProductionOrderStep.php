@@ -66,23 +66,31 @@ class ProductionOrderStep extends Model
         $logs  = $this->relationLoaded('timeLogs') ? $this->timeLogs : $this->timeLogs()->get();
         $total = 0;
         $start = null;
+        $raw   = null; // waktu log apa adanya, cadangan bila started_effective_at tidak masuk akal
 
         foreach ($logs as $log) {
             if (in_array($log->event_type, ['started', 'resumed', 'auto_resumed'])) {
+                $raw = $log->occurred_at;
                 // Honor started_effective_at on the very first 'started' event of the day
-                if ($log->event_type === 'started' && $this->started_effective_at) {
-                    $start = $this->started_effective_at;
-                } else {
-                    $start = $log->occurred_at;
-                }
+                $start = ($log->event_type === 'started' && $this->started_effective_at)
+                    ? $this->started_effective_at
+                    : $log->occurred_at;
             } elseif ($start && in_array($log->event_type, ['paused', 'auto_paused', 'completed'])) {
-                $total += (int) $start->diffInSeconds($log->occurred_at);
+                // ProductionTimerSync::onFingerprintScan() menimpa started_effective_at dengan
+                // jam masuk hari scan tanpa memeriksa apakah langkahnya sudah selesai, sehingga
+                // langkah lama bisa punya started_effective_at SETELAH log penutupnya. Kalau
+                // dipakai apa adanya, durasinya jadi negatif — jatuh balik ke waktu log asli.
+                if ($log->occurred_at->lt($start)) {
+                    $start = $raw;
+                }
+                $total += max(0, (int) $start->diffInSeconds($log->occurred_at));
                 $start  = null;
+                $raw    = null;
             }
         }
 
         if ($start && $this->status === 'in_progress') {
-            $total += (int) $start->diffInSeconds(now());
+            $total += max(0, (int) $start->diffInSeconds(now()));
         }
 
         return $total;
