@@ -11,8 +11,9 @@
 </div>
 
 <div class="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded text-xs mb-3">
-    💡 Pengajuan dari aplikasi HP karyawan. <strong>Setujui</strong> → izin/override dibuat & slip (jika ada, belum final) di-regenerate.
-    Toleransi langsung mengoreksi baris absensi (keterlambatan dinetralkan).
+    💡 Pengajuan dari aplikasi HP karyawan. <strong>Klik barisnya</strong> untuk melihat kenyataan absensi hari itu —
+    jadwal, scan mentah, dan catatan yang sudah ada — lalu putuskan di sana. Menyetujui akan membuat izin/override
+    dan me-regenerate slip (jika ada dan belum final).
 </div>
 
 {{-- Filter status --}}
@@ -35,23 +36,33 @@
                 <th class="px-3 py-2 text-left">Alasan</th>
                 <th class="px-3 py-2 text-center">Bukti</th>
                 <th class="px-3 py-2 text-center">Status</th>
-                <th class="px-3 py-2 text-right">Aksi</th>
+                <th class="px-3 py-2 text-right">Tinjau</th>
             </tr>
         </thead>
         <tbody class="divide-y">
             @forelse ($requests as $r)
                 @php [$label, $cls] = $r->statusBadge(); @endphp
-                <tr id="izin-{{ $r->id }}" class="scroll-mt-24 {{ request('highlight') == $r->id ? 'bg-amber-50 ring-2 ring-inset ring-amber-300' : '' }}">
+                <tr id="izin-{{ $r->id }}"
+                    onclick="window.location='{{ route('sdm.pengajuan-izin.show', $r->id) }}'"
+                    class="cursor-pointer hover:bg-blue-50/60 scroll-mt-24 {{ request('highlight') == $r->id ? 'bg-amber-50 ring-2 ring-inset ring-amber-300' : '' }}">
                     <td class="px-3 py-2 font-medium text-gray-800">{{ $r->karyawan->name ?? '—' }}</td>
-                    <td class="px-3 py-2">{{ $r->typeLabel() }}</td>
+                    <td class="px-3 py-2">
+                        {{ $r->typeLabel() }}
+                        @if (!empty($adaScan[$r->id]))
+                            <div class="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 mt-1 inline-block"
+                                 title="Ada scan fingerprint di tanggal yang diajukan — kemungkinan salah pilih tanggal">
+                                ⚠ ada scan di tanggal itu
+                            </div>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 whitespace-nowrap">
                         {{ $r->tanggal->format('d/m/Y') }}
                         @if ($r->tanggal_akhir)<br><span class="text-xs text-gray-400">s/d {{ $r->tanggal_akhir->format('d/m/Y') }}</span>@endif
                     </td>
-                    <td class="px-3 py-2 text-gray-600 max-w-xs">{{ $r->alasan }}</td>
+                    <td class="px-3 py-2 text-gray-600 max-w-xs">{{ \Illuminate\Support\Str::limit($r->alasan, 80) }}</td>
                     <td class="px-3 py-2 text-center">
                         @if ($r->lampiran_path)
-                            <a href="{{ \Illuminate\Support\Facades\Storage::url($r->lampiran_path) }}" target="_blank" class="text-blue-600 underline text-xs">Foto</a>
+                            <span class="text-blue-600 text-xs">Ada</span>
                         @else
                             <span class="text-gray-300">—</span>
                         @endif
@@ -60,28 +71,9 @@
                         <span class="text-xs font-bold px-2 py-0.5 rounded-full {{ $cls }}">{{ $label }}</span>
                     </td>
                     <td class="px-3 py-2 text-right whitespace-nowrap">
-                        @if ($r->isPending())
-                            <form method="POST" action="{{ route('sdm.pengajuan-izin.approve', $r->id) }}" class="inline"
-                                  onsubmit="return confirm('Setujui pengajuan ini? Izin/override akan dibuat.');">
-                                @csrf
-                                <button class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-xs">Setujui</button>
-                            </form>
-                            <button type="button" onclick="document.getElementById('reject-{{ $r->id }}').classList.toggle('hidden')"
-                                    class="bg-red-500 hover:bg-red-600 text-white px-2.5 py-1 rounded text-xs">Tolak</button>
-                            <form method="POST" action="{{ route('sdm.pengajuan-izin.reject', $r->id) }}" id="reject-{{ $r->id }}" class="hidden mt-2 text-left">
-                                @csrf
-                                <input type="text" name="review_notes" placeholder="Alasan tolak (opsional)" class="border rounded px-2 py-1 text-xs w-48">
-                                <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Konfirmasi Tolak</button>
-                            </form>
-                        @elseif ($r->isApproved())
-                            <span class="text-[11px] text-gray-400 mr-1">oleh {{ $r->reviewed_by }}</span>
-                            <form method="POST" action="{{ route('sdm.pengajuan-izin.cancel', $r->id) }}" class="inline"
-                                  onsubmit="return confirm('Batalkan approval & revert efeknya?');">
-                                @csrf
-                                <button class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded text-xs">Batalkan</button>
-                            </form>
-                        @else
-                            <span class="text-[11px] text-gray-400">{{ $r->review_notes ?: 'ditolak' }}</span>
+                        <span class="text-blue-600 text-xs font-semibold">Tinjau →</span>
+                        @if (!$r->isPending() && $r->reviewed_by)
+                            <div class="text-[11px] text-gray-400">oleh {{ $r->reviewed_by }}</div>
                         @endif
                     </td>
                 </tr>

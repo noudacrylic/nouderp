@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Notifications\Services\WebPushNotifier;
 use App\Modules\SDM\Models\IzinRequest;
 use App\Modules\SDM\Services\IzinRequestService;
+use App\Modules\SDM\Services\IzinReviewService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
@@ -30,7 +31,68 @@ class PengajuanIzinController extends Controller
         $requests = $query->paginate(30)->withQueryString();
         $pendingCount = IzinRequest::where('status', 'pending')->count();
 
-        return view('erp.sdm.pengajuan-izin.index', compact('requests', 'status', 'pendingCount'));
+        return view('erp.sdm.pengajuan-izin.index', [
+            'requests'     => $requests,
+            'status'       => $status,
+            'pendingCount' => $pendingCount,
+            'adaScan'      => $this->tanggalYangAdaScan($requests->getCollection()),
+        ]);
+    }
+
+    /**
+     * Pengajuan "tidak masuk" yang tanggalnya justru ADA scan — tanda paling sering dari
+     * salah pilih tanggal. Dihitung sekali untuk seluruh halaman (bukan per baris) supaya
+     * daftar tidak menembak database puluhan kali hanya untuk sebuah lencana.
+     *
+     * @return array<int,bool>  [izin_request_id => true]
+     */
+    private function tanggalYangAdaScan($rows): array
+    {
+        $absen = ['cuti', 'sakit', 'izin_pagi', 'izin_sore'];
+
+        $kandidat = $rows->filter(fn ($r) => $r->isPending() && in_array($r->type, $absen, true));
+        if ($kandidat->isEmpty()) {
+            return [];
+        }
+
+        $scans = \App\Modules\SDM\Models\FingerprintLog::whereIn('karyawan_id', $kandidat->pluck('karyawan_id')->unique())
+            ->whereBetween('scan_at', [
+                $kandidat->min('tanggal')->copy()->startOfDay(),
+                $kandidat->max(fn ($r) => $r->tanggal_akhir ?? $r->tanggal)->copy()->endOfDay(),
+            ])
+            ->get(['karyawan_id', 'scan_at'])
+            ->map(fn ($s) => $s->karyawan_id . '|' . \Carbon\Carbon::parse($s->scan_at)->toDateString())
+            ->flip();
+
+        $out = [];
+        foreach ($kandidat as $r) {
+            $akhir = $r->tanggal_akhir ?? $r->tanggal;
+            for ($d = $r->tanggal->copy(); $d->lte($akhir); $d->addDay()) {
+                if (isset($scans[$r->karyawan_id . '|' . $d->toDateString()])) {
+                    $out[$r->id] = true;
+                    break;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Halaman peninjauan satu pengajuan.
+     *
+     * Ada karena daftar saja tidak cukup untuk memutuskan: dari nama + tipe + alasan, tidak
+     * kelihatan apakah orangnya sebenarnya masuk hari itu atau salah pilih tanggal. Di sini
+     * fakta hari itu ditampilkan apa adanya, plus peringatan untuk pola yang biasanya keliru.
+     */
+    public function show(int $id, IzinReviewService $review)
+    {
+        $req = IzinRequest::with('karyawan.schedules')->findOrFail($id);
+
+        return view('erp.sdm.pengajuan-izin.show', [
+            'req'    => $req,
+            'review' => $review->build($req),
+        ]);
     }
 
     public function approve(int $id, WebPushNotifier $push)
@@ -52,7 +114,7 @@ class PengajuanIzinController extends Controller
             ['url' => route('me.izin'), 'tag' => 'izin-' . $req->id]
         );
 
-        return back()->with('success', 'Pengajuan disetujui & diterapkan.');
+        return $this->kembaliKeAntrean($req)->with('success', 'Pengajuan disetujui & diterapkan.');
     }
 
     public function reject(Request $request, int $id, WebPushNotifier $push)
@@ -74,7 +136,16 @@ class PengajuanIzinController extends Controller
             ['url' => route('me.izin'), 'tag' => 'izin-' . $req->id]
         );
 
-        return back()->with('success', 'Pengajuan ditolak.');
+        return $this->kembaliKeAntrean($req)->with('success', 'Pengajuan ditolak. Karyawan sudah diberi tahu untuk mengajukan ulang.');
+    }
+
+    /**
+     * Setelah diputuskan, kembali ke ANTREAN — bukan ke halaman tinjauannya. Keputusannya
+     * diambil di halaman detail, dan yang dibutuhkan berikutnya adalah pengajuan berikutnya.
+     */
+    private function kembaliKeAntrean(IzinRequest $req)
+    {
+        return redirect()->route('sdm.pengajuan-izin.index', ['status' => 'pending', 'highlight' => $req->id]);
     }
 
     /** Akun login PWA (role 'karyawan') milik pemohon izin. */
@@ -93,6 +164,6 @@ class PengajuanIzinController extends Controller
         } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
         }
-        return back()->with('success', 'Approval dibatalkan, efek di-revert.');
+        return $this->kembaliKeAntrean($req)->with('success', 'Approval dibatalkan, efek di-revert.');
     }
 }

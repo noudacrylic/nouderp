@@ -234,6 +234,7 @@ Route::prefix('erp/sdm')->name('sdm.')->group(function () {
 
     // Pengajuan Izin dari PWA karyawan (kotak masuk approval, sub-tab Absensi)
     Route::get ('pengajuan-izin',              [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'index'])  ->name('pengajuan-izin.index');
+    Route::get ('pengajuan-izin/{id}',         [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'show'])->whereNumber('id')->name('pengajuan-izin.show');
     Route::post('pengajuan-izin/{id}/approve', [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'approve'])->name('pengajuan-izin.approve');
     Route::post('pengajuan-izin/{id}/reject',  [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'reject']) ->name('pengajuan-izin.reject');
     Route::post('pengajuan-izin/{id}/cancel',  [\App\Modules\SDM\Controllers\PengajuanIzinController::class, 'cancel']) ->name('pengajuan-izin.cancel');
