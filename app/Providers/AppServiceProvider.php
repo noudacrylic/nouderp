@@ -29,6 +29,11 @@ class AppServiceProvider extends ServiceProvider
         // Memoized per-request (soRows/warrantyRows). Singleton agar controller & partial
         // tab (badge jumlah) berbagi instance → tidak query dobel.
         $this->app->singleton(\App\Modules\POS\Services\FulfillmentReadinessService::class);
+
+        // Resep bahan berjenjang di-memo per-request. Singleton karena satu halaman bisa
+        // memakainya lewat beberapa jalan sekaligus (HPP Ready, HPP Bundle, Harga Produk),
+        // dan menyusun resepnya jauh lebih mahal daripada membacanya.
+        $this->app->singleton(\App\Modules\Analysis\Services\MaterialRecipeService::class);
     }
 
     public function boot(): void

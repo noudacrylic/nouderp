@@ -9,11 +9,106 @@ use Carbon\Carbon;
 
 class ExecutorScheduleResolver
 {
-    public function forKaryawan(int $karyawanId, Carbon $date): ?KaryawanSchedule
+    /**
+     * Jadwal RESMI seseorang pada satu tanggal: jadwal mingguan, dikoreksi tukar hari.
+     *
+     * Inilah yang berarti "hari ini dijadwalkan bekerja". Dipakai untuk menghitung KAPASITAS
+     * (Kalender Produksi), karena kapasitas hanya lahir dari hari yang memang dijadwalkan —
+     * bukan dari orang yang kebetulan mampir dan menempelkan jarinya.
+     */
+    public function scheduledFor(int $karyawanId, Carbon $date): ?KaryawanSchedule
     {
-        return KaryawanSchedule::where('karyawan_id', $karyawanId)
+        $today = KaryawanSchedule::where('karyawan_id', $karyawanId)
             ->where('day_of_week', (int) $date->dayOfWeek)
             ->first();
+
+        $swap = $this->fullDaySwap($karyawanId, $date);
+        if (!$swap) {
+            return $today;
+        }
+
+        // Hari kerja yang ditukar KELUAR → dianggap libur. Salinan, tidak disimpan.
+        if ($today && !$today->is_off) {
+            $lepas = $today->replicate();
+            $lepas->is_off = true;
+
+            return $lepas;
+        }
+
+        // Hari libur yang ditukar MASUK → pinjam jam hari pasangannya.
+        return $this->workingDaySchedule($karyawanId, $swap, $date) ?? $today;
+    }
+
+    /**
+     * Jadwal untuk menentukan BOLEH-TIDAKNYA timer produksi jalan pada tanggal itu.
+     *
+     * Lebih longgar dari `scheduledFor()`: siapa pun yang sudah menempelkan jarinya hari itu
+     * dianggap sedang bekerja, sekalipun harinya libur dan tidak ada surat apa pun.
+     *
+     * Kenapa longgar: sebelumnya `assertExecutorsReady()` menolak begitu `is_off` true, jadi
+     * orang yang benar-benar masuk hari Minggu tidak bisa menekan Mulai sama sekali — dan
+     * SELURUH pekerjaan hari itu lenyap dari data. Terjadi tiga kali: 28 Juni, 19 Juli, dan
+     * 9 Agustus 2026. Menolak merekam tidak membuat pekerjaannya tidak terjadi; hanya membuat
+     * kita buta terhadapnya.
+     *
+     * Jam yang dipinjam tetap jam hari kerja, supaya auto-pause tahu kapan harus berhenti.
+     */
+    public function forKaryawan(int $karyawanId, Carbon $date): ?KaryawanSchedule
+    {
+        $sched = $this->scheduledFor($karyawanId, $date);
+
+        if ($sched && !$sched->is_off) {
+            return $sched;
+        }
+
+        if (!$this->hasAnyScan($karyawanId, $date)) {
+            return $sched;
+        }
+
+        return $this->workingDaySchedule($karyawanId, null, $date) ?? $sched;
+    }
+
+    /** Override "tukar hari" penuh yang menyentuh tanggal ini (dari sisi mana pun pasangannya). */
+    protected function fullDaySwap(int $karyawanId, Carbon $date): ?object
+    {
+        return \App\Modules\SDM\Models\AttendanceOverride::where('karyawan_id', $karyawanId)
+            ->where('type', 'tukar_hari')
+            ->where(function ($q) use ($date) {
+                $q->whereDate('tanggal', $date->toDateString())
+                  ->orWhereDate('paired_date', $date->toDateString());
+            })
+            ->first();
+    }
+
+    protected function hasAnyScan(int $karyawanId, Carbon $date): bool
+    {
+        return FingerprintLog::where('karyawan_id', $karyawanId)
+            ->whereDate('scan_at', $date->toDateString())
+            ->exists();
+    }
+
+    /**
+     * Jadwal hari kerja yang dipinjam untuk hari libur yang dipakai bekerja: jadwal hari
+     * pasangannya kalau ada, kalau tidak jadwal hari kerja terpanjang orang itu.
+     */
+    protected function workingDaySchedule(int $karyawanId, ?object $swap, Carbon $date): ?KaryawanSchedule
+    {
+        $rows = KaryawanSchedule::where('karyawan_id', $karyawanId)
+            ->where('is_off', false)->whereNotNull('jam_masuk')->whereNotNull('jam_pulang')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return null;
+        }
+
+        if ($swap) {
+            $lain = Carbon::parse($swap->tanggal)->isSameDay($date) ? $swap->paired_date : $swap->tanggal;
+            if ($lain && ($cocok = $rows->firstWhere('day_of_week', (int) Carbon::parse($lain)->dayOfWeek))) {
+                return $cocok;
+            }
+        }
+
+        return $rows->sortByDesc(fn ($r) => strtotime($r->jam_pulang) - strtotime($r->jam_masuk))->first();
     }
 
     public function forExecutor(DepartmentExecutor $exec, Carbon $date): ?KaryawanSchedule

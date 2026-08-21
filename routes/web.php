@@ -1269,6 +1269,74 @@ Route::prefix('erp/tasks')->name('tasks.')->group(function () {
     Route::delete('{task}', [\App\Modules\Tasks\Controllers\TaskController::class, 'destroy'])->name('destroy');
 });
 
+// ═══════════════════════════════════════════════════════════════
+// ANALISA MODULE
+// ═══════════════════════════════════════════════════════════════
+Route::prefix('erp/analisa')->name('analisa.')->group(function () {
+    // `export` didaftarkan lebih dulu supaya tidak ke-shadow route {productId}.
+    // Segmen terakhir `export` juga dikenali submenu_url_is_action() sehingga
+    // unduhan tidak meracuni landing menu Analisa.
+    Route::get('waktu-produksi/export', [\App\Modules\Analysis\Controllers\ProductionTimeController::class, 'export'])
+        ->name('waktu-produksi.export');
+    Route::get('waktu-produksi', [\App\Modules\Analysis\Controllers\ProductionTimeController::class, 'index'])
+        ->name('waktu-produksi.index');
+    Route::get('waktu-produksi/{productId}', [\App\Modules\Analysis\Controllers\ProductionTimeController::class, 'show'])
+        ->whereNumber('productId')->name('waktu-produksi.show');
+    Route::post('waktu-produksi/asumsi', [\App\Modules\Analysis\Controllers\ProductionTimeController::class, 'saveAssumptions'])
+        ->name('waktu-produksi.assumptions.save');
+    Route::post('waktu-produksi/{productId}/pengecualian', [\App\Modules\Analysis\Controllers\ProductionTimeController::class, 'saveExclusions'])
+        ->whereNumber('productId')->name('waktu-produksi.exclusions.save');
+
+    // Biaya & Tarif Divisi — penyusun HPP (pool biaya tetap → tarif per detik)
+    Route::get ('biaya-divisi',              [\App\Modules\Analysis\Controllers\ProductionCostController::class, 'index'])->name('biaya-divisi.index');
+    Route::post('biaya-divisi/komponen',       [\App\Modules\Analysis\Controllers\ProductionCostController::class, 'storeComponent'])->name('biaya-divisi.component.store');
+    Route::put('biaya-divisi/komponen/{id}',   [\App\Modules\Analysis\Controllers\ProductionCostController::class, 'updateComponent'])->whereNumber('id')->name('biaya-divisi.component.update');
+    Route::delete('biaya-divisi/komponen/{id}',[\App\Modules\Analysis\Controllers\ProductionCostController::class, 'destroyComponent'])->whereNumber('id')->name('biaya-divisi.component.destroy');
+
+    // HPP Produk — dua sub-tab: Ready (diukur dari OP) & Bundle (dirakit dari HPP komponen).
+    // `bundle` didaftarkan lebih dulu supaya tidak ke-shadow route {productId}.
+    Route::get('hpp/bundle',              [\App\Modules\Analysis\Controllers\ProductHppController::class, 'bundleIndex'])->name('hpp.bundle.index');
+    Route::get('hpp/bundle/{productId}',  [\App\Modules\Analysis\Controllers\ProductHppController::class, 'bundleShow'])->whereNumber('productId')->name('hpp.bundle.show');
+    // Asumsi Bahan — harga bahan andaian ("kalau akrilik naik jadi sekian"). Didaftarkan
+    // sebelum `hpp/{productId}` supaya tidak ke-shadow.
+    Route::get('hpp/asumsi',           [\App\Modules\Analysis\Controllers\ProductHppController::class, 'assumptions'])->name('hpp.asumsi.index');
+    Route::post('hpp/asumsi',          [\App\Modules\Analysis\Controllers\ProductHppController::class, 'saveAssumption'])->name('hpp.asumsi.save');
+    Route::post('hpp/asumsi/massal',   [\App\Modules\Analysis\Controllers\ProductHppController::class, 'bulkAssumption'])->name('hpp.asumsi.bulk');
+    Route::delete('hpp/asumsi',        [\App\Modules\Analysis\Controllers\ProductHppController::class, 'clearAssumptions'])->name('hpp.asumsi.clear');
+    Route::get('hpp',              [\App\Modules\Analysis\Controllers\ProductHppController::class, 'index'])->name('hpp.index');
+    Route::post('hpp/{productId}/biaya-packing', [\App\Modules\Analysis\Controllers\ProductHppController::class, 'savePackingCost'])->whereNumber('productId')->name('hpp.packing-cost.save');
+    Route::get('hpp/{productId}',  [\App\Modules\Analysis\Controllers\ProductHppController::class, 'show'])->whereNumber('productId')->name('hpp.show');
+
+    // Kuota Produksi — berapa unit/hari kalau seluruh kapasitas diarahkan ke satu produk
+    Route::get ('kuota',                   [\App\Modules\Analysis\Controllers\ProductionQuotaController::class, 'index'])->name('kuota.index');
+    Route::post('kuota/slot',              [\App\Modules\Analysis\Controllers\ProductionQuotaController::class, 'saveSlots'])->name('kuota.slots.save');
+    Route::post('kuota/slot-asumsi',       [\App\Modules\Analysis\Controllers\ProductionQuotaController::class, 'storeVirtualSlot'])->name('kuota.virtual.store');
+    Route::delete('kuota/slot-asumsi/{id}',[\App\Modules\Analysis\Controllers\ProductionQuotaController::class, 'destroyVirtualSlot'])->whereNumber('id')->name('kuota.virtual.destroy');
+    Route::post('kuota/kecualikan',        [\App\Modules\Analysis\Controllers\ProductionQuotaController::class, 'storeExcludedDate'])->name('kuota.excluded.store');
+    Route::delete('kuota/kecualikan/{id}', [\App\Modules\Analysis\Controllers\ProductionQuotaController::class, 'destroyExcludedDate'])->whereNumber('id')->name('kuota.excluded.destroy');
+
+    // Harga Produk — tiga sub-tab (Harga / Afiliasi / Grosir), masing-masing berisi
+    // deretan kanal. `afiliasi` & `grosir` didaftarkan lebih dulu supaya tidak ke-shadow
+    // route `harga` beserta aksi-aksinya.
+    Route::get('harga/afiliasi', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'afiliasi'])->name('harga.afiliasi');
+    Route::get('harga/grosir',   [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'grosir'])->name('harga.grosir');
+    Route::get('harga/promo',        [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'promo'])->name('harga.promo');
+    Route::get('harga/promo/produk', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'promoProduk'])->name('harga.promo.produk');
+    Route::post('harga/promo/aktif', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'promoAktif'])->name('harga.promo.aktif');
+    Route::get('harga',          [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'harga'])->name('harga.index');
+    Route::post('harga/potongan',         [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'saveComponent'])->name('harga.component.save');
+    Route::delete('harga/potongan/{id}',  [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'destroyComponent'])->whereNumber('id')->name('harga.component.destroy');
+    Route::post('harga/{productId}',          [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'savePrice'])->whereNumber('productId')->name('harga.save');
+    Route::post('harga/{productId}/grosir',   [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'saveGrosir'])->whereNumber('productId')->name('harga.grosir.save');
+    Route::post('harga/{productId}/afiliasi', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'saveAfiliasi'])->whereNumber('productId')->name('harga.afiliasi.save');
+    Route::post('harga/{productId}/kirim',    [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'push'])->whereNumber('productId')->name('harga.push');
+
+    // Kalender Produksi — sebaran waktu satu hari per mesin & operator
+    Route::get('kalender', [\App\Modules\Analysis\Controllers\ProductionCalendarController::class, 'index'])->name('kalender.index');
+    Route::post('kalender/henti-mesin',        [\App\Modules\Analysis\Controllers\ProductionCalendarController::class, 'storeDowntime'])->name('kalender.downtime.store');
+    Route::delete('kalender/henti-mesin/{id}', [\App\Modules\Analysis\Controllers\ProductionCalendarController::class, 'destroyDowntime'])->whereNumber('id')->name('kalender.downtime.destroy');
+});
+
 // ── PWA Karyawan (`/me/*`) — aplikasi mobile karyawan ────────────────
 // Tidak lewat EnsureMenuAccess (hanya cek path erp/*). Auth + karyawan via middleware 'karyawan'.
 Route::prefix('me')->name('me.')->group(function () {

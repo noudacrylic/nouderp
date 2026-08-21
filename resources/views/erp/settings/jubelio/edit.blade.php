@@ -241,6 +241,15 @@
             Langkah 2 · Potongan &amp; Akun (per toko)
             @if(!$channelMaps->isEmpty())<span class="text-slate-400 font-normal normal-case">— {{ $channelMaps->count() }} toko</span>@endif
         </div>
+        {{-- Potongan di sini yang dipakai JURNAL (estimasi fee pesanan & rekonsiliasi). Rincian
+             penyusunnya — premi, biaya Jubelio per pesanan — hidup di halaman harga, karena di
+             sanalah gunanya dan sebagiannya bukan potongan marketplace. --}}
+        <p class="text-[11px] text-gray-400 -mt-1 mb-3 normal-case">
+            Angka di sini dipakai <b>akuntansi</b> (estimasi potongan pesanan &amp; rekonsiliasi). Rincian penyusun
+            potongan untuk menetapkan harga jual diatur di
+            <a href="{{ route('analisa.harga.index') }}" class="text-blue-600 font-semibold hover:underline">Analisa &rsaquo; Harga Produk</a>,
+            dan halaman itu memberi tahu kalau keduanya sudah tidak sama.
+        </p>
         @if($channelMaps->isEmpty())
             <div class="text-xs text-gray-400 border border-dashed rounded-lg py-6 text-center">Belum ada toko. Tambahkan di Langkah 1 — tiap toko muncul sebagai baris di sini.</div>
         @else

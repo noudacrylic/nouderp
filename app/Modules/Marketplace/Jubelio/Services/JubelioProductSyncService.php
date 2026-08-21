@@ -142,6 +142,74 @@ class JubelioProductSyncService
         return 'pushed';
     }
 
+    /**
+     * Dorong harga KHUSUS TOKO (bukan harga dasar) — dipakai Analisa ▸ Harga Produk supaya
+     * tiap marketplace boleh berharga beda sesuai potongannya masing-masing.
+     *
+     * Harga per toko menimpa harga dasar di Jubelio; harga dasar sendiri tidak disentuh,
+     * jadi toko yang tidak dikirimi harga khusus tetap ikut harga web. Satu kanal bisa
+     * punya lebih dari satu toko (TikTok & Tokopedia) — semuanya dikirimi harga yang sama
+     * dalam satu panggilan, supaya tidak ada toko yang tertinggal separuh jalan.
+     *
+     * @param array<int,int> $storeIds store_id Jubelio tujuan
+     * @return array{ok:bool, message:string}
+     */
+    public function pushStorePrice(Product $product, array $storeIds, float $price): array
+    {
+        $storeIds = array_values(array_unique(array_filter(array_map('intval', $storeIds))));
+
+        if (empty($storeIds)) {
+            return ['ok' => false, 'message' => 'Kanal ini belum punya toko Jubelio yang dipetakan.'];
+        }
+        if ($price <= 0) {
+            return ['ok' => false, 'message' => 'Harga belum diisi.'];
+        }
+
+        if (!$product->jubelio_item_id || !$product->jubelio_item_group_id) {
+            if (!$this->matchProduct($product)) {
+                $message = 'Produk belum ter-match ke item Jubelio (SKU tidak ditemukan).';
+                JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::SKIP, $product->name, [
+                    'reference'  => $product->sku,
+                    'product_id' => $product->id,
+                    'message'    => $message,
+                ]);
+
+                return ['ok' => false, 'message' => $message];
+            }
+            $product->refresh();
+        }
+
+        $resp = $this->client->updatePrices(array_map(fn ($storeId) => [
+            'item_group_id' => (int) $product->jubelio_item_group_id,
+            'item_id'       => (int) $product->jubelio_item_id,
+            'price'         => $price,
+            'store_id'      => (string) $storeId,
+        ], $storeIds));
+
+        $stores = implode(', ', $storeIds);
+
+        if (!$resp['success']) {
+            Log::warning('Jubelio harga toko: push gagal', ['product' => $product->id, 'stores' => $storeIds, 'error' => $resp['error']]);
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::FAIL, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => $resp['error'] ?: 'Gagal mengirim harga toko ke Jubelio.',
+                'meta'       => ['price' => $price, 'store_ids' => $storeIds],
+            ]);
+
+            return ['ok' => false, 'message' => $resp['error'] ?: 'Gagal mengirim harga ke Jubelio.'];
+        }
+
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::OK, $product->name, [
+            'reference'  => $product->sku,
+            'product_id' => $product->id,
+            'message'    => 'Harga toko (' . $stores . ') dikirim: ' . number_format($price, 0, ',', '.'),
+            'meta'       => ['price' => $price, 'store_ids' => $storeIds],
+        ]);
+
+        return ['ok' => true, 'message' => 'Harga ' . number_format($price, 0, ',', '.') . ' terkirim ke toko ' . $stores . '.'];
+    }
+
     /** Ekstrak [item_id, item_group_id] dari respons item Jubelio (beberapa bentuk). */
     private function extractIds($data): array
     {

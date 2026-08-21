@@ -145,6 +145,39 @@ if (!function_exists('per_page_size')) {
     }
 }
 
+if (!function_exists('dur_hms')) {
+
+    /**
+     * Detik → "HH:MM:SS". Dipakai halaman Analisa Waktu Produksi; format sama
+     * dengan badge waktu di Finalisasi & Produksi Selesai supaya angkanya bisa
+     * disilang-cek langsung oleh operator.
+     */
+    function dur_hms(?float $seconds, string $null = '—'): string
+    {
+        if ($seconds === null) return $null;
+
+        $s = (int) round($seconds);
+        return sprintf('%02d:%02d:%02d', intdiv($s, 3600), intdiv($s % 3600, 60), $s % 60);
+    }
+}
+
+if (!function_exists('dur_compact')) {
+
+    /** Detik → "2j 15m" / "45m 30d" — untuk kolom sempit. */
+    function dur_compact(?float $seconds, string $null = '—'): string
+    {
+        if ($seconds === null) return $null;
+
+        $s = (int) round($seconds);
+        $h = intdiv($s, 3600);
+        $m = intdiv($s % 3600, 60);
+
+        if ($h > 0) return $h . 'j ' . $m . 'm';
+        if ($m > 0) return $m . 'm ' . ($s % 60) . 'd';
+        return $s . 'd';
+    }
+}
+
 if (!function_exists('clean_number')) {
 
     function clean_number($string)

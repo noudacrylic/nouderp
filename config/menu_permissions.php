@@ -195,6 +195,54 @@ return [
         ],
     ],
 
+    'analisa' => [
+        'label' => 'Analisa',
+        'icon' => '📈',
+        'children' => [
+            // Pola wildcard mencakup .index/.show/.exclusions.save/.export sekaligus,
+            // sehingga endpoint POST tidak perlu dinamai `.api.*` agar lolos EnsureMenuAccess.
+            // Urutan sengaja mengikuti alur pikirnya, bukan abjad: mengamati → menyimpulkan
+            // kapasitas → mengukur waktu → menjumlah biaya → merakit HPP. Halaman yang di
+            // kanan selalu memakai angka dari yang di kirinya.
+            'analisa.kalender'       => ['label' => 'Kalender Produksi',    'url' => '/erp/analisa/kalender',       'route_patterns' => ['analisa.kalender*']],
+            'analisa.kuota'          => ['label' => 'Kuota Produksi',       'url' => '/erp/analisa/kuota',          'route_patterns' => ['analisa.kuota*']],
+            'analisa.waktu-produksi' => ['label' => 'Waktu Produksi',       'url' => '/erp/analisa/waktu-produksi', 'route_patterns' => ['analisa.waktu-produksi*']],
+            'analisa.biaya-divisi'   => ['label' => 'Fixed Cost',           'url' => '/erp/analisa/biaya-divisi',   'route_patterns' => ['analisa.biaya-divisi*'], 'role_gate' => ['super_admin', 'admin']],
+            // Dua sub-tab, satu izin: Ready diukur dari OP, Bundle dirakit dari HPP komponennya.
+            // Produk preorder tetap di Ready — yang membedakan bundle bukan cara jualnya,
+            // melainkan bahwa HPP-nya dirakit, bukan diukur.
+            'analisa.hpp'            => [
+                'label' => 'HPP Produk',
+                'url'   => '/erp/analisa/hpp',
+                'route_patterns' => ['analisa.hpp*'],
+                'subtabs' => [
+                    ['label' => 'Ready',  'url' => '/erp/analisa/hpp',        'route_patterns' => ['analisa.hpp.index', 'analisa.hpp.show', 'analisa.hpp.packing-cost.*']],
+                    ['label' => 'Bundle', 'url' => '/erp/analisa/hpp/bundle', 'route_patterns' => ['analisa.hpp.bundle.*']],
+                    // Harga bahan andaian: penyusun variable cost, bukan halaman terpisah —
+                    // hasilnya langsung terbaca di dua sub-tab di kirinya.
+                    ['label' => 'Asumsi Bahan', 'url' => '/erp/analisa/hpp/asumsi', 'route_patterns' => ['analisa.hpp.asumsi.*']],
+                ],
+            ],
+            // Harga jual per kanal — memakai HPP di kirinya lalu menambahkan potongan tiap
+            // kanal. Dikelompokkan per skenario (harga / afiliasi / grosir) karena yang
+            // dibandingkan saat menetapkan harga adalah kanalnya, bukan skenarionya.
+            'analisa.harga'          => [
+                'label' => 'Harga Produk',
+                'url'   => '/erp/analisa/harga',
+                'route_patterns' => ['analisa.harga*'],
+                'role_gate' => ['super_admin', 'admin'],
+                'subtabs' => [
+                    ['label' => 'Harga',    'url' => '/erp/analisa/harga',          'route_patterns' => ['analisa.harga.index', 'analisa.harga.save', 'analisa.harga.push', 'analisa.harga.component.*']],
+                    ['label' => 'Afiliasi', 'url' => '/erp/analisa/harga/afiliasi', 'route_patterns' => ['analisa.harga.afiliasi*']],
+                    ['label' => 'Grosir',   'url' => '/erp/analisa/harga/grosir',   'route_patterns' => ['analisa.harga.grosir*']],
+                    // Simulasi diskon: dua bentuk (keranjang & per produk) di balik satu sub-tab,
+                    // karena keduanya menjawab pertanyaan yang sama dari dua arah.
+                    ['label' => 'Promo',    'url' => '/erp/analisa/harga/promo',    'route_patterns' => ['analisa.harga.promo*']],
+                ],
+            ],
+        ],
+    ],
+
     'cash-bank' => [
         'label' => 'Kas & Bank',
         'icon' => '💵',
