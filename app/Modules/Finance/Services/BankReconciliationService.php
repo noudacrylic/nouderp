@@ -353,6 +353,33 @@ class BankReconciliationService
             }
         }
 
+        // Tahap 3: satu transaksi ERP = BEBERAPA baris koran di tanggal yang sama.
+        // Bank memecah biaya admin jadi baris sendiri (token PLN 500.000 + 3.000,
+        // BI-Fast 10.000.000 + 2.500, BPJS 70.000 + 2.750), sedangkan di ERP satu
+        // pengeluaran dicatat sekali sebesar totalnya.
+        foreach ($erp as $jlId => $e) {
+            if (isset($lineMatch[$jlId])) continue;
+            $combo = $this->findStatementCombo($stmtArr, $usedStmt, $e);
+            if ($combo === null) continue;
+
+            $parts = [];
+            foreach ($combo as $i) {
+                $usedStmt[$i] = true;
+                $parts[] = [
+                    'date'   => $stmtArr[$i]->statement_date->toDateString(),
+                    'amount' => (float) $stmtArr[$i]->amount,
+                    'desc'   => $stmtArr[$i]->description,
+                ];
+            }
+            $lineMatch[$jlId] = [
+                'status' => 'group',
+                'date'   => $parts[0]['date'],
+                'amount' => array_sum(array_column($parts, 'amount')),
+                'desc'   => $parts[0]['desc'],
+                'parts'  => $parts,
+            ];
+        }
+
         // Baris koran tanpa padanan di ERP → harus diinput.
         $unmatched = [];
         foreach ($stmtArr as $i => $s) {
@@ -371,8 +398,57 @@ class BankReconciliationService
             'total'           => count($stmtArr),
             'exact'           => count(array_filter($lineMatch, fn($m) => $m['status'] === 'exact')),
             'amount_only'     => count(array_filter($lineMatch, fn($m) => $m['status'] === 'amount')),
+            'grouped'         => count(array_filter($lineMatch, fn($m) => $m['status'] === 'group')),
             'unmatched_count' => count($unmatched),
         ];
+    }
+
+    /**
+     * Cari gabungan 2–3 baris koran (tanggal & arah sama, belum terpakai) yang
+     * jumlahnya persis sama dengan satu transaksi ERP. Dipakai untuk pola bank
+     * yang memisah biaya admin ke baris tersendiri.
+     *
+     * @return int[]|null index pada $stmtArr, atau null bila tak ada gabungan pas.
+     */
+    private function findStatementCombo(array $stmtArr, array $usedStmt, array $erpLine): ?array
+    {
+        $target = (int) round((float) $erpLine['amount']);
+        if ($target === 0) return null;
+
+        // Kandidat: tanggal sama, arah sama (jangan adu masuk lawan keluar),
+        // dan nilainya tidak melebihi target.
+        $cand = [];
+        foreach ($stmtArr as $i => $s) {
+            if (isset($usedStmt[$i])) continue;
+            if ($s->statement_date->toDateString() !== $erpLine['date']) continue;
+            $amt = (int) round((float) $s->amount);
+            if ($amt === 0 || ($amt > 0) !== ($target > 0)) continue;
+            if (abs($amt) > abs($target)) continue;
+            $cand[$i] = $amt;
+        }
+        if (count($cand) < 2) return null;
+
+        // Batasi ruang cari: pola nyata selalu "pokok + 1-2 biaya", dan kandidat
+        // per tanggal jumlahnya kecil. Nilai terbesar dulu supaya pokoknya kepilih
+        // (pakai nilai mutlak — untuk uang keluar angkanya negatif).
+        uasort($cand, fn($a, $b) => abs($b) <=> abs($a));
+        $idx = array_keys($cand);
+        $n   = count($idx);
+
+        for ($a = 0; $a < $n; $a++) {
+            for ($b = $a + 1; $b < $n; $b++) {
+                if ($cand[$idx[$a]] + $cand[$idx[$b]] === $target) {
+                    return [$idx[$a], $idx[$b]];
+                }
+                for ($c = $b + 1; $c < $n; $c++) {
+                    if ($cand[$idx[$a]] + $cand[$idx[$b]] + $cand[$idx[$c]] === $target) {
+                        return [$idx[$a], $idx[$b], $idx[$c]];
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

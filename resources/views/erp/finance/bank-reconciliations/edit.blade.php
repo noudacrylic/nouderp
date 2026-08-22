@@ -191,14 +191,21 @@
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
                 {{ $statementMatch['amount_only'] }} nilai cocok (tanggal beda)
             </span>
+            @if(($statementMatch['grouped'] ?? 0) > 0)
+                <span class="inline-flex items-center gap-1 text-sky-700">
+                    <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+                    {{ $statementMatch['grouped'] }} gabungan (biaya admin dipisah bank)
+                </span>
+            @endif
             <span class="inline-flex items-center gap-1 text-rose-700">
                 <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
                 {{ $statementMatch['unmatched_count'] }} belum ada di ERP
             </span>
-            @if($statementMatch['exact'] > 0)
+            @php $autoOk = ($statementMatch['exact'] ?? 0) + ($statementMatch['grouped'] ?? 0); @endphp
+            @if($autoOk > 0)
                 <button type="button" id="matchExactBtn"
                         class="ml-auto bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded text-xs font-semibold">
-                    ✓ Cocokkan semua yang cocok persis ({{ $statementMatch['exact'] }})
+                    ✓ Cocokkan semua yang nilainya pas ({{ $autoOk }})
                 </button>
             @endif
         </div>
@@ -247,7 +254,12 @@
                         $running += (float)$jl->debit - (float)$jl->credit;
                         $sm = $statementMatch['lineMatch'][$jl->id] ?? null;
                     @endphp
-                    <tr class="border-b match-row {{ $line->is_matched ? 'bg-green-50' : ($sm && $sm['status']==='amount' ? 'bg-amber-50/50' : '') }}">
+                    @php
+                        $rowBg = $line->is_matched ? 'bg-green-50'
+                            : ($sm && $sm['status'] === 'amount' ? 'bg-amber-50/50'
+                            : ($sm && $sm['status'] === 'group' ? 'bg-sky-50/50' : ''));
+                    @endphp
+                    <tr class="border-b match-row {{ $rowBg }}">
                         <td class="px-3 py-1.5 whitespace-nowrap">{{ \Carbon\Carbon::parse($jl->journal->date)->format('d M Y') }}</td>
                         <td class="px-3 py-1.5">
                             <span class="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold {{ $colorCls($ref['color']) }}">{{ $ref['label'] }}</span>
@@ -268,6 +280,14 @@
                                 <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700">
                                     ● Cocok persis
                                 </span>
+                            @elseif($sm && $sm['status'] === 'group')
+                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-100 text-sky-700"
+                                      title="Bank memecah transaksi ini jadi beberapa baris (mis. pokok + biaya admin). Totalnya persis sama.">
+                                    ● Gabungan {{ count($sm['parts']) }} baris
+                                </span>
+                                <div class="text-[10px] text-sky-600 mt-0.5">
+                                    {{ implode(' + ', array_map(fn($p) => number_format(abs($p['amount']), 0, ',', '.'), $sm['parts'])) }}
+                                </div>
                             @elseif($sm && $sm['status'] === 'amount')
                                 <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700"
                                       title="Nilai sama tapi tanggal di rekening koran berbeda — kemungkinan tanggal transaksi ERP salah.">
@@ -283,7 +303,7 @@
                                    class="match-input" {{ $line->is_matched ? '' : 'disabled' }}>
                             <button type="button"
                                     class="match-btn px-2.5 py-1 rounded text-xs font-semibold border transition
-                                           {{ $line->is_matched ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : ($sm && $sm['status']==='exact' ? 'bg-white text-green-700 border-green-400 hover:bg-green-50 ring-1 ring-green-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100') }}"
+                                           {{ $line->is_matched ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : ($sm && in_array($sm['status'], ['exact', 'group']) ? 'bg-white text-green-700 border-green-400 hover:bg-green-50 ring-1 ring-green-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100') }}"
                                     data-debit="{{ (float) $jl->debit }}"
                                     data-credit="{{ (float) $jl->credit }}"
                                     data-koran="{{ $sm['status'] ?? '' }}">
@@ -410,7 +430,8 @@ document.getElementById('toggleAll').addEventListener('click', () => {
 const matchExactBtn = document.getElementById('matchExactBtn');
 if (matchExactBtn) {
     matchExactBtn.addEventListener('click', () => {
-        document.querySelectorAll('.match-btn[data-koran="exact"]').forEach(b => setRowState(b, true));
+        document.querySelectorAll('.match-btn[data-koran="exact"], .match-btn[data-koran="group"]')
+            .forEach(b => setRowState(b, true));
         recalc();
     });
 }
