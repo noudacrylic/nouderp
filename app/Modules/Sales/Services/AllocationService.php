@@ -18,7 +18,9 @@ class AllocationService
     {
         $invoices = SalesInvoice::where('customer_id', $customerId)
             ->whereIn('id', $invoiceIds)
-            ->where('status', '!=', 'paid')
+            // Hanya faktur POSTED yang boleh menyerap pembayaran (status faktur cuma
+            // draft|posted|void — saringan '!= paid' dulu meloloskan draft & void).
+            ->where('status', \App\Enums\InvoiceStatusEnum::POSTED->value)
             ->orderBy('invoice_date', 'asc')
             ->orderBy('id', 'asc')
             ->get();

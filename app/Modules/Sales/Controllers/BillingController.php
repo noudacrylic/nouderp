@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 
 use App\Models\Customer;
 use App\Models\SalesInvoice;
+use App\Enums\InvoiceStatusEnum;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Models\CustomerBilling;
 use App\Models\CustomerBillingItem;
@@ -102,7 +103,9 @@ class BillingController extends Controller
     {
         // 1. Invoices
         $invoices = SalesInvoice::where('customer_id', $customerId)
-            ->where('status', '!=', 'paid')
+            // Hanya faktur POSTED. Status faktur cuma draft|posted|void, jadi saringan
+            // lama ('!= paid') meloloskan faktur draft DAN faktur yang sudah di-void.
+            ->where('status', InvoiceStatusEnum::POSTED->value)
             ->whereDoesntHave('billingItems.billing', function($q) {
                 $q->whereNotIn('status', ['void', 'paid']);
             })
@@ -118,7 +121,8 @@ class BillingController extends Controller
         // 2. Sales Orders (for DP)
         $salesOrders = SalesOrder::where('customer_id', $customerId)
             ->where('status', 'confirmed')
-            ->whereDoesntHave('invoices')
+            // Faktur yang sudah di-void tidak lagi menghalangi penagihan uang muka.
+            ->whereDoesntHave('invoices', fn($q) => $q->where('status', InvoiceStatusEnum::POSTED->value))
             ->whereDoesntHave('billingItems.billing', function($q) {
                 $q->whereNotIn('status', ['void', 'paid']);
             })

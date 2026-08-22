@@ -13,6 +13,7 @@ use App\Models\CustomerBillingItem;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Core\Accounting\Account;
 use App\Enums\AccountTypeEnum;
+use App\Enums\InvoiceStatusEnum;
 use Illuminate\Support\Facades\DB;
 
 use App\Models\CustomerPaymentAllocation;
@@ -325,6 +326,27 @@ class PaymentController extends Controller
         ]);
     }
 
+    /**
+     * Uang muka yang SUDAH dipakai faktur tapi setorannya tidak lagi ada.
+     *
+     * Terjadi saat DP di-void setelah fakturnya terbit: baris sales_advances ikut
+     * terhapus, tapi kolom advance_applied di faktur tetap seperti semula (jurnalnya
+     * juga tidak dibalik). Selisih positif = uang sebesar itu masih harus disetor
+     * ulang sebagai uang muka SO, bukan sebagai pelunasan faktur.
+     */
+    protected function advanceShortfall(int $soId): float
+    {
+        $posted = (float) \App\Modules\Sales\Models\SalesAdvance::where('sales_order_id', $soId)
+            ->where('status', 'posted')
+            ->sum(DB::raw('amount + credit_used'));
+
+        $applied = (float) SalesInvoice::where('sales_order_id', $soId)
+            ->where('status', 'posted')
+            ->sum('advance_applied');
+
+        return round($applied - $posted, 2);
+    }
+
     public function getOpenItems($id)
     {
         // ══════════════════════════════════════════════
@@ -332,7 +354,10 @@ class PaymentController extends Controller
         // ══════════════════════════════════════════════
         $invoices = SalesInvoice::with(['billingItems.billing'])
             ->where('customer_id', $id)
-            ->whereNotIn('status', ['paid', 'cancelled', 'draft'])
+            // Status faktur cuma draft|posted|void (InvoiceStatusEnum). Daftar lama
+            // menyaring 'paid'/'cancelled' yang tidak pernah ada, sehingga faktur VOID
+            // ikut tertawarkan untuk pelunasan.
+            ->where('status', InvoiceStatusEnum::POSTED->value)
             ->get()
             ->map(function ($inv) {
                 $grandTotal = (float) $inv->grand_total;
@@ -411,10 +436,21 @@ class PaymentController extends Controller
                     $so->is_locked  = true;
                     $so->lock_reason = "Sudah masuk billing: {$activeBillingItem->billing->billing_number}";
                 }
-                // Guard 2: Already has Invoice
-                elseif ($so->invoices->count() > 0) {
-                    $so->is_locked  = true;
-                    $so->lock_reason = "Sudah menjadi Invoice";
+                // Guard 2: Already has Invoice.
+                // KECUALI uang mukanya bolong: faktur sudah memakai DP yang setorannya
+                // kemudian di-void (mis. salah pilih rekening kas). Tanpa pengecualian ini
+                // uangnya tak bisa dicatat ulang lewat jalur mana pun — SO terkunci di sini,
+                // faktur pun sudah 0 sisa karena advance_applied-nya tidak ikut mundur.
+                elseif ($so->invoices->where('status', InvoiceStatusEnum::POSTED->value)->count() > 0) {
+                    $shortfall = $this->advanceShortfall($so->id);
+                    if ($shortfall >= 1) {
+                        $so->is_locked   = false;
+                        $so->lock_reason = null;
+                        $so->remaining   = min($remaining, $shortfall);
+                    } else {
+                        $so->is_locked  = true;
+                        $so->lock_reason = "Sudah menjadi Invoice";
+                    }
                 }
                 else {
                     $so->is_locked  = false;
@@ -471,8 +507,12 @@ class PaymentController extends Controller
                         ->exists();
                     if ($lockedBilling) throw new \Exception("SO ID {$detail['id']} sudah masuk ke penagihan aktif.");
 
-                    $hasInvoice = SalesInvoice::where('sales_order_id', $detail['id'])->exists();
-                    if ($hasInvoice) throw new \Exception("SO ID {$detail['id']} sudah menjadi Invoice. Gunakan pelunasan invoice.");
+                    $hasInvoice = SalesInvoice::where('sales_order_id', $detail['id'])
+                        ->where('status', InvoiceStatusEnum::POSTED->value)
+                        ->exists();
+                    if ($hasInvoice && $this->advanceShortfall((int) $detail['id']) < 1) {
+                        throw new \Exception("SO ID {$detail['id']} sudah menjadi Invoice. Gunakan pelunasan invoice.");
+                    }
                 }
             }
 
