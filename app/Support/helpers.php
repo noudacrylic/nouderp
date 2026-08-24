@@ -202,6 +202,43 @@ if (!function_exists('trix_content')) {
     }
 }
 
+if (!function_exists('trix_attachment_caption')) {
+    /**
+     * Keterangan gambar sebuah lampiran Trix — dari MANA PUN Trix menaruhnya.
+     *
+     * Trix punya dua tempat, dan yang dipakai bergantung cara keterangannya
+     * masuk. Terukur di browser sungguhan:
+     *
+     *   diketik di kotak "Add a caption…"  → `data-trix-ATTRIBUTES`  (jalur NYATA)
+     *   disetel lewat Attachment#setAttributes → `data-trix-ATTACHMENT`
+     *
+     * Membaca yang kedua saja — kekeliruan versi pertama helper ini — membuat
+     * keterangan yang benar-benar diketik admin terbaca kosong, lalu figcaption
+     * berisi keterangan itu ikut terbuang.
+     *
+     * Jaring terakhir: figcaption yang isinya BUKAN <span class="attachment__name">
+     * bawaan Trix berarti sudah pernah disunting manusia, jadi teksnya dipakai.
+     */
+    function trix_attachment_caption(\DOMElement $figure, \DOMXPath $xpath): string
+    {
+        foreach (['data-trix-attributes', 'data-trix-attachment'] as $attr) {
+            $json = json_decode((string) $figure->getAttribute($attr), true);
+            $caption = is_array($json) ? trim((string) ($json['caption'] ?? '')) : '';
+            if ($caption !== '') return $caption;
+        }
+
+        foreach ($xpath->query('.//figcaption', $figure) as $figcaption) {
+            if ($xpath->query('.//span[contains(@class, "attachment__name")]', $figcaption)->length) {
+                continue;   // masih keterangan bawaan Trix (nama berkas + ukuran)
+            }
+            $text = trim((string) $figcaption->textContent);
+            if ($text !== '') return $text;
+        }
+
+        return '';
+    }
+}
+
 if (!function_exists('trix_publish')) {
     /**
      * Naskah Trix yang siap DITERBITKAN. Kebalikan arah dari trix_content().
@@ -245,8 +282,7 @@ if (!function_exists('trix_publish')) {
 
         $xpath = new \DOMXPath($doc);
         foreach ($xpath->query('//figure[@data-trix-attachment]') as $figure) {
-            $meta    = json_decode((string) $figure->getAttribute('data-trix-attachment'), true);
-            $caption = is_array($meta) ? trim((string) ($meta['caption'] ?? '')) : '';
+            $caption = trix_attachment_caption($figure, $xpath);
 
             foreach ($xpath->query('.//img', $figure) as $img) {
                 $img->setAttribute('alt', $caption);
