@@ -1,14 +1,7 @@
 @extends('layouts.erp')
 
 @section('content')
-{{-- Editor WYSIWYG Trix — sama persis dengan editor Blog, termasuk jalur unggah
-     gambarnya. Sengaja tidak memakai editor lain: satu pola, satu tempat belajar. --}}
-<link rel="stylesheet" href="https://unpkg.com/trix@2.1.15/dist/trix.css">
-<style>
-    trix-editor { min-height: 320px; background: #fff; }
-    trix-editor:empty:not(:focus)::before { color: #9ca3af; }
-    trix-toolbar .trix-button-group { border-color: #e5e7eb; }
-</style>
+@include('erp._partials.trix-styles')
 
 <div class="flex items-center justify-between mb-4">
     <div>
@@ -56,7 +49,7 @@
 
             <div class="bg-white rounded shadow p-4">
                 <label class="block text-xs text-gray-500 mb-2">Langkah Bergambar</label>
-                <input id="tutorialContent" type="hidden" name="content" value="{{ old('content', $tutorial->content) }}">
+                <input id="tutorialContent" type="hidden" name="content" value="{{ trix_content(old('content', $tutorial->content)) }}">
                 <trix-editor input="tutorialContent" class="border rounded"></trix-editor>
                 <p class="text-xs text-gray-400 mt-2">Sisipkan gambar via tombol lampiran editor — otomatis terunggah &amp; diperkecil.</p>
 
@@ -153,6 +146,7 @@
 
 @push('scripts')
 <script src="https://unpkg.com/trix@2.1.15/dist/trix.umd.min.js"></script>
+@include('erp._partials.trix-config')
 <script>
     // Upload gambar inline editor → endpoint tutorial → sisipkan URL publik (R2/lokal).
     (function () {

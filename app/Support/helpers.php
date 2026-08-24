@@ -183,3 +183,21 @@ if (!function_exists('should_show_menu_group')) {
         return false;
     }
 }
+
+if (!function_exists('trix_content')) {
+    /**
+     * Naskah Trix yang siap dimuat ulang ke editor.
+     *
+     * Tombol Heading dulu menerbitkan <h1>, kini <h2> (lihat
+     * erp/_partials/trix-config.blade.php). Trix mengenali sebuah blok dari
+     * NAMA TAG-nya, jadi tanpa penyetaraan ini naskah lama yang memuat <h1>
+     * akan dibaca sebagai paragraf biasa saat dibuka kembali — tulisannya utuh,
+     * tapi statusnya sebagai heading hilang diam-diam.
+     *
+     * Boleh dibuang bila sudah yakin tak ada lagi naskah ber-<h1> tersimpan.
+     */
+    function trix_content(?string $html): string
+    {
+        return preg_replace('~<(/?)h1(\s[^>]*)?>~i', '<$1h2$2>', (string) $html) ?? (string) $html;
+    }
+}
