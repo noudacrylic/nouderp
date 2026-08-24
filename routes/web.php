@@ -646,6 +646,8 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::post('/orders/{id}/confirm', [SalesOrderController::class, 'confirm'])->name('orders.confirm');
     Route::post('/orders/{id}/post', [SalesOrderController::class, 'confirm'])->name('orders.post');
     Route::post('/orders/{id}/pickup', [SalesOrderController::class, 'pickup'])->name('orders.pickup');
+    // Antar ke halaman lacak milik pembeli (etalase). Token dibuat saat diklik.
+    Route::get('/orders/{id}/lacak', [SalesOrderController::class, 'publicTracking'])->name('orders.public-tracking');
     Route::post('/orders/{id}/pickup-date', [SalesOrderController::class, 'updatePickupDate'])->name('orders.pickup-date');
     Route::post('/orders/{id}/update-shipping', [SalesOrderController::class, 'updateShipping'])->name('orders.update-shipping');
     Route::post('/orders/{id}/void', [SalesOrderController::class, 'void'])->name('orders.void');

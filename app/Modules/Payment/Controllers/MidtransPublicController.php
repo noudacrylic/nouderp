@@ -89,7 +89,7 @@ class MidtransPublicController extends Controller
             // dibutuhkan sesudah dibayar — jadi pembeli diantar ke alamat yang
             // tetap hidup, sekaligus pulang ke etalase alih-alih ke domain ERP.
             $trackUrl = $so->public_token
-                ? rtrim((string) config('store.storefront_url'), '/') . '/pesanan/' . $so->public_token
+                ? $so->publicTrackUrl()
                 : null;
 
             return view('pay.show', array_merge($common, [
@@ -319,7 +319,7 @@ class MidtransPublicController extends Controller
             'invoice' => $trx->invoice,
             'so' => $so,
             'track_url' => $so?->public_token
-                ? rtrim((string) config('store.storefront_url'), '/') . '/pesanan/' . $so->public_token
+                ? $so->publicTrackUrl()
                 : null,
         ]);
     }

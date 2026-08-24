@@ -561,7 +561,11 @@
                                     {{-- Sudah ada resi (Biteship) → cetak ulang resi & lacak --}}
                                     <a href="{{ route('sales.deliveries.resi', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Resi</a>
-                                    <a href="{{ route('sales.deliveries.track', $d->id) }}"
+                                    {{-- Menuju halaman lacak milik PEMBELI, bukan pelacakan Biteship:
+                                         halaman itu merangkum lini masa pesanan, resi, dan posisi
+                                         paket apa pun kurirnya — termasuk Jubelio & marketplace,
+                                         yang di jalur Biteship selalu buntu. --}}
+                                    <a href="{{ route('sales.orders.public-tracking', $r['id']) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🔎 Lacak</a>
                                 @elseif($isManual)
                                     {{-- Kurir manual → cetak label tanpa resi --}}

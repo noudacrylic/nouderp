@@ -739,6 +739,26 @@ class SalesOrderController extends Controller
     }
 
     /**
+     * Antar ke halaman lacak pesanan milik pembeli (etalase web).
+     *
+     * Dulu tombol "Lacak" di Pemrosesan Pesanan menuju pelacakan Biteship, yang
+     * buntu untuk pesanan berkurir Jubelio maupun marketplace — padahal justru
+     * pesanan itulah yang paling sering dicek. Halaman pembeli sudah merangkum
+     * semua: lini masa pesanan, resi, dan posisi paket, apa pun kurirnya.
+     *
+     * Token dibuat saat DIKLIK, bukan saat daftar dirender — satu halaman
+     * Pemrosesan Pesanan memuat puluhan kartu, dan menyiapkan token untuk semua
+     * berarti puluhan penulisan yang belum tentu terpakai.
+     */
+    public function publicTracking($id)
+    {
+        $order = SalesOrder::findOrFail($id);
+        $order->ensurePublicToken();
+
+        return redirect()->away($order->publicTrackUrl());
+    }
+
+    /**
      * Konfirmasi pengambilan barang di toko (Ambil di Toko).
      * Verifikasi booking code → terbit + post Surat Jalan (full sisa) → tandai diambil.
      */

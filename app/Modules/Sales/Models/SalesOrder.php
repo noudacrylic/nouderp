@@ -30,6 +30,21 @@ class SalesOrder extends Model
         return $this->public_token;
     }
 
+    /**
+     * Alamat halaman lacak pesanan milik pembeli (etalase web), atau null bila
+     * pesanan ini belum pernah diberi wajah publik.
+     *
+     * Sengaja TIDAK membuat token: dipakai juga di jalur yang cuma ingin tahu
+     * "apakah halaman ini ada", mis. balasan pembayaran Midtrans. Yang memang
+     * hendak mengantar orang ke sana panggil ensurePublicToken() lebih dulu.
+     */
+    public function publicTrackUrl(): ?string
+    {
+        if (blank($this->public_token)) return null;
+
+        return rtrim((string) config('store.storefront_url'), '/') . '/pesanan/' . $this->public_token;
+    }
+
     protected $fillable = [
         'order_number',
         'customer_id',
