@@ -82,8 +82,9 @@
 
         <div>
             <label class="block text-xs text-gray-500 mb-1">Deskripsi Lengkap</label>
-            <textarea name="description" rows="6" class="border rounded px-2 py-1.5 w-full"
+            <textarea id="product-description" name="description" rows="6" class="border rounded px-2 py-1.5 w-full"
                       placeholder="Penjelasan detail produk (untuk SEO & halaman produk)">{{ old('description', $product->description) }}</textarea>
+            @include('erp._partials.description-preview', ['target' => 'product-description'])
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">

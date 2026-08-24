@@ -30,9 +30,10 @@
 
 <div class="mt-4">
     <label class="block text-xs text-gray-500 mb-1">Deskripsi Kategori</label>
-    <textarea name="description" rows="4" maxlength="2000"
+    <textarea id="category-description" name="description" rows="4" maxlength="2000"
               class="border rounded px-2 py-1.5 w-full"
               placeholder="mis. Box charger akrilik untuk sekolah, kantor, dan masjid. Tersedia 5 sampai 20 kotak, bisa custom logo instansi.">{{ old('description', $category->description ?? '') }}</textarea>
+    @include('erp._partials.description-preview', ['target' => 'category-description'])
     <p class="text-xs text-gray-400 mt-1">
         Tampil sebagai paragraf pengantar di halaman <i>/kategori/{{ $category->slug ?? 'slug' }}</i> toko online,
         sekaligus jadi deskripsi meta di hasil pencarian Google. Isi 1&ndash;2 kalimat yang memakai kata kunci
