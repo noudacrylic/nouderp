@@ -20,6 +20,22 @@ class SalesDeliveryService
     }
 
     /**
+     * Label kurir untuk Surat Jalan / cetak label.
+     *
+     * Kode kurir agregator berupa ANGKA (mis. 22 = GoSend di Jubelio Shipment), jadi
+     * tidak boleh ikut dirangkai — labelnya akan terbaca "22 GoSend Instant Delivery".
+     * Yang layak jadi awalan hanya kode berhuruf (jne, jt_cargo, manual, …).
+     */
+    public static function courierLabel(?string $code, ?string $serviceName): ?string
+    {
+        $code    = trim((string) $code);
+        $service = trim((string) $serviceName);
+        $prefix  = ($code !== '' && ! ctype_digit($code)) ? strtoupper($code) : '';
+
+        return trim($prefix . ' ' . $service) ?: null;
+    }
+
+    /**
      * Buat SJ otomatis dari invoice, HANYA untuk SISA yang belum dikirim.
      * $alreadyDelivered: [product_id => qty base yang sudah dikirim via SJ lain].
      * Return null jika tidak ada sisa (semua sudah dikirim partial).
@@ -71,7 +87,7 @@ class SalesDeliveryService
                 $method = $invoice->delivery_method ?: 'kurir';
                 $courierName = $method === 'ambil_toko'
                     ? 'Ambil di Toko'
-                    : (trim(strtoupper((string) ($invoice->shipping_courier_code ?? '')) . ' ' . (string) ($invoice->shipping_service_name ?? '')) ?: null);
+                    : self::courierLabel($invoice->shipping_courier_code, $invoice->shipping_service_name);
 
                 $delivery = SalesDelivery::create([
                     'delivery_number'       => NumberGeneratorService::generate('DOINV'),
@@ -83,6 +99,7 @@ class SalesDeliveryService
                     'delivery_date'         => $invoice->invoice_date,
                     'delivery_method'       => $method,
                     'courier_name'          => $courierName,
+                    'shipping_provider'     => $method === 'ambil_toko' ? null : ($invoice->shipping_provider ?: null),
                     'shipping_courier_code' => $method === 'ambil_toko' ? null : ($invoice->shipping_courier_code ?: null),
                     'shipping_service_code' => $method === 'ambil_toko' ? null : ($invoice->shipping_service_code ?: null),
                     'status'                => 'draft',

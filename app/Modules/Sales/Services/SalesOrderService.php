@@ -99,6 +99,11 @@ class SalesOrderService
                 $dto['shipping_discount_type']  = $so->shipping_discount_type ?: 'nominal';
                 $dto['shipping_discount_value'] = (float) $so->shipping_discount_value;
                 $dto['courier_name']            = $so->shipping_service_name;
+                // Ikut dipertahankan, kalau tidak revisi draft menurunkan SO hasil Cek
+                // Ongkir jadi "kurir manual" dan resinya tak bisa dipesan lagi.
+                $dto['shipping_provider']       = $so->shipping_provider;
+                $dto['shipping_courier_code']   = $so->shipping_courier_code;
+                $dto['shipping_service_code']   = $so->shipping_service_code;
             }
             if (! array_key_exists('global_discount_value', $dto)) {
                 $dto['global_discount_type']  = $so->global_discount_type ?: 'nominal';
@@ -189,19 +194,31 @@ class SalesOrderService
             'shipping_gross'          => $ship['gross'],
             'shipping_discount_type'  => $ship['disc_type'],
             'shipping_discount_value' => $ship['disc_value'],
+            'shipping_provider'       => $ship['provider'],
             'shipping_courier_code'   => $ship['courier_code'],
-            'shipping_service_code'   => null,
+            'shipping_service_code'   => $ship['service_code'],
             'shipping_service_name'   => $ship['service_name'],
             'grand_total'             => $grand,
         ]);
     }
 
-    /** Resolusi ongkir manual (net = gross − diskon). Ambil di toko → 0. */
+    /**
+     * Resolusi ongkir (net = gross − diskon). Ambil di toko → 0.
+     *
+     * Dua asal ongkir dibedakan di sini:
+     *  - Tarif agregator (Cek Ongkir di ERP / etalase web) — membawa provider + kode kurir
+     *    + kode layanan. Ketiganya WAJIB disimpan, karena itulah yang dibaca
+     *    ShipmentBookingService untuk tahu resi harus dipesan ke provider yang mana.
+     *  - Ongkir diketik manual (asisten AI / operator) — tidak punya kode apa pun,
+     *    ditandai courier_code 'manual' dan resi diisi tangan.
+     * Sebelum ini semua ongkir dianggap manual, sehingga pesanan web berujung
+     * provider NULL → booking jatuh ke fallback Biteship yang sudah dimatikan.
+     */
     private function resolveShippingData(array $dto, string $deliveryMethod): array
     {
         if ($deliveryMethod === 'ambil_toko') {
             return ['gross' => 0, 'disc_type' => 'nominal', 'disc_value' => 0, 'net' => 0,
-                    'courier_code' => null, 'service_name' => null];
+                    'provider' => null, 'courier_code' => null, 'service_code' => null, 'service_name' => null];
         }
 
         $gross    = clean_number($dto['shipping_gross'] ?? 0);
@@ -211,12 +228,21 @@ class SalesOrderService
         $net      = max(0, $gross - $discAmt);
         $courier  = trim((string) ($dto['courier_name'] ?? '')) ?: null;
 
+        // Ketiganya harus lengkap baru dianggap tarif agregator. Sebagian saja justru
+        // berbahaya: booking lolos cek provider lalu mentok "layanan belum lengkap".
+        $provider    = trim((string) ($dto['shipping_provider'] ?? '')) ?: null;
+        $courierCode = trim((string) ($dto['shipping_courier_code'] ?? '')) ?: null;
+        $serviceCode = trim((string) ($dto['shipping_service_code'] ?? '')) ?: null;
+        $fromAggregator = $provider && $courierCode && $serviceCode;
+
         return [
             'gross'        => $gross,
             'disc_type'    => $discType,
             'disc_value'   => $discVal,
             'net'          => $net,
-            'courier_code' => $courier ? 'manual' : null,
+            'provider'     => $fromAggregator ? $provider : null,
+            'courier_code' => $fromAggregator ? $courierCode : ($courier ? 'manual' : null),
+            'service_code' => $fromAggregator ? $serviceCode : null,
             'service_name' => $courier,
         ];
     }

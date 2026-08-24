@@ -196,6 +196,88 @@ class CheckoutController extends Controller
     }
 
     /**
+     * Provider + kode kurir & layanan dari tarif yang dipilih pembeli.
+     *
+     * Etalase boleh mengirimkannya balik (shipping.provider/courier_code/service_code)
+     * dari hasil endpoint rates. Bila tidak — etalase lama hanya mengirim service_name
+     * & price — tarif ditarik ulang di sini lalu dicocokkan berdasarkan nama layanan,
+     * dengan harga sebagai pemisah kalau namanya kembar antar kurir.
+     *
+     * Sengaja TOLERAN: gagal resolusi mengembalikan null, pesanan tetap dibuat sebagai
+     * kurir manual (resi diisi tangan) — jauh lebih baik daripada checkout ditolak.
+     *
+     * @return array{provider:string,courier_code:string,service_code:string}|null
+     */
+    private function resolveChosenRate(array $data): ?array
+    {
+        $ship = $data['shipping'] ?? [];
+
+        $provider = trim((string) ($ship['provider'] ?? ''));
+        $courier  = trim((string) ($ship['courier_code'] ?? ''));
+        $service  = trim((string) ($ship['service_code'] ?? ''));
+        if ($provider !== '' && $courier !== '' && $service !== '') {
+            return ['provider' => $provider, 'courier_code' => $courier, 'service_code' => $service];
+        }
+
+        $name = trim((string) ($ship['service_name'] ?? ''));
+        $key  = $this->rateProviderKey();
+        if ($name === '' || ! $key) {
+            return null;
+        }
+
+        $c = $data['customer'] ?? [];
+
+        try {
+            // Parameter dibuat identik dengan endpoint rates yang tadi dipakai etalase,
+            // supaya daftar layanan yang dicocokkan memang daftar yang dilihat pembeli.
+            $res = $this->shipping->rates([
+                'provider'                => $key,
+                'destination_area_id'     => $c['destination_area_id'] ?? null,
+                'destination_jubelio_id'  => $c['destination_area_id'] ?? null,
+                'destination_postal_code' => $c['postal_code'] ?? null,
+                'mode'                    => $data['delivery_method'] === 'instant' ? 'instant' : 'regular',
+                'destination_latitude'    => $c['latitude'] ?? null,
+                'destination_longitude'   => $c['longitude'] ?? null,
+                'items'                   => $this->rateItems($data['items']),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Checkout: resolusi layanan kurir gagal', [
+                'service_name' => $name, 'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+
+        $price = isset($ship['price']) ? (float) $ship['price'] : null;
+        $match = null;
+        foreach ($res['rates'] ?? [] as $r) {
+            if (strcasecmp(trim((string) ($r['service_name'] ?? '')), $name) !== 0) {
+                continue;
+            }
+            // Nama sama tapi harga beda → simpan sebagai cadangan, lalu terus cari yang
+            // harganya pas. Toleransi 1 rupiah menutup pembulatan di sisi agregator.
+            if ($price !== null && abs(((float) ($r['price'] ?? 0)) - $price) > 1) {
+                $match = $match ?: $r;
+                continue;
+            }
+            $match = $r;
+            break;
+        }
+
+        if (! $match || empty($match['courier_code']) || empty($match['service_code'])) {
+            \Illuminate\Support\Facades\Log::warning('Checkout: layanan kurir tak dikenali, SO jatuh ke kurir manual', [
+                'service_name' => $name, 'provider' => $key,
+            ]);
+            return null;
+        }
+
+        return [
+            'provider'     => (string) ($match['provider'] ?? $key),
+            'courier_code' => (string) $match['courier_code'],
+            'service_code' => (string) $match['service_code'],
+        ];
+    }
+
+    /**
      * Dasar promo ongkir: subtotal barang (setelah diskon item) + rincian barangnya
      * (product_id/qty/unit_price) untuk promo ongkir yang dibatasi daftar produk.
      */
@@ -342,7 +424,9 @@ class CheckoutController extends Controller
             'customer.longitude'           => 'nullable|numeric|between:-180,180',
             'payment_method'               => 'nullable|in:qris,transfer,midtrans',
             'notes'                        => 'nullable|string|max:500',
+            'shipping.provider'            => 'nullable|string|max:50',
             'shipping.courier_code'        => 'nullable|string|max:50',
+            'shipping.service_code'        => 'nullable|string|max:50',
             'shipping.service_name'        => 'nullable|string|max:150',
             'shipping.price'               => 'nullable|numeric|min:0',
         ]);
@@ -392,12 +476,17 @@ class CheckoutController extends Controller
             $subtotal += (float) $l['qty'] * ((float) $l['unit_price'] - (float) $l['discount_value']);
         }
 
+        // Provider + kode kurir/layanan dari tarif yang dipilih pembeli. Sengaja
+        // diselesaikan SEBELUM transaksi: isinya bisa memanggil API agregator, dan
+        // panggilan HTTP di dalam transaksi akan menahan lock baris selama request.
+        $chosenRate = $needsCourier ? $this->resolveChosenRate($data) : null;
+
         try {
             // $needsCourier WAJIB ikut: dipakai di dalam closure saat menyusun ongkir DTO.
             // Tanpa itu PHP melempar warning "Undefined variable" yang oleh Laravel diubah
             // jadi ErrorException, tertangkap catch-all di bawah, dan pembeli menerima
             // "Pembayaran sedang tidak tersedia" — padahal jalur bayarnya sehat.
-            return DB::transaction(function () use ($data, $lineItems, $promoInput, $setting, $subtotal, $needsCourier) {
+            return DB::transaction(function () use ($data, $lineItems, $promoInput, $setting, $subtotal, $needsCourier, $chosenRate) {
             $customer = $this->resolveCustomer($data['customer']);
 
             // Promo "total belanja" (cart_total) → mengisi diskon global SO.
@@ -439,6 +528,14 @@ class CheckoutController extends Controller
                 $dto['shipping_discount_type']  = 'nominal';
                 $dto['shipping_discount_value'] = $shipDisc ? (float) min($shipDisc['discount_amount'], $gross) : 0;
                 $dto['courier_name']            = $data['shipping']['service_name'] ?? 'Kurir';
+                // Tanpa ketiga nilai ini SO tersimpan sebagai "kurir manual" dan booking
+                // resi jatuh ke fallback Biteship yang sudah dimatikan — persis yang
+                // menggagalkan resi pesanan web pertama (2608-3674802, 24 Agu 2026).
+                if ($chosenRate) {
+                    $dto['shipping_provider']      = $chosenRate['provider'];
+                    $dto['shipping_courier_code']  = $chosenRate['courier_code'];
+                    $dto['shipping_service_code']  = $chosenRate['service_code'];
+                }
             }
 
             $so = $this->orders->createDraftFromData($dto);

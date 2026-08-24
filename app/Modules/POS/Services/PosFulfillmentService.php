@@ -151,6 +151,9 @@ class PosFulfillmentService
                 'shipping_gross'          => $so->isPickup() ? 0 : $so->shipping_gross,
                 'shipping_discount_type'  => $so->shipping_discount_type,
                 'shipping_discount_value' => $so->isPickup() ? 0 : $so->shipping_discount_value,
+                // Provider ikut disalin: SJ yang lahir tanpa SO membaca kurirnya dari
+                // faktur, dan tanpa kolom ini booking resi jatuh ke fallback Biteship.
+                'shipping_provider'       => $so->shipping_provider,
                 'shipping_courier_code'   => $so->shipping_courier_code,
                 'shipping_service_code'   => $so->shipping_service_code,
                 'shipping_service_name'   => $so->shipping_service_name,
