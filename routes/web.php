@@ -676,7 +676,6 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::post('deliveries/{id}/book', [SalesDeliveryController::class, 'bookShipment'])->name('deliveries.book');
     Route::get('deliveries/{id}/resi', [SalesDeliveryController::class, 'printResi'])->name('deliveries.resi');
     Route::get('deliveries/{id}/label', [SalesDeliveryController::class, 'printLabel'])->name('deliveries.label');
-    Route::get('deliveries/{id}/track', [SalesDeliveryController::class, 'trackShipment'])->name('deliveries.track');
     Route::post('deliveries/{delivery}/void', [SalesDeliveryController::class, 'void'])->name('deliveries.void');
     Route::get('deliveries/{delivery}/print', [SalesDeliveryController::class, 'print'])->name('deliveries.print');
     Route::get('deliveries/{delivery}/pdf', [SalesDeliveryController::class, 'downloadPdf'])->name('deliveries.pdf');

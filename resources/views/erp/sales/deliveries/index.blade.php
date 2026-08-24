@@ -115,8 +115,15 @@
                                 @if($isBooked)
                                     <a href="{{ route('sales.deliveries.resi', $d->id) }}"
                                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded text-xs" title="Cetak Resi">Resi</a>
-                                    <a href="{{ route('sales.deliveries.track', $d->id) }}"
-                                       class="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1 rounded text-xs" title="Lacak Paket">Lacak</a>
+                                @endif
+                                {{-- Lacak = halaman pesanan milik pembeli, yang merangkum lini masa,
+                                     resi, dan posisi paket apa pun kurirnya. Tidak lagi bergantung
+                                     `isBooked`: lini masanya berguna sejak sebelum resi terbit.
+                                     Surat Jalan tanpa induk pesanan (39 dari 5.386) tak punya
+                                     halaman itu, jadi tombolnya memang tidak ditawarkan. --}}
+                                @if($d->sales_order_id)
+                                    <a href="{{ route('sales.orders.public-tracking', $d->sales_order_id) }}"
+                                       class="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1 rounded text-xs" title="Lacak Pesanan">Lacak</a>
                                 @endif
                                 @if($d->canBeVoided())
                                     <form method="POST" action="{{ route('sales.deliveries.void', $d->id) }}"

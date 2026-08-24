@@ -237,21 +237,6 @@ class SalesDeliveryController extends Controller
         return view('erp.sales.deliveries.edit', compact('delivery'));
     }
 
-    /** Lihat tracking resi (on-demand, ambil status dari Biteship saat dibuka). */
-    public function trackShipment($id, \App\Modules\Shipping\Providers\BiteshipProvider $biteship)
-    {
-        $delivery = SalesDelivery::with(['order.customer', 'invoice.customer'])->findOrFail($id);
-
-        if (!$delivery->provider_order_id) {
-            return redirect()->route('sales.deliveries.show', $delivery->id)
-                ->with('error', 'Belum ada resi untuk dilacak. Lakukan Booking Resi dulu.');
-        }
-
-        $result = $biteship->track($delivery->provider_order_id);
-
-        return view('erp.sales.deliveries.tracking', compact('delivery', 'result'));
-    }
-
     /** Halaman cetak label resi (pengirim/penerima + nomor resi + barcode). */
     public function printResi($id)
     {
