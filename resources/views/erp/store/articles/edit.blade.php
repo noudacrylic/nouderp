@@ -32,7 +32,8 @@
                 <label class="block text-xs text-gray-500 mb-2">Isi Artikel</label>
                 <input id="articleContent" type="hidden" name="content" value="{{ trix_content(old('content', $article->content)) }}">
                 <trix-editor input="articleContent" class="border rounded"></trix-editor>
-                <p class="text-xs text-gray-400 mt-2">Sisipkan gambar via tombol lampiran editor — otomatis terunggah ke penyimpanan media.</p>
+                <p class="text-xs text-gray-400 mt-2">Sisipkan gambar via tombol lampiran editor — otomatis terunggah ke penyimpanan media.
+                    <b>Klik gambarnya lalu ketik keterangan singkat</b> (mis. &ldquo;Pasang bagian bawah ke slot depan&rdquo;) — keterangan itu tampil di bawah gambar sekaligus menjadi <span class="font-mono">alt</span>, yang dibaca Google Gambar dan pembaca layar. Boleh dikosongkan, tapi gambarnya tak akan ditemukan lewat pencarian gambar.</p>
             </div>
         </div>
 

@@ -117,7 +117,7 @@ class StoreTutorialController extends Controller
                                     : StoreTutorial::uniqueSlug($data['title'], $tutorial->id),
             'youtube_id'       => $youtubeId,
             'description'      => $data['description'] ?? null,
-            'content'          => $data['content'] ?? null,
+            'content'          => isset($data['content']) ? trix_publish($data['content']) : null,
             'sort_order'       => $data['sort_order'] ?? 0,
             'meta_title'       => $data['meta_title'] ?? null,
             'meta_description' => $data['meta_description'] ?? null,

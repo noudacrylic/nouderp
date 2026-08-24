@@ -201,3 +201,75 @@ if (!function_exists('trix_content')) {
         return preg_replace('~<(/?)h1(\s[^>]*)?>~i', '<$1h2$2>', (string) $html) ?? (string) $html;
     }
 }
+
+if (!function_exists('trix_publish')) {
+    /**
+     * Naskah Trix yang siap DITERBITKAN. Kebalikan arah dari trix_content().
+     *
+     * Trix menyisipkan gambar sebagai <figure> berisi <img> TANPA `alt`, dan
+     * <figcaption> yang isinya nama berkas + ukurannya ("tutorial-a1b2c3.jpg
+     * 12.06 KB"). Halaman tutorial & artikel merender naskah ini apa adanya,
+     * jadi tanpa penyuntingan di sini nama berkas itu ikut TERBACA pengunjung.
+     *
+     * Keterangan gambar yang diketik admin (klik gambar di editor) disimpan Trix
+     * di dalam JSON `data-trix-attachment`, bukan di figcaption-nya. Dari sana:
+     *
+     *   ada keterangan  → <img alt="keterangan"> + <figcaption>keterangan</figcaption>
+     *   tanpa keterangan→ <img alt="">           + figcaption DIBUANG
+     *
+     * `alt=""` pada gambar tanpa keterangan disengaja: itu memberi tahu pembaca
+     * layar agar melewatinya, jauh lebih baik daripada membacakan nama berkas.
+     * Keterangan yang benar tetap harus ditulis manusia — mesin tidak tahu apa
+     * yang ada di dalam foto.
+     *
+     * Idempotent: dijalankan ulang atas hasilnya sendiri tidak mengubah apa pun.
+     */
+    function trix_publish(?string $html): string
+    {
+        $html = (string) $html;
+        if (trim($html) === '' || !str_contains($html, 'data-trix-attachment')) {
+            return $html;
+        }
+
+        $doc = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        // Tanpa deklarasi encoding, DOMDocument menebak Latin-1 dan merusak
+        // huruf beraksen serta emoji di dalam naskah.
+        $ok = $doc->loadHTML(
+            '<?xml encoding="UTF-8">' . $html,
+            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if (!$ok) return $html;   // naskah tak terbaca → biarkan apa adanya
+
+        $xpath = new \DOMXPath($doc);
+        foreach ($xpath->query('//figure[@data-trix-attachment]') as $figure) {
+            $meta    = json_decode((string) $figure->getAttribute('data-trix-attachment'), true);
+            $caption = is_array($meta) ? trim((string) ($meta['caption'] ?? '')) : '';
+
+            foreach ($xpath->query('.//img', $figure) as $img) {
+                $img->setAttribute('alt', $caption);
+            }
+
+            foreach ($xpath->query('.//figcaption', $figure) as $figcaption) {
+                if ($caption === '') {
+                    $figcaption->parentNode?->removeChild($figcaption);
+                    continue;
+                }
+                while ($figcaption->firstChild) {
+                    $figcaption->removeChild($figcaption->firstChild);
+                }
+                $figcaption->appendChild($doc->createTextNode($caption));
+            }
+        }
+
+        $out = '';
+        foreach ($doc->childNodes as $node) {
+            if ($node->nodeType === XML_PI_NODE) continue;   // buang deklarasi encoding
+            $out .= $doc->saveHTML($node);
+        }
+
+        return $out;
+    }
+}

@@ -51,7 +51,8 @@
                 <label class="block text-xs text-gray-500 mb-2">Langkah Bergambar</label>
                 <input id="tutorialContent" type="hidden" name="content" value="{{ trix_content(old('content', $tutorial->content)) }}">
                 <trix-editor input="tutorialContent" class="border rounded"></trix-editor>
-                <p class="text-xs text-gray-400 mt-2">Sisipkan gambar via tombol lampiran editor — otomatis terunggah &amp; diperkecil.</p>
+                <p class="text-xs text-gray-400 mt-2">Sisipkan gambar via tombol lampiran editor — otomatis terunggah &amp; diperkecil.
+                    <b>Klik gambarnya lalu ketik keterangan singkat</b> (mis. &ldquo;Pasang bagian bawah ke slot depan&rdquo;) — keterangan itu tampil di bawah gambar sekaligus menjadi <span class="font-mono">alt</span>, yang dibaca Google Gambar dan pembaca layar. Boleh dikosongkan, tapi gambarnya tak akan ditemukan lewat pencarian gambar.</p>
 
                 {{-- Video tutorial Noud tanpa narasi, jadi mesin pencari tidak bisa
                      membaca isinya sama sekali. Bagian inilah satu-satunya yang

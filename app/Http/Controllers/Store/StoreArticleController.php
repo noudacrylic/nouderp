@@ -83,6 +83,11 @@ class StoreArticleController extends Controller
         $data['is_featured'] = $request->boolean('is_featured');
         $data['sort_order'] = $data['sort_order'] ?? 0;
         $data['status'] = $publish ? 'published' : 'draft';
+        // Hanya bila kolomnya memang dikirim — menyetelnya tanpa syarat akan
+        // MENIMPA naskah tersimpan dengan string kosong saat menyimpan draf.
+        if (isset($data['content'])) {
+            $data['content'] = trix_publish($data['content']);
+        }
 
         // Terbit tanpa jadwal → tayang sekarang. Jadwal masa depan tetap dihormati (scope time-gated).
         if ($publish && empty($data['published_at'])) {
