@@ -130,7 +130,7 @@ class TutorialQrTest extends TestCase
         ];
     }
 
-    public function test_alamat_qr_huruf_besar_agar_kodenya_lebih_renggang(): void
+    public function test_alamat_qr_sama_persis_dengan_yang_tercetak(): void
     {
         config(['store.storefront_url' => 'https://noudakrilik.com']);
         $t = $this->tutorial();
@@ -138,10 +138,10 @@ class TutorialQrTest extends TestCase
         // Yang tercetak untuk mata manusia: huruf kecil.
         $this->assertSame('https://noudakrilik.com/t/tb1', $t->shortUrl());
 
-        // Yang disandikan ke QR: huruf besar. Mode alfanumerik QR memuat huruf
-        // besar, angka, ":" dan "/" — jauh lebih padat daripada mode teks biasa,
-        // sehingga alamat yang sama turun satu tingkat versi dan tiap kotaknya
-        // jadi lebih besar pada stiker seukuran sama.
-        $this->assertSame('HTTPS://NOUDAKRILIK.COM/T/TB1', $t->qrPayload());
+        // Yang disandikan ke QR harus SAMA PERSIS. Pernah dibuat huruf besar
+        // demi mode alfanumerik QR yang lebih padat, dan hasil scan-nya 404:
+        // path alamat peduli besar-kecil huruf, hanya nama domain yang tidak.
+        $this->assertSame($t->shortUrl(), $t->qrPayload());
+        $this->assertStringContainsString('/t/tb1', $t->qrPayload());
     }
 }

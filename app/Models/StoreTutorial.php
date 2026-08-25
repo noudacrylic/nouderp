@@ -83,21 +83,21 @@ class StoreTutorial extends Model
     }
 
     /**
-     * Yang disandikan ke dalam QR: HURUF BESAR.
+     * Yang disandikan ke dalam QR: PERSIS seperti yang tercetak — huruf kecil.
      *
-     * QR punya mode alfanumerik khusus (huruf besar, angka, dan tanda baca
-     * termasuk ":" dan "/") yang jauh lebih padat daripada mode teks biasa.
-     * "HTTPS://NOUDAKRILIK.COM/T/TB1" muat di QR versi 3 (29x29 kotak),
-     * sedangkan versi huruf kecilnya butuh versi 4 (33x33). Pada stiker
-     * berukuran sama, tiap kotak jadi ~11% lebih besar — dan itulah yang
-     * menentukan berhasil-tidaknya scan di akrilik yang mengkilap.
+     * Pernah dibuat huruf besar demi mode alfanumerik QR (lebih padat, kodenya
+     * turun satu versi sehingga tiap kotak lebih besar). Itu keliru: nama domain
+     * memang tak peduli besar-kecil huruf, tapi PATH-nya peduli — storefront
+     * menjawab 404 untuk "/T/TB1". Kerapatan yang didapat tidak ada gunanya
+     * kalau hasil scan-nya halaman kosong.
      *
-     * Nama domain memang tak peduli besar-kecil huruf; path-nya yang dibuat
-     * menerima keduanya (lihat resolusi kode di storefront).
+     * Kepadatannya diambil kembali lewat jalur lain: tingkat koreksi galat 'Q'
+     * (25%) alih-alih 'H' (30%) di halaman QR — alamat sepanjang ini tetap muat
+     * di versi 3 (29x29 kotak), sama seperti sebelumnya.
      */
     public function qrPayload(): string
     {
-        return strtoupper($this->shortUrl());
+        return $this->shortUrl();
     }
 
     public function canonicalUrl(): string

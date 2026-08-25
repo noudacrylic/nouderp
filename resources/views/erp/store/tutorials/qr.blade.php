@@ -8,12 +8,10 @@
     ERP) supaya tidak menambah dependensi PHP untuk sesuatu yang dipakai
     sesekali oleh admin.
 
-    Yang disandikan HURUF BESAR — lihat StoreTutorial::qrPayload(). QR punya mode
-    alfanumerik khusus yang memuat huruf besar, angka, ":" dan "/", dan mode itu
-    jauh lebih padat daripada mode teks biasa. Alamat yang sama turun satu tingkat
-    versi (29x29 kotak, bukan 33x33), sehingga pada stiker seukuran sama tiap
-    kotaknya ~11% lebih besar — itulah yang menentukan berhasil-tidaknya scan di
-    permukaan akrilik yang mengkilap.
+    Yang disandikan PERSIS seperti yang tercetak: huruf kecil. Pernah dibuat huruf
+    besar demi mode alfanumerik QR yang lebih padat — dan hasilnya 404, karena
+    path alamat peduli besar-kecil huruf ("/T/TB1" bukan "/t/tb1"). Kepadatannya
+    diambil kembali lewat tingkat koreksi galat 'Q' di bawah, bukan lewat huruf.
 --}}
 
 <div class="flex items-center justify-between mb-4">
@@ -81,7 +79,7 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script>
 (function () {
-    const payload  = @json($tutorial->qrPayload());   // HURUF BESAR — lihat catatan di atas
+    const payload  = @json($tutorial->qrPayload());   // huruf kecil — sama persis dengan yang tercetak
     const label    = @json($tutorial->shortUrl());    // huruf kecil, untuk mata manusia
     const previewC = document.getElementById('qrPreview');
     const link     = document.getElementById('qrDownload');
@@ -104,7 +102,13 @@
 
     let qr;
     try {
-        qr = qrcode(0, 'H');       // 0 = pilih versi terkecil yang muat
+        // 'Q' (koreksi galat 25%), bukan 'H' (30%). Alamat sepanjang
+        // "https://noudakrilik.com/t/tb1" masih muat di versi 3 (29x29 kotak)
+        // dengan 'Q', sedangkan 'H' mendorongnya ke versi 4 (33x33) — tiap
+        // kotak ~11% lebih kecil pada stiker 3 cm, dan ukuran kotak itulah yang
+        // menentukan berhasil-tidaknya scan di akrilik yang mengkilap. 25% masih
+        // jauh di atas kebutuhan stiker yang tidak ditimpa logo apa pun.
+        qr = qrcode(0, 'Q');       // 0 = pilih versi terkecil yang muat
         qr.addData(payload);
         qr.make();
     } catch (e) {
