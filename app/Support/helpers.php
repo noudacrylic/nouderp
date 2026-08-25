@@ -184,6 +184,45 @@ if (!function_exists('should_show_menu_group')) {
     }
 }
 
+if (!function_exists('editor_image_max_kb')) {
+    /**
+     * Batas ukuran gambar inline editor yang BENAR-BENAR berlaku, dalam KB.
+     *
+     * Nilai di config bisa lebih longgar daripada yang sanggup diterima PHP.
+     * Berkas yang melewati `upload_max_filesize` / `post_max_size` tidak pernah
+     * sampai ke validasi Laravel — yang tiba hanyalah permintaan tanpa berkas,
+     * dan pesan yang muncul jadi "file wajib diisi" untuk berkas yang jelas-jelas
+     * dipilih admin. Karena itu batasnya diambil yang terkecil, lalu angka yang
+     * sama dipakai server maupun editor.
+     */
+    function editor_image_max_kb(): int
+    {
+        $toKb = function (string $ini): ?int {
+            $raw = trim((string) ini_get($ini));
+            if ($raw === '') return null;
+
+            $unit  = strtolower(substr($raw, -1));
+            $angka = (float) $raw;
+            $bytes = match ($unit) {
+                'g'     => $angka * 1024 * 1024 * 1024,
+                'm'     => $angka * 1024 * 1024,
+                'k'     => $angka * 1024,
+                default => $angka,
+            };
+
+            return $bytes > 0 ? (int) floor($bytes / 1024) : null;
+        };
+
+        $batas = array_filter([
+            (int) config('store.editor_image_max_kb', 12288),
+            $toKb('upload_max_filesize'),
+            $toKb('post_max_size'),
+        ]);
+
+        return $batas ? (int) min($batas) : 5120;
+    }
+}
+
 if (!function_exists('trix_content')) {
     /**
      * Naskah Trix yang siap dimuat ulang ke editor.
@@ -199,6 +238,26 @@ if (!function_exists('trix_content')) {
     function trix_content(?string $html): string
     {
         return preg_replace('~<(/?)h1(\s[^>]*)?>~i', '<$1h2$2>', (string) $html) ?? (string) $html;
+    }
+}
+
+if (!function_exists('trix_has_pending_upload')) {
+    /**
+     * Naskah editor yang masih memuat gambar BELUM SELESAI DIUNGGAH.
+     *
+     * Selama unggahan berjalan, Trix menempelkan lampiran dengan alamat
+     * `blob:` — alamat sementara yang hanya hidup di tab yang sedang dibuka.
+     * Tersimpan ke basis data, alamat itu mati begitu halaman ditutup: di
+     * editor gambarnya "hilang", di storefront tak pernah tampil sama sekali.
+     *
+     * Halaman editornya sudah menahan tombol simpan selama unggahan berjalan,
+     * tapi itu bergantung pada JavaScript yang berjalan mulus. Ini penjaga
+     * terakhirnya di server — menolak simpan jauh lebih baik daripada
+     * menyimpan naskah yang gambarnya sudah dipastikan mati.
+     */
+    function trix_has_pending_upload(?string $html): bool
+    {
+        return str_contains((string) $html, 'blob:');
     }
 }
 

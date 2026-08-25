@@ -15,9 +15,9 @@ use Tests\TestCase;
  * Yang dijaga di sini bukan tampilan, melainkan hal-hal yang TIDAK BISA
  * diperbaiki setelah stiker menempel di barang yang sudah dikirim:
  *
- *   - kode harus ketemu apa pun besar-kecil hurufnya, karena QR menyandikan
- *     huruf besar (mode alfanumerik QR jauh lebih padat) sementara alamat yang
- *     tercetak untuk mata manusia huruf kecil;
+ *   - kode harus ketemu apa pun besar-kecil hurufnya: stiker cetakan awal
+ *     sempat memuat QR huruf besar, dan barang yang sudah dikirim tak bisa
+ *     ditarik kembali;
  *   - tutorial draft tidak boleh bocor ke etalase;
  *   - penghitung scan harus terpisah dari penghitung kunjungan, sebab hanya
  *     angka scan yang menggantikan statistik bit.ly yang dilepas.
@@ -57,7 +57,8 @@ class TutorialQrTest extends TestCase
     {
         $t = $this->tutorial();
 
-        // Persis yang dikirim ponsel setelah membaca QR (disandikan huruf besar).
+        // Persis yang dikirim ponsel setelah membaca QR stiker cetakan awal
+        // (huruf besar) — kodenya harus tetap ketemu.
         $this->withHeaders($this->headers())
             ->postJson('/api/storefront/tutorials/scan/TB1')
             ->assertNoContent();

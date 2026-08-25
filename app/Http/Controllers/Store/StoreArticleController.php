@@ -79,6 +79,15 @@ class StoreArticleController extends Controller
             'cover'                     => ['nullable', 'image', 'max:5120'],
         ]);
 
+        // Lihat StoreTutorialController: naskah yang masih memuat lampiran
+        // `blob:` berarti unggahannya belum selesai — menyimpannya sama dengan
+        // membuang gambarnya.
+        if (trix_has_pending_upload($request->input('content'))) {
+            return back()->withInput()->withErrors([
+                'content' => 'Ada gambar yang belum selesai diunggah. Tunggu sampai keterangan "Mengunggah…" di bawah editor hilang, lalu simpan lagi.',
+            ]);
+        }
+
         $data['slug'] = !empty($data['slug']) ? Str::slug($data['slug']) : $this->uniqueSlug($data['title'], $article->id);
         $data['is_featured'] = $request->boolean('is_featured');
         $data['sort_order'] = $data['sort_order'] ?? 0;
@@ -119,7 +128,7 @@ class StoreArticleController extends Controller
     /** Upload gambar inline dari editor (Trix) → JSON {url}. */
     public function uploadImage(Request $request, $id)
     {
-        $request->validate(['file' => ['required', 'image', 'max:5120']]);
+        $request->validate(['file' => ['required', 'image', 'max:' . editor_image_max_kb()]]);
         $article = StoreArticle::findOrFail($id);
         $up = $this->media->upload($request->file('file'), $article->slug);
         return response()->json(['url' => $up['url']]);

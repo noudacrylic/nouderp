@@ -35,6 +35,16 @@ return [
 
     // Batas & jenis file upload foto/video.
     'image_max_kb' => env('STORE_IMAGE_MAX_KB', 5120),    // 5 MB
+
+    /*
+    | Gambar INLINE di editor artikel & tutorial punya batas sendiri yang lebih
+    | longgar: berbeda dengan foto produk, gambar ini selalu diperkecil dulu di
+    | server (ImageDownscaler, sisi panjang 1600 px) sehingga foto 10 MB pun
+    | berakhir di kisaran 200 KB. Batas 5 MB di sini hanya berarti satu hal:
+    | foto ponsel apa adanya ditolak, dan admin yang memotret langkah pemasangan
+    | selalu memotret dengan ponsel.
+    */
+    'editor_image_max_kb' => env('STORE_EDITOR_IMAGE_MAX_KB', 12288),   // 12 MB
     'video_max_kb' => env('STORE_VIDEO_MAX_KB', 51200),   // 50 MB
     'image_mimes'  => ['jpg', 'jpeg', 'png', 'webp', 'gif'],
     'video_mimes'  => ['mp4', 'webm', 'mov'],

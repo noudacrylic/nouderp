@@ -92,6 +92,15 @@ class StoreTutorialController extends Controller
             'products.*'       => ['integer', 'exists:store_products,id'],
         ], [], ['code' => 'kode', 'youtube' => 'video YouTube']);
 
+        // Gambar yang unggahannya belum selesai masih ber-alamat `blob:` —
+        // tersimpan, alamat itu mati dan gambarnya lenyap tanpa jejak. Tahan di
+        // sini, dengan isian dikembalikan utuh supaya tulisannya tidak hilang.
+        if (trix_has_pending_upload($request->input('content'))) {
+            return back()->withInput()->withErrors([
+                'content' => 'Ada gambar yang belum selesai diunggah. Tunggu sampai keterangan "Mengunggah…" di bawah editor hilang, lalu simpan lagi.',
+            ]);
+        }
+
         $youtubeId = StoreTutorial::extractYoutubeId($request->input('youtube'));
 
         // Tautan YouTube ditempel apa adanya oleh admin; kalau tak terbaca, bilang
@@ -139,7 +148,7 @@ class StoreTutorialController extends Controller
     /** Upload gambar inline dari editor (Trix) → JSON {url}. */
     public function uploadImage(Request $request, $id)
     {
-        $request->validate(['file' => ['required', 'image', 'max:' . config('store.image_max_kb', 5120)]]);
+        $request->validate(['file' => ['required', 'image', 'max:' . editor_image_max_kb()]]);
         $tutorial = StoreTutorial::findOrFail($id);
         $up = $this->media->upload($request->file('file'), $tutorial->slug);
         return response()->json(['url' => $up['url']]);

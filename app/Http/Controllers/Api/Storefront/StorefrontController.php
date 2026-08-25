@@ -505,8 +505,9 @@ class StorefrontController extends Controller
      * — digabung, keduanya kehilangan makna. Ini pengganti langsung statistik
      * bit.ly yang dilepas.
      *
-     * Perbandingan kode tidak peduli besar-kecil huruf (QR menyandikan huruf
-     * besar demi kerapatan), dan collation MySQL bawaan sudah begitu.
+     * Perbandingan kode tidak peduli besar-kecil huruf — collation MySQL
+     * bawaan sudah begitu, dan stiker cetakan awal sempat memuat QR huruf
+     * besar sebelum jalur itu ditinggalkan.
      */
     public function recordTutorialScan(string $code)
     {

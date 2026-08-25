@@ -114,31 +114,13 @@
 </form>
 
 @push('scripts')
-<script src="https://unpkg.com/trix@2.1.15/dist/trix.umd.min.js"></script>
+{{-- Setelan Trix HARUS mendahului pustakanya — lihat alasannya di partial;
+     dibalik urutannya, tombol Heading berhenti bekerja tanpa pesan galat. --}}
 @include('erp._partials.trix-config')
-<script>
-    // Upload gambar inline editor → endpoint artikel → sisipkan URL publik (R2/lokal).
-    (function () {
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        const uploadUrl = @json(route('store.articles.image', $article->id));
-
-        addEventListener('trix-attachment-add', function (event) {
-            const attachment = event.attachment;
-            if (!attachment.file) return;
-
-            const form = new FormData();
-            form.append('file', attachment.file);
-
-            fetch(uploadUrl, {
-                method: 'POST',
-                headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
-                body: form,
-            })
-                .then((r) => r.ok ? r.json() : Promise.reject(r))
-                .then((data) => attachment.setAttributes({ url: data.url, href: data.url }))
-                .catch(() => { alert('Gagal mengunggah gambar.'); attachment.remove(); });
-        });
-    })();
-</script>
+<script src="https://unpkg.com/trix@2.1.15/dist/trix.umd.min.js"></script>
+@include('erp._partials.trix-upload', [
+    'trixUploadUrl' => route('store.articles.image', $article->id),
+    'trixFormId'    => 'articleForm',
+])
 @endpush
 @endsection
