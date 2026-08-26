@@ -124,9 +124,19 @@ class PromoSimulationTest extends TestCase
             ->assertSee('Total potongan (andaian)')
             ->assertSee('kembali ke potongan asli');
 
-        // Tanpa parameter, halaman kembali ke potongan sebenarnya (14% → Rp28.000).
+        // Tanpa parameter, andaiannya TETAP terpasang. Dulu ia mati di sini, dan itulah
+        // masalahnya: form cari/urut tidak membawa fee_pct, jadi andaiannya lenyap tepat
+        // saat orangnya sedang membandingkan — tanpa pemberitahuan apa pun.
         $this->actingAs($this->admin())
             ->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()
+            ->assertSee('Rp42.000')
+            ->assertSee('Total potongan (andaian)');
+
+        // Yang mengembalikannya ke potongan sebenarnya (14% → Rp28.000) adalah permintaan
+        // yang memang meminta itu.
+        $this->actingAs($this->admin())
+            ->get(route('analisa.harga.index', ['kanal' => 'shopee', 'fee_reset' => 1]))
             ->assertOk()
             ->assertSee('Rp28.000')
             ->assertDontSee('Total potongan (andaian)');

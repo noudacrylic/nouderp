@@ -5,7 +5,7 @@
     sebelum disimpan tidak boleh berbeda dengan yang muncul sesudahnya. Kalau salah satunya
     diubah, ubah keduanya. Aturan warnanya pun mengikuti _persen.blade.php.
 
-    Kontrak DOM: tabel membawa data-percent & data-fixed; tiap baris membawa data-hpp;
+    Kontrak DOM: tabel membawa data-percent, data-fixed & data-andaian; tiap baris data-hpp;
     input .js-harga / .js-grosir / .js-qty / .js-afiliasi; sel .js-potongan,
     .js-potongan-persen, .js-untung, .js-total, serta angka .js-margin & .js-markup yang
     masing-masing berada di dalam pembungkus warnanya sendiri.
@@ -94,9 +94,19 @@
     });
 
     // Tombol "pakai" pada kolom usulan: isikan angkanya ke kolom harga lalu hitung ulang.
+    //
+    // Usulannya dihitung DARI potongan yang sedang berlaku — termasuk potongan andaian.
+    // Selama andaian hanya hidup di URL, harga rekaan mati bersama halamannya; sekarang
+    // andaian tetap terpasang, jadi angka yang lahir dari potongan rekaan bisa terisi,
+    // tersimpan, lalu terkirim ke marketplace sebagai harga sungguhan. Satu konfirmasi
+    // sudah cukup memutus rantai itu tanpa menghalangi orang yang memang sengaja.
     tabel.addEventListener('click', (e) => {
         const tombol = e.target.closest('.js-pakai');
         if (!tombol) return;
+        if (tabel.dataset.andaian === '1'
+            && !confirm('Usulan ini dihitung dari POTONGAN ANDAIAN, bukan potongan sebenarnya.\n\nTetap isikan ke kolom harga?')) {
+            return;
+        }
         const baris = tombol.closest('tr');
         const input = baris.querySelector('.js-grosir') || baris.querySelector('.js-harga');
         if (!input) return;

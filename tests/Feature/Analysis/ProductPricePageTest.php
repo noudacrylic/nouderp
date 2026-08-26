@@ -4,7 +4,10 @@ namespace Tests\Feature\Analysis;
 
 use App\Modules\Analysis\Models\PriceChannelFeeComponent;
 use App\Modules\Analysis\Models\ProductChannelPrice;
+use App\Models\MarketplaceConfig;
 use App\Models\User;
+use App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap;
+use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -141,6 +144,200 @@ class ProductPricePageTest extends TestCase
         $this->actingAs($admin)->delete(route('analisa.harga.component.destroy', $comp->id))
             ->assertSessionHas('success');
         $this->assertDatabaseMissing('price_channel_fee_components', ['id' => $comp->id]);
+    }
+
+    /**
+     * Potongan andaian harus BERTAHAN, karena hilangnya tidak kelihatan.
+     *
+     * Dulu andaian cuma menempel di query string, dan form cari/urut tidak ikut membawanya:
+     * sekali seseorang mengetik nama produk, tabelnya diam-diam kembali ke potongan asli —
+     * persis saat orangnya sedang membandingkan harga.
+     */
+    public function test_potongan_andaian_bertahan_saat_mencari_dan_mengurutkan(): void
+    {
+        $this->potonganShopee();
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '25', 'fee_rp' => '5.000']))
+            ->assertOk()->assertSee('Total potongan (andaian)');
+
+        // Permintaan berikutnya TANPA fee_pct — persis yang dikirim form pencarian.
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'search' => 'Frame']))
+            ->assertOk()
+            ->assertSee('Total potongan (andaian)')
+            ->assertSee('aslinya 14% + Rp1.850');
+    }
+
+    public function test_andaian_tidak_menular_ke_kanal_lain(): void
+    {
+        $this->potonganShopee();
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '25']))->assertOk();
+
+        // Lazada tidak pernah diandaikan apa-apa; potongannya harus tetap apa adanya.
+        $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'lazada']))
+            ->assertOk()
+            ->assertDontSee('Total potongan (andaian)');
+    }
+
+    public function test_andaian_bisa_dikembalikan_ke_potongan_asli(): void
+    {
+        $this->potonganShopee();
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '25']))->assertOk();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_reset' => 1]))
+            ->assertOk()->assertDontSee('Total potongan (andaian)');
+
+        // Dan tidak bangkit lagi pada kunjungan berikutnya.
+        $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()->assertDontSee('Total potongan (andaian)');
+    }
+
+    /** Mengosongkan kedua kolom lalu menerapkan = memakai potongan sebenarnya lagi. */
+    public function test_mengosongkan_kolom_andaian_menghapus_andaiannya(): void
+    {
+        $this->potonganShopee();
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '25']))->assertOk();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '', 'fee_rp' => '']))
+            ->assertOk()->assertDontSee('Total potongan (andaian)');
+    }
+
+    /**
+     * Mengetik angka yang sama persis dengan potongan asli bukan andaian — dan tidak boleh
+     * tersimpan diam-diam, kalau tidak ia akan bangun jadi "andaian" pada hari potongan
+     * aslinya diubah, tanpa seorang pun memintanya.
+     */
+    public function test_mengetik_angka_yang_sama_dengan_aslinya_bukan_andaian(): void
+    {
+        $this->potonganShopee();
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '14', 'fee_rp' => '1.850']))
+            ->assertOk()->assertDontSee('Total potongan (andaian)');
+
+        PriceChannelFeeComponent::where('channel', 'shopee')
+            ->where('label', 'Potongan marketplace')->update(['percent' => 18]);
+
+        $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()->assertDontSee('Total potongan (andaian)');
+    }
+
+    /**
+     * Harga yang dipegang Jubelio tampil berdampingan dengan harga hasil hitungan.
+     *
+     * Ini menutup lubang `pushed_at`: kolom itu hanya mencatat bahwa kita PERNAH mengirim,
+     * dan buta terhadap harga yang diubah orang lain langsung di Jubelio atau seller center.
+     */
+    public function test_harga_marketplace_tampil_beserta_selisihnya(): void
+    {
+        $this->potonganShopee();
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+
+        ProductChannelPrice::create([
+            'product_id' => $id, 'channel' => 'shopee', 'price' => 250_000,
+        ]);
+        foreach ($this->petakanTokoShopee([71]) as $storeId) {
+            JubelioStorePrice::create([
+                'product_id' => $id, 'store_id' => $storeId,
+                'price' => 265_000, 'fetched_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()
+            ->assertSee('Di<br>marketplace', false)
+            ->assertSee('Rp265.000')
+            // Selisih terhadap harga kita sendiri — itu yang sebenarnya dicari orang.
+            ->assertSee('Rp15.000');
+    }
+
+    /**
+     * Satu kanal bisa punya lebih dari satu toko (TikTok & Tokopedia). Kalau keduanya
+     * berharga beda, meratakannya akan menyembunyikan justru temuan yang paling penting.
+     */
+    public function test_toko_yang_berbeda_harga_dilaporkan_bukan_dilebur(): void
+    {
+        $this->potonganShopee();
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        [$a, $b] = $this->petakanTokoShopee([71, 72]);
+
+        JubelioStorePrice::create(['product_id' => $id, 'store_id' => $a, 'price' => 250_000, 'fetched_at' => now()]);
+        JubelioStorePrice::create(['product_id' => $id, 'store_id' => $b, 'price' => 265_000, 'fetched_at' => now()]);
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()->assertSee('beda antar-toko');
+
+        // Dan tidak pernah dilebur jadi satu angka yang menyesatkan.
+        $ringkas = JubelioStorePrice::ringkasUntuk([$a, $b])->get($id);
+        $this->assertFalse($ringkas['seragam']);
+        $this->assertNull($ringkas['price']);
+    }
+
+    /** Belum pernah ditarik bukan berarti nol — kolomnya harus kosong, bukan Rp0. */
+    public function test_produk_yang_belum_pernah_ditarik_tidak_menampilkan_angka(): void
+    {
+        $this->potonganShopee();
+        $this->petakanTokoShopee([71]);
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()->assertDontSee('Rp0<');
+    }
+
+    /** Kanal Website tidak lewat Jubelio — menariknya tidak masuk akal. */
+    public function test_tarik_harga_ditolak_untuk_kanal_website(): void
+    {
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index'))
+            ->post(route('analisa.harga.tarik'), ['kanal' => 'website'])
+            ->assertSessionHas('error');
+    }
+
+    /**
+     * Petakan toko Jubelio ke kanal Shopee — tanpa ini `store_ids` kosong dan kolom
+     * "Di marketplace" memang sengaja tidak muncul.
+     *
+     * @param  array<int,int> $storeIds
+     * @return array<int,int>
+     */
+    private function petakanTokoShopee(array $storeIds): array
+    {
+        $customerId = DB::table('customers')->insertGetId([
+            'code' => 'C-SHOPEE', 'name' => 'Shopee',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        MarketplaceConfig::create([
+            'customer_id' => $customerId, 'admin_fee_percent' => 14,
+            'admin_fee_fixed' => 1_850, 'is_active' => true,
+        ]);
+
+        foreach ($storeIds as $storeId) {
+            JubelioChannelMap::create([
+                'store' => (string) $storeId, 'customer_id' => $customerId, 'is_active' => true,
+            ]);
+        }
+
+        return $storeIds;
     }
 
     private function potonganShopee(): void

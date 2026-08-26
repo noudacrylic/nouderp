@@ -400,4 +400,94 @@ class JubelioClient
 
         return $this->post('/inventory/price-list/', $payload);
     }
+
+    /**
+     * Harga yang SEDANG dipegang Jubelio untuk sebuah item, dipecah per toko — arah baca
+     * dari updatePrices(). Dipakai Analisa ▸ Harga Produk untuk memperlihatkan "harga di
+     * marketplace" berdampingan dengan harga yang kita hitung.
+     *
+     * ⚠️ Bentuk respons Jubelio untuk harga per toko BELUM PERNAH DIVERIFIKASI HIDUP dari
+     * mesin pengembangan (kredensialnya mati di sana). Karena itu pembacaannya sengaja
+     * mengenali beberapa bentuk yang masuk akal, dan bila TIDAK SATU PUN cocok ia
+     * mengembalikan alasannya apa adanya — bukan menebak angka. Halaman harga dipakai
+     * menetapkan harga jual; angka karangan di situ lebih buruk daripada kolom kosong.
+     *
+     * @return array{ok:bool, prices:array<int,float>, base:?float, reason:?string}
+     */
+    public function getStorePrices(int $itemId, int $itemGroupId): array
+    {
+        $kosong = ['ok' => false, 'prices' => [], 'base' => null, 'reason' => null];
+
+        $resp = $this->getItem($itemGroupId ?: $itemId);
+        if (!$resp['success'] || !is_array($resp['data'])) {
+            return array_merge($kosong, [
+                'reason' => $resp['error'] ?: 'Item tidak terbaca dari Jubelio.',
+            ]);
+        }
+
+        $data   = $resp['data'];
+        $prices = [];
+        $base   = null;
+
+        // Respons by-id adalah objek ITEM-GROUP; barisnya ada di product_skus[].
+        foreach (($data['product_skus'] ?? []) as $sku) {
+            if (!is_array($sku) || (int) ($sku['item_id'] ?? 0) !== $itemId) {
+                continue;
+            }
+            foreach (['sell_price', 'price', 'base_price'] as $kolom) {
+                if (isset($sku[$kolom]) && is_numeric($sku[$kolom])) {
+                    $base = (float) $sku[$kolom];
+                    break;
+                }
+            }
+            $prices = $this->petikHargaToko($sku['prices'] ?? $sku['price_list'] ?? null) ?: $prices;
+        }
+
+        // Sebagian bentuk menaruh daftar harga di tingkat grup, bukan di tiap variasi.
+        if (!$prices) {
+            $prices = $this->petikHargaToko($data['prices'] ?? $data['price_list'] ?? null);
+        }
+
+        if (!$prices && $base === null) {
+            return array_merge($kosong, [
+                'reason' => 'Respons Jubelio tidak memuat harga yang bisa dikenali untuk item ini.',
+            ]);
+        }
+
+        return ['ok' => true, 'prices' => $prices, 'base' => $base, 'reason' => null];
+    }
+
+    /**
+     * Ambil [store_id => harga] dari sebuah daftar harga Jubelio.
+     *
+     * store_id '-1' berarti HARGA DASAR semua toko (lihat updatePrices), bukan sebuah toko
+     * — ia sengaja tidak ikut, supaya harga dasar tidak menyamar jadi harga toko tertentu.
+     *
+     * @return array<int,float>
+     */
+    private function petikHargaToko($daftar): array
+    {
+        if (!is_array($daftar)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($daftar as $baris) {
+            if (!is_array($baris)) {
+                continue;
+            }
+            $store = (int) ($baris['store_id'] ?? 0);
+            if ($store <= 0) {
+                continue;
+            }
+            foreach (['price', 'sell_price', 'amount'] as $kolom) {
+                if (isset($baris[$kolom]) && is_numeric($baris[$kolom])) {
+                    $out[$store] = (float) $baris[$kolom];
+                    break;
+                }
+            }
+        }
+
+        return $out;
+    }
 }

@@ -64,7 +64,8 @@
     <div class="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-sm" id="tabel-harga" style="min-width:1100px"
-                   data-percent="{{ $channel['fee']['percent'] }}" data-fixed="{{ $channel['fee']['fixed'] }}">
+                   data-percent="{{ $channel['fee']['percent'] }}" data-fixed="{{ $channel['fee']['fixed'] }}"
+                   data-andaian="{{ ($channel['fee_assumed'] ?? false) ? 1 : 0 }}">
                 <thead class="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400">
                     <tr>
                         <th class="px-5 py-3 text-left font-black">Produk</th>

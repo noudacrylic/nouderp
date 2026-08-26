@@ -3,6 +3,7 @@
 namespace App\Modules\Marketplace\Jubelio\Services;
 
 use App\Core\Inventory\Product;
+use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog;
 use Illuminate\Support\Facades\Log;
 
@@ -208,6 +209,109 @@ class JubelioProductSyncService
         ]);
 
         return ['ok' => true, 'message' => 'Harga ' . number_format($price, 0, ',', '.') . ' terkirim ke toko ' . $stores . '.'];
+    }
+
+    /**
+     * Tarik harga yang SEDANG dipegang Jubelio untuk sederet toko, simpan sebagai rekaman.
+     *
+     * Satu panggilan API per produk — karena itu ini pekerjaan tombol/perintah, bukan
+     * sesuatu yang boleh terjadi saat halaman dibuka. Halaman Harga memuat ratusan produk;
+     * menariknya sambil merender berarti ratusan panggilan ke Jubelio setiap kali seseorang
+     * menekan F5.
+     *
+     * Produk yang belum ter-match ke item Jubelio TIDAK dipaksa dicocokkan di sini: itu
+     * pekerjaan matchAll(), dan mencampurnya membuat satu SKU salah ketik menghabiskan
+     * kuota panggilan untuk seluruh katalog. Ia dicatat sebagai baris tanpa harga beserta
+     * alasannya, supaya kolomnya kosong DENGAN keterangan.
+     *
+     * Dibatasi $limit per panggilan, dan yang PALING LAMA tidak diperbarui dikerjakan lebih
+     * dulu. Tanpa batas, satu klik pada katalog ratusan produk berarti ratusan panggilan
+     * berurutan dalam satu permintaan web — yang berakhir sebagai timeout, dengan sebagian
+     * harga sudah tersimpan dan sebagian belum, tanpa ada yang tahu sampai mana. Dengan
+     * urutan tertua-dulu, menekan tombolnya berkali-kali selalu maju, tidak pernah berputar
+     * di produk yang itu-itu saja. Untuk menyapu seluruh katalog sekaligus, pakai perintah
+     * `jubelio:tarik-harga` yang tidak terikat batas waktu permintaan web.
+     *
+     * @param  array<int,int> $storeIds
+     * @return array{terisi:int, kosong:int, gagal:int, sisa:int}
+     */
+    public function pullStorePrices(array $storeIds, ?iterable $products = null, int $limit = 60): array
+    {
+        $stats    = ['terisi' => 0, 'kosong' => 0, 'gagal' => 0, 'sisa' => 0];
+        $storeIds = array_values(array_filter(array_map('intval', $storeIds)));
+
+        if (empty($storeIds) || !$this->client->isReady()) {
+            return $stats;
+        }
+
+        if ($products === null) {
+            $semua = Product::where('sync_to_jubelio', true)
+                ->whereNotNull('sku')->where('sku', '!=', '')->get();
+
+            // Rekaman paling basi (dan yang belum pernah ada) naik ke depan antrean.
+            $tertua = JubelioStorePrice::whereIn('store_id', $storeIds)
+                ->selectRaw('product_id, MIN(fetched_at) as tertua')
+                ->groupBy('product_id')->pluck('tertua', 'product_id');
+
+            $urut     = $semua->sortBy(fn ($p) => $tertua[$p->id] ?? '')->values();
+            $products = $urut->take($limit);
+            $stats['sisa'] = max(0, $urut->count() - $products->count());
+        }
+
+        foreach ($products as $product) {
+            if (!$product->jubelio_item_id) {
+                $this->rekamHarga($product, $storeIds, [], 'Produk belum ter-match ke item Jubelio.');
+                $stats['kosong']++;
+                continue;
+            }
+
+            $hasil = $this->client->getStorePrices(
+                (int) $product->jubelio_item_id,
+                (int) ($product->jubelio_item_group_id ?: 0)
+            );
+
+            if (!$hasil['ok']) {
+                $this->rekamHarga($product, $storeIds, [], $hasil['reason']);
+                $stats['gagal']++;
+                continue;
+            }
+
+            // Toko yang tidak punya harga khusus memang dijual di harga dasar — itu jawaban
+            // yang sah, bukan kegagalan, dan harus terbaca begitu di layar.
+            $perToko = [];
+            foreach ($storeIds as $storeId) {
+                $perToko[$storeId] = $hasil['prices'][$storeId] ?? $hasil['base'];
+            }
+
+            $adaHarga = (bool) array_filter($perToko, fn ($v) => $v !== null);
+            $this->rekamHarga($product, $storeIds, $perToko,
+                $adaHarga ? null : 'Jubelio tidak memberi harga untuk toko ini.');
+
+            $adaHarga ? $stats['terisi']++ : $stats['kosong']++;
+        }
+
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::OK, 'Tarik harga marketplace', [
+            'message' => sprintf('Toko %s — %d terisi, %d kosong, %d gagal, %d belum giliran.',
+                implode(', ', $storeIds), $stats['terisi'], $stats['kosong'], $stats['gagal'], $stats['sisa']),
+            'meta'    => $stats + ['store_ids' => $storeIds],
+        ]);
+
+        return $stats;
+    }
+
+    /** @param array<int,?float> $perToko */
+    private function rekamHarga(Product $product, array $storeIds, array $perToko, ?string $note): void
+    {
+        foreach ($storeIds as $storeId) {
+            JubelioStorePrice::updateOrCreate(
+                ['product_id' => $product->id, 'store_id' => $storeId],
+                [
+                    'price'      => $perToko[$storeId] ?? null,
+                    'note'       => $note,
+                    'fetched_at' => now(),
+                ]
+            );
+        }
     }
 
     /** Ekstrak [item_id, item_group_id] dari respons item Jubelio (beberapa bentuk). */

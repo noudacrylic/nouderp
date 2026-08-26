@@ -1331,6 +1331,9 @@ Route::prefix('erp/analisa')->name('analisa.')->group(function () {
     Route::get('harga/promo/produk', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'promoProduk'])->name('harga.promo.produk');
     Route::post('harga/promo/aktif', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'promoAktif'])->name('harga.promo.aktif');
     Route::get('harga',          [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'harga'])->name('harga.index');
+    // Tarik harga yang sedang dipegang Jubelio untuk toko kanal ini. Sengaja tombol, bukan
+    // otomatis saat halaman dibuka: satu panggilan API per produk.
+    Route::post('harga/tarik-marketplace', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'pullMarketPrices'])->name('harga.tarik');
     Route::post('harga/potongan',         [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'saveComponent'])->name('harga.component.save');
     Route::delete('harga/potongan/{id}',  [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'destroyComponent'])->whereNumber('id')->name('harga.component.destroy');
     Route::post('harga/{productId}',          [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'savePrice'])->whereNumber('productId')->name('harga.save');

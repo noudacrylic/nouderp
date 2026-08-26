@@ -11,6 +11,7 @@ use App\Modules\Analysis\Services\ChannelPricingService;
 use App\Modules\Analysis\Services\ProductionCostRateService;
 use App\Modules\Analysis\Services\ProductionTimeAnalysisService;
 use App\Modules\Analysis\Support\PricingMath;
+use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
 use App\Modules\Sales\Services\PromotionService;
 use Illuminate\Http\Request;
@@ -188,6 +189,9 @@ class ProductPriceController extends Controller
             'rows'     => $this->arrange($request, $this->pricing->rows($key, $this->hppFilters(), $markup, $channel['fee'])),
             'markup'   => $markup,
             'sort'     => $request->input('sort', 'markup'),
+            // Dibaca DI SINI, sesudah rows(), bukan di dalamnya — supaya rekaman harga
+            // marketplace tidak ikut masuk simpanan Analisa dan tidak pernah tampil basi.
+            'pasar'    => JubelioStorePrice::ringkasUntuk($channel['store_ids'] ?? []),
         ]);
     }
 
@@ -295,6 +299,49 @@ class ProductPriceController extends Controller
         return back()->with('success', "{$product->name} — {$result['message']}");
     }
 
+    /**
+     * Tarik harga yang SEDANG dipegang Jubelio untuk toko-toko kanal ini.
+     *
+     * `pushed_at` hanya mencatat bahwa kita pernah mengirim; ia buta terhadap apa yang
+     * terjadi sesudahnya — harga bisa diubah orang lain langsung di Jubelio atau di seller
+     * center. Kolom ini yang menutup lubang itu: kita membandingkan harga hasil hitungan
+     * dengan harga yang benar-benar dipegang tokonya.
+     *
+     * Satu panggilan API per produk, jadi ini pekerjaan tombol — bukan sesuatu yang boleh
+     * ikut terjadi setiap halaman dibuka.
+     */
+    public function pullMarketPrices(Request $request, JubelioProductSyncService $sync)
+    {
+        $request->validate(['kanal' => 'required|string']);
+        $channel = $this->channelOrFail($request->input('kanal'));
+
+        if ($channel['kind'] === 'internal') {
+            return back()->with('error', 'Kanal Website tidak lewat Jubelio — harganya memang harga master.');
+        }
+        if (empty($channel['store_ids'])) {
+            return back()->with('error', 'Kanal ini belum punya toko Jubelio yang dipetakan.');
+        }
+
+        $stats = $sync->pullStorePrices($channel['store_ids']);
+
+        if (array_sum($stats) === 0) {
+            return back()->with('error', 'Jubelio belum tersambung — cek Pengaturan ▸ Integrasi.');
+        }
+
+        $pesan = sprintf('Harga %s ditarik dari Jubelio: %d terisi, %d kosong, %d gagal.',
+            $channel['label'], $stats['terisi'], $stats['kosong'], $stats['gagal']);
+
+        // Sisanya bukan kegagalan — hanya belum giliran. Menyebutnya mencegah orang mengira
+        // seluruh katalog sudah diperbarui padahal baru sebagian.
+        if ($stats['sisa'] > 0) {
+            $pesan .= sprintf(' %d produk belum giliran — tekan lagi untuk melanjutkan,'
+                . ' atau jalankan `php artisan jubelio:tarik-harga %s` untuk sekali sapu.',
+                $stats['sisa'], $channel['key']);
+        }
+
+        return back()->with('success', $pesan);
+    }
+
     /** Master penyusun potongan sebuah kanal (baris baru atau ubah baris yang ada). */
     public function saveComponent(Request $request)
     {
@@ -362,35 +409,88 @@ class ProductPriceController extends Controller
         $product->forceFill(['base_price' => $price])->save();
     }
 
+    /** Potongan andaian yang sedang terpasang, per kanal, milik satu orang. */
+    protected const SESI_ANDAIAN = 'analisa.potongan_andaian';
+
     /**
      * Potongan andaian sebuah kanal — "kalau potongan Shopee naik jadi 16%, masih untung?".
      *
-     * Lewat URL (`?fee_pct=`, `?fee_rp=`), bukan tersimpan, dengan alasan yang sama seperti
-     * mode asumsi bahan: angka andaian tidak boleh menyamar jadi angka sebenarnya di halaman
-     * yang dipakai menetapkan harga. Potongan aslinya tetap dibawa supaya bisa ditampilkan
-     * berdampingan dan dikembalikan dengan sekali klik.
+     * Dulu andaian ini hanya menempel di query string, dan itu bocor di tempat yang tidak
+     * kelihatan: form cari/urut/tipe tidak ikut membawa `fee_pct`. Sekali seseorang mengetik
+     * nama produk, andaiannya lenyap tanpa pemberitahuan dan tabelnya diam-diam kembali ke
+     * potongan asli — persis saat orangnya sedang membandingkan. Menambalnya dengan menyalin
+     * hidden input ke tiap form berarti harus INGAT setiap form yang ada dan yang dibuat
+     * nanti; satu yang terlupa mengembalikan bug ini utuh-utuh.
+     *
+     * Karena itu andaiannya disimpan di SESI, per kanal — Shopee dan Tokopedia tidak saling
+     * meminjam. URL tetap menang bila diisi (supaya tautan yang dibagikan membawa angka yang
+     * sama) dan sekaligus memperbarui sesi.
+     *
+     * SESI, bukan tabel: ini pengandaian SATU orang yang sedang menimbang. Menyimpannya ke
+     * basis data membuat rekan yang membuka halaman yang sama melihat angka rekaan sebagai
+     * kenyataan, tanpa pernah memintanya.
      */
     protected function withFeeAssumption(Request $request, array $channel): array
     {
         $channel['fee_actual']  = $channel['fee'];
         $channel['fee_assumed'] = false;
 
-        if (!$request->filled('fee_pct') && !$request->filled('fee_rp')) {
+        $kunci     = $channel['key'];
+        $tersimpan = (array) $request->session()->get(self::SESI_ANDAIAN, []);
+
+        // Formnya dikirim dengan kedua kolom kosong = "pakai potongan sebenarnya". Tanpa
+        // penanda `fee_form`, permintaan itu tidak bisa dibedakan dari kunjungan biasa dan
+        // andaiannya akan menolak dihapus.
+        $dikosongkan = $request->has('fee_form')
+            && !$request->filled('fee_pct') && !$request->filled('fee_rp');
+
+        if ($request->boolean('fee_reset') || $dikosongkan) {
+            unset($tersimpan[$kunci]);
+            $request->session()->put(self::SESI_ANDAIAN, $tersimpan);
+
             return $channel;
         }
 
-        $percent = $request->filled('fee_pct')
-            ? (float) str_replace(',', '.', (string) $request->input('fee_pct'))
-            : (float) $channel['fee']['percent'];
-        $fixed = $request->filled('fee_rp')
-            ? (float) clean_number((string) $request->input('fee_rp'))
-            : (float) $channel['fee']['fixed'];
+        if ($request->filled('fee_pct') || $request->filled('fee_rp')) {
+            $percent = $request->filled('fee_pct')
+                ? (float) str_replace(',', '.', (string) $request->input('fee_pct'))
+                : (float) $channel['fee']['percent'];
+            $fixed = $request->filled('fee_rp')
+                ? (float) clean_number((string) $request->input('fee_rp'))
+                : (float) $channel['fee']['fixed'];
 
-        $channel['fee']         = ['percent' => max(0, $percent), 'fixed' => max(0, $fixed)];
-        $channel['fee_assumed'] = abs($channel['fee']['percent'] - $channel['fee_actual']['percent']) > 0.001
-                               || abs($channel['fee']['fixed'] - $channel['fee_actual']['fixed']) > 0.5;
+            $diketik = ['percent' => max(0, $percent), 'fixed' => max(0, $fixed)];
+
+            // Mengetik angka yang sama persis dengan potongan asli = membatalkan andaian.
+            // Kalau tetap disimpan, ia akan tidur diam-diam lalu bangun jadi "andaian" pada
+            // hari potongan aslinya diubah — kejutan yang tidak pernah diminta siapa pun.
+            if ($this->samaDenganAsli($diketik, $channel['fee_actual'])) {
+                unset($tersimpan[$kunci]);
+            } else {
+                $tersimpan[$kunci] = $diketik;
+            }
+
+            $request->session()->put(self::SESI_ANDAIAN, $tersimpan);
+        }
+
+        if (!isset($tersimpan[$kunci])) {
+            return $channel;
+        }
+
+        $channel['fee'] = [
+            'percent' => (float) $tersimpan[$kunci]['percent'],
+            'fixed'   => (float) $tersimpan[$kunci]['fixed'],
+        ];
+        $channel['fee_assumed'] = !$this->samaDenganAsli($channel['fee'], $channel['fee_actual']);
 
         return $channel;
+    }
+
+    /** Dua potongan dianggap sama bila selisihnya di bawah yang bisa dilihat mata di layar. */
+    protected function samaDenganAsli(array $a, array $b): bool
+    {
+        return abs($a['percent'] - $b['percent']) <= 0.001
+            && abs($a['fixed'] - $b['fixed']) <= 0.5;
     }
 
     /** Cari + urutkan + paginasi — sama untuk keempat sub-tab. */

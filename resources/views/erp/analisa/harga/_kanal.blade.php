@@ -11,12 +11,15 @@
     $routes = ['harga' => 'analisa.harga.index', 'afiliasi' => 'analisa.harga.afiliasi',
                'grosir' => 'analisa.harga.grosir', 'promo' => 'analisa.harga.promo',
                'promo-produk' => 'analisa.harga.promo.produk'];
-    $keep   = collect(request()->query())->except('kanal', 'page')->all();
+    // Pindah kanal TIDAK boleh menyeret angka andaian kanal sebelumnya: potongan Shopee
+    // yang diandaikan 20% bukan andaian yang sah untuk Tokopedia. Andaiannya sendiri sudah
+    // tersimpan di sesi per kanal, jadi tidak ada yang hilang dengan membuangnya dari URL.
+    $keep   = collect(request()->query())->except('kanal', 'page', 'fee_pct', 'fee_rp', 'fee_reset', 'fee_form')->all();
 
-    // Potongan andaian: dipasang lewat URL oleh controller, aslinya tetap dibawa.
+    // Potongan andaian: tersimpan di sesi per kanal, aslinya tetap dibawa berdampingan.
     $feeAsli    = $channel['fee_actual'] ?? $channel['fee'];
     $feeAndaian = (bool) ($channel['fee_assumed'] ?? false);
-    $keepFee    = collect(request()->query())->except('fee_pct', 'fee_rp', 'page')->all();
+    $keepFee    = collect(request()->query())->except('fee_pct', 'fee_rp', 'fee_reset', 'fee_form', 'page')->all();
 @endphp
 
 <div class="flex flex-wrap items-center gap-2 mb-4">
@@ -90,8 +93,13 @@
     </div>
 
     {{-- Potongan andaian — "kalau potongan marketplace naik jadi sekian, harga saya masih
-         untung?". Tidak disimpan: begitu URL-nya ditinggalkan, halaman kembali ke angka asli. --}}
+         untung?". Terpasang sampai dilepas: menimbang harga butuh bolak-balik mencari,
+         mengurutkan, dan pindah sub-tab, dan andaian yang lenyap di tengah jalan justru
+         paling berbahaya — angkanya kembali ke potongan asli tanpa memberi tahu siapa pun.
+         `fee_form` adalah penanda supaya "kedua kolom dikosongkan" bisa dibedakan dari
+         kunjungan biasa; tanpa itu andaiannya tidak bisa dihapus lewat mengosongkan kolom. --}}
     <form method="GET" class="mt-3 border-t border-slate-100 pt-3 flex flex-wrap items-end gap-2">
+        <input type="hidden" name="fee_form" value="1">
         @foreach($keepFee as $k => $v)
             @if(is_array($v))
                 @foreach($v as $vv)<input type="hidden" name="{{ $k }}[]" value="{{ $vv }}">@endforeach
@@ -121,11 +129,18 @@
             Terapkan andaian
         </button>
         @if($feeAndaian)
-            <a href="{{ route($routes[$tab], array_merge($keepFee, ['kanal' => $channel['key']])) }}"
-               class="text-xs text-slate-500 hover:underline py-2">kembali ke potongan asli</a>
+            <a href="{{ route($routes[$tab], array_merge($keepFee, ['kanal' => $channel['key'], 'fee_reset' => 1])) }}"
+               class="text-xs text-amber-700 font-semibold hover:underline py-2">kembali ke potongan asli</a>
         @endif
-        <span class="text-[11px] text-slate-400 ml-1">
-            Kosongkan untuk memakai potongan sebenarnya. Angka ini tidak disimpan &mdash; hanya berlaku selama URL-nya dibuka.
+        <span class="text-[11px] {{ $feeAndaian ? 'text-amber-600' : 'text-slate-400' }} ml-1">
+            @if($feeAndaian)
+                Andaian ini <strong>tetap terpasang</strong> sampai diganti atau dikembalikan &mdash;
+                ikut berpindah sub-tab dan bertahan saat mencari/mengurutkan. Hanya berlaku untuk
+                {{ $channel['label'] }}, dan hanya di layar kamu.
+            @else
+                Kosongkan untuk memakai potongan sebenarnya. Sekali diterapkan, andaiannya tetap
+                terpasang sampai dikembalikan &mdash; per kanal, dan hanya di layar kamu.
+            @endif
         </span>
     </form>
 

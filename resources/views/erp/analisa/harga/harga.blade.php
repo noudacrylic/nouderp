@@ -4,6 +4,8 @@
     $rp    = fn (?float $v) => $v === null ? '—' : 'Rp' . number_format((float) $v, 0, ',', '.');
     $angka = fn (?float $v, int $d = 1) => $v === null ? '—' : number_format($v, $d, ',', '.');
     $isWeb = $channel['kind'] === 'internal';
+    // Kolom "Di marketplace" hanya masuk akal untuk kanal yang punya toko Jubelio.
+    $pasarAktif = !$isWeb && !empty($channel['store_ids']);
 @endphp
 
 @section('content')
@@ -23,6 +25,18 @@
             </p>
         </div>
         <div class="flex gap-2">
+            @if($pasarAktif)
+                {{-- Menarik harga = satu panggilan API per produk, jadi ia harus diminta, bukan
+                     terjadi sendiri saat halaman dibuka. --}}
+                <form method="POST" action="{{ route('analisa.harga.tarik') }}">
+                    @csrf
+                    <input type="hidden" name="kanal" value="{{ $channel['key'] }}">
+                    <button class="border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-xl text-sm font-semibold"
+                            title="Tanyakan ke Jubelio berapa harga yang sedang dipegang toko kanal ini.">
+                        Tarik harga marketplace
+                    </button>
+                </form>
+            @endif
             <a href="{{ route('analisa.hpp.index') }}"
                class="border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-xl text-sm font-semibold">HPP Produk</a>
         </div>
@@ -75,12 +89,16 @@
     <div class="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-sm" id="tabel-harga" style="min-width:1100px"
-                   data-percent="{{ $channel['fee']['percent'] }}" data-fixed="{{ $channel['fee']['fixed'] }}">
+                   data-percent="{{ $channel['fee']['percent'] }}" data-fixed="{{ $channel['fee']['fixed'] }}"
+                   data-andaian="{{ ($channel['fee_assumed'] ?? false) ? 1 : 0 }}">
                 <thead class="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400">
                     <tr>
                         <th class="px-5 py-3 text-left font-black">Produk</th>
                         <th class="px-3 py-3 text-right font-black">HPP</th>
                         <th class="px-3 py-3 text-right font-black bg-indigo-50">Harga<br>Jual</th>
+                        @if($pasarAktif)
+                            <th class="px-3 py-3 text-right font-black" title="Harga yang sedang dipegang Jubelio untuk toko kanal ini.">Di<br>marketplace</th>
+                        @endif
                         <th class="px-3 py-3 text-right font-black">Potongan</th>
                         <th class="px-3 py-3 text-right font-black">Untung</th>
                         <th class="px-3 py-3 text-right font-black">
@@ -128,6 +146,37 @@
                                     <button class="text-indigo-700 hover:text-indigo-900 text-xs font-bold" title="Simpan harga">✓</button>
                                 </form>
                             </td>
+
+                            @if($pasarAktif)
+                                @php $mp = $pasar->get($pid); @endphp
+                                <td class="px-3 py-3 text-right tabular-nums">
+                                    @if(!$mp)
+                                        <span class="text-slate-300" title="Belum pernah ditarik dari Jubelio.">—</span>
+                                    @elseif(!$mp['seragam'])
+                                        {{-- Dua toko satu kanal berharga beda: justru ini yang harus terbaca, bukan dilebur. --}}
+                                        <span class="text-amber-600 font-bold text-xs"
+                                              title="{{ collect($mp['per_toko'])->map(fn ($v, $t) => 'toko ' . $t . ': ' . ($v === null ? '—' : $rp($v)))->implode(' · ') }}">
+                                            beda antar-toko
+                                        </span>
+                                    @elseif($mp['price'] === null)
+                                        <span class="text-slate-300" title="{{ $mp['note'] ?? 'Jubelio tidak memberi harga untuk toko ini.' }}">—</span>
+                                    @else
+                                        <span class="font-bold text-slate-700">{{ $rp($mp['price']) }}</span>
+                                        @php $selisih = $row['price'] === null ? null : $mp['price'] - $row['price']; @endphp
+                                        @if($selisih !== null && abs($selisih) >= 1)
+                                            {{-- Harga di sana berbeda dengan yang kita hitung: entah belum dikirim,
+                                                 entah diubah orang lain langsung di Jubelio/seller center. --}}
+                                            <span class="block text-[10px] font-semibold text-amber-600"
+                                                  title="Beda dengan harga di kolom Harga Jual.">
+                                                {{ $selisih > 0 ? '+' : '−' }}{{ $rp(abs($selisih)) }}
+                                            </span>
+                                        @endif
+                                    @endif
+                                    @if($mp && $mp['fetched_at'])
+                                        <span class="block text-[10px] text-slate-400">{{ $mp['fetched_at']->diffForHumans() }}</span>
+                                    @endif
+                                </td>
+                            @endif
 
                             <td class="px-3 py-3 text-right tabular-nums text-slate-600">
                                 <span class="js-potongan">{{ $rp($s['deduction']) }}</span>
@@ -180,7 +229,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="{{ $markup !== null ? 8 : 7 }}" class="px-5 py-12 text-center text-slate-400">
+                            <td colspan="{{ 7 + ($markup !== null ? 1 : 0) + ($pasarAktif ? 1 : 0) }}" class="px-5 py-12 text-center text-slate-400">
                                 Belum ada produk yang ditandai dijual. Tandai <strong>Dijual</strong> di master produk supaya muncul di sini.
                             </td>
                         </tr>
