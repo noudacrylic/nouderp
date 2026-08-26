@@ -68,3 +68,9 @@ Schedule::command('midtrans:reconcile-pending')->everyFifteenMinutes()->name('mi
 // Jubelio riwayat sinkron — buang log lebih lama dari 90 hari (jejak audit, bukan sumber kebenaran).
 Schedule::call(fn() => \App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog::where('created_at', '<', now()->subDays(90))->delete())
     ->dailyAt('02:30')->name('jubelio-prune-sync-logs');
+
+// Analisa — hitung angka HPP/Harga/Kuota lebih dulu supaya halamannya terbuka seketika.
+// Angkanya sudah dijaga sidik jari data (AnalysisCache), jadi kalau tidak ada yang berubah
+// perintah ini hampir tanpa biaya; kalau ada, ongkos hitung ulang dibayar di sini, bukan
+// oleh orang yang sedang membuka halaman.
+Schedule::command('analisa:hangatkan')->everyFifteenMinutes()->name('analisa-hangatkan')->withoutOverlapping();

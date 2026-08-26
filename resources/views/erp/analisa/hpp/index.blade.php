@@ -27,6 +27,8 @@
 
     @include('erp.analisa._mode-asumsi')
 
+    @include('erp.analisa._hitung-ulang')
+
     @include('erp.analisa.hpp._basis')
 
     {{-- Filter --}}

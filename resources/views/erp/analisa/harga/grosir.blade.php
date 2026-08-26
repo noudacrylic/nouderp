@@ -23,6 +23,8 @@
 
     @include('erp.analisa._mode-asumsi')
 
+    @include('erp.analisa._hitung-ulang')
+
     @include('erp.analisa.harga._kanal')
 
     <form method="GET" class="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">

@@ -31,6 +31,65 @@ class ProductionCalendarService
     {
     }
 
+    /**
+     * Ingatan sepanjang hidup objek — daftar yang TIDAK bergantung tanggal.
+     *
+     * Kuota Produksi membangun kalender sekali untuk setiap hari dalam jendelanya (±30×),
+     * dan tiap pembangunan menanyakan ulang daftar eksekutor & daftar operator penaung yang
+     * jawabannya sama persis. Terukur: dua query itu masing-masing muncul 320 kali dalam
+     * satu putaran profil. Daftar libur diingat per tanggal (tanggal yang sama kerap
+     * ditanya lebih dari sekali dalam satu permintaan).
+     */
+    private $memoEksekutor = null;
+    private ?array $memoPenaung = null;
+    private array $memoLibur = [];
+
+    /** Jendela tanggal yang datanya sudah diborong lebih dulu — lihat hangatkan(). */
+    private ?array $jendelaHangat = null;
+    private $memoDowntime = null;
+    private array $memoOverride = [];
+    private array $memoAbsen = [];
+
+    /**
+     * Borong data satu RENTANG tanggal sekaligus, untuk pemanggil yang tahu ia akan
+     * membangun banyak hari berturut-turut (Kuota Produksi: satu build per hari selama
+     * ±30 hari).
+     *
+     * Tanpa ini tiap hari menembakkan query sendiri untuk libur, henti mesin, absensi,
+     * dan override — empat query dikali jumlah hari, padahal semuanya bisa diambil dalam
+     * empat query saja. Tabel-tabelnya kecil dan rentangnya terbatas, jadi pemborongan ini
+     * aman; yang tidak diborong (log timer) memang berat dan tetap per hari.
+     */
+    public function hangatkan(Carbon $from, Carbon $to): void
+    {
+        $this->jendelaHangat = [$from->copy()->startOfDay(), $to->copy()->endOfDay()];
+
+        foreach (DB::table('sdm_national_holidays')
+            ->whereBetween('tanggal', [$from->toDateString(), $to->toDateString()])->get() as $h) {
+            $this->memoLibur[substr((string) $h->tanggal, 0, 10)] = $h;
+        }
+
+        $this->memoDowntime = MachineDowntime::where('started_at', '<', $this->jendelaHangat[1])
+            ->where('ended_at', '>', $this->jendelaHangat[0])
+            ->orderBy('started_at')
+            ->get();
+
+        $override = DB::table('sdm_attendance_overrides')
+            ->whereBetween('tanggal', [$from->toDateString(), $to->toDateString()])->get();
+        $absen = DB::table('sdm_attendance')
+            ->whereBetween('tanggal', [$from->toDateString(), $to->toDateString()])->get();
+
+        for ($d = $from->copy(); $d->lte($to); $d->addDay()) {
+            $tgl = $d->toDateString();
+            if (!array_key_exists($tgl, $this->memoLibur)) {
+                $this->memoLibur[$tgl] = null;   // sudah dicari, memang tidak ada
+            }
+            $this->memoOverride[$tgl] = $override->filter(fn ($r) => substr((string) $r->tanggal, 0, 10) === $tgl)->keyBy('karyawan_id');
+            $this->memoAbsen[$tgl]    = $absen->filter(fn ($r) => substr((string) $r->tanggal, 0, 10) === $tgl)->keyBy('karyawan_id');
+        }
+    }
+
+
     /** Jam tampil minimal, dipakai bila jadwal tidak ketemu. */
     public const FALLBACK_START = '08:00';
     public const FALLBACK_END   = '16:00';
@@ -139,7 +198,7 @@ class ProductionCalendarService
         // Operator penaung tidak punya baris. Langkah lama yang terlanjur tercatat atas
         // namanya tidak boleh menguap — kalau setelah disaring tidak ada pelaku tersisa,
         // bloknya jatuh ke baris "Tanpa eksekutor".
-        $supervisorIds = DB::table('production_department_executors')
+        $supervisorIds = $this->memoPenaung ??= DB::table('production_department_executors')
             ->whereNotNull('parent_executor_id')
             ->distinct()->pluck('parent_executor_id')
             ->map(fn ($v) => (int) $v)->all();
@@ -250,7 +309,7 @@ class ProductionCalendarService
 
     protected function rows(Carbon $date, array $blocksByExecutor, ?object $holiday, array $downtimes = []): array
     {
-        $executors = DB::table('production_department_executors as e')
+        $executors = $this->memoEksekutor ??= DB::table('production_department_executors as e')
             ->join('production_departments as d', 'd.id', '=', 'e.department_id')
             ->where('e.is_active', 1)
             ->select('e.id', 'e.name', 'e.department_id', 'e.parent_executor_id', 'e.karyawan_id', 'd.name as dept_name', 'd.type as dept_type')
@@ -416,10 +475,12 @@ class ProductionCalendarService
      */
     protected function downtimesFor(Carbon $dayStart, Carbon $dayEnd): array
     {
-        $rows = MachineDowntime::where('started_at', '<', $dayEnd)
-            ->where('ended_at', '>', $dayStart)
-            ->orderBy('started_at')
-            ->get();
+        $rows = $this->diJendela($dayStart)
+            ? $this->memoDowntime->filter(fn ($d) => $d->started_at->lt($dayEnd) && $d->ended_at->gt($dayStart))
+            : MachineDowntime::where('started_at', '<', $dayEnd)
+                ->where('ended_at', '>', $dayStart)
+                ->orderBy('started_at')
+                ->get();
 
         $out = [];
         foreach ($rows as $d) {
@@ -443,10 +504,24 @@ class ProductionCalendarService
         return $out;
     }
 
+    /** Tanggal ini termasuk rentang yang sudah diborong hangatkan()? */
+    private function diJendela(Carbon $tanggal): bool
+    {
+        return $this->jendelaHangat !== null
+            && $this->memoDowntime !== null
+            && $tanggal->betweenIncluded($this->jendelaHangat[0], $this->jendelaHangat[1]);
+    }
+
     /** Libur nasional / cuti bersama pada tanggal itu, kalau terdaftar di SDM → Libur. */
     protected function holidayFor(Carbon $date): ?object
     {
-        return DB::table('sdm_national_holidays')->whereDate('tanggal', $date)->first();
+        $kunci = $date->toDateString();
+
+        if (!array_key_exists($kunci, $this->memoLibur)) {
+            $this->memoLibur[$kunci] = DB::table('sdm_national_holidays')->whereDate('tanggal', $date)->first();
+        }
+
+        return $this->memoLibur[$kunci];
     }
 
     /**
@@ -485,11 +560,13 @@ class ProductionCalendarService
 
         $karyawanIds = array_values(array_unique($map));
 
-        $overrides = DB::table('sdm_attendance_overrides')
+        $tgl = $date->toDateString();
+
+        $overrides = $this->memoOverride[$tgl] ?? DB::table('sdm_attendance_overrides')
             ->whereIn('karyawan_id', $karyawanIds)->whereDate('tanggal', $date)
             ->get()->keyBy('karyawan_id');
 
-        $attendance = DB::table('sdm_attendance')
+        $attendance = $this->memoAbsen[$tgl] ?? DB::table('sdm_attendance')
             ->whereIn('karyawan_id', $karyawanIds)->whereDate('tanggal', $date)
             ->get()->keyBy('karyawan_id');
 

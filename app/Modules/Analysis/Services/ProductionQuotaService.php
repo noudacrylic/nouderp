@@ -7,6 +7,7 @@ use App\Modules\Analysis\Models\ProductionQuotaSlot;
 use App\Modules\Production\Models\Department;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use App\Modules\Analysis\Support\AnalysisCache;
 
 /**
  * Kuota Produksi — berapa slot-jam yang PABRIK PUNYA sebulan, dan berapa yang benar-benar terpakai.
@@ -35,6 +36,7 @@ class ProductionQuotaService
     public function __construct(
         protected ProductionCalendarService $calendar,
         protected ProductionCostRateService $rateService,
+        protected AnalysisCache $cache,
     ) {
     }
 
@@ -45,6 +47,11 @@ class ProductionQuotaService
      * }
      */
     public function build(array $filters = []): array
+    {
+        return $this->cache->remember('kuota.build', $filters, fn () => $this->hitung($filters));
+    }
+
+    protected function hitung(array $filters): array
     {
         [$from, $to] = $this->window($filters);
 
@@ -104,6 +111,10 @@ class ProductionQuotaService
      */
     protected function observe(Carbon $from, Carbon $to): array
     {
+        // Satu kalender per hari selama sejendela penuh: borong dulu data yang bisa
+        // diborong, supaya yang tersisa per hari hanya yang memang berat (log timer).
+        $this->calendar->hangatkan($from, $to);
+
         $excludedRows = ProductionQuotaExcludedDate::orderBy('tanggal')->get()
             ->keyBy(fn ($r) => $r->tanggal->toDateString());
 

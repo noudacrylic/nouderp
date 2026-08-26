@@ -3,6 +3,8 @@
 @section('content')
 <div class="w-full px-6 py-4">
 
+    @include('erp.analisa._hitung-ulang')
+
     <div class="flex justify-between items-center mb-6">
         <div>
             <h1 class="text-xl font-bold text-gray-800">Rata-rata Waktu Produksi</h1>

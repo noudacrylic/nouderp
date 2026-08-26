@@ -84,6 +84,15 @@ class ChannelPricingService
      * @param array|null $fee          potongan andaian ['percent','fixed'] — untuk menjawab
      *                                 "kalau potongan Shopee naik, harga saya masih untung?"
      */
+    /**
+     * Sengaja TIDAK ikut disimpan sendiri, walau halamannya dulu yang paling lambat
+     * (2,4 detik / 2.872 query). Yang mahal di situ adalah HPP-nya, dan HPP sudah
+     * disimpan — begitu HPP hangat, penyusunan baris kanal tinggal ±20 ms.
+     *
+     * Menyimpannya lagi di sini justru merugikan: potongan kanal dan markup di halaman
+     * ini boleh diketik untuk pengandaian, jadi kuncinya akan beranak mengikuti setiap
+     * angka yang dicoba orang — puluhan salinan tabel yang sama demi menghemat 20 ms.
+     */
     public function rows(string $channelKey, array $filters = [], ?float $targetMarkup = null, ?array $fee = null): Collection
     {
         $channel = $this->channel($channelKey);

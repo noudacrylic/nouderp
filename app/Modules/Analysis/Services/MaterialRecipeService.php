@@ -5,6 +5,7 @@ namespace App\Modules\Analysis\Services;
 use App\Modules\Analysis\Models\MaterialPriceAssumption;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use App\Modules\Analysis\Support\AnalysisCache;
 
 /**
  * Menguraikan variable cost menjadi bahan-bahannya, supaya pertanyaan "kalau akrilik naik
@@ -52,8 +53,10 @@ class MaterialRecipeService
 
     private array $cache = [];
 
-    public function __construct(protected ProductionTimeAnalysisService $timeService)
-    {
+    public function __construct(
+        protected ProductionTimeAnalysisService $timeService,
+        protected AnalysisCache $simpanan,
+    ) {
     }
 
     /**
@@ -80,6 +83,12 @@ class MaterialRecipeService
      * @return array<int,float|null>
      */
     public function costs(array $filters = [], bool $withAssumption = false): array
+    {
+        return $this->simpanan->remember('bahan.costs', array_merge($filters, ['asumsi' => $withAssumption]),
+            fn () => $this->hitungCosts($filters, $withAssumption));
+    }
+
+    protected function hitungCosts(array $filters, bool $withAssumption): array
     {
         $data        = $this->build($filters);
         $assumptions = $withAssumption ? MaterialPriceAssumption::map() : [];

@@ -8,6 +8,8 @@
 @section('content')
 <div class="w-full px-6 py-4">
 
+    @include('erp.analisa._hitung-ulang')
+
     <div class="flex flex-wrap justify-between items-start gap-3 mb-5">
         <div>
             <h1 class="text-xl font-bold text-slate-800">Asumsi Harga Bahan</h1>

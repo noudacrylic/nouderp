@@ -7,6 +7,7 @@ use App\Modules\Analysis\Support\ProductionTimeMath as Math;
 use App\Modules\Production\Models\Department;
 use App\Modules\Production\Models\ProductionOrder;
 use Illuminate\Support\Collection;
+use App\Modules\Analysis\Support\AnalysisCache;
 
 /**
  * Mesin analisa rata-rata waktu produksi per produk per divisi.
@@ -22,6 +23,10 @@ use Illuminate\Support\Collection;
  */
 class ProductionTimeAnalysisService
 {
+    public function __construct(protected AnalysisCache $cache)
+    {
+    }
+
     /** Status OP yang seluruh langkahnya sudah tuntas → data timer lengkap. */
     public const ELIGIBLE_STATUSES = ['finalized', 'completed', 'pending'];
 
@@ -149,6 +154,11 @@ class ProductionTimeAnalysisService
 
     /** @return Collection<int,array> dikunci product_id */
     protected function buildAll(array $filters): Collection
+    {
+        return $this->cache->remember('waktu.buildAll', $filters, fn () => $this->hitungSemua($filters));
+    }
+
+    protected function hitungSemua(array $filters): Collection
     {
         $orders     = $this->eligibleOrders($filters);
         $exclusions = ProductionTimeSampleExclusion::pluck('reason', 'production_order_id');

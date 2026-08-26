@@ -34,6 +34,11 @@ class AppServiceProvider extends ServiceProvider
         // memakainya lewat beberapa jalan sekaligus (HPP Ready, HPP Bundle, Harga Produk),
         // dan menyusun resepnya jauh lebih mahal daripada membacanya.
         $this->app->singleton(\App\Modules\Analysis\Services\MaterialRecipeService::class);
+
+        // Sidik jari data Analisa dihitung sekali per permintaan. Tanpa ini tiap service
+        // memegang salinannya sendiri dan cap-nya diambil berulang — terukur 31 query
+        // dikali jumlah service, untuk jawaban yang sama persis.
+        $this->app->scoped(\App\Modules\Analysis\Support\AnalysisCache::class);
     }
 
     public function boot(): void

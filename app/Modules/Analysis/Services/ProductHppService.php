@@ -5,6 +5,7 @@ namespace App\Modules\Analysis\Services;
 use App\Modules\Analysis\Models\ProductPackingCost;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use App\Modules\Analysis\Support\AnalysisCache;
 
 /**
  * HPP (harga pokok) per unit produk — empat suku, tidak lebih.
@@ -53,11 +54,23 @@ class ProductHppService
         protected ProductionTimeInsightService $insight,
         protected ProductionQuotaService $quotaService,
         protected MaterialRecipeService $recipes,
+        protected AnalysisCache $cache,
     ) {
     }
 
-    /** @return Collection<int,array> dikunci product_id */
+    /**
+     * @return Collection<int,array> dikunci product_id
+     *
+     * Hasilnya disimpan sampai ADA DATA YANG BERUBAH — lihat AnalysisCache. Terukur
+     * sebelum ini: 1,4 detik & 1.172 query setiap kali halaman HPP dibuka, padahal
+     * angkanya sama persis dengan yang tadi.
+     */
     public function all(array $filters = []): Collection
+    {
+        return $this->cache->remember('hpp.all', $filters, fn () => $this->hitungSemua($filters));
+    }
+
+    protected function hitungSemua(array $filters): Collection
     {
         $timeRows = $this->timeService->perProduct($filters);
         if ($timeRows->isEmpty()) {

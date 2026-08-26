@@ -10,6 +10,52 @@ use Carbon\Carbon;
 class ExecutorScheduleResolver
 {
     /**
+     * Ingatan sepanjang HIDUP OBJEK INI — bukan cache lintas permintaan.
+     *
+     * Kalender Produksi memanggil resolver ini untuk tiap orang pada tiap tanggal, dan
+     * Kuota Produksi memutar kalender itu sekali untuk SETIAP HARI dalam jendelanya.
+     * Terukur sebelum ada ingatan ini: satu kali buka halaman HPP menembakkan
+     * `sdm_karyawan_schedule where karyawan_id=? and day_of_week=?` sebanyak 1.236 kali —
+     * jawabannya sama persis setiap kali, karena jadwal orang tidak berubah di tengah
+     * satu permintaan.
+     *
+     * Jadwal & tukar-hari diambil SEKALI PER ORANG (7-an baris), lalu tanggalnya
+     * dicocokkan di PHP. Scan sidik jari tetap per tanggal — jumlahnya bisa setahun
+     * penuh, tidak layak diborong.
+     *
+     * Sengaja TIDAK didaftarkan sebagai singleton/scoped di container: objek ini juga
+     * dipakai jalur timer produksi yang menulis lalu membaca lagi. Dengan ingatan yang
+     * hanya sepanjang umur objek, penghematan tetap didapat di tempat yang memutar
+     * ribuan kali (kalender), tanpa risiko jawaban basi di tempat yang menulis.
+     */
+    private array $memoJadwal = [];   // [karyawan_id => Collection<KaryawanSchedule>]
+    private array $memoTukar  = [];   // [karyawan_id => Collection<AttendanceOverride>]
+    private array $memoScan   = [];   // ["jenis:karyawan_id:tanggal" => hasil]
+
+    /** Buang ingatan — dipakai bila objek yang sama dipakai lagi SESUDAH data diubah. */
+    public function lupakanIngatan(): void
+    {
+        $this->memoJadwal = [];
+        $this->memoTukar  = [];
+        $this->memoScan   = [];
+    }
+
+    /** Seluruh baris jadwal mingguan satu orang (±7 baris). */
+    protected function jadwalOrang(int $karyawanId)
+    {
+        return $this->memoJadwal[$karyawanId] ??= KaryawanSchedule::where('karyawan_id', $karyawanId)->get();
+    }
+
+    /** Seluruh override "tukar hari" satu orang. */
+    protected function tukarHariOrang(int $karyawanId)
+    {
+        return $this->memoTukar[$karyawanId] ??= \App\Modules\SDM\Models\AttendanceOverride::query()
+            ->where('karyawan_id', $karyawanId)
+            ->where('type', 'tukar_hari')
+            ->get();
+    }
+
+    /**
      * Jadwal RESMI seseorang pada satu tanggal: jadwal mingguan, dikoreksi tukar hari.
      *
      * Inilah yang berarti "hari ini dijadwalkan bekerja". Dipakai untuk menghitung KAPASITAS
@@ -18,9 +64,8 @@ class ExecutorScheduleResolver
      */
     public function scheduledFor(int $karyawanId, Carbon $date): ?KaryawanSchedule
     {
-        $today = KaryawanSchedule::where('karyawan_id', $karyawanId)
-            ->where('day_of_week', (int) $date->dayOfWeek)
-            ->first();
+        $today = $this->jadwalOrang($karyawanId)
+            ->firstWhere('day_of_week', (int) $date->dayOfWeek);
 
         $swap = $this->fullDaySwap($karyawanId, $date);
         if (!$swap) {
@@ -71,20 +116,40 @@ class ExecutorScheduleResolver
     /** Override "tukar hari" penuh yang menyentuh tanggal ini (dari sisi mana pun pasangannya). */
     protected function fullDaySwap(int $karyawanId, Carbon $date): ?object
     {
-        return \App\Modules\SDM\Models\AttendanceOverride::where('karyawan_id', $karyawanId)
-            ->where('type', 'tukar_hari')
-            ->where(function ($q) use ($date) {
-                $q->whereDate('tanggal', $date->toDateString())
-                  ->orWhereDate('paired_date', $date->toDateString());
-            })
-            ->first();
+        $tgl = $date->toDateString();
+
+        return $this->tukarHariOrang($karyawanId)->first(
+            fn ($row) => $this->tanggalSama($row->tanggal, $tgl) || $this->tanggalSama($row->paired_date, $tgl)
+        );
     }
 
     protected function hasAnyScan(int $karyawanId, Carbon $date): bool
     {
-        return FingerprintLog::where('karyawan_id', $karyawanId)
+        return $this->ingatScan('any', $karyawanId, $date, fn () => FingerprintLog::where('karyawan_id', $karyawanId)
             ->whereDate('scan_at', $date->toDateString())
-            ->exists();
+            ->exists());
+    }
+
+    /** Bandingkan kolom tanggal (Carbon atau string) dengan 'Y-m-d'. */
+    private function tanggalSama($nilai, string $tanggal): bool
+    {
+        if (!$nilai) {
+            return false;
+        }
+
+        return ($nilai instanceof \DateTimeInterface ? $nilai->format('Y-m-d') : substr((string) $nilai, 0, 10)) === $tanggal;
+    }
+
+    /** Satu (jenis, orang, tanggal) hanya ditanyakan sekali ke basis data. */
+    private function ingatScan(string $jenis, int $karyawanId, Carbon $date, \Closure $fn)
+    {
+        $kunci = $jenis . ':' . $karyawanId . ':' . $date->toDateString();
+
+        if (!array_key_exists($kunci, $this->memoScan)) {
+            $this->memoScan[$kunci] = $fn();
+        }
+
+        return $this->memoScan[$kunci];
     }
 
     /**
@@ -93,9 +158,9 @@ class ExecutorScheduleResolver
      */
     protected function workingDaySchedule(int $karyawanId, ?object $swap, Carbon $date): ?KaryawanSchedule
     {
-        $rows = KaryawanSchedule::where('karyawan_id', $karyawanId)
-            ->where('is_off', false)->whereNotNull('jam_masuk')->whereNotNull('jam_pulang')
-            ->get();
+        $rows = $this->jadwalOrang($karyawanId)
+            ->filter(fn ($r) => !$r->is_off && $r->jam_masuk !== null && $r->jam_pulang !== null)
+            ->values();
 
         if ($rows->isEmpty()) {
             return null;
@@ -120,32 +185,38 @@ class ExecutorScheduleResolver
 
     public function hasCheckedIn(int $karyawanId, Carbon $date): ?Carbon
     {
-        $scan = FingerprintLog::where('karyawan_id', $karyawanId)
-            ->where('verify_type', 'check_in')
-            ->whereDate('scan_at', $date->toDateString())
-            ->orderBy('scan_at')
-            ->first();
-        return $scan ? Carbon::parse($scan->scan_at) : null;
+        return $this->ingatScan('check_in', $karyawanId, $date, function () use ($karyawanId, $date) {
+            $scan = FingerprintLog::where('karyawan_id', $karyawanId)
+                ->where('verify_type', 'check_in')
+                ->whereDate('scan_at', $date->toDateString())
+                ->orderBy('scan_at')
+                ->first();
+            return $scan ? Carbon::parse($scan->scan_at) : null;
+        });
     }
 
     public function hasCheckedOut(int $karyawanId, Carbon $date): ?Carbon
     {
-        $scan = FingerprintLog::where('karyawan_id', $karyawanId)
-            ->where('verify_type', 'check_out')
-            ->whereDate('scan_at', $date->toDateString())
-            ->orderByDesc('scan_at')
-            ->first();
-        return $scan ? Carbon::parse($scan->scan_at) : null;
+        return $this->ingatScan('check_out', $karyawanId, $date, function () use ($karyawanId, $date) {
+            $scan = FingerprintLog::where('karyawan_id', $karyawanId)
+                ->where('verify_type', 'check_out')
+                ->whereDate('scan_at', $date->toDateString())
+                ->orderByDesc('scan_at')
+                ->first();
+            return $scan ? Carbon::parse($scan->scan_at) : null;
+        });
     }
 
     public function hasOvertimeIn(int $karyawanId, Carbon $date): ?Carbon
     {
-        $scan = FingerprintLog::where('karyawan_id', $karyawanId)
-            ->where('verify_type', 'overtime_in')
-            ->whereDate('scan_at', $date->toDateString())
-            ->orderBy('scan_at')
-            ->first();
-        return $scan ? Carbon::parse($scan->scan_at) : null;
+        return $this->ingatScan('overtime_in', $karyawanId, $date, function () use ($karyawanId, $date) {
+            $scan = FingerprintLog::where('karyawan_id', $karyawanId)
+                ->where('verify_type', 'overtime_in')
+                ->whereDate('scan_at', $date->toDateString())
+                ->orderBy('scan_at')
+                ->first();
+            return $scan ? Carbon::parse($scan->scan_at) : null;
+        });
     }
 
     /**

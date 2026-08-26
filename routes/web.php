@@ -1275,6 +1275,11 @@ Route::prefix('erp/tasks')->name('tasks.')->group(function () {
 // ANALISA MODULE
 // ═══════════════════════════════════════════════════════════════
 Route::prefix('erp/analisa')->name('analisa.')->group(function () {
+    // Paksa hitung ulang seluruh angka Analisa (tombol di tiap halaman). Sengaja POST +
+    // back(): ini aksi di halaman index, filternya harus tetap terpasang setelahnya.
+    Route::post('hitung-ulang', [\App\Modules\Analysis\Controllers\AnalysisCacheController::class, 'refresh'])
+        ->name('hitung-ulang');
+
     // `export` didaftarkan lebih dulu supaya tidak ke-shadow route {productId}.
     // Segmen terakhir `export` juga dikenali submenu_url_is_action() sehingga
     // unduhan tidak meracuni landing menu Analisa.

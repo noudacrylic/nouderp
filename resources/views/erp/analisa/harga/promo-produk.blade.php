@@ -23,6 +23,8 @@
 
     @include('erp.analisa._mode-asumsi')
 
+    @include('erp.analisa._hitung-ulang')
+
     @include('erp.analisa.harga._promo-nav', ['mode' => 'produk'])
 
     @include('erp.analisa.harga._kanal')

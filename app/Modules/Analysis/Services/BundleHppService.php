@@ -7,6 +7,7 @@ use App\Core\Inventory\ProductBundle;
 use App\Modules\Analysis\Models\ProductPackingCost;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use App\Modules\Analysis\Support\AnalysisCache;
 
 /**
  * HPP bundle — dirakit dari HPP produk Ready, bukan dihitung ulang dari nol.
@@ -46,12 +47,19 @@ use Illuminate\Support\Facades\DB;
  */
 class BundleHppService
 {
-    public function __construct(protected ProductHppService $hpp)
-    {
+    public function __construct(
+        protected ProductHppService $hpp,
+        protected AnalysisCache $cache,
+    ) {
     }
 
     /** @return Collection<int,array> dikunci product_id bundle */
     public function all(array $filters = []): Collection
+    {
+        return $this->cache->remember('bundle.all', $filters, fn () => $this->hitungSemua($filters));
+    }
+
+    protected function hitungSemua(array $filters): Collection
     {
         $bundles = DB::table('products')
             ->where('sale_type', 'bundle')
