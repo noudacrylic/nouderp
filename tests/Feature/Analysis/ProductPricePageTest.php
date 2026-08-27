@@ -147,6 +147,56 @@ class ProductPricePageTest extends TestCase
     }
 
     /**
+     * Kanal yang belum punya penyusun TIDAK boleh dianggap potongan 0%.
+     *
+     * Itu yang terjadi di server: tabel penyusunnya kosong, halaman melaporkan "tidak ada
+     * potongan", dan tiap harga yang disusun dari situ untungnya semu — padahal Shopee tetap
+     * memotong 14% + Rp1.250 seperti yang tercatat di akuntansi. Selagi belum diurai jadi
+     * penyusun, angka akuntansi itulah potongan yang berlaku.
+     */
+    public function test_kanal_tanpa_penyusun_memakai_potongan_akuntansi(): void
+    {
+        PriceChannelFeeComponent::where('channel', 'shopee')->delete();
+        $customerId = DB::table('customers')->insertGetId([
+            'code' => 'C-SHOPEE', 'name' => 'Shopee', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        MarketplaceConfig::create([
+            'customer_id' => $customerId, 'admin_fee_percent' => 14,
+            'admin_fee_fixed' => 1_250, 'is_active' => true,
+        ]);
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()
+            ->assertSee('Belum ada penyusun')
+            ->assertSee('14%')
+            ->assertSee('Rp1.250')
+            // Angkanya sama dengan akuntansi, jadi tidak ada yang "sudah basi".
+            ->assertDontSee('Satu di antaranya sudah basi')
+            ->assertDontSee('Tidak ada potongan');
+    }
+
+    /** Andaian tetap menang atas potongan akuntansi — itu memang gunanya. */
+    public function test_andaian_masih_bisa_dipasang_di_kanal_tanpa_penyusun(): void
+    {
+        PriceChannelFeeComponent::where('channel', 'shopee')->delete();
+        $customerId = DB::table('customers')->insertGetId([
+            'code' => 'C-SHOPEE', 'name' => 'Shopee', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        MarketplaceConfig::create([
+            'customer_id' => $customerId, 'admin_fee_percent' => 14,
+            'admin_fee_fixed' => 1_250, 'is_active' => true,
+        ]);
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '20']))
+            ->assertOk()
+            ->assertSee('Total potongan (andaian)')
+            ->assertSee('aslinya 14% + Rp1.250');
+    }
+
+    /**
      * Potongan andaian harus BERTAHAN, karena hilangnya tidak kelihatan.
      *
      * Dulu andaian cuma menempel di query string, dan form cari/urut tidak ikut membawanya:

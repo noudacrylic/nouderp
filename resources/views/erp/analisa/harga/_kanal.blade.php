@@ -44,7 +44,9 @@
         <div class="min-w-[260px]">
             <div class="text-sm font-bold text-slate-800">Potongan {{ $channel['label'] }}</div>
             <div class="text-[11px] text-slate-500 mt-0.5">
-                @if($channel['components']->isEmpty())
+                @if($channel['fee_fallback'] ?? false)
+                    Belum ada penyusun — memakai potongan akuntansi ·
+                @elseif($channel['components']->isEmpty())
                     Tidak ada potongan — harga jual utuh jadi pendapatan.
                 @else
                     {{ $channel['components']->count() }} penyusun ·
@@ -85,6 +87,8 @@
                     <div class="text-[10px] text-amber-600 font-semibold">
                         aslinya {{ $pctK($feeAsli['percent']) }} + {{ $rpK($feeAsli['fixed']) }}
                     </div>
+                @elseif($channel['fee_fallback'] ?? false)
+                    <div class="text-[10px] text-slate-400">dari potongan akuntansi &mdash; belum diurai jadi penyusun</div>
                 @else
                     <div class="text-[10px] text-slate-400">biaya tetap ditanggung sekali per pesanan</div>
                 @endif

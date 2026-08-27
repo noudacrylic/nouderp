@@ -49,18 +49,21 @@ class ChannelPricingService
         return collect(config('price_channels', []))->map(function ($channel, $key) use ($components, $configs, $stores) {
             $rows      = $components->get($key, collect());
             $customers = $this->resolveCustomers($channel, $configs);
+            $kind      = $channel['kind'] ?? 'marketplace';
+            $fee       = $this->effectiveFee($rows, $customers, $kind);
 
             return [
-                'key'        => $key,
-                'label'      => $channel['label'] ?? $key,
-                'kind'       => $channel['kind'] ?? 'marketplace',
-                'affiliate'  => (bool) ($channel['affiliate'] ?? false),
-                'note'       => $channel['note'] ?? null,
-                'components' => $rows,
-                'fee'        => PriceChannelFeeComponent::totals($rows),
-                'accounting' => $this->accountingComparison($rows, $customers),
-                'customers'  => $customers->values()->all(),
-                'store_ids'  => $customers->flatMap(fn ($c) => $stores->get($c['customer_id'], []))->unique()->values()->all(),
+                'key'          => $key,
+                'label'        => $channel['label'] ?? $key,
+                'kind'         => $kind,
+                'affiliate'    => (bool) ($channel['affiliate'] ?? false),
+                'note'         => $channel['note'] ?? null,
+                'components'   => $rows,
+                'fee'          => $fee,
+                'fee_fallback' => $rows->isEmpty() && ($fee['percent'] > 0 || $fee['fixed'] > 0),
+                'accounting'   => $this->accountingComparison($rows, $customers, $fee),
+                'customers'    => $customers->values()->all(),
+                'store_ids'    => $customers->flatMap(fn ($c) => $stores->get($c['customer_id'], []))->unique()->values()->all(),
             ];
         });
     }
@@ -230,13 +233,45 @@ class ChannelPricingService
     }
 
     /**
+     * Potongan yang benar-benar dipakai kanal ini.
+     *
+     * Selama ada penyusunnya, itulah yang berlaku. Yang belum punya penyusun sama sekali —
+     * kanal baru, atau basis data yang menerima migrasinya saat daftar kanal belum terbaca —
+     * TIDAK boleh dihitung sebagai potongan 0%: marketplace tetap memungut potongannya entah
+     * halaman ini tahu atau tidak, dan harga yang disusun di atas potongan 0% adalah harga
+     * yang rugi. Jadi jatuh balik ke potongan versi akuntansi, angka yang dipakai jurnal.
+     *
+     * Kanal gabungan (TikTok/Tokopedia): ambil yang tertinggi — kalau meleset, melesetnya ke
+     * arah aman.
+     *
+     * @param Collection<int,PriceChannelFeeComponent> $components
+     * @param Collection<int,array>                    $customers
+     */
+    protected function effectiveFee(Collection $components, Collection $customers, string $kind): array
+    {
+        if ($components->isNotEmpty() || $kind !== 'marketplace') {
+            return PriceChannelFeeComponent::totals($components);
+        }
+
+        return [
+            'percent' => (float) $customers->max('percent'),
+            'fixed'   => (float) $customers->max('fixed'),
+        ];
+    }
+
+    /**
      * Potongan versi analisa vs versi akuntansi. Keduanya boleh berbeda — akuntansi hanya
      * memuat yang benar-benar dipungut marketplace — tapi kalau bagian yang dicentang "ikut
      * akuntansi" ternyata tidak sama, salah satunya sudah basi dan itu harus terlihat.
      */
-    protected function accountingComparison(Collection $components, Collection $customers): array
+    protected function accountingComparison(Collection $components, Collection $customers, ?array $effective = null): array
     {
-        $mine = PriceChannelFeeComponent::totals($components, accountingOnly: true);
+        // Kanal yang belum punya penyusun memakai angka akuntansi apa adanya, jadi tidak ada
+        // yang perlu dibandingkan — membandingkannya malah melaporkan "sudah basi" untuk
+        // selisih yang tidak pernah ada.
+        $mine = $components->isEmpty() && $effective !== null
+            ? $effective
+            : PriceChannelFeeComponent::totals($components, accountingOnly: true);
 
         return [
             'analysis'  => $mine,
