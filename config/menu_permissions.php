@@ -232,7 +232,7 @@ return [
                 'route_patterns' => ['analisa.harga*'],
                 'role_gate' => ['super_admin', 'admin'],
                 'subtabs' => [
-                    ['label' => 'Harga',    'url' => '/erp/analisa/harga',          'route_patterns' => ['analisa.harga.index', 'analisa.harga.save', 'analisa.harga.push', 'analisa.harga.component.*']],
+                    ['label' => 'Harga',    'url' => '/erp/analisa/harga',          'route_patterns' => ['analisa.harga.index', 'analisa.harga.save', 'analisa.harga.push', 'analisa.harga.terapkan', 'analisa.harga.tarik', 'analisa.harga.component.*']],
                     ['label' => 'Afiliasi', 'url' => '/erp/analisa/harga/afiliasi', 'route_patterns' => ['analisa.harga.afiliasi*']],
                     ['label' => 'Grosir',   'url' => '/erp/analisa/harga/grosir',   'route_patterns' => ['analisa.harga.grosir*']],
                     // Simulasi diskon: dua bentuk (keranjang & per produk) di balik satu sub-tab,

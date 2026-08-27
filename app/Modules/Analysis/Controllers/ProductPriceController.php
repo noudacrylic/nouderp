@@ -4,9 +4,9 @@ namespace App\Modules\Analysis\Controllers;
 
 use App\Core\Inventory\Product;
 use App\Http\Controllers\Controller;
-use App\Models\ProductPrice;
 use App\Modules\Analysis\Models\PriceChannelFeeComponent;
 use App\Modules\Analysis\Models\ProductChannelPrice;
+use App\Modules\Analysis\Services\BasePriceRolloutService;
 use App\Modules\Analysis\Services\ChannelPricingService;
 use App\Modules\Analysis\Services\ProductionCostRateService;
 use App\Modules\Analysis\Services\ProductionTimeAnalysisService;
@@ -181,14 +181,18 @@ class ProductPriceController extends Controller
         $channel = $this->withFeeAssumption($request, $channels->get($key));
 
         $markup = $request->filled('markup') ? (float) str_replace(',', '.', $request->input('markup')) : null;
+        $rows   = $this->arrange($request, $this->pricing->rows($key, $this->hppFilters(), $markup, $channel['fee']));
 
         return view("erp.analisa.harga.{$tab}", [
             'tab'      => $tab,
             'channels' => $channels,
             'channel'  => $channel,
-            'rows'     => $this->arrange($request, $this->pricing->rows($key, $this->hppFilters(), $markup, $channel['fee'])),
+            'rows'     => $rows,
             'markup'   => $markup,
             'sort'     => $request->input('sort', 'markup'),
+            // Kanal marketplace yang harganya sudah menyimpang dari harga dasar — hanya
+            // relevan (dan hanya dihitung) saat yang dibuka kanal Website.
+            'beda'     => $channel['kind'] === 'internal' ? $this->bedaDariDasar($rows) : collect(),
             // Dibaca DI SINI, sesudah rows(), bukan di dalamnya — supaya rekaman harga
             // marketplace tidak ikut masuk simpanan Analisa dan tidak pernah tampil basi.
             'pasar'    => JubelioStorePrice::ringkasUntuk($channel['store_ids'] ?? []),
@@ -202,7 +206,7 @@ class ProductPriceController extends Controller
      * ERP, dan jadi harga dasar Jubelio. Kanal marketplace menulis ke harga kanalnya sendiri
      * dan baru berlaku di tokonya setelah tombol kirim ditekan.
      */
-    public function savePrice(Request $request, int $productId)
+    public function savePrice(Request $request, int $productId, BasePriceRolloutService $rollout)
     {
         $request->validate(['kanal' => 'required|string', 'price' => 'nullable|string']);
 
@@ -215,7 +219,7 @@ class ProductPriceController extends Controller
                 return back()->with('error', 'Harga website tidak boleh kosong — harga ini dipakai web dan ERP.');
             }
 
-            $this->saveMasterPrice($product, $price);
+            $rollout->saveBasePrice($product, $price);
 
             return back()->with('success', "Harga {$product->name} disimpan: " . $this->format($price) . ' — berlaku di web, ERP, dan jadi harga dasar Jubelio.');
         }
@@ -297,6 +301,33 @@ class ProductPriceController extends Controller
         $row->forceFill(['pushed_price' => $row->price, 'pushed_at' => now()])->save();
 
         return back()->with('success', "{$product->name} — {$result['message']}");
+    }
+
+    /**
+     * Satu tombol dari kanal Website: samakan SEMUA marketplace dengan harga dasar ini,
+     * sekaligus kirimkan ke tokonya masing-masing lewat Jubelio.
+     *
+     * Harga yang dipakai diambil dari kolom yang sedang diketik (dikirim ikut formnya),
+     * bukan dari yang tersimpan — kalau tidak, orang mengetik harga baru, menekan tombol
+     * ini, lalu seluruh marketplace disamakan dengan harga LAMA tanpa ada yang sadar.
+     * Karena itu harga dasarnya ikut disimpan lebih dulu, persis seperti menekan ✓.
+     */
+    public function applyToMarketplaces(Request $request, int $productId, BasePriceRolloutService $rollout)
+    {
+        $request->validate(['price' => 'nullable|string']);
+
+        $product = Product::findOrFail($productId);
+        $price   = $this->rupiah($request->input('price')) ?? $rollout->currentBasePrice($product);
+
+        if ($price === null || $price <= 0) {
+            return back()->with('error', 'Isi harga dasarnya dulu — angka inilah yang akan disalin ke semua marketplace.');
+        }
+
+        $hasil = $rollout->applyToMarketplaces($product, $price);
+
+        // Sebagian berhasil sebagian tidak bukan "sukses", tapi juga bukan kegagalan yang
+        // membuat orang mengulang semuanya dari nol — pesannya menyebut kanal mana saja.
+        return back()->with($hasil['ok'] ? 'success' : 'warning', $hasil['pesan']);
     }
 
     /**
@@ -382,33 +413,6 @@ class ProductPriceController extends Controller
         return back()->with('success', 'Penyusun potongan dihapus.');
     }
 
-    /**
-     * Tulis harga jual asli produk. Mengikuti jalur yang sama dengan form harga di master
-     * produk: baris `product_prices` yang sudah ada diperbarui (bukan dibuat baru dengan
-     * satuan berbeda, yang akan menyisakan dua harga untuk satu produk), dan `base_price`
-     * ikut disamakan supaya halaman HPP tidak menampilkan harga basi.
-     */
-    protected function saveMasterPrice(Product $product, float $price): void
-    {
-        $existing = ProductPrice::where('product_id', $product->id)
-            ->where('channel', 'default')
-            ->orderBy('id')
-            ->first();
-
-        if ($existing) {
-            $existing->update(['price' => $price]);
-        } else {
-            ProductPrice::create([
-                'product_id' => $product->id,
-                'unit_name'  => $product->base_unit ?: 'pcs',
-                'channel'    => 'default',
-                'price'      => $price,
-            ]);
-        }
-
-        $product->forceFill(['base_price' => $price])->save();
-    }
-
     /** Potongan andaian yang sedang terpasang, per kanal, milik satu orang. */
     protected const SESI_ANDAIAN = 'analisa.potongan_andaian';
 
@@ -491,6 +495,37 @@ class ProductPriceController extends Controller
     {
         return abs($a['percent'] - $b['percent']) <= 0.001
             && abs($a['fixed'] - $b['fixed']) <= 0.5;
+    }
+
+    /**
+     * Kanal marketplace yang harganya berbeda dari harga dasar, per produk.
+     *
+     * Tanpa ini tombol "Terapkan ke marketplace" ditekan buta: tidak ada yang tahu produk
+     * mana yang memang sudah seragam dan mana yang sedang dijual dengan harga khusus yang
+     * akan tertimpa. Dihitung hanya untuk baris yang sedang tampil — satu query, bukan
+     * satu per produk.
+     *
+     * @return Collection<int,array<int,string>> dikunci product_id
+     */
+    protected function bedaDariDasar(LengthAwarePaginator $rows): Collection
+    {
+        $labels = $this->pricing->channels()->reject(fn ($c) => $c['kind'] === 'internal')->pluck('label', 'key');
+        $dasar  = collect($rows->items())->mapWithKeys(fn ($r) => [$r['product']['id'] => $r['price']]);
+
+        if ($labels->isEmpty() || $dasar->isEmpty()) {
+            return collect();
+        }
+
+        return ProductChannelPrice::whereIn('channel', $labels->keys())
+            ->whereIn('product_id', $dasar->keys())
+            ->whereNotNull('price')
+            ->get()
+            ->filter(fn ($r) => $dasar[$r->product_id] === null
+                || round((float) $r->price) !== round((float) $dasar[$r->product_id]))
+            ->groupBy('product_id')
+            ->map(fn ($baris) => $baris
+                ->map(fn ($r) => $labels[$r->channel] . ' ' . $this->format((float) $r->price))
+                ->values()->all());
     }
 
     /** Cari + urutkan + paginasi — sama untuk keempat sub-tab. */

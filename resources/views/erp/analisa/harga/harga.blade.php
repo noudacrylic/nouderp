@@ -6,6 +6,8 @@
     $isWeb = $channel['kind'] === 'internal';
     // Kolom "Di marketplace" hanya masuk akal untuk kanal yang punya toko Jubelio.
     $pasarAktif = !$isWeb && !empty($channel['store_ids']);
+    // Kanal tujuan tombol "Terapkan ke marketplace" — semua kanal selain Website.
+    $kanalPasar = $channels->reject(fn ($c) => $c['kind'] === 'internal')->pluck('label')->values()->all();
 @endphp
 
 @section('content')
@@ -18,7 +20,11 @@
                 HPP diambil dari <a href="{{ route('analisa.hpp.index') }}" class="text-blue-600 font-semibold hover:underline">HPP Produk</a>,
                 potongan kanal ditambahkan di sini. Ketik harga &rarr; untung &amp; markup ikut berubah seketika.
                 @if($isWeb)
-                    <strong>Simpan Harga</strong> memberlakukan harga di web storefront, ERP, sekaligus jadi harga dasar Jubelio.
+                    <strong>&#10003;</strong> memberlakukan harga di web storefront, ERP, sekaligus jadi harga dasar Jubelio.
+                    @if($kanalPasar)
+                        <strong>Terapkan ke marketplace</strong> menyalin harga itu ke {{ implode(', ', $kanalPasar) }}
+                        sekaligus mengirimnya ke tokonya lewat Jubelio &mdash; harga khusus kanal yang berbeda ditimpa.
+                    @endif
                 @else
                     <strong>Kirim</strong> memberlakukan harga khusus toko ini di Jubelio &mdash; sampai ditekan, produknya dijual di harga dasar.
                 @endif
@@ -210,7 +216,27 @@
 
                             <td class="px-5 py-3 text-right whitespace-nowrap">
                                 @if($isWeb)
-                                    <span class="text-[10px] text-slate-400">web + ERP + harga dasar</span>
+                                    @php $bedanya = $beda->get($pid, []); @endphp
+                                    @if($bedanya)
+                                        {{-- Bukan sekadar hiasan: inilah yang akan tertimpa kalau tombolnya ditekan. --}}
+                                        <span class="text-[10px] font-semibold text-amber-600"
+                                              title="Harga khusus kanal ini akan ditimpa: {{ implode(' · ', $bedanya) }}">
+                                            {{ count($bedanya) }} kanal beda harga
+                                        </span>
+                                    @else
+                                        <span class="text-[10px] text-slate-400">web + ERP + harga dasar</span>
+                                    @endif
+                                    @if($kanalPasar)
+                                        <form method="POST" action="{{ route('analisa.harga.terapkan', $pid) }}" class="inline js-terapkan">
+                                            @csrf
+                                            {{-- Diisi JS dengan angka yang SEDANG diketik, bukan yang tersimpan. --}}
+                                            <input type="hidden" name="price" value="">
+                                            <button class="ml-2 border border-slate-200 text-slate-600 hover:bg-slate-50 px-2.5 py-1 rounded-lg text-[11px] font-bold"
+                                                    title="Samakan harga {{ implode(', ', $kanalPasar) }} dengan harga dasar ini, lalu kirim ke tokonya lewat Jubelio.">
+                                                Terapkan ke marketplace
+                                            </button>
+                                        </form>
+                                    @endif
                                 @else
                                     @if($row['price_source'] === 'dasar')
                                         <span class="text-[10px] font-semibold text-slate-400" title="Belum punya harga khusus kanal ini — di tokonya dijual dengan harga dasar (harga web).">ikut harga dasar</span>
@@ -251,4 +277,7 @@
 </div>
 
 @include('erp.analisa.harga._hitung')
+@if($isWeb && $kanalPasar)
+    @include('erp.analisa.harga._terapkan')
+@endif
 @endsection

@@ -313,6 +313,92 @@ class ProductPricePageTest extends TestCase
     }
 
     /**
+     * "Terapkan ke marketplace" — satu tombol dari kanal Website untuk pekerjaan yang
+     * selama ini diulang per kanal: ketik harga, simpan, kirim; pindah kanal, ulangi.
+     *
+     * Yang dijaga di sini: harga yang dipakai adalah yang DIKIRIM FORMNYA (angka yang
+     * sedang diketik), bukan yang tersimpan — kalau tidak, marketplace disamakan dengan
+     * harga lama tanpa ada tanda apa pun.
+     */
+    public function test_terapkan_menyalin_harga_dasar_ke_semua_kanal_marketplace(): void
+    {
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index'))
+            ->post(route('analisa.harga.terapkan', $id), ['price' => '235.000'])
+            ->assertRedirect(route('analisa.harga.index'));
+
+        // Harga dasarnya ikut tersimpan, persis seperti menekan ✓ di kolom harga.
+        $this->assertEquals(235_000, DB::table('products')->where('id', $id)->value('base_price'));
+        $this->assertEquals(235_000, DB::table('product_prices')->where('product_id', $id)->value('price'));
+
+        // Semua kanal marketplace — bukan cuma yang kebetulan sudah punya baris harga.
+        foreach (['shopee', 'tiktok_tokopedia', 'lazada'] as $kanal) {
+            $row = ProductChannelPrice::where('product_id', $id)->where('channel', $kanal)->firstOrFail();
+            $this->assertEquals(235_000, $row->price, "kanal {$kanal}");
+            // Jubelio mati di lingkungan tes: harganya tersimpan, tapi belum berlaku di toko.
+            $this->assertNull($row->pushed_at, "kanal {$kanal}");
+        }
+    }
+
+    /** Jubelio mati bukan berarti "berhasil" — harganya tersimpan, tapi belum berlaku. */
+    public function test_terapkan_mengaku_saat_jubelio_belum_tersambung(): void
+    {
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index'))
+            ->post(route('analisa.harga.terapkan', $id), ['price' => '235.000'])
+            ->assertSessionHas('warning', fn ($pesan) => str_contains($pesan, 'Jubelio belum tersambung'));
+
+        $this->assertNull(session('success'));
+    }
+
+    /**
+     * Harga khusus kanal yang sengaja dibuat berbeda memang ditimpa — itu maunya tombol
+     * ini. Tapi angka lamanya harus ikut dilaporkan: sesudah ini ia tidak ada di mana pun.
+     */
+    public function test_terapkan_melaporkan_harga_khusus_yang_ditimpanya(): void
+    {
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        ProductChannelPrice::create(['product_id' => $id, 'channel' => 'shopee', 'price' => 250_000]);
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index'))
+            ->post(route('analisa.harga.terapkan', $id), ['price' => '235.000'])
+            ->assertSessionHas('warning', fn ($pesan) => str_contains($pesan, 'Shopee (Rp250.000)'));
+
+        $this->assertEquals(235_000, ProductChannelPrice::where('product_id', $id)
+            ->where('channel', 'shopee')->value('price'));
+    }
+
+    /** Tanpa harga tidak ada yang bisa disalin — dan jangan sampai marketplace jadi Rp0. */
+    public function test_terapkan_ditolak_kalau_harga_dasarnya_kosong(): void
+    {
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 0);
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index'))
+            ->post(route('analisa.harga.terapkan', $id), ['price' => ''])
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseCount('product_channel_prices', 0);
+    }
+
+    /** Kanal yang harganya sudah menyimpang ditandai — supaya tombolnya tidak ditekan buta. */
+    public function test_kanal_yang_berbeda_dari_harga_dasar_ditandai_di_halaman_website(): void
+    {
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        ProductChannelPrice::create(['product_id' => $id, 'channel' => 'shopee', 'price' => 250_000]);
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index'))
+            ->assertOk()
+            ->assertSee('Terapkan ke marketplace')
+            ->assertSee('1 kanal beda harga');
+    }
+
+    /**
      * Petakan toko Jubelio ke kanal Shopee — tanpa ini `store_ids` kosong dan kolom
      * "Di marketplace" memang sengaja tidak muncul.
      *

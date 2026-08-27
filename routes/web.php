@@ -1340,6 +1340,8 @@ Route::prefix('erp/analisa')->name('analisa.')->group(function () {
     Route::post('harga/{productId}/grosir',   [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'saveGrosir'])->whereNumber('productId')->name('harga.grosir.save');
     Route::post('harga/{productId}/afiliasi', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'saveAfiliasi'])->whereNumber('productId')->name('harga.afiliasi.save');
     Route::post('harga/{productId}/kirim',    [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'push'])->whereNumber('productId')->name('harga.push');
+    // Dari kanal Website: samakan seluruh marketplace dengan harga dasar lalu kirim ke Jubelio.
+    Route::post('harga/{productId}/terapkan-marketplace', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'applyToMarketplaces'])->whereNumber('productId')->name('harga.terapkan');
 
     // Kalender Produksi — sebaran waktu satu hari per mesin & operator
     Route::get('kalender', [\App\Modules\Analysis\Controllers\ProductionCalendarController::class, 'index'])->name('kalender.index');
