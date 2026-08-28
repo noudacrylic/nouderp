@@ -220,6 +220,10 @@ class ProductionTimeAnalysisService
                 'steps'                => fn ($q) => $q->orderBy('step_number'),
                 'steps.timeLogs',        // WAJIB — elapsed_working_seconds accessor PHP, bukan kolom
                 'steps.department:id,code,name,type',
+                // Siapa yang mengerjakan tiap langkah. Sumbernya pivot, BUKAN kolom
+                // `executor_id` yang lama: semua langkah yang punya kolom itu juga ada
+                // di pivot, sedangkan pivot menampung langkah bertangan banyak.
+                'steps.executors:id,name',
                 'outputs'              => fn ($q) => $q->where('output_type', 'main'),
                 'outputs.product:id,sku,name,base_unit',
                 'bom:id,bom_number,name',
@@ -268,9 +272,22 @@ class ProductionTimeAnalysisService
             ->map(fn ($steps) => (int) $steps->sum('elapsed_working_seconds'))
             ->all();
 
+        // Siapa yang mengerjakan, per divisi. Satu langkah bisa dikerjakan beberapa
+        // eksekutor sekaligus, dan satu divisi bisa punya beberapa langkah — jadi
+        // dikumpulkan sebagai himpunan nama, bukan satu nama per divisi.
+        $execByDept = [];
+        foreach ($doneSteps as $step) {
+            $deptKey = (int) ($step->department_id ?: self::NO_DEPT_KEY);
+            foreach ($step->executors as $ex) {
+                $execByDept[$deptKey][(int) $ex->id] = $ex->name;
+            }
+        }
+        $execByDept = array_map(fn ($names) => array_values($names), $execByDept);
+
         if (!empty($filters['department_id'])) {
-            $deptId    = (int) $filters['department_id'];
-            $secByDept = array_intersect_key($secByDept, [$deptId => true]);
+            $deptId     = (int) $filters['department_id'];
+            $secByDept  = array_intersect_key($secByDept, [$deptId => true]);
+            $execByDept = array_intersect_key($execByDept, [$deptId => true]);
         }
 
         $totalSec = array_sum($secByDept);
@@ -319,6 +336,7 @@ class ProductionTimeAnalysisService
             'bom_name'            => $order->bom?->name,
             'qty_per_cycle'       => $qtyPerCycle,
             'sec'                 => $secByDept,
+            'executors'           => $execByDept,
             'sec_per_cycle'       => $secPerCycle,
             'total_sec'           => (float) $totalSec,
             'total_sec_per_cycle' => $cycles > 0 ? array_sum($secPerCycle) : null,

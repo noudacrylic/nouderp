@@ -64,9 +64,23 @@
                     </td>
                     <td class="px-3 py-3 text-right text-gray-700">{{ rtrim(rtrim(number_format($s['planned_cycles'], 2, ',', '.'), '0'), ',') }}</td>
                     @foreach($departments as $dept)
-                        @php $sec = $s['sec'][$dept['id']] ?? null; @endphp
+                        @php
+                            $sec = $s['sec'][$dept['id']] ?? null;
+                            // Siapa yang mengerjakan — inilah yang membuat baris ini bisa
+                            // dievaluasi, bukan cuma dibaca sebagai angka.
+                            // Sampel dari simpanan lama belum membawa daftar ini. Bedakan
+                            // "belum tercatat" dari "memang tidak ada pelaksananya" — kalau
+                            // disamakan, angka lama akan tampak seperti kerja tanpa orang.
+                            $adaDataPelaksana = array_key_exists('executors', $s);
+                            $pelaksana = $s['executors'][$dept['id']] ?? [];
+                        @endphp
                         <td class="px-3 py-3 text-right whitespace-nowrap {{ $sec === 0 ? 'text-amber-600' : 'text-gray-700' }}">
                             {{ $sec === null ? '—' : dur_hms((float) $sec) }}
+                            @if($sec !== null && $adaDataPelaksana)
+                                <span class="block text-[10px] font-medium {{ $s['excluded'] ? 'text-gray-300' : 'text-gray-400' }}">
+                                    {{ $pelaksana ? implode(', ', $pelaksana) : 'tanpa pelaksana' }}
+                                </span>
+                            @endif
                         </td>
                     @endforeach
                     <td class="px-3 py-3 text-right text-gray-700 whitespace-nowrap">{{ dur_hms($s['total_sec']) }}</td>
