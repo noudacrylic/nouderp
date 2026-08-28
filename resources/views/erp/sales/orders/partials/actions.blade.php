@@ -60,14 +60,14 @@
                 @if($showText) <span>UANG MUKA</span> @endif
             </a>
 
-            {{-- LINK DP (Midtrans) — hanya di halaman detail (modal di-include di sana) --}}
+            {{-- LINK PEMBAYARAN (Midtrans) — hanya di halaman detail (modal di-include di sana) --}}
             @if($showText)
-                <button type="button" onclick="window._midtransOpenSo({{ $so->id }})" title="Buat Link DP via Midtrans"
+                <button type="button" onclick="window._midtransOpenSo({{ $so->id }})" title="Buat tautan pembayaran via Midtrans"
                     class="{{ $btnClass }} bg-emerald-600 hover:bg-emerald-700 text-white border-none">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m6.656-2.828a4 4 0 015.656 0 4 4 0 010 5.656l-1.5 1.5" />
                     </svg>
-                    <span>LINK DP</span>
+                    <span>LINK BAYAR</span>
                 </button>
             @endif
         @endif

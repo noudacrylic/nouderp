@@ -57,13 +57,13 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Pesan WhatsApp (siap paste)</label>
-                    <textarea id="md_wa" readonly rows="5" class="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50">${data.wa_text}</textarea>
+                    <textarea id="md_wa" readonly rows="11" class="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50">${data.wa_text}</textarea>
                     <div class="flex gap-2 mt-2">
                         <button onclick="navigator.clipboard.writeText(document.getElementById('md_wa').value); this.textContent='Tersalin!'; setTimeout(()=>this.textContent='Salin Teks',1500)" class="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold">Salin Teks</button>
                         <a href="https://wa.me/?text=${encodeURIComponent(data.wa_text)}" target="_blank" rel="noopener" class="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-center rounded-lg text-xs font-bold">Buka WA Web</a>
                     </div>
                 </div>
-                <div class="text-xs text-gray-500">Berlaku hingga ${data.expires_at}</div>
+                ${data.expires_at ? `<div class="text-xs text-gray-500">Kode pembayaran berlaku hingga ${data.expires_at}.</div>` : `<div class="text-xs text-gray-500">Tautan ini tanpa batas waktu — pembeli bisa membukanya kapan saja. Yang berbatas waktu hanya kode bayar (QRIS/VA) yang terbit saat tombol Bayar ditekan.</div>`}
             `;
         })
         .catch(e => {
@@ -183,7 +183,7 @@
             }
             linkBody.innerHTML = `
                 <div>
-                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">URL Link DP</label>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">URL Tautan Pembayaran</label>
                     <div class="flex gap-2">
                         <input id="md_url" readonly value="${data.url}" class="flex-1 border rounded-lg px-3 py-2 text-sm bg-gray-50 font-mono">
                         <button onclick="navigator.clipboard.writeText(document.getElementById('md_url').value); this.textContent='Tersalin!'; setTimeout(()=>this.textContent='Salin',1500)" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700">Salin</button>
@@ -191,14 +191,14 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Pesan WhatsApp (siap paste)</label>
-                    <textarea id="md_wa" readonly rows="5" class="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50">${data.wa_text}</textarea>
+                    <textarea id="md_wa" readonly rows="11" class="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50">${data.wa_text}</textarea>
                     <div class="flex gap-2 mt-2">
                         <button onclick="navigator.clipboard.writeText(document.getElementById('md_wa').value); this.textContent='Tersalin!'; setTimeout(()=>this.textContent='Salin Teks',1500)" class="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold">Salin Teks</button>
                         <a href="https://wa.me/?text=${encodeURIComponent(data.wa_text)}" target="_blank" rel="noopener" class="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-center rounded-lg text-xs font-bold">Buka WA Web</a>
                     </div>
                 </div>
                 <div class="border-t pt-3">
-                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Minimal DP</label>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Minimal Pembayaran</label>
                     <div class="flex items-baseline justify-between">
                         <span class="text-sm font-bold text-gray-800">Rp ${Number(data.min_dp).toLocaleString('id-ID')}</span>
                         <span class="text-[11px] text-gray-500">${String(data.min_dp_percent).replace('.', ',')}% dari total${data.min_dp_custom ? ' &middot; kesepakatan' : ' &middot; bawaan'}</span>
@@ -208,7 +208,7 @@
                         Untuk mengubah batas ini, edit <a href="${data.so_url}" class="text-blue-600 hover:underline font-semibold">Sales Order</a>-nya.
                     </p>
                 </div>
-                <div class="text-xs text-gray-500">Berlaku hingga ${data.expires_at}</div>
+                ${data.expires_at ? `<div class="text-xs text-gray-500">Kode pembayaran berlaku hingga ${data.expires_at}.</div>` : `<div class="text-xs text-gray-500">Tautan ini tanpa batas waktu — pembeli bisa membukanya kapan saja. Yang berbatas waktu hanya kode bayar (QRIS/VA) yang terbit saat tombol Bayar ditekan.</div>`}
             `;
         })
         .catch(e => {

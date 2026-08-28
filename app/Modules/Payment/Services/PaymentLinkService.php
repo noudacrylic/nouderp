@@ -2,7 +2,6 @@
 
 namespace App\Modules\Payment\Services;
 
-use App\Models\MidtransSetting;
 use App\Models\MidtransTransaction;
 use App\Models\SalesInvoice;
 use App\Modules\Sales\Models\SalesOrder;
@@ -15,16 +14,18 @@ class PaymentLinkService
     /**
      * Cari atau buat MidtransTransaction berstatus link+pending utk invoice.
      *
-     * Aman dipanggil berulang: jika sudah ada link aktif (status=pending, belum expired,
-     * source=link) → return record yang sama (idempotent), supaya admin yg klik 2× tidak
-     * generate banyak token sampah.
+     * Aman dipanggil berulang: jika sudah ada link aktif (status=pending, source=link)
+     * → return record yang sama (idempotent), supaya admin yg klik 2× tidak generate
+     * banyak token sampah.
+     *
+     * Tautannya sendiri TANPA tenggat: yang berumur pendek adalah percobaan bayarnya
+     * (QRIS/VA), dan batas itu dikirim ke Midtrans saat pembeli menekan Bayar.
      */
     public function getOrCreateForInvoice(SalesInvoice $invoice, ?int $userId = null): MidtransTransaction
     {
         $existing = MidtransTransaction::where('sales_invoice_id', $invoice->id)
             ->where('source', 'link')
             ->where('status', 'pending')
-            ->where('expired_at', '>', now())
             ->latest()
             ->first();
 
@@ -32,7 +33,6 @@ class PaymentLinkService
             return $existing;
         }
 
-        $expiryDays = (int) (MidtransSetting::singleton()->link_expiry_days ?: 7);
         $base = (int) round($invoice->remaining_amount);
 
         return MidtransTransaction::create([
@@ -47,7 +47,6 @@ class PaymentLinkService
             'base_amount' => $base,
             'customer_admin_fee' => 0,
             'status' => 'pending',
-            'expired_at' => now()->addDays($expiryDays),
             'created_by' => $userId,
         ]);
     }
@@ -63,7 +62,6 @@ class PaymentLinkService
             ->whereNull('sales_invoice_id')
             ->where('source', 'link')
             ->where('status', 'pending')
-            ->where('expired_at', '>', now())
             ->latest()
             ->first();
 
@@ -73,8 +71,6 @@ class PaymentLinkService
             }
             return $existing;
         }
-
-        $expiryDays = (int) (MidtransSetting::singleton()->link_expiry_days ?: 7);
 
         // Pesanan yang tautannya dikirim ke pembeli otomatis punya halaman lacak.
         // Diterbitkan di sini, bukan saat halaman lacak dibuka, supaya tautannya
@@ -93,7 +89,6 @@ class PaymentLinkService
             'min_dp_amount' => $minDp,
             'customer_admin_fee' => 0,
             'status' => 'pending',
-            'expired_at' => now()->addDays($expiryDays),
             'created_by' => $userId,
         ]);
     }
@@ -201,7 +196,6 @@ class PaymentLinkService
             $token = $current->link_token;
             $current->update(['link_token' => null]);
 
-            $expiryDays = (int) (MidtransSetting::singleton()->link_expiry_days ?: 7);
             $isSo = $current->sales_order_id && ! $current->sales_invoice_id;
 
             return MidtransTransaction::create([
@@ -220,13 +214,44 @@ class PaymentLinkService
                 'min_dp_amount' => $isSo ? $remaining : null,
                 'customer_admin_fee' => 0,
                 'status' => 'pending',
-                'expired_at' => now()->addDays($expiryDays),
                 'created_by' => $current->created_by,
             ]);
         });
     }
 
     /** Sisa tagihan dokumen yang digantung transaksi ini (rupiah, dibulatkan). */
+    /**
+     * Hidupkan kembali tautan yang percobaan bayarnya hangus tanpa dibayar.
+     *
+     * QRIS/VA yang terbit saat pembeli menekan Bayar punya batas waktu sendiri dari
+     * Midtrans; kalau lewat, yang mati seharusnya cuma kode bayarnya — bukan alamat
+     * yang sudah terlanjur dikirim lewat WhatsApp. Selama dokumennya masih bersisa,
+     * baris tautan dikembalikan ke "pending" agar pembeli tinggal menekan Bayar lagi
+     * dan mendapat kode baru (MidtransService menerbitkan order_id baru tiap charge).
+     *
+     * Yang berstatus cancel TIDAK ikut dihidupkan: itu hasil pembatalan dokumen.
+     */
+    public function reviveExpiredCharge(MidtransTransaction $trx): MidtransTransaction
+    {
+        if ($trx->source !== 'link' || $trx->status !== 'expire') {
+            return $trx;
+        }
+        if ($this->remainingOf($trx) <= 0) {
+            return $trx;
+        }
+
+        $trx->update([
+            'status' => 'pending',
+            'expired_at' => null,
+            'snap_token' => null,
+            'snap_redirect_url' => null,
+            'qris_payload' => null,
+            'va_number' => null,
+        ]);
+
+        return $trx->fresh();
+    }
+
     private function remainingOf(MidtransTransaction $trx): int
     {
         if ($trx->sales_invoice_id) {
@@ -253,17 +278,81 @@ class PaymentLinkService
         return url('/pay/' . $trx->link_token);
     }
 
+    /**
+     * Pesan siap-kirim untuk FAKTUR. Nada sengaja hangat: yang membacanya pembeli,
+     * bukan admin.
+     */
     public function waText(MidtransTransaction $trx, string $customerName, string $invoiceNumber, int $total): string
     {
         $url = $this->publicUrl($trx);
         $totalFmt = 'Rp ' . number_format($total, 0, ',', '.');
-        return "Halo {$customerName}, berikut tautan pembayaran untuk invoice {$invoiceNumber} sebesar {$totalFmt}:\n{$url}\n\nLink berlaku 7 hari. Terima kasih — Noud Acrylic.";
+
+        $lines = [
+            "Halo {$customerName}, terima kasih banyak atas kepercayaan Anda kepada Noud Acrylic.",
+            '',
+            "Berikut faktur {$invoiceNumber} dengan total tagihan {$totalFmt}. Pembayaran bisa langsung dilakukan lewat tautan berikut:",
+            $url,
+            '',
+            'Mohon tautan ini disimpan ya — tautannya berlaku terus, jadi fakturnya (PDF) yang memuat rincian barang, jumlah, dan harganya bisa Anda unduh kapan saja.',
+        ];
+
+        if ($deadline = $this->paymentDeadline($trx)) {
+            $lines[] = '';
+            $lines[] = "Pembayaran lewat tautan ini kami buka sampai {$deadline}. Bila terlewat, cukup kabari kami dan tautan barunya langsung kami kirimkan.";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Terima kasih atas kepercayaan Anda — Noud Acrylic.';
+
+        return implode("
+", $lines);
     }
 
+    /**
+     * Pesan siap-kirim untuk PESANAN (Sales Order). Selain membayar, halaman yang sama
+     * dipakai pembeli untuk memantau pesanannya sampai barang tiba — itu yang ditonjolkan
+     * supaya tautannya disimpan, bukan dibuang setelah bayar.
+     *
+     * Rincian barang SENGAJA tidak dijanjikan ada di halamannya: kartu /pay cuma memuat
+     * angka total, rinciannya ada di nota PDF (lihat pay/_so.blade.php).
+     */
     public function waTextSo(MidtransTransaction $trx, string $customerName, string $orderNumber, int $remaining): string
     {
         $url = $this->publicUrl($trx);
         $remFmt = 'Rp ' . number_format($remaining, 0, ',', '.');
-        return "Halo {$customerName}, berikut tautan untuk melihat pesanan {$orderNumber} dan membayar uang muka (DP). Sisa tagihan {$remFmt}:\n{$url}\n\nLink berlaku 7 hari. Terima kasih — Noud Acrylic.";
+
+        $lines = [
+            "Halo {$customerName}, terima kasih banyak atas pesanan Anda.",
+            '',
+            "Pesanan {$orderNumber} sudah kami terima dan segera kami proses. Untuk melanjutkan, silakan lakukan pembayaran lewat tautan berikut:",
+            $url,
+            '',
+            "Sisa tagihan: {$remFmt}",
+            '',
+            'Mohon tautan ini disimpan ya — tautannya berlaku terus, jadi kapan pun bisa Anda buka untuk memantau progres pesanan, melacak pengiriman, dan mengunduh nota pesanan (PDF) yang memuat rincian barang, jumlah, dan harganya.',
+        ];
+
+        if ($deadline = $this->paymentDeadline($trx)) {
+            $lines[] = '';
+            $lines[] = "Pembayaran lewat tautan ini kami buka sampai {$deadline}. Bila terlewat, cukup kabari kami dan tautan barunya langsung kami kirimkan.";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Terima kasih atas kepercayaan Anda — Noud Acrylic.';
+
+        return implode("
+", $lines);
+    }
+
+    /**
+     * Batas waktu yang siap ditulis di pesan, atau null bila memang tidak ada.
+     *
+     * Untuk tautan biasa hasilnya SELALU null: /pay/{token} tidak berbatas waktu, dan
+     * kalimat tenggatnya ikut hilang dengan sendirinya. Penjaga ini disimpan untuk baris
+     * lama yang terlanjur bertenggat, supaya pesannya tetap jujur bila itu yang dikirim.
+     */
+    private function paymentDeadline(MidtransTransaction $trx): ?string
+    {
+        return $trx->expired_at?->translatedFormat('j F Y, H:i');
     }
 }

@@ -118,9 +118,14 @@
                 <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Masa Berlaku</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Masa Berlaku Link (hari)</label>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Masa Berlaku Kode Bayar (hari)</label>
                         <input type="number" min="1" max="90" name="link_expiry_days"
                                value="{{ old('link_expiry_days', $setting->link_expiry_days) }}" class="w-full border rounded px-3 py-2">
+                        <p class="text-xs text-gray-500 mt-1">
+                            Umur QRIS/VA yang terbit saat pembeli menekan <b>Bayar</b>. Tautan
+                            <b>/pay</b>-nya sendiri tidak berbatas waktu &mdash; pembeli memakainya lagi
+                            untuk memantau pesanan &amp; mengunduh nota.
+                        </p>
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Masa Berlaku QRIS (menit)</label>

@@ -222,7 +222,6 @@ class SalesOrder extends Model
             ->whereNull('sales_invoice_id')
             ->where('source', 'link')
             ->where('status', 'pending')
-            ->where('expired_at', '>', now())
             ->latest()
             ->first();
     }

@@ -61,14 +61,16 @@
     @elseif($lunas)
         <div class="px-6 py-6 text-center text-sm text-emerald-700 font-semibold">Invoice ini sudah lunas. Terima kasih!</div>
     @else
-        <div class="px-6 py-6 text-center text-sm text-gray-500">Link pembayaran sudah kadaluarsa. Silakan hubungi Noud Acrylic untuk link baru.</div>
+        <div class="px-6 py-6 text-center text-sm text-gray-500">Kode pembayaran sebelumnya sudah kedaluwarsa. Silakan muat ulang halaman ini untuk membuat kode bayar baru, atau hubungi Noud Acrylic.</div>
     @endif
 
     <div class="px-6 py-4 bg-gray-50 text-center text-xs text-gray-500">
         @if($lunas)
             Invoice ini bisa diunduh kapan saja melalui tautan ini.
+        @elseif($trx->expired_at)
+            Kode pembayaran berlaku hingga {{ $trx->expired_at->format('d M Y H:i') }}
         @else
-            Link berlaku hingga {{ $trx->expired_at->format('d M Y H:i') }}
+            Simpan tautan ini &mdash; fakturnya bisa dibuka &amp; diunduh kapan saja.
         @endif
     </div>
 </div>

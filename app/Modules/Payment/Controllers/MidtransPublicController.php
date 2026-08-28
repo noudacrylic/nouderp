@@ -59,6 +59,10 @@ class MidtransPublicController extends Controller
         // token pindah, transaksi lama tidak lagi berstatus "sudah dibayar + bertoken".
         $trx = $this->links->continueForRemaining($trx) ?? $trx;
 
+        // Kode bayar yang hangus tanpa dibayar tidak mematikan alamatnya: pembeli yang
+        // membuka lagi tautan lamanya langsung dapat tombol Bayar, bukan halaman mati.
+        $trx = $this->links->reviveExpiredCharge($trx);
+
         $common = [
             'trx' => $trx,
             'is_so' => $this->isSo($trx),

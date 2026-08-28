@@ -130,7 +130,6 @@ class SalesInvoice extends Model
         return MidtransTransaction::where('sales_invoice_id', $this->id)
             ->where('source', 'link')
             ->where('status', 'pending')
-            ->where('expired_at', '>', now())
             ->latest()
             ->first();
     }

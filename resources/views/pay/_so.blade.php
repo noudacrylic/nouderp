@@ -133,10 +133,17 @@
             <a href="{{ $pdf_url }}" class="mt-3 block text-center text-xs text-gray-500 hover:text-gray-700">Unduh nota pesanan (PDF) — rincian barang &amp; harga</a>
         </div>
     @else
-        <div class="px-6 py-6 text-center text-sm text-gray-500">Link sudah kadaluarsa. Silakan hubungi Noud Acrylic untuk link baru.</div>
+        <div class="px-6 py-6 text-center text-sm text-gray-500">Kode pembayaran sebelumnya sudah kedaluwarsa. Silakan muat ulang halaman ini untuk membuat kode bayar baru, atau hubungi Noud Acrylic.</div>
     @endif
 
+    {{-- Tautan ini tidak berbatas waktu: pembeli memakainya lagi untuk memantau
+         pesanan dan mengunduh nota. Yang berbatas waktu hanya kode bayar (QRIS/VA)
+         yang terbit saat tombol Bayar ditekan. --}}
     <div class="px-6 py-4 bg-gray-50 text-center text-xs text-gray-500">
-        Link berlaku hingga {{ $trx->expired_at->format('d M Y H:i') }}
+        @if($trx->expired_at)
+            Kode pembayaran berlaku hingga {{ $trx->expired_at->format('d M Y H:i') }}
+        @else
+            Simpan tautan ini &mdash; bisa dibuka kapan saja untuk memantau pesanan &amp; mengunduh nota.
+        @endif
     </div>
 </div>
