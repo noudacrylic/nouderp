@@ -418,7 +418,11 @@ class JubelioClient
     {
         $kosong = ['ok' => false, 'prices' => [], 'base' => null, 'reason' => null];
 
-        $resp = $this->getItem($itemGroupId ?: $itemId);
+        // /inventory/items/{id} minta ITEM_ID, bukan item_group_id: memberinya id grup
+        // dijawab HTTP 500 (69 -> 500, 97 -> 200), dan karena Jubelio memakai 500 untuk
+        // "tidak ada" juga, kegagalannya terbaca seperti gangguan server. Group id hanya
+        // dipakai kalau item_id belum sempat tercatat.
+        $resp = $this->getItem($itemId ?: $itemGroupId);
         if (!$resp['success'] || !is_array($resp['data'])) {
             return array_merge($kosong, [
                 'reason' => $resp['error'] ?: 'Item tidak terbaca dari Jubelio.',
