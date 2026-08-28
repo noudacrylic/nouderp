@@ -22,11 +22,27 @@ class JubelioMatchProducts extends Command
             return self::SUCCESS;
         }
 
-        $res = $sync->matchAll(onlyMissing: !$this->option('all'));
-        $this->info("Match selesai: cocok {$res['matched']}, tidak ketemu {$res['unmatched']}.");
+        $res    = $sync->matchAll(onlyMissing: !$this->option('all'));
+        $errors = $res['errors'] ?? [];
+
+        $this->info(sprintf(
+            'Match selesai: cocok %d, tidak ada di Jubelio %d, gagal karena gangguan API %d.',
+            $res['matched'], $res['unmatched'], count($errors)
+        ));
+
         if (!empty($res['unmatched_skus'])) {
-            $this->warn('SKU tidak ditemukan di Jubelio: ' . implode(', ', $res['unmatched_skus']));
+            $this->warn('SKU tidak ada di Jubelio (perbaiki datanya): ' . implode(', ', $res['unmatched_skus']));
         }
+
+        // Gangguan API bukan salah data — dilaporkan terpisah supaya tidak memicu orang
+        // mengedit SKU yang sebenarnya sudah benar. Cukup jalankan ulang perintahnya.
+        foreach ($errors as $baris) {
+            $this->error('Gangguan Jubelio: ' . $baris);
+        }
+        if ($errors) {
+            $this->line('Yang di atas belum tentu salah SKU — jalankan ulang perintah ini nanti.');
+        }
+
         return self::SUCCESS;
     }
 }

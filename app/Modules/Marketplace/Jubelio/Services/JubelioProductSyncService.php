@@ -18,50 +18,107 @@ class JubelioProductSyncService
 
     /**
      * Cocokkan produk tersinkron ke item Jubelio via SKU; cache item_id & item_group_id.
-     * @return array{matched:int, unmatched:int, unmatched_skus:array<int,string>}
+     *
+     * Kegagalan dipisah dua: SKU yang benar-benar tidak ada di Jubelio (datanya perlu
+     * dibetulkan) dan panggilan yang error (Jubelio sedang bermasalah — cukup diulang).
+     * Dulu keduanya dilaporkan sama, jadi gangguan API terbaca sebagai "SKU salah" dan
+     * orang mencari-cari kesalahan yang sebenarnya tidak ada.
+     *
+     * @return array{matched:int, unmatched:int, unmatched_skus:array<int,string>, errors:array<int,string>}
      */
     public function matchAll(bool $onlyMissing = true, int $limit = 1000): array
     {
-        $matched = 0; $unmatched = 0; $unmatchedSkus = [];
+        $matched = 0; $unmatched = 0; $unmatchedSkus = []; $errors = [];
         if (!$this->client->isReady()) {
-            return ['matched' => 0, 'unmatched' => 0, 'unmatched_skus' => []];
+            return ['matched' => 0, 'unmatched' => 0, 'unmatched_skus' => [], 'errors' => []];
         }
 
         Product::where('sync_to_jubelio', true)
-            ->when($onlyMissing, fn ($q) => $q->whereNull('jubelio_item_id'))
+            // "Belum ter-match" = salah satu dari sepasang id itu kosong. Harga butuh
+            // KEDUANYA (item_id + item_group_id), jadi menyaring item_id saja membuat
+            // produk yang setengah ter-match tak pernah ikut antrean pencocokan ulang.
+            ->when($onlyMissing, fn ($q) => $q->where(fn ($w) => $w
+                ->whereNull('jubelio_item_id')->orWhereNull('jubelio_item_group_id')))
             ->whereNotNull('sku')->where('sku', '!=', '')
             ->limit($limit)->get()
-            ->each(function (Product $p) use (&$matched, &$unmatched, &$unmatchedSkus) {
-                if ($this->matchProduct($p)) {
+            ->each(function (Product $p) use (&$matched, &$unmatched, &$unmatchedSkus, &$errors) {
+                $hasil = $this->cocokkan($p);
+                if ($hasil['ok']) {
                     $matched++;
+                } elseif ($hasil['gangguan']) {
+                    $errors[] = $p->sku . ' — ' . $hasil['alasan'];
                 } else {
                     $unmatched++;
                     $unmatchedSkus[] = $p->sku;
                 }
             });
 
-        return ['matched' => $matched, 'unmatched' => $unmatched, 'unmatched_skus' => $unmatchedSkus];
+        return [
+            'matched'        => $matched,
+            'unmatched'      => $unmatched,
+            'unmatched_skus' => $unmatchedSkus,
+            'errors'         => $errors,
+        ];
     }
 
     /** Cocokkan 1 produk; simpan item_id & item_group_id. Return true bila ketemu. */
     public function matchProduct(Product $product): bool
     {
+        return $this->cocokkan($product)['ok'];
+    }
+
+    /**
+     * Cocokkan 1 produk, DENGAN alasan bila gagal.
+     *
+     * `gangguan` membedakan dua kegagalan yang selama ini disamakan: true berarti Jubelio
+     * yang bermasalah (timeout, HTTP 500, sesi putus) sehingga SKU-nya belum tentu salah
+     * dan mencoba lagi masuk akal; false berarti Jubelio menjawab dengan benar bahwa SKU
+     * itu tidak ada. Menyebut keduanya "SKU tidak ditemukan" menyuruh orang memperbaiki
+     * data yang sebetulnya sudah benar.
+     *
+     * @return array{ok:bool, gangguan:bool, alasan:?string}
+     */
+    public function cocokkan(Product $product): array
+    {
         if (empty($product->sku)) {
-            return false;
+            return ['ok' => false, 'gangguan' => false, 'alasan' => 'Produk ini belum punya SKU.'];
         }
+
         $resp = $this->client->getItemBySku($product->sku);
         if (!$resp['success']) {
-            return false;
+            $status = (int) ($resp['status'] ?? 0);
+            if ($status === 404) {
+                return [
+                    'ok' => false, 'gangguan' => false,
+                    'alasan' => 'SKU "' . $product->sku . '" tidak ada di Jubelio.',
+                ];
+            }
+
+            return [
+                'ok' => false, 'gangguan' => true,
+                'alasan' => 'Jubelio tidak menjawab dengan benar saat mencari SKU "' . $product->sku . '"'
+                    . ($status ? ' (HTTP ' . $status . ')' : '')
+                    . ': ' . ($resp['error'] ?: 'penyebab tidak disebutkan')
+                    . '. Ini gangguan sisi Jubelio, bukan bukti SKU-nya salah — coba lagi beberapa saat.',
+            ];
         }
-        [$itemId, $groupId] = $this->extractIds($resp['data']);
+
+        [$itemId, $groupId] = $this->extractIds($resp['data'], $product->sku);
         if (!$itemId) {
-            return false;
+            return [
+                'ok' => false, 'gangguan' => false,
+                'alasan' => 'Jubelio menemukan grup produknya'
+                    . ($groupId ? ' (item_group_id ' . $groupId . ')' : '')
+                    . ', tapi tidak ada variasi yang kode SKU-nya persis "' . $product->sku . '".',
+            ];
         }
+
         $product->forceFill([
             'jubelio_item_id'       => $itemId,
             'jubelio_item_group_id' => $groupId ?: $product->jubelio_item_group_id,
         ])->save();
-        return true;
+
+        return ['ok' => true, 'gangguan' => false, 'alasan' => null];
     }
 
     /** Proses produk yang harganya berubah (ditandai observer). */
@@ -94,17 +151,33 @@ class JubelioProductSyncService
     {
         // Pastikan item_id & item_group_id tersedia.
         if (!$product->jubelio_item_id || !$product->jubelio_item_group_id) {
-            if (!$this->matchProduct($product)) {
-                JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::SKIP, $product->name, [
-                    'reference'  => $product->sku,
-                    'product_id' => $product->id,
-                    'message'    => 'Produk belum ter-match ke item Jubelio (SKU tidak ditemukan).',
-                ]);
-                return 'skipped';
+            $cocok = $this->cocokkan($product);
+            if (!$cocok['ok']) {
+                JubelioSyncLog::record(
+                    JubelioSyncLog::TYPE_PRICE,
+                    $cocok['gangguan'] ? JubelioSyncLog::FAIL : JubelioSyncLog::SKIP,
+                    $product->name,
+                    [
+                        'reference'  => $product->sku,
+                        'product_id' => $product->id,
+                        'message'    => 'Belum ter-match ke item Jubelio. ' . $cocok['alasan'],
+                    ]
+                );
+                return $cocok['gangguan'] ? 'failed' : 'skipped';
             }
             $product->refresh();
         }
         if (!$product->jubelio_item_id || !$product->jubelio_item_group_id) {
+            // Pencocokan mengaku berhasil tapi salah satu id tetap kosong. Tak boleh diam:
+            // dilewati tanpa jejak persis inilah yang bikin push harga "tidak terjadi
+            // apa-apa" dan tak ada yang bisa ditelusuri di Riwayat Sinkron.
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::SKIP, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => 'Pencocokan tidak menghasilkan pasangan id lengkap (item_id '
+                    . ($product->jubelio_item_id ?: 'kosong') . ', item_group_id '
+                    . ($product->jubelio_item_group_id ?: 'kosong') . ').',
+            ]);
             return 'skipped';
         }
 
@@ -167,13 +240,19 @@ class JubelioProductSyncService
         }
 
         if (!$product->jubelio_item_id || !$product->jubelio_item_group_id) {
-            if (!$this->matchProduct($product)) {
-                $message = 'Produk belum ter-match ke item Jubelio (SKU tidak ditemukan).';
-                JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::SKIP, $product->name, [
-                    'reference'  => $product->sku,
-                    'product_id' => $product->id,
-                    'message'    => $message,
-                ]);
+            $cocok = $this->cocokkan($product);
+            if (!$cocok['ok']) {
+                $message = 'Belum ter-match ke item Jubelio. ' . $cocok['alasan'];
+                JubelioSyncLog::record(
+                    JubelioSyncLog::TYPE_PRICE,
+                    $cocok['gangguan'] ? JubelioSyncLog::FAIL : JubelioSyncLog::SKIP,
+                    $product->name,
+                    [
+                        'reference'  => $product->sku,
+                        'product_id' => $product->id,
+                        'message'    => $message,
+                    ]
+                );
 
                 return ['ok' => false, 'message' => $message];
             }
@@ -374,8 +453,19 @@ class JubelioProductSyncService
         }
     }
 
-    /** Ekstrak [item_id, item_group_id] dari respons item Jubelio (beberapa bentuk). */
-    private function extractIds($data): array
+    /**
+     * Ekstrak [item_id, item_group_id] dari respons item Jubelio.
+     *
+     * Bentuk respons /inventory/items/by-sku adalah objek ITEM-GROUP: `item_group_id` ada
+     * di tingkat atas, tapi `item_id` TIDAK — ia hidup di dalam `product_skus[]`, satu baris
+     * per variasi. Membaca `item_id` dari tingkat atas selalu menghasilkan null, dan produk
+     * yang sebenarnya ada di Jubelio dilaporkan "SKU tidak ditemukan".
+     *
+     * Barisnya dipilih lewat `item_code` yang sama persis dengan SKU yang diminta — satu
+     * grup bisa berisi banyak variasi, jadi mengambil baris pertama begitu saja berarti
+     * harga varian A bisa terkirim ke varian B.
+     */
+    private function extractIds($data, ?string $sku = null): array
     {
         if (!is_array($data)) {
             return [null, null];
@@ -386,8 +476,35 @@ class JubelioProductSyncService
         } elseif (isset($data['data'][0]) && is_array($data['data'][0])) {
             $node = $data['data'][0];
         }
-        $itemId  = $node['item_id'] ?? $data['item_id'] ?? null;
+
         $groupId = $node['item_group_id'] ?? $data['item_group_id'] ?? null;
+        $itemId  = $node['item_id'] ?? $data['item_id'] ?? null;
+
+        if (!$itemId) {
+            $rows = $node['product_skus'] ?? $data['product_skus'] ?? [];
+            if (is_array($rows) && $rows) {
+                $pilihan = null;
+                if ($sku !== null && $sku !== '') {
+                    foreach ($rows as $row) {
+                        if (is_array($row) && isset($row['item_code'])
+                            && strcasecmp(trim((string) $row['item_code']), trim($sku)) === 0) {
+                            $pilihan = $row;
+                            break;
+                        }
+                    }
+                }
+                // Tanpa SKU pembanding, baris tunggal masih tak ambigu; lebih dari satu
+                // variasi tanpa kecocokan item_code sengaja dibiarkan null.
+                if ($pilihan === null && count($rows) === 1 && is_array($rows[0] ?? null)) {
+                    $pilihan = $rows[0];
+                }
+                if (is_array($pilihan)) {
+                    $itemId  = $pilihan['item_id'] ?? null;
+                    $groupId = $pilihan['item_group_id'] ?? $groupId;
+                }
+            }
+        }
+
         return [$itemId ? (int) $itemId : null, $groupId ? (int) $groupId : null];
     }
 }
