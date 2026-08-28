@@ -12,6 +12,10 @@ use Illuminate\Support\Collection;
  * Ini REKAMAN, bukan kebenaran: umurnya ikut ditampilkan supaya tidak ada yang membacanya
  * sebagai harga hari ini padahal ditarik seminggu lalu. Lihat migrasinya untuk alasan
  * kenapa tabel ini berdiri sendiri dan tidak ikut sidik jari AnalysisCache.
+ *
+ * Isinya datang dari dua arah: sapuan `jubelio:tarik-harga` (dan tombolnya) untuk seluruh
+ * katalog, serta pengecekan balik sesudah tombol Kirim — yang terakhir menjaga baris produk
+ * yang baru saja diubah tetap segar tanpa perlu menyapu apa pun.
  */
 class JubelioStorePrice extends Model
 {

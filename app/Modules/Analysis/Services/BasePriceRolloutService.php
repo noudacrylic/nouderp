@@ -85,7 +85,8 @@ class BasePriceRolloutService
      * @return array{
      *     price:float, ok:bool, pesan:string,
      *     terkirim:array<int,string>, gagal:array<int,string>,
-     *     tanpa_toko:array<int,string>, ditimpa:array<int,string>, dasar:string
+     *     tanpa_toko:array<int,string>, ditimpa:array<int,string>, dasar:string,
+     *     dicek:?array{ok:bool, sesuai:bool, per_toko:array<int,?float>, harga:?float, message:?string}
      * }
      */
     public function applyToMarketplaces(Product $product, float $price): array
@@ -99,7 +100,12 @@ class BasePriceRolloutService
             'tanpa_toko' => [],
             'ditimpa'    => [],
             'dasar'      => 'skipped',
+            'dicek'      => null,
         ];
+
+        // Toko yang benar-benar dikirimi, dikumpulkan lintas kanal: pengecekan baliknya
+        // satu panggilan untuk seluruh produk, bukan satu per kanal.
+        $tokoTerkirim = [];
 
         // Jubelio mati = jangan buang panggilan API satu per kanal hanya untuk mengumpulkan
         // tiga pesan "SKU tidak ditemukan" yang menyesatkan. Harganya tetap disimpan; yang
@@ -135,6 +141,7 @@ class BasePriceRolloutService
             if ($kirim['ok']) {
                 $row->forceFill(['pushed_price' => $price, 'pushed_at' => now()])->save();
                 $hasil['terkirim'][] = $channel['label'];
+                $tokoTerkirim        = array_merge($tokoTerkirim, $channel['store_ids']);
             } else {
                 $hasil['gagal'][] = $channel['label'] . ': ' . $kirim['message'];
             }
@@ -144,7 +151,17 @@ class BasePriceRolloutService
             $hasil['dasar'] = $this->pushBasePrice($product);
         }
 
-        $hasil['ok']    = empty($hasil['gagal']) && $tersambung;
+        // Dicek balik SESUDAH harga dasar ikut dikirim: toko yang tidak punya harga khusus
+        // membaca harga dasar, jadi menanyakannya lebih awal akan melaporkan angka yang
+        // sebentar lagi berubah sendiri.
+        if ($tokoTerkirim) {
+            $hasil['dicek'] = $this->sync->verifyStorePrice($product, $tokoTerkirim, $price);
+        }
+
+        // Beda saat dicek balik bukan kegagalan pengiriman — tapi juga bukan "beres", karena
+        // yang tayang di tokonya belum tentu harga ini.
+        $hasil['ok']    = empty($hasil['gagal']) && $tersambung
+                          && !($hasil['dicek'] && $hasil['dicek']['ok'] && !$hasil['dicek']['sesuai']);
         $hasil['pesan'] = $this->ringkas($product, $hasil, $tersambung);
 
         return $hasil;
@@ -200,9 +217,37 @@ class BasePriceRolloutService
         if ($hasil['gagal']) {
             $bagian[] = 'gagal — ' . implode('; ', $hasil['gagal']);
         }
+        if ($cek = $this->ringkasCek($hasil['dicek'] ?? null)) {
+            $bagian[] = $cek;
+        }
 
         return "{$product->name} — harga {$harga} diberlakukan di semua marketplace"
             . ($bagian ? ' (' . implode('; ', $bagian) . ').' : '.');
+    }
+
+    /**
+     * Hasil pengecekan balik dalam satu potong kalimat.
+     *
+     * Beda angka TIDAK disebut sebagai "gagal": paling sering Jubelio cuma belum sempat
+     * memproses, dan menuduhnya gagal membuat orang mengirim ulang hal yang sebenarnya
+     * sudah benar. Yang dilaporkan angkanya, beserta dua kemungkinan sebabnya.
+     */
+    protected function ringkasCek(?array $cek): ?string
+    {
+        if (!$cek) {
+            return null;
+        }
+        if (!$cek['ok']) {
+            return 'belum bisa dicek balik ke Jubelio (' . $cek['message'] . ')';
+        }
+        if ($cek['sesuai']) {
+            return 'dicek balik: Jubelio memang sudah memegang harga itu';
+        }
+
+        $dipegang = $cek['harga'] !== null ? $this->rp($cek['harga']) : 'harga yang berbeda antar-toko';
+
+        return "dicek balik: Jubelio masih memegang {$dipegang} — biasanya belum sempat diproses,"
+            . ' tarik harga marketplace sebentar lagi; kalau tetap beda, harganya diubah dari luar ERP';
     }
 
     protected function rp(float $value): string

@@ -259,35 +259,7 @@ class JubelioProductSyncService
         }
 
         foreach ($products as $product) {
-            if (!$product->jubelio_item_id) {
-                $this->rekamHarga($product, $storeIds, [], 'Produk belum ter-match ke item Jubelio.');
-                $stats['kosong']++;
-                continue;
-            }
-
-            $hasil = $this->client->getStorePrices(
-                (int) $product->jubelio_item_id,
-                (int) ($product->jubelio_item_group_id ?: 0)
-            );
-
-            if (!$hasil['ok']) {
-                $this->rekamHarga($product, $storeIds, [], $hasil['reason']);
-                $stats['gagal']++;
-                continue;
-            }
-
-            // Toko yang tidak punya harga khusus memang dijual di harga dasar — itu jawaban
-            // yang sah, bukan kegagalan, dan harus terbaca begitu di layar.
-            $perToko = [];
-            foreach ($storeIds as $storeId) {
-                $perToko[$storeId] = $hasil['prices'][$storeId] ?? $hasil['base'];
-            }
-
-            $adaHarga = (bool) array_filter($perToko, fn ($v) => $v !== null);
-            $this->rekamHarga($product, $storeIds, $perToko,
-                $adaHarga ? null : 'Jubelio tidak memberi harga untuk toko ini.');
-
-            $adaHarga ? $stats['terisi']++ : $stats['kosong']++;
+            $stats[$this->tarikHargaSatuProduk($product, $storeIds)['status']]++;
         }
 
         JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::OK, 'Tarik harga marketplace', [
@@ -297,6 +269,94 @@ class JubelioProductSyncService
         ]);
 
         return $stats;
+    }
+
+    /**
+     * Tanya Jubelio harga satu produk lalu rekam apa adanya — inti dari pullStorePrices,
+     * berdiri sendiri supaya verifikasi sesudah kirim tidak perlu menyeret antrean,
+     * batas, dan catatan ringkasan yang hanya masuk akal untuk penarikan borongan.
+     *
+     * @param  array<int,int> $storeIds
+     * @return array{status:'terisi'|'kosong'|'gagal', per_toko:array<int,?float>, note:?string}
+     */
+    private function tarikHargaSatuProduk(Product $product, array $storeIds): array
+    {
+        if (!$product->jubelio_item_id) {
+            $note = 'Produk belum ter-match ke item Jubelio.';
+            $this->rekamHarga($product, $storeIds, [], $note);
+
+            return ['status' => 'kosong', 'per_toko' => [], 'note' => $note];
+        }
+
+        $hasil = $this->client->getStorePrices(
+            (int) $product->jubelio_item_id,
+            (int) ($product->jubelio_item_group_id ?: 0)
+        );
+
+        if (!$hasil['ok']) {
+            $this->rekamHarga($product, $storeIds, [], $hasil['reason']);
+
+            return ['status' => 'gagal', 'per_toko' => [], 'note' => $hasil['reason']];
+        }
+
+        // Toko yang tidak punya harga khusus memang dijual di harga dasar — itu jawaban
+        // yang sah, bukan kegagalan, dan harus terbaca begitu di layar.
+        $perToko = [];
+        foreach ($storeIds as $storeId) {
+            $perToko[$storeId] = $hasil['prices'][$storeId] ?? $hasil['base'];
+        }
+
+        $adaHarga = (bool) array_filter($perToko, fn ($v) => $v !== null);
+        $note     = $adaHarga ? null : 'Jubelio tidak memberi harga untuk toko ini.';
+        $this->rekamHarga($product, $storeIds, $perToko, $note);
+
+        return ['status' => $adaHarga ? 'terisi' : 'kosong', 'per_toko' => $perToko, 'note' => $note];
+    }
+
+    /**
+     * Tanya balik sesudah mengirim: harga yang SEKARANG dipegang Jubelio berapa?
+     *
+     * `pushStorePrice` yang menjawab "ok" cuma berarti API-nya menerima permintaan kita.
+     * Satu panggilan tambahan di detik yang sama menjadikannya "harganya memang sudah
+     * berganti" — dan hasilnya sekalian mengisi kolom "Di marketplace", jadi kolom itu
+     * hidup tanpa perlu menyapu seluruh katalog.
+     *
+     * Yang dilaporkan sengaja bukan cuma cocok/tidak: Jubelio kadang belum sempat
+     * memproses, dan itu beda maknanya dengan harga yang diubah orang lain dari luar ERP.
+     * Membedakannya bukan tugas fungsi ini — tugasnya menyajikan angkanya apa adanya.
+     *
+     * @param  array<int,int> $storeIds
+     * @return array{ok:bool, sesuai:bool, per_toko:array<int,?float>, harga:?float, message:?string}
+     */
+    public function verifyStorePrice(Product $product, array $storeIds, float $expected): array
+    {
+        $storeIds = array_values(array_unique(array_filter(array_map('intval', $storeIds))));
+        $kosong   = ['ok' => false, 'sesuai' => false, 'per_toko' => [], 'harga' => null];
+
+        if (empty($storeIds) || !$this->client->isReady()) {
+            return $kosong + ['message' => 'Jubelio belum tersambung.'];
+        }
+
+        $hasil = $this->tarikHargaSatuProduk($product, $storeIds);
+
+        if ($hasil['status'] !== 'terisi') {
+            return $kosong + ['message' => $hasil['note'] ?: 'Jubelio tidak memberi harga untuk toko ini.'];
+        }
+
+        $terbaca = array_filter($hasil['per_toko'], fn ($v) => $v !== null);
+        $beda    = array_filter($terbaca, fn ($v) => abs((float) $v - $expected) >= 1);
+        $seragam = collect($terbaca)->map(fn ($v) => round((float) $v))->unique();
+
+        return [
+            'ok'       => true,
+            // Toko yang tidak menjawab TIDAK ikut dihitung "cocok": separuh terverifikasi
+            // dibaca sebagai terverifikasi persis di saat yang paling perlu diperiksa.
+            'sesuai'   => empty($beda) && count($terbaca) === count($storeIds),
+            'per_toko' => $hasil['per_toko'],
+            // Satu angka hanya bila semua toko sepakat — sama seperti di tabel harga.
+            'harga'    => $seragam->count() === 1 ? (float) reset($terbaca) : null,
+            'message'  => null,
+        ];
     }
 
     /** @param array<int,?float> $perToko */

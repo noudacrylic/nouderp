@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Marketplace;
 
+use App\Core\Inventory\Product;
 use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
@@ -120,6 +121,92 @@ class JubelioPullPricesTest extends TestCase
         $this->assertSame(1, $stats['sisa'], 'Sisa harus dilaporkan, bukan diam-diam dipotong.');
         $this->assertEquals(200_000, JubelioStorePrice::where('product_id', $lama)->value('price'));
         $this->assertEquals(1, JubelioStorePrice::where('product_id', $baru)->value('price'));
+    }
+
+    /**
+     * Verifikasi sesudah kirim: satu panggilan yang mengubah "API-nya menerima" menjadi
+     * "harganya memang sudah berganti", sekaligus mengisi kolom "Di marketplace".
+     */
+    public function test_verifikasi_sesudah_kirim_menyatakan_sesuai_dan_merekam_harganya(): void
+    {
+        $id = $this->produk('AM-60', 55);
+
+        $this->pakaiKlienPalsu(['data' => [
+            'product_skus' => [[
+                'item_id' => 55, 'sell_price' => 200_000,
+                'prices'  => [['store_id' => 71, 'price' => 250_000]],
+            ]],
+        ]]);
+
+        $cek = app(JubelioProductSyncService::class)
+            ->verifyStorePrice(Product::findOrFail($id), [71], 250_000);
+
+        $this->assertTrue($cek['ok']);
+        $this->assertTrue($cek['sesuai']);
+        $this->assertEquals(250_000, $cek['harga']);
+        // Rekamannya ikut tersimpan — itu gunanya: kolomnya hidup tanpa menyapu katalog.
+        $this->assertEquals(250_000, JubelioStorePrice::where('product_id', $id)->where('store_id', 71)->value('price'));
+    }
+
+    /**
+     * Yang paling berbahaya adalah pengecekan yang selalu setuju. Kalau Jubelio ternyata
+     * masih memegang harga lama, itu HARUS terbaca — entah karena belum sempat diproses,
+     * entah karena diubah dari luar ERP.
+     */
+    public function test_verifikasi_melaporkan_beda_saat_jubelio_masih_memegang_harga_lama(): void
+    {
+        $id = $this->produk('AM-60', 55);
+
+        $this->pakaiKlienPalsu(['data' => [
+            'product_skus' => [[
+                'item_id' => 55, 'sell_price' => 200_000,
+                'prices'  => [['store_id' => 71, 'price' => 240_000]],
+            ]],
+        ]]);
+
+        $cek = app(JubelioProductSyncService::class)
+            ->verifyStorePrice(Product::findOrFail($id), [71], 250_000);
+
+        $this->assertTrue($cek['ok']);
+        $this->assertFalse($cek['sesuai']);
+        $this->assertEquals(240_000, $cek['harga']);
+    }
+
+    /** Respons yang tidak dikenali tidak boleh menyamar jadi "sesuai". */
+    public function test_verifikasi_yang_gagal_bukan_berarti_sesuai(): void
+    {
+        $id = $this->produk('AM-60', 55);
+
+        $this->pakaiKlienPalsu(['data' => ['sesuatu_yang_lain' => true]]);
+
+        $cek = app(JubelioProductSyncService::class)
+            ->verifyStorePrice(Product::findOrFail($id), [71], 250_000);
+
+        $this->assertFalse($cek['ok']);
+        $this->assertFalse($cek['sesuai']);
+        $this->assertNotNull($cek['message']);
+    }
+
+    /** Dua toko satu kanal yang berbeda harga tidak boleh dilebur jadi satu angka. */
+    public function test_verifikasi_tidak_melebur_toko_yang_berbeda_harga(): void
+    {
+        $id = $this->produk('AM-60', 55);
+
+        $this->pakaiKlienPalsu(['data' => [
+            'product_skus' => [[
+                'item_id' => 55, 'sell_price' => 200_000,
+                'prices'  => [
+                    ['store_id' => 71, 'price' => 250_000],
+                    ['store_id' => 72, 'price' => 265_000],
+                ],
+            ]],
+        ]]);
+
+        $cek = app(JubelioProductSyncService::class)
+            ->verifyStorePrice(Product::findOrFail($id), [71, 72], 250_000);
+
+        $this->assertFalse($cek['sesuai']);
+        $this->assertNull($cek['harga'], 'Dua harga berbeda tidak punya satu angka yang benar.');
     }
 
     // ==========================================================

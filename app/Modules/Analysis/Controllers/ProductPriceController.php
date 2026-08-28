@@ -300,7 +300,32 @@ class ProductPriceController extends Controller
 
         $row->forceFill(['pushed_price' => $row->price, 'pushed_at' => now()])->save();
 
-        return back()->with('success', "{$product->name} — {$result['message']}");
+        // Dicek balik saat itu juga. "ok" dari Jubelio cuma berarti permintaannya diterima;
+        // satu panggilan tambahan menjadikannya "harganya memang sudah berganti" — dan
+        // hasilnya sekalian mengisi kolom "Di marketplace" untuk produk ini, jadi kolom itu
+        // hidup tanpa perlu menyapu seluruh katalog.
+        $cek = $sync->verifyStorePrice($product, $channel['store_ids'], (float) $row->price);
+
+        if (!$cek['ok']) {
+            return back()->with('success', "{$product->name} — {$result['message']}"
+                . " Belum bisa dicek balik: {$cek['message']}");
+        }
+        if ($cek['sesuai']) {
+            return back()->with('success', "{$product->name} — {$result['message']}"
+                . ' Dicek balik: Jubelio memang sudah memegang harga itu.');
+        }
+
+        // Beda bukan berarti pengirimannya gagal — paling sering Jubelio belum sempat
+        // memproses. Yang membedakannya dari harga yang diubah orang lain cuma waktu, jadi
+        // dua-duanya disebut dan orangnya yang memutuskan.
+        $dipegang = $cek['harga'] !== null
+            ? 'Rp' . number_format($cek['harga'], 0, ',', '.')
+            : 'harga yang berbeda antar-toko';
+
+        return back()->with('warning', "{$product->name} — {$result['message']}"
+            . " Tapi saat dicek balik Jubelio masih memegang {$dipegang}."
+            . ' Biasanya ia belum sempat memproses — tekan Tarik harga marketplace sebentar lagi;'
+            . ' kalau tetap beda, harganya diubah dari luar ERP.');
     }
 
     /**

@@ -27,6 +27,7 @@
                     @endif
                 @else
                     <strong>Kirim</strong> memberlakukan harga khusus toko ini di Jubelio &mdash; sampai ditekan, produknya dijual di harga dasar.
+                    Sesudah terkirim harganya langsung ditanyakan balik ke Jubelio, jadi kolom <strong>Di marketplace</strong> ikut terisi.
                 @endif
             </p>
         </div>
@@ -248,7 +249,8 @@
                                     <form method="POST" action="{{ route('analisa.harga.push', $pid) }}" class="inline">
                                         @csrf
                                         <input type="hidden" name="kanal" value="{{ $channel['key'] }}">
-                                        <button class="ml-2 border border-slate-200 text-slate-600 hover:bg-slate-50 px-2.5 py-1 rounded-lg text-[11px] font-bold">Kirim</button>
+                                        <button class="ml-2 border border-slate-200 text-slate-600 hover:bg-slate-50 px-2.5 py-1 rounded-lg text-[11px] font-bold"
+                                                title="Kirim harga ini ke toko kanal, lalu tanyakan balik ke Jubelio apakah benar-benar berganti.">Kirim</button>
                                     </form>
                                 @endif
                             </td>

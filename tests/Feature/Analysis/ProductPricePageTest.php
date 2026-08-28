@@ -7,6 +7,7 @@ use App\Modules\Analysis\Models\ProductChannelPrice;
 use App\Models\MarketplaceConfig;
 use App\Models\User;
 use App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap;
+use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -95,6 +96,51 @@ class ProductPricePageTest extends TestCase
             ->post(route('analisa.harga.push', $id), ['kanal' => 'shopee'])
             ->assertRedirect(route('analisa.harga.index', ['kanal' => 'shopee']))
             ->assertSessionHas('error');
+    }
+
+    /**
+     * Kirim = kirim LALU tanya balik. "ok" dari Jubelio cuma berarti permintaannya diterima;
+     * yang menjawab "harganya memang sudah berganti" hanya pertanyaan balik itu — dan
+     * jawabannya sekalian mengisi kolom "Di marketplace" untuk produk ini.
+     */
+    public function test_kirim_mengecek_balik_harganya_ke_jubelio(): void
+    {
+        $this->potonganShopee();
+        $this->petakanTokoShopee([71]);
+        $id = $this->produkJubelio('AM-60', 'Frame Mahar Akrilik', 200_000, 55);
+        ProductChannelPrice::create(['product_id' => $id, 'channel' => 'shopee', 'price' => 250_000]);
+
+        $this->pakaiKlienPalsu([['store_id' => 71, 'price' => 250_000]]);
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->post(route('analisa.harga.push', $id), ['kanal' => 'shopee'])
+            ->assertSessionHas('success');
+
+        $this->assertEquals(250_000,
+            JubelioStorePrice::where('product_id', $id)->where('store_id', 71)->value('price'),
+            'Hasil pengecekan harus ikut terekam — itu yang membuat kolomnya hidup.');
+    }
+
+    /**
+     * Pengecekan yang selalu setuju tidak ada gunanya. Kalau Jubelio ternyata masih
+     * memegang harga lama, pengirimannya tidak boleh terbaca "beres" — walau API-nya
+     * menjawab ok.
+     */
+    public function test_kirim_memperingatkan_saat_jubelio_masih_memegang_harga_lama(): void
+    {
+        $this->potonganShopee();
+        $this->petakanTokoShopee([71]);
+        $id = $this->produkJubelio('AM-60', 'Frame Mahar Akrilik', 200_000, 55);
+        ProductChannelPrice::create(['product_id' => $id, 'channel' => 'shopee', 'price' => 250_000]);
+
+        $this->pakaiKlienPalsu([['store_id' => 71, 'price' => 240_000]]);
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->post(route('analisa.harga.push', $id), ['kanal' => 'shopee'])
+            ->assertSessionHas('warning')
+            ->assertSessionMissing('success');
     }
 
     public function test_sub_tab_afiliasi_hanya_memuat_kanal_yang_menyediakannya(): void
@@ -499,6 +545,53 @@ class ProductPricePageTest extends TestCase
             'sku' => $sku, 'name' => $nama, 'base_price' => $harga, 'sale_type' => 'ready',
             'is_sellable' => 1, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    /** Produk yang sudah ter-match ke item Jubelio — syarat tombol Kirim. */
+    private function produkJubelio(string $sku, string $nama, float $harga, int $itemId): int
+    {
+        $id = $this->produk($sku, $nama, $harga);
+
+        DB::table('products')->where('id', $id)->update([
+            'sync_to_jubelio'       => 1,
+            'jubelio_item_id'       => $itemId,
+            'jubelio_item_group_id' => $itemId * 10,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Klien Jubelio palsu: menerima setiap kiriman harga, dan menjawab pertanyaan balik
+     * dengan harga yang ditentukan tes. Sengaja tidak memanggil parent — tes ini tidak
+     * boleh menyentuh pengaturan maupun jaringan.
+     *
+     * @param array<int,array{store_id:int, price:float}> $hargaToko
+     */
+    private function pakaiKlienPalsu(array $hargaToko): void
+    {
+        $this->app->bind(JubelioClient::class, fn () => new class($hargaToko) extends JubelioClient {
+            public function __construct(private array $hargaToko) {}
+
+            public function isReady(): bool
+            {
+                return true;
+            }
+
+            public function updatePrices(array $items): array
+            {
+                return ['success' => true, 'error' => null, 'data' => []];
+            }
+
+            public function getItem(int $itemId): array
+            {
+                return ['success' => true, 'error' => null, 'data' => [
+                    'product_skus' => [[
+                        'item_id' => 55, 'sell_price' => 200_000, 'prices' => $this->hargaToko,
+                    ]],
+                ]];
+            }
+        });
     }
 
     private function admin(): User
