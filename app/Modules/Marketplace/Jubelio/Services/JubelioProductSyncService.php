@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\Log;
  */
 class JubelioProductSyncService
 {
+    /** Ingatan sesaat hasil uji banding endpoint by-sku; lihat apiSedangSehat(). */
+    private ?bool $apiSehat = null;
+
     public function __construct(protected JubelioClient $client) {}
 
     /**
@@ -72,9 +75,15 @@ class JubelioProductSyncService
      *
      * `gangguan` membedakan dua kegagalan yang selama ini disamakan: true berarti Jubelio
      * yang bermasalah (timeout, HTTP 500, sesi putus) sehingga SKU-nya belum tentu salah
-     * dan mencoba lagi masuk akal; false berarti Jubelio menjawab dengan benar bahwa SKU
-     * itu tidak ada. Menyebut keduanya "SKU tidak ditemukan" menyuruh orang memperbaiki
-     * data yang sebetulnya sudah benar.
+     * dan mencoba lagi masuk akal; false berarti SKU itu memang tidak ada di Jubelio.
+     * Menyamakan keduanya menyesatkan ke dua arah: gangguan sesaat terbaca sebagai data
+     * salah, atau SKU yang benar-benar belum dibuat terbaca sebagai gangguan yang cukup
+     * "dicoba lagi nanti" selamanya.
+     *
+     * Membedakannya tidak bisa dari respons: Jubelio menjawab SKU yang tidak ada dengan
+     * HTTP 500 berisi badan pesan yang sama persis dengan error sungguhan (E000001,
+     * "An internal server error occurred"), bukan 404. Jadi pembedanya adalah uji banding
+     * ke SKU yang sudah pasti ada — lihat apiSedangSehat().
      *
      * @return array{ok:bool, gangguan:bool, alasan:?string}
      */
@@ -87,10 +96,13 @@ class JubelioProductSyncService
         $resp = $this->client->getItemBySku($product->sku);
         if (!$resp['success']) {
             $status = (int) ($resp['status'] ?? 0);
-            if ($status === 404) {
+            if ($status === 404 || $this->apiSedangSehat($product->sku)) {
                 return [
                     'ok' => false, 'gangguan' => false,
-                    'alasan' => 'SKU "' . $product->sku . '" tidak ada di Jubelio.',
+                    'alasan' => 'SKU "' . $product->sku . '" tidak ada di Jubelio'
+                        . ($status === 404 ? '.' : ' (Jubelio menjawabnya dengan HTTP ' . $status
+                            . ', tapi SKU pembanding di saat yang sama dijawab normal, jadi ini bukan gangguan).')
+                        . ' Buat dulu produknya di Jubelio, atau betulkan SKU-nya di sini.',
                 ];
             }
 
@@ -99,7 +111,8 @@ class JubelioProductSyncService
                 'alasan' => 'Jubelio tidak menjawab dengan benar saat mencari SKU "' . $product->sku . '"'
                     . ($status ? ' (HTTP ' . $status . ')' : '')
                     . ': ' . ($resp['error'] ?: 'penyebab tidak disebutkan')
-                    . '. Ini gangguan sisi Jubelio, bukan bukti SKU-nya salah — coba lagi beberapa saat.',
+                    . '. SKU pembanding ikut gagal, jadi ini gangguan sisi Jubelio dan bukan bukti '
+                    . 'SKU-nya salah — coba lagi beberapa saat.',
             ];
         }
 
@@ -119,6 +132,37 @@ class JubelioProductSyncService
         ])->save();
 
         return ['ok' => true, 'gangguan' => false, 'alasan' => null];
+    }
+
+    /**
+     * Apakah /inventory/items/by-sku sedang melayani dengan benar?
+     *
+     * Dipakai sebagai uji banding ketika sebuah SKU gagal dicari. Jubelio menjawab SKU
+     * yang tidak ada dan Jubelio yang sedang bermasalah dengan respons yang identik, jadi
+     * satu-satunya cara jujur membedakannya adalah menanyakan SKU lain yang sudah terbukti
+     * ada: kalau yang itu dijawab 200, endpoint-nya sehat dan kegagalan tadi berarti SKU
+     * tersebut memang tidak ada.
+     *
+     * Hasilnya diingat selama satu proses supaya pencocokan borongan tidak menambah satu
+     * panggilan untuk setiap produk yang gagal. Bila tak ada SKU pembanding sama sekali,
+     * jawabannya null dan pemanggil memilih tafsir yang lebih aman (dianggap gangguan).
+     */
+    private function apiSedangSehat(string $kecuali): bool
+    {
+        if ($this->apiSehat !== null) {
+            return $this->apiSehat;
+        }
+
+        $pembanding = Product::whereNotNull('jubelio_item_id')
+            ->whereNotNull('sku')->where('sku', '!=', '')
+            ->where('sku', '!=', $kecuali)
+            ->value('sku');
+
+        if (!$pembanding) {
+            return $this->apiSehat = false;
+        }
+
+        return $this->apiSehat = (bool) ($this->client->getItemBySku($pembanding)['success'] ?? false);
     }
 
     /** Proses produk yang harganya berubah (ditandai observer). */
