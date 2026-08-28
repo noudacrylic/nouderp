@@ -40,8 +40,11 @@
                 $customerId = old('customer_id', $quotation->customer_id ?? ($so->customer_id ?? ($invoice->customer_id ?? '')));
                 $customerName = '';
                 if ($customerId) {
-                    $selectedCustomer = $customers->firstWhere('id', $customerId);
-                    $customerName = $selectedCustomer ? $selectedCustomer->name : '';
+                    // Pelanggan dokumen lama tetap ditampilkan walau kini diarsipkan —
+                    // yang disaring hanya PENCARIAN, bukan nama yang sudah tersimpan.
+                    $selectedCustomer = $customers->firstWhere('id', $customerId)
+                        ?? \App\Models\Customer::find($customerId);
+                    $customerName = $selectedCustomer ? $selectedCustomer->picker_label : '';
                 }
             @endphp
             <input type="hidden" name="customer_id" id="customer_id" value="{{ $customerId }}">
@@ -118,4 +121,4 @@
         <input type="date" name="{{ $dateField }}" value="{{ $dateValue }}"
             class="form-control w-full border rounded px-3 py-2 text-sm">
     </div>
-</div>
+</div>

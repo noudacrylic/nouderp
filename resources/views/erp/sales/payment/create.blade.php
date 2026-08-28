@@ -230,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">${cust.code ?? ''}</div>
                 `;
                 div.onclick = function() {
-                    searchInput.value = cust.name;
+                    searchInput.value = cust.label ?? cust.name;
                     hiddenIdInput.value = cust.id;
                     dropdown.classList.add('hidden');
                     loadCustomerData(cust.id);

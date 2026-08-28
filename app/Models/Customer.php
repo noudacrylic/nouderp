@@ -39,8 +39,37 @@ class Customer extends Model
 
     protected $appends = [
         'marketplace_hold_name',
-        'credit_balance'
+        'credit_balance',
+        'picker_label',
     ];
+
+    /**
+     * Hanya pelanggan yang belum diarsipkan. Dipakai SEMUA kotak cari pelanggan.
+     *
+     * Sengaja tidak dipasang sebagai global scope: dokumen lama boleh saja milik
+     * pelanggan yang kini diarsipkan, dan namanya harus tetap muncul saat dibuka.
+     * Yang disaring adalah PENCARIAN (memilih untuk dokumen baru), bukan penyelesaian
+     * nama yang sudah terlanjur tersimpan.
+     */
+    public function scopeAktif($query)
+    {
+        return $query->where('is_active', 1);
+    }
+
+    /**
+     * Nama yang tampil di kotak pilih & daftar hasil cari: kode dulu, baru nama.
+     *
+     * Dua gunanya. Pertama, membedakan orang yang namanya sama persis — dan itu
+     * nyata: ada tiga "Dhita Maharani" di data. Kedua, kehadiran kode itu sendiri
+     * menandai "ini pelanggan yang SUDAH ADA", bukan nama yang baru saja diketik dan
+     * belum tersimpan.
+     */
+    public function getPickerLabelAttribute(): string
+    {
+        $code = trim((string) $this->code);
+
+        return $code !== '' ? $code . ' · ' . $this->name : (string) $this->name;
+    }
 
     public function marketplaceIntegration()
     {

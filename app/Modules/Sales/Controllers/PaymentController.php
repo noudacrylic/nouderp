@@ -245,10 +245,20 @@ class PaymentController extends Controller
 
     public function searchCustomers(Request $request)
     {
-        $q = $request->get('q');
-        return Customer::where('name', 'like', "%$q%")
+        $q = trim((string) $request->get('q'));
+
+        // Pelanggan arsip tidak boleh muncul di kotak pilih mana pun.
+        return Customer::aktif()
+            ->where('name', 'like', "%{$q}%")
+            ->orderBy('name')
             ->limit(10)
-            ->get(['id', 'name']);
+            ->get(['id', 'name', 'code'])
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'name' => $c->name,
+                'code' => $c->code,
+                'label' => $c->picker_label,
+            ]);
     }
 
     public function create(Request $request)

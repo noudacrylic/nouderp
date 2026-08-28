@@ -226,14 +226,26 @@
             <div class="mb-4">
                 <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Nama Lengkap <span class="text-red-500">*</span></label>
                 <input type="text" name="name" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Masukkan nama pelanggan..." required>
-                <p class="text-[10px] text-gray-400 mt-1.5">No. HP & alamat diisi nanti di kartu Pengiriman.</p>
+                <p class="text-[10px] text-gray-400 mt-1.5">No. HP &amp; alamat diisi nanti di kartu Pengiriman.</p>
+            </div>
+
+            {{-- Peringatan nama kembar. Menghadang, bukan melarang: dua orang boleh saja
+                 benar-benar bernama sama, yang dicegah adalah kembar tanpa sadar. --}}
+            <div id="customerDupWarn" class="hidden mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <div class="flex gap-2">
+                    <svg class="w-4 h-4 shrink-0 text-amber-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                    <div class="text-[11px] leading-relaxed text-amber-900">
+                        <div class="font-bold">Nama ini sudah ada</div>
+                        <div id="customerDupList" class="mt-2 space-y-1.5"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="flex justify-end gap-2">
                 <button type="button" onclick="closeQuickCustomer()" class="px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-lg transition">
                     Batal
                 </button>
-                <button type="submit" class="bg-blue-600 text-white px-4 py-1.5 text-xs font-bold rounded-lg shadow hover:bg-blue-700 transition">
+                <button type="submit" id="customerSaveBtn" class="bg-blue-600 text-white px-4 py-1.5 text-xs font-bold rounded-lg shadow hover:bg-blue-700 transition">
                     Simpan
                 </button>
             </div>
@@ -543,9 +555,12 @@
 
             $.get('/erp/api/customers/search', {q: keyword}, function(customers){
                 let html = '';
+                if (!customers.length) {
+                    html = '<div class="customer-item text-gray-400 italic">Tidak ada pelanggan aktif dengan nama itu. Tekan + untuk menambah baru.</div>';
+                }
                 customers.forEach(function(c){
                     html += `
-                    <div class="customer-item" data-id="${c.id}" data-name="${c.name}">
+                    <div class="customer-item" data-id="${c.id}" data-name="${c.name}" data-label="${c.label || c.name}">
                         <b>${c.code || ''}</b> — ${c.name}
                     </div>
                     `;
@@ -557,10 +572,13 @@
         $(document).on('click', '.customer-item', function(){
             let item = $(this);
             let id = item.data('id');
-            let name = item.data('name');
+            if (!id) return;   // baris "tidak ditemukan" bukan pilihan
+            // Kotaknya diisi kode + nama: kehadiran kode itulah tanda bahwa yang
+            // terpilih pelanggan LAMA, bukan nama yang baru diketik.
+            let label = item.data('label') || item.data('name');
 
             $('#customer_id').val(id);
-            $('#customer_search').val(name);
+            $('#customer_search').val(label);
             $('.customer-dropdown').html('');
             if (window.reloadShippingAddress) window.reloadShippingAddress();
 
@@ -831,7 +849,9 @@
                     document.getElementById('customer_id').value = data.customer_id;
                 }
                 if (document.getElementById('customer_search')) {
-                    document.getElementById('customer_search').value = data.customer ? data.customer.name : '';
+                    document.getElementById('customer_search').value = data.customer
+                        ? (data.customer.picker_label || data.customer.name)
+                        : '';
                 }
 
                 // Warehouse
@@ -1101,23 +1121,82 @@
         form.querySelector('[name="name"]').focus();
     }
 
+    function tampilkanNamaKembar(daftar) {
+        const box = document.getElementById('customerDupWarn');
+        const list = document.getElementById('customerDupList');
+
+        list.innerHTML = daftar.map(c => `
+            <div class="flex items-center justify-between gap-2 bg-white/70 rounded px-2 py-1.5">
+                <div class="min-w-0">
+                    <div class="font-bold truncate">${c.name}</div>
+                    <div class="text-[10px] text-amber-700/80 truncate">${c.code || 'tanpa kode'}${c.phone ? ' · ' + c.phone : ''}</div>
+                </div>
+                <button type="button" onclick="pakaiPelangganLama(${c.id}, '${(c.label || c.name).replace(/'/g, "\'")}')"
+                        class="shrink-0 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold px-2 py-1 rounded">
+                    Pakai ini
+                </button>
+            </div>
+        `).join('');
+
+        box.classList.remove('hidden');
+
+        // Simpan tetap boleh ditekan — tekanan KEDUA yang membuat pelanggan baru.
+        const btn = document.getElementById('customerSaveBtn');
+        btn.textContent = 'Tetap simpan sebagai baru';
+        btn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+        btn.classList.add('bg-amber-600', 'hover:bg-amber-700');
+        document.getElementById('customerForm').dataset.force = '1';
+    }
+
     function closeQuickCustomer() {
         document.getElementById('quickCustomerForm').classList.add('hidden');
         document.getElementById('customerForm').reset();
+        resetDupWarning();
     }
+
+    function resetDupWarning() {
+        document.getElementById('customerDupWarn').classList.add('hidden');
+        document.getElementById('customerDupList').innerHTML = '';
+        const btn = document.getElementById('customerSaveBtn');
+        btn.textContent = 'Simpan';
+        btn.classList.remove('bg-amber-600', 'hover:bg-amber-700');
+        btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+        document.getElementById('customerForm').dataset.force = '';
+    }
+
+    /** Pakai pelanggan yang sudah ada, batalkan pembuatan yang baru. */
+    window.pakaiPelangganLama = function(id, label) {
+        $('#customer_id').val(id);
+        $('#customer_search').val(label);
+        $('.customer-dropdown').html('');
+        closeQuickCustomer();
+        if (window.reloadShippingAddress) window.reloadShippingAddress();
+
+        fetch('/erp/customers/address/' + id)
+            .then(res => res.json())
+            .then(data => {
+                let addrField = document.getElementById('shipping_address');
+                if (addrField) addrField.value = data.shipping_address ?? '';
+            });
+    };
+
+    // Mengetik ulang namanya membatalkan peringatan — kalau tidak, tombol "tetap simpan"
+    // tetap menyala untuk nama yang sudah diperbaiki dan kembarnya lolos diam-diam.
+    $(document).on('input', '#customerForm [name="name"]', resetDupWarning);
 
     $('#customerForm').on('submit', function(e){
         e.preventDefault();
         let form = $(this);
+        let force = form[0].dataset.force === '1';
 
         $.ajax({
             url: form.attr('action'),
             method: "POST",
-            data: form.serialize(),
+            data: form.serialize() + (force ? '&force=1' : ''),
             success: function(res){
                 // Fill context fields
                 $('#customer_id').val(res.id);
-                $('#customer_search').val(res.name);
+                $('#customer_search').val(res.label || res.name);
 
                 // Clear dropdown and close
                 $('.customer-dropdown').html('');
@@ -1135,6 +1214,10 @@
                     });
             },
             error: function(xhr){
+                if (xhr.status === 409 && xhr.responseJSON?.duplicate) {
+                    tampilkanNamaKembar(xhr.responseJSON.existing || []);
+                    return;
+                }
                 alert('Gagal menyimpan pelanggan: ' + (xhr.responseJSON?.message || 'Error tidak diketahui'));
             }
         });

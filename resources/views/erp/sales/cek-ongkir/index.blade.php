@@ -497,10 +497,42 @@
         $g('so_cust_add')?.addEventListener('click', function(){
             const name = prompt('Nama pelanggan baru:');
             if (!name) return;
-            fetch('/erp/customers/store-ajax', {method:'POST',
+            const simpan = (force) => fetch('/erp/customers/store-ajax', {method:'POST',
                 headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':pageCsrf()},
-                body: JSON.stringify({name: name, phone: soPhone.value || null})})
-                .then(r=>r.json()).then(d=>{ pickCust(d.id, d.name); csHint.textContent = 'Pelanggan baru dibuat ✓'; csHint.className = 'text-[11px] text-green-600 mt-1'; })
+                body: JSON.stringify({name: name, phone: soPhone.value || null, force: force ? 1 : 0})})
+                .then(r=>r.json().then(d=>({status:r.status, d})));
+
+            const terpilih = (id, teks, pesan) => {
+                pickCust(id, teks);
+                csHint.textContent = pesan;
+                csHint.className = 'text-[11px] text-green-600 mt-1';
+            };
+
+            // Nama kembar ditanya dulu, tidak diam-diam bikin ganda.
+            simpan(false)
+                .then(({status, d}) => {
+                    if (status === 409 && d.duplicate) {
+                        const lama = (d.existing || [])[0];
+                        const daftar = (d.existing || []).map(c => '• ' + (c.label || c.name) + (c.phone ? ' · ' + c.phone : '')).join('
+');
+                        if (lama && confirm('Nama ini sudah ada:
+
+' + daftar + '
+
+OK = pakai pelanggan yang sudah ada.
+Batal = tetap buat pelanggan baru.')) {
+                            terpilih(lama.id, lama.name, 'Memakai pelanggan yang sudah ada ✓');
+                            return null;
+                        }
+                        return simpan(true);
+                    }
+                    return {status, d};
+                })
+                .then(hasil => {
+                    if (!hasil) return;
+                    if (!hasil.d || !hasil.d.id) throw new Error('Gagal');
+                    terpilih(hasil.d.id, hasil.d.name, 'Pelanggan baru dibuat ✓');
+                })
                 .catch(()=>alert('Gagal membuat pelanggan.'));
         });
 

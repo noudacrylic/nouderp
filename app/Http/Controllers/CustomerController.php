@@ -147,6 +147,40 @@ class CustomerController extends Controller
         return redirect(list_url('customers.index'));
     }
 
+    /**
+     * Pelanggan aktif yang namanya sama dengan $nama setelah dirapikan.
+     *
+     * "Sama" di sini termasuk beda huruf besar-kecil dan beda jumlah spasi
+     * ("Dhita  Maharani" vs "Dhita Maharani") — justru bentuk itu yang paling sering
+     * lolos jadi kembar tanpa sadar. LIKE-nya sengaja longgar (superset) dan
+     * pencocokan tepatnya dikerjakan di PHP, supaya tidak bergantung pada fungsi
+     * regex basis data maupun collation-nya.
+     */
+    private function namaKembar(string $nama)
+    {
+        $rapi = $this->rapikanNama($nama);
+        if ($rapi === '') {
+            return collect();
+        }
+
+        $pola = str_replace(' ', '%', addcslashes($rapi, '%_\\'));
+
+        return Customer::aktif()
+            ->where('name', 'like', $pola)
+            ->orderBy('name')
+            ->limit(50)
+            ->get()
+            ->filter(fn ($c) => $this->rapikanNama((string) $c->name) === $rapi)
+            ->take(5)
+            ->values();
+    }
+
+    /** Huruf kecil, tanpa spasi berlebih di ujung maupun di tengah. */
+    private function rapikanNama(string $nama): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $nama)));
+    }
+
     public function storeAjax(Request $request)
     {
         $data = $request->validate([
@@ -154,6 +188,28 @@ class CustomerController extends Controller
             'phone'   => 'nullable|string|max:30',
             'address' => 'nullable|string|max:2000',
         ]);
+
+        // Nama kembar dihadang, bukan dilarang: dua orang boleh saja benar-benar
+        // bernama sama. Yang dicegah adalah kembar TANPA SADAR — karena itu daftar
+        // yang sudah ada dikembalikan dulu, dan penyimpanan baru jalan kalau penggunanya
+        // menegaskan lewat `force`.
+        if (! $request->boolean('force')) {
+            $kembar = $this->namaKembar($data['name']);
+
+            if ($kembar->isNotEmpty()) {
+                return response()->json([
+                    'duplicate' => true,
+                    'message' => 'Nama ini sudah ada.',
+                    'existing' => $kembar->map(fn ($c) => [
+                        'id' => $c->id,
+                        'name' => $c->name,
+                        'code' => $c->code,
+                        'label' => $c->picker_label,
+                        'phone' => $c->phone,
+                    ])->values(),
+                ], 409);
+            }
+        }
 
         $customer = Customer::create([
             'name'          => $data['name'],
@@ -167,6 +223,8 @@ class CustomerController extends Controller
         return response()->json([
             'id'      => $customer->id,
             'name'    => $customer->name,
+            'code'    => $customer->code,
+            'label'   => $customer->picker_label,
             'phone'   => $customer->phone,
             'address' => $customer->address,
         ]);
@@ -233,9 +291,16 @@ class CustomerController extends Controller
 
     public function search(Request $request)
     {
-        $q = $request->q;
-        $customers = Customer::where('name', 'like', "%$q%")
-            ->orWhere('code', 'like', "%$q%")
+        $q = trim((string) $request->q);
+
+        // Kurungnya WAJIB: tanpa itu `is_active` cuma menempel pada cabang nama, dan
+        // pelanggan arsip tetap bocor lewat pencarian kode.
+        $customers = Customer::aktif()
+            ->where(function ($w) use ($q) {
+                $w->where('name', 'like', "%{$q}%")
+                  ->orWhere('code', 'like', "%{$q}%");
+            })
+            ->orderBy('name')
             ->limit(10)
             ->get();
 
@@ -244,6 +309,8 @@ class CustomerController extends Controller
                 'id' => $c->id,
                 'name' => $c->name,
                 'code' => $c->code,
+                'label' => $c->picker_label,
+                'phone' => $c->phone,
                 'is_marketplace' => (bool)$c->is_marketplace,
                 'marketplace_hold_name' => $c->marketplace_hold_name ?: 'Overpay Customer'
             ];

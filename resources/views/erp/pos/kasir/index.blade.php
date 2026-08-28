@@ -650,20 +650,48 @@
         const name = el('custName').value.trim();
         if (!name) { el('custName').focus(); return; }
         this.disabled = true; this.textContent = 'Menyimpan…';
-        fetch('/erp/customers/store-ajax', {
+
+        // Nama kembar dibalas 409 + daftar yang sudah ada. Di kasir alurnya harus
+        // sependek mungkin, jadi cukup ditanya sekali: pakai yang lama, atau tegaskan
+        // bahwa ini memang orang lain.
+        const simpanPelanggan = (force) => fetch('/erp/customers/store-ajax', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF },
-            body: JSON.stringify({ name, phone: el('custPhone').value.trim() || null }),
-        })
-        .then(r => r.json())
-        .then(d => {
-            if (!d || !d.id) throw new Error('Gagal');
-            if (custTom) { custTom.addOption({ value: d.id, text: d.name }); custTom.refreshOptions(false); custTom.setValue(d.id); }
-            else { const o = document.createElement('option'); o.value = d.id; o.textContent = d.name; o.selected = true; el('posCustomer').appendChild(o); }
+            body: JSON.stringify({ name, phone: el('custPhone').value.trim() || null, force: force ? 1 : 0 }),
+        }).then(r => r.json().then(d => ({ status: r.status, d })));
+
+        const pilih = (id, teks) => {
+            if (custTom) { custTom.addOption({ value: id, text: teks }); custTom.refreshOptions(false); custTom.setValue(id); }
+            else { const o = document.createElement('option'); o.value = id; o.textContent = teks; o.selected = true; el('posCustomer').appendChild(o); }
             posCloseCust();
-        })
-        .catch(() => alert('Gagal menyimpan pelanggan.'))
-        .finally(() => { this.disabled = false; this.textContent = 'Simpan & Pilih'; });
+        };
+
+        simpanPelanggan(false)
+            .then(({ status, d }) => {
+                if (status === 409 && d.duplicate) {
+                    const lama = (d.existing || [])[0];
+                    const daftar = (d.existing || []).map(c => '• ' + (c.label || c.name) + (c.phone ? ' · ' + c.phone : '')).join('
+');
+                    if (lama && confirm('Nama ini sudah ada:
+
+' + daftar + '
+
+OK = pakai pelanggan yang sudah ada.
+Batal = tetap buat pelanggan baru.')) {
+                        pilih(lama.id, lama.label || lama.name);
+                        return null;
+                    }
+                    return simpanPelanggan(true);
+                }
+                return { status, d };
+            })
+            .then(hasil => {
+                if (!hasil) return;                       // sudah memakai pelanggan lama
+                if (!hasil.d || !hasil.d.id) throw new Error('Gagal');
+                pilih(hasil.d.id, hasil.d.label || hasil.d.name);
+            })
+            .catch(() => alert('Gagal menyimpan pelanggan.'))
+            .finally(() => { this.disabled = false; this.textContent = 'Simpan & Pilih'; });
     });
 
     renderCart();
