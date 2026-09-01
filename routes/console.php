@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
@@ -74,3 +75,13 @@ Schedule::call(fn() => \App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog::w
 // perintah ini hampir tanpa biaya; kalau ada, ongkos hitung ulang dibayar di sini, bukan
 // oleh orang yang sedang membuka halaman.
 Schedule::command('analisa:hangatkan')->everyFifteenMinutes()->name('analisa-hangatkan')->withoutOverlapping();
+
+// Sapu entri cache yang sudah lewat masa berlakunya. Driver cache database TIDAK punya
+// pembersih sendiri: entri kedaluwarsa cuma diabaikan saat dibaca, tidak pernah dihapus.
+// Kunci cache Analisa mengandung sidik jari data, jadi setiap kali data berubah kunci
+// ikut berganti dan entri lama ditinggalkan begitu saja sampai TTL 12 jamnya lewat —
+// sementara isinya besar (satu jawaban waktu.buildAll ~330 KB). Ditambah penghangat yang
+// jalan tiap 15 menit, tabel `cache` sempat menggelembung jadi 338 MB berisi 2.959 entri
+// mati, dan ikut terbawa dump DB harian: ukurannya naik 5,9 MB -> 31,8 MB dalam 5 hari.
+Schedule::call(fn () => DB::table('cache')->where('expiration', '<', now()->getTimestamp())->delete())
+    ->hourly()->name('cache-prune-expired');
