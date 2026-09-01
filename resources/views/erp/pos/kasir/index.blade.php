@@ -233,8 +233,15 @@
                         ${p.promo ? `<div class="text-[10px] text-rose-500 font-semibold mt-0.5 truncate">🏷️ ${escapeHtml(p.promo.name)}</div>` : ''}
                     </div>`).join('');
             })
-            .catch(() => {});
+            // Gagal diam-diam meninggalkan "Memuat produk…" selamanya dan tak ada yang
+            // tahu sebabnya. Katakan saja apa adanya, lengkap dengan tombol coba lagi.
+            .catch(() => {
+                el('posResults').innerHTML = '<div class="text-sm text-rose-600 p-4 col-span-full text-center">'
+                    + 'Daftar produk gagal dimuat. <button type="button" class="underline font-semibold" onclick="runSearch(document.getElementById(\'posSearch\').value.trim())">Coba lagi</button>'
+                    + '</div>';
+            });
     }
+    window.runSearch = runSearch;
 
     window.posAdd = function (p) {
         if (pendingSale) { showError('Selesaikan atau batalkan transaksi yang sedang berlangsung dulu.'); return; }
@@ -670,14 +677,8 @@
             .then(({ status, d }) => {
                 if (status === 409 && d.duplicate) {
                     const lama = (d.existing || [])[0];
-                    const daftar = (d.existing || []).map(c => '• ' + (c.label || c.name) + (c.phone ? ' · ' + c.phone : '')).join('
-');
-                    if (lama && confirm('Nama ini sudah ada:
-
-' + daftar + '
-
-OK = pakai pelanggan yang sudah ada.
-Batal = tetap buat pelanggan baru.')) {
+                    const daftar = (d.existing || []).map(c => '• ' + (c.label || c.name) + (c.phone ? ' · ' + c.phone : '')).join('\n');
+                    if (lama && confirm('Nama ini sudah ada:\n\n' + daftar + '\n\nOK = pakai pelanggan yang sudah ada.\nBatal = tetap buat pelanggan baru.')) {
                         pilih(lama.id, lama.label || lama.name);
                         return null;
                     }

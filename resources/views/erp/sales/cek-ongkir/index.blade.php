@@ -513,14 +513,8 @@
                 .then(({status, d}) => {
                     if (status === 409 && d.duplicate) {
                         const lama = (d.existing || [])[0];
-                        const daftar = (d.existing || []).map(c => '• ' + (c.label || c.name) + (c.phone ? ' · ' + c.phone : '')).join('
-');
-                        if (lama && confirm('Nama ini sudah ada:
-
-' + daftar + '
-
-OK = pakai pelanggan yang sudah ada.
-Batal = tetap buat pelanggan baru.')) {
+                        const daftar = (d.existing || []).map(c => '• ' + (c.label || c.name) + (c.phone ? ' · ' + c.phone : '')).join('\n');
+                        if (lama && confirm('Nama ini sudah ada:\n\n' + daftar + '\n\nOK = pakai pelanggan yang sudah ada.\nBatal = tetap buat pelanggan baru.')) {
                             terpilih(lama.id, lama.name, 'Memakai pelanggan yang sudah ada ✓');
                             return null;
                         }
