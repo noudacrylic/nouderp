@@ -849,18 +849,27 @@ class SalesOrderController extends Controller
             return back()->with('error', 'SO sudah difaktur (diposting) — kurir & ongkir tidak bisa diubah dari sini. Void faktur dulu bila perlu mengubah.');
         }
 
-        if ($so->delivery_method === 'ambil_toko') {
-            return back()->with('error', 'SO ini metode Ambil di Toko — tidak ada ongkir kurir.');
+        // Metode pengiriman ikut boleh berganti di sini (termasuk Ambil di Toko ⇄ Kurir).
+        // Yang berubah hanya jalur kirim & ongkir — item, reservasi stok, dan DP tidak
+        // tersentuh, jadi tidak perlu lewat Edit SO yang khusus draft.
+        $current = $so->delivery_method ?: 'kurir';
+        $deliveryMethod = $request->input('delivery_method', $current);
+        if (!array_key_exists($deliveryMethod, SalesOrder::DELIVERY_METHODS)) {
+            $deliveryMethod = $current;
         }
+        $gantiMetode = $deliveryMethod !== $current;
 
-        // Hanya boleh berpindah antar mode kurir (kurir/instant). Pindah ke
-        // Ambil di Toko butuh booking code → lakukan lewat Edit SO.
-        $deliveryMethod = $request->input('delivery_method', $so->delivery_method);
-        if ($deliveryMethod === 'ambil_toko') {
-            return back()->with('error', 'Untuk mengubah ke Ambil di Toko, lakukan lewat Edit SO (perlu booking code).');
+        // Barang sudah keluar → jalur kirimnya sudah terpakai, tidak ada yang bisa diatur ulang.
+        if ($so->pickup_status === 'picked_up') {
+            return back()->with('error', 'Pesanan sudah diambil pelanggan — pengiriman tidak bisa diubah lagi.');
         }
-        if (!in_array($deliveryMethod, ['kurir', 'instant'], true)) {
-            $deliveryMethod = $so->delivery_method;
+        if ($gantiMetode) {
+            $adaSuratJalan = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
+                ->whereNotIn('status', ['void', 'cancelled'])
+                ->exists();
+            if ($adaSuratJalan) {
+                return back()->with('error', 'Sudah ada Surat Jalan aktif — metode pengiriman tidak bisa diubah. Void surat jalannya dulu.');
+            }
         }
 
         $ship = $this->resolveShipping($request, $deliveryMethod);
@@ -868,7 +877,7 @@ class SalesOrderController extends Controller
         // Recompute grand_total: buang ongkir lama, masukkan ongkir baru.
         $grandTotal = (float) $so->grand_total - (float) $so->shipping_cost + $ship['net'];
 
-        $so->update([
+        $update = [
             'delivery_method'         => $deliveryMethod,
             'shipping_cost'           => $ship['net'],
             'shipping_gross'          => $ship['gross'],
@@ -884,7 +893,23 @@ class SalesOrderController extends Controller
             // Hasil timbang yang sudah ada tidak ditimpa nilai kosong dari form.
             'package_weight_gram'     => $ship['pkg_weight'] ?: $so->package_weight_gram,
             'grand_total'             => $grandTotal,
-        ]);
+        ];
+
+        if ($deliveryMethod === 'ambil_toko') {
+            $update['pickup_date'] = $request->input('pickup_date') ?: null;
+            // Booking code hanya untuk SO yang sudah di-post; SO draft dapat kodenya saat post.
+            if ($so->status === SalesOrderStatus::CONFIRMED->value && empty($so->pickup_code)) {
+                $update['pickup_code']   = app(SalesOrderService::class)->generatePickupCode();
+                $update['pickup_status'] = 'pending';
+            }
+        } elseif ($gantiMetode) {
+            // Pindah ke kurir → booking code & jadwal ambil tidak berlaku lagi.
+            $update['pickup_code']   = null;
+            $update['pickup_status'] = null;
+            $update['pickup_date']   = null;
+        }
+
+        $so->update($update);
 
         // Sinkronkan faktur DRAFT (belum diposting) agar kurir/ongkir konsisten ke Surat Jalan nanti.
         $draftInvoices = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
@@ -909,7 +934,15 @@ class SalesOrderController extends Controller
             ]);
         }
 
-        return back()->with('success', 'Kurir & ongkir berhasil diperbarui.');
+        $pesan = 'Kurir & ongkir berhasil diperbarui.';
+        if ($gantiMetode) {
+            $pesan = 'Metode pengiriman diubah ke ' . ($so->deliveryMethodLabel()) . '.';
+            if ($deliveryMethod === 'ambil_toko' && $so->pickup_code) {
+                $pesan .= ' Booking code: ' . $so->pickup_code . '.';
+            }
+        }
+
+        return back()->with('success', $pesan);
     }
 
     /**

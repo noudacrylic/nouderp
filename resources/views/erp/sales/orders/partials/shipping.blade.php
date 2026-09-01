@@ -1,6 +1,7 @@
 @php
-    // Kartu Pengiriman di halaman SO. Hanya untuk metode kurir/instant —
-    // "Ambil di Toko" ditangani kartu pickup terpisah (partials/pickup).
+    // Kartu Pengiriman di halaman SO. Tampil untuk SEMUA metode: booking code &
+    // konfirmasi pengambilan tetap di kartu pickup terpisah (partials/pickup),
+    // sedangkan kartu ini yang mengatur metode, kurir, dan ongkirnya.
     $isPickup = ($so->delivery_method ?? 'kurir') === 'ambil_toko';
 
     $courierLabel = trim(
@@ -18,11 +19,13 @@
         ->filter()->unique()->values();
 
     // Bisa diubah selama belum void & belum ada faktur DIPOSTING. Faktur draft masih boleh
-    // (jurnal belum terbentuk) — perubahan ikut disinkronkan ke faktur draft.
-    $shipEditable = ($so->status !== 'void') && !($hasPostedInvoice ?? false);
+    // (jurnal belum terbentuk) — perubahan ikut disinkronkan ke faktur draft. Barang yang
+    // sudah diambil pelanggan tidak lagi punya jalur kirim untuk diatur.
+    $shipEditable = ($so->status !== 'void')
+        && !($hasPostedInvoice ?? false)
+        && $so->pickup_status !== 'picked_up';
 @endphp
 
-@unless($isPickup)
 <div class="mt-4">
     <div class="bg-white border border-gray-100 rounded-lg shadow-sm p-4">
         <div class="flex items-start justify-between gap-3 flex-wrap">
@@ -30,18 +33,24 @@
                 <div class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">🚚 Pengiriman</div>
                 <div class="mt-1 text-sm text-gray-700">
                     <span class="font-semibold">{{ $so->deliveryMethodLabel() }}</span>
-                    @if($courierLabel)
-                        <span class="text-gray-300">·</span> <span class="font-bold text-gray-800">{{ $courierLabel }}</span>
-                    @else
-                        <span class="text-gray-400 italic ml-1">kurir belum dipilih</span>
-                    @endif
+                    @unless($isPickup)
+                        @if($courierLabel)
+                            <span class="text-gray-300">·</span> <span class="font-bold text-gray-800">{{ $courierLabel }}</span>
+                        @else
+                            <span class="text-gray-400 italic ml-1">kurir belum dipilih</span>
+                        @endif
+                    @endunless
                 </div>
+                @unless($isPickup)
                 <div class="mt-0.5 text-sm text-gray-600">
                     Ongkir ditagih: <span class="font-bold text-gray-800">Rp {{ number_format($so->shipping_cost ?? 0, 0, ',', '.') }}</span>
                     @if(($so->shipping_gross ?? 0) > ($so->shipping_cost ?? 0))
                         <span class="text-[11px] text-gray-400">(gross Rp {{ number_format($so->shipping_gross, 0, ',', '.') }} − diskon ongkir)</span>
                     @endif
                 </div>
+                @else
+                <div class="mt-0.5 text-sm text-gray-500">Tanpa ongkir kurir — pelanggan mengambil sendiri di toko.</div>
+                @endunless
                 @if($tracking->count())
                     <div class="mt-1 text-sm text-gray-700">
                         No. Resi:
@@ -55,7 +64,7 @@
             @if($shipEditable)
                 <button type="button" id="btn_edit_ship_so"
                     class="shrink-0 text-sm px-4 py-2 border border-blue-200 text-blue-600 rounded-lg font-bold hover:bg-blue-50">
-                    ✎ Ubah Kurir / Ongkir
+                    ✎ Ubah Pengiriman
                 </button>
             @endif
         </div>
@@ -81,8 +90,13 @@
                     class="text-sm text-gray-500 hover:bg-gray-100 px-4 py-2 rounded-lg font-bold">
                     Batal
                 </button>
-                <span class="text-[11px] text-gray-400">Aman diubah selama faktur belum diposting — perubahan ikut ke faktur draft.</span>
             </div>
+            <p class="text-[11px] text-gray-400 text-center mt-2">
+                Aman diubah selama faktur belum diposting — perubahan ikut ke faktur draft.
+                Metode boleh berganti (Kurir ⇄ Ambil di Toko): item, DP, dan reservasi stok tidak tersentuh,
+                hanya ongkir yang menyesuaikan grand total. Alamat tujuan ikut master Pelanggan — ubah lewat
+                <span class="font-semibold">✎ Edit / Tambah Alamat</span> di atas.
+            </p>
         </form>
         @endif
     </div>
@@ -102,4 +116,3 @@
 })();
 </script>
 @endif
-@endunless

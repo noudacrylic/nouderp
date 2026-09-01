@@ -344,7 +344,7 @@ class SalesOrderService
      * Retensi 1 tahun — kode hanya dianggap "terpakai" bila ada SO dengan kode
      * sama yang dibuat dalam 12 bulan terakhir; kode lebih lama bebas dipakai lagi.
      */
-    private function generatePickupCode(): string
+    public function generatePickupCode(): string
     {
         $cutoff = now()->subYear();
 
