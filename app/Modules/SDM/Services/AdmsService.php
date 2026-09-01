@@ -207,23 +207,19 @@ class AdmsService
 
         $time = $log->scan_at->format('H:i:s');
 
-        // Heuristik penempatan slot: pre-12:30 = on_work1, 11:30-13:00 = off/on around lunch, post-16:00 = off_work
-        if ($time < '11:30:00') {
-            // Datang pagi → on_work1 (ambil yang paling awal)
-            if (! $att->on_work1 || $time < $att->on_work1) {
-                $att->on_work1 = $time;
-            }
-        } elseif ($time < '14:00:00') {
-            // Sebelum/sesudah istirahat
-            if (! $att->off_work1 || $time > $att->off_work1) {
-                $att->off_work1 = $time;
-            }
-        } elseif ($time < '16:30:00') {
-            // Pulang regular
-            if (! $att->off_work1 || $time > $att->off_work1) {
-                $att->off_work1 = $time;
-            }
-        } else {
+        // Batas paling awal sebuah tap boleh disebut ABSEN PULANG, menurut jadwal orangnya
+        // sendiri (jam_pulang − awal_absen_pulang). Kolom rentang absen itu selama ini diisi
+        // HRD di form karyawan tapi tidak pernah dibaca satu baris kode pun.
+        $pulangStart = null;
+        $sched = $log->karyawan?->schedules->keyBy('day_of_week')[(int) $log->scan_at->dayOfWeek] ?? null;
+        if ($sched && ! $sched->is_off && $sched->jam_pulang) {
+            $pulangStart = Carbon::parse($tanggal . ' ' . $sched->jam_pulang)
+                ->subMinutes((int) ($sched->awal_absen_pulang ?? 120))
+                ->format('H:i:s');
+        }
+
+        // Penempatan slot.
+        if ($time >= '16:30:00') {
             // Lembur
             if (! $att->off_work2 || $time > $att->off_work2) {
                 $att->off_work2 = $time;
@@ -231,6 +227,33 @@ class AdmsService
             if (! $att->on_work2) {
                 $att->on_work2 = '16:30:00';
             }
+        } elseif ($time < '11:30:00') {
+            // Datang pagi → on_work1 (ambil yang paling awal)
+            if (! $att->on_work1 || $time < $att->on_work1) {
+                $att->on_work1 = $time;
+            }
+        } elseif ($pulangStart === null || $time >= $pulangStart) {
+            // Absen pulang → off_work1 (ambil yang paling akhir). Terlambat menge-tap
+            // melewati batas akhir TETAP dihitung pulang; yang tidak masuk akal cuma
+            // yang terlalu awal, dan itu ditangani cabang di bawah.
+            if (! $att->off_work1 || $time > $att->off_work1) {
+                $att->off_work1 = $time;
+            }
+        } else {
+            // Terlalu awal untuk disebut absen pulang → tap-nya TIDAK dipakai.
+            //
+            // Aturannya: setengah hari pagi cukup diisi absen masuk saja, setengah hari
+            // sore sebaliknya. Kalau tap tengah hari ikut tercatat sebagai absen pulang,
+            // sistem melihat dua sisi scan lalu menyimpulkan orangnya masuk sehari penuh —
+            // setengah hari membayar tukar hari, setengahnya lagi dikira lembur. Persis
+            // itu yang terjadi pada tap 11:30 di hari pengganti (window pulang 14:00).
+            // Lognya tetap tersimpan utuh di sdm_fingerprint_logs, cuma tidak diberi slot.
+            Log::info('ADMS: tap diabaikan, terlalu awal untuk absen pulang', [
+                'karyawan_id'  => $log->karyawan_id,
+                'tanggal'      => $tanggal,
+                'jam'          => $time,
+                'pulang_mulai' => $pulangStart,
+            ]);
         }
 
         if (! $att->week) {
