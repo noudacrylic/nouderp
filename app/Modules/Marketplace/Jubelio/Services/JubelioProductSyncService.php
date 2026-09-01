@@ -313,6 +313,39 @@ class JubelioProductSyncService
         $stores = implode(', ', $storeIds);
 
         if (!$resp['success']) {
+            // Tidak ada jawaban BUKAN berarti tidak terjadi. Timeout dan 502 datang dari
+            // perjalanan pulangnya; Jubelio sering sudah menulis harganya sebelum koneksi
+            // putus. Dibiarkan sebagai "gagal", akibatnya dua-duanya buruk: orangnya
+            // membaca kabar gagal yang tidak benar lalu mengirim ulang, dan `pushed_price`
+            // tetap kosong sehingga halaman Website menandai kanal ini seolah belum pernah
+            // dikirimi — padahal tokonya sudah menjual di harga yang benar.
+            //
+            // Karena itu ditanyakan balik satu kali: harga berapa yang sekarang dipegang
+            // Jubelio. Kalau ternyata sudah angka yang barusan dikirim, pengirimannya
+            // memang berhasil dan dilaporkan begitu — dengan sebabnya disebut apa adanya.
+            // Penolakan sungguhan (harga ditolak, SKU salah) tidak ikut lolos: harganya
+            // akan terbaca angka lama, dan jalur gagal tetap berlaku.
+            $cek = $this->verifyStorePrice($product, $storeIds, $price);
+
+            if ($cek['ok'] && $cek['sesuai']) {
+                $catatan = 'Jubelio tidak menjawab (' . ($resp['error'] ?: 'tanpa keterangan')
+                    . '), tapi dicek balik harganya sudah benar.';
+
+                JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::OK, $product->name, [
+                    'reference'  => $product->sku,
+                    'product_id' => $product->id,
+                    'message'    => 'Harga toko (' . implode(', ', $storeIds) . ') dikirim: '
+                        . number_format($price, 0, ',', '.') . ' — ' . $catatan,
+                    'meta'       => ['price' => $price, 'store_ids' => $storeIds, 'dipastikan_lewat' => 'cek balik'],
+                ]);
+
+                return [
+                    'ok'      => true,
+                    'message' => 'Harga ' . number_format($price, 0, ',', '.') . ' terkirim ke toko '
+                        . implode(', ', $storeIds) . '. ' . $catatan,
+                ];
+            }
+
             Log::warning('Jubelio harga toko: push gagal', ['product' => $product->id, 'stores' => $storeIds, 'error' => $resp['error']]);
             JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::FAIL, $product->name, [
                 'reference'  => $product->sku,
