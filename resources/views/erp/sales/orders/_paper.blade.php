@@ -16,14 +16,13 @@
     $remaining      = max(0, $grandTotal - $paid);
     $hasNotes       = !empty(trim((string) $order->notes));
 
-    // Pembayaran: tergantung setting Midtrans → cara bayar Midtrans (link+QR) ATAU nomor rekening.
-    $showMidtransPay = \App\Models\MidtransSetting::singleton()->show_payment_method;
+    // Pembayaran: link+QR dan/atau rekening transfer. Link tetap dihitung walau setting
+    // Midtrans menyuruh tampil rekening — setting cuma menentukan mana yang tampil BAWAAN,
+    // pemilihannya per cetakan (lihat print-payment-block).
     $payInstr   = trim((string) ($profile->payment_instructions ?? ''));
-    $payTrx     = ($showMidtransPay && $remaining > 0) ? $order->activePaymentLink() : null;
+    $payTrx     = $remaining > 0 ? $order->activePaymentLink() : null;
     $payUrl     = $payTrx ? url('/pay/' . $payTrx->link_token) : null;
     $qrSrc      = $payUrl ? 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=' . urlencode($payUrl) : null;
-    $showPayment = $showMidtransPay && $remaining > 0 && ($payInstr !== '' || $payUrl);
-    $showBankAccounts = !$showMidtransPay && $remaining > 0;
 @endphp
 
 <article class="paper" data-label="{{ $order->order_number }}">
@@ -129,28 +128,14 @@
 {{-- Info pengiriman: metode kurir, atau kode booking bila ambil di toko (di bawah, sebelum tanda tangan) --}}
 @include('erp.sales._partials.shipping-info-print', ['doc' => $order, 'showBooking' => true])
 
-{{-- Cara pembayaran (ringkas): instruksi + QR yang membuka LINK pembayaran (bukan QRIS) --}}
-@if($showPayment)
-<div style="margin-top:10px; border-top:1px solid #e2e8f0; padding-top:8px; display:flex; align-items:flex-start; gap:12px;">
-    <div style="flex:1; font-size:10.5px; color:#64748b; line-height:1.5;">
-        <span style="font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.4px;">Cara Pembayaran</span>
-        <div style="margin-top:2px; white-space:pre-line;">{{ $payInstr !== '' ? $payInstr : 'Silakan lakukan pembayaran melalui link berikut. Jika kesulitan, hubungi admin kami.' }}</div>
-        @if($payUrl)
-            <div style="margin-top:3px;">🔗 Link pembayaran: <a href="{{ $payUrl }}" style="color:#2563eb; font-weight:600; word-break:break-all;">{{ $payUrl }}</a></div>
-        @endif
-    </div>
-    @if($qrSrc)
-        <div style="text-align:center; flex-shrink:0; width:78px;">
-            <img src="{{ $qrSrc }}" alt="QR Link Pembayaran" style="width:78px; height:78px; display:block;">
-            <div style="font-size:8px; color:#94a3b8; margin-top:2px; line-height:1.25;">Arahkan kamera HP &mdash; membuka link bayar<br><b>(bukan kode QRIS)</b></div>
-        </div>
-    @endif
-</div>
-@elseif($showBankAccounts)
-<div style="margin-top:10px; border-top:1px solid #e2e8f0; padding-top:8px;">
-    @include('erp._partials.print-payment-accounts', ['profile' => $profile])
-</div>
-@endif
+{{-- Cara pembayaran: link+QR dan/atau rekening transfer (bisa ditukar dari toolbar cetak) --}}
+@include('erp._partials.print-payment-block', [
+    'profile'   => $profile,
+    'payInstr'  => $payInstr,
+    'payUrl'    => $payUrl,
+    'qrSrc'     => $qrSrc,
+    'remaining' => $remaining,
+])
 
 {{-- Signature --}}
 <div class="sig-section">

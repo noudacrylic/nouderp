@@ -14,4 +14,5 @@
 
 @section('toolbar-extra')
     @include('erp._partials.print-signature-toggle')
+    @include('erp._partials.print-payment-mode-toggle')
 @endsection

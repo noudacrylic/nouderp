@@ -7,27 +7,10 @@
       3. Legacy single-bank di $profile->bank_name / bank_account_number / bank_account_holder
 --}}
 @php
+    // Sumber data: $banks (dioper pemanggil) atau relasi/kolom lama di $profile.
     $banks = $banks ?? [];
-
     if (empty($banks) && isset($profile)) {
-        if (!$profile->relationLoaded('bankAccounts')) {
-            $profile->load('bankAccounts');
-        }
-        foreach ($profile->bankAccounts as $row) {
-            if (empty($row->bank_name) || empty($row->account_number)) continue;
-            $banks[] = [
-                'bank_name'      => $row->bank_name,
-                'account_number' => $row->account_number,
-                'holder'         => $row->holder,
-            ];
-        }
-        if (empty($banks) && !empty($profile->bank_name) && !empty($profile->bank_account_number)) {
-            $banks[] = [
-                'bank_name'      => $profile->bank_name,
-                'account_number' => $profile->bank_account_number,
-                'holder'         => $profile->bank_account_holder,
-            ];
-        }
+        $banks = \App\Support\PrintPaymentInfo::banks($profile);
     }
 
     $bankColor = function (string $name): string {

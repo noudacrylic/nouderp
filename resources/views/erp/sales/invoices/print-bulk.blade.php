@@ -12,3 +12,7 @@
 @endforeach
 
 @endsection
+
+@section('toolbar-extra')
+    @include('erp._partials.print-payment-mode-toggle')
+@endsection
