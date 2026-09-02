@@ -364,7 +364,14 @@ class ProductionOrderController extends Controller
     public function confirm(int $id, ProductionOrderService $service)
     {
         try {
-            $service->confirm($id);
+            $deferred = $service->confirm($id);
+
+            if (!empty($deferred)) {
+                return back()->with('warning',
+                    'Order produksi dikonfirmasi, produksi boleh jalan. Bahan berikut stoknya belum cukup '
+                    . 'dan baru dikeluarkan dari stok saat finalisasi: ' . implode(', ', $deferred) . '.');
+            }
+
             return back()->with('success', 'Order produksi dikonfirmasi. Material dikeluarkan dari stok & jurnal WIP dicatat.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());

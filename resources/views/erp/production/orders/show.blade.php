@@ -740,10 +740,20 @@
                 <h3 class="font-bold text-gray-600 text-sm mb-4">Aksi</h3>
                 <div class="space-y-2">
                     @if($order->status === 'draft')
+                        @php
+                            // Kekurangan bahan tidak memblokir konfirmasi — konsumsinya ditunda ke
+                            // finalisasi. Dialog ini memberi tahu, bukan menahan.
+                            $confirmShortage = collect($order->materials)
+                                ->contains(fn($m) => (float) $m->qty_consumed <= 0
+                                    && (float) ($materialStock[$m->product_id] ?? 0) < (float) $m->qty_required);
+                            $confirmMsg = $confirmShortage
+                                ? "Konfirmasi order produksi?\nAda material yang stoknya belum cukup — produksi tetap boleh jalan, material itu baru dikeluarkan dari stok saat finalisasi."
+                                : "Konfirmasi order produksi?\nMaterial akan dikeluarkan dari stok dan jurnal WIP dibuat.";
+                        @endphp
                         <form action="{{ route('production.orders.confirm', $order->id) }}" method="POST">
                             @csrf
                             <button type="submit"
-                                    onclick="return confirm('Konfirmasi order produksi?\nMaterial akan dikeluarkan dari stok dan jurnal WIP dibuat.')"
+                                    onclick="return confirm(@js($confirmMsg))"
                                     class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-bold transition">
                                 ✓ Konfirmasi & Mulai Produksi
                             </button>

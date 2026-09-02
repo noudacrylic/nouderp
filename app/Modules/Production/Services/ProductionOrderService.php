@@ -351,12 +351,18 @@ class ProductionOrderService
     }
 
     /**
-     * Konfirmasi order → consume material dari stok (Dr. WIP / Cr. Persediaan)
+     * Konfirmasi order → consume material dari stok (Dr. WIP / Cr. Persediaan).
+     *
+     * Kekurangan bahan TIDAK memblokir konfirmasi: produksi harus tetap bisa jalan sambil
+     * bahan dibeli. Bahan yang stoknya kurang ditunda konsumsinya (qty_consumed tetap 0)
+     * dan baru di-FIFO saat finalisasi — di sanalah stok wajib benar-benar cukup.
+     *
+     * @return array<int,string>  Label bahan yang konsumsinya ditunda (kosong = semua terkonsumsi)
      */
-    public function confirm(int $orderId): void
+    public function confirm(int $orderId): array
     {
-        DB::transaction(function () use ($orderId) {
-            $order = ProductionOrder::with(['materials', 'outputs', 'steps'])
+        return DB::transaction(function () use ($orderId) {
+            $order = ProductionOrder::with(['materials.product', 'outputs', 'steps'])
                 ->lockForUpdate()
                 ->findOrFail($orderId);
 
@@ -372,10 +378,74 @@ class ProductionOrderService
                 throw new Exception('Order produksi harus memiliki minimal 1 output.');
             }
 
-            $this->consumeOrderMaterials($order, $order->materials);
+            [$consumable, $deferred] = $this->splitMaterialsByStock($order, $order->materials);
+
+            if ($consumable->isNotEmpty()) {
+                $this->consumeOrderMaterials($order, $consumable);
+            }
 
             $order->update(['status' => 'confirmed']);
+
+            return $deferred->map(fn ($m) => trim(($m->product->sku ?? '') . ' ' . ($m->product->name ?? '-')))
+                ->values()->all();
         });
+    }
+
+    /**
+     * Pisahkan material menjadi yang bisa dikonsumsi sekarang vs yang harus ditunda.
+     *
+     * Plafonnya sengaja saldo FISIK (ledger) DAN sisa layer FIFO — dua hal yang benar-benar
+     * bikin konsumsi gagal. Reservasi penjualan tidak dihitung supaya perilaku order yang
+     * selama ini lolos konfirmasi tidak berubah. Beberapa baris material bisa menunjuk produk
+     * yang sama, jadi sisa stok dilacak per produk selama pembagian.
+     *
+     * @param  iterable<ProductionOrderMaterial>  $materials
+     * @return array{0:\Illuminate\Support\Collection,1:\Illuminate\Support\Collection}
+     */
+    private function splitMaterialsByStock(ProductionOrder $order, iterable $materials): array
+    {
+        $engine      = app(InventoryEngine::class);
+        $warehouseId = $this->materialWarehouseId($order);
+
+        $consumable = collect();
+        $deferred   = collect();
+        $budget     = [];
+
+        foreach ($materials as $material) {
+            $toConsume = (float) $material->qty_required - (float) $material->qty_consumed;
+            if ($toConsume <= 1e-9) {
+                $consumable->push($material);   // tidak ada sisa; consume() akan melewatinya
+                continue;
+            }
+
+            $pid = (int) $material->product_id;
+            if (!array_key_exists($pid, $budget)) {
+                $budget[$pid] = min(
+                    (float) $engine->onHand($pid, $warehouseId),
+                    (float) $engine->fifoRemaining($pid, $warehouseId)
+                );
+            }
+
+            if ($budget[$pid] + 1e-9 >= $toConsume) {
+                $budget[$pid] -= $toConsume;
+                $consumable->push($material);
+            } else {
+                $deferred->push($material);
+            }
+        }
+
+        return [$consumable, $deferred];
+    }
+
+    /**
+     * Gudang asal bahan: tipe 'perbaikan' menarik barang menunggu perbaikan dari GUDANG
+     * PERBAIKAN, sisanya (termasuk garansi/legacy repair) dari gudang order yang terkunci.
+     */
+    private function materialWarehouseId(ProductionOrder $order): int
+    {
+        return (int) ($order->type === 'perbaikan'
+            ? (Warehouse::repairId() ?? $order->warehouse_id)
+            : $order->warehouse_id);
     }
 
     /**
@@ -395,11 +465,7 @@ class ProductionOrderService
             ? AccountCodeEnum::INVENTORY_REPAIR
             : AccountCodeEnum::INVENTORY;
 
-        // Tipe 'perbaikan' mengambil bahan (barang menunggu perbaikan) dari GUDANG PERBAIKAN.
-        // Garansi/legacy repair tetap dari gudang order (= gudang dokumen sumber, terkunci).
-        $materialWarehouseId = $order->type === 'perbaikan'
-            ? (Warehouse::repairId() ?? $order->warehouse_id)
-            : $order->warehouse_id;
+        $materialWarehouseId = $this->materialWarehouseId($order);
 
         $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
         $inventoryAccount = Account::where('code', $creditCode)->firstOrFail();
@@ -1010,10 +1076,7 @@ class ProductionOrderService
         if ($unconsumed->isNotEmpty()) {
             $engine = app(InventoryEngine::class);
             $insufficient = [];
-            // Perbaikan menarik bahan dari Gudang Perbaikan (bukan gudang order).
-            $materialWarehouseId = $order->type === 'perbaikan'
-                ? (Warehouse::repairId() ?? $order->warehouse_id)
-                : $order->warehouse_id;
+            $materialWarehouseId = $this->materialWarehouseId($order);
 
             foreach ($unconsumed as $material) {
                 $available = (float) $engine->availableStock(
