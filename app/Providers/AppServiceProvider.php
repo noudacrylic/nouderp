@@ -21,6 +21,9 @@ use App\Modules\Marketplace\Jubelio\Observers\InventoryLedgerObserver as Jubelio
 use App\Modules\Marketplace\Jubelio\Observers\ProductPriceObserver as JubelioProductPriceObserver;
 use App\Modules\Marketplace\Jubelio\Observers\StockReservationObserver as JubelioStockReservationObserver;
 use App\Core\Inventory\StockReservation;
+use App\Modules\CRM\Observers\CrmSalesDeliveryObserver;
+use App\Modules\CRM\Observers\CrmSalesOrderObserver;
+use App\Modules\Sales\Models\SalesDelivery;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -71,5 +74,11 @@ class AppServiceProvider extends ServiceProvider
         // (di ERP maupun di Midtrans, supaya VA/QRIS yang terbit tak bisa dibayar lagi).
         SalesOrder::observe(PaymentLinkDocumentObserver::class);
         SalesInvoice::observe(PaymentLinkDocumentObserver::class);
+
+        // Notifikasi WhatsApp ke pelanggan. Yang diamati kolomnya, bukan controller-nya:
+        // pembayaran bisa masuk lewat kasir, faktur, link Midtrans, atau checkout web,
+        // dan resi bisa datang dari booking Jubelio maupun diketik tangan.
+        SalesOrder::observe(CrmSalesOrderObserver::class);
+        SalesDelivery::observe(CrmSalesDeliveryObserver::class);
     }
 }

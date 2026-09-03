@@ -92,7 +92,8 @@ class CustomerController extends Controller
         $data['customer_type'] = $request->customer_type ?? 'regular';
         $data['is_active'] = true;
 
-        Customer::create($data);
+        $customer = Customer::create($data);
+        $customer->catatOptIn($request->boolean('wa_opt_in'));
 
         return redirect(list_url('customers.index'));
     }
@@ -122,6 +123,7 @@ class CustomerController extends Controller
             'location_point'     => 'nullable|string|max:500',
         ]);
 
+
         // Titik lokasi (link Google Maps atau "lat,long") → latitude/longitude.
         $point = parse_lat_long($data['location_point'] ?? null);
         unset($data['location_point']);
@@ -143,6 +145,7 @@ class CustomerController extends Controller
         $customer = Customer::findOrFail($id);
 
         $customer->update($this->customerFormData($request));
+        $customer->catatOptIn($request->boolean('wa_opt_in'));
 
         return redirect(list_url('customers.index'));
     }

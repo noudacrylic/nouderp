@@ -19,6 +19,9 @@ class Customer extends Model
         'district',
         'postal_code',
         'recipient_phone',
+        'wa_opt_in',
+        'wa_opt_in_at',
+        'wa_opt_in_source',
         'biteship_area_id',
         'jubelio_area_id',
         'kiriminaja_area_id',
@@ -35,6 +38,11 @@ class Customer extends Model
         'account_admin_expense_id',
         'account_recon_plus_id',
         'account_recon_minus_id',
+    ];
+
+    protected $casts = [
+        'wa_opt_in'    => 'boolean',
+        'wa_opt_in_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -54,6 +62,26 @@ class Customer extends Model
     public function scopeAktif($query)
     {
         return $query->where('is_active', 1);
+    }
+
+    /**
+     * Catat persetujuan menerima notifikasi WhatsApp.
+     *
+     * Meta menuntut BUKTI opt-in, bukan sekadar kolom bernilai true — karena itu
+     * waktu & asal persetujuan ikut disimpan. Mencabut centang tidak menghapus
+     * jejaknya: `wa_opt_in_at` terakhir tetap berguna saat Meta bertanya.
+     */
+    public function catatOptIn(bool $setuju, string $sumber = 'input_manual'): void
+    {
+        if ((bool) $this->wa_opt_in === $setuju) {
+            return;
+        }
+
+        $this->forceFill([
+            'wa_opt_in'        => $setuju,
+            'wa_opt_in_at'     => $setuju ? now() : $this->wa_opt_in_at,
+            'wa_opt_in_source' => $setuju ? $sumber : $this->wa_opt_in_source,
+        ])->save();
     }
 
     /**
