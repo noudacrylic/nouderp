@@ -32,7 +32,7 @@ class JournalPostingService
             // Cek double posting — hanya hitung journal yang masih AKTIF.
             // Journal yang sudah di-void (mis. lewat reverse posting / void invoice / void finalisasi)
             // tidak boleh memblokir posting ulang, karena event keuangannya sudah dibalik.
-            if ($dto->reference_id) {
+            if ($dto->reference_id && !$dto->allow_repeat) {
                 $exists = Journal::where('reference_type', $dto->reference_type)
                     ->where('reference_id', $dto->reference_id)
                     ->where('status', '!=', 'void')

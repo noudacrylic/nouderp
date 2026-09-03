@@ -526,7 +526,15 @@ class ProductionOrderService
                         description: 'Pengeluaran material produksi'
                     ),
                 ],
-                reference_number: $order->order_number
+                reference_number: $order->order_number,
+                // Konsumsi material bisa terjadi lebih dari sekali untuk satu OP: sebagian
+                // bahan dikonsumsi saat confirm, sisanya menyusul saat stok datang (finalisasi
+                // dari status Menunggu Stok). Tanpa ini, jurnal konsumsi kedua ditolak
+                // "Journal already posted for this reference." dan OP tak bisa difinalisasi.
+                // Aman karena qty_consumed yang menjaga agar bahan tak dikonsumsi dua kali,
+                // dan semua pembaca jurnal konsumsi (wipBreakdown, merge, void) menjumlah
+                // SEMUA baris, bukan mengambil satu.
+                allow_repeat: true
             ));
         }
 
