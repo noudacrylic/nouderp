@@ -70,6 +70,15 @@ Route::post('/telegram/webhook/{secret}', [\App\Http\Controllers\TelegramWebhook
 Route::post('/qrisly/webhook/{secret}', \App\Http\Controllers\Api\QrislyWebhookController::class)
     ->name('qrisly.webhook');
 
+// -- CRM chat webhook (NO auth/CSRF, server-to-server) --
+// URL-nya disetel di dasbor vendor (endpoint webhook mereka read-only lewat API).
+// Keamanannya BUKAN dari rahasia di path melainkan HMAC-SHA256 atas RAW body,
+// diperiksa middleware; tanpa tanda tangan yang cocok, permintaan tidak pernah
+// menyentuh basis data.
+Route::post('/crm/webhook', [\App\Modules\CRM\Controllers\CrmWebhookController::class, 'handle'])
+    ->middleware('crm.signature')
+    ->name('crm.webhook');
+
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');

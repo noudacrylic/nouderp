@@ -48,6 +48,17 @@ Schedule::command('jubelio:push-prices')->everyFifteenMinutes()->name('jubelio-p
 Schedule::command('shipping:sync-status')->everyThirtyMinutes()->name('shipping-sync-status')->withoutOverlapping();
 // Store — garbage collector media: hapus file foto/video yang sudah di-soft-delete
 // & lewat masa jeda (config store.media_gc_days). Harian dini hari.
+// Antrean notifikasi WhatsApp pelanggan. Tiap 5 menit: pesan "siap diambil" yang
+// ditunda ke jam buka berangkat sendiri tanpa ada yang perlu menekan tombol.
+Schedule::command('crm:kirim-notifikasi')->everyFiveMinutes()->name('crm-kirim-notifikasi')->withoutOverlapping();
+
+// Lampiran chat diunduh ke penyimpanan sendiri secepat mungkin: media di sisi
+// Meta hanya bertahan ~30 hari, dan diskusi custom menggantung lebih lama.
+Schedule::command('crm:unduh-lampiran')->everyMinute()->name('crm-unduh-lampiran')->withoutOverlapping();
+
+// Penyapu masa simpan — hanya lampiran yang tidak tertaut dokumen ERP.
+Schedule::command('crm:gc-lampiran')->dailyAt('03:20')->name('crm-gc-lampiran')->withoutOverlapping();
+
 Schedule::command('store:gc-media')->dailyAt('03:10')->name('store-gc-media')->withoutOverlapping();
 
 // Pembayaran toko online (Transfer Bank + Kode Unik, dan QRIS/QRISLY):
