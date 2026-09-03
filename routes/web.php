@@ -81,6 +81,25 @@ Route::post('/crm/webhook', [\App\Modules\CRM\Controllers\CrmWebhookController::
 
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
+
+    // -- CRM: inbox percakapan, triase & notifikasi pesanan --
+    Route::prefix('crm')->name('crm.')->group(function () {
+        Route::get('/', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'index'])->name('inbox.index');
+
+        Route::get('/notifikasi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'index'])->name('notifikasi.index');
+        Route::post('/notifikasi/kirim', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'kirimSekarang'])->name('notifikasi.kirim');
+        Route::post('/notifikasi/{outbox}/ulangi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'ulangi'])->name('notifikasi.ulangi');
+
+        // Lampiran disajikan controller (disk privat), bukan lewat /storage.
+        Route::get('/lampiran/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lampiran'])->name('inbox.lampiran');
+
+        Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'show'])->name('inbox.show');
+        Route::post('/{conversation}/balas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'balas'])->name('inbox.balas');
+        Route::post('/{conversation}/oper', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'oper'])->name('inbox.oper');
+        Route::post('/{conversation}/antrean', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'antrean'])->name('inbox.antrean');
+        Route::post('/{conversation}/arsip', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'arsip'])->name('inbox.arsip');
+        Route::post('/{conversation}/catatan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'catatan'])->name('inbox.catatan');
+    });
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/dashboard/chart', [\App\Http\Controllers\DashboardController::class, 'chartData'])->name('dashboard.chart');
     Route::get('/dashboard/audit', [\App\Http\Controllers\DashboardController::class, 'audit'])->name('dashboard.audit');

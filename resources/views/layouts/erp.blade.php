@@ -951,6 +951,13 @@
                 </a>
                 @endif
 
+                {{-- ================= CRM ================= --}}
+                @if(should_show_menu_group('crm'))
+                <a href="{{ module_landing_url('crm') }}" class="menu-single {{ request()->is('erp/crm', 'erp/crm/*') ? 'active' : '' }}" data-tip="CRM">
+                    <span class="menu-icon" style="font-size:20px;display:flex;align-items:center;justify-content:center;">💬</span><span class="menu-label">&nbsp;CRM</span>
+                </a>
+                @endif
+
                 {{-- ================= PURCHASING ================= --}}
                 @if(should_show_menu_group('purchasing'))
                 <a href="{{ module_landing_url('purchasing') }}" class="menu-single {{ request()->is('erp/purchasing/*') ? 'active' : '' }}" data-tip="Purchasing">

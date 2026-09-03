@@ -133,6 +133,15 @@ return [
         ],
     ],
 
+    'crm' => [
+        'label' => 'CRM',
+        'icon' => '💬',
+        'children' => [
+            'crm.inbox'      => ['label' => 'Inbox',              'url' => '/erp/crm',           'route_patterns' => ['crm.inbox.*']],
+            'crm.notifikasi' => ['label' => 'Notifikasi Pesanan', 'url' => '/erp/crm/notifikasi','route_patterns' => ['crm.notifikasi.*']],
+        ],
+    ],
+
     'purchasing' => [
         'label' => 'Purchasing',
         'icon' => '🛒',
