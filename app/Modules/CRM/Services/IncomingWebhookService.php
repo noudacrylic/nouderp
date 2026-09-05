@@ -16,11 +16,12 @@ use Carbon\Carbon;
  * Amplopnya: event_type + event_id + timestamp + data.
  * Peristiwa: message.received / sent / delivered / read / failed.
  *
- * ⚠️ Nama field di dalam `data` dibaca lewat BEBERAPA alias, dan itu disengaja:
- * bentuk payload ini disusun dari dokumentasi vendor, belum pernah diadu dengan
- * kiriman sungguhan. Alias membuat perbedaan penamaan kecil ("text" vs
- * "content", "from" vs "phone_number") tidak berujung pesan kosong yang lolos
- * diam-diam. Begitu payload asli terekam, alias yang tak terpakai boleh dibuang.
+ * ⚠️ Nama field di dalam `data` dibaca lewat BEBERAPA alias, dan itu TERBUKTI
+ * perlu: payload sungguhan (5 Sep 2026, tersimpan di
+ * tests/Fixtures/crm/apicoid-message-received.json) memakai `customer_phone`,
+ * sementara dokumentasi vendor menyebut `phone_number`. Nomor pengirim juga
+ * muncul lagi di `raw.from`, dan wamid Meta di `raw.id`. Alias inilah yang
+ * membedakan "pesan masuk" dari "percakapan lahir tanpa pemilik".
  */
 class IncomingWebhookService
 {
@@ -219,7 +220,9 @@ class IncomingWebhookService
                 'content'             => $this->isi($data),
                 'source'              => $arah === CrmMessage::KELUAR ? $this->source($data) : null,
                 'provider_message_id' => $id,
-                'wam_id'              => $data['wam_id'] ?? $data['whatsapp_message_id'] ?? null,
+                // wamid asli Meta ada di 'raw.id' pada kiriman sungguhan; itu yang
+                // dipakai peristiwa delivered/read/failed untuk menemukan pesannya.
+                'wam_id'              => $data['wam_id'] ?? $data['whatsapp_message_id'] ?? data_get($data, 'raw.id') ?? null,
                 'reply_to_wam_id'     => $data['reply_to_message_id'] ?? null,
                 'status'              => $arah === CrmMessage::KELUAR ? 'terkirim' : null,
                 'sent_at'             => $waktu,
@@ -262,8 +265,14 @@ class IncomingWebhookService
     /** Nomor/username lawan bicara — bukan nomor bisnis kita. */
     private function kontak(array $data): string
     {
-        return (string) ($data['phone_number']
+        // 'customer_phone' & 'raw.from' DIVERIFIKASI atas payload sungguhan
+        // (message.received, 5 Sep 2026) — dokumentasi vendor menyebut
+        // 'phone_number', kiriman aslinya tidak. Tanpa alias ini kontaknya
+        // kosong dan percakapan lahir tanpa pemilik.
+        return (string) ($data['customer_phone']
+            ?? $data['phone_number']
             ?? $data['from']
+            ?? data_get($data, 'raw.from')
             ?? data_get($data, 'customer.phone_number')
             ?? data_get($data, 'customer.phone')
             ?? '');
@@ -297,15 +306,29 @@ class IncomingWebhookService
         };
     }
 
-    /** Waktu menurut vendor; jatuh ke sekarang bila tak terbaca. */
+    /**
+     * Waktu menurut vendor; jatuh ke sekarang bila tak terbaca.
+     *
+     * ⚠️ WAJIB dikonversi ke zona waktu aplikasi sebelum disimpan. Vendor
+     * mengirim ISO-8601 berakhiran 'Z' (UTC); tanpa konversi, jam UTC-nya
+     * ditulis apa adanya ke kolom yang dibaca ERP sebagai Asia/Jakarta —
+     * hasilnya seluruh jam di thread meleset 7 jam ke belakang, dan pesan
+     * pagi tampil sebagai pesan tengah malam kemarin.
+     */
     private function waktu(mixed $raw): Carbon
     {
         if (blank($raw)) {
             return now();
         }
 
+        $zona = (string) config('app.timezone', 'UTC');
+
         try {
-            return is_numeric($raw) ? Carbon::createFromTimestamp((int) $raw) : Carbon::parse((string) $raw);
+            $waktu = is_numeric($raw)
+                ? Carbon::createFromTimestamp((int) $raw)
+                : Carbon::parse((string) $raw);
+
+            return $waktu->setTimezone($zona);
         } catch (\Throwable) {
             return now();
         }

@@ -88,6 +88,144 @@ class WebhookMasukTest extends TestCase
         $this->assertSame(0, CrmMessage::count());
     }
 
+    /**
+     * Rute bertoken WAJIB dikecualikan dari CSRF.
+     *
+     * Tidak bisa dibuktikan lewat request tes (Laravel mematikan VerifyCsrfToken
+     * saat testing), jadi yang diperiksa daftarnya langsung. Ini menutup bug
+     * nyata: `crm/webhook` sudah dikecualikan, `crm/webhook/*` terlewat, dan
+     * vendor menerima **419** — status yang tak menyebut CSRF sama sekali,
+     * jadi terbaca seperti "endpointnya rusak".
+     */
+    public function test_rute_webhook_bertoken_dikecualikan_dari_csrf(): void
+    {
+        $ref = new \ReflectionClass(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class);
+        $prop = $ref->getProperty('neverVerify');
+        $prop->setAccessible(true);
+
+        $daftar = (array) $prop->getValue();
+
+        $this->assertContains('crm/webhook', $daftar);
+        $this->assertContains('crm/webhook/*', $daftar);
+    }
+
+    /* ------------------------------------------------- payload vendor sungguhan */
+
+    /**
+     * Putar ulang kiriman NYATA dari api.co.id (direkam 5 Sep 2026 lewat ngrok).
+     *
+     * Ini yang menangkap perbedaan mahal antara dokumentasi dan kenyataan:
+     * dokumen menyebut `phone_number`, kiriman aslinya memakai `customer_phone`.
+     * Tanpa tes ini, gejalanya bukan error melainkan percakapan yang lahir
+     * tanpa pemilik — jenis kegagalan yang baru ketahuan berminggu-minggu
+     * kemudian, saat inbox penuh thread anonim.
+     */
+    public function test_payload_asli_vendor_terbaca_utuh(): void
+    {
+        $raw = file_get_contents(base_path('tests/Fixtures/crm/apicoid-message-received.json'));
+
+        $this->kirimMentah($raw, 'k-asli')->assertOk();
+
+        $pesan = CrmMessage::firstOrFail();
+
+        $this->assertSame('Selamat pagi', $pesan->content);
+        $this->assertSame('cmtnl12d189qkcuru11lpkily', $pesan->provider_message_id);
+        $this->assertStringStartsWith('wamid.', (string) $pesan->wam_id);
+        $this->assertSame(CrmMessage::MASUK, $pesan->direction);
+
+        $percakapan = $pesan->conversation;
+
+        $this->assertSame('628998844666', $percakapan->contact_key);
+        $this->assertSame('cmtnigb1o859kcuruirdp10dh', $percakapan->business_number_id);
+        $this->assertSame(CrmConversation::QUEUE_KITA, $percakapan->queue_state);
+        $this->assertNotNull($percakapan->window_expires_at);
+    }
+
+    /**
+     * Vendor mengirim UTC ('...Z'); ERP hidup di Asia/Jakarta.
+     *
+     * Tanpa konversi, jam UTC ditulis apa adanya ke kolom yang dibaca sebagai
+     * waktu lokal — seluruh thread meleset 7 jam dan pesan pagi tampil sebagai
+     * pesan tengah malam kemarin. Ketahuan dari payload asli: dasbor vendor
+     * menulis 06:25, ERP menampilkan 23:25 hari sebelumnya.
+     */
+    public function test_waktu_vendor_dikonversi_ke_zona_aplikasi(): void
+    {
+        config(['app.timezone' => 'Asia/Jakarta']);
+
+        $payload = $this->payloadMasuk('m-zona');
+        $payload['timestamp'] = '2026-09-04T23:25:41.567Z';
+
+        $this->kirim($payload, 'k-zona')->assertOk();
+
+        $this->assertSame(
+            '2026-09-05 06:25:41',
+            CrmMessage::firstOrFail()->sent_at->format('Y-m-d H:i:s')
+        );
+    }
+
+    /* --------------------------------------------------- token rahasia di path */
+
+    /**
+     * api.co.id menandatangani webhook tapi tidak memperlihatkan signing
+     * secret-nya di mana pun (dibuktikan atas payload nyata 5 Sep 2026).
+     * Selama itu belum ketemu, penjaganya token acak di dalam URL.
+     */
+    public function test_token_path_menerima_kiriman_saat_hmac_belum_ada(): void
+    {
+        $setting = CrmSetting::for('apicoid');
+        $setting->forceFill(['webhook_secret' => null])->save();
+        $token = $setting->webhookToken();
+
+        $this->postJson("/crm/webhook/{$token}", $this->payloadMasuk('m-token'), [
+            'X-Webhook-Idempotency-Key' => 'k-token',
+        ])->assertOk();
+
+        $this->assertSame(1, CrmMessage::count());
+    }
+
+    public function test_token_path_salah_ditolak(): void
+    {
+        $setting = CrmSetting::for('apicoid');
+        $setting->forceFill(['webhook_secret' => null])->save();
+        $setting->webhookToken();
+
+        $this->postJson('/crm/webhook/token-karangan', $this->payloadMasuk('m-token-salah'), [
+            'X-Webhook-Idempotency-Key' => 'k-token-salah',
+        ])->assertForbidden();
+
+        $this->assertSame(0, CrmMessage::count());
+    }
+
+    /**
+     * Token path TIDAK boleh jadi jalan pintas atas HMAC. Begitu rahasia HMAC
+     * terisi, dialah yang menentukan — kalau tidak, penjaga yang lebih kuat
+     * bisa dilewati hanya dengan menebak URL yang bisa bocor lewat log proxy.
+     */
+    public function test_token_benar_tidak_melewati_hmac_yang_sudah_diisi(): void
+    {
+        $token = CrmSetting::for('apicoid')->webhookToken();
+
+        $this->postJson("/crm/webhook/{$token}", $this->payloadMasuk('m-pintas'), [
+            'X-Webhook-Idempotency-Key' => 'k-pintas',
+        ])->assertUnauthorized();
+
+        $this->assertSame(0, CrmMessage::count());
+    }
+
+    public function test_token_baru_mematikan_url_lama(): void
+    {
+        $setting = CrmSetting::for('apicoid');
+        $setting->forceFill(['webhook_secret' => null])->save();
+        $lama = $setting->webhookToken();
+
+        $setting->regenerateWebhookToken();
+
+        $this->postJson("/crm/webhook/{$lama}", $this->payloadMasuk('m-lama'), [
+            'X-Webhook-Idempotency-Key' => 'k-lama',
+        ])->assertForbidden();
+    }
+
     /* ----------------------------------------------------------------- duplikat */
 
     public function test_kiriman_ulang_dengan_kunci_sama_tidak_melahirkan_pesan_kedua(): void
