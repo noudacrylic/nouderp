@@ -29,6 +29,7 @@ class CrmRuntimeConfig
         'dry_run'                   => 'bool',
         'allowed_recipients'        => 'list',
         'store_hours_text'          => 'string',
+        'storefront_url'            => 'string',
         'store_open_hour'           => 'int',
         'store_close_hour'          => 'int',
         'max_media_bytes'           => 'int',

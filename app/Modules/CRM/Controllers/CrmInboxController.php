@@ -239,6 +239,35 @@ class CrmInboxController extends Controller
             : back()->withInput()->with('error', $hasil['error']);
     }
 
+    /**
+     * Cari produk etalase untuk rail Produk.
+     *
+     * Hanya produk BERSTATUS TERBIT yang boleh muncul: mengirim tautan produk
+     * yang masih draf berarti pelanggan membuka halaman 404 — kesalahan yang
+     * tak bisa ditarik kembali setelah pesannya terkirim.
+     */
+    public function cariProduk(Request $request)
+    {
+        $cari = trim((string) $request->input('q', ''));
+        $basis = rtrim((string) config('crm.storefront_url'), '/');
+
+        $produk = \App\Models\StoreProduct::published()
+            ->when($cari !== '', fn ($q) => $q->where('name', 'like', "%{$cari}%"))
+            ->orderByDesc('is_featured')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->limit(12)
+            ->get(['id', 'name', 'slug', 'short_description']);
+
+        return response()->json([
+            'produk' => $produk->map(fn ($p) => [
+                'nama'      => $p->name,
+                'ringkas'   => \Illuminate\Support\Str::limit((string) $p->short_description, 70),
+                'url'       => $basis . '/produk/' . $p->slug,
+            ])->all(),
+        ]);
+    }
+
     /** Simpan potongan balasan baru dari rail kanan. */
     public function simpanSnippet(Request $request)
     {

@@ -34,6 +34,12 @@ return [
         explode(',', (string) env('CRM_CHAT_ALLOWED_RECIPIENTS', ''))
     ))),
 
+    /*
+     * Alamat etalase, dipakai rail Produk untuk merangkai tautan yang dikirim
+     * ke pelanggan. Tanpa garis miring di ujung.
+     */
+    'storefront_url' => rtrim((string) env('CRM_STOREFRONT_URL', 'https://noudakrilik.com'), '/'),
+
     /* Jam toko untuk template "siap diambil" ({{4}}). Diubah lewat Pengaturan nanti. */
     'store_hours_text' => env('CRM_STORE_HOURS', 'Senin–Sabtu 08.00–16.00'),
 
