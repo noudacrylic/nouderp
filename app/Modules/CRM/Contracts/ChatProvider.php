@@ -79,6 +79,53 @@ interface ChatProvider
     public function sendTemplate(array $payload): array;
 
     /**
+     * Daftar endpoint webhook yang terdaftar di dasbor vendor.
+     *
+     * URL-nya TIDAK bisa dibuat/diubah lewat API (vendor menyediakan list/get/
+     * enable saja) — jadi ini murni jendela pantau. Yang dipantau: 'is_active'.
+     * Vendor mematikan endpoint DIAM-DIAM setelah gagal beruntun, dan sejak itu
+     * tak ada satu pun pesan masuk yang sampai ke ERP tanpa gejala apa pun.
+     *
+     * @return array{success:bool, endpoints:array<array{
+     *   id:string, url:?string, is_active:bool, failure_count:int,
+     *   disabled_at:?string, disable_reason:?string, events:array
+     * }>, error:?string}
+     */
+    public function webhooks(): array;
+
+    /**
+     * Nyalakan kembali endpoint webhook yang dimatikan vendor.
+     *
+     * @return array{success:bool, error:?string}
+     */
+    public function enableWebhook(string $id): array;
+
+    /**
+     * Unggah satu berkas ke vendor, dapatkan `media_id` untuk dipakai sendMedia().
+     *
+     * Perlu karena lampiran kita duduk di disk PRIVAT — tidak ada URL publik yang
+     * bisa diambil Meta, dan membuatkannya berarti memajang berkas milik
+     * pelanggan ke internet hanya demi mengirim satu gambar.
+     *
+     * @return array{success:bool, media_id:?string, error:?string}
+     */
+    public function uploadMedia(string $absolutePath, string $mime, string $filename): array;
+
+    /**
+     * Daftar template yang terdaftar di Meta beserta statusnya.
+     *
+     * Dipakai dua tempat: layar Template (memantau pengajuan) dan layar Chat
+     * Baru (hanya yang APPROVED yang boleh dipilih — memilih yang masih
+     * PENDING berarti pesan ditolak API dengan alasan yang tak terbaca admin).
+     *
+     * @return array{success:bool, templates:array<array{
+     *   id:string, name:string, language:string, category:?string,
+     *   status:string, body:?string, variables:int
+     * }>, error:?string}
+     */
+    public function templates(): array;
+
+    /**
      * Status jendela 24 jam pelanggan.
      *
      * 'is_open' false berarti hanya template yang boleh dikirim. Dipakai layar

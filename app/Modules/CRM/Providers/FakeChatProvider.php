@@ -30,6 +30,17 @@ class FakeChatProvider implements ChatProvider
     /** Jawaban windowStatus() yang dipalsukan. */
     public bool $windowOpen = true;
 
+    /** Endpoint webhook palsu; layar Pengaturan memakainya untuk uji tampilan. */
+    public array $webhookEndpoints = [[
+        'id'             => 'fake-webhook-1',
+        'url'            => 'https://contoh.test/crm/webhook',
+        'is_active'      => true,
+        'failure_count'  => 0,
+        'disabled_at'    => null,
+        'disable_reason' => null,
+        'events'         => ['message.received', 'message.sent'],
+    ]];
+
     public function key(): string
     {
         return 'fake';
@@ -74,6 +85,53 @@ class FakeChatProvider implements ChatProvider
         $payload['components'] = ApiCoIdProvider::buildTemplateComponents($payload);
 
         return $this->record('template', $payload);
+    }
+
+    public function webhooks(): array
+    {
+        return ['success' => true, 'endpoints' => $this->webhookEndpoints, 'error' => null];
+    }
+
+    public function enableWebhook(string $id): array
+    {
+        foreach ($this->webhookEndpoints as $i => $row) {
+            if (($row['id'] ?? null) === $id) {
+                $this->webhookEndpoints[$i]['is_active']      = true;
+                $this->webhookEndpoints[$i]['disabled_at']    = null;
+                $this->webhookEndpoints[$i]['disable_reason'] = null;
+                $this->webhookEndpoints[$i]['failure_count']  = 0;
+
+                return ['success' => true, 'error' => null];
+            }
+        }
+
+        return ['success' => false, 'error' => "Endpoint {$id} tidak ditemukan."];
+    }
+
+    /** Berkas yang "diunggah" — tes memeriksa nama & mime-nya. */
+    public array $uploaded = [];
+
+    public function uploadMedia(string $absolutePath, string $mime, string $filename): array
+    {
+        $this->uploaded[] = ['path' => $absolutePath, 'mime' => $mime, 'filename' => $filename];
+
+        return ['success' => true, 'media_id' => 'fake-media-' . count($this->uploaded), 'error' => null];
+    }
+
+    /** Template palsu; tes & layar bisa memilihnya tanpa jaringan. */
+    public array $templateList = [[
+        'id'        => 'tpl-1',
+        'name'      => 'sapa_umum',
+        'language'  => 'id',
+        'category'  => 'UTILITY',
+        'status'    => 'APPROVED',
+        'body'      => 'Selamat siang, kami dari Noud Acrylic. Kami ingin melanjutkan pembahasan pesanan Anda. Mohon balas pesan ini ya.',
+        'variables' => 0,
+    ]];
+
+    public function templates(): array
+    {
+        return ['success' => true, 'templates' => $this->templateList, 'error' => null];
     }
 
     public function windowStatus(string $identifier): array

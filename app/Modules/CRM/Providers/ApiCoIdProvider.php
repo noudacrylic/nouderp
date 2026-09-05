@@ -20,7 +20,9 @@ use Illuminate\Support\Facades\Log;
  *  - Variabel template dikirim sebagai ARRAY components gaya Meta
  *    (components[].parameters[]), bukan objek datar {"1": "..."} — bentuk datar
  *    itu hanya milik broadcast.
- *  - 'media_url' menerima URL publik MAUPUN media_id hasil POST /media/upload.
+ *  - 'media_url' HANYA untuk URL publik. Id hasil POST /media/upload dikirim
+ *    lewat kolom terpisah 'media_id' — dokumentasi vendor keliru soal ini,
+ *    dan salahnya baru terlihat saat kiriman nyata ditolak 'Invalid URL'.
  */
 class ApiCoIdProvider implements ChatProvider
 {
@@ -70,15 +72,34 @@ class ApiCoIdProvider implements ChatProvider
             return $blocked;
         }
 
+        $teks = (string) ($payload['text'] ?? '');
+
         $body = array_filter([
             'phone_number'        => $to,
             'channel'             => $payload['channel'] ?? 'whatsapp',
             'message_type'        => 'text',
-            'content'             => (string) ($payload['text'] ?? ''),
+            'content'             => $teks,
             'reply_to_message_id' => $payload['reply_to'] ?? null,
+            /*
+             * Kartu pratinjau link (gambar + judul + deskripsi) TIDAK muncul
+             * sendiri lewat API — beda dari mengetik di HP, di mana aplikasi
+             * WhatsApp yang mengambil tag Open Graph halamannya. Lewat API
+             * penandanya harus ikut dikirim, kalau tidak linknya datang polos.
+             *
+             * Isinya diambil WhatsApp dari halaman storefront, jadi kirim-link
+             * TIDAK perlu unggah media sama sekali — dan itu menghindarkan kita
+             * dari 'media_id' vendor yang kedaluwarsa 30 hari.
+             */
+            'preview_url'         => self::mengandungTautan($teks) ?: null,
         ], fn ($v) => $v !== null);
 
         return $this->send($body, $payload);
+    }
+
+    /** Ada URL di dalam teks? Penanda pratinjau hanya disertakan bila ada. */
+    private static function mengandungTautan(string $teks): bool
+    {
+        return (bool) preg_match('~https?://~i', $teks);
     }
 
     public function sendMedia(array $payload): array
@@ -89,11 +110,24 @@ class ApiCoIdProvider implements ChatProvider
             return $blocked;
         }
 
+        $media = $payload['media'] ?? null;
+
+        /*
+         * `media_url` HANYA menerima URL sungguhan; id hasil unggah punya
+         * kolomnya sendiri (`media_id`). DIBUKTIKAN 5 Sep 2026 lewat kiriman
+         * nyata: unggahan berhasil, lalu /messages/send menolak dengan
+         * {"field":"media_url","message":"Invalid URL"}. Dokumentasi vendor
+         * yang menyebut media_url menerima keduanya KELIRU — jangan
+         * disederhanakan kembali jadi satu kolom.
+         */
+        $urlPenuh = is_string($media) && preg_match('~^https?://~i', $media);
+
         $body = array_filter([
             'phone_number' => $to,
             'channel'      => $payload['channel'] ?? 'whatsapp',
             'message_type' => $payload['type'] ?? 'image',
-            'media_url'    => $payload['media'] ?? null,
+            'media_url'    => $urlPenuh ? $media : null,
+            'media_id'     => $urlPenuh ? null : $media,
             'caption'      => $payload['caption'] ?? null,
         ], fn ($v) => $v !== null);
 
@@ -166,6 +200,141 @@ class ApiCoIdProvider implements ChatProvider
         }
 
         return $components;
+    }
+
+    public function webhooks(): array
+    {
+        $res = $this->get('/webhooks');
+
+        if (! $res['success']) {
+            return ['success' => false, 'endpoints' => [], 'error' => $res['error']];
+        }
+
+        $endpoints = array_map(fn (array $row) => [
+            'id'             => (string) ($row['id'] ?? ''),
+            'url'            => $row['url'] ?? null,
+            'is_active'      => (bool) ($row['is_active'] ?? false),
+            'failure_count'  => (int) ($row['failure_count'] ?? 0),
+            'disabled_at'    => $row['disabled_at'] ?? null,
+            'disable_reason' => $row['disable_reason'] ?? null,
+            'events'         => (array) ($row['events'] ?? []),
+        ], (array) ($res['data']['data'] ?? []));
+
+        return ['success' => true, 'endpoints' => $endpoints, 'error' => null];
+    }
+
+    public function enableWebhook(string $id): array
+    {
+        $res = $this->post('/webhooks/' . rawurlencode($id) . '/enable', []);
+
+        return ['success' => $res['success'], 'error' => $res['error']];
+    }
+
+    public function uploadMedia(string $absolutePath, string $mime, string $filename): array
+    {
+        if (! $this->isReady()) {
+            return ['success' => false, 'media_id' => null, 'error' => 'Provider chat api.co.id belum dikonfigurasi.'];
+        }
+
+        if (! is_readable($absolutePath)) {
+            return ['success' => false, 'media_id' => null, 'error' => 'Berkas tidak terbaca: ' . $filename];
+        }
+
+        try {
+            $res = Http::withToken($this->setting->api_key)
+                ->acceptJson()
+                ->timeout(60)
+                ->attach('file', file_get_contents($absolutePath), $filename, ['Content-Type' => $mime])
+                ->post($this->setting->effectiveBaseUrl() . '/media/upload');
+        } catch (\Throwable $e) {
+            Log::warning('[CRM] unggah media gagal', ['file' => $filename, 'error' => $e->getMessage()]);
+
+            return ['success' => false, 'media_id' => null, 'error' => $e->getMessage()];
+        }
+
+        $json = (array) ($res->json() ?? []);
+
+        if ($res->failed() || ($json['success'] ?? false) !== true) {
+            $error = data_get($json, 'error.message') ?? data_get($json, 'message') ?? 'HTTP ' . $res->status();
+
+            Log::warning('[CRM] unggah media ditolak', [
+                'status'  => $res->status(),
+                'jawaban' => mb_substr($res->body(), 0, 1500),
+                'berkas'  => $filename,
+                'mime'    => $mime,
+            ]);
+
+            return ['success' => false, 'media_id' => null, 'error' => (string) $error];
+        }
+
+        // Bentuk jawaban unggah belum pernah diadu dengan kiriman sungguhan;
+        // sekali dicatat, alias yang benar bisa dipastikan lalu sisanya dibuang.
+        Log::info('[CRM] unggah media berhasil', ['jawaban' => mb_substr($res->body(), 0, 800)]);
+
+        // ⚠️ media_id vendor kedaluwarsa 30 hari — cukup untuk mengirim SEKARANG,
+        // tidak boleh dijadikan satu-satunya salinan. Berkasnya tetap kita simpan.
+        $id = data_get($json, 'data.media_id') ?? data_get($json, 'data.id') ?? data_get($json, 'media_id');
+
+        return $id
+            ? ['success' => true, 'media_id' => (string) $id, 'error' => null]
+            : ['success' => false, 'media_id' => null, 'error' => 'Vendor tidak mengembalikan media_id.'];
+    }
+
+    public function templates(): array
+    {
+        $numberId = $this->setting->default_phone_number_id;
+
+        $res = $this->get('/templates' . ($numberId ? '?whatsapp_phone_number_id=' . urlencode($numberId) : ''));
+
+        if (! $res['success']) {
+            return ['success' => false, 'templates' => [], 'error' => $res['error']];
+        }
+
+        $daftar = array_map(function (array $row) {
+            $body = self::bodyTemplate($row);
+
+            return [
+                'id'        => (string) ($row['id'] ?? ''),
+                'name'      => (string) ($row['name'] ?? ''),
+                'language'  => (string) ($row['language'] ?? 'id'),
+                'category'  => $row['category'] ?? null,
+                'status'    => strtoupper((string) ($row['status'] ?? 'UNKNOWN')),
+                'body'      => $body,
+                'variables' => self::hitungVariabel($body),
+            ];
+        }, (array) ($res['data']['data'] ?? []));
+
+        return ['success' => true, 'templates' => $daftar, 'error' => null];
+    }
+
+    /** Bunyi badan template; bentuk komponennya beda-beda antar respons vendor. */
+    private static function bodyTemplate(array $row): ?string
+    {
+        if (is_string($row['body'] ?? null)) {
+            return $row['body'];
+        }
+
+        foreach ((array) ($row['components'] ?? []) as $komponen) {
+            if (strtoupper((string) ($komponen['type'] ?? '')) === 'BODY') {
+                return $komponen['text'] ?? null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Jumlah variabel = angka {{n}} TERTINGGI, bukan berapa kali ia muncul.
+     * Template yang menyebut {{1}} dua kali tetap minta satu isian; menghitung
+     * kemunculan akan meminta isian hantu yang ditolak Meta.
+     */
+    private static function hitungVariabel(?string $body): int
+    {
+        if (! $body || ! preg_match_all('/\{\{\s*(\d+)\s*\}\}/', $body, $m)) {
+            return 0;
+        }
+
+        return max(array_map('intval', $m[1]));
     }
 
     public function windowStatus(string $identifier): array
@@ -271,7 +440,19 @@ class ApiCoIdProvider implements ChatProvider
                 ?? data_get($json, 'message')
                 ?? 'HTTP ' . $res->status();
 
-            Log::warning('[CRM] api.co.id menolak permintaan', ['path' => $path, 'status' => $res->status(), 'error' => $error]);
+            /*
+             * Pesan galat vendor sering hanya "Data yang Anda masukkan tidak
+             * valid" — tidak menyebut field mana. Jadi badan jawaban DAN badan
+             * permintaan ikut dicatat; tanpa keduanya, memperbaiki bentuk
+             * payload jadi tebak-tebakan berjam-jam.
+             */
+            Log::warning('[CRM] api.co.id menolak permintaan', [
+                'path'       => $path,
+                'status'     => $res->status(),
+                'error'      => $error,
+                'jawaban'    => mb_substr($res->body(), 0, 1500),
+                'permintaan' => $body,
+            ]);
 
             return ['success' => false, 'data' => $json, 'error' => (string) $error];
         }

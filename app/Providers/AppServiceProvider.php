@@ -23,6 +23,7 @@ use App\Modules\Marketplace\Jubelio\Observers\StockReservationObserver as Jubeli
 use App\Core\Inventory\StockReservation;
 use App\Modules\CRM\Observers\CrmSalesDeliveryObserver;
 use App\Modules\CRM\Observers\CrmSalesOrderObserver;
+use App\Modules\CRM\Support\CrmRuntimeConfig;
 use App\Modules\Sales\Models\SalesDelivery;
 
 class AppServiceProvider extends ServiceProvider
@@ -47,6 +48,11 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         \Carbon\Carbon::setLocale('id');
+
+        // Pengaturan CRM yang bisa diubah lewat layar (saklar jangan-kirim, daftar
+        // putih penerima, jam toko, masa simpan lampiran) disiram ke atas
+        // config('crm.*') — supaya seluruh modul tetap punya SATU sumber bacaan.
+        CrmRuntimeConfig::apply();
 
         View::composer('layouts.erp', function ($view) {
             $view->with('sidebarDepartments',

@@ -31,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'jubelio-shipment/webhook',
             'telegram/webhook/*',
             'crm/webhook',
+            'crm/webhook/*',   // varian bertoken (lihat VerifyCrmWebhookSignature)
         ]);
 
         // Auto-record URL halaman index (dengan filter query string) ke session,

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 /**
  * Setting per-provider chat (pola singleton-per-provider, sama seperti ShippingSetting).
@@ -38,6 +39,40 @@ class CrmSetting extends Model
     public function effectiveBaseUrl(): string
     {
         return rtrim($this->base_url ?: (self::DEFAULT_BASE_URL[$this->provider] ?? ''), '/');
+    }
+
+    /**
+     * Token rahasia di PATH webhook — jalur verifikasi kedua.
+     *
+     * Dibuat karena api.co.id menandatangani webhook (X-Webhook-Signature) tapi
+     * tidak memperlihatkan signing secret-nya di mana pun, sehingga HMAC tak
+     * bisa diverifikasi. Tanpa jalur ini pilihannya cuma dua dan keduanya buruk:
+     * menolak semua webhook, atau menerima payload tanpa verifikasi sama sekali.
+     *
+     * Token acak 40 karakter di dalam URL HTTPS = pola yang sudah dipakai ERP
+     * ini untuk Telegram (`/telegram/webhook/{secret}`) dan QRISLY. Begitu
+     * signing secret vendor ketemu, HMAC otomatis kembali jadi penjaga utama.
+     */
+    public function webhookToken(): string
+    {
+        $token = (string) ($this->config['webhook_url_token'] ?? '');
+
+        if ($token === '') {
+            $token = Str::random(40);
+            $this->config = array_merge((array) $this->config, ['webhook_url_token' => $token]);
+            $this->save();
+        }
+
+        return $token;
+    }
+
+    /** Bikin token baru (URL lama langsung mati). */
+    public function regenerateWebhookToken(): string
+    {
+        $this->config = array_merge((array) $this->config, ['webhook_url_token' => Str::random(40)]);
+        $this->save();
+
+        return $this->config['webhook_url_token'];
     }
 
     public function isConfigured(): bool
