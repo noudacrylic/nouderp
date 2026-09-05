@@ -77,13 +77,25 @@
 
                     {{-- Pratinjau gambar di ATAS baris ketik, seperti WhatsApp:
                          yang mau dikirim terlihat lebih dulu, baru kalimatnya. --}}
+                    {{-- Gambar tampil sebagai thumbnail, berkas lain sebagai keping
+                         bernama. Berkas kerja (DXF, RLD, PDF) tak punya pratinjau, dan
+                         memaksakan kotak kosong justru membuat admin ragu apakah
+                         berkasnya benar-benar terlampir. --}}
                     <div x-show="daftar.length" x-cloak class="flex flex-wrap gap-2 mb-2">
                         <template x-for="(g, i) in daftar" :key="g.key">
                             <div class="relative">
-                                <img :src="g.url" class="h-16 w-16 object-cover rounded border">
+                                <template x-if="g.url">
+                                    <img :src="g.url" class="h-16 w-16 object-cover rounded border">
+                                </template>
+                                <template x-if="!g.url">
+                                    <div class="h-16 min-w-[7rem] max-w-[11rem] px-2 rounded border bg-gray-50 flex flex-col justify-center">
+                                        <div class="text-[11px] font-medium truncate" x-text="g.file.name"></div>
+                                        <div class="text-[10px] text-gray-500" x-text="g.ukuran"></div>
+                                    </div>
+                                </template>
                                 <button type="button" @click="buang(i)"
                                         class="absolute -top-1.5 -right-1.5 bg-white border rounded-full w-5 h-5 text-xs leading-none text-gray-600 hover:text-red-600"
-                                        title="Buang gambar ini">&times;</button>
+                                        title="Buang lampiran ini">&times;</button>
                             </div>
                         </template>
                     </div>
@@ -431,7 +443,7 @@
                             // Setelah terkirim, pratinjau gambar ikut dibuang —
                             // form.reset() tidak menyentuh daftar di memori.
                             bersihkan() {
-                                this.daftar.forEach(g => URL.revokeObjectURL(g.url));
+                                this.daftar.forEach(g => g.url && URL.revokeObjectURL(g.url));
                                 this.daftar = [];
                                 this.sinkron();
                                 this.tumbuh();
@@ -441,6 +453,7 @@
                                 const berkas = [...(e.clipboardData?.files || [])];
                                 if (berkas.length) { e.preventDefault(); this.tambah(berkas); }
                             },
+
 
                             jatuhkan(e) {
                                 this.seret = false;
@@ -454,27 +467,56 @@
                                 this.tambah([...this.$refs.berkas.files], true);
                             },
 
-                            tambah(berkas, dariDialog = false) {
-                                const gambar = berkas.filter(f => f.type.startsWith('image/'));
-                                if (!gambar.length) { if (dariDialog) this.sinkron(); return; }
+                            /*
+                             * Batas WhatsApp per JENIS — sama persis dengan MediaKind di
+                             * sisi server. Diperiksa di sini juga supaya berkas kebesaran
+                             * ditolak SEBELUM diunggah, bukan setelah menunggu lama.
+                             */
+                            batas(f) {
+                                const t = (f.type || '').toLowerCase();
+                                if (['image/jpeg', 'image/jpg', 'image/png'].includes(t)) return 5;
+                                if (t.startsWith('video/') || t.startsWith('audio/')) return 16;
+                                return 100;
+                            },
 
-                                if (this.daftar.length + gambar.length > 5) {
-                                    alert('Maksimal 5 gambar sekali kirim.');
+                            ukuranTerbaca(bytes) {
+                                return bytes >= 1024 * 1024
+                                    ? (bytes / 1024 / 1024).toFixed(1) + ' MB'
+                                    : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+                            },
+
+                            tambah(berkas, dariDialog = false) {
+                                // SEMUA jenis diterima — dokumen kerja (PDF, DXF, RLD)
+                                // justru yang paling sering dikirim. Menyaring ke gambar
+                                // saja membuat berkas hilang diam-diam tanpa pesan apa pun.
+                                if (!berkas.length) { if (dariDialog) this.sinkron(); return; }
+
+                                if (this.daftar.length + berkas.length > 5) {
+                                    alert('Maksimal 5 lampiran sekali kirim.');
                                     return this.sinkron();
                                 }
 
-                                for (const f of gambar) {
-                                    if (f.size > 5 * 1024 * 1024) {
-                                        alert(`"${f.name}" lebih dari 5 MB — batas WhatsApp.`);
+                                for (const f of berkas) {
+                                    const maks = this.batas(f);
+
+                                    if (f.size > maks * 1024 * 1024) {
+                                        alert('"' + f.name + '" melebihi batas ' + maks + ' MB untuk jenis berkas ini.');
                                         continue;
                                     }
-                                    this.daftar.push({ key: ++this.nomor, file: f, url: URL.createObjectURL(f) });
+
+                                    this.daftar.push({
+                                        key: ++this.nomor,
+                                        file: f,
+                                        // Pratinjau hanya untuk gambar; sisanya keping bernama.
+                                        url: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+                                        ukuran: this.ukuranTerbaca(f.size),
+                                    });
                                 }
                                 this.sinkron();
                             },
 
                             buang(i) {
-                                URL.revokeObjectURL(this.daftar[i].url);
+                                if (this.daftar[i].url) URL.revokeObjectURL(this.daftar[i].url);
                                 this.daftar.splice(i, 1);
                                 this.sinkron();
                             },
