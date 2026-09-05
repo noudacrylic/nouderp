@@ -66,4 +66,30 @@ class RailProdukTest extends TestCase
             ->assertJsonCount(1, 'produk')
             ->assertJsonPath('produk.0.nama', 'Box Mahar');
     }
+
+    /**
+     * Dicari lewat SKU juga: admin yang sedang membalas biasanya sudah memegang
+     * SKU dari percakapan, bukan nama panjang produknya.
+     */
+    public function test_pencarian_juga_menemukan_lewat_sku(): void
+    {
+        $store = $this->produk('Box Mahar Akrilik Sliding', 'box-mahar-sliding', 'published');
+
+        $produk = \App\Core\Inventory\Product::create([
+            'sku'  => 'BMA-40X30X6',
+            'name' => 'Box Mahar 40x30x6',
+        ]);
+
+        \App\Models\StoreProductVariant::create([
+            'store_product_id' => $store->id,
+            'product_id'       => $produk->id,
+            'variant_label'    => '40x30x6',
+        ]);
+
+        $this->actingAs($this->admin())
+            ->getJson(route('crm.produk.cari', ['q' => 'BMA-40X30']))
+            ->assertOk()
+            ->assertJsonCount(1, 'produk')
+            ->assertJsonPath('produk.0.sku', 'BMA-40X30X6');
+    }
 }

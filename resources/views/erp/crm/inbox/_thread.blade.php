@@ -61,6 +61,7 @@
                      Diskusi desain hidup dari gambar; memaksa admin menyimpan berkas dulu
                      lalu mencarinya lewat dialog adalah alasan orang kembali ke HP. --}}
                 <form method="POST" action="{{ route('crm.inbox.balas', $terpilih->id) }}"
+                      class="relative"
                       enctype="multipart/form-data"
                       @submit.prevent="$dispatch('kirim-balasan', { form: $el })"
                       x-data="komposerCrm()"
@@ -93,13 +94,26 @@
                          menganga memakan tinggi thread untuk ruang yang 90% waktu
                          tidak terpakai. --}}
                     <div class="relative flex items-end gap-2">
-                        <button type="button" @click="$refs.berkas.click()" title="Lampirkan gambar"
-                                class="shrink-0 w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 text-gray-500 hover:bg-gray-50">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M18.4 12.6 12 19a4.5 4.5 0 1 1-6.4-6.4l7.1-7.1a3 3 0 1 1 4.2 4.2l-7.1 7.1a1.5 1.5 0 1 1-2.1-2.1l6.4-6.4"/>
-                            </svg>
-                        </button>
+                        {{-- Klip = pintu SEMUA lampiran, bukan cuma gambar. Produk ikut
+                             di sini karena bagi admin keduanya satu gerakan yang sama:
+                             "sisipkan sesuatu ke pesan ini". --}}
+                        <div class="relative shrink-0" @click.outside="menu = false">
+                            <button type="button" @click="menu = !menu" title="Lampirkan"
+                                    class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 text-gray-500 hover:bg-gray-50">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                          d="M18.4 12.6 12 19a4.5 4.5 0 1 1-6.4-6.4l7.1-7.1a3 3 0 1 1 4.2 4.2l-7.1 7.1a1.5 1.5 0 1 1-2.1-2.1l6.4-6.4"/>
+                                </svg>
+                            </button>
+
+                            <div x-show="menu" x-cloak
+                                 class="absolute bottom-12 left-0 z-20 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+                                <button type="button" @click="menu = false; $refs.berkas.click()"
+                                        class="w-full text-left px-3 py-2 hover:bg-gray-50">Gambar</button>
+                                <button type="button" @click="menu = false; $dispatch('buka-produk')"
+                                        class="w-full text-left px-3 py-2 hover:bg-gray-50">Produk</button>
+                            </div>
+                        </div>
 
                         <textarea name="teks" rows="1" maxlength="4000"
                                   x-ref="teks"
@@ -130,6 +144,52 @@
 
                     <div class="mt-1.5 text-[11px] text-gray-400">
                         Enter kirim &middot; Shift+Enter baris baru &middot; Ctrl+V tempel gambar
+                    </div>
+
+                    {{-- Pemilih produk: cari nama atau SKU, lalu langsung kirim.
+                         Yang dikirim cuma TAUTANNYA — gambar, judul, dan ringkasan
+                         dirangkai WhatsApp sendiri dari halaman etalase, jadi tak ada
+                         media yang perlu diunggah. --}}
+                    <div x-data="pilihProduk()" @buka-produk.window="buka()" x-show="tampil" x-cloak
+                         class="absolute inset-x-0 bottom-0 z-30 p-3">
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-xl max-h-80 flex flex-col"
+                             @click.outside="tampil = false">
+                            <div class="shrink-0 flex items-center gap-2 p-2 border-b border-gray-200">
+                                <input type="text" x-model="kata" x-ref="cari" @input.debounce.400ms="muat()"
+                                       placeholder="Cari nama produk atau SKU…"
+                                       class="flex-1 border rounded px-2 py-1.5 text-sm">
+                                <button type="button" @click="tampil = false"
+                                        class="px-2 text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+                            </div>
+
+                            <div class="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-100">
+                                <template x-if="sibuk">
+                                    <p class="px-3 py-3 text-xs text-gray-400">Mencari…</p>
+                                </template>
+
+                                <template x-for="p in hasil" :key="p.url">
+                                    <div class="flex items-center gap-2 px-3 py-2">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-sm font-medium truncate" x-text="p.nama"></div>
+                                            <div class="text-[11px] text-gray-500 truncate">
+                                                <span x-show="p.sku" class="font-mono" x-text="p.sku"></span>
+                                                <span x-show="p.sku && p.ringkas"> &middot; </span>
+                                                <span x-text="p.ringkas"></span>
+                                            </div>
+                                        </div>
+                                        <button type="button" @click="kirimProduk(p)"
+                                                class="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded">
+                                            Kirim
+                                        </button>
+                                    </div>
+                                </template>
+
+                                <template x-if="!sibuk && hasil.length === 0">
+                                    <p class="px-3 py-3 text-xs text-gray-500"
+                                       x-text="kata ? 'Tidak ada produk yang cocok.' : 'Belum ada produk terbit.'"></p>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                 </form>
 
@@ -245,11 +305,54 @@
                         };
                     }
 
+                    function pilihProduk() {
+                        return {
+                            tampil: false, kata: '', hasil: [], sibuk: false,
+
+                            buka() {
+                                this.tampil = true;
+                                this.$nextTick(() => this.$refs.cari.focus());
+                                if (this.hasil.length === 0) this.muat();
+                            },
+
+                            async muat() {
+                                this.sibuk = true;
+                                try {
+                                    const r = await fetch('{{ route('crm.produk.cari') }}?q=' + encodeURIComponent(this.kata),
+                                                          { headers: { 'Accept': 'application/json' } });
+                                    const d = await r.json();
+                                    this.hasil = d.produk || [];
+                                } catch (e) {
+                                    this.hasil = [];
+                                } finally {
+                                    this.sibuk = false;
+                                }
+                            },
+
+                            /*
+                             * Tautannya ditaruh ke kotak ketik lalu form-nya dikirim —
+                             * bukan jalur kirim tersendiri. Dengan begitu penjaga jendela
+                             * 24 jam, saklar mode aman, dan penambahan gelembung tanpa
+                             * muat ulang semuanya tetap berlaku tanpa digandakan.
+                             */
+                            kirimProduk(p) {
+                                const form = this.$el.closest('form');
+                                const ta = form?.querySelector('textarea[name=teks]');
+                                if (!form || !ta) return;
+
+                                ta.value = ta.value.trim() ? ta.value.trim() + '\n' + p.url : p.url;
+                                this.tampil = false;
+                                form.requestSubmit();
+                            },
+                        };
+                    }
+
                     function komposerCrm() {
                         return {
                             daftar: [],
                             seret: false,
                             nomor: 0,
+                            menu: false,
 
                             /*
                              * Enter mengirim, Shift+Enter baris baru — kebiasaan

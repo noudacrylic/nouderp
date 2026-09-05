@@ -252,7 +252,12 @@ class CrmInboxController extends Controller
         $basis = rtrim((string) config('crm.storefront_url'), '/');
 
         $produk = \App\Models\StoreProduct::published()
-            ->when($cari !== '', fn ($q) => $q->where('name', 'like', "%{$cari}%"))
+            // Dicari lewat nama MAUPUN SKU: admin yang sedang membalas biasanya
+            // sudah memegang SKU dari percakapan, bukan nama panjang produknya.
+            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('name', 'like', "%{$cari}%")
+                ->orWhereHas('variants.product', fn ($v) => $v->where('sku', 'like', "%{$cari}%"))))
+            ->with(['variants' => fn ($q) => $q->with('product:id,sku')->orderBy('sort_order')->limit(1)])
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
             ->orderBy('name')
@@ -261,9 +266,10 @@ class CrmInboxController extends Controller
 
         return response()->json([
             'produk' => $produk->map(fn ($p) => [
-                'nama'      => $p->name,
-                'ringkas'   => \Illuminate\Support\Str::limit((string) $p->short_description, 70),
-                'url'       => $basis . '/produk/' . $p->slug,
+                'nama'    => $p->name,
+                'sku'     => optional($p->variants->first()?->product)->sku,
+                'ringkas' => \Illuminate\Support\Str::limit((string) $p->short_description, 70),
+                'url'     => $basis . '/produk/' . $p->slug,
             ])->all(),
         ]);
     }

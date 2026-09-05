@@ -6,7 +6,9 @@
 <div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden" x-data="{ tab: 'info' }">
 
     <div class="shrink-0 flex gap-1 px-2 py-2 border-b border-gray-200 bg-gray-50 text-xs">
-        @foreach(['info' => 'Info', 'template' => 'Template', 'produk' => 'Produk', 'pesanan' => 'Pesanan'] as $key => $label)
+        {{-- Produk pindah ke menu klip di kotak ketik — tempatnya memang di sisi
+             lampiran, bukan panel telaah. --}}
+        @foreach(['info' => 'Info', 'template' => 'Template', 'pesanan' => 'Pesanan'] as $key => $label)
             <button type="button" @click="tab = '{{ $key }}'"
                     :class="tab === '{{ $key }}' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50'"
                     class="px-2 py-1 rounded border">{{ $label }}</button>
@@ -76,68 +78,6 @@
                     <button class="w-full border border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm">Simpan</button>
                 </form>
             </details>
-        </div>
-
-        {{-- ---------------------------------------------------------- produk --}}
-        <div x-show="tab === 'produk'" x-cloak class="space-y-2"
-             x-data="railProduk()" x-init="$watch('$root.tab', t => { if (t === 'produk') muat() })">
-
-            <div class="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-[11px] text-gray-600">
-                Tautan produk dikirim sebagai pesan biasa — WhatsApp yang menampilkan gambar,
-                judul, dan ringkasannya. Tidak ada gambar yang perlu diunggah.
-            </div>
-
-            <input type="text" x-model="kata" @input.debounce.400ms="muat()"
-                   placeholder="Cari produk…" class="border rounded w-full px-2 py-1.5 text-sm">
-
-            <template x-if="sibuk">
-                <p class="text-xs text-gray-400 px-1">Mencari…</p>
-            </template>
-
-            <template x-for="p in hasil" :key="p.url">
-                <div class="border border-gray-200 rounded p-2">
-                    <div class="text-sm font-medium" x-text="p.nama"></div>
-                    <div class="text-[11px] text-gray-500" x-text="p.ringkas"></div>
-                    <div class="mt-1 flex items-center justify-between gap-2">
-                        <span class="text-[10px] text-gray-400 truncate" x-text="p.url"></span>
-                        @if($terpilih && $terpilih->windowIsOpen())
-                            {{-- Disisipkan ke kotak ketik, sama seperti potongan teks: admin
-                                 hampir selalu menambahkan satu kalimat sebelum mengirim. --}}
-                            <button type="button" class="shrink-0 text-xs text-emerald-700 hover:underline"
-                                    @click="$dispatch('sisip-snippet', { teks: p.url })">Sisipkan</button>
-                        @endif
-                    </div>
-                </div>
-            </template>
-
-            <template x-if="!sibuk && hasil.length === 0">
-                <p class="text-sm text-gray-500 px-1" x-text="kata ? 'Tidak ada produk yang cocok.' : 'Belum ada produk terbit.'"></p>
-            </template>
-
-            <script>
-                function railProduk() {
-                    return {
-                        kata: '', hasil: [], sibuk: false, sudah: false,
-
-                        // Dimuat saat tabnya dibuka, bukan saat halaman dirender —
-                        // rail ini sering tidak disentuh sama sekali dalam satu sesi.
-                        async muat() {
-                            this.sibuk = true;
-                            try {
-                                const r = await fetch('{{ route('crm.produk.cari') }}?q=' + encodeURIComponent(this.kata),
-                                                      { headers: { 'Accept': 'application/json' } });
-                                const d = await r.json();
-                                this.hasil = d.produk || [];
-                                this.sudah = true;
-                            } catch (e) {
-                                this.hasil = [];
-                            } finally {
-                                this.sibuk = false;
-                            }
-                        },
-                    };
-                }
-            </script>
         </div>
 
         {{-- --------------------------------------------------------- pesanan --}}
