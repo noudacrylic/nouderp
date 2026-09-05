@@ -72,7 +72,7 @@
                       @drop.prevent="jatuhkan($event)">
                     @csrf
 
-                    <input type="file" name="gambar[]" multiple accept="image/*" class="hidden"
+                    <input type="file" name="gambar[]" multiple class="hidden"
                            x-ref="berkas" @change="dariDialog()">
 
                     {{-- Pratinjau gambar di ATAS baris ketik, seperti WhatsApp:
@@ -109,7 +109,7 @@
                             <div x-show="menu" x-cloak
                                  class="absolute bottom-12 left-0 z-20 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
                                 <button type="button" @click="menu = false; $refs.berkas.click()"
-                                        class="w-full text-left px-3 py-2 hover:bg-gray-50">Gambar</button>
+                                        class="w-full text-left px-3 py-2 hover:bg-gray-50">Gambar &amp; Berkas</button>
                                 <button type="button" @click="menu = false; $dispatch('buka-produk')"
                                         class="w-full text-left px-3 py-2 hover:bg-gray-50">Produk</button>
                             </div>
@@ -143,7 +143,7 @@
                     </div>
 
                     <div class="mt-1.5 text-[11px] text-gray-400">
-                        Enter kirim &middot; Shift+Enter baris baru &middot; Ctrl+V tempel gambar
+                        Enter kirim &middot; Shift+Enter baris baru &middot; Ctrl+V tempel gambar &middot; seret berkas ke sini
                     </div>
 
                     {{-- Pemilih produk: cari nama atau SKU, lalu langsung kirim.

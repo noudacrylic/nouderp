@@ -156,18 +156,45 @@ class CrmInboxController extends Controller
             'teks'     => 'required_without:gambar|nullable|string|max:4000',
             'reply_to' => 'nullable|string|max:120',
             'gambar'   => 'nullable|array|max:5',
-            // 5 MB = batas gambar WhatsApp. Ditolak DI SINI dengan pesan yang
-            // terbaca, bukan setelah diunggah lalu ditolak Meta tanpa keterangan.
-            'gambar.*' => 'file|image|max:5120',
+            /*
+             * Semua jenis berkas boleh — WhatsApp memang menerima gambar, video,
+             * audio, dan dokumen. Batas ukurannya BERBEDA per jenis, jadi yang
+             * diperiksa di sini cuma pagar tertingginya; jenis & batas
+             * sesungguhnya diputuskan MediaKind di bawah.
+             */
+            'gambar.*' => 'file|max:' . (int) (\App\Modules\CRM\Support\MediaKind::batasTertinggi() / 1024),
         ];
 
         $pesanGalat = [
-            'gambar.*.max'   => 'Gambar maksimal 5 MB (batas WhatsApp).',
-            'gambar.*.image' => 'Hanya gambar yang bisa ditempel ke chat.',
-            'gambar.*.file'  => 'Berkas gagal terunggah — coba lampirkan ulang.',
+            'gambar.*.max'  => 'Berkas terlalu besar untuk WhatsApp.',
+            'gambar.*.file' => 'Berkas gagal terunggah — coba lampirkan ulang.',
         ];
 
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), $aturan, $pesanGalat);
+
+        /*
+         * Batas per JENIS diperiksa di sini, bukan lewat aturan tunggal: gambar
+         * 5 MB, video/audio 16 MB, dokumen 100 MB. Ditolak sekarang dengan
+         * kalimat yang menyebut jenis & batasnya, bukan setelah berkasnya
+         * terlanjur terunggah ke vendor lalu ditolak Meta tanpa keterangan.
+         */
+        $validator->after(function ($v) use ($request) {
+            foreach ((array) $request->file('gambar') as $i => $berkas) {
+                if (! $berkas) {
+                    continue;
+                }
+
+                $jenis = \App\Modules\CRM\Support\MediaKind::for($berkas->getClientMimeType());
+
+                if ($berkas->getSize() > $jenis['max_bytes']) {
+                    $v->errors()->add(
+                        "gambar.{$i}",
+                        $berkas->getClientOriginalName() . ' melebihi batas '
+                        . \App\Modules\CRM\Support\MediaKind::keterangan($jenis['type']) . '.'
+                    );
+                }
+            }
+        });
 
         if ($validator->fails()) {
             /*

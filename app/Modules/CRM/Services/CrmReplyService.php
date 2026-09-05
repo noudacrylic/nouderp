@@ -206,9 +206,13 @@ class CrmReplyService
                 );
             }
 
+            // Jenis pesan ditentukan dari mime: PDF/DXF dikirim sebagai 'document',
+            // bukan 'image'. Mengirim dokumen sebagai gambar ditolak Meta.
+            $jenis = \App\Modules\CRM\Support\MediaKind::for($file->getClientMimeType());
+
             $hasil = $provider->sendMedia([
                 'to'              => $percakapan->contact_key,
-                'type'            => 'image',
+                'type'            => $jenis['type'],
                 'media'           => $unggah['media_id'],
                 'caption'         => $caption,
                 'channel'         => $percakapan->channel,
@@ -219,7 +223,7 @@ class CrmReplyService
                 return $this->gagal((string) ($hasil['error'] ?? 'Gagal mengirim gambar tanpa keterangan.'));
             }
 
-            $terakhir = $this->catat($percakapan, 'image', $caption, $hasil, $userId, $i === 0 ? $replyTo : null);
+            $terakhir = $this->catat($percakapan, $jenis['type'], $caption, $hasil, $userId, $i === 0 ? $replyTo : null);
 
             $this->media->simpanUnggahan($terakhir, $file, $unggah['media_id']);
         }
