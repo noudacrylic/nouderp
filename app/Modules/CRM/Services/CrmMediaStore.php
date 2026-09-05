@@ -3,6 +3,8 @@
 namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\Models\CrmAttachment;
+use App\Modules\CRM\Models\CrmMessage;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -119,6 +121,39 @@ class CrmMediaStore
         ])->save();
 
         return true;
+    }
+
+    /**
+     * Simpan berkas yang DIUNGGAH admin (tempel tangkapan layar, pilih berkas)
+     * sebagai lampiran pesan keluar.
+     *
+     * Disimpan di disk kita sendiri persis seperti lampiran masuk, dan itu
+     * disengaja: `media_id` vendor kedaluwarsa 30 hari, sedangkan revisi desain
+     * yang dikirim ke pelanggan justru yang paling sering dicari lagi berbulan
+     * kemudian ("yang kemarin itu versi mana?").
+     */
+    public function simpanUnggahan(CrmMessage $pesan, UploadedFile $berkas, ?string $mediaId = null): CrmAttachment
+    {
+        $lampiran = CrmAttachment::create([
+            'message_id'        => $pesan->id,
+            'original_name'     => $berkas->getClientOriginalName(),
+            'mime'              => $berkas->getClientMimeType(),
+            'size_bytes'        => $berkas->getSize(),
+            'provider_media_id' => $mediaId,
+        ]);
+
+        $disk = (string) config('crm.media_disk', 'local');
+        $path = $this->path($lampiran, $berkas->getClientMimeType());
+
+        Storage::disk($disk)->putFileAs(dirname($path), $berkas, basename($path));
+
+        $lampiran->forceFill([
+            'disk'          => $disk,
+            'path'          => $path,
+            'downloaded_at' => now(),
+        ])->save();
+
+        return $lampiran;
     }
 
     /**

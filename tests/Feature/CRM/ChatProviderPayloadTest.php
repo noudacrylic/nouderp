@@ -206,4 +206,79 @@ class ChatProviderPayloadTest extends TestCase
         $this->assertStringContainsString('belum dikonfigurasi', $hasil['error']);
         Http::assertNothingSent();
     }
+
+    /* ------------------------------------------------- pratinjau tautan */
+
+    /**
+     * Kartu pratinjau (gambar + judul + deskripsi) yang muncul otomatis saat
+     * mengetik dari HP TIDAK muncul lewat API tanpa penanda ini. Bedanya nyata
+     * di rail Produk: link produk tanpa pratinjau tampil sebagai deretan huruf
+     * panjang, dengan pratinjau tampil sebagai kartu berisi foto & harga.
+     */
+    public function test_pesan_berisi_tautan_meminta_pratinjau(): void
+    {
+        $this->fakeOk();
+
+        $this->provider()->sendText([
+            'to'   => '628998844666',
+            'text' => 'Ini produknya kak https://noudakrilik.com/produk/box-mahar-akrilik-sliding-40x30x6',
+        ]);
+
+        Http::assertSent(fn (Request $r) => ($r->data()['preview_url'] ?? null) === true);
+    }
+
+    public function test_pesan_biasa_tidak_membawa_penanda_pratinjau(): void
+    {
+        $this->fakeOk();
+
+        $this->provider()->sendText([
+            'to'   => '628998844666',
+            'text' => 'baik kak, saya cek dulu ya',
+        ]);
+
+        Http::assertSent(fn (Request $r) => ! array_key_exists('preview_url', $r->data()));
+    }
+
+    /* ------------------------------------------------------ media_id vs URL */
+
+    /**
+     * Id hasil unggah dikirim lewat `media_id`, BUKAN `media_url`.
+     *
+     * Dibuktikan kiriman nyata 5 Sep 2026: unggahan berhasil, lalu
+     * /messages/send menolak dengan {"field":"media_url","message":"Invalid
+     * URL"}. Dokumentasi vendor menyebut media_url menerima keduanya — keliru.
+     * Tes ini ada supaya tidak ada yang menyederhanakannya kembali jadi satu
+     * kolom; gejalanya cuma muncul saat mengirim sungguhan.
+     */
+    public function test_media_id_hasil_unggah_dikirim_di_kolom_media_id(): void
+    {
+        $this->fakeOk();
+
+        $this->provider()->sendMedia([
+            'to'    => '628998844666',
+            'type'  => 'image',
+            'media' => '920611690660769',
+        ]);
+
+        Http::assertSent(function (Request $r) {
+            return ($r->data()['media_id'] ?? null) === '920611690660769'
+                && ! array_key_exists('media_url', $r->data());
+        });
+    }
+
+    public function test_url_publik_tetap_dikirim_di_kolom_media_url(): void
+    {
+        $this->fakeOk();
+
+        $this->provider()->sendMedia([
+            'to'    => '628998844666',
+            'type'  => 'image',
+            'media' => 'https://noudakrilik.com/img/contoh.png',
+        ]);
+
+        Http::assertSent(function (Request $r) {
+            return ($r->data()['media_url'] ?? null) === 'https://noudakrilik.com/img/contoh.png'
+                && ! array_key_exists('media_id', $r->data());
+        });
+    }
 }

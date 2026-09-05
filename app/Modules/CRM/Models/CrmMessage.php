@@ -16,6 +16,14 @@ class CrmMessage extends Model
     public const KELUAR = 'keluar';
 
     /** Asal pesan keluar. Lihat komentar kolom `source` di migrasi. */
+    /**
+     * Balasan yang DICATAT tapi tidak pernah keluar karena saklar jangan-kirim.
+     * Statusnya sengaja dibedakan dari 'terkirim': menandai pesan yang tak
+     * pernah sampai sebagai "terkirim" membuat admin mengira pelanggan sudah
+     * dijawab, lalu menunggu balasan yang tak akan pernah datang.
+     */
+    public const STATUS_TIDAK_DIKIRIM = 'tidak_dikirim';
+
     public const SOURCE_ERP          = 'erp';
     public const SOURCE_WHATSAPP_APP = 'whatsapp_app';
     public const SOURCE_API          = 'api';
