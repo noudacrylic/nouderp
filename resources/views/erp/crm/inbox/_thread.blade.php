@@ -340,7 +340,15 @@
                                 const ta = form?.querySelector('textarea[name=teks]');
                                 if (!form || !ta) return;
 
-                                ta.value = ta.value.trim() ? ta.value.trim() + '\n' + p.url : p.url;
+                                /*
+                                 * NAMA produk ikut dikirim, bukan tautan telanjang.
+                                 * Kartu pratinjau WhatsApp belum terbukti muncul lewat
+                                 * API vendor (penanda preview_url diterima tapi tak
+                                 * berefek), dan tautan tanpa keterangan memaksa
+                                 * pelanggan mengklik dulu untuk tahu itu produk apa.
+                                 */
+                                const teks = p.nama + '\n' + p.url;
+                                ta.value = ta.value.trim() ? ta.value.trim() + '\n' + teks : teks;
                                 this.tampil = false;
                                 form.requestSubmit();
                             },
