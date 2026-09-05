@@ -256,10 +256,57 @@ class IncomingWebhookService
             'message_id'        => $pesan->id,
             'provider_media_id' => $mediaId ? (string) $mediaId : null,
             'source_url'        => $url ? (string) $url : null,
-            'original_name'     => $data['file_name'] ?? $data['filename'] ?? data_get($data, 'media.filename'),
-            'mime'              => $data['mime_type'] ?? data_get($data, 'media.mime_type'),
+            /*
+             * Nama & mime aslinya duduk di dalam `raw.<jenis>` — DIVERIFIKASI atas
+             * payload sungguhan: raw.document.filename = "MIMBAR DUDUK MASJID.cdr".
+             * Tanpa alias ini berkasnya tersimpan TANPA EKSTENSI ('9', '3'), dan
+             * Windows tak tahu harus membukanya dengan apa. Isinya utuh, tapi
+             * praktis tak terpakai — dan gejalanya baru terasa berhari-hari
+             * kemudian saat berkasnya dicari.
+             */
+            'original_name'     => $this->namaBerkas($data),
+            'mime'              => $data['mime_type']
+                ?? data_get($data, 'media.mime_type')
+                ?? $this->dariRaw($data, 'mime_type'),
             'size_bytes'        => $data['file_size'] ?? data_get($data, 'media.size'),
         ]);
+    }
+
+    /**
+     * Nama berkas kiriman pelanggan. Jatuh ke nama pada URL vendor bila payload
+     * tak membawanya — lebih baik nama acak berekstensi benar daripada berkas
+     * tanpa ekstensi yang tak bisa dibuka sama sekali.
+     */
+    private function namaBerkas(array $data): ?string
+    {
+        $nama = $data['file_name']
+            ?? $data['filename']
+            ?? data_get($data, 'media.filename')
+            ?? $this->dariRaw($data, 'filename');
+
+        if ($nama) {
+            return (string) $nama;
+        }
+
+        $url = (string) ($data['media_url'] ?? data_get($data, 'media.url') ?? '');
+        $sisa = basename(parse_url($url, PHP_URL_PATH) ?: '');
+
+        return $sisa !== '' && str_contains($sisa, '.') ? $sisa : null;
+    }
+
+    /**
+     * Ambil satu kunci dari `raw.<jenis>` — WhatsApp menaruh keterangan media di
+     * bawah nama jenisnya (raw.document.*, raw.image.*, raw.video.*).
+     */
+    private function dariRaw(array $data, string $kunci): ?string
+    {
+        $jenis = (string) (data_get($data, 'raw.type') ?? $data['message_type'] ?? '');
+
+        $nilai = $jenis !== ''
+            ? data_get($data, "raw.{$jenis}.{$kunci}")
+            : null;
+
+        return $nilai ? (string) $nilai : null;
     }
 
     /** Nomor/username lawan bicara — bukan nomor bisnis kita. */
