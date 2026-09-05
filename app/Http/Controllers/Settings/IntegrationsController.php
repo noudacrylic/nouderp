@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
 use App\Models\AnthropicSetting;
+use App\Models\CrmSetting;
 use App\Models\MidtransSetting;
 use App\Models\PaymentSetting;
 use App\Models\R2Setting;
@@ -30,6 +31,7 @@ class IntegrationsController extends Controller
         $jubelioShipment = ShippingSetting::for('jubelio_shipment');
         $jubelio    = JubelioSetting::singleton();
         $telegram   = TelegramSetting::current();
+        $crm        = CrmSetting::for('apicoid');
         $anthropic  = AnthropicSetting::current();
         $r2         = R2Setting::current();
         $storefront = StorefrontSetting::current();
@@ -119,6 +121,17 @@ class IntegrationsController extends Controller
                 'active'      => (bool) $telegram?->isConfigured(),
                 'mode'        => $telegram && $telegram->webhook_secret ? 'Webhook' : 'Belum aktif',
                 'url'         => route('settings.telegram.edit'),
+            ],
+            [
+                'name'        => 'CRM WhatsApp',
+                'category'    => 'Chat / Pelanggan',
+                'description' => 'api.co.id Chat Gateway — inbox WhatsApp pelanggan, triase & notifikasi pesanan (pembayaran, siap diambil, resi).',
+                'icon'        => '💬',
+                'active'      => $crm->isConfigured(),
+                'mode'        => $crm->isConfigured()
+                    ? (($crm->config['dry_run'] ?? config('crm.dry_run', true)) ? 'Jangan-kirim' : 'Kirim nyata')
+                    : 'Belum aktif',
+                'url'         => route('settings.crm.edit'),
             ],
             [
                 'name'        => 'Claude AI',

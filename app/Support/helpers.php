@@ -100,6 +100,52 @@ if (!function_exists('submenu_url_is_action')) {
     }
 }
 
+if (!function_exists('submenu_url_belongs_to')) {
+    /**
+     * URL yang tersimpan sebagai landing module masih MILIK module itu?
+     *
+     * Perlu karena susunan menu bisa berubah: sebuah halaman dipindah dari satu
+     * module ke module lain (mis. "Pengaturan CRM" pindah dari menu CRM ke hub
+     * Integrasi), sementara session pengguna masih menyimpan URL lamanya. Tanpa
+     * pemeriksaan ini, klik menu CRM melempar orang ke halaman Integrasi —
+     * gejalanya membingungkan ("menunya salah") padahal datanya yang basi.
+     *
+     * Session basi tidak bisa dibersihkan dari luar, jadi yang benar adalah
+     * memvalidasinya saat dipakai.
+     */
+    function submenu_url_belongs_to(string $url, string $module): bool
+    {
+        static $memo = [];
+
+        $key = $module . '|' . $url;
+
+        if (array_key_exists($key, $memo)) {
+            return $memo[$key];
+        }
+
+        try {
+            $path  = parse_url($url, PHP_URL_PATH) ?: '/';
+            $route = app('router')->getRoutes()->match(
+                \Illuminate\Http\Request::create($path, 'GET')
+            );
+
+            $name = $route->getName();
+            $menu = $name ? app(\App\Services\MenuRegistry::class)->resolveMenuKey($name) : null;
+
+            // Wajib punya entri menu, DAN entrinya milik module ini.
+            // Menuntut itu aman: RememberSubmenuUrl hanya menyimpan URL yang
+            // menu-key-nya berhasil di-resolve, jadi URL yang sah pasti lolos.
+            // Yang gugur justru yang memang basi — halaman yang sudah pindah
+            // module, atau yang entri menunya sudah dicabut.
+            $ok = $menu !== null && explode('.', $menu)[0] === $module;
+        } catch (\Throwable) {
+            $ok = false;   // URL tak lagi punya rute (mis. rute dihapus)
+        }
+
+        return $memo[$key] = $ok;
+    }
+}
+
 if (!function_exists('module_landing_url')) {
     /**
      * Landing URL saat user klik menu utama (mis. "Sales") di sidebar.
@@ -112,7 +158,11 @@ if (!function_exists('module_landing_url')) {
         // `.../freight-import-template`, `.../export`, `.../{id}/print`). Tanpa guard ini,
         // session lama yang sempat ter-poison sebuah URL download akan men-trigger download
         // ulang setiap kali menu utama diklik. Lihat juga middleware RememberSubmenuUrl.
-        if ($session && is_string($session) && !submenu_url_is_action($session)) return $session;
+        if ($session && is_string($session)
+            && !submenu_url_is_action($session)
+            && submenu_url_belongs_to($session, $module)) {
+            return $session;
+        }
 
         $children = config("menu_permissions.$module.children", []);
         foreach ($children as $key => $cfg) {

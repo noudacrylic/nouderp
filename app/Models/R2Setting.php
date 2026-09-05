@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\SafeEncryptedReads;
 
 /**
  * Pengaturan Cloudflare R2 — singleton (id=1). Penyimpanan media etalase
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class R2Setting extends Model
 {
+    use SafeEncryptedReads;
+
     protected $fillable = [
         'is_active', 'access_key_id', 'secret_access_key',
         'bucket', 'endpoint', 'public_url', 'region', 'use_path_style',
@@ -43,7 +46,7 @@ class R2Setting extends Model
     {
         return $this->is_active
             && !empty($this->access_key_id)
-            && !empty($this->secret_access_key)
+            && !empty($this->safeAttr('secret_access_key'))
             && !empty($this->bucket)
             && !empty($this->endpoint)
             && !empty($this->public_url);

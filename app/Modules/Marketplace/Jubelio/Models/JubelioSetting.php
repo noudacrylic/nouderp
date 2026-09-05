@@ -3,6 +3,7 @@
 namespace App\Modules\Marketplace\Jubelio\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\SafeEncryptedReads;
 
 /**
  * Setting singleton integrasi Jubelio (1 baris, id=1) — pola seperti MidtransSetting.
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class JubelioSetting extends Model
 {
+    use SafeEncryptedReads;
+
     public const DEFAULT_BASE_URL = 'https://api2.jubelio.com';
 
     protected $fillable = [
@@ -48,7 +51,7 @@ class JubelioSetting extends Model
 
     public function isConfigured(): bool
     {
-        return $this->is_active && !empty($this->username) && !empty($this->password);
+        return $this->is_active && !empty($this->username) && !empty($this->safeAttr('password'));
     }
 
     /** Token tersimpan masih berlaku? (beri buffer 5 menit sebelum expiry 12 jam). */

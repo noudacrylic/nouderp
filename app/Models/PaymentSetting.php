@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Core\Accounting\Account;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\SafeEncryptedReads;
 
 /**
  * Pengaturan pembayaran "Transfer Bank + Kode Unik" (singleton id=1).
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class PaymentSetting extends Model
 {
+    use SafeEncryptedReads;
+
     protected $fillable = [
         'is_active',
         'bank_name',
@@ -128,7 +131,7 @@ class PaymentSetting extends Model
     /** Ambil satu nilai dari config adapter (mis. imap_host, qris_api_key). */
     public function conf(string $key, $default = null)
     {
-        return data_get($this->config, $key, $default);
+        return data_get($this->safeAttr('config', []), $key, $default);
     }
 
     /** Tulis beberapa nilai config tanpa menghapus kunci lain (config = encrypted:array). */
