@@ -7,8 +7,10 @@ use App\Models\User;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
+use App\Modules\CRM\Models\CrmSnippet;
 use App\Modules\CRM\Services\CrmReplyService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -24,18 +26,48 @@ class CrmInboxController extends Controller
 {
     public function index(Request $request)
     {
+        return view('erp.crm.inbox.workspace', $this->ruangKerja($request));
+    }
+
+    /**
+     * Data satu layar kerja: daftar kiri + (opsional) thread tengah + rail kanan.
+     *
+     * Dipakai index() maupun show() supaya kolom kirinya IDENTIK — termasuk
+     * filter, pembatas per agen, dan penomoran halaman. Kalau daftarnya disusun
+     * dua kali dengan aturan yang sedikit beda, membuka satu thread akan
+     * mengubah isi daftar di sebelahnya tanpa sebab yang terlihat.
+     */
+    private function ruangKerja(Request $request, ?CrmConversation $terpilih = null): array
+    {
         $antrean = $request->string('antrean')->toString();
         $status  = $request->string('status')->toString() ?: CrmConversation::STATUS_AKTIF;
+
+        /*
+         * Daftar BAWAAN untuk agen non-super-admin hanya berisi chat miliknya —
+         * tapi ini penyaringan tampilan, BUKAN penguncian: begitu ia memilih
+         * pemilik lain atau mencari, seluruh percakapan tetap terbuka, dan
+         * thread mana pun tetap bisa dibuka lewat tautan langsung. Sengaja
+         * begitu: saat satu orang berhalangan, chat pelanggannya tidak boleh
+         * jadi tak terlihat siapa pun.
+         */
+        $pengguna      = $request->user();
+        $lihatSemua    = (bool) $pengguna?->isSuperAdmin();
+        $memilihSendiri = $request->filled('pemilik') || $request->filled('search');
+        $dibatasiKeSaya = ! $lihatSemua && ! $memilihSendiri && $pengguna;
 
         $percakapan = CrmConversation::query()
             ->with(['customer:id,name', 'owner:id,name'])
             ->where('status', $status)
             ->when($antrean, fn ($q) => $q->where('queue_state', $antrean))
-            ->when($request->filled('pemilik'), function ($q) use ($request) {
+            // 'semua' = permintaan sadar untuk melepas pembatas bawaan, jadi ia
+            // TIDAK menyaring apa pun. Tanpa cabang ini nilainya jatuh ke
+            // where('owner_user_id', 'semua') dan daftarnya kosong melompong.
+            ->when($request->filled('pemilik') && $request->pemilik !== 'semua', function ($q) use ($request) {
                 $request->pemilik === 'belum'
                     ? $q->whereNull('owner_user_id')
                     : $q->where('owner_user_id', $request->pemilik);
             })
+            ->when($dibatasiKeSaya, fn ($q) => $q->where('owner_user_id', $pengguna->id))
             ->when($request->filled('search'), function ($q) use ($request) {
                 $cari = trim((string) $request->search);
                 $q->where(fn ($w) => $w
@@ -49,23 +81,44 @@ class CrmInboxController extends Controller
             ->paginate(per_page_size())
             ->withQueryString();
 
-        return view('erp.crm.inbox.index', [
+        return [
             'percakapan' => $percakapan,
             'jumlah'     => $this->jumlahPerAntrean(),
             'pemilikOpsi' => User::assignable()->orderBy('name')->get(['id', 'name']),
             'dryRun'     => app(ChatManager::class)->isDryRun(),
-        ]);
+            'dibatasiKeSaya' => $dibatasiKeSaya,
+            /*
+             * Jumlah yang BELUM dipegang siapa pun ditampilkan ke semua orang.
+             * Tanpa angka ini, chat pelanggan baru (yang memang lahir tanpa
+             * pemilik) tidak muncul di daftar bawaan agen dan bisa menganggur
+             * berjam-jam tanpa ada yang tahu ia ada.
+             */
+            'belumDioper' => CrmConversation::query()
+                ->where('status', CrmConversation::STATUS_AKTIF)
+                ->whereNull('owner_user_id')
+                ->count(),
+            'terpilih' => $terpilih,
+            'pesan'    => $terpilih
+                ? $terpilih->messages()->with('attachments')->orderBy('sent_at')->orderBy('id')->get()
+                : collect(),
+            'snippets' => $this->snippets(),
+            'isian'    => CrmSnippet::ISIAN,
+        ];
     }
 
-    public function show(CrmConversation $conversation)
+    /** Potongan balasan untuk rail kanan; yang paling sering dipakai di atas. */
+    private function snippets()
+    {
+        return CrmSnippet::aktif()
+            ->orderBy('sort_order')
+            ->orderByDesc('used_count')
+            ->orderBy('title')
+            ->get();
+    }
+
+    public function show(Request $request, CrmConversation $conversation)
     {
         $conversation->load(['customer', 'owner']);
-
-        $pesan = $conversation->messages()
-            ->with('attachments')
-            ->orderBy('sent_at')
-            ->orderBy('id')
-            ->get();
 
         /*
          * Membuka thread menandai TERBACA, tapi TIDAK memindahkan antrean.
@@ -76,26 +129,166 @@ class CrmInboxController extends Controller
             $conversation->forceFill(['unread_count' => 0])->save();
         }
 
-        return view('erp.crm.inbox.show', [
-            'percakapan'  => $conversation,
-            'pesan'       => $pesan,
-            'pemilikOpsi' => User::assignable()->orderBy('name')->get(['id', 'name']),
-            'dryRun'      => app(ChatManager::class)->isDryRun(),
-        ]);
+        return view('erp.crm.inbox.workspace', $this->ruangKerja($request, $conversation));
     }
 
     public function balas(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
     {
-        $data = $request->validate([
-            'teks'     => 'required|string|max:4000',
-            'reply_to' => 'nullable|string|max:120',
-        ]);
+        /*
+         * Kotak ketik mengirim lewat FormData, dan input berkas yang KOSONG
+         * tetap ikut terkirim sebagai entri hampa. Kalau dibiarkan, aturan
+         * 'file|image' menolaknya dan balasan teks biasa gagal dengan pesan
+         * "data tidak valid" yang tidak menjelaskan apa-apa.
+         */
+        if ($request->hasFile('gambar')) {
+            $berkas = array_values(array_filter(
+                (array) $request->file('gambar'),
+                fn ($f) => $f !== null && $f->getSize() > 0
+            ));
 
-        $hasil = $balasan->balas($conversation, $data['teks'], $request->user()?->id, $data['reply_to'] ?? null);
+            $berkas ? $request->files->set('gambar', $berkas) : $request->files->remove('gambar');
+        }
+
+        $aturan = [
+            // Teks boleh kosong ASAL ada gambar — admin sering menempel tangkapan
+            // layar tanpa satu kata pun ("ini maksud saya"), dan menuntut teks
+            // di situ cuma memaksa mengetik titik.
+            'teks'     => 'required_without:gambar|nullable|string|max:4000',
+            'reply_to' => 'nullable|string|max:120',
+            'gambar'   => 'nullable|array|max:5',
+            // 5 MB = batas gambar WhatsApp. Ditolak DI SINI dengan pesan yang
+            // terbaca, bukan setelah diunggah lalu ditolak Meta tanpa keterangan.
+            'gambar.*' => 'file|image|max:5120',
+        ];
+
+        $pesanGalat = [
+            'gambar.*.max'   => 'Gambar maksimal 5 MB (batas WhatsApp).',
+            'gambar.*.image' => 'Hanya gambar yang bisa ditempel ke chat.',
+            'gambar.*.file'  => 'Berkas gagal terunggah — coba lampirkan ulang.',
+        ];
+
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), $aturan, $pesanGalat);
+
+        if ($validator->fails()) {
+            /*
+             * Kegagalan unggah nyaris mustahil didiagnosis dari layar: pesannya
+             * generik dan berkasnya sudah lenyap. Jadi keadaan berkasnya dicatat
+             * apa adanya — nama, ukuran, mime, dan KODE GALAT PHP, yang biasanya
+             * justru itu penyebabnya (melebihi batas ini, folder temp tak bisa
+             * ditulis, unggahan terpotong).
+             */
+            Log::warning('[CRM] balasan ditolak validasi', [
+                'errors' => $validator->errors()->toArray(),
+                'berkas' => collect((array) $request->file('gambar'))->map(fn ($f) => $f ? [
+                    'nama'  => $f->getClientOriginalName(),
+                    'mime'  => $f->getClientMimeType(),
+                    'ukuran' => $f->getSize(),
+                    'valid' => $f->isValid(),
+                    'kode'  => $f->getError(),
+                    'pesan' => $f->getErrorMessage(),
+                ] : null)->all(),
+            ]);
+
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error'   => implode(' ', $validator->errors()->all()),
+                    'errors'  => $validator->errors()->toArray(),
+                ], 422);
+            }
+
+            return back()->withInput()->withErrors($validator);
+        }
+
+        $data = $validator->validated();
+
+        $hasil = $balasan->balas(
+            $conversation,
+            (string) ($data['teks'] ?? ''),
+            $request->user()?->id,
+            $data['reply_to'] ?? null,
+            $request->file('gambar', [])
+        );
+
+        /*
+         * Permintaan dari kotak ketik dikirim lewat fetch, jadi jawabannya JSON
+         * berisi gelembung siap tempel. Tanpa ini seluruh halaman dimuat ulang
+         * tiap kali mengirim — posisi gulir hilang, thread berkedip, dan
+         * mengetik cepat jadi menyiksa.
+         */
+        if ($request->wantsJson()) {
+            if (! $hasil['success']) {
+                return response()->json(['success' => false, 'error' => $hasil['error']], 422);
+            }
+
+            $baru = $conversation->messages()
+                ->with('attachments')
+                ->where('id', '>', (int) $request->input('after', 0))
+                ->orderBy('sent_at')->orderBy('id')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'html'    => view('erp.crm.inbox._bubbles', ['pesan' => $baru])->render(),
+                'last_id' => (int) ($baru->max('id') ?: $request->input('after', 0)),
+            ]);
+        }
 
         return $hasil['success']
             ? back()->with('success', 'Balasan terkirim.')
             : back()->withInput()->with('error', $hasil['error']);
+    }
+
+    /** Simpan potongan balasan baru dari rail kanan. */
+    public function simpanSnippet(Request $request)
+    {
+        $data = $request->validate([
+            'title'    => 'required|string|max:120',
+            'body'     => 'required|string|max:2000',
+            'category' => 'nullable|string|max:60',
+        ]);
+
+        CrmSnippet::create($data + ['created_by' => $request->user()?->id]);
+
+        return back()->with('success', 'Potongan balasan disimpan.');
+    }
+
+    /** Hapus potongan balasan. */
+    public function hapusSnippet(CrmSnippet $snippet)
+    {
+        $snippet->delete();
+
+        return back()->with('success', 'Potongan balasan dihapus.');
+    }
+
+    /**
+     * Pesan yang lahir SESUDAH id tertentu — dipanggil berkala oleh thread.
+     *
+     * Dibuat sesederhana mungkin (kirim id terakhir, terima gelembung siap
+     * tempel) karena inilah satu-satunya bagian yang jalan terus-menerus:
+     * apa pun yang mahal di sini akan dikerjakan ratusan kali sejam.
+     */
+    public function pesanBaru(Request $request, CrmConversation $conversation)
+    {
+        $setelah = (int) $request->input('after', 0);
+
+        $baru = $conversation->messages()
+            ->with('attachments')
+            ->where('id', '>', $setelah)
+            ->orderBy('sent_at')->orderBy('id')
+            ->get();
+
+        // Pesan yang sudah tampil di layar admin sama saja dengan sudah dibaca;
+        // membiarkan penghitung menumpuk membuat lencana "baru" berbohong.
+        if ($baru->isNotEmpty() && $conversation->unread_count > 0) {
+            $conversation->forceFill(['unread_count' => 0])->save();
+        }
+
+        return response()->json([
+            'html'    => $baru->isEmpty() ? '' : view('erp.crm.inbox._bubbles', ['pesan' => $baru])->render(),
+            'last_id' => (int) ($baru->max('id') ?: $setelah),
+            'window_open' => $conversation->windowIsOpen(),
+        ]);
     }
 
     /** Oper percakapan ke admin lain — pengganti rotator otomatis yang ditunda. */

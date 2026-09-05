@@ -139,6 +139,7 @@ return [
         'children' => [
             'crm.inbox'      => ['label' => 'Inbox',              'url' => '/erp/crm',           'route_patterns' => ['crm.inbox.*']],
             'crm.notifikasi' => ['label' => 'Notifikasi Pesanan', 'url' => '/erp/crm/notifikasi','route_patterns' => ['crm.notifikasi.*']],
+            'crm.template'   => ['label' => 'Template Pesan',     'url' => '/erp/crm/template', 'route_patterns' => ['crm.template.*']],
         ],
     ],
 

@@ -79,6 +79,15 @@ Route::post('/crm/webhook', [\App\Modules\CRM\Controllers\CrmWebhookController::
     ->middleware('crm.signature')
     ->name('crm.webhook');
 
+// Varian bertoken: dipakai selama signing secret vendor belum bisa didapat
+// (api.co.id menandatangani, tapi tidak memperlihatkan kuncinya). Token acak
+// 40 karakter di URL HTTPS — pola yang sama dengan webhook Telegram & QRISLY.
+// Begitu Rahasia Webhook (HMAC) diisi, HMAC yang jadi penjaga dan token
+// diabaikan; lihat VerifyCrmWebhookSignature.
+Route::post('/crm/webhook/{token}', [\App\Modules\CRM\Controllers\CrmWebhookController::class, 'handle'])
+    ->middleware('crm.signature')
+    ->name('crm.webhook.token');
+
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
 
@@ -90,11 +99,25 @@ Route::prefix('erp')->group(function () {
         Route::post('/notifikasi/kirim', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'kirimSekarang'])->name('notifikasi.kirim');
         Route::post('/notifikasi/{outbox}/ulangi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'ulangi'])->name('notifikasi.ulangi');
 
+        // Template & memulai percakapan baru. WAJIB didaftarkan SEBELUM rute
+        // '/{conversation}' di bawah, kalau tidak 'template' & 'baru' ditangkap
+        // sebagai id percakapan dan halamannya 404.
+        Route::get ('/template',      [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'index'])->name('template.index');
+        Route::get ('/template/baru', [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'formBaru'])->name('template.baru');
+        Route::post('/template/mulai',[\App\Modules\CRM\Controllers\CrmTemplateController::class, 'mulai'])->name('template.mulai');
+
+        // Potongan balasan ("template teks") — milik kita, gratis, hanya sah di
+        // dalam jendela 24 jam. Beda dari template Meta di /crm/template.
+        Route::post  ('/snippet',            [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanSnippet'])->name('snippet.store');
+        Route::delete('/snippet/{snippet}',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusSnippet'])->name('snippet.destroy');
+
         // Lampiran disajikan controller (disk privat), bukan lewat /storage.
         Route::get('/lampiran/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lampiran'])->name('inbox.lampiran');
 
         Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'show'])->name('inbox.show');
         Route::post('/{conversation}/balas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'balas'])->name('inbox.balas');
+        // Dipanggil berkala oleh thread supaya pesan masuk muncul tanpa muat ulang.
+        Route::get('/{conversation}/pesan-baru', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pesanBaru'])->name('inbox.pesan-baru');
         Route::post('/{conversation}/oper', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'oper'])->name('inbox.oper');
         Route::post('/{conversation}/antrean', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'antrean'])->name('inbox.antrean');
         Route::post('/{conversation}/arsip', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'arsip'])->name('inbox.arsip');
@@ -143,6 +166,14 @@ Route::prefix('erp')->group(function () {
         Route::post('/telegram/delete-webhook',[\App\Http\Controllers\Settings\TelegramSettingController::class, 'deleteWebhook'])->name('settings.telegram.delete-webhook');
         Route::post('/telegram/link',         [\App\Http\Controllers\Settings\TelegramSettingController::class, 'link'])->name('settings.telegram.link');
         Route::post('/telegram/unlink',       [\App\Http\Controllers\Settings\TelegramSettingController::class, 'unlink'])->name('settings.telegram.unlink');
+
+        // Integrasi — CRM WhatsApp (api.co.id Chat Gateway): kredensial, saklar
+        // jangan-kirim, daftar putih penerima & pemantau endpoint webhook.
+        Route::get ('/crm',                  [\App\Http\Controllers\Settings\CrmSettingController::class, 'edit'])->name('settings.crm.edit');
+        Route::post('/crm',                  [\App\Http\Controllers\Settings\CrmSettingController::class, 'update'])->name('settings.crm.update');
+        Route::post('/crm/uji',              [\App\Http\Controllers\Settings\CrmSettingController::class, 'uji'])->name('settings.crm.uji');
+        Route::post('/crm/aktifkan-webhook', [\App\Http\Controllers\Settings\CrmSettingController::class, 'aktifkanWebhook'])->name('settings.crm.aktifkan-webhook');
+        Route::post('/crm/token-baru',       [\App\Http\Controllers\Settings\CrmSettingController::class, 'regenerateToken'])->name('settings.crm.token-baru');
 
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');
