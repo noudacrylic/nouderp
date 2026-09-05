@@ -110,6 +110,9 @@ Route::prefix('erp')->group(function () {
         // dalam jendela 24 jam. Beda dari template Meta di /crm/template.
         // Rail Produk: mencari produk etalase untuk dikirim tautannya ke chat.
         Route::get   ('/produk',             [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariProduk'])->name('produk.cari');
+        // Pemicu manual pengunduh lampiran; penjadwal bisa mati (di lokal tak
+        // pernah hidup), dan lampiran tak boleh menggantung tanpa jalan keluar.
+        Route::post  ('/lampiran/unduh',     [\App\Modules\CRM\Controllers\CrmInboxController::class, 'unduhLampiran'])->name('lampiran.unduh');
         Route::post  ('/snippet',            [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanSnippet'])->name('snippet.store');
         Route::delete('/snippet/{snippet}',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusSnippet'])->name('snippet.destroy');
 

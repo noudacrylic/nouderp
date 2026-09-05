@@ -29,6 +29,16 @@
                 </form>
             </div>
 
+            @php $lampiranTertunda = \App\Modules\CRM\Models\CrmAttachment::belumTerunduh()->count(); @endphp
+            @if($lampiranTertunda > 0)
+                <form method="POST" action="{{ route('crm.lampiran.unduh') }}">
+                    @csrf
+                    <button class="w-full border border-amber-500 text-amber-700 hover:bg-amber-50 px-3 py-1.5 rounded text-sm">
+                        Unduh {{ $lampiranTertunda }} lampiran tertunda
+                    </button>
+                </form>
+            @endif
+
             <form method="POST" action="{{ route('crm.inbox.arsip', $terpilih->id) }}">
                 @csrf
                 <button class="w-full border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded text-sm">

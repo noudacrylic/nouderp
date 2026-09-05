@@ -274,6 +274,32 @@ class CrmInboxController extends Controller
         ]);
     }
 
+    /**
+     * Unduh lampiran yang masih tertunda, sekarang juga.
+     *
+     * Pengunduhnya memang berjalan lewat penjadwal (sengaja: mengunduh di dalam
+     * permintaan webhook membuat vendor menunggu, mengulang, lalu mematikan
+     * endpoint). Tapi penjadwal bisa mati — di lokal ia bahkan tak pernah hidup —
+     * dan tanpa tombol ini gejalanya adalah lampiran yang menggantung selamanya
+     * dengan tulisan "menunggu diunduh" tanpa ada yang bisa dilakukan admin.
+     */
+    public function unduhLampiran(\App\Modules\CRM\Services\CrmMediaStore $media)
+    {
+        $tertunda = CrmAttachment::belumTerunduh()->limit(50)->get();
+
+        if ($tertunda->isEmpty()) {
+            return back()->with('success', 'Tidak ada lampiran yang menunggu diunduh.');
+        }
+
+        $berhasil = $tertunda->filter(fn (CrmAttachment $l) => $media->unduh($l))->count();
+        $gagal    = $tertunda->count() - $berhasil;
+
+        return back()->with(
+            $gagal ? 'error' : 'success',
+            "{$berhasil} lampiran tersimpan" . ($gagal ? ", {$gagal} gagal — alasannya tertulis di tiap lampiran." : '.')
+        );
+    }
+
     /** Simpan potongan balasan baru dari rail kanan. */
     public function simpanSnippet(Request $request)
     {
