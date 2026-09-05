@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
+use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSnippet;
 use App\Modules\CRM\Services\CrmReplyService;
 use Illuminate\Http\Request;
@@ -299,6 +300,37 @@ class CrmInboxController extends Controller
                 'url'     => $basis . '/produk/' . $p->slug,
             ])->all(),
         ]);
+    }
+
+    /**
+     * Sajikan satu lampiran KELUAR lewat tautan bertanda tangan — TANPA login.
+     *
+     * Ada karena Meta harus mengambil sendiri berkas yang kita kirim; vendor
+     * hanya menerima `media_url`, bukan berkas yang diunggah. Tiga pagarnya:
+     *
+     *  1. Tanda tangan (middleware `signed`) — alamatnya tak bisa ditebak
+     *     maupun diubah, dan mati sendiri setelah beberapa menit.
+     *  2. HANYA arah KELUAR. Berkas kiriman PELANGGAN tak pernah bisa diambil
+     *     lewat rute ini, bahkan dengan tanda tangan yang sah — itu batas yang
+     *     memisahkan "berkas yang memang sedang kami kirim" dari "seluruh isi
+     *     lampiran pelanggan".
+     *  3. Berkas yang sudah disapu masa simpan menjawab 410, bukan 404 kosong.
+     */
+    public function mediaPublik(CrmAttachment $attachment)
+    {
+        abort_unless($attachment->message?->direction === CrmMessage::KELUAR, 404);
+
+        if ($attachment->sudahDisapu()) {
+            abort(410, 'Lampiran sudah dihapus otomatis (lewat masa simpan).');
+        }
+
+        abort_unless($attachment->tersimpanAman(), 404);
+
+        return Storage::disk($attachment->disk)->response(
+            $attachment->path,
+            $attachment->original_name,
+            ['Content-Type' => $attachment->mime ?: 'application/octet-stream']
+        );
     }
 
     /**

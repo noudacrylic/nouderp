@@ -65,6 +65,14 @@ return [
      | berkas milik pelanggan. Disk 'public' bisa dibaca siapa pun yang menebak
      | URL-nya, tanpa login.
      */
+    /*
+     | Umur tautan sementara lampiran KELUAR (menit). Meta harus sempat
+     | mengambil berkasnya, tapi tautannya tak boleh hidup lebih lama dari
+     | perlunya. Beberapa menit sudah cukup; 30 memberi ruang saat jaringan
+     | lambat atau vendor mengantre.
+     */
+    'media_link_minutes' => (int) env('CRM_MEDIA_LINK_MINUTES', 30),
+
     'media_disk' => env('CRM_MEDIA_DISK', 'local'),
     'media_path' => env('CRM_MEDIA_PATH', 'crm/lampiran'),
 

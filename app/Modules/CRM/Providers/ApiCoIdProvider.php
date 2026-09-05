@@ -129,6 +129,9 @@ class ApiCoIdProvider implements ChatProvider
             'media_url'    => $urlPenuh ? $media : null,
             'media_id'     => $urlPenuh ? null : $media,
             'caption'      => $payload['caption'] ?? null,
+            // Dokumen tanpa nama sampai ke pelanggan sebagai berkas tak bernama;
+            // untuk gambar/video kolomnya diabaikan vendor, jadi aman selalu diisi.
+            'filename'     => $payload['nama_berkas'] ?? null,
         ], fn ($v) => $v !== null);
 
         return $this->send($body, $payload);

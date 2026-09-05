@@ -328,13 +328,19 @@ class InboxTriaseTest extends TestCase
         $lampiran = $pesan->attachments()->firstOrFail();
 
         $this->assertTrue($lampiran->tersimpanAman());
-        $this->assertSame('fake-media-1', $lampiran->provider_media_id);
         Storage::disk('local')->assertExists($lampiran->path);
 
-        $fake = app(ChatManager::class)->fake();
+        $kirim = app(ChatManager::class)->fake()->sentOfKind('media');
 
-        $this->assertCount(1, $fake->uploaded);
-        $this->assertCount(1, $fake->sentOfKind('media'));
+        $this->assertCount(1, $kirim);
+
+        /*
+         * Yang dikirim ke vendor adalah TAUTAN bertanda tangan, bukan berkasnya
+         * maupun media_id: api.co.id hanya menerima `media_url`, dan Meta yang
+         * mengambil sendiri berkasnya dari alamat itu.
+         */
+        $this->assertStringContainsString('/crm/media/' . $lampiran->id, $kirim[0]['media']);
+        $this->assertStringContainsString('signature=', $kirim[0]['media']);
     }
 
     /**
@@ -614,5 +620,54 @@ class InboxTriaseTest extends TestCase
             ->getJson(route('crm.inbox.pesan-baru', [$percakapan, 'after' => $terakhir]))
             ->assertOk()
             ->assertJsonPath('html', '');
+    }
+
+    /**
+     * Rute publik lampiran HANYA melayani arah KELUAR.
+     *
+     * Ini batas yang memisahkan "berkas yang memang sedang kami kirim" dari
+     * "seluruh isi lampiran pelanggan". Tanda tangan yang sah sekalipun tidak
+     * boleh membuka kiriman pelanggan ke internet.
+     */
+    public function test_tautan_publik_menolak_lampiran_masuk(): void
+    {
+        $percakapan = $this->percakapan();
+
+        $pesanMasuk = CrmMessage::create([
+            'conversation_id' => $percakapan->id,
+            'direction'       => CrmMessage::MASUK,
+            'message_type'    => 'image',
+            'sent_at'         => now(),
+        ]);
+
+        $lampiran = \App\Modules\CRM\Models\CrmAttachment::create([
+            'message_id'    => $pesanMasuk->id,
+            'disk'          => 'local',
+            'path'          => 'crm/lampiran/uji.png',
+            'original_name' => 'uji.png',
+            'mime'          => 'image/png',
+            'downloaded_at' => now(),
+        ]);
+
+        Storage::disk('local')->put('crm/lampiran/uji.png', 'isi');
+
+        $this->get(\Illuminate\Support\Facades\URL::temporarySignedRoute(
+            'crm.media', now()->addMinutes(10), ['attachment' => $lampiran->id]
+        ))->assertNotFound();
+    }
+
+    public function test_tautan_publik_tanpa_tanda_tangan_ditolak(): void
+    {
+        $percakapan = $this->percakapan(['window_expires_at' => now()->addHours(5)]);
+
+        $this->actingAs($this->admin())
+            ->post(route('crm.inbox.balas', $percakapan), [
+                'gambar' => [UploadedFile::fake()->image('desain.png')],
+            ])->assertRedirect();
+
+        $lampiran = \App\Modules\CRM\Models\CrmAttachment::firstOrFail();
+
+        // Tanpa tanda tangan: 403, bukan berkasnya.
+        $this->get(url('/crm/media/' . $lampiran->id))->assertForbidden();
     }
 }

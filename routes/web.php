@@ -88,6 +88,14 @@ Route::post('/crm/webhook/{token}', [\App\Modules\CRM\Controllers\CrmWebhookCont
     ->middleware('crm.signature')
     ->name('crm.webhook.token');
 
+// -- Lampiran KELUAR untuk diambil Meta (tanpa login, wajib bertanda tangan) --
+// Vendor hanya menerima `media_url`; berkas yang kita kirim harus bisa diambil
+// sendiri oleh Meta. Penjaganya tanda tangan berumur pendek + rute ini menolak
+// lampiran arah MASUK, jadi kiriman pelanggan tetap tertutup.
+Route::get('/crm/media/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'mediaPublik'])
+    ->middleware('signed')
+    ->name('crm.media');
+
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
 

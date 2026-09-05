@@ -3,9 +3,12 @@
 namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\ChatManager;
+use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
+use App\Modules\CRM\Support\MediaKind;
 use App\Modules\CRM\Support\PhoneNumber;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Http\UploadedFile;
 
 /**
@@ -192,45 +195,72 @@ class CrmReplyService
 
         foreach ($berkas as $i => $file) {
             $caption = $i === 0 ? ($teks ?: null) : null;
+            $jenis   = MediaKind::for($file->getClientMimeType());
 
-            $unggah = $provider->uploadMedia(
-                (string) $file->getRealPath(),
-                (string) $file->getClientMimeType(),
-                (string) $file->getClientOriginalName()
-            );
-
-            if (! ($unggah['success'] ?? false)) {
-                return $this->gagal(
-                    'Gagal mengunggah ' . $file->getClientOriginalName() . ': ' . ($unggah['error'] ?? 'tanpa keterangan')
-                    . ($terakhir ? ' (gambar sebelumnya sudah terkirim)' : '')
-                );
-            }
-
-            // Jenis pesan ditentukan dari mime: PDF/DXF dikirim sebagai 'document',
-            // bukan 'image'. Mengirim dokumen sebagai gambar ditolak Meta.
-            $jenis = \App\Modules\CRM\Support\MediaKind::for($file->getClientMimeType());
+            /*
+             * Baris pesan & lampirannya dibuat LEBIH DULU, sebelum dikirim.
+             * Terbalik dari jalur teks, dan memang harus: vendor menuntut
+             * `media_url` berupa URL yang bisa diambil Meta, dan URL itu baru
+             * bisa dirangkai setelah lampirannya punya id dan berkasnya duduk
+             * di disk. Kalau pengiriman gagal, keduanya dihapus lagi — thread
+             * tak boleh menyimpan pesan yang tak pernah sampai.
+             */
+            $pesan    = $this->catat($percakapan, $jenis['type'], $caption, [], $userId, $i === 0 ? $replyTo : null);
+            $lampiran = $this->media->simpanUnggahan($pesan, $file);
 
             $hasil = $provider->sendMedia([
                 'to'              => $percakapan->contact_key,
                 'type'            => $jenis['type'],
-                'media'           => $unggah['media_id'],
+                'media'           => $this->tautanSementara($lampiran),
                 'caption'         => $caption,
+                'nama_berkas'     => $file->getClientOriginalName(),
                 'channel'         => $percakapan->channel,
                 'phone_number_id' => $percakapan->business_number_id,
             ]);
 
             if (! ($hasil['success'] ?? false)) {
-                return $this->gagal((string) ($hasil['error'] ?? 'Gagal mengirim gambar tanpa keterangan.'));
+                $lampiran->delete();
+                $pesan->delete();
+
+                return $this->gagal(
+                    'Gagal mengirim ' . $file->getClientOriginalName() . ': ' . ($hasil['error'] ?? 'tanpa keterangan')
+                    . ($terakhir ? ' (lampiran sebelumnya sudah terkirim)' : '')
+                );
             }
 
-            $terakhir = $this->catat($percakapan, $jenis['type'], $caption, $hasil, $userId, $i === 0 ? $replyTo : null);
+            $pesan->forceFill([
+                'provider_message_id' => $hasil['message_id'] ?? null,
+                'raw'                 => $hasil['raw'] ?? [],
+            ])->save();
 
-            $this->media->simpanUnggahan($terakhir, $file, $unggah['media_id']);
+            $terakhir = $pesan;
         }
 
         $this->geserBola($percakapan);
 
         return ['success' => true, 'message' => $terakhir, 'error' => null];
+    }
+
+    /**
+     * URL sementara bertanda tangan untuk satu lampiran keluar.
+     *
+     * Meta harus bisa MENGAMBIL berkasnya sendiri, jadi tak ada jalan lain
+     * selain memberi alamat yang terbuka. Yang menjaganya: tanda tangan (tak
+     * bisa ditebak maupun diubah), umur pendek, dan rute yang hanya mau
+     * menyajikan lampiran pesan KELUAR — berkas kiriman pelanggan tetap
+     * tertutup rapat.
+     *
+     * ⚠️ Dirangkai dari host permintaan yang sedang berjalan, bukan APP_URL:
+     * di lokal APP_URL menunjuk 127.0.0.1 yang tak bisa dijangkau Meta,
+     * sedangkan host permintaan adalah alamat ngrok yang benar.
+     */
+    private function tautanSementara(CrmAttachment $lampiran): string
+    {
+        return URL::temporarySignedRoute(
+            'crm.media',
+            now()->addMinutes((int) config('crm.media_link_minutes', 30)),
+            ['attachment' => $lampiran->id]
+        );
     }
 
     /* ---------------------------------------------------------------- bantuan */
