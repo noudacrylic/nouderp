@@ -22,8 +22,42 @@
 <template id="crm-centang-cetak">@include('erp.crm.inbox._centang', ['status' => 'menunggu'])</template>
 
 {{-- ------------------------------------------------------------ percakapan --}}
-<div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden"
-     x-data="threadCrm({{ $terpilih->id }}, {{ (int) ($pesan->max('id') ?? 0) }})">
+{{-- Seluruh kolom percakapan jadi zona jatuh, bukan cuma kotak ketiknya.
+     Kotak ketik itu strip setinggi 40px di dasar layar: menuntut berkas
+     dilepas TEPAT di situ membuat fiturnya terasa tidak ada, dan orang kembali
+     mengirim lampiran dari HP. Yang dilihat orang saat menyeret berkas adalah
+     percakapannya, jadi ke situlah berkasnya diarahkan.
+
+     Zonanya hanya dipasang saat jendela 24 jam terbuka — kalau tidak, berkas
+     yang dilepas hilang tanpa jejak karena kotak ketiknya memang tidak ada. --}}
+<div class="relative flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden"
+     x-data="threadCrm({{ $terpilih->id }}, {{ (int) ($pesan->max('id') ?? 0) }})"
+     @if($terbuka)
+     @dragenter.prevent="mulaiSeret($event)"
+     @dragover.prevent
+     @dragleave.prevent="akhiriSeret()"
+     @drop.prevent="jatuhBerkas($event)"
+     @endif>
+
+    @if($terbuka)
+        {{-- pointer-events-none: tirainya cuma penanda, peristiwa jatuhnya tetap
+             harus sampai ke wadah di bawahnya. --}}
+        <div x-show="seret" x-cloak
+             class="absolute inset-0 z-30 flex items-center justify-center rounded-lg
+                    border-2 border-dashed border-emerald-400 bg-emerald-50/95 pointer-events-none">
+            <div class="text-center px-6">
+                <svg class="w-10 h-10 mx-auto text-emerald-500" fill="none" stroke="currentColor"
+                     stroke-width="1.6" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M12 16V4m0 0L8 8m4-4 4 4M4 16v2.5A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5V16"/>
+                </svg>
+                <p class="mt-2 font-semibold text-emerald-800">Lepas untuk melampirkan</p>
+                <p class="mt-0.5 text-xs text-emerald-700">
+                    Gambar, PDF, DXF, video, dokumen &middot; maksimal 5 berkas sekali kirim
+                </p>
+            </div>
+        </div>
+    @endif
 
     {{-- Kepala percakapan: siapa yang sedang dibalas, selalu terlihat walau
          thread digulir jauh ke atas. Tanpa ini admin yang membuka beberapa
@@ -86,9 +120,10 @@
                       x-data="komposerCrm()"
                       @sisip-snippet.window="sisip($event.detail.teks)"
                       @balasan-terkirim="bersihkan()"
-                      @dragover.prevent="seret = true"
-                      @dragleave.prevent="seret = false"
-                      @drop.prevent="jatuhkan($event)">
+                      {{-- Berkas datang dari zona jatuh sekolom penuh di atas,
+                           bukan dari form ini. Dilempar lewat peristiwa supaya
+                           zona itu tak perlu tahu isi dalaman komposer. --}}
+                      @berkas-jatuh.window="tambah($event.detail.berkas)">
                     @csrf
 
                     <input type="file" name="gambar[]" multiple class="hidden"
@@ -149,7 +184,6 @@
                         <textarea name="teks" rows="1" maxlength="4000"
                                   x-ref="teks"
                                   class="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm resize-none overflow-y-auto leading-6 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-                                  :class="seret ? 'border-emerald-400 bg-emerald-50' : ''"
                                   @paste="tempel($event)"
                                   @keydown="enterKirim($event)"
                                   @input="tumbuh()"
@@ -165,14 +199,11 @@
                             </svg>
                         </button>
 
-                        <div x-show="seret" x-cloak
-                             class="absolute inset-0 flex items-center justify-center rounded-2xl border-2 border-dashed border-emerald-400 bg-emerald-50/90 text-sm text-emerald-700 pointer-events-none">
-                            Lepas untuk melampirkan
-                        </div>
                     </div>
 
                     <div class="mt-1.5 text-[11px] text-gray-400">
-                        Enter kirim &middot; Shift+Enter baris baru &middot; Ctrl+V tempel gambar &middot; seret berkas ke sini
+                        Enter kirim &middot; Shift+Enter baris baru &middot; Ctrl+V tempel gambar
+                        &middot; seret berkas ke mana saja di percakapan ini
                     </div>
 
                     {{-- Pemilih produk: cari nama atau SKU, lalu langsung kirim.
@@ -246,6 +277,18 @@
                              */
                             antre: [],
 
+                            /*
+                             * Zona jatuh sekolom penuh.
+                             *
+                             * Yang dihitung KEDALAMANNYA, bukan peristiwanya:
+                             * dragenter/dragleave menyala tiap kali kursor
+                             * melewati batas elemen anak, dan di layar yang penuh
+                             * gelembung itu terjadi puluhan kali sedetik — tirainya
+                             * berkedip hebat kalau dipasang langsung ke peristiwa.
+                             */
+                            seret: false,
+                            dalamSeret: 0,
+
                             init() {
                                 this.keBawah(true);
                                 // Jeda 8 detik: cukup terasa "langsung" untuk chat
@@ -259,6 +302,44 @@
                             },
 
                             destroy() { clearInterval(this.jam); },
+
+                            mulaiSeret(e) {
+                                // Menyeret teks, tautan, atau gambar dari tab lain
+                                // juga memicu dragenter. Yang ditunggu cuma BERKAS;
+                                // tanpa saringan ini tirainya muncul saat admin
+                                // sekadar menyorot kalimat lalu menariknya.
+                                if (! [...(e.dataTransfer?.types ?? [])].includes('Files')) return;
+
+                                this.dalamSeret++;
+                                this.seret = true;
+                            },
+
+                            akhiriSeret() {
+                                if (! this.seret) return;
+
+                                if (--this.dalamSeret <= 0) {
+                                    this.dalamSeret = 0;
+                                    this.seret = false;
+                                }
+                            },
+
+                            /*
+                             * Berkasnya dilempar sebagai peristiwa, bukan disodorkan
+                             * langsung ke komposer: zona jatuh ini tidak perlu tahu
+                             * apa pun soal isi dalaman kotak ketik — termasuk batas
+                             * jumlah, batas ukuran, dan pratinjaunya, yang semuanya
+                             * sudah dijaga di sana lewat jalur tempel & dialog.
+                             */
+                            jatuhBerkas(e) {
+                                this.dalamSeret = 0;
+                                this.seret = false;
+
+                                const berkas = [...(e.dataTransfer?.files ?? [])];
+
+                                if (berkas.length) {
+                                    this.$dispatch('berkas-jatuh', { berkas });
+                                }
+                            },
 
                             async tarik() {
                                 if (document.hidden || this.sibuk) return;
@@ -594,7 +675,6 @@
                     function komposerCrm() {
                         return {
                             daftar: [],
-                            seret: false,
                             nomor: 0,
                             menu: false,
 
@@ -676,12 +756,6 @@
                             tempel(e) {
                                 const berkas = [...(e.clipboardData?.files || [])];
                                 if (berkas.length) { e.preventDefault(); this.tambah(berkas); }
-                            },
-
-
-                            jatuhkan(e) {
-                                this.seret = false;
-                                this.tambah([...(e.dataTransfer?.files || [])]);
                             },
 
                             dariDialog() {

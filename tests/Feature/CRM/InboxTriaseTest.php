@@ -667,6 +667,44 @@ class InboxTriaseTest extends TestCase
         $this->assertArrayNotHasKey($masuk->id, $centang);
     }
 
+    /* --------------------------------------------------- zona jatuh lampiran */
+
+    /**
+     * Berkas boleh dilepas di MANA SAJA di kolom percakapan.
+     *
+     * Sebelumnya zonanya cuma form kotak ketik — strip setinggi 40px di dasar
+     * layar. Yang dilihat orang saat menyeret berkas adalah percakapannya, jadi
+     * melepas di situ tidak terjadi apa-apa dan fiturnya dianggap tidak ada.
+     */
+    public function test_zona_jatuh_berkas_menutupi_seluruh_kolom_percakapan(): void
+    {
+        $percakapan = $this->percakapan(['window_expires_at' => now()->addHours(5)]);
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.show', $percakapan))
+            ->assertOk()
+            ->assertSee('jatuhBerkas($event)', false)
+            ->assertSee('Lepas untuk melampirkan');
+    }
+
+    /**
+     * Jendela tertutup = kotak ketik tidak dirender sama sekali.
+     *
+     * Kalau zonanya tetap dipasang, berkas yang dilepas ditelan tanpa jejak:
+     * tidak masuk ke mana pun, tidak ada pesan galat, dan admin mengira
+     * lampirannya sudah siap dikirim.
+     */
+    public function test_zona_jatuh_tidak_dipasang_saat_jendela_tertutup(): void
+    {
+        $percakapan = $this->percakapan(['window_expires_at' => now()->subHour()]);
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.show', $percakapan))
+            ->assertOk()
+            ->assertDontSee('jatuhBerkas($event)', false)
+            ->assertDontSee('Lepas untuk melampirkan');
+    }
+
     /* ------------------------------------------------- peringatan webhook sepi */
 
     /**
