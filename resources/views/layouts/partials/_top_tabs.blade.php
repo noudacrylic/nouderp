@@ -19,6 +19,10 @@
     <div class="submenu-tabs-label">{{ $moduleCfg['icon'] ?? '' }} {{ $moduleCfg['label'] ?? ucfirst($module) }}</div>
     <div class="submenu-tabs-list">
         @foreach($children as $key => $cfg)
+            {{-- 'hidden' = menu yang izinnya masih dipakai tapi pintunya pindah ke
+                 tempat lain. Entrinya wajib tetap ada di config: EnsureMenuAccess
+                 menolak route bernama yang tidak terdaftar di menu mana pun. --}}
+            @continue(!empty($cfg['hidden']))
             @php
                 // role_gate per child (mis. settings.users hanya super_admin/admin)
                 $allowedByRole = true;

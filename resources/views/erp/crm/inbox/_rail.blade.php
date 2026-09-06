@@ -3,12 +3,17 @@
      Tabnya sengaja diawali "Info" — triase & kepemilikan adalah hal yang paling
      sering disentuh, dan menyembunyikannya di balik tab kedua akan membuatnya
      berhenti dipakai. Produk & Pesanan menyusul di putaran berikutnya. --}}
-<div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden" x-data="{ tab: 'info' }">
+{{-- Tabnya bisa dipindahkan dari dalam panel: "Tambahkan ke Pesanan" di tab
+     Ongkir mengantar operator ke tab Pesanan, karena itu memang langkah
+     berikutnya dan menyuruhnya mengklik tab sendiri cuma satu langkah sia-sia. --}}
+<div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden"
+     x-data="{ tab: 'info' }"
+     @buka-tab.window="tab = $event.detail.tab">
 
     <div class="shrink-0 flex gap-1 px-2 py-2 border-b border-gray-200 bg-gray-50 text-xs">
         {{-- Produk pindah ke menu klip di kotak ketik — tempatnya memang di sisi
              lampiran, bukan panel telaah. --}}
-        @foreach(['info' => 'Info', 'template' => 'Template', 'pesanan' => 'Pesanan'] as $key => $label)
+        @foreach(['info' => 'Info', 'template' => 'Template', 'ongkir' => 'Ongkir', 'pesanan' => 'Pesanan'] as $key => $label)
             <button type="button" @click="tab = '{{ $key }}'"
                     :class="tab === '{{ $key }}' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50'"
                     class="px-2 py-1 rounded border">{{ $label }}</button>
@@ -80,11 +85,22 @@
             </details>
         </div>
 
+        {{-- ---------------------------------------------------------- ongkir --}}
+        {{-- Dirender langsung, bukan lewat x-if: autocomplete wilayah mengikat
+             elemennya lewat id saat halaman dimuat, jadi panel yang baru lahir
+             saat tab diklik tidak akan pernah terpasang. Tidak ada permintaan
+             jaringan yang jalan sampai ada yang mengetik, jadi murah. --}}
+        <div x-show="tab === 'ongkir'" x-cloak>
+            @include('erp.crm.inbox._ongkir')
+        </div>
+
         {{-- --------------------------------------------------------- pesanan --}}
         <div x-show="tab === 'pesanan'" x-cloak>
-            <p class="text-sm text-gray-500 px-1">
-                Pesanan pelanggan ini beserta statusnya, dan tombol buat SO dari chat — menyusul.
-            </p>
+            @if($terpilih)
+                @include('erp.crm.inbox._pesanan')
+            @else
+                <p class="text-sm text-gray-500 px-1">Pilih percakapan untuk menyusun pesanan.</p>
+            @endif
         </div>
     </div>
 </div>

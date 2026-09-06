@@ -166,6 +166,9 @@ if (!function_exists('module_landing_url')) {
 
         $children = config("menu_permissions.$module.children", []);
         foreach ($children as $key => $cfg) {
+            // Menu tersembunyi tidak boleh jadi halaman pendaratan modul: pintunya
+            // sudah pindah ke tempat lain, jadi mendarat di situ membingungkan.
+            if (!empty($cfg['hidden'])) continue;
             // role_gate per child
             if (isset($cfg['role_gate'])) {
                 $u = auth()->user();

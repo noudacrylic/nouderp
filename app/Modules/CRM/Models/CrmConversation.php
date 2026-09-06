@@ -38,10 +38,11 @@ class CrmConversation extends Model
         'channel', 'contact_key', 'display_name', 'provider_customer_id', 'business_number_id',
         'customer_id', 'owner_user_id', 'queue_state', 'status',
         'window_expires_at', 'last_inbound_at', 'last_outbound_at', 'last_message_at',
-        'unread_count', 'notes',
+        'unread_count', 'notes', 'order_draft',
     ];
 
     protected $casts = [
+        'order_draft'       => 'array',
         'window_expires_at' => 'datetime',
         'last_inbound_at'   => 'datetime',
         'last_outbound_at'  => 'datetime',

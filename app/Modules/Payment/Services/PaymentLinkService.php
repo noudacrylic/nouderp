@@ -316,21 +316,39 @@ class PaymentLinkService
      * Rincian barang SENGAJA tidak dijanjikan ada di halamannya: kartu /pay cuma memuat
      * angka total, rinciannya ada di nota PDF (lihat pay/_so.blade.php).
      */
-    public function waTextSo(MidtransTransaction $trx, string $customerName, string $orderNumber, int $remaining): string
-    {
+    public function waTextSo(
+        MidtransTransaction $trx,
+        string $customerName,
+        string $orderNumber,
+        int $remaining,
+        array $rincian = []
+    ): string {
         $url = $this->publicUrl($trx);
         $remFmt = 'Rp ' . number_format($remaining, 0, ',', '.');
 
         $lines = [
             "Halo {$customerName}, terima kasih banyak atas pesanan Anda.",
             '',
+        ];
+
+        /*
+         * Rincian barang disisipkan DI SINI, bukan dirangkai jadi pesan
+         * tersendiri di pemanggil: kalimat soal pembayaran, masa berlaku
+         * tautan, dan penutupnya harus punya satu versi saja. Dua tempat yang
+         * masing-masing menulis janji kepada pelanggan akan cepat berbeda isi.
+         */
+        if ($rincian) {
+            $lines = array_merge($lines, $rincian, ['']);
+        }
+
+        $lines = array_merge($lines, [
             "Pesanan {$orderNumber} sudah kami terima dan segera kami proses. Untuk melanjutkan, silakan lakukan pembayaran lewat tautan berikut:",
             $url,
             '',
             "Sisa tagihan: {$remFmt}",
             '',
             'Mohon tautan ini disimpan ya — tautannya berlaku terus, jadi kapan pun bisa Anda buka untuk memantau progres pesanan, melacak pengiriman, dan mengunduh nota pesanan (PDF) yang memuat rincian barang, jumlah, dan harganya.',
-        ];
+        ]);
 
         if ($deadline = $this->paymentDeadline($trx)) {
             $lines[] = '';

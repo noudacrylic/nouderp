@@ -115,6 +115,19 @@ class CekOngkirController extends Controller
 
     private function render(int $warehouseId, array $input, ?array $rates, array $errors)
     {
+        /*
+         * Panel ongkir di rail CRM memanggil endpoint yang SAMA lewat fetch.
+         * Disambungkan di sini, bukan lewat aksi tersendiri, supaya validasi
+         * tujuan, penjaga gudang tanpa alamat, dan aturan kurir instant tidak
+         * pernah punya dua versi yang bisa berbeda diam-diam.
+         */
+        if (request()->wantsJson()) {
+            return response()->json([
+                'rates'  => $rates ?? [],
+                'errors' => $errors,
+            ]);
+        }
+
         return view('erp.sales.cek-ongkir.index', [
             'warehouses' => $this->originWarehouses(),
             'selectedWarehouseId' => $warehouseId,

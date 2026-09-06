@@ -75,7 +75,18 @@ return [
             'sales.payment'     => ['label' => 'Payment',     'url' => '/erp/sales/payment',        'route_patterns' => ['sales.payment.*', 'sales.payments.*', 'sales.midtrans.admin.*']],
             'sales.returns'     => ['label' => 'Retur',       'url' => '/erp/sales/returns',        'route_patterns' => ['sales.returns.*']],
             'sales.warranty'    => ['label' => 'Garansi',     'url' => '/erp/sales/warranty',       'route_patterns' => ['sales.warranty.*']],
-            'sales.cek-ongkir'  => ['label' => 'Cek Ongkir',  'url' => '/erp/sales/cek-ongkir',     'route_patterns' => ['sales.cek-ongkir*']],
+            /*
+             * Cek Ongkir pindah ke rail CRM (tab "Ongkir") — ongkir hampir selalu
+             * ditanyakan di tengah chat, dan berpindah menu untuk menghitungnya
+             * adalah alasan pertanyaan itu dijawab dengan tebakan.
+             *
+             * Entrinya DISEMBUNYIKAN, bukan dihapus. EnsureMenuAccess menolak
+             * setiap route bernama yang tidak punya menu, jadi menghapus baris
+             * ini membuat endpoint yang dipakai panel CRM, form gudang, popup
+             * alamat pelanggan, dan cek ongkir di SO/Faktur balas 403 untuk
+             * semua user non-super-admin.
+             */
+            'sales.cek-ongkir'  => ['label' => 'Cek Ongkir',  'url' => '/erp/sales/cek-ongkir',     'hidden' => true, 'route_patterns' => ['sales.cek-ongkir*']],
             'sales.promosi'     => ['label' => 'Promosi',     'url' => '/erp/sales/promosi',        'route_patterns' => ['sales.promosi.*']],
         ],
     ],

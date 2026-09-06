@@ -2,6 +2,7 @@
 
 namespace App\Modules\CRM\Controllers;
 
+use App\Core\Inventory\Warehouse;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\CRM\ChatManager;
@@ -11,6 +12,8 @@ use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSnippet;
 use App\Modules\CRM\Services\CrmReplyService;
 use App\Modules\CRM\Services\WebhookHealthService;
+use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Sales\Services\SalesOrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -98,6 +101,13 @@ class CrmInboxController extends Controller
             'webhookSepi' => app(ChatManager::class)->isDryRun()
                 ? null
                 : app(WebhookHealthService::class)->sepi(),
+            /*
+             * Gudang asal untuk panel ongkir di rail. Hanya yang aktif — gudang
+             * mati tetap muncul di daftar cuma untuk ditolak saat dicek.
+             */
+            'gudang'         => Warehouse::where('is_active', 1)->orderBy('name')->get(['id', 'name']),
+            'gudangTerpilih' => Warehouse::defaultId(),
+            'pesananTerkait' => $terpilih ? $this->ringkasPesanan($terpilih) : [],
             /*
              * Jumlah yang BELUM dipegang siapa pun ditampilkan ke semua orang.
              * Tanpa angka ini, chat pelanggan baru (yang memang lahir tanpa
@@ -472,6 +482,372 @@ class CrmInboxController extends Controller
             ->mapWithKeys(fn (CrmMessage $m) => [$m->id => $m->centang()])
             ->reject(fn (string $c) => $c === 'tidak')
             ->all();
+    }
+
+    /**
+     * Rincian pesanan siap kirim: daftar barang, ongkir, total, plus tautan bayar.
+     *
+     * Kalimat pembayarannya diambil dari PaymentLinkService — sumber yang sama
+     * dengan modal "Link Bayar" di halaman SO. Menulis versi sendiri di sini
+     * berarti ada dua tempat yang masing-masing berjanji kepada pelanggan soal
+     * masa berlaku tautan, dan keduanya akan cepat berbeda isi.
+     */
+    public function rincianPesanan(
+        CrmConversation $conversation,
+        SalesOrder $order,
+        \App\Modules\Payment\Services\PaymentLinkService $links
+    ) {
+        // Pesanan milik pelanggan LAIN tidak boleh bocor lewat chat ini.
+        if (! $conversation->customer_id || $order->customer_id !== $conversation->customer_id) {
+            abort(404);
+        }
+
+        $order->load('items.product');
+
+        $baris = ['Berikut rincian pesanan ' . $order->order_number . ':', ''];
+
+        foreach ($order->items as $item) {
+            // description didahulukan: barang custom disepakati lewat kalimat di
+            // chat, dan nama master produknya sering terlalu umum untuk dikenali
+            // pembeli ("Akrilik 3mm" untuk sesuatu yang ia sebut "box mahar").
+            $nama = $item->description ?: ($item->product?->name ?? 'Produk');
+
+            $baris[] = '• ' . $nama . ' — ' . rtrim(rtrim(number_format((float) $item->qty, 2, ',', '.'), '0'), ',')
+                . ' × ' . $this->rupiah($item->unit_price)
+                . ' = ' . $this->rupiah($item->line_total);
+        }
+
+        $baris[] = '';
+
+        if ((float) $order->discount_total > 0 || (float) $order->global_discount_amount > 0) {
+            $baris[] = 'Diskon: −' . $this->rupiah((float) $order->discount_total + (float) $order->global_discount_amount);
+        }
+
+        if ((float) $order->shipping_cost > 0) {
+            $baris[] = 'Pengiriman' . ($order->shipping_service_name ? ' (' . $order->shipping_service_name . ')' : '')
+                . ': ' . $this->rupiah($order->shipping_cost);
+        } elseif ($order->delivery_method === 'ambil_toko') {
+            $baris[] = 'Pengiriman: diambil di toko';
+        }
+
+        $baris[] = 'Total: ' . $this->rupiah($order->grand_total);
+
+        $sisa = (int) round((float) $order->grand_total - (float) $order->paid_amount);
+
+        /*
+         * Tautan bayar hanya dibuat kalau memang masih ada yang harus dibayar.
+         * Mengirim tautan untuk pesanan lunas membuat pelanggan mengira ada
+         * tagihan kedua — dan itu jenis kebingungan yang berujung telepon.
+         */
+        if ($sisa <= 0) {
+            $baris[] = '';
+            $baris[] = 'Pesanan ini sudah lunas. Terima kasih!';
+
+            return response()->json(['teks' => implode("\n", $baris), 'url' => null]);
+        }
+
+        $trx = $links->getOrCreateForSalesOrder($order, auth()->id(), $order->minDpAmount());
+
+        return response()->json([
+            'teks' => $links->waTextSo(
+                $trx,
+                $order->customer?->name ?? 'Kak',
+                $order->order_number,
+                $sisa,
+                $baris,
+            ),
+            'url' => $links->publicUrl($trx),
+        ]);
+    }
+
+    private function rupiah(float|int|string $n): string
+    {
+        return 'Rp ' . number_format((float) $n, 0, ',', '.');
+    }
+
+    /**
+     * Promo yang berlaku untuk keranjang yang sedang disusun.
+     *
+     * Menumpang PromotionService — mesin yang sama dengan Kasir, form SO, dan
+     * etalase web. Promo yang dihitung ulang di sini akan jadi versi kedua yang
+     * cepat berbeda aturannya, dan bedanya baru ketahuan dari pelanggan yang
+     * membandingkan harga di web dengan yang ditawarkan lewat chat.
+     *
+     * Punya pintu sendiri (bukan memanggil sales.promosi.resolve) karena
+     * EnsureMenuAccess mengikat izin ke menu pemilik route-nya: operator CRM
+     * yang tidak punya menu Promosi akan kena 403 di tengah menyusun pesanan.
+     */
+    public function promoKeranjang(Request $request, CrmConversation $conversation, \App\Modules\Sales\Services\PromotionService $promosi)
+    {
+        $items = array_map(fn ($it) => [
+            'product_id' => (int) ($it['product_id'] ?? 0),
+            'qty'        => (float) ($it['qty'] ?? 1),
+            'unit_price' => (float) ($it['unit_price'] ?? 0),
+        ], (array) $request->input('items', []));
+
+        return response()->json($promosi->resolve([
+            'items'          => $items,
+            'subtotal'       => (float) $request->input('subtotal', 0),
+            'shipping_gross' => (float) $request->input('shipping_gross', 0),
+        ]));
+    }
+
+    /** Daftar pesanan pelanggan ini — dipanggil ulang setelah SO baru dibuat. */
+    public function daftarPesanan(CrmConversation $conversation)
+    {
+        return response()->json(['pesanan' => $this->ringkasPesanan($conversation)]);
+    }
+
+    /**
+     * Pesanan pelanggan ini beserta tahap yang sedang berjalan.
+     *
+     * Statusnya diambil dari OrderProgressService — sumber yang sama dengan
+     * halaman lacak pesanan yang dilihat pembeli. Menurunkan status sendiri di
+     * sini berarti admin dan pembeli bisa membaca dua cerita berbeda tentang
+     * pesanan yang sama, dan yang salah selalu ketahuan belakangan lewat
+     * pertanyaan "katanya sudah dikirim?".
+     *
+     * Dibatasi 10 terbaru: tiap pesanan butuh beberapa kueri untuk diketahui
+     * tahapnya, dan rail ini ikut dirender setiap kali chat dibuka.
+     */
+    private function ringkasPesanan(CrmConversation $conversation): array
+    {
+        if (! $conversation->customer_id) {
+            return [];
+        }
+
+        $progress = app(\App\Modules\Sales\Services\OrderProgressService::class);
+
+        return SalesOrder::query()
+            ->where('customer_id', $conversation->customer_id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->latest('id')
+            ->limit(10)
+            ->with('items.product:id,name,sku')
+            ->get()
+            ->map(function (SalesOrder $so) use ($progress) {
+                $p = $progress->for($so);
+
+                $tahap = collect($p['steps'])->firstWhere('key', $p['current']);
+
+                return [
+                    /*
+                     * Barangnya ikut ditampilkan, bukan cuma nomor & total —
+                     * gaya kartu pesanan marketplace. Pertanyaan lewat chat
+                     * hampir selalu menyebut BARANGNYA ("rak bolpoin saya
+                     * gimana"), bukan nomor SO, jadi kartu tanpa nama barang
+                     * memaksa operator membuka halaman SO untuk mencocokkan.
+                     */
+                    'items' => $so->items->take(3)->map(fn ($i) => [
+                        'nama' => $i->description ?: ($i->product?->name ?? 'Produk'),
+                        // SKU ikut karena nama produk sering mirip satu sama lain
+                        // ("Kotak Saran 1 Kotak" vs "2 Kotak"); SKU-lah yang
+                        // dipakai gudang & produksi untuk memastikan barangnya.
+                        'sku'  => $i->product?->sku,
+                        'qty'  => rtrim(rtrim(number_format((float) $i->qty, 2, ',', '.'), '0'), ','),
+                        'total' => (float) $i->line_total,
+                    ])->values()->all(),
+                    'sisa_item' => max(0, $so->items->count() - 3),
+                    'ongkir'    => (float) $so->shipping_cost,
+                    'kurir'     => $so->shipping_service_name,
+                    'ambil'     => $so->delivery_method === 'ambil_toko',
+                    'id'      => $so->id,
+                    'nomor'   => $so->order_number,
+                    'tanggal' => optional($so->order_date)->format('d M Y'),
+                    'total'   => (float) $so->grand_total,
+                    'draft'   => $so->status === 'draft',
+                    // Draft belum jadi pesanan bagi pelanggan; menandainya
+                    // "menunggu pembayaran" membuat operator menagih sesuatu
+                    // yang belum pernah dikirimkan.
+                    'status'  => $so->status === 'draft' ? 'Draft' : ($tahap['label'] ?? '—'),
+                    'catatan' => $so->status === 'draft' ? 'Belum dikonfirmasi' : ($tahap['note'] ?? ''),
+                    'selesai' => $p['current'] === 'selesai',
+                    // Halaman SO = tempat SEMUA perubahan dikerjakan: ubah item,
+                    // ongkir, kesepakatan, sampai posting. Panel chat sengaja
+                    // tidak menduplikasi satu pun dari itu — dua tempat yang
+                    // sama-sama bisa mengubah pesanan akan berbeda aturannya.
+                    'url'     => route('sales.orders.show', $so->id),
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * Simpan keranjang yang sedang disusun (alamat, ongkir, produk) ke percakapan.
+     *
+     * Isinya sengaja TIDAK divalidasi per medan: ini potret setengah jadi dari
+     * layar, bukan pesanan. Memaksanya lolos aturan SO berarti draft yang baru
+     * terisi separuh ditolak — padahal justru keadaan setengah jadi itulah yang
+     * paling perlu diselamatkan dari muat ulang. Yang dijaga cuma ukurannya,
+     * supaya kolomnya tidak bisa dipakai menitipkan data sembarangan.
+     *
+     * Pemeriksaan sesungguhnya tetap terjadi di buatSo(): apa pun isi draftnya,
+     * SO baru lahir setelah lolos validasi di sana.
+     */
+    public function simpanDraftPesanan(Request $request, CrmConversation $conversation)
+    {
+        $bagian = (string) $request->input('bagian');
+
+        if (! in_array($bagian, ['ongkir', 'pesanan'], true)) {
+            return response()->json(['success' => false, 'error' => 'Bagian draft tidak dikenal.'], 422);
+        }
+
+        $data = $request->input('data');
+
+        if ($data !== null && strlen((string) json_encode($data)) > 60000) {
+            return response()->json(['success' => false, 'error' => 'Draft terlalu besar.'], 422);
+        }
+
+        /*
+         * DIGABUNG per bagian, bukan ditimpa utuh: tab Ongkir dan tab Pesanan
+         * menyimpan sendiri-sendiri, dan simpanan yang datang belakangan akan
+         * menghapus pekerjaan tab sebelahnya kalau seluruh kolom ditulis ulang.
+         */
+        $draft = (array) ($conversation->order_draft ?? []);
+        $draft[$bagian] = $data;
+
+        $conversation->forceFill([
+            'order_draft' => array_filter($draft, fn ($v) => ! empty($v)) ?: null,
+        ])->save();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Buat Sales Order DRAFT dari layar chat.
+     *
+     * Draft, bukan langsung terkonfirmasi: pesanan yang lahir dari percakapan
+     * hampir selalu masih berubah satu-dua kali sebelum disepakati, dan SO yang
+     * terlanjur di-post harus dibatalkan lewat void — jejaknya menempel di buku
+     * selamanya hanya karena pelanggan berubah pikiran soal warna.
+     *
+     * Perhitungannya dititipkan ke SalesOrderService, bukan dihitung ulang di
+     * sini: aturan diskon nominal-per-unit, pembulatan rupiah, dan ongkir
+     * net-vs-gross harus sama persis dengan SO yang dibuat lewat form biasa.
+     */
+    public function buatSo(Request $request, CrmConversation $conversation, SalesOrderService $salesOrder)
+    {
+        $data = $request->validate([
+            // Salah satu wajib: pelanggan lama, atau nama untuk pelanggan baru.
+            'customer_id'   => 'nullable|integer|exists:customers,id',
+            'customer_name' => 'nullable|string|max:255',
+            'warehouse_id'  => 'required|integer|exists:warehouses,id',
+
+            'items'                   => 'required|array|min:1',
+            'items.*.product_id'      => 'required|integer|exists:products,id',
+            // Nama boleh ditimpa: pesanan custom disepakati lewat kalimat di
+            // chat ("box mahar 30×30 tutup emas"), dan nama master produknya
+            // terlalu umum untuk dikenali pembeli di nota.
+            'items.*.description'     => 'nullable|string|max:255',
+            'items.*.qty'             => 'required|numeric|min:0.0001',
+            'items.*.unit_price'      => 'required|numeric|min:0',
+            'items.*.discount_type'   => 'nullable|in:percent,nominal',
+            'items.*.discount_value'  => 'nullable|numeric|min:0',
+
+            'global_discount_type'  => 'nullable|in:percent,nominal',
+            'global_discount_value' => 'nullable|numeric|min:0',
+
+            'min_dp_percent'  => 'nullable|numeric|min:0|max:100',
+            'allow_backorder' => 'nullable|boolean',
+            'is_tempo'        => 'nullable|boolean',
+            'tempo_days'      => 'nullable|integer|min:0|max:365',
+            'delivery_method' => 'nullable|string|max:30',
+            'notes'           => 'nullable|string|max:2000',
+
+            // Ongkir dititipkan dari tab Ongkir — kode kurir & layanan ikut supaya
+            // resinya masih bisa dipesan ke provider yang benar nanti.
+            'shipping_gross'          => 'nullable|numeric|min:0',
+            'shipping_discount_type'  => 'nullable|in:percent,nominal',
+            'shipping_discount_value' => 'nullable|numeric|min:0',
+            'courier_name'            => 'nullable|string|max:150',
+            'shipping_provider'       => 'nullable|string|max:30',
+            'shipping_courier_code'   => 'nullable|string|max:50',
+            'shipping_service_code'   => 'nullable|string|max:80',
+        ]);
+
+        try {
+            $customerId = $this->pelangganUntukSo($conversation, $data);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        try {
+            $so = $salesOrder->createDraftFromData($data + [
+                'customer_id' => $customerId,
+                'order_date'  => now()->toDateString(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[CRM] gagal membuat SO dari chat', [
+                'conversation' => $conversation->id,
+                'error'        => $e->getMessage(),
+            ]);
+
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        /*
+         * Kesepakatan dagang (batas DP, keep stock, tempo) disetel setelahnya:
+         * createDraftFromData dipakai juga oleh jalur AI & marketplace yang tak
+         * punya konsep ini, dan menyelipkannya ke sana akan memaksa mereka ikut
+         * memikirkan medan yang tidak pernah mereka isi.
+         */
+        $kesepakatan = array_filter([
+            'min_dp_percent'  => $data['min_dp_percent'] ?? null,
+            'allow_backorder' => isset($data['allow_backorder']) ? (bool) $data['allow_backorder'] : null,
+            'is_tempo'        => isset($data['is_tempo']) ? (bool) $data['is_tempo'] : null,
+            // Termin boleh kosong: tempo tanpa batas waktu tetap sah, yang hilang
+            // cuma peringatan jatuh temponya.
+            'tempo_days'      => $data['tempo_days'] ?? null,
+        ], fn ($v) => $v !== null);
+
+        if ($kesepakatan) {
+            $so->forceFill($kesepakatan)->save();
+        }
+
+        return response()->json([
+            'success' => true,
+            'nomor'   => $so->order_number,
+            'total'   => (float) $so->grand_total,
+            'url'     => url('/erp/sales/orders/' . $so->id),
+        ]);
+    }
+
+    /**
+     * Pelanggan untuk SO dari chat.
+     *
+     * Percakapan yang belum tertaut master (Lead) adalah keadaan NORMAL, bukan
+     * kesalahan — kebanyakan pesanan lahir dari nomor asing. Jadi di sini
+     * pelanggan baru boleh dibuat, TAPI hanya dari nama yang diketik operator:
+     * membuatnya diam-diam dari tiap chat akan menyampahi master pelanggan
+     * dengan nomor yang tidak pernah jadi pesanan.
+     */
+    private function pelangganUntukSo(CrmConversation $conversation, array $data): int
+    {
+        if (! empty($data['customer_id'])) {
+            $id = (int) $data['customer_id'];
+        } else {
+            $nama = trim((string) ($data['customer_name'] ?? ''));
+
+            if ($nama === '') {
+                throw new \RuntimeException('Pilih pelanggan, atau isi nama untuk membuat pelanggan baru.');
+            }
+
+            $id = (int) \App\Models\Customer::create([
+                'code'        => 'CUST-' . strtoupper(\Illuminate\Support\Str::random(6)),
+                'name'        => $nama,
+                'phone'       => $conversation->contact_key,
+                'wa_opt_in'   => true,
+                'is_active'   => true,
+            ])->id;
+        }
+
+        // Percakapan ikut ditautkan: sekali pesan, chat berikutnya dari nomor itu
+        // langsung mendarat pada pelanggan yang sama beserta riwayat pesanannya.
+        if (! $conversation->customer_id) {
+            $conversation->forceFill(['customer_id' => $id])->save();
+        }
+
+        return $id;
     }
 
     /** Oper percakapan ke admin lain — pengganti rotator otomatis yang ditunda. */

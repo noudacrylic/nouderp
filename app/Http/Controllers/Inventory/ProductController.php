@@ -699,6 +699,13 @@ class ProductController extends Controller
                 // last_cost lebih up-to-date (auto dari invoice posting), cost_price = manual reference.
                 'cost_price' => (float) ($product->cost_price ?? 0),
                 'last_cost' => (float) ($product->last_cost ?? 0),
+                // Untuk konteks cek ongkir: berat & dimensi dipakai menghitung
+                // tarif kurir. Ikut di sini supaya pemilih produk mana pun bisa
+                // menjumlahkan beratnya sendiri tanpa permintaan tambahan.
+                'weight_gram' => (int) ($product->weight_gram ?? 0),
+                'length_cm' => (float) ($product->length_cm ?? 0),
+                'width_cm' => (float) ($product->width_cm ?? 0),
+                'height_cm' => (float) ($product->height_cm ?? 0),
             ];
         });
 
