@@ -611,6 +611,129 @@ class InboxTriaseTest extends TestCase
                 && ! str_contains($html, 'pesan lama'));
     }
 
+    /**
+     * Centang ala WhatsApp harus IKUT polling, bukan sekali gambar saat halaman
+     * dibuka.
+     *
+     * Status 'delivered'/'read' datang dari webhook bermenit setelah pesannya
+     * keluar. Kalau penarik ini tidak membawanya, centangnya berhenti di satu
+     * selamanya dan admin menyimpulkan pesannya tidak sampai — lalu mengirim
+     * ulang lewat HP.
+     */
+    public function test_penarik_membawa_status_centang_pesan_keluar(): void
+    {
+        $percakapan = $this->percakapan();
+
+        $terkirim = $this->pesanKeluar($percakapan, 'terkirim');
+        $sampai   = $this->pesanKeluar($percakapan, 'delivered');
+        $dibaca   = $this->pesanKeluar($percakapan, 'read');
+
+        $this->actingAs($this->admin())
+            ->getJson(route('crm.inbox.pesan-baru', [$percakapan, 'after' => (int) CrmMessage::max('id')]))
+            ->assertOk()
+            ->assertJsonPath('centang.' . $terkirim->id, 'terkirim')
+            ->assertJsonPath('centang.' . $sampai->id, 'sampai')
+            ->assertJsonPath('centang.' . $dibaca->id, 'dibaca');
+    }
+
+    /**
+     * Pesan yang TIDAK PERNAH keluar tidak boleh punya centang.
+     *
+     * Satu centang di sebelah balasan mode-aman berarti berbohong tentang hal
+     * yang paling mahal salahnya: apakah pelanggan sudah dijawab. Lencana
+     * bertulis yang sudah ada biar yang bicara.
+     */
+    public function test_pesan_gagal_dan_tidak_dikirim_tidak_punya_centang(): void
+    {
+        $percakapan = $this->percakapan();
+
+        $gagal        = $this->pesanKeluar($percakapan, 'failed');
+        $tidakDikirim = $this->pesanKeluar($percakapan, CrmMessage::STATUS_TIDAK_DIKIRIM);
+        $masuk        = CrmMessage::create([
+            'conversation_id' => $percakapan->id,
+            'direction'       => CrmMessage::MASUK,
+            'message_type'    => 'text',
+            'content'         => 'halo',
+            'sent_at'         => now(),
+        ]);
+
+        $centang = $this->actingAs($this->admin())
+            ->getJson(route('crm.inbox.pesan-baru', [$percakapan, 'after' => (int) CrmMessage::max('id')]))
+            ->assertOk()
+            ->json('centang');
+
+        $this->assertArrayNotHasKey($gagal->id, $centang);
+        $this->assertArrayNotHasKey($tidakDikirim->id, $centang);
+        $this->assertArrayNotHasKey($masuk->id, $centang);
+    }
+
+    /**
+     * Cetakan centang WAJIB ada di halaman thread.
+     *
+     * Gelembung sementara mengklonnya lewat id ini. Kalau id-nya hilang atau
+     * berganti nama, yang rusak tidak kelihatan di mana pun kecuali saat
+     * mengirim: gelembungnya muncul TANPA tanda apa pun, dan admin kembali
+     * menebak-nebak apakah pesannya sudah keluar — persis keadaan yang mau
+     * dihapus fitur ini.
+     */
+    public function test_layar_thread_menyediakan_cetakan_centang_dan_status_pesan(): void
+    {
+        $percakapan = $this->percakapan();
+        $this->pesanKeluar($percakapan, 'delivered');
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.show', $percakapan))
+            ->assertOk()
+            ->assertSee('id="crm-centang-cetak"', false)
+            ->assertSee('data-status="sampai"', false);
+    }
+
+    /**
+     * "Coba lagi" di gelembung yang gagal tidak boleh melahirkan pesan kedua.
+     *
+     * Kegagalan yang paling sering bukan penolakan vendor, melainkan jawaban
+     * yang hilang di jalan — pesannya sendiri sudah keluar. Tanpa penjaga ini
+     * satu klik berarti pelanggan menerima kalimat yang sama dua kali, dan
+     * pesan yang sudah terkirim tidak bisa ditarik kembali.
+     */
+    public function test_kirim_ulang_dengan_kunci_sama_tidak_melahirkan_pesan_kedua(): void
+    {
+        $percakapan = $this->percakapan();
+        $admin      = $this->admin();
+        $muatan     = ['teks' => 'Baik kak, kami buatkan.', 'kirim_key' => 'kunci-abc'];
+
+        $this->actingAs($admin)->postJson(route('crm.inbox.balas', $percakapan), $muatan)->assertOk();
+        $this->actingAs($admin)->postJson(route('crm.inbox.balas', $percakapan), $muatan)->assertOk();
+
+        $this->assertSame(1, CrmMessage::keluar()->where('conversation_id', $percakapan->id)->count());
+    }
+
+    /** Kunci berbeda = pesan berbeda; penjaganya tidak boleh menelan balasan sah. */
+    public function test_kunci_berbeda_tetap_melahirkan_dua_pesan(): void
+    {
+        $percakapan = $this->percakapan();
+        $admin      = $this->admin();
+
+        $this->actingAs($admin)->postJson(route('crm.inbox.balas', $percakapan),
+            ['teks' => 'satu', 'kirim_key' => 'kunci-1'])->assertOk();
+        $this->actingAs($admin)->postJson(route('crm.inbox.balas', $percakapan),
+            ['teks' => 'dua', 'kirim_key' => 'kunci-2'])->assertOk();
+
+        $this->assertSame(2, CrmMessage::keluar()->where('conversation_id', $percakapan->id)->count());
+    }
+
+    private function pesanKeluar(CrmConversation $percakapan, string $status): CrmMessage
+    {
+        return CrmMessage::create([
+            'conversation_id' => $percakapan->id,
+            'direction'       => CrmMessage::KELUAR,
+            'message_type'    => 'text',
+            'content'         => 'balasan ' . $status,
+            'status'          => $status,
+            'sent_at'         => now(),
+        ]);
+    }
+
     public function test_penarik_tanpa_pesan_baru_tidak_mengembalikan_apa_apa(): void
     {
         $percakapan = $this->percakapan();

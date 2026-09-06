@@ -3,7 +3,10 @@
      markupnya digandakan, gelembung baru cepat berbeda dari yang lama. --}}
 @foreach($pesan as $m)
                 @php $masuk = $m->isInbound(); @endphp
-                <div class="flex {{ $masuk ? 'justify-start' : 'justify-end' }}">
+                {{-- data-mid: pegangan buat menaikkan centang jadi dua/biru saat
+                     webhook 'delivered'/'read' datang, tanpa menggambar ulang
+                     gelembungnya. --}}
+                <div class="flex {{ $masuk ? 'justify-start' : 'justify-end' }}" data-mid="{{ $m->id }}">
                     <div class="max-w-[80%] rounded-lg px-3 py-2 text-sm shadow-sm {{ $masuk ? 'bg-white' : 'bg-[#d9fdd3]' }}">
                         @if($m->content)
                             <div class="whitespace-pre-wrap">{{ $m->content }}</div>
@@ -33,7 +36,7 @@
                             </div>
                         @endforeach
 
-                        <div class="mt-1 text-[11px] text-gray-500 flex items-center gap-2">
+                        <div class="mt-1 text-[11px] text-gray-500 flex items-center gap-2 {{ $masuk ? '' : 'justify-end' }}">
                             <span>{{ $m->sent_at?->translatedFormat('d M Y H:i') }}</span>
                             @if($m->dibalasDariHp())
                                 {{-- Kebocoran triase: dibalas langsung dari HP, jadi tidak lewat
@@ -46,6 +49,9 @@
                                 {{-- Tercatat tapi tidak keluar (mode aman). Tanpa penanda ini
                                      admin mengira pelanggan sudah dijawab. --}}
                                 <span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Mode aman menyala: pesan ini tidak dikirim ke pelanggan">tidak dikirim</span>
+                            @endif
+                            @if($m->centang() !== 'tidak')
+                                @include('erp.crm.inbox._centang', ['status' => $m->centang()])
                             @endif
                         </div>
                     </div>

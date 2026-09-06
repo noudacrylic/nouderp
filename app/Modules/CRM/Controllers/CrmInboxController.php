@@ -11,6 +11,7 @@ use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSnippet;
 use App\Modules\CRM\Services\CrmReplyService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -156,6 +157,8 @@ class CrmInboxController extends Controller
             // di situ cuma memaksa mengetik titik.
             'teks'     => 'required_without:gambar|nullable|string|max:4000',
             'reply_to' => 'nullable|string|max:120',
+            // Penanda sekali-kirim dari kotak ketik; lihat penjaga di bawah.
+            'kirim_key' => 'nullable|string|max:64',
             'gambar'   => 'nullable|array|max:5',
             /*
              * Semua jenis berkas boleh — WhatsApp memang menerima gambar, video,
@@ -230,13 +233,39 @@ class CrmInboxController extends Controller
 
         $data = $validator->validated();
 
-        $hasil = $balasan->balas(
-            $conversation,
-            (string) ($data['teks'] ?? ''),
-            $request->user()?->id,
-            $data['reply_to'] ?? null,
-            $request->file('gambar', [])
-        );
+        /*
+         * Penjaga sekali-kirim.
+         *
+         * Gelembung yang gagal di layar punya tombol "Coba lagi" yang mengulang
+         * muatan yang SAMA PERSIS, kuncinya ikut. Itu perlu karena kegagalan
+         * yang paling sering justru bukan penolakan vendor, melainkan jawaban
+         * yang hilang di jalan — pesannya sendiri sudah telanjur keluar. Tanpa
+         * penjaga ini, satu klik "Coba lagi" berarti pelanggan menerima pesan
+         * yang sama dua kali, dan itu tidak bisa ditarik kembali.
+         *
+         * Kuncinya dicatat SESUDAH berhasil, bukan sebelum: kalau dicatat di
+         * depan, kegagalan yang sungguhan di sisi vendor ikut terkunci dan
+         * "Coba lagi" tak akan pernah bisa berhasil.
+         */
+        $kunci = isset($data['kirim_key'])
+            ? 'crm:kirim:' . $conversation->id . ':' . sha1($data['kirim_key'])
+            : null;
+
+        if ($kunci && Cache::has($kunci)) {
+            $hasil = ['success' => true];
+        } else {
+            $hasil = $balasan->balas(
+                $conversation,
+                (string) ($data['teks'] ?? ''),
+                $request->user()?->id,
+                $data['reply_to'] ?? null,
+                $request->file('gambar', [])
+            );
+
+            if ($kunci && $hasil['success']) {
+                Cache::put($kunci, true, now()->addMinutes(10));
+            }
+        }
 
         /*
          * Permintaan dari kotak ketik dikirim lewat fetch, jadi jawabannya JSON
@@ -408,7 +437,32 @@ class CrmInboxController extends Controller
             'html'    => $baru->isEmpty() ? '' : view('erp.crm.inbox._bubbles', ['pesan' => $baru])->render(),
             'last_id' => (int) ($baru->max('id') ?: $setelah),
             'window_open' => $conversation->windowIsOpen(),
+            'centang' => $this->centangTerakhir($conversation),
         ]);
+    }
+
+    /**
+     * Status centang pesan keluar terbaru, buat dinaikkan di layar tanpa
+     * menggambar ulang gelembungnya.
+     *
+     * Ikut menumpang polling yang sudah ada, bukan permintaan sendiri: status
+     * 'delivered'/'read' datang BERMENIT setelah pesannya dikirim, jadi tak
+     * mungkin ikut jawaban kirim, dan menambah satu polling lagi berarti
+     * menggandakan lalu lintas yang jalan terus-menerus.
+     *
+     * Dibatasi 30 terakhir — pesan lama statusnya sudah lama diam, dan yang
+     * terlihat di layar toh cuma bagian bawah thread.
+     */
+    private function centangTerakhir(CrmConversation $conversation): array
+    {
+        return $conversation->messages()
+            ->where('direction', CrmMessage::KELUAR)
+            ->orderByDesc('id')
+            ->limit(30)
+            ->get(['id', 'direction', 'status'])
+            ->mapWithKeys(fn (CrmMessage $m) => [$m->id => $m->centang()])
+            ->reject(fn (string $c) => $c === 'tidak')
+            ->all();
     }
 
     /** Oper percakapan ke admin lain — pengganti rotator otomatis yang ditunda. */

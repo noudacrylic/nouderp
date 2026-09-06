@@ -68,6 +68,30 @@ class CrmMessage extends Model
         return $this->direction === self::KELUAR && $this->source === self::SOURCE_WHATSAPP_APP;
     }
 
+    /**
+     * Penanda kirim ala WhatsApp: jam → satu centang → dua centang → biru.
+     *
+     * 'failed' dan 'tidak_dikirim' sengaja TIDAK punya centang. Keduanya sudah
+     * memakai lencana bertulis yang membawa alasannya; menambah ikon merah di
+     * sebelahnya cuma mengulang hal yang sama dua kali.
+     *
+     * Keadaan 'menunggu' tidak pernah lahir dari sini — hanya dipakai gelembung
+     * sementara di layar, yang memang belum punya baris di basis data.
+     */
+    public function centang(): string
+    {
+        if ($this->isInbound()) {
+            return 'tidak';
+        }
+
+        return match ($this->status) {
+            'read'      => 'dibaca',
+            'delivered' => 'sampai',
+            'terkirim'  => 'terkirim',
+            default     => 'tidak',
+        };
+    }
+
     public function scopeMasuk($query)
     {
         return $query->where('direction', self::MASUK);

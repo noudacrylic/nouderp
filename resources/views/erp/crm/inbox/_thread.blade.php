@@ -2,6 +2,25 @@
      kolom kiri & rail kanan tidak ikut disusun ulang tiap kali thread dibuka. --}}
 @php $terbuka = $terpilih->windowIsOpen(); @endphp
 
+{{-- Keadaan centang dipilih CSS, bukan dengan membangun ulang HTML: memperbarui
+     status jadi sekadar mengganti satu atribut, dan gelembung sementara di skrip
+     bisa memakai markup yang sama persis. --}}
+<style>
+    .crm-centang       { display: inline-flex; align-items: center; }
+    .crm-centang > svg { display: none; width: .95rem; height: .95rem; }
+    .crm-centang[data-status="menunggu"] .ct-jam,
+    .crm-centang[data-status="terkirim"] .ct-satu,
+    .crm-centang[data-status="sampai"]   .ct-dua,
+    .crm-centang[data-status="dibaca"]   .ct-dua { display: block; }
+    /* Biru WhatsApp untuk "dibaca" — satu-satunya keadaan yang berwarna, supaya
+       terbaca sekilas tanpa harus menghitung centang. */
+    .crm-centang[data-status="dibaca"]   { color: #53bdeb; }
+    .crm-centang[data-status="menunggu"] { opacity: .55; }
+</style>
+
+{{-- Cetakan yang diklon skrip untuk gelembung sementara. Satu markup, dua jalur. --}}
+<template id="crm-centang-cetak">@include('erp.crm.inbox._centang', ['status' => 'menunggu'])</template>
+
 {{-- ------------------------------------------------------------ percakapan --}}
 <div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden"
      x-data="threadCrm({{ $terpilih->id }}, {{ (int) ($pesan->max('id') ?? 0) }})">
@@ -136,15 +155,13 @@
                                   @input="tumbuh()"
                                   placeholder="Tulis balasan…">{{ old('teks') }}</textarea>
 
-                        <button :disabled="sibuk" :class="sibuk && 'opacity-60 cursor-not-allowed'"
-                                title="Kirim (Enter)"
+                        {{-- Tombolnya TIDAK lagi dikunci selama mengirim: penanda
+                             tunggu sudah pindah ke gelembungnya, dan mengunci tombol
+                             justru menahan balasan berikutnya yang sudah siap. --}}
+                        <button title="Kirim (Enter)"
                                 class="shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-emerald-600 hover:bg-emerald-700 text-white">
-                            <svg x-show="!sibuk" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/>
-                            </svg>
-                            <svg x-show="sibuk" x-cloak class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v3a5 5 0 0 0-5 5H4z"/>
                             </svg>
                         </button>
 
@@ -221,6 +238,13 @@
                             kosong: terakhirId === 0,
                             sibuk: false,
                             galat: '',
+                            /*
+                             * Kiriman diproses SATU per satu walau gelembungnya
+                             * muncul serentak. Dua fetch bersamaan sama-sama
+                             * membawa 'after' yang sama, jadi keduanya menerima
+                             * kedua pesan itu — gelembungnya jadi dobel.
+                             */
+                            antre: [],
 
                             init() {
                                 this.keBawah(true);
@@ -246,6 +270,7 @@
 
                                     const d = await r.json();
                                     if (d.html) this.tempelHtml(d.html, d.last_id);
+                                    if (d.centang) this.perbaruiCentang(d.centang);
                                 } catch (e) { /* jaringan putus sesaat: coba lagi siklus berikutnya */ }
                             },
 
@@ -272,18 +297,73 @@
                                 });
                             },
 
-                            async kirim(form) {
+                            /*
+                             * Kirim optimistis: gelembungnya muncul SEKARANG dengan
+                             * tanda jam, kotak ketik langsung kosong, pengirimannya
+                             * menyusul di belakang layar.
+                             *
+                             * Menahan layar sampai server menjawab membuat balasan
+                             * beruntun terasa tersendat, dan selama menunggu admin
+                             * tidak punya bukti tombolnya sudah kena — itu yang
+                             * memancing kirim dua kali.
+                             */
+                            kirim(form) {
+                                const ta = form.querySelector('textarea[name="teks"]');
+                                const teks = (ta?.value ?? '').trim();
+                                const berkas = [...(form.querySelector('input[type="file"]')?.files ?? [])];
+
+                                if (!teks && berkas.length === 0) return;
+
+                                // Isi form dibekukan SEBELUM dikosongkan — FormData
+                                // menyalin nilainya saat ini juga, jadi reset() di
+                                // bawah tidak ikut mengosongkan muatan yang antre.
+                                const data = new FormData(form);
+
+                                /*
+                                 * Kunci sekali-kirim, dipakai ulang apa adanya oleh
+                                 * "Coba lagi". Kalau kegagalannya cuma jawaban yang
+                                 * hilang di jaringan, percobaan kedua dikenali server
+                                 * dan pelanggan tidak menerima pesan yang sama dua kali.
+                                 *
+                                 * randomUUID hanya ada di konteks aman (https/localhost);
+                                 * cadangannya tetap cukup unik untuk umur 10 menit.
+                                 */
+                                data.set('kirim_key', crypto.randomUUID
+                                    ? crypto.randomUUID()
+                                    : Date.now() + '-' + Math.random().toString(36).slice(2));
+
+                                this.galat = '';
+                                const gelembung = this.gelembungSementara(teks, berkas);
+
+                                form.reset();
+                                form.dispatchEvent(new CustomEvent('balasan-terkirim'));
+                                this.keBawah();
+
+                                this.antre.push({ data, gelembung, form });
+                                this.pompa();
+                            },
+
+                            async pompa() {
                                 if (this.sibuk) return;
                                 this.sibuk = true;
-                                this.galat = '';
 
-                                const data = new FormData(form);
-                                data.append('after', this.terakhir);
+                                while (this.antre.length) {
+                                    await this.kirimSatu(this.antre.shift());
+                                }
+
+                                this.sibuk = false;
+                            },
+
+                            async kirimSatu(tugas) {
+                                // 'after' diisi saat GILIRANNYA tiba, bukan saat
+                                // diantrekan: pesan sebelum ini mungkin sudah
+                                // menggeser id terakhir.
+                                tugas.data.set('after', this.terakhir);
 
                                 try {
-                                    const r = await fetch(form.action, {
+                                    const r = await fetch(tugas.form.action, {
                                         method: 'POST',
-                                        body: data,
+                                        body: tugas.data,
                                         headers: {
                                             'Accept': 'application/json',
                                             'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
@@ -300,18 +380,162 @@
                                          * sebenarnya, kalau tidak admin buntu.
                                          */
                                         const rinci = d.errors ? Object.values(d.errors).flat().join(' ') : '';
-                                        this.galat = d.error || rinci || d.message || 'Gagal mengirim. Coba lagi.';
+                                        this.tandaiGagal(tugas, d.error || rinci || d.message || 'Gagal mengirim. Coba lagi.');
                                         return;
                                     }
 
+                                    this.buangSementara(tugas.gelembung);
                                     if (d.html) this.tempelHtml(d.html, d.last_id);
-                                    form.reset();
-                                    form.dispatchEvent(new CustomEvent('balasan-terkirim'));
                                     this.keBawah();
                                 } catch (e) {
-                                    this.galat = 'Jaringan bermasalah — pesan belum terkirim.';
-                                } finally {
-                                    this.sibuk = false;
+                                    this.tandaiGagal(tugas, 'Jaringan bermasalah — pesan belum terkirim.');
+                                }
+                            },
+
+                            /*
+                             * Gelembung sementara sengaja dibuat ringkas: umurnya
+                             * beberapa detik lalu DIGANTI gelembung asli dari server.
+                             * Yang wajib sama cuma bentuk luarnya — teks, lampiran,
+                             * jam — supaya pergantiannya tidak terlihat berkedip.
+                             */
+                            gelembungSementara(teks, berkas) {
+                                const luar = document.createElement('div');
+                                luar.className = 'flex justify-end';
+
+                                const kotak = document.createElement('div');
+                                kotak.className = 'max-w-[80%] rounded-lg px-3 py-2 text-sm shadow-sm bg-[#d9fdd3]';
+                                luar.appendChild(kotak);
+
+                                if (teks) {
+                                    const t = document.createElement('div');
+                                    t.className = 'whitespace-pre-wrap';
+                                    // textContent, bukan innerHTML: apa pun yang diketik
+                                    // admin tidak boleh berubah jadi markup.
+                                    t.textContent = teks;
+                                    kotak.appendChild(t);
+                                }
+
+                                const urls = [];
+                                for (const f of berkas) {
+                                    const baris = document.createElement('div');
+                                    baris.className = 'mt-2';
+
+                                    if ((f.type || '').startsWith('image/')) {
+                                        const url = URL.createObjectURL(f);
+                                        urls.push(url);
+                                        const img = document.createElement('img');
+                                        img.src = url;
+                                        img.className = 'rounded border max-h-56';
+                                        baris.appendChild(img);
+                                    } else {
+                                        const keping = document.createElement('div');
+                                        keping.className = 'inline-block border border-gray-300 rounded px-2 py-1 text-xs';
+                                        keping.textContent = '⬇ ' + f.name;
+                                        baris.appendChild(keping);
+                                    }
+                                    kotak.appendChild(baris);
+                                }
+                                // Dilepas saat gelembungnya dibuang; kalau dilepas
+                                // begitu gambar termuat, gambar yang sama gagal
+                                // digambar ulang saat kolomnya diukur ulang.
+                                luar._urlSementara = urls;
+
+                                const kaki = document.createElement('div');
+                                kaki.className = 'mt-1 text-[11px] text-gray-500 flex items-center gap-2 justify-end';
+                                kaki.dataset.kaki = '1';
+                                const jam = document.createElement('span');
+                                jam.textContent = this.jamSekarang();
+                                kaki.appendChild(jam);
+                                kaki.appendChild(this.centangBaru());
+                                kotak.appendChild(kaki);
+
+                                this.$refs.tambahan.insertAdjacentElement('beforebegin', luar);
+                                this.kosong = false;
+                                return luar;
+                            },
+
+                            centangBaru() {
+                                return document.getElementById('crm-centang-cetak')
+                                    .content.firstElementChild.cloneNode(true);
+                            },
+
+                            buangSementara(el) {
+                                (el._urlSementara || []).forEach(u => URL.revokeObjectURL(u));
+                                el.remove();
+                            },
+
+                            /*
+                             * Gelembung yang gagal DIBIARKAN di layar, bukan dihapus
+                             * diam-diam: setelah kotak ketik dikosongkan, isinya satu-
+                             * satunya salinan yang tersisa. Tombolnya mengantre ulang
+                             * muatan yang sama persis, jadi lampiran tak perlu
+                             * dipilih ulang.
+                             */
+                            tandaiGagal(tugas, pesan) {
+                                this.galat = pesan;
+
+                                const kotak = tugas.gelembung.firstElementChild;
+                                const kaki  = kotak.querySelector('[data-kaki]');
+
+                                kotak.classList.add('ring-1', 'ring-red-300');
+                                kaki.querySelector('.crm-centang')?.remove();
+                                if (kaki.querySelector('[data-ulang]')) return;
+
+                                const tanda = document.createElement('span');
+                                tanda.className = 'text-red-600';
+                                tanda.textContent = 'gagal';
+                                kaki.appendChild(tanda);
+
+                                const ulang = document.createElement('button');
+                                ulang.type = 'button';
+                                ulang.dataset.ulang = '1';
+                                ulang.className = 'text-emerald-700 underline hover:no-underline';
+                                ulang.textContent = 'Coba lagi';
+                                ulang.addEventListener('click', () => {
+                                    ulang.remove();
+                                    tanda.remove();
+                                    kotak.classList.remove('ring-1', 'ring-red-300');
+                                    kaki.appendChild(this.centangBaru());
+                                    this.galat = '';
+                                    this.antre.push(tugas);
+                                    this.pompa();
+                                });
+                                kaki.appendChild(ulang);
+                            },
+
+                            /*
+                             * Bentuknya dicocokkan dengan gelembung server ('d M Y H:i')
+                             * supaya barisnya tidak berubah saat yang sementara diganti
+                             * yang asli.
+                             */
+                            jamSekarang() {
+                                const bulan = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+                                const d = new Date();
+                                const p = n => String(n).padStart(2, '0');
+
+                                return p(d.getDate()) + ' ' + bulan[d.getMonth()] + ' ' + d.getFullYear()
+                                     + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+                            },
+
+                            /*
+                             * Centang naik jadi dua lalu biru lewat polling yang sudah
+                             * jalan — status 'delivered'/'read' datang dari webhook
+                             * BERMENIT setelah pesannya dikirim, jadi tidak mungkin
+                             * ikut jawaban kirim.
+                             */
+                            perbaruiCentang(daftar) {
+                                const judul = {
+                                    terkirim: 'Terkirim ke WhatsApp',
+                                    sampai:   'Sampai di HP pelanggan',
+                                    dibaca:   'Dibaca pelanggan',
+                                };
+
+                                for (const [id, status] of Object.entries(daftar)) {
+                                    const el = this.$refs.gulir.querySelector('[data-mid="' + id + '"] .crm-centang');
+                                    if (!el || el.dataset.status === status) continue;
+
+                                    el.dataset.status = status;
+                                    el.title = judul[status] ?? '';
                                 }
                             },
                         };
