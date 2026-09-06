@@ -19,6 +19,30 @@
         </div>
     @endif
 
+    {{-- Pita MERAH, bukan kuning: layar yang webhook-nya patah terlihat persis
+         seperti hari sepi — mengirim tetap berhasil, daftar tetap rapi, cuma
+         tidak ada yang masuk. Tanpa peringatan sekeras ini, yang hilang bukan
+         cuma centang melainkan balasan pelanggan, dan kejadian yang gagal
+         diantar tidak pernah dikirim ulang vendor. --}}
+    @if($webhookSepi ?? null)
+        <div class="shrink-0 mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <b>Pesan masuk kemungkinan tidak sampai.</b>
+            Balasan terakhir dikirim {{ $webhookSepi['kirim_terakhir']->diffForHumans() }}, tapi sejak itu
+            @if($webhookSepi['sejak'])
+                tidak ada kabar apa pun dari WhatsApp — yang terakhir masuk
+                {{ $webhookSepi['sejak']->translatedFormat('d M Y H:i') }}.
+            @else
+                belum pernah ada kabar masuk dari WhatsApp sama sekali.
+            @endif
+            <div class="mt-1 text-xs">
+                Penyebab tersering: endpoint webhook dimatikan vendor setelah gagal diantar berkali-kali
+                (biasanya karena ERP sempat mati).
+                <a href="{{ route('settings.crm.edit') }}" class="underline font-medium">Buka Pengaturan CRM</a>
+                lalu tekan <b>Aktifkan Webhook</b>.
+            </div>
+        </div>
+    @endif
+
     <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
 
         <div class="lg:col-span-3 min-h-0">

@@ -667,6 +667,86 @@ class InboxTriaseTest extends TestCase
         $this->assertArrayNotHasKey($masuk->id, $centang);
     }
 
+    /* ------------------------------------------------- peringatan webhook sepi */
+
+    /**
+     * Webhook yang patah TIDAK boleh diam.
+     *
+     * Ini satu-satunya kerusakan CRM yang layarnya tetap terlihat sehat:
+     * mengirim tetap berhasil, daftar tetap rapi, cuma tidak ada yang masuk —
+     * sama persis dengan hari sepi. Kejadian yang gagal diantar tidak pernah
+     * dikirim ulang vendor, jadi tiap jam diamnya adalah balasan pelanggan yang
+     * hilang untuk selamanya.
+     */
+    public function test_peringatan_muncul_saat_pesan_keluar_tidak_pernah_dapat_kabar_balik(): void
+    {
+        config(['crm.dry_run' => false]);
+        $percakapan = $this->percakapan();
+
+        $pesan = $this->pesanKeluar($percakapan, 'terkirim');
+        $pesan->forceFill(['sent_at' => now()->subHours(3)])->save();
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.index'))
+            ->assertOk()
+            ->assertSee('Pesan masuk kemungkinan tidak sampai');
+    }
+
+    /** Ada kabar SESUDAH kiriman terakhir = jalurnya hidup; jangan berisik. */
+    public function test_peringatan_diam_saat_kabar_balik_datang_setelah_kiriman(): void
+    {
+        config(['crm.dry_run' => false]);
+        $percakapan = $this->percakapan();
+
+        $pesan = $this->pesanKeluar($percakapan, 'terkirim');
+        $pesan->forceFill(['sent_at' => now()->subHours(3)])->save();
+
+        \App\Modules\CRM\Models\CrmWebhookEvent::create([
+            'idempotency_key' => 'uji-kabar-1',
+            'event_type'      => 'message.sent',
+            'payload'         => [],
+            'created_at'      => now()->subHours(2),
+            'updated_at'      => now()->subHours(2),
+        ]);
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.index'))
+            ->assertOk()
+            ->assertDontSee('Pesan masuk kemungkinan tidak sampai');
+    }
+
+    /**
+     * Mode aman tidak memancing kabar balik apa pun, jadi pemeriksanya dilewati.
+     * Pita yang menyala terus berhenti dipercaya justru saat betulan rusak.
+     */
+    public function test_peringatan_diam_saat_mode_aman_menyala(): void
+    {
+        config(['crm.dry_run' => true]);
+        $percakapan = $this->percakapan();
+
+        $pesan = $this->pesanKeluar($percakapan, 'terkirim');
+        $pesan->forceFill(['sent_at' => now()->subHours(3)])->save();
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.index'))
+            ->assertOk()
+            ->assertDontSee('Pesan masuk kemungkinan tidak sampai');
+    }
+
+    /** Kiriman yang baru saja keluar belum layak dicurigai. */
+    public function test_peringatan_diam_untuk_kiriman_yang_masih_baru(): void
+    {
+        config(['crm.dry_run' => false]);
+        $percakapan = $this->percakapan();
+
+        $this->pesanKeluar($percakapan, 'terkirim');
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.index'))
+            ->assertOk()
+            ->assertDontSee('Pesan masuk kemungkinan tidak sampai');
+    }
+
     /**
      * Cetakan centang WAJIB ada di halaman thread.
      *

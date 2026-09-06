@@ -10,6 +10,7 @@ use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSnippet;
 use App\Modules\CRM\Services\CrmReplyService;
+use App\Modules\CRM\Services\WebhookHealthService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -89,6 +90,14 @@ class CrmInboxController extends Controller
             'pemilikOpsi' => User::assignable()->orderBy('name')->get(['id', 'name']),
             'dryRun'     => app(ChatManager::class)->isDryRun(),
             'dibatasiKeSaya' => $dibatasiKeSaya,
+            /*
+             * Mode aman memang tidak memancing kabar balik apa pun, jadi
+             * pemeriksanya dilewati — kalau tidak, pita peringatan menyala
+             * terus dan berhenti dipercaya justru saat betulan rusak.
+             */
+            'webhookSepi' => app(ChatManager::class)->isDryRun()
+                ? null
+                : app(WebhookHealthService::class)->sepi(),
             /*
              * Jumlah yang BELUM dipegang siapa pun ditampilkan ke semua orang.
              * Tanpa angka ini, chat pelanggan baru (yang memang lahir tanpa
