@@ -110,6 +110,13 @@ Route::prefix('erp')->group(function () {
         // Template & memulai percakapan baru. WAJIB didaftarkan SEBELUM rute
         // '/{conversation}' di bawah, kalau tidak 'template' & 'baru' ditangkap
         // sebagai id percakapan dan halamannya 404.
+        // Master label percakapan. Sama seperti 'template', WAJIB berdiri
+        // sebelum '/{conversation}' supaya 'label' tidak ditangkap sebagai id.
+        Route::get   ('/label',          [\App\Modules\CRM\Controllers\CrmLabelController::class, 'index'])->name('label.index');
+        Route::post  ('/label',          [\App\Modules\CRM\Controllers\CrmLabelController::class, 'store'])->name('label.store');
+        Route::post  ('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'update'])->name('label.update');
+        Route::delete('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'destroy'])->name('label.destroy');
+
         Route::get ('/template',      [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'index'])->name('template.index');
         Route::get ('/template/baru', [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'formBaru'])->name('template.baru');
         Route::post('/template/mulai',[\App\Modules\CRM\Controllers\CrmTemplateController::class, 'mulai'])->name('template.mulai');

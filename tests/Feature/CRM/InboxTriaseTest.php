@@ -481,7 +481,7 @@ class InboxTriaseTest extends TestCase
             // Yang dijaga keberadaan PINTASANNYA, bukan bunyi kalimatnya —
             // kolom kiri sempit, jadi teksnya memang diringkas.
             ->assertSee('pemilik=belum', false)
-            ->assertSee('belum dioper');
+            ->assertSee('Belum dioper');
     }
 
     /** Tautan langsung ke thread milik orang lain tetap boleh dibuka. */

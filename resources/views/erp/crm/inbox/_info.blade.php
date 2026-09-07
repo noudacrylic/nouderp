@@ -3,12 +3,14 @@
 <div class="space-y-3">
         <div class="border border-gray-200 rounded p-3 space-y-3">
             <div>
-                <div class="text-xs text-gray-500 mb-1">Bola di siapa</div>
+                <div class="text-xs text-gray-500 mb-1">Label
+                    <a href="{{ route('crm.label.index') }}" class="ml-1 text-emerald-700 hover:underline">atur</a>
+                </div>
                 <form method="POST" action="{{ route('crm.inbox.antrean', $terpilih->id) }}" class="flex gap-2">
                     @csrf
                     <select name="queue_state" class="border rounded px-2 py-1.5 text-sm w-full">
-                        @foreach(\App\Modules\CRM\Models\CrmConversation::QUEUE_LABELS as $key => $label)
-                            <option value="{{ $key }}" @selected($terpilih->queue_state === $key)>{{ $label }}</option>
+                        @foreach(\App\Modules\CRM\Models\CrmLabel::terpakai() as $l)
+                            <option value="{{ $l->kode }}" @selected($terpilih->queue_state === $l->kode)>{{ $l->nama }}</option>
                         @endforeach
                     </select>
                     <button class="border border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm">Ubah</button>

@@ -3,66 +3,116 @@
      sesempit ini memaksa gulir mendatar dan tak ada yang mau memakainya. --}}
 <div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden">
 
-    <div class="shrink-0 px-3 pt-3 pb-2 border-b border-gray-200 bg-gray-50">
+    {{-- Kepala kolom: TIGA baris, tidak lebih.
 
-    <a href="{{ route('crm.template.baru') }}"
-       class="block mb-2 text-center bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-medium">
-        Chat Baru
-    </a>
+         Urutannya menirukan cara pertanyaan datang: "chat siapa" (baris 1),
+         "chat yang mana" (baris 2, pencarian), lalu "yang bagaimana" (baris 3,
+         label). Sebelumnya kepala ini enam baris dan memakan sepertiga tinggi
+         layar — di kolom chat, tinggi yang dimakan penyaring adalah percakapan
+         yang tidak terlihat. --}}
+    @php
+        $akuId       = auth()->id();
+        $pemilikKini = request('pemilik');
+        $milikSaya   = $pemilikKini === (string) $akuId;
+        $semuaOrang  = $pemilikKini === 'semua';
+        $agenLain    = $pemilikKini && ! $milikSaya && ! $semuaOrang;   // id agen lain / 'belum'
+        $tabAktif    = 'px-2 py-1 rounded border border-emerald-600 bg-emerald-600 text-white';
+        $tabDiam     = 'px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50';
+    @endphp
 
-    {{-- Antrean berbasis "bola di siapa" — Menunggu Kita sengaja paling depan. --}}
-    @php $antreanAktif = request('antrean'); @endphp
-    <div class="flex flex-wrap gap-1 mb-2 text-xs">
-        <a href="{{ request()->fullUrlWithQuery(['antrean' => null, 'page' => null]) }}"
-           class="px-2 py-1 rounded border {{ $antreanAktif ? 'border-gray-300 bg-white hover:bg-gray-50' : 'border-emerald-600 bg-emerald-600 text-white' }}">
-            Semua
-        </a>
-        @foreach(\App\Modules\CRM\Models\CrmConversation::QUEUE_LABELS as $key => $label)
-            <a href="{{ request()->fullUrlWithQuery(['antrean' => $key, 'page' => null]) }}"
-               class="px-2 py-1 rounded border {{ $antreanAktif === $key ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
-                {{ $label }}
-                <span class="ml-0.5 {{ $antreanAktif === $key ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlah[$key] ?? 0 }}</span>
-            </a>
-        @endforeach
+    <div class="shrink-0 px-2 pt-2 pb-2 border-b border-gray-200 bg-gray-50 space-y-1.5">
+
+    {{-- ---------------------------------------------------- 1. chat siapa --}}
+    <div class="grid grid-cols-3 gap-1 text-xs">
+        <a href="{{ request()->fullUrlWithQuery(['pemilik' => 'semua', 'page' => null]) }}"
+           class="text-center truncate {{ $semuaOrang ? $tabAktif : $tabDiam }}"
+           title="Semua chat, milik siapa pun">Semua</a>
+
+        <a href="{{ request()->fullUrlWithQuery(['pemilik' => $akuId, 'page' => null]) }}"
+           class="text-center truncate {{ $milikSaya || $dibatasiKeSaya ? $tabAktif : $tabDiam }}"
+           title="Chat yang saya pegang">Milik Saya</a>
+
+        @if($lihatSemua ?? false)
+            {{-- Dropdown agen lain hanya untuk super admin: bagi agen biasa,
+                 daftar nama rekan tidak menambah apa pun selain kebingungan —
+                 yang ia butuh cuma miliknya dan yang belum dipegang siapa pun. --}}
+            <form method="GET" class="contents">
+                <input type="hidden" name="antrean" value="{{ request('antrean') }}">
+                <input type="hidden" name="belum_dibaca" value="{{ request('belum_dibaca') }}">
+                <input type="hidden" name="status" value="{{ request('status') }}">
+                <input type="hidden" name="search" value="{{ request('search') }}">
+                <select name="pemilik" onchange="this.form.submit()"
+                        class="border rounded px-1 py-1 text-xs w-full {{ $agenLain ? 'border-emerald-600 text-emerald-700 font-medium' : 'border-gray-300' }}">
+                    <option value="">Agen lain…</option>
+                    <option value="belum" @selected($pemilikKini === 'belum')>Belum dioper ({{ $belumDioper }})</option>
+                    @foreach($pemilikOpsi as $u)
+                        @continue($u->id === $akuId)
+                        <option value="{{ $u->id }}" @selected($pemilikKini === (string) $u->id)>{{ $u->name }}</option>
+                    @endforeach
+                </select>
+            </form>
+        @else
+            <a href="{{ request()->fullUrlWithQuery(['pemilik' => 'belum', 'page' => null]) }}"
+               class="text-center truncate {{ $pemilikKini === 'belum' ? $tabAktif : $tabDiam }}"
+               title="Chat yang belum dipegang siapa pun">Belum dioper {{ $belumDioper }}</a>
+        @endif
     </div>
 
-    @if($dibatasiKeSaya)
-        <div class="mb-2 rounded border border-gray-300 bg-gray-50 px-2 py-1.5 text-xs text-gray-700">
-            Chat yang Anda pegang ·
-            <a href="{{ request()->fullUrlWithQuery(['pemilik' => 'semua', 'page' => null]) }}" class="text-emerald-700 hover:underline">semua agen</a>
-            @if($belumDioper > 0)
-                ·
-                <a href="{{ request()->fullUrlWithQuery(['pemilik' => 'belum', 'page' => null]) }}" class="text-emerald-700 hover:underline">
-                    {{ $belumDioper }} belum dioper
-                </a>
-            @endif
-        </div>
-    @elseif($belumDioper > 0 && request('pemilik') !== 'belum')
-        <div class="mb-2 text-xs">
-            <a href="{{ request()->fullUrlWithQuery(['pemilik' => 'belum', 'page' => null]) }}"
-               class="text-emerald-700 hover:underline">{{ $belumDioper }} chat belum dioper</a>
-        </div>
-    @endif
-
-    <form method="GET" class="mb-2 space-y-2">
+    {{-- ------------------------------------------------------ 2. pencarian --}}
+    <form method="GET" class="flex gap-1">
         <input type="hidden" name="antrean" value="{{ request('antrean') }}">
-        <input type="text" name="search" value="{{ request('search') }}" placeholder="Cari nomor atau nama…"
+        <input type="hidden" name="belum_dibaca" value="{{ request('belum_dibaca') }}">
+        <input type="hidden" name="status" value="{{ request('status') }}">
+        <input type="hidden" name="pemilik" value="{{ request('pemilik') }}">
+        <input type="text" name="search" value="{{ request('search') }}"
+               placeholder="Cari nama, nomor, atau nomor pesanan…"
                class="border rounded px-2 py-1.5 text-sm w-full">
-        <div class="flex gap-2">
-            <select name="pemilik" class="filter-auto border rounded px-2 py-1.5 text-xs w-full">
-                <option value="">Pemilik: bawaan</option>
-                <option value="semua" @selected(request('pemilik')==='semua')>Semua agen</option>
-                <option value="belum" @selected(request('pemilik')==='belum')>Belum dioper</option>
-                @foreach($pemilikOpsi as $u)
-                    <option value="{{ $u->id }}" @selected(request('pemilik')==(string) $u->id)>{{ $u->name }}</option>
-                @endforeach
-            </select>
-            <select name="status" class="filter-auto border rounded px-2 py-1.5 text-xs">
-                <option value="aktif" @selected(request('status','aktif')==='aktif')>Aktif</option>
-                <option value="arsip" @selected(request('status')==='arsip')>Arsip</option>
-            </select>
-        </div>
+        @if(request('search'))
+            <a href="{{ request()->fullUrlWithQuery(['search' => null, 'page' => null]) }}"
+               class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100"
+               title="Hapus pencarian">✕</a>
+        @endif
+        <a href="{{ route('crm.template.baru') }}"
+           class="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2.5 py-1.5 text-sm font-medium leading-5"
+           title="Mulai chat baru">＋</a>
     </form>
+
+    {{-- ---------------------------------------------------------- 3. label --}}
+    @php
+        $antreanAktif     = request('antrean');
+        $belumDibacaAktif = request()->boolean('belum_dibaca');
+        $semuaAktif       = ! $antreanAktif && ! $belumDibacaAktif;
+        $chip             = 'px-1.5 py-0.5 rounded border text-[11px] leading-4';
+    @endphp
+    <div class="flex flex-wrap gap-1">
+        <a href="{{ request()->fullUrlWithQuery(['antrean' => null, 'belum_dibaca' => null, 'page' => null]) }}"
+           class="{{ $chip }} {{ $semuaAktif ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
+            Semua <span class="{{ $semuaAktif ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlahSemua }}</span>
+        </a>
+
+        {{-- "Belum dibaca" berdiri di sebelah "Semua", bukan di tengah label:
+             ini bukan keadaan chat, melainkan pekerjaan yang belum disentuh. --}}
+        <a href="{{ request()->fullUrlWithQuery(['belum_dibaca' => 1, 'antrean' => null, 'page' => null]) }}"
+           class="{{ $chip }} {{ $belumDibacaAktif ? 'border-red-600 bg-red-600 text-white' : ($jumlahBelumDibaca > 0 ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100' : 'border-gray-300 bg-white hover:bg-gray-50') }}">
+            Belum dibaca <span class="{{ $belumDibacaAktif ? 'text-red-100' : '' }}">{{ $jumlahBelumDibaca }}</span>
+        </a>
+
+        @foreach($labelOpsi as $l)
+            <a href="{{ request()->fullUrlWithQuery(['antrean' => $l->kode, 'belum_dibaca' => null, 'page' => null]) }}"
+               class="{{ $chip }} {{ $antreanAktif === $l->kode ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
+                {{ $l->nama }}
+                <span class="{{ $antreanAktif === $l->kode ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlah[$l->kode] ?? 0 }}</span>
+            </a>
+        @endforeach
+
+        {{-- Arsip jadi chip, bukan dropdown sendiri: ia dipakai sesekali dan
+             tidak pantas menempati satu baris penuh selamanya. --}}
+        @php $diArsip = request('status') === 'arsip'; @endphp
+        <a href="{{ request()->fullUrlWithQuery(['status' => $diArsip ? null : 'arsip', 'page' => null]) }}"
+           class="{{ $chip }} {{ $diArsip ? 'border-gray-700 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50' }}">
+            Arsip
+        </a>
+    </div>
 
     </div>
 
@@ -90,16 +140,8 @@
                     </div>
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-1">
-                    @php
-                        $qCls = match($p->queue_state) {
-                            \App\Modules\CRM\Models\CrmConversation::QUEUE_KITA      => 'bg-orange-100 text-orange-700',
-                            \App\Modules\CRM\Models\CrmConversation::QUEUE_PELANGGAN => 'bg-blue-100 text-blue-700',
-                            \App\Modules\CRM\Models\CrmConversation::QUEUE_DESAIN    => 'bg-purple-100 text-purple-700',
-                            default                                                  => 'bg-gray-100 text-gray-600',
-                        };
-                    @endphp
-                    <span class="px-1.5 py-0.5 rounded text-[10px] {{ $qCls }}">
-                        {{ \App\Modules\CRM\Models\CrmConversation::QUEUE_LABELS[$p->queue_state] ?? $p->queue_state }}
+                    <span class="px-1.5 py-0.5 rounded text-[10px] {{ \App\Modules\CRM\Models\CrmLabel::kelas($p->queue_state) }}">
+                        {{ \App\Modules\CRM\Models\CrmLabel::nama($p->queue_state) }}
                     </span>
                     @if($p->owner)
                         <span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600">{{ $p->owner->name }}</span>

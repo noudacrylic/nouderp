@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
+use App\Modules\CRM\Models\CrmLabel;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSnippet;
 use App\Modules\CRM\Services\CrmReplyService;
@@ -61,8 +62,9 @@ class CrmInboxController extends Controller
      */
     private function ruangKerja(Request $request, ?CrmConversation $terpilih = null): array
     {
-        $antrean = $request->string('antrean')->toString();
-        $status  = $request->string('status')->toString() ?: CrmConversation::STATUS_AKTIF;
+        $antrean     = $request->string('antrean')->toString();
+        $status      = $request->string('status')->toString() ?: CrmConversation::STATUS_AKTIF;
+        $belumDibaca = $request->boolean('belum_dibaca');
 
         /*
          * Daftar BAWAAN untuk agen non-super-admin hanya berisi chat miliknya —
@@ -72,30 +74,52 @@ class CrmInboxController extends Controller
          * begitu: saat satu orang berhalangan, chat pelanggannya tidak boleh
          * jadi tak terlihat siapa pun.
          */
-        $pengguna      = $request->user();
-        $lihatSemua    = (bool) $pengguna?->isSuperAdmin();
+        $pengguna       = $request->user();
+        $lihatSemua     = (bool) $pengguna?->isSuperAdmin();
         $memilihSendiri = $request->filled('pemilik') || $request->filled('search');
         $dibatasiKeSaya = ! $lihatSemua && ! $memilihSendiri && $pengguna;
 
-        $percakapan = CrmConversation::query()
+        /*
+         * Saringan PEMILIK + status dipisah jadi satu penutup karena dipakai
+         * dua kali: sekali untuk daftarnya, sekali untuk angka di tiap tombol
+         * label. Kalau angkanya dihitung dari seluruh percakapan sementara
+         * daftarnya cuma milik satu agen, tombol bertuliskan "12" akan membuka
+         * daftar berisi dua — dan angkanya berhenti dipercaya.
+         */
+        $dasar = function () use ($status, $request, $dibatasiKeSaya, $pengguna) {
+            return CrmConversation::query()
+                ->where('status', $status)
+                // 'semua' = permintaan sadar untuk melepas pembatas bawaan, jadi ia
+                // TIDAK menyaring apa pun. Tanpa cabang ini nilainya jatuh ke
+                // where('owner_user_id', 'semua') dan daftarnya kosong melompong.
+                ->when($request->filled('pemilik') && $request->pemilik !== 'semua', function ($q) use ($request) {
+                    $request->pemilik === 'belum'
+                        ? $q->whereNull('owner_user_id')
+                        : $q->where('owner_user_id', $request->pemilik);
+                })
+                ->when($dibatasiKeSaya, fn ($q) => $q->where('owner_user_id', $pengguna->id));
+        };
+
+        $percakapan = $dasar()
             ->with(['customer:id,name', 'owner:id,name'])
-            ->where('status', $status)
             ->when($antrean, fn ($q) => $q->where('queue_state', $antrean))
-            // 'semua' = permintaan sadar untuk melepas pembatas bawaan, jadi ia
-            // TIDAK menyaring apa pun. Tanpa cabang ini nilainya jatuh ke
-            // where('owner_user_id', 'semua') dan daftarnya kosong melompong.
-            ->when($request->filled('pemilik') && $request->pemilik !== 'semua', function ($q) use ($request) {
-                $request->pemilik === 'belum'
-                    ? $q->whereNull('owner_user_id')
-                    : $q->where('owner_user_id', $request->pemilik);
-            })
-            ->when($dibatasiKeSaya, fn ($q) => $q->where('owner_user_id', $pengguna->id))
+            ->when($belumDibaca, fn ($q) => $q->where('unread_count', '>', 0))
             ->when($request->filled('search'), function ($q) use ($request) {
                 $cari = trim((string) $request->search);
                 $q->where(fn ($w) => $w
                     ->where('contact_key', 'like', "%{$cari}%")
                     ->orWhere('display_name', 'like', "%{$cari}%")
-                    ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$cari}%")));
+                    ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$cari}%"))
+                    /*
+                     * Nomor pesanan ikut dicari lewat pelanggannya — pertanyaan
+                     * yang datang ke admin hampir selalu berbunyi "SO-xxxx itu
+                     * chat yang mana?", dan tanpa jalur ini ia harus buka menu
+                     * Penjualan dulu cuma untuk mendapatkan nomor teleponnya.
+                     */
+                    ->orWhereIn('customer_id', SalesOrder::query()
+                        ->where('order_number', 'like', "%{$cari}%")
+                        ->whereNotNull('customer_id')
+                        ->select('customer_id')));
             })
             // Yang belum pernah ada pesannya pun harus muncul; ORDER BY kolom
             // nullable menaruhnya di ujung, jadi dipakai created_at sebagai jaring.
@@ -105,7 +129,11 @@ class CrmInboxController extends Controller
 
         return [
             'percakapan' => $percakapan,
-            'jumlah'     => $this->jumlahPerAntrean(),
+            'jumlah'     => $this->jumlahPerLabel($dasar),
+            'labelOpsi'  => CrmLabel::terpakai(),
+            'jumlahSemua'      => (clone $dasar())->count(),
+            'jumlahBelumDibaca'=> (clone $dasar())->where('unread_count', '>', 0)->count(),
+            'lihatSemua'       => $lihatSemua,
             'pemilikOpsi' => User::assignable()->orderBy('name')->get(['id', 'name']),
             'dryRun'     => app(ChatManager::class)->isDryRun(),
             'dibatasiKeSaya' => $dibatasiKeSaya,
@@ -966,12 +994,12 @@ class CrmInboxController extends Controller
     public function antrean(Request $request, CrmConversation $conversation)
     {
         $data = $request->validate([
-            'queue_state' => ['required', Rule::in(array_keys(CrmConversation::QUEUE_LABELS))],
+            'queue_state' => ['required', Rule::in(array_keys(CrmLabel::peta()))],
         ]);
 
         $conversation->forceFill(['queue_state' => $data['queue_state']])->save();
 
-        return back()->with('success', 'Antrean diperbarui: ' . CrmConversation::QUEUE_LABELS[$data['queue_state']] . '.');
+        return back()->with('success', 'Label diperbarui: ' . CrmLabel::nama($data['queue_state']) . '.');
     }
 
     public function arsip(CrmConversation $conversation)
@@ -1014,18 +1042,20 @@ class CrmInboxController extends Controller
         );
     }
 
-    /** Jumlah percakapan aktif per antrean — angka di tab. */
-    private function jumlahPerAntrean(): array
+    /**
+     * Jumlah percakapan per label, MENGIKUTI saringan pemilik & status yang
+     * sedang aktif — angka di tombol harus sama dengan isi yang dibukanya.
+     */
+    private function jumlahPerLabel(\Closure $dasar): array
     {
-        $jumlah = CrmConversation::query()
-            ->where('status', CrmConversation::STATUS_AKTIF)
+        $jumlah = $dasar()
             ->selectRaw('queue_state, COUNT(*) as total')
             ->groupBy('queue_state')
             ->pluck('total', 'queue_state')
             ->all();
 
-        return collect(CrmConversation::QUEUE_LABELS)
-            ->map(fn ($label, $key) => (int) ($jumlah[$key] ?? 0))
+        return CrmLabel::terpakai()
+            ->mapWithKeys(fn ($l) => [$l->kode => (int) ($jumlah[$l->kode] ?? 0)])
             ->all();
     }
 }
