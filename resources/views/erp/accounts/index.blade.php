@@ -219,7 +219,7 @@
                                 <tbody>
                                     @foreach($accounts as $acc)
                                         @php
-                                            $isUsed = $acc->journalLines->count() > 0;
+                                            $isUsed = ($acc->journal_lines_count ?? 0) > 0;
                                         @endphp
                                         <tr class="account-row {{ !$acc->is_active ? 'table-secondary opacity-75' : '' }}"
                                             data-code="{{ strtolower($acc->code) }}"

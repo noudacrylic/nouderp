@@ -45,9 +45,14 @@ class AccountController extends Controller
         // & Neraca. journalLines() relasi polos ikut menghitung baris jurnal void,
         // sehingga akun dgn jurnal yang di-void (mis. koreksi settlement marketplace)
         // menampilkan saldo salah di halaman ini padahal ledger sudah benar.
-        $query = Account::with(['journalLines' => function ($q) {
-            $q->whereHas('journal', fn ($j) => $j->where('status', 'posted'));
-        }])->orderBy('code');
+        // Saldo diagregasi di SQL (bukan memuat 75rb+ baris jurnal ke memori),
+        // halaman ini sempat 500 "memory exhausted 128M" karena eager-load relasi polos.
+        $postedOnly = fn ($q) => $q->whereHas('journal', fn ($j) => $j->where('status', 'posted'));
+
+        $query = Account::withCount('journalLines')
+            ->withSum(['journalLines as posted_debit' => $postedOnly], 'debit')
+            ->withSum(['journalLines as posted_credit' => $postedOnly], 'credit')
+            ->orderBy('code');
 
         if ($status === 'active') {
             $query->where('is_active', true);
@@ -56,8 +61,8 @@ class AccountController extends Controller
         }
 
         $accounts = $query->get()->map(function ($account) {
-            $debit = $account->journalLines->sum('debit');
-            $credit = $account->journalLines->sum('credit');
+            $debit = (float) ($account->posted_debit ?? 0);
+            $credit = (float) ($account->posted_credit ?? 0);
 
             $balance = $account->normal_balance === 'debit'
                 ? $debit - $credit
