@@ -121,6 +121,11 @@ Route::prefix('erp')->group(function () {
         // Pemicu manual pengunduh lampiran; penjadwal bisa mati (di lokal tak
         // pernah hidup), dan lampiran tak boleh menggantung tanpa jalan keluar.
         Route::post  ('/lampiran/unduh',     [\App\Modules\CRM\Controllers\CrmInboxController::class, 'unduhLampiran'])->name('lampiran.unduh');
+        // Teruskan pesan: pencarian tujuan + pengirimannya. Sama seperti
+        // 'template' di atas, keduanya WAJIB berdiri sebelum '/{conversation}'
+        // supaya 'percakapan' dan 'pesan' tidak ditangkap sebagai id chat.
+        Route::get ('/percakapan',           [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariPercakapan'])->name('percakapan.cari');
+        Route::post('/pesan/{message}/teruskan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'teruskan'])->name('pesan.teruskan');
         Route::post  ('/snippet',            [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanSnippet'])->name('snippet.store');
         Route::delete('/snippet/{snippet}',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusSnippet'])->name('snippet.destroy');
 

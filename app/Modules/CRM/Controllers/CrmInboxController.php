@@ -30,6 +30,22 @@ use Illuminate\Validation\Rule;
  */
 class CrmInboxController extends Controller
 {
+    /**
+     * Relasi yang WAJIB ikut termuat setiap kali gelembung digambar.
+     *
+     * Dikumpulkan jadi satu tetapan karena gelembungnya disusun dari TIGA
+     * tempat (muat halaman, jawaban kirim, polling pesan baru) memakai partial
+     * yang sama. Kalau daftarnya ditulis ulang di masing-masing, satu yang
+     * tertinggal menghasilkan N+1 diam-diam — kutipan tiap gelembung ditanya
+     * satu per satu ke basis data, dan cuma terasa saat thread sudah panjang.
+     */
+    private const MUATAN_GELEMBUNG = [
+        'attachments',
+        'dikutipWamid.attachments',
+        'dikutipVendor.attachments',
+        'diteruskanDari.conversation.customer:id,name',
+    ];
+
     public function index(Request $request)
     {
         return view('erp.crm.inbox.workspace', $this->ruangKerja($request));
@@ -120,7 +136,7 @@ class CrmInboxController extends Controller
                 ->count(),
             'terpilih' => $terpilih,
             'pesan'    => $terpilih
-                ? $terpilih->messages()->with('attachments')->orderBy('sent_at')->orderBy('id')->get()
+                ? $terpilih->messages()->with(self::MUATAN_GELEMBUNG)->orderBy('sent_at')->orderBy('id')->get()
                 : collect(),
             'snippets' => $this->snippets(),
             'isian'    => CrmSnippet::ISIAN,
@@ -175,7 +191,9 @@ class CrmInboxController extends Controller
             // layar tanpa satu kata pun ("ini maksud saya"), dan menuntut teks
             // di situ cuma memaksa mengetik titik.
             'teks'     => 'required_without:gambar|nullable|string|max:4000',
-            'reply_to' => 'nullable|string|max:120',
+            // wamid Meta panjangnya ~80 karakter; batasnya dilonggarkan supaya
+            // kutipan tidak ditolak validasi hanya karena bentuk id berubah.
+            'reply_to' => 'nullable|string|max:255',
             // Penanda sekali-kirim dari kotak ketik; lihat penjaga di bawah.
             'kirim_key' => 'nullable|string|max:64',
             'gambar'   => 'nullable|array|max:5',
@@ -298,7 +316,7 @@ class CrmInboxController extends Controller
             }
 
             $baru = $conversation->messages()
-                ->with('attachments')
+                ->with(self::MUATAN_GELEMBUNG)
                 ->where('id', '>', (int) $request->input('after', 0))
                 ->orderBy('sent_at')->orderBy('id')
                 ->get();
@@ -313,6 +331,89 @@ class CrmInboxController extends Controller
         return $hasil['success']
             ? back()->with('success', 'Balasan terkirim.')
             : back()->withInput()->with('error', $hasil['error']);
+    }
+
+    /**
+     * Cari percakapan tujuan untuk "Teruskan".
+     *
+     * Jendela 24 jam tiap tujuan ikut dilaporkan supaya yang tertutup bisa
+     * ditandai DI DAFTARNYA, bukan setelah admin memilih lalu ditolak. Yang
+     * tertutup tetap ditampilkan (kadang justru itu yang dicari, untuk tahu
+     * kenapa tidak bisa), tapi tombolnya mati.
+     */
+    public function cariPercakapan(Request $request)
+    {
+        $cari    = trim((string) $request->input('q', ''));
+        $kecuali = (int) $request->input('kecuali', 0);
+
+        $daftar = CrmConversation::query()
+            ->with('customer:id,name')
+            ->where('status', CrmConversation::STATUS_AKTIF)
+            // Percakapan asalnya sendiri tidak boleh jadi tujuan — meneruskan
+            // pesan ke chat yang sama cuma menggandakannya di tempat semula.
+            ->when($kecuali, fn ($q) => $q->whereKeyNot($kecuali))
+            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('contact_key', 'like', "%{$cari}%")
+                ->orWhere('display_name', 'like', "%{$cari}%")
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$cari}%"))))
+            ->orderByRaw('COALESCE(last_message_at, created_at) DESC')
+            ->limit(20)
+            ->get();
+
+        return response()->json([
+            'hasil' => $daftar->map(fn (CrmConversation $p) => [
+                'id'      => $p->id,
+                'nama'    => $p->namaTampil(),
+                'nomor'   => $p->contact_key,
+                'terbuka' => $p->windowIsOpen(),
+            ])->all(),
+        ]);
+    }
+
+    /**
+     * Teruskan satu pesan ke percakapan lain.
+     *
+     * Tujuannya diterima sebagai id percakapan, BUKAN nomor telepon: nomor
+     * bebas berarti layar ini diam-diam jadi alat kirim ke nomor mana pun,
+     * lengkap dengan seluruh jebakan jendela 24 jam yang sudah dijaga di
+     * tempat lain.
+     */
+    public function teruskan(Request $request, CrmMessage $message, CrmReplyService $balasan)
+    {
+        $data = $request->validate([
+            'tujuan_id' => ['required', 'integer', Rule::exists('crm_conversations', 'id')],
+        ], [
+            'tujuan_id.required' => 'Pilih dulu percakapan tujuannya.',
+        ]);
+
+        $tujuan = CrmConversation::findOrFail($data['tujuan_id']);
+
+        if ($tujuan->is($message->conversation)) {
+            return $this->jawabTeruskan($request, false, 'Tidak bisa meneruskan pesan ke percakapan yang sama.');
+        }
+
+        $hasil = $balasan->teruskan($message, $tujuan, $request->user()?->id);
+
+        return $this->jawabTeruskan(
+            $request,
+            (bool) $hasil['success'],
+            $hasil['success']
+                ? 'Pesan diteruskan ke ' . $tujuan->namaTampil() . '.'
+                : (string) $hasil['error'],
+            $tujuan
+        );
+    }
+
+    private function jawabTeruskan(Request $request, bool $sukses, string $pesan, ?CrmConversation $tujuan = null)
+    {
+        if ($request->wantsJson()) {
+            return response()->json(
+                ['success' => $sukses, 'pesan' => $pesan, 'tujuan_url' => $tujuan && $sukses ? route('crm.inbox.show', $tujuan->id) : null],
+                $sukses ? 200 : 422
+            );
+        }
+
+        return back()->with($sukses ? 'success' : 'error', $pesan);
     }
 
     /**
@@ -441,7 +542,7 @@ class CrmInboxController extends Controller
         $setelah = (int) $request->input('after', 0);
 
         $baru = $conversation->messages()
-            ->with('attachments')
+            ->with(self::MUATAN_GELEMBUNG)
             ->where('id', '>', $setelah)
             ->orderBy('sent_at')->orderBy('id')
             ->get();

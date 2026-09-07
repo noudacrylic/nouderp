@@ -157,6 +157,58 @@ class CrmMediaStore
     }
 
     /**
+     * Salin lampiran ke pesan lain — dipakai saat meneruskan.
+     *
+     * Berkasnya benar-benar DIGANDAKAN, bukan sekadar ditunjuk ulang, karena
+     * dua alasan yang sama-sama mengunci:
+     *
+     *  1. Rute media publik (satu-satunya alamat yang bisa diambil Meta) hanya
+     *     mau menyajikan lampiran pesan KELUAR. Meneruskan foto kiriman
+     *     pelanggan berarti berkasnya harus punya baris keluar sendiri, kalau
+     *     tidak vendor menerima URL yang menjawab 404.
+     *  2. Penyapu lampiran membuang berkas lama menurut umur percakapan
+     *     ASALNYA. Kalau yang diteruskan cuma menumpang berkas yang sama, chat
+     *     tujuan kehilangan gambarnya saat chat asal disapu — padahal di sana
+     *     ia baru saja dikirim.
+     *
+     * Null bila berkas sumbernya memang sudah tidak ada di disk.
+     */
+    public function salin(CrmMessage $tujuan, CrmAttachment $sumber): ?CrmAttachment
+    {
+        if (! $sumber->tersimpanAman() || ! Storage::disk($sumber->disk)->exists($sumber->path)) {
+            return null;
+        }
+
+        $lampiran = CrmAttachment::create([
+            'message_id'    => $tujuan->id,
+            'original_name' => $sumber->original_name,
+            'mime'          => $sumber->mime,
+            'size_bytes'    => $sumber->size_bytes,
+        ]);
+
+        $disk = (string) config('crm.media_disk', 'local');
+        $path = $this->path($lampiran, $sumber->mime);
+
+        // Salinan lintas disk tetap harus jalan: sumbernya bisa duduk di disk
+        // lama kalau config media_disk pernah diganti.
+        $ok = Storage::disk($disk)->put($path, Storage::disk($sumber->disk)->get($sumber->path));
+
+        if (! $ok) {
+            $lampiran->delete();
+
+            return null;
+        }
+
+        $lampiran->forceFill([
+            'disk'          => $disk,
+            'path'          => $path,
+            'downloaded_at' => now(),
+        ])->save();
+
+        return $lampiran;
+    }
+
+    /**
      * Nama berkas dibentuk dari id lampiran, BUKAN dari nama kiriman pelanggan.
      * Nama kiriman ikut disimpan di kolomnya sendiri untuk ditampilkan; memakainya
      * sebagai path membuka jalan tabrakan nama dan '../' dari pihak luar.

@@ -110,6 +110,19 @@ class CrmConversation extends Model
     }
 
     /**
+     * Nama yang dipakai di layar untuk percakapan ini.
+     *
+     * Urutannya sengaja: nama pelanggan ERP (paling bermakna) → nama profil
+     * WhatsApp → nomor telepon sebagai jaring terakhir. Dikumpulkan di sini
+     * karena urutan yang sama sudah tersebar di kepala thread, daftar kiri, dan
+     * pemilih tujuan teruskan — dan yang tercecer cepat jadi berbeda-beda.
+     */
+    public function namaTampil(): string
+    {
+        return $this->customer->name ?? $this->display_name ?? $this->contact_key;
+    }
+
+    /**
      * Jendela 24 jam masih terbuka?
      *
      * Dipakai layar Inbox untuk menandai thread SEBELUM admin mengetik panjang

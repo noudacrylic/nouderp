@@ -115,6 +115,8 @@ class IncomingWebhookService
             ->orWhere('wam_id', $id)
             ->update(['status' => $status, 'error' => $error]);
 
+        $this->rekamWamid($id, $data);
+
         /*
          * Notifikasi yang sudah terlanjur ditandai "terkirim" ternyata ditolak
          * di hilir (nomor tidak punya WhatsApp, saldo habis, template ditolak).
@@ -126,6 +128,34 @@ class IncomingWebhookService
                 ->get()
                 ->each(fn (CrmOutboxMessage $baris) => $baris->tandaiGagal($error));
         }
+    }
+
+    /**
+     * Catat wamid milik pesan KELUAR.
+     *
+     * Ini satu-satunya tempat kita bisa mendapatkannya. Jawaban vendor saat
+     * mengirim hanya membawa id internalnya sendiri (bentuk `cmtp…`), sedangkan
+     * yang dikenal WhatsApp adalah wamid (`wamid.HBg…`) — dan tanpa wamid,
+     * pesan kita sendiri TIDAK BISA DIKUTIP: penanda balasan yang memakai id
+     * vendor diterima API tanpa keluhan lalu diabaikan diam-diam, jadi
+     * pesannya sampai polos tanpa kutipan dan tak ada gejala apa pun di ERP.
+     *
+     * Wamid-nya menumpang peristiwa 'delivered'/'read' (bukan 'sent', yang
+     * belum membawanya), jadi pesan yang belum sampai memang belum bisa
+     * dikutip — dan itu memang benar: pesan yang belum sampai belum punya
+     * wamid di sisi Meta.
+     */
+    private function rekamWamid(string $id, array $data): void
+    {
+        $wamid = data_get($data, 'raw.id');
+
+        if (! is_string($wamid) || ! str_starts_with($wamid, 'wamid.')) {
+            return;
+        }
+
+        CrmMessage::where('provider_message_id', $id)
+            ->whereNull('wam_id')
+            ->update(['wam_id' => $wamid]);
     }
 
     /* ---------------------------------------------------------------- bantuan */

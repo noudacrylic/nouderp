@@ -2,12 +2,76 @@
      halaman, dan penambahan lewat fetch (kirim & pesan masuk). Kalau
      markupnya digandakan, gelembung baru cepat berbeda dari yang lama. --}}
 @foreach($pesan as $m)
-                @php $masuk = $m->isInbound(); @endphp
+                @php
+                    $masuk = $m->isInbound();
+                    /*
+                     * Kutipan menunjuk pesan lewat WAMID Meta. Pesan keluar baru
+                     * punya wamid setelah SAMPAI (ia menumpang webhook
+                     * 'delivered'), jadi tombol Balas pada pesan yang baru saja
+                     * dikirim memang belum muncul — dan itu jujur: mengutipnya
+                     * sekarang akan diterima API lalu diabaikan diam-diam.
+                     */
+                    $bisaDikutip     = $m->bisaDikutip();
+                    $bisaDiteruskan  = trim((string) $m->content) !== '' || $m->attachments->isNotEmpty();
+                    $adaAksi         = $bisaDikutip || $bisaDiteruskan;
+                @endphp
                 {{-- data-mid: pegangan buat menaikkan centang jadi dua/biru saat
                      webhook 'delivered'/'read' datang, tanpa menggambar ulang
-                     gelembungnya. --}}
-                <div class="flex {{ $masuk ? 'justify-start' : 'justify-end' }}" data-mid="{{ $m->id }}">
-                    <div class="max-w-[80%] rounded-lg px-3 py-2 text-sm shadow-sm {{ $masuk ? 'bg-white' : 'bg-[#d9fdd3]' }}">
+                     gelembungnya.
+                     data-pmid & kawan-kawan: bekal menu aksi (balas/teruskan),
+                     yang dikelola SATU penangan di thread — bukan Alpine per
+                     gelembung, karena gelembung datang belakangan lewat
+                     insertAdjacentHTML dan tak selalu ikut terinisialisasi. --}}
+                <div class="group flex {{ $masuk ? 'justify-start' : 'justify-end' }}"
+                     data-mid="{{ $m->id }}"
+                     data-masuk="{{ $masuk ? 1 : 0 }}"
+                     data-pmid="{{ $m->idKutipan() }}"
+                     data-nama="{{ $m->labelPengirim() }}"
+                     data-ringkas="{{ $m->ringkas() }}"
+                     data-bisa-kutip="{{ $bisaDikutip ? 1 : 0 }}"
+                     data-bisa-terus="{{ $bisaDiteruskan ? 1 : 0 }}">
+                    {{-- Ruang kanan disisakan saat tombolnya ada (pr-8), bukan padding
+                         seragam: chevron melayang di atas isi gelembung, dan pada
+                         pesan yang baris pertamanya panjang huruf-hurufnya masuk ke
+                         bawah tombol lalu terbaca setengah. --}}
+                    <div class="relative max-w-[80%] rounded-lg py-2 text-sm shadow-sm {{ $adaAksi ? 'pl-3 pr-8' : 'px-3' }} {{ $masuk ? 'bg-white' : 'bg-[#d9fdd3]' }}">
+                        {{-- Chevron aksi di pojok kanan atas, seperti WhatsApp.
+                             SELALU terlihat, tidak menunggu kursor: kalau disembunyikan
+                             sampai disentuh, tak ada satu pun petunjuk bahwa gelembungnya
+                             bisa ditindaklanjuti — orang harus menemukannya secara tak
+                             sengaja. Warnanya dibuat samar supaya thread tetap tenang,
+                             lalu menegas saat kursor lewat. --}}
+                        @if($adaAksi)
+                            <button type="button" data-aksi-pesan
+                                    title="Balas atau teruskan"
+                                    aria-label="Aksi pesan"
+                                    class="absolute top-0.5 right-0.5 w-6 h-6 flex items-center justify-center rounded
+                                           text-gray-400 hover:text-gray-700 group-hover:text-gray-600
+                                           hover:bg-black/10 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/>
+                                </svg>
+                            </button>
+                        @endif
+
+                        @if($m->forwarded_from_message_id)
+                            {{-- Label "Diteruskan" ini HANYA ada di ERP. Cloud API tidak
+                                 punya penanda teruskan, jadi di HP penerima pesan ini
+                                 tampak seperti pesan biasa — jangan sampai ada yang
+                                 mengira pelanggan ikut melihat asalnya. --}}
+                            <div class="mb-1 flex items-center gap-1 text-[11px] text-gray-500 italic"
+                                 title="Disalin dari chat {{ $m->diteruskanDari?->conversation?->namaTampil() ?? 'lain' }} — pelanggan tidak melihat keterangan ini">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5-5 5M6 7l5 5-5 5"/>
+                                </svg>
+                                Diteruskan
+                            </div>
+                        @endif
+
+                        @if($m->reply_to_wam_id)
+                            @include('erp.crm.inbox._kutipan', ['dikutip' => $m->pesanDikutip()])
+                        @endif
+
                         @if($m->content)
                             <div class="whitespace-pre-wrap">{{ $m->content }}</div>
                         @endif

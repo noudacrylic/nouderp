@@ -129,6 +129,29 @@
                     <input type="file" name="gambar[]" multiple class="hidden"
                            x-ref="berkas" @change="dariDialog()">
 
+                    {{-- Strip kutipan: pesan yang sedang dibalas, tepat di atas kotak
+                         ketik seperti WhatsApp. Nilainya ikut FormData lewat input
+                         tersembunyi, jadi jalur kirim yang sudah ada tak perlu tahu
+                         apa-apa soal kutipan.
+
+                         Yang dikirim id VENDOR pesannya, bukan id baris kita —
+                         itu yang dimengerti vendor pada 'reply_to_message_id'. --}}
+                    <input type="hidden" name="reply_to" :value="kutipan?.pmid ?? ''">
+
+                    <div x-show="kutipan" x-cloak
+                         class="mb-2 flex items-stretch gap-2 rounded bg-gray-100 border border-gray-200 overflow-hidden">
+                        <div class="w-1 shrink-0"
+                             :class="kutipan?.masuk ? 'bg-sky-500' : 'bg-emerald-500'"></div>
+                        <div class="min-w-0 flex-1 py-1.5">
+                            <div class="text-[11px] font-semibold"
+                                 :class="kutipan?.masuk ? 'text-sky-700' : 'text-emerald-700'"
+                                 x-text="kutipan?.nama"></div>
+                            <div class="text-[12px] text-gray-600 truncate" x-text="kutipan?.ringkas"></div>
+                        </div>
+                        <button type="button" @click="batalKutip()" title="Batalkan kutipan (Esc)"
+                                class="px-3 text-gray-400 hover:text-gray-700 text-lg leading-none">&times;</button>
+                    </div>
+
                     {{-- Pratinjau gambar di ATAS baris ketik, seperti WhatsApp:
                          yang mau dikirim terlihat lebih dulu, baru kalimatnya. --}}
                     {{-- Gambar tampil sebagai thumbnail, berkas lain sebagai keping
@@ -253,6 +276,116 @@
                     </div>
                 </form>
 
+            @else
+                {{-- Kotak ketik sengaja TIDAK ditampilkan saat jendela tertutup: kalau
+                     ditampilkan, admin mengetik panjang lalu ditolak, dan langsung
+                     kembali membalas dari HP. --}}
+                <div class="rounded border border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700">
+                    <b>Jendela 24 jam tertutup.</b> Pesan bebas tidak bisa dikirim; hanya template berbayar
+                    yang boleh keluar. Cara termurah membukanya kembali: pelanggan membalas lebih dulu.
+                </div>
+            @endif
+
+            {{-- ------------------------------------------------- menu aksi pesan --}}
+            {{-- SATU menu dipakai bergantian oleh semua gelembung, dipindah ke
+                 posisi gelembung yang diklik. Menaruh menunya sendiri-sendiri di
+                 tiap gelembung berarti ratusan simpul tersembunyi di thread
+                 panjang, dan tiap gelembung baru dari polling harus ikut
+                 diinisialisasi Alpine — persis hal yang tidak dijamin untuk
+                 markup yang disisipkan lewat insertAdjacentHTML. --}}
+            <div x-show="menuAksi.tampil" x-cloak
+                 @click.outside="tutupMenu()"
+                 :style="`top:${menuAksi.y}px; left:${menuAksi.x}px`"
+                 class="absolute z-40 w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+                @if($terbuka)
+                    <button type="button" x-show="menuAksi.bisaKutip" @click="mulaiKutip()"
+                            class="w-full text-left px-3 py-2 hover:bg-gray-50">Balas</button>
+                @endif
+                <button type="button" x-show="menuAksi.bisaTerus" @click="bukaTeruskan()"
+                        class="w-full text-left px-3 py-2 hover:bg-gray-50">Teruskan</button>
+            </div>
+
+            {{-- --------------------------------------------------- dialog teruskan --}}
+            <div x-show="teruskan.tampil" x-cloak
+                 class="absolute inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
+                <div class="w-full max-w-md bg-white rounded-lg shadow-xl flex flex-col max-h-full"
+                     @click.outside="tutupTeruskan()">
+                    <div class="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-gray-200">
+                        <div class="font-semibold text-sm">Teruskan ke…</div>
+                        <button type="button" @click="tutupTeruskan()"
+                                class="ml-auto px-2 text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+                    </div>
+
+                    {{-- Isi yang akan diteruskan ditampilkan ulang di sini. Menu aksi
+                         muncul di tempat kursor kebetulan berada, dan tanpa cuplikan
+                         ini gampang sekali meneruskan gelembung yang salah. --}}
+                    <div class="shrink-0 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                        <div class="text-[11px] font-semibold text-gray-500" x-text="teruskan.nama"></div>
+                        <div class="text-[12px] text-gray-700 truncate" x-text="teruskan.ringkas"></div>
+                    </div>
+
+                    <div class="shrink-0 p-2 border-b border-gray-200">
+                        <input type="text" x-model="teruskan.kata" x-ref="cariTujuan"
+                               @input.debounce.400ms="muatTujuan()"
+                               placeholder="Cari nama pelanggan atau nomor…"
+                               class="w-full border rounded px-2 py-1.5 text-sm">
+                    </div>
+
+                    <div x-show="teruskan.galat" x-cloak x-text="teruskan.galat"
+                         class="shrink-0 mx-2 mt-2 rounded border border-red-300 bg-red-50 px-2 py-1.5 text-xs text-red-700"></div>
+
+                    <div x-show="teruskan.sukses" x-cloak x-text="teruskan.sukses"
+                         class="shrink-0 mx-2 mt-2 rounded border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-700"></div>
+
+                    <div class="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-100">
+                        <template x-if="teruskan.sibuk">
+                            <p class="px-3 py-3 text-xs text-gray-400">Mencari…</p>
+                        </template>
+
+                        <template x-for="t in teruskan.hasil" :key="t.id">
+                            <div class="flex items-center gap-2 px-3 py-2">
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-sm font-medium truncate" x-text="t.nama"></div>
+                                    <div class="text-[11px] text-gray-500 truncate">
+                                        <span x-text="t.nomor"></span>
+                                        <span x-show="!t.terbuka" class="text-amber-700"> &middot; jendela tertutup</span>
+                                    </div>
+                                </div>
+                                {{-- Tujuan berjendela tertutup tetap DITAMPILKAN tapi
+                                     tombolnya mati: kalau disembunyikan, admin mengira
+                                     kontaknya tidak ada dan mencarinya berulang kali. --}}
+                                <button type="button" @click="kirimTeruskan(t)"
+                                        :disabled="!t.terbuka || teruskan.mengirim"
+                                        :title="t.terbuka ? 'Teruskan ke sini' : 'Jendela 24 jam tertutup — hanya template berbayar yang boleh keluar'"
+                                        class="shrink-0 text-white text-xs px-3 py-1.5 rounded"
+                                        :class="t.terbuka && !teruskan.mengirim
+                                            ? 'bg-emerald-600 hover:bg-emerald-700'
+                                            : 'bg-gray-300 cursor-not-allowed'">
+                                    Teruskan
+                                </button>
+                            </div>
+                        </template>
+
+                        <template x-if="!teruskan.sibuk && teruskan.hasil.length === 0">
+                            <p class="px-3 py-3 text-xs text-gray-500">Tidak ada percakapan yang cocok.</p>
+                        </template>
+                    </div>
+
+                    {{-- Diucapkan terus terang di layar, bukan cuma di kode: yang
+                         diteruskan tiba sebagai pesan BIASA. Cloud API tidak punya
+                         penanda "Diteruskan", jadi label itu hanya ada di ERP. --}}
+                    <div class="shrink-0 px-3 py-2 border-t border-gray-200 text-[11px] text-gray-500">
+                        Isinya dikirim ulang sebagai pesan baru — penerima tidak melihat keterangan “Diteruskan”.
+                    </div>
+                </div>
+            </div>
+
+            {{-- Skrip thread berdiri DI LUAR cabang jendela-terbuka.
+                 Dulu ia duduk di dalamnya, dan akibatnya threadCrm() tidak pernah
+                 terdefinisi di percakapan yang jendelanya tertutup — x-data di
+                 wadah paling luar gagal, lalu polling, gulir-ke-bawah, dan menu
+                 aksi pesan ikut mati diam-diam persis di thread lama yang paling
+                 sering dibuka untuk MENERUSKAN isinya. --}}
                 <script>
                     /*
                      * Thread hidup: mengirim tanpa memuat ulang halaman, dan
@@ -289,6 +422,29 @@
                             seret: false,
                             dalamSeret: 0,
 
+                            /*
+                             * Pesan yang sedang dikutip (balas). Disimpan di sini,
+                             * bukan di komposer, karena yang MEMICUNYA adalah menu
+                             * di gelembung — dan gelembung hidup di luar form.
+                             * Nilainya mengalir ke input tersembunyi 'reply_to'
+                             * lewat rantai lingkup Alpine, jadi jalur kirim yang
+                             * sudah ada tidak perlu diubah sama sekali.
+                             */
+                            kutipan: null,
+
+                            /* Satu menu aksi, dipinjamkan ke gelembung yang diklik. */
+                            menuAksi: {
+                                tampil: false, x: 0, y: 0,
+                                mid: null, pmid: '', nama: '', ringkas: '',
+                                masuk: false, bisaKutip: false, bisaTerus: false,
+                            },
+
+                            teruskan: {
+                                tampil: false, mid: null, nama: '', ringkas: '',
+                                kata: '', hasil: [], sibuk: false, mengirim: false,
+                                galat: '', sukses: '',
+                            },
+
                             init() {
                                 this.keBawah(true);
                                 // Jeda 8 detik: cukup terasa "langsung" untuk chat
@@ -299,6 +455,195 @@
                                 document.addEventListener('visibilitychange', () => {
                                     if (!document.hidden) this.tarik();
                                 });
+
+                                /*
+                                 * Klik gelembung ditangani SATU pendengar di wadah
+                                 * penggulir, bukan atribut per gelembung. Gelembung
+                                 * baru datang dari insertAdjacentHTML (kirim &
+                                 * polling); markup yang disisipkan begitu tidak
+                                 * dijamin ikut dipasangi penangan, dan gejalanya
+                                 * paling menipu: tombol yang terlihat normal tapi
+                                 * diam saja — hanya pada pesan yang baru masuk.
+                                 */
+                                this.$refs.gulir.addEventListener('click', (e) => {
+                                    const tombol = e.target.closest('[data-aksi-pesan]');
+
+                                    if (tombol) {
+                                        // Ditahan di sini supaya klik yang MEMBUKA menu
+                                        // tidak ikut terbaca sebagai klik di luar menu,
+                                        // yang langsung menutupnya lagi.
+                                        e.stopPropagation();
+                                        this.bukaMenu(tombol);
+                                        return;
+                                    }
+
+                                    const kutipan = e.target.closest('[data-lompat]');
+                                    if (kutipan) this.lompatKe(kutipan.dataset.lompat);
+                                });
+
+                                this.$refs.gulir.addEventListener('keydown', (e) => {
+                                    if (e.key !== 'Enter' && e.key !== ' ') return;
+
+                                    const kutipan = e.target.closest('[data-lompat]');
+                                    if (kutipan) { e.preventDefault(); this.lompatKe(kutipan.dataset.lompat); }
+                                });
+
+                                // Menu ditaruh pada koordinat tetap; begitu threadnya
+                                // digulir, tempatnya tidak lagi menunjuk gelembung
+                                // mana pun.
+                                this.$refs.gulir.addEventListener('scroll', () => this.tutupMenu(), { passive: true });
+
+                                document.addEventListener('keydown', (e) => {
+                                    if (e.key !== 'Escape') return;
+
+                                    // Satu Esc membatalkan satu hal, mulai dari yang
+                                    // paling atas — kebiasaan yang sama di mana pun.
+                                    if (this.teruskan.tampil) return this.tutupTeruskan();
+                                    if (this.menuAksi.tampil) return this.tutupMenu();
+                                    if (this.kutipan) this.batalKutip();
+                                });
+                            },
+
+                            /* ------------------------------------------ aksi pesan */
+
+                            bukaMenu(tombol) {
+                                const baris = tombol.closest('[data-mid]');
+                                if (!baris) return;
+
+                                const rt = tombol.getBoundingClientRect();
+                                const rw = this.$root.getBoundingClientRect();
+
+                                // Ukuran menu dipatok, bukan diukur: saat hendak
+                                // dipindahkan ia masih tersembunyi dan tingginya nol,
+                                // jadi pengukuran hidup selalu menjawab 0 dan menunya
+                                // tersangkut di tepi bawah.
+                                const lebar = 160;
+                                const tinggi = 84;
+
+                                let x = rt.right - rw.left - lebar;
+                                let y = rt.bottom - rw.top + 4;
+
+                                // Gelembung di dasar layar: menunya dibalik ke atas
+                                // supaya tidak terpotong tepi thread.
+                                if (y + tinggi > rw.height) y = rt.top - rw.top - tinggi - 4;
+
+                                this.menuAksi = {
+                                    tampil: true,
+                                    x: Math.max(8, Math.min(x, rw.width - lebar - 8)),
+                                    y: Math.max(8, y),
+                                    mid: baris.dataset.mid,
+                                    pmid: baris.dataset.pmid || '',
+                                    nama: baris.dataset.nama || '',
+                                    ringkas: baris.dataset.ringkas || '',
+                                    masuk: baris.dataset.masuk === '1',
+                                    bisaKutip: baris.dataset.bisaKutip === '1',
+                                    bisaTerus: baris.dataset.bisaTerus === '1',
+                                };
+                            },
+
+                            tutupMenu() { this.menuAksi.tampil = false; },
+
+                            mulaiKutip() {
+                                this.kutipan = {
+                                    pmid: this.menuAksi.pmid,
+                                    nama: this.menuAksi.nama,
+                                    ringkas: this.menuAksi.ringkas,
+                                    masuk: this.menuAksi.masuk,
+                                };
+                                this.tutupMenu();
+                                this.$nextTick(() => this.$root.querySelector('textarea[name=\'teks\']')?.focus());
+                            },
+
+                            batalKutip() { this.kutipan = null; },
+
+                            /*
+                             * Melompat ke pesan yang dikutip, lalu menyorotnya sebentar.
+                             * Tanpa sorotan, lompatan di tengah thread padat terasa
+                             * seperti layar yang bergeser sendiri tanpa sebab.
+                             */
+                            lompatKe(mid) {
+                                const el = this.$refs.gulir.querySelector('[data-mid=\'' + mid + '\']');
+
+                                if (!el) return;
+
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                                const kotak = el.firstElementChild;
+                                kotak.classList.add('ring-2', 'ring-emerald-400');
+                                setTimeout(() => kotak.classList.remove('ring-2', 'ring-emerald-400'), 1400);
+                            },
+
+                            /* -------------------------------------------- teruskan */
+
+                            bukaTeruskan() {
+                                this.teruskan = {
+                                    tampil: true,
+                                    mid: this.menuAksi.mid,
+                                    nama: this.menuAksi.nama,
+                                    ringkas: this.menuAksi.ringkas,
+                                    kata: '', hasil: [], sibuk: false, mengirim: false,
+                                    galat: '', sukses: '',
+                                };
+                                this.tutupMenu();
+                                this.muatTujuan();
+                                this.$nextTick(() => this.$refs.cariTujuan?.focus());
+                            },
+
+                            tutupTeruskan() { this.teruskan.tampil = false; },
+
+                            async muatTujuan() {
+                                this.teruskan.sibuk = true;
+
+                                try {
+                                    const url = '{{ route('crm.percakapan.cari') }}?kecuali={{ $terpilih->id }}&q='
+                                              + encodeURIComponent(this.teruskan.kata);
+                                    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                                    const d = await r.json();
+                                    this.teruskan.hasil = d.hasil ?? [];
+                                } catch (e) {
+                                    this.teruskan.galat = 'Gagal memuat daftar tujuan — periksa koneksi.';
+                                }
+
+                                this.teruskan.sibuk = false;
+                            },
+
+                            async kirimTeruskan(tujuan) {
+                                if (!tujuan.terbuka || this.teruskan.mengirim) return;
+
+                                this.teruskan.mengirim = true;
+                                this.teruskan.galat = '';
+
+                                try {
+                                    const r = await fetch('/erp/crm/pesan/' + this.teruskan.mid + '/teruskan', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Accept': 'application/json',
+                                            'Content-Type': 'application/json',
+                                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                                        },
+                                        body: JSON.stringify({ tujuan_id: tujuan.id }),
+                                    });
+                                    const d = await r.json().catch(() => ({}));
+
+                                    if (!r.ok || !d.success) {
+                                        this.teruskan.galat = d.pesan || 'Gagal meneruskan pesan.';
+                                    } else {
+                                        /*
+                                         * Kabar berhasil ditahan sebentar DI DIALOG,
+                                         * bukan lewat toast: pesannya mendarat di
+                                         * percakapan LAIN, jadi tidak ada apa pun di
+                                         * layar ini yang berubah sebagai bukti — dan
+                                         * dialog yang cuma menutup diri gampang
+                                         * dikira gagal, lalu diulang.
+                                         */
+                                        this.teruskan.sukses = d.pesan || 'Pesan diteruskan.';
+                                        setTimeout(() => this.tutupTeruskan(), 1500);
+                                    }
+                                } catch (e) {
+                                    this.teruskan.galat = 'Jaringan bermasalah — pesan belum diteruskan.';
+                                }
+
+                                this.teruskan.mengirim = false;
                             },
 
                             destroy() { clearInterval(this.jam); },
@@ -414,9 +759,18 @@
                                     : Date.now() + '-' + Math.random().toString(36).slice(2));
 
                                 this.galat = '';
-                                const gelembung = this.gelembungSementara(teks, berkas);
+                                /*
+                                 * Kutipannya dipegang dulu sebelum dilepas: gelembung
+                                 * sementara harus memperlihatkan kotak kutipan yang
+                                 * sama seperti gelembung asli nanti, kalau tidak
+                                 * gelembungnya terlihat "melompat" bertambah tinggi
+                                 * saat jawaban server datang.
+                                 */
+                                const kutipan = this.kutipan;
+                                const gelembung = this.gelembungSementara(teks, berkas, kutipan);
 
                                 form.reset();
+                                this.batalKutip();
                                 form.dispatchEvent(new CustomEvent('balasan-terkirim'));
                                 this.keBawah();
 
@@ -479,13 +833,18 @@
                              * Yang wajib sama cuma bentuk luarnya — teks, lampiran,
                              * jam — supaya pergantiannya tidak terlihat berkedip.
                              */
-                            gelembungSementara(teks, berkas) {
+                            gelembungSementara(teks, berkas, kutipan = null) {
                                 const luar = document.createElement('div');
                                 luar.className = 'flex justify-end';
 
                                 const kotak = document.createElement('div');
-                                kotak.className = 'max-w-[80%] rounded-lg px-3 py-2 text-sm shadow-sm bg-[#d9fdd3]';
+                                // pr-8 menyamai gelembung server, yang menyisakan ruang
+                                // untuk chevron aksi. Tanpa itu teksnya bergeser sesaat
+                                // ketika gelembung sementara diganti yang asli.
+                                kotak.className = 'max-w-[80%] rounded-lg pl-3 pr-8 py-2 text-sm shadow-sm bg-[#d9fdd3]';
                                 luar.appendChild(kotak);
+
+                                if (kutipan) kotak.appendChild(this.kutipanBaru(kutipan));
 
                                 if (teks) {
                                     const t = document.createElement('div');
@@ -532,6 +891,40 @@
 
                                 this.$refs.tambahan.insertAdjacentElement('beforebegin', luar);
                                 this.kosong = false;
+                                return luar;
+                            },
+
+                            /*
+                             * Kembaran markup _kutipan.blade.php. Digambar tangan di
+                             * sini karena gelembung sementara memang tidak pernah
+                             * melewati server — dan bentuknya WAJIB sama persis,
+                             * kalau tidak pergantian ke gelembung asli terlihat
+                             * berkedip.
+                             */
+                            kutipanBaru(kutipan) {
+                                const luar = document.createElement('div');
+                                luar.className = 'mb-1.5 flex gap-2 rounded overflow-hidden bg-black/5';
+
+                                const pita = document.createElement('div');
+                                pita.className = 'w-1 shrink-0 ' + (kutipan.masuk ? 'bg-sky-500' : 'bg-emerald-500');
+                                luar.appendChild(pita);
+
+                                const isi = document.createElement('div');
+                                isi.className = 'min-w-0 py-1 pr-2';
+
+                                const nama = document.createElement('div');
+                                nama.className = 'text-[11px] font-semibold '
+                                               + (kutipan.masuk ? 'text-sky-700' : 'text-emerald-700');
+                                nama.textContent = kutipan.nama;
+
+                                const ringkas = document.createElement('div');
+                                ringkas.className = 'text-[12px] text-gray-600 truncate';
+                                ringkas.textContent = kutipan.ringkas;
+
+                                isi.appendChild(nama);
+                                isi.appendChild(ringkas);
+                                luar.appendChild(isi);
+
                                 return luar;
                             },
 
@@ -828,14 +1221,5 @@
                         };
                     }
                 </script>
-            @else
-                {{-- Kotak ketik sengaja TIDAK ditampilkan saat jendela tertutup: kalau
-                     ditampilkan, admin mengetik panjang lalu ditolak, dan langsung
-                     kembali membalas dari HP. --}}
-                <div class="rounded border border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700">
-                    <b>Jendela 24 jam tertutup.</b> Pesan bebas tidak bisa dikirim; hanya template berbayar
-                    yang boleh keluar. Cara termurah membukanya kembali: pelanggan membalas lebih dulu.
-                </div>
-            @endif
     </div>
 </div>

@@ -263,6 +263,135 @@ class CrmReplyService
         );
     }
 
+    /* -------------------------------------------------------------- teruskan */
+
+    /**
+     * Teruskan satu pesan ke percakapan lain.
+     *
+     * BUKAN "forward" WhatsApp yang sesungguhnya: Cloud API tidak punya
+     * endpoint teruskan, dan label "Diteruskan" yang biasa muncul di HP tidak
+     * bisa disetel dari luar. Yang terjadi di sini adalah isinya DIKIRIM ULANG
+     * sebagai pesan baru — di HP penerima ia tampak seperti pesan biasa. Jejak
+     * asalnya hanya hidup di ERP, lewat `forwarded_from_message_id`.
+     *
+     * Kutipan sengaja TIDAK ikut diteruskan. Pesan yang dikutip milik
+     * percakapan lain; membawanya serta berarti memperlihatkan potongan chat
+     * orang lain kepada penerima yang tidak ada hubungannya.
+     *
+     * @return array{success:bool, message:?CrmMessage, error:?string}
+     */
+    public function teruskan(CrmMessage $sumber, CrmConversation $tujuan, ?int $userId = null): array
+    {
+        if (! $tujuan->windowIsOpen()) {
+            return $this->gagal(
+                'Jendela 24 jam ' . $tujuan->namaTampil() . ' sudah tertutup — pesan tidak bisa diteruskan ke sana. '
+                . 'Pakai template penyusul, atau tunggu ia membalas lebih dulu.'
+            );
+        }
+
+        $sumber->loadMissing('attachments');
+
+        $teks     = trim((string) $sumber->content);
+        $lampiran = $sumber->attachments->filter(fn (CrmAttachment $l) => $l->tersimpanAman())->values();
+
+        if ($teks === '' && $lampiran->isEmpty()) {
+            /*
+             * Lampiran yang belum/gagal terunduh sengaja dibedakan dari pesan
+             * yang memang kosong. Yang pertama bisa diperbaiki (tombol unduh
+             * ulang ada di thread); yang kedua tidak ada yang bisa dikerjakan.
+             */
+            return $this->gagal($sumber->attachments->isNotEmpty()
+                ? 'Lampirannya belum tersimpan di ERP, jadi belum bisa diteruskan. Unduh dulu lampirannya, lalu ulangi.'
+                : 'Pesan ini tidak punya isi yang bisa diteruskan.');
+        }
+
+        return $lampiran->isNotEmpty()
+            ? $this->teruskanLampiran($sumber, $tujuan, $teks, $lampiran->all(), $userId)
+            : $this->teruskanTeks($sumber, $tujuan, $teks, $userId);
+    }
+
+    private function teruskanTeks(CrmMessage $sumber, CrmConversation $tujuan, string $teks, ?int $userId): array
+    {
+        $hasil = $this->chat->provider()->sendText([
+            'to'              => $tujuan->contact_key,
+            'text'            => $teks,
+            'channel'         => $tujuan->channel,
+            'phone_number_id' => $tujuan->business_number_id,
+        ]);
+
+        if (! ($hasil['success'] ?? false)) {
+            return $this->gagal((string) ($hasil['error'] ?? 'Gagal meneruskan tanpa keterangan.'));
+        }
+
+        $pesan = $this->catat($tujuan, 'text', $teks, $hasil, $userId, null, $sumber->id);
+
+        $this->geserBola($tujuan);
+
+        return ['success' => true, 'message' => $pesan, 'error' => null];
+    }
+
+    /**
+     * @param  CrmAttachment[]  $lampiran
+     */
+    private function teruskanLampiran(
+        CrmMessage $sumber,
+        CrmConversation $tujuan,
+        string $teks,
+        array $lampiran,
+        ?int $userId
+    ): array {
+        $provider = $this->chat->provider();
+        $terakhir = null;
+
+        foreach ($lampiran as $i => $asal) {
+            // Teks menempel sebagai caption pada berkas PERTAMA saja — sama
+            // seperti jalur kirim gambar biasa; diulang tiap berkas berarti
+            // penerima membaca kalimat yang sama berkali-kali.
+            $caption = $i === 0 ? ($teks ?: null) : null;
+            $jenis   = MediaKind::for((string) $asal->mime);
+
+            $pesan   = $this->catat($tujuan, $jenis['type'], $caption, [], $userId, null, $sumber->id);
+            $salinan = $this->media->salin($pesan, $asal);
+
+            if (! $salinan) {
+                $pesan->delete();
+
+                return $this->gagal('Berkas "' . ($asal->original_name ?: 'lampiran') . '" tidak ada lagi di penyimpanan ERP.');
+            }
+
+            $hasil = $provider->sendMedia([
+                'to'              => $tujuan->contact_key,
+                'type'            => $jenis['type'],
+                'media'           => $this->tautanSementara($salinan),
+                'caption'         => $caption,
+                'nama_berkas'     => $asal->original_name,
+                'channel'         => $tujuan->channel,
+                'phone_number_id' => $tujuan->business_number_id,
+            ]);
+
+            if (! ($hasil['success'] ?? false)) {
+                $salinan->delete();
+                $pesan->delete();
+
+                return $this->gagal(
+                    'Gagal meneruskan ' . ($asal->original_name ?: 'lampiran') . ': ' . ($hasil['error'] ?? 'tanpa keterangan')
+                    . ($terakhir ? ' (lampiran sebelumnya sudah terkirim)' : '')
+                );
+            }
+
+            $pesan->forceFill([
+                'provider_message_id' => $hasil['message_id'] ?? null,
+                'raw'                 => $hasil['raw'] ?? [],
+            ])->save();
+
+            $terakhir = $pesan;
+        }
+
+        $this->geserBola($tujuan);
+
+        return ['success' => true, 'message' => $terakhir, 'error' => null];
+    }
+
     /* ---------------------------------------------------------------- bantuan */
 
     private function catat(
@@ -271,7 +400,8 @@ class CrmReplyService
         ?string $isi,
         array $hasil,
         ?int $userId,
-        ?string $replyTo
+        ?string $replyTo,
+        ?int $diteruskanDari = null
     ): CrmMessage {
         return CrmMessage::create([
             'conversation_id'     => $percakapan->id,
@@ -281,6 +411,7 @@ class CrmReplyService
             'source'              => CrmMessage::SOURCE_ERP,
             'provider_message_id' => $hasil['message_id'] ?? null,
             'reply_to_wam_id'     => $replyTo,
+            'forwarded_from_message_id' => $diteruskanDari,
             'status'              => $this->chat->isDryRun()
                 ? CrmMessage::STATUS_TIDAK_DIKIRIM
                 : 'terkirim',
