@@ -44,7 +44,7 @@ class CrmNotifikasiController extends Controller
     {
         $hasil = $sender->kirimYangJatuhTempo();
 
-        return back()->with('success', "Antrean dikuras: {$hasil['terkirim']} terkirim, {$hasil['gagal']} gagal.");
+        return back()->with('success', "Antrean dikuras: {$hasil['terkirim']} terkirim, {$hasil['gagal']} gagal, {$hasil['tertahan']} tertahan.");
     }
 
     /** Coba lagi satu notifikasi yang gagal. */

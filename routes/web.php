@@ -209,6 +209,7 @@ Route::prefix('erp')->group(function () {
         Route::post('/crm/uji',              [\App\Http\Controllers\Settings\CrmSettingController::class, 'uji'])->name('settings.crm.uji');
         Route::post('/crm/aktifkan-webhook', [\App\Http\Controllers\Settings\CrmSettingController::class, 'aktifkanWebhook'])->name('settings.crm.aktifkan-webhook');
         Route::post('/crm/token-baru',       [\App\Http\Controllers\Settings\CrmSettingController::class, 'regenerateToken'])->name('settings.crm.token-baru');
+        Route::post('/crm/uji-waha',         [\App\Http\Controllers\Settings\CrmSettingController::class, 'ujiWaha'])->name('settings.crm.uji-waha');
 
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');

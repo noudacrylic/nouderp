@@ -38,7 +38,7 @@ class CrmKirimNotifikasi extends Command
 
         $hasil = $sender->kirimYangJatuhTempo((int) $this->option('limit'));
 
-        $this->info("Notifikasi: {$hasil['terkirim']} terkirim, {$hasil['gagal']} gagal (jatuh tempo {$menunggu}).");
+        $this->info("Notifikasi: {$hasil['terkirim']} terkirim, {$hasil['gagal']} gagal, {$hasil['tertahan']} tertahan (jatuh tempo {$menunggu}).");
 
         return self::SUCCESS;
     }

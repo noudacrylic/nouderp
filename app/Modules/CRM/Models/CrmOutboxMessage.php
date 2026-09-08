@@ -98,6 +98,25 @@ class CrmOutboxMessage extends Model
     }
 
     /**
+     * Belum bisa dikirim, tapi BUKAN gagal: sesi WhatsApp jalur tak resmi
+     * sedang tidak siap (mati, sedang menunggu QR, container restart).
+     *
+     * Statusnya sengaja tetap 'menunggu' supaya barisnya tetap di dalam antrean
+     * dan berangkat sendiri begitu sesinya pulih. Yang bergeser cuma jadwal &
+     * alasannya — dan alasan itu yang muncul di layar Notifikasi saat ada yang
+     * bertanya "kenapa belum terkirim?".
+     */
+    public function tandaiTertahan(string $reason, \Illuminate\Support\Carbon $cobaLagi): void
+    {
+        $this->forceFill([
+            'status'       => self::STATUS_MENUNGGU,
+            'reason'       => $reason,
+            'scheduled_at' => $cobaLagi,
+            'attempts'     => $this->attempts + 1,
+        ])->save();
+    }
+
+    /**
      * Tidak jadi dikirim, dan itu memang benar — mis. pesanan marketplace
      * (nomor proxy + melanggar aturan platform) atau pelanggan belum opt-in.
      * Barisnya tetap ada supaya alasannya bisa dilihat belakangan.

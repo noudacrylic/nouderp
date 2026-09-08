@@ -222,7 +222,7 @@ class OrderNotificationTest extends TestCase
 
         $hasil = app(CrmOutboxSender::class)->kirimYangJatuhTempo();
 
-        $this->assertSame(['terkirim' => 1, 'gagal' => 0], $hasil);
+        $this->assertSame(['terkirim' => 1, 'gagal' => 0, 'tertahan' => 0], $hasil);
         $this->assertSame(1, CrmOutboxMessage::where('status', CrmOutboxMessage::STATUS_TERKIRIM)->count());
         $this->assertSame(1, CrmOutboxMessage::where('status', CrmOutboxMessage::STATUS_MENUNGGU)->count());
     }
@@ -266,7 +266,7 @@ class OrderNotificationTest extends TestCase
 
         $hasil = app(CrmOutboxSender::class)->kirimYangJatuhTempo();
 
-        $this->assertSame(['terkirim' => 0, 'gagal' => 0], $hasil);
+        $this->assertSame(['terkirim' => 0, 'gagal' => 0, 'tertahan' => 0], $hasil);
         $this->assertEmpty(app(ChatManager::class)->fake()->sent);
     }
 

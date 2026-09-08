@@ -5,6 +5,7 @@ namespace App\Modules\CRM\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Services\CrmReplyService;
+use App\Modules\CRM\Support\TemplateResmi;
 use Illuminate\Http\Request;
 
 /**
@@ -23,41 +24,11 @@ class CrmTemplateController extends Controller
 {
     /**
      * Bunyi template yang sudah disepakati, siap disalin ke dasbor vendor.
-     * Ditaruh di kode (bukan sekadar catatan) supaya yang diajukan ke Meta
-     * persis sama dengan yang diandalkan ERP saat mengirim.
+     * Daftarnya pindah ke Support\TemplateResmi karena kini dipakai dua jalur
+     * (resmi mengirim namanya, WAHA merangkai teksnya); alias ini dipertahankan
+     * supaya layar & tes lama tetap menyebut satu nama yang sama.
      */
-    public const USULAN = [
-        [
-            'nama'     => 'sapa_umum',
-            'kategori' => 'UTILITY',
-            'guna'     => 'Menyapa duluan nomor yang ditinggalkan pelanggan di toko. Tanpa variabel — tidak mungkin salah isi.',
-            'body'     => 'Selamat siang, kami dari Noud Acrylic. Kami ingin melanjutkan pembahasan pesanan Anda. Mohon balas pesan ini ya.',
-        ],
-        [
-            'nama'     => 'konfirmasi_desain',
-            'kategori' => 'UTILITY',
-            'guna'     => 'Menyapa terkait pesanan yang sudah ada. Menempel pada transaksi berjalan, jadi peluang masuk UTILITY lebih besar.',
-            'body'     => 'Halo {{1}}, kami dari Noud Acrylic ingin mengonfirmasi desain untuk pesanan {{2}}. Mohon balas pesan ini agar kami kirimkan pratinjaunya.',
-        ],
-        [
-            'nama'     => 'pembayaran_diterima',
-            'kategori' => 'UTILITY',
-            'guna'     => 'Satu template melayani DP dan pelunasan — {{4}} sengaja teks bebas.',
-            'body'     => 'Halo {{1}}, pembayaran sebesar Rp{{2}} untuk pesanan {{3}} sudah kami terima. Status pembayaran saat ini: {{4}}. Terima kasih atas kepercayaan Anda.',
-        ],
-        [
-            'nama'     => 'pesanan_siap_diambil',
-            'kategori' => 'UTILITY',
-            'guna'     => 'Jam toko sengaja jadi variabel — jam berubah saat Lebaran, dan mengubah body template berarti ajukan ulang ke Meta.',
-            'body'     => 'Halo {{1}}, pesanan {{2}} sudah selesai dan siap diambil di toko kami. Tunjukkan kode pengambilan {{3}} kepada petugas. Kami buka {{4}}. Di luar jam tersebut, silakan balas pesan ini untuk membuat janji pengambilan.',
-        ],
-        [
-            'nama'     => 'pesanan_dikirim',
-            'kategori' => 'UTILITY',
-            'guna'     => 'Tombol URL dinamis → halaman lacak pesanan.',
-            'body'     => 'Halo {{1}}, pesanan {{2}} sudah kami serahkan ke {{3}} dengan nomor resi {{4}}. Silakan pantau perjalanan paket Anda lewat tombol di bawah ini.',
-        ],
-    ];
+    public const USULAN = TemplateResmi::USULAN;
 
     public function index(ChatManager $chat)
     {

@@ -24,6 +24,60 @@ return [
     'dry_run' => env('CRM_CHAT_DRY_RUN', true),
 
     /*
+     |--------------------------------------------------------------------------
+     | Jalur NOTIFIKASI (beda dari jalur chat di atas)
+     |--------------------------------------------------------------------------
+     |
+     | Chat & notifikasi dipisah berdasarkan PERAN, bukan vendor:
+     |  - chat  : jalur resmi berbayar. Kebanyakan KITA yang membalas, jadi yang
+     |            berbayar cuma memulai percakapan — murah, dan aman.
+     |  - notif : volumenya paling besar tapi isinya paling sederhana, jadi
+     |            paling mahal kalau dibayar per pesan. Ini yang pindah ke WAHA.
+     |
+     | 'driver': 'resmi' (template Meta lewat ChatProvider) | 'waha' | 'fake'.
+     | Bawaannya SENGAJA 'resmi' — menyalakan WAHA harus keputusan sadar, dan
+     | baru sah setelah sesinya benar-benar tertaut.
+     */
+    'notifikasi' => [
+
+        'driver' => env('CRM_NOTIF_DRIVER', 'resmi'),
+
+        /*
+         | Berapa lama sebuah notifikasi boleh TERTAHAN (sesi WAHA mati) sebelum
+         | dialihkan ke template Meta berbayar. Menahan itu benar — sesi putus
+         | lumrah dan biasanya pulih sendiri — tapi kabar "pesanan Anda sudah
+         | dikirim" yang datang sehari kemudian sama tak bergunanya dengan tidak
+         | datang sama sekali. Dipakai Tahap 3.
+         */
+        'tahan_maks_jam' => (int) env('CRM_NOTIF_TAHAN_MAKS_JAM', 3),
+
+        /*
+         | Jeda sebelum baris yang tertahan dicoba lagi (menit). Bukan
+         | percobaan-ulang kilat: sesi yang mati butuh scan QR oleh manusia.
+         */
+        'tahan_jeda_menit' => (int) env('CRM_NOTIF_TAHAN_JEDA_MENIT', 10),
+
+        'waha' => [
+            /*
+             | ⚠️ WAJIB 127.0.0.1. API key WAHA = kunci penuh sebuah akun
+             | WhatsApp, dan instance WAHA terbuka rutin dipindai bot. ERP &
+             | WAHA satu server — tidak ada alasan alamat ini keluar localhost,
+             | dan JANGAN disambungkan ke Cloudflare Tunnel.
+             */
+            'base_url' => env('CRM_WAHA_BASE_URL', 'http://127.0.0.1:3000'),
+
+            /*
+             | Nama sesi pengirim. Dua sesi dijalankan: nomor aktif + nomor
+             | cadangan yang sudah dipanaskan — itu yang membuat "tinggal ganti
+             | kalau kena blokir" jadi nyata, bukan sekadar rencana.
+             */
+            'session' => env('CRM_WAHA_SESSION', 'notifikasi'),
+
+            'timeout' => (int) env('CRM_WAHA_TIMEOUT', 20),
+        ],
+    ],
+
+    /*
      * Daftar putih penerima (nomor E.164 tanpa '+', mis. '628998844666').
      * Selama tidak kosong, pengiriman ke nomor di luar daftar DITOLAK di
      * adapter — sebelum menyentuh jaringan. Kosongkan hanya setelah uji nyata

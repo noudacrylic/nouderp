@@ -197,4 +197,89 @@ class PengaturanCrmTest extends TestCase
         Http::assertSent(fn ($r) => str_contains($r->url(), '/webhooks/mati/enable'));
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/webhooks/hidup/enable'));
     }
+
+    /* ------------------------------------------------------------ jalur WAHA */
+
+    /**
+     * Kredensial WAHA WAJIB duduk di barisnya sendiri. Kalau menumpang baris
+     * api.co.id, mematikan chat resmi ikut mematikan notifikasi — padahal
+     * keduanya sengaja dipisah supaya bisa jatuh sendiri-sendiri.
+     */
+    public function test_kredensial_waha_disimpan_di_baris_sendiri(): void
+    {
+        $this->actingAs($this->admin())
+            ->post(route('settings.crm.update'), $this->isian([
+                'notifikasi_driver' => 'waha',
+                'waha_enabled'      => '1',
+                'waha_api_key'      => 'kunci-waha',
+                'waha_base_url'     => 'http://127.0.0.1:3000',
+                'waha_session'      => 'notifikasi',
+            ]))
+            ->assertRedirect(route('settings.crm.edit'));
+
+        $waha = CrmSetting::for('waha');
+
+        $this->assertTrue($waha->is_enabled);
+        $this->assertSame('kunci-waha', $waha->api_key);
+        $this->assertSame('notifikasi', $waha->config['session']);
+
+        // Baris chat resmi tidak ikut tersentuh kuncinya.
+        $this->assertSame('kunci-rahasia', CrmSetting::for('apicoid')->api_key);
+    }
+
+    /** Kunci dibiarkan kosong = jangan diubah, bukan dihapus. */
+    public function test_api_key_waha_kosong_tidak_menghapus_yang_tersimpan(): void
+    {
+        CrmSetting::for('waha')->update(['api_key' => 'kunci-lama', 'is_enabled' => true]);
+
+        $this->actingAs($this->admin())
+            ->post(route('settings.crm.update'), $this->isian([
+                'waha_enabled'  => '1',
+                'waha_api_key'  => '',
+                'waha_base_url' => 'http://127.0.0.1:3000',
+            ]));
+
+        $this->assertSame('kunci-lama', CrmSetting::for('waha')->api_key);
+    }
+
+    /**
+     * Pilihan jalur harus benar-benar sampai ke config yang dibaca pengirim.
+     * Tersimpan di DB tapi tak pernah dibaca = pengaturan yang berbohong.
+     */
+    public function test_pilihan_jalur_sampai_ke_config_yang_dibaca_pengirim(): void
+    {
+        $this->actingAs($this->admin())
+            ->post(route('settings.crm.update'), $this->isian(['notifikasi_driver' => 'waha']));
+
+        CrmRuntimeConfig::apply(true);
+
+        $this->assertSame('waha', config('crm.notifikasi.driver'));
+    }
+
+    public function test_jalur_bawaan_tetap_resmi_bila_tidak_dipilih(): void
+    {
+        $this->actingAs($this->admin())->post(route('settings.crm.update'), $this->isian());
+
+        CrmRuntimeConfig::apply(true);
+
+        $this->assertSame('resmi', config('crm.notifikasi.driver'));
+    }
+
+    public function test_uji_sesi_waha_menjawab_status_sesi(): void
+    {
+        CrmSetting::for('waha')->update(['api_key' => 'kunci-waha', 'is_enabled' => true]);
+
+        Http::fake(['*/api/sessions/*' => Http::response(['status' => 'SCAN_QR_CODE'])]);
+
+        $this->actingAs($this->admin())
+            ->post(route('settings.crm.uji-waha'))
+            ->assertSessionHas('error', fn ($p) => str_contains($p, 'SCAN_QR_CODE'));
+    }
+
+    public function test_uji_sesi_waha_menolak_saat_belum_dikonfigurasi(): void
+    {
+        $this->actingAs($this->admin())
+            ->post(route('settings.crm.uji-waha'))
+            ->assertSessionHas('error', fn ($p) => str_contains($p, 'API Key WAHA'));
+    }
 }

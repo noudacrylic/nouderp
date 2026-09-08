@@ -34,6 +34,16 @@ class CrmRuntimeConfig
         'store_close_hour'          => 'int',
         'max_media_bytes'           => 'int',
         'attachment_retention_days' => 'int',
+        'notifikasi_driver'         => 'string',
+    ];
+
+    /**
+     * Kunci yang letaknya di config BUKAN 'crm.<kunci>' begitu saja.
+     * Bentuk datar dipertahankan di DB (satu larik config, gampang dibaca),
+     * sedangkan config aslinya bersarang di bawah 'notifikasi'.
+     */
+    public const ALIAS = [
+        'notifikasi_driver' => 'notifikasi.driver',
     ];
 
     private static bool $applied = false;
@@ -63,7 +73,7 @@ class CrmRuntimeConfig
                 continue;
             }
 
-            config(['crm.' . $key => self::cast($key, $value)]);
+            config(['crm.' . (self::ALIAS[$key] ?? $key) => self::cast($key, $value)]);
         }
     }
 
@@ -72,7 +82,7 @@ class CrmRuntimeConfig
     {
         self::apply();
 
-        return config('crm.' . $key);
+        return config('crm.' . (self::ALIAS[$key] ?? $key));
     }
 
     private static function cast(string $key, $value)

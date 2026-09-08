@@ -26,6 +26,8 @@ class CrmSetting extends Model
 
     public const DEFAULT_BASE_URL = [
         'apicoid' => 'https://chat.api.co.id/api/v1/public',
+        // WAHA di-self-host di server yang sama; alamatnya tak boleh keluar localhost.
+        'waha'    => 'http://127.0.0.1:3000',
     ];
 
     public static function for(string $provider): self
@@ -38,7 +40,21 @@ class CrmSetting extends Model
 
     public function effectiveBaseUrl(): string
     {
-        return rtrim($this->base_url ?: (self::DEFAULT_BASE_URL[$this->provider] ?? ''), '/');
+        return rtrim($this->base_url ?: $this->bawaanBaseUrl(), '/');
+    }
+
+    /**
+     * Alamat bawaan. Untuk WAHA nilainya diambil dari config lebih dulu supaya
+     * bisa digeser lewat .env tanpa menyentuh baris di database — berguna saat
+     * container-nya dipindah port pada mesin lokal.
+     */
+    private function bawaanBaseUrl(): string
+    {
+        if ($this->provider === 'waha') {
+            return (string) config('crm.notifikasi.waha.base_url', self::DEFAULT_BASE_URL['waha']);
+        }
+
+        return (string) (self::DEFAULT_BASE_URL[$this->provider] ?? '');
     }
 
     /**
