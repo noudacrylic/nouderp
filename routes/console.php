@@ -52,6 +52,11 @@ Schedule::command('shipping:sync-status')->everyThirtyMinutes()->name('shipping-
 // ditunda ke jam buka berangkat sendiri tanpa ada yang perlu menekan tombol.
 Schedule::command('crm:kirim-notifikasi')->everyFiveMinutes()->name('crm-kirim-notifikasi')->withoutOverlapping();
 
+// Denyut jantung sesi WAHA. Sesi yang putus TIDAK menimbulkan gejala apa pun:
+// ERP tetap mengantre dengan rapi, cuma pelanggan tak menerima apa-apa. Kalau
+// hanya diperiksa saat mengirim, jeda antar-pesanan bisa berjam-jam.
+Schedule::command('crm:pantau-waha')->everyFiveMinutes()->name('crm-pantau-waha')->withoutOverlapping();
+
 // Lampiran chat diunduh ke penyimpanan sendiri secepat mungkin: media di sisi
 // Meta hanya bertahan ~30 hari, dan diskusi custom menggantung lebih lama.
 Schedule::command('crm:unduh-lampiran')->everyMinute()->name('crm-unduh-lampiran')->withoutOverlapping();

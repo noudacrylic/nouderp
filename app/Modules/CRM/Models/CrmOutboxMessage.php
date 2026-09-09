@@ -40,12 +40,13 @@ class CrmOutboxMessage extends Model
     protected $fillable = [
         'dedupe_key', 'event', 'sales_order_id', 'conversation_id',
         'recipient', 'template_name', 'template_body',
-        'status', 'reason', 'scheduled_at', 'sent_at', 'provider_message_id', 'attempts',
+        'status', 'reason', 'scheduled_at', 'held_since', 'sent_at', 'provider_message_id', 'attempts',
     ];
 
     protected $casts = [
         'template_body' => 'array',
         'scheduled_at'  => 'datetime',
+        'held_since'    => 'datetime',
         'sent_at'       => 'datetime',
         'attempts'      => 'integer',
     ];
@@ -77,14 +78,20 @@ class CrmOutboxMessage extends Model
         }
     }
 
-    public function tandaiTerkirim(?string $providerMessageId): void
+    /**
+     * @param ?string $reason keterangan yang tetap disimpan meski berhasil —
+     *        dipakai eskalasi, supaya terbaca bahwa pesan ini akhirnya
+     *        berangkat lewat jalur berbayar, bukan jalur yang dikira.
+     */
+    public function tandaiTerkirim(?string $providerMessageId, ?string $reason = null): void
     {
         $this->forceFill([
             'status'              => self::STATUS_TERKIRIM,
             'provider_message_id' => $providerMessageId,
             'sent_at'             => now(),
             'attempts'            => $this->attempts + 1,
-            'reason'              => null,
+            'reason'              => $reason,
+            'held_since'          => null,
         ])->save();
     }
 
@@ -112,8 +119,18 @@ class CrmOutboxMessage extends Model
             'status'       => self::STATUS_MENUNGGU,
             'reason'       => $reason,
             'scheduled_at' => $cobaLagi,
+            // Dicatat sekali, pada penahanan PERTAMA. Kalau di-set ulang setiap
+            // percobaan, jamnya mundur terus dan batas eskalasi tak pernah
+            // tercapai — pesan menggantung selamanya tanpa ada yang sadar.
+            'held_since'   => $this->held_since ?: now(),
             'attempts'     => $this->attempts + 1,
         ])->save();
+    }
+
+    /** Sudah tertahan lebih lama dari batas yang ditetapkan? */
+    public function tertahanLebihDari(int $jam): bool
+    {
+        return $this->held_since !== null && $this->held_since->lte(now()->subHours($jam));
     }
 
     /**

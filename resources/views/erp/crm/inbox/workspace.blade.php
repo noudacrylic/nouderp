@@ -43,6 +43,27 @@
         </div>
     @endif
 
+    {{-- Sesi WhatsApp tak resmi putus. Gejalanya NOL dari layar mana pun:
+         antrean menahan diri dengan rapi dan pelanggan tidak menerima apa-apa.
+         Statusnya berasal dari penjaga terjadwal, bukan panggilan langsung —
+         layar tidak boleh menggantung menunggu WAHA yang sedang mati. --}}
+    @if(($wahaStatus ?? null) && ! $wahaStatus['siap'])
+        <div class="shrink-0 mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <b>Notifikasi WhatsApp sedang berhenti.</b>
+            Sesi berstatus <span class="font-mono">{{ $wahaStatus['status'] }}</span>
+            @if($wahaStatus['diperiksa'])
+                (diperiksa {{ $wahaStatus['diperiksa']->diffForHumans() }}).
+            @else
+                .
+            @endif
+            <div class="mt-1 text-xs">
+                Notifikasi pesanan <b>ditahan di antrean</b>, tidak hilang, dan akan dialihkan ke template
+                berbayar setelah {{ (int) config('crm.notifikasi.tahan_maks_jam', 3) }} jam.
+                QR untuk menyambung ulang sudah dikirim ke Telegram — pindai dari HP pemegang nomornya.
+            </div>
+        </div>
+    @endif
+
     <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
 
         <div class="lg:col-span-3 min-h-0">

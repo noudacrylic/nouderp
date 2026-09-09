@@ -276,6 +276,53 @@ class PengaturanCrmTest extends TestCase
             ->assertSessionHas('error', fn ($p) => str_contains($p, 'SCAN_QR_CODE'));
     }
 
+    /**
+     * Kunci ditolak BEDA dari sesi putus, dan sarannya wajib ikut berbeda:
+     * yang satu diperbaiki di layar ini, yang satu lagi menuntut orang
+     * mengambil HP dan memindai QR. Satu kalimat untuk keduanya mengirim
+     * orang ke pekerjaan yang keliru.
+     */
+    public function test_kunci_yang_ditolak_tidak_disuruh_scan_qr(): void
+    {
+        CrmSetting::for('waha')->update(['api_key' => 'kunci-salah', 'is_enabled' => true]);
+
+        Http::fake(['*/api/sessions/*' => Http::response(['message' => 'Unauthorized'], 401)]);
+
+        $this->actingAs($this->admin())
+            ->post(route('settings.crm.uji-waha'))
+            ->assertSessionHas('error', function ($p) {
+                return str_contains($p, 'KUNCI_DITOLAK')
+                    && str_contains($p, 'API Key')
+                    && ! str_contains($p, 'pindai dari HP');
+            });
+    }
+
+    /**
+     * "Session not found" (404) berarti kunci & alamatnya SUDAH benar. Kalau
+     * disamakan dengan "tak terjangkau", orang akan memeriksa terowongan dan
+     * container yang sebenarnya sehat — dan tak pernah sampai ke sebab
+     * sesungguhnya, yaitu satu kolom nama yang beda.
+     */
+    public function test_sesi_tak_ditemukan_dibedakan_dari_tak_terjangkau(): void
+    {
+        CrmSetting::for('waha')->update([
+            'api_key'    => 'kunci-benar',
+            'is_enabled' => true,
+            'config'     => ['session' => 'notifikasi'],
+        ]);
+
+        Http::fake(['*/api/sessions/*' => Http::response(['message' => 'Session not found'], 404)]);
+
+        $this->actingAs($this->admin())
+            ->post(route('settings.crm.uji-waha'))
+            ->assertSessionHas('error', function ($p) {
+                return str_contains($p, 'SESI_TIDAK_ADA')
+                    && str_contains($p, 'notifikasi')
+                    && str_contains($p, 'Columns')
+                    && ! str_contains($p, 'terowongan');
+            });
+    }
+
     public function test_uji_sesi_waha_menolak_saat_belum_dikonfigurasi(): void
     {
         $this->actingAs($this->admin())

@@ -264,9 +264,34 @@ class CrmSettingController extends Controller
             return back()->with('success', 'Sesi WAHA tertaut dan siap mengirim (status WORKING).');
         }
 
+        /*
+         * Saran tindakannya menyesuaikan sebab, bukan satu kalimat untuk semua.
+         * "Scan ulang QR" pada kasus kunci yang ditolak mengirim orang mencari
+         * HP dan memindai QR, padahal yang salah cuma satu kolom di layar ini.
+         */
+        $saran = match ($status['status']) {
+            /*
+             * Sebab yang paling sering & paling membingungkan: nilai env
+             * berbentuk 'sha512:...' — itu HASH, bukan kuncinya. Klien wajib
+             * mengirim nilai polosnya, yang tidak bisa dibalik dari hash. Tanpa
+             * disebut di sini, orang akan menyalin hash itu berulang kali dan
+             * bertanya-tanya kenapa ditolak terus.
+             */
+            'KUNCI_DITOLAK'  => 'WAHA menolak API Key-nya. Ambil dari env container (WAHA_API_KEY, versi lama: WHATSAPP_API_KEY). '
+                                . 'Bila nilainya diawali "sha512:", itu hash — yang harus diisi di sini nilai polosnya, bukan hash-nya.',
+            'SESI_TIDAK_ADA' => 'Kunci & alamatnya SUDAH benar — yang tidak ada cuma sesi bernama "'
+                                . (new WahaProvider(CrmSetting::for('waha')))->sesi()
+                                . '". Buka dasbor WAHA → panel Sessions → dropdown Columns → aktifkan kolom Name, '
+                                . 'lalu salin nama sesi yang berstatus WORKING ke kolom "Nama Sesi WAHA" di layar ini.',
+            'TAK_TERJANGKAU' => 'ERP tidak bisa menjangkau WAHA di ' . CrmSetting::for('waha')->effectiveBaseUrl()
+                                . '. Pastikan container hidup, dan bila menguji dari laptop, terowongan SSH ke port 3000 terbuka.',
+            'SCAN_QR_CODE'   => 'Sesi menunggu dipindai. Ambil QR-nya lalu pindai dari HP pemegang nomor.',
+            'STOPPED', 'FAILED' => 'Sesi berhenti. Nyalakan lebih dulu, QR baru terbit setelah sesi hidup.',
+            default          => 'Periksa keadaan sesi di WAHA.',
+        };
+
         return back()->with('error', 'Sesi WAHA belum siap — status ' . $status['status']
-            . ($status['keterangan'] ? ': ' . $status['keterangan'] : '')
-            . '. Scan ulang QR lewat dasbor WAHA.');
+            . ($status['keterangan'] ? ': ' . $status['keterangan'] : '') . ' ' . $saran);
     }
 
     /** Nilai efektif yang sedang dipakai modul (DB bila ada, kalau tidak config/env). */

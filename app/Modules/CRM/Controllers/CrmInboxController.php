@@ -12,6 +12,7 @@ use App\Modules\CRM\Models\CrmLabel;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSnippet;
 use App\Modules\CRM\Services\CrmReplyService;
+use App\Modules\CRM\Services\WahaHealthService;
 use App\Modules\CRM\Services\WebhookHealthService;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Services\SalesOrderService;
@@ -145,6 +146,14 @@ class CrmInboxController extends Controller
             'webhookSepi' => app(ChatManager::class)->isDryRun()
                 ? null
                 : app(WebhookHealthService::class)->sepi(),
+            /*
+             * Status sesi WAHA dibaca dari hasil pemeriksaan TERAKHIR yang
+             * disimpan penjadwal, bukan dengan menelepon WAHA di sini. Kalau
+             * dipanggil langsung, layar inbox menggantung sampai timeout
+             * justru pada saat WAHA-nya sedang mati — yaitu saat pita ini
+             * paling dibutuhkan.
+             */
+            'wahaStatus' => app(WahaHealthService::class)->statusTersimpan(),
             /*
              * Gudang asal untuk panel ongkir di rail. Hanya yang aktif — gudang
              * mati tetap muncul di daftar cuma untuk ditolak saat dicek.

@@ -57,6 +57,13 @@ return [
          */
         'tahan_jeda_menit' => (int) env('CRM_NOTIF_TAHAN_JEDA_MENIT', 10),
 
+        /*
+         | Rem pengulangan peringatan Telegram saat sesi putus. Sesi mati
+         | semalaman tidak boleh jadi ratusan pesan: peringatan yang terlalu
+         | sering berhenti dibaca, persis saat ia paling perlu dibaca.
+         */
+        'peringatan_jeda_menit' => (int) env('CRM_NOTIF_PERINGATAN_JEDA_MENIT', 60),
+
         'waha' => [
             /*
              | ⚠️ WAJIB 127.0.0.1. API key WAHA = kunci penuh sebuah akun

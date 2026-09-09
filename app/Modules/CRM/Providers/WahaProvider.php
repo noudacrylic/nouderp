@@ -139,7 +139,33 @@ class WahaProvider implements NotificationProvider
         $res = $this->request('get', '/api/sessions/' . rawurlencode($this->sesi()));
 
         if (! $res['success']) {
-            return ['siap' => false, 'status' => 'TAK_TERJANGKAU', 'keterangan' => (string) $res['error']];
+            /*
+             * Ditolak (401/403) BEDA dari tak terjangkau, dan membedakannya
+             * menentukan apa yang harus dikerjakan orang berikutnya: kunci yang
+             * salah diperbaiki di layar Pengaturan, sedangkan sesi yang putus
+             * menuntut scan QR memakai HP. Menyatukan keduanya jadi satu pesan
+             * "scan ulang QR" mengirim orang ke pekerjaan yang keliru.
+             */
+            /*
+             * Tiga sebab yang tampak sama di layar tapi menuntut tindakan
+             * berbeda sama sekali:
+             *  401/403 = kunci salah         -> perbaiki satu kolom di Pengaturan
+             *  404     = nama sesi tak ada   -> samakan namanya dengan dasbor
+             *  sisanya = WAHA tak menjawab   -> periksa container/terowongan
+             * Menyatukannya membuat orang memeriksa jaringan yang sehat, atau
+             * memindai QR untuk sesi yang sebenarnya sedang WORKING.
+             */
+            $status = match (true) {
+                in_array($res['kode'] ?? 0, [401, 403], true) => 'KUNCI_DITOLAK',
+                ($res['kode'] ?? 0) === 404                   => 'SESI_TIDAK_ADA',
+                default                                       => 'TAK_TERJANGKAU',
+            };
+
+            return [
+                'siap'       => false,
+                'status'     => $status,
+                'keterangan' => (string) $res['error'],
+            ];
         }
 
         $status = strtoupper((string) (data_get($res['data'], 'status') ?: 'TIDAK_DIKETAHUI'));
@@ -152,7 +178,41 @@ class WahaProvider implements NotificationProvider
     }
 
     /**
-     * @return array{success:bool, data:array, terjangkau:bool, error:?string}
+     * Gambar QR sesi (PNG mentah), atau null bila tak bisa diambil.
+     *
+     * Urutannya penting dan berlawanan dengan dugaan: sesi harus di-START
+     * dulu, QR baru ada. Karena itu pemanggil yang menemukan status STOPPED
+     * memanggil mulaiSesi() lebih dulu. Sesi yang mati sendiri tanpa discan
+     * adalah hal NORMAL (WAHA force-stop setelah menunggu terlalu lama),
+     * bukan kerusakan — tinggal diulang.
+     */
+    public function qr(): ?string
+    {
+        if (! $this->isReady()) {
+            return null;
+        }
+
+        try {
+            $res = Http::withHeaders(['X-Api-Key' => (string) $this->setting->api_key])
+                ->timeout((int) config('crm.notifikasi.waha.timeout', 20))
+                ->get($this->setting->effectiveBaseUrl() . '/api/' . rawurlencode($this->sesi()) . '/auth/qr');
+        } catch (\Throwable $e) {
+            Log::warning('[CRM] QR WAHA tidak terambil', ['error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        return $res->successful() && $res->body() !== '' ? $res->body() : null;
+    }
+
+    /** Nyalakan sesi. Aman dipanggil berulang; sesi yang sudah hidup tak terganggu. */
+    public function mulaiSesi(): bool
+    {
+        return $this->request('post', '/api/sessions/' . rawurlencode($this->sesi()) . '/start')['success'];
+    }
+
+    /**
+     * @return array{success:bool, data:array, terjangkau:bool, kode:int, error:?string}
      *
      * 'terjangkau' memisahkan dua kegagalan yang tampak mirip tapi berbeda
      * penanganannya: WAHA menjawab-tapi-menolak (permanen) vs WAHA tak
@@ -170,7 +230,7 @@ class WahaProvider implements NotificationProvider
         } catch (\Throwable $e) {
             Log::warning('[CRM] WAHA tidak terjangkau', ['path' => $path, 'error' => $e->getMessage()]);
 
-            return ['success' => false, 'data' => [], 'terjangkau' => false, 'error' => $e->getMessage()];
+            return ['success' => false, 'data' => [], 'terjangkau' => false, 'kode' => 0, 'error' => $e->getMessage()];
         }
 
         $json = (array) ($res->json() ?? []);
@@ -190,10 +250,10 @@ class WahaProvider implements NotificationProvider
              */
             $sementara = $res->status() >= 500 || $res->status() === 429;
 
-            return ['success' => false, 'data' => $json, 'terjangkau' => ! $sementara, 'error' => (string) $error];
+            return ['success' => false, 'data' => $json, 'terjangkau' => ! $sementara, 'kode' => $res->status(), 'error' => (string) $error];
         }
 
-        return ['success' => true, 'data' => $json, 'terjangkau' => true, 'error' => null];
+        return ['success' => true, 'data' => $json, 'terjangkau' => true, 'kode' => $res->status(), 'error' => null];
     }
 
     private function gagal(string $pesan): array

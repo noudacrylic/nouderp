@@ -72,27 +72,82 @@ class CrmOutboxSender
 
         $alasan = (string) ($hasil['error'] ?? 'Gagal tanpa keterangan.');
 
-        /*
-         * TERTAHAN, bukan gagal: sesi WhatsApp yang sedang mati adalah keadaan
-         * sementara yang lumrah, dan pulihnya butuh manusia menscan QR. Kalau
-         * baris ini ditandai gagal, ia keluar dari antrean selamanya — dan
-         * pelanggan tak pernah dapat kabar meski sesinya pulih semenit kemudian.
-         *
-         * Batas 3 jam → lompat ke template Meta berbayar adalah Tahap 3; di
-         * sini ia menunggu tanpa batas dulu, dan itu sudah jauh lebih aman
-         * daripada hangus.
-         */
         if ($hasil['tahan'] ?? false) {
-            $baris->tandaiTertahan($alasan, now()->addMinutes((int) config('crm.notifikasi.tahan_jeda_menit', 10)));
-            Log::info('[CRM] notifikasi ditahan, antrean menunggu', ['outbox_id' => $baris->id, 'alasan' => $alasan]);
-
-            return 'tertahan';
+            return $this->tahanAtauEskalasi($baris, $alasan);
         }
 
         $baris->tandaiGagal($alasan);
         Log::warning('[CRM] notifikasi gagal terkirim', ['outbox_id' => $baris->id, 'error' => $alasan]);
 
         return 'gagal';
+    }
+
+    /**
+     * TERTAHAN, bukan gagal: sesi WhatsApp yang sedang mati adalah keadaan
+     * sementara yang lumrah, dan pulihnya butuh manusia menscan QR. Kalau baris
+     * ini ditandai gagal, ia keluar dari antrean selamanya — dan pelanggan tak
+     * pernah dapat kabar meski sesinya pulih semenit kemudian.
+     *
+     * Tapi menahan pun ada batasnya. Kabar "pesanan Anda sudah dikirim" yang
+     * datang sehari kemudian sama tak bergunanya dengan tidak datang sama
+     * sekali. Karena itu lewat batas, pesannya dialihkan ke template Meta
+     * berbayar — kita membayar justru pada saat yang murah sedang tidak bisa
+     * dipakai, dan itu memang harga yang pantas.
+     *
+     * @return 'terkirim'|'tertahan'|'gagal'
+     */
+    private function tahanAtauEskalasi(CrmOutboxMessage $baris, string $alasan): string
+    {
+        $batas = (int) config('crm.notifikasi.tahan_maks_jam', 3);
+
+        // Dicatat DULU, supaya penahanan pertama punya jam mulai sebelum
+        // batasnya diperiksa pada jalan berikutnya.
+        $baris->tandaiTertahan($alasan, now()->addMinutes((int) config('crm.notifikasi.tahan_jeda_menit', 10)));
+
+        if ($batas <= 0 || ! $baris->tertahanLebihDari($batas)) {
+            Log::info('[CRM] notifikasi ditahan, antrean menunggu', ['outbox_id' => $baris->id, 'alasan' => $alasan]);
+
+            return 'tertahan';
+        }
+
+        $resmi = $this->notifikasi->resmi();
+
+        $hasil = $resmi->kirimNotifikasi([
+            'to'        => $baris->recipient,
+            'template'  => $baris->template_name,
+            'language'  => 'id',
+            'body'      => (array) $baris->template_body,
+            'url_lacak' => $this->urlLacak($baris),
+        ]);
+
+        if (! ($hasil['success'] ?? false)) {
+            /*
+             * Kedua jalur sedang mati sekaligus. Tetap ditahan, bukan
+             * digagalkan: yang jatuh adalah jalurnya, bukan pesannya, dan
+             * begitu salah satu pulih pesan ini masih berhak berangkat.
+             */
+            $baris->tandaiTertahan(
+                $alasan . ' | Eskalasi ke template resmi juga gagal: ' . ($hasil['error'] ?? 'tanpa keterangan'),
+                now()->addMinutes((int) config('crm.notifikasi.tahan_jeda_menit', 10))
+            );
+
+            Log::warning('[CRM] eskalasi notifikasi gagal, kedua jalur mati', [
+                'outbox_id' => $baris->id,
+                'waha'      => $alasan,
+                'resmi'     => $hasil['error'] ?? null,
+            ]);
+
+            return 'tertahan';
+        }
+
+        $baris->tandaiTerkirim(
+            $hasil['message_id'] ?? null,
+            "Dialihkan ke template resmi setelah tertahan lebih dari {$batas} jam ({$alasan})"
+        );
+
+        Log::info('[CRM] notifikasi dieskalasi ke jalur resmi', ['outbox_id' => $baris->id, 'alasan' => $alasan]);
+
+        return 'terkirim';
     }
 
     /**
