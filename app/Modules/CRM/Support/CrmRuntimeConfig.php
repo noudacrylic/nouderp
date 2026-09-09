@@ -35,6 +35,7 @@ class CrmRuntimeConfig
         'max_media_bytes'           => 'int',
         'attachment_retention_days' => 'int',
         'notifikasi_driver'         => 'string',
+        'notifikasi_aktif'          => 'peta',
     ];
 
     /**
@@ -44,6 +45,7 @@ class CrmRuntimeConfig
      */
     public const ALIAS = [
         'notifikasi_driver' => 'notifikasi.driver',
+        'notifikasi_aktif'  => 'notifikasi.aktif',
     ];
 
     private static bool $applied = false;
@@ -91,6 +93,9 @@ class CrmRuntimeConfig
             'bool'   => (bool) $value,
             'int'    => (int) $value,
             'list'   => array_values(array_filter(array_map('trim', (array) $value))),
+            // Peta jenis => bool. Nilainya datang dari checkbox, jadi bisa
+            // berupa '1'/'0'/true/false — dinormalkan di sini sekali saja.
+            'peta'   => array_map(fn ($v) => (bool) $v, (array) $value),
             default  => (string) $value,
         };
     }

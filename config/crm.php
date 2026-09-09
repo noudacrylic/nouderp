@@ -43,6 +43,21 @@ return [
         'driver' => env('CRM_NOTIF_DRIVER', 'resmi'),
 
         /*
+         | Saklar per JENIS notifikasi, diatur dari layar Notifikasi Pesanan.
+         | Bawaannya semua menyala: bawaan yang mendiamkan notifikasi berbahaya —
+         | pelanggan berhenti dapat kabar tanpa gejala apa pun.
+         |
+         | Dimatikan BUKAN berarti hilang: barisnya tetap dibuat dengan status
+         | 'dilewati' beserta alasannya, supaya pertanyaan "kenapa pelanggan ini
+         | tidak dapat kabar?" tetap ada jawabannya.
+         */
+        'aktif' => [
+            'pembayaran_diterima' => true,
+            'siap_diambil'        => true,
+            'dikirim'             => true,
+        ],
+
+        /*
          | Berapa lama sebuah notifikasi boleh TERTAHAN (sesi WAHA mati) sebelum
          | dialihkan ke template Meta berbayar. Menahan itu benar — sesi putus
          | lumrah dan biasanya pulih sendiri — tapi kabar "pesanan Anda sudah

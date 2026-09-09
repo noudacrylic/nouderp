@@ -5,7 +5,10 @@ namespace App\Modules\CRM\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmOutboxMessage;
+use App\Models\CrmSetting;
 use App\Modules\CRM\Services\CrmOutboxSender;
+use App\Modules\CRM\Support\CrmRuntimeConfig;
+use App\Modules\CRM\Support\JenisNotifikasi;
 use Illuminate\Http\Request;
 
 /**
@@ -28,12 +31,58 @@ class CrmNotifikasiController extends Controller
             ->paginate(per_page_size())
             ->withQueryString();
 
+        /*
+         * Hitungan per JENIS, bukan sekadar total. Pertanyaan yang sebenarnya
+         * ditanyakan orang adalah "notifikasi dikirim ini jalan tidak?" —
+         * dan itu tak terjawab oleh satu angka gabungan.
+         */
+        $hitungan = [];
+
+        foreach (CrmOutboxMessage::selectRaw('event, status, COUNT(*) as total')
+            ->groupBy('event', 'status')->get() as $baris) {
+            $hitungan[$baris->event][$baris->status] = (int) $baris->total;
+        }
+
         return view('erp.crm.notifikasi.index', [
+            'jenis'   => JenisNotifikasi::katalog($hitungan),
             'daftar'  => $daftar,
             'jumlah'  => CrmOutboxMessage::selectRaw('status, COUNT(*) as total')
                 ->groupBy('status')->pluck('total', 'status')->all(),
             'dryRun'  => app(ChatManager::class)->isDryRun(),
         ]);
+    }
+
+    /**
+     * Nyalakan/matikan jenis notifikasi.
+     *
+     * Ditaruh di layar ini, bukan di Pengaturan, karena di sinilah orang
+     * melihat akibatnya: teks yang dikirim dan berapa yang sudah berangkat.
+     * Saklar yang jauh dari akibatnya adalah saklar yang ditekan tanpa tahu
+     * apa yang berubah.
+     */
+    public function simpanJenis(Request $request)
+    {
+        $data = $request->validate(['aktif' => 'nullable|array']);
+
+        $peta = [];
+
+        foreach (array_keys(JenisNotifikasi::DAFTAR) as $event) {
+            $peta[$event] = (bool) ($data['aktif'][$event] ?? false);
+        }
+
+        $setting = CrmSetting::for('apicoid');
+        $setting->config = array_merge((array) $setting->config, ['notifikasi_aktif' => $peta]);
+        $setting->save();
+
+        CrmRuntimeConfig::forget();
+        CrmRuntimeConfig::apply();
+
+        $mati = array_keys(array_filter($peta, fn ($v) => ! $v));
+
+        return back()->with('success', $mati
+            ? 'Tersimpan. DIMATIKAN: ' . implode(', ', array_map([JenisNotifikasi::class, 'label'], $mati))
+              . ' — pesanan yang memicunya tetap dicatat sebagai "dilewati".'
+            : 'Tersimpan. Ketiga jenis notifikasi aktif.');
     }
 
     /**

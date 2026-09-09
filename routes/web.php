@@ -105,6 +105,7 @@ Route::prefix('erp')->group(function () {
 
         Route::get('/notifikasi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'index'])->name('notifikasi.index');
         Route::post('/notifikasi/kirim', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'kirimSekarang'])->name('notifikasi.kirim');
+        Route::post('/notifikasi/jenis', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'simpanJenis'])->name('notifikasi.jenis');
         Route::post('/notifikasi/{outbox}/ulangi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'ulangi'])->name('notifikasi.ulangi');
 
         // Template & memulai percakapan baru. WAJIB didaftarkan SEBELUM rute

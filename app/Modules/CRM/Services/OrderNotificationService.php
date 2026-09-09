@@ -3,6 +3,7 @@
 namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\Models\CrmOutboxMessage;
+use App\Modules\CRM\Support\JenisNotifikasi;
 use App\Modules\CRM\Support\PhoneNumber;
 use App\Modules\Sales\Models\SalesDelivery;
 use App\Modules\Sales\Models\SalesOrder;
@@ -78,6 +79,17 @@ class OrderNotificationService
     private function antrekan(SalesOrder $so, string $event, string $dedupeKey, callable $bodyBuilder): ?CrmOutboxMessage
     {
         [$layak, $alasan, $nomor] = $this->kelayakan($so);
+
+        /*
+         * Jenis yang dimatikan tetap DICATAT sebagai 'dilewati', bukan
+         * dilewatkan begitu saja. Barisnya beserta alasannya yang kelak
+         * menjawab "kenapa pelanggan ini tidak dapat kabar?" — dan sekaligus
+         * mengingatkan bahwa yang mematikannya adalah kita sendiri.
+         */
+        if ($layak && ! JenisNotifikasi::aktif($event)) {
+            $layak  = false;
+            $alasan = 'Jenis notifikasi "' . JenisNotifikasi::label($event) . '" sedang dimatikan di layar Notifikasi Pesanan.';
+        }
 
         $baris = CrmOutboxMessage::antrekan($dedupeKey, [
             'event'          => $event,
