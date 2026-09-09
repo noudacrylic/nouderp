@@ -121,11 +121,34 @@ Route::prefix('erp')->group(function () {
         Route::get ('/template',      [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'index'])->name('template.index');
         Route::get ('/template/baru', [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'formBaru'])->name('template.baru');
         Route::post('/template/mulai',[\App\Modules\CRM\Controllers\CrmTemplateController::class, 'mulai'])->name('template.mulai');
+        // Ajukan satu bunyi yang sudah disepakati ke Meta lewat vendor
+        // (buat + submit dalam satu langkah — lihat ajukan()).
+        Route::post('/template/ajukan',[\App\Modules\CRM\Controllers\CrmTemplateController::class, 'ajukan'])->name('template.ajukan');
 
         // Potongan balasan ("template teks") — milik kita, gratis, hanya sah di
         // dalam jendela 24 jam. Beda dari template Meta di /crm/template.
         // Rail Produk: mencari produk etalase untuk dikirim tautannya ke chat.
         Route::get   ('/produk',             [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariProduk'])->name('produk.cari');
+        // Tautan luar per SKU (Shopee dsb.). Ditaruh SEBELUM '/{conversation}'
+        // seperti tetangganya — kalau tidak, 'produk' dibaca sebagai id chat.
+        Route::post  ('/produk/{product}/tautan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tambahTautanProduk'])->name('produk.tautan.simpan');
+        Route::post  ('/produk/tautan/{link}',    [\App\Modules\CRM\Controllers\CrmInboxController::class, 'ubahTautanProduk'])->name('produk.tautan.ubah');
+        Route::delete('/produk/tautan/{link}',    [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusTautanProduk'])->name('produk.tautan.hapus');
+        // Sub-tab Custom: harga & berat barang buatan ditetapkan dari layar chat,
+        // karena di situlah angkanya lahir.
+        Route::post  ('/produk/{product}/harga',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanHargaProduk'])->name('produk.harga');
+        // Stok Jubelio produk custom diisi TANGAN — lihat simpanStokJubelio():
+        // stok ERP sengaja tidak ikut berubah.
+        Route::post  ('/produk/{product}/stok-jubelio', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanStokJubelio'])->name('produk.stok-jubelio');
+        // Sub-tab Market Place: daftar nama+alamat bebas, tidak menempel ke SKU.
+        Route::get   ('/pasar',           [\App\Modules\CRM\Controllers\CrmInboxController::class, 'daftarTautanPasar'])->name('pasar.index');
+        Route::post  ('/pasar',           [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanTautanPasar'])->name('pasar.store');
+        Route::post  ('/pasar/{tautan}',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'ubahTautanPasar'])->name('pasar.update');
+        Route::delete('/pasar/{tautan}',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusTautanPasar'])->name('pasar.destroy');
+        // Titipan "kabari kalau stok ada". Rutenya berdiri SEBELUM
+        // '/{conversation}' seperti tetangganya, kalau tidak 'titipan-stok'
+        // ditangkap sebagai id chat.
+        Route::delete('/titipan-stok/{watch}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusTitipanStok'])->name('titipan-stok.destroy');
         // Pemicu manual pengunduh lampiran; penjadwal bisa mati (di lokal tak
         // pernah hidup), dan lampiran tak boleh menggantung tanpa jalan keluar.
         Route::post  ('/lampiran/unduh',     [\App\Modules\CRM\Controllers\CrmInboxController::class, 'unduhLampiran'])->name('lampiran.unduh');
@@ -142,11 +165,19 @@ Route::prefix('erp')->group(function () {
 
         Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'show'])->name('inbox.show');
         Route::post('/{conversation}/balas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'balas'])->name('inbox.balas');
+        // Kirim foto produk (etalase) sebagai gambar berikut caption — pratinjau
+        // tautan WhatsApp tidak bisa diandalkan, lihat kirimFotoProduk().
+        Route::post('/{conversation}/kirim-foto', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'kirimFotoProduk'])->name('inbox.kirim-foto');
+        Route::get ('/{conversation}/titipan-stok', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'daftarTitipanStok'])->name('inbox.titipan-stok');
+        Route::post('/{conversation}/titipan-stok', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tandaiTitipanStok'])->name('inbox.titipan-stok.simpan');
         // Dipanggil berkala oleh thread supaya pesan masuk muncul tanpa muat ulang.
         Route::get('/{conversation}/pesan-baru', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pesanBaru'])->name('inbox.pesan-baru');
         Route::post('/{conversation}/oper', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'oper'])->name('inbox.oper');
         Route::post('/{conversation}/antrean', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'antrean'])->name('inbox.antrean');
         Route::post('/{conversation}/arsip', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'arsip'])->name('inbox.arsip');
+        // Kembalikan tanda "belum dibaca" — dipakai saat chat terlanjur dibuka
+        // tapi belum sempat dikerjakan.
+        Route::post('/{conversation}/belum-dibaca', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'belumDibaca'])->name('inbox.belum-dibaca');
         Route::post('/{conversation}/catatan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'catatan'])->name('inbox.catatan');
         // Susun SO draft langsung dari layar chat (tab "Pesanan" di rail kanan).
         Route::post('/{conversation}/buat-so', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'buatSo'])->name('inbox.buat-so');

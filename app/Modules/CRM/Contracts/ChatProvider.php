@@ -134,5 +134,18 @@ interface ChatProvider
      *
      * @return array{success:bool, is_open:bool, expires_at:?string, raw:array, error:?string}
      */
+    /**
+     * Buat template baru DAN ajukan ke Meta.
+     *
+     * Vendor memisahkannya jadi dua panggilan; kontrak ini sengaja
+     * menyatukannya karena pemisahan itu jebakan — template yang dibuat tapi
+     * lupa diajukan tampak "sudah ada", berstatus PENDING selamanya, dan tak
+     * pernah sampai ke Meta.
+     *
+     * @param  string[]  $variabel  contoh nilai tiap {{n}}, berurutan
+     * @return array{success:bool, id:?string, status:?string, error:?string}
+     */
+    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id'): array;
+
     public function windowStatus(string $identifier): array;
 }

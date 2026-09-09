@@ -86,5 +86,13 @@ class AppServiceProvider extends ServiceProvider
         // dan resi bisa datang dari booking Jubelio maupun diketik tangan.
         SalesOrder::observe(CrmSalesOrderObserver::class);
         SalesDelivery::observe(CrmSalesDeliveryObserver::class);
+
+        /*
+         * Titipan "kabari kalau stoknya ada". Dua model, karena stok yang bisa
+         * DIJANJIKAN berubah oleh keduanya: ledger (barang masuk/keluar) dan
+         * reservasi (SO batal → barang bebas lagi).
+         */
+        InventoryLedger::observe(\App\Modules\CRM\Observers\StokTitipanObserver::class);
+        StockReservation::observe(\App\Modules\CRM\Observers\StokTitipanObserver::class);
     }
 }

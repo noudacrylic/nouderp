@@ -261,6 +261,63 @@ class JubelioProductSyncService
     }
 
     /**
+     * Dorong BERAT satu produk ke Jubelio (gram).
+     *
+     * Berat dipisah dari harga, bukan dititipkan ke pushPrice(), karena
+     * endpoint-nya memang lain: harga lewat price-list, berat lewat objek
+     * produk yang harus dibaca-ubah-kirim. Menggabungkannya berarti satu
+     * kegagalan berat ikut membatalkan harga yang sebenarnya sudah masuk.
+     *
+     * @return array{ok:bool, message:string}
+     */
+    public function pushWeight(Product $product, ?int $grams = null): array
+    {
+        $grams = (int) ($grams ?? $product->weight_gram ?? 0);
+
+        if ($grams <= 0) {
+            return ['ok' => false, 'message' => 'Berat produk belum diisi.'];
+        }
+
+        if (!$product->jubelio_item_id || !$product->jubelio_item_group_id) {
+            $cocok = $this->cocokkan($product);
+            if (!$cocok['ok']) {
+                JubelioSyncLog::record(JubelioSyncLog::TYPE_PRODUCT, JubelioSyncLog::SKIP, $product->name, [
+                    'reference'  => $product->sku,
+                    'product_id' => $product->id,
+                    'message'    => 'Belum ter-match ke item Jubelio. ' . $cocok['alasan'],
+                ]);
+                return ['ok' => false, 'message' => 'Belum ter-match ke item Jubelio. ' . $cocok['alasan']];
+            }
+            $product->refresh();
+        }
+
+        $resp = $this->client->updateItemWeight(
+            (int) $product->jubelio_item_id,
+            (int) $product->jubelio_item_group_id,
+            $grams
+        );
+
+        if (!$resp['success']) {
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_PRODUCT, JubelioSyncLog::FAIL, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => $resp['error'] ?: 'Gagal mengirim berat ke Jubelio.',
+                'meta'       => ['weight_gram' => $grams],
+            ]);
+            return ['ok' => false, 'message' => $resp['error'] ?: 'Gagal mengirim berat ke Jubelio.'];
+        }
+
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_PRODUCT, JubelioSyncLog::OK, $product->name, [
+            'reference'  => $product->sku,
+            'product_id' => $product->id,
+            'message'    => 'Berat dikirim: ' . number_format($grams, 0, ',', '.') . ' gram',
+            'meta'       => ['weight_gram' => $grams],
+        ]);
+
+        return ['ok' => true, 'message' => 'Berat ' . number_format($grams, 0, ',', '.') . ' gram terkirim.'];
+    }
+
+    /**
      * Dorong harga KHUSUS TOKO (bukan harga dasar) — dipakai Analisa ▸ Harga Produk supaya
      * tiap marketplace boleh berharga beda sesuai potongannya masing-masing.
      *

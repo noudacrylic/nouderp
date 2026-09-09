@@ -494,4 +494,64 @@ class JubelioClient
 
         return $out;
     }
+
+    /**
+     * Ubah BERAT satu variasi item di Jubelio (gram).
+     *
+     * Jubelio tidak punya endpoint "ubah berat saja": berat ikut di objek
+     * item-group, dan satu-satunya cara menuliskannya adalah mengirim ulang
+     * objek itu lewat POST /inventory/products/. Karena itu jalurnya BACA →
+     * UBAH SATU ANGKA → KIRIM ULANG, bukan menyusun payload dari nol —
+     * payload karangan akan menghapus kolom yang tidak kita sertakan (nama,
+     * kategori, harga), dan kerusakannya baru ketahuan di lapak.
+     *
+     * ⚠️ BELUM PERNAH DIVERIFIKASI HIDUP dari mesin pengembangan (kredensial
+     * Jubelio mati di sana). Kalau responsnya tidak seperti dugaan, ia
+     * mengembalikan alasannya apa adanya — tidak berpura-pura berhasil.
+     *
+     * @return array{success:bool, error:?string}
+     */
+    public function updateItemWeight(int $itemId, int $itemGroupId, int $grams): array
+    {
+        $resp = $this->getItem($itemId ?: $itemGroupId);
+        if (!$resp['success'] || !is_array($resp['data'])) {
+            return ['success' => false, 'error' => $resp['error'] ?: 'Item tidak terbaca dari Jubelio.'];
+        }
+
+        $grup = $resp['data'];
+        $baris = $grup['product_skus'] ?? null;
+        if (!is_array($baris) || !$baris) {
+            return ['success' => false, 'error' => 'Respons Jubelio tidak memuat daftar variasi (product_skus).'];
+        }
+
+        $kena = false;
+        foreach ($baris as $i => $sku) {
+            if (!is_array($sku) || (int) ($sku['item_id'] ?? 0) !== $itemId) {
+                continue;
+            }
+            // Nama kolomnya berbeda antar versi API; yang SUDAH ADA saja yang
+            // ditimpa, supaya tidak menambah kolom asing ke payload.
+            foreach (['weight', 'weight_in_gram', 'item_weight'] as $kolom) {
+                if (array_key_exists($kolom, $sku)) {
+                    $baris[$i][$kolom] = $grams;
+                    $kena = true;
+                }
+            }
+            if (!$kena) {
+                $baris[$i]['weight'] = $grams;
+                $kena = true;
+            }
+            break;
+        }
+
+        if (!$kena) {
+            return ['success' => false, 'error' => 'Variasi item_id ' . $itemId . ' tidak ditemukan di dalam grupnya.'];
+        }
+
+        $grup['product_skus'] = $baris;
+
+        $kirim = $this->post('/inventory/products/', $grup);
+
+        return ['success' => (bool) $kirim['success'], 'error' => $kirim['error']];
+    }
 }

@@ -17,6 +17,9 @@ class JubelioSyncLog extends Model
     public const TYPE_ORDER = 'order';
     public const TYPE_STOCK = 'stock';
     public const TYPE_PRICE = 'price';
+    /** Atribut produk selain harga (berat, dimensi) — beda jenis dari TYPE_PRICE
+     *  supaya kegagalan berat tidak menyamar sebagai kegagalan harga di riwayat. */
+    public const TYPE_PRODUCT = 'product';
 
     public const OK   = 'success';
     public const FAIL = 'failed';
@@ -80,6 +83,7 @@ class JubelioSyncLog extends Model
             self::TYPE_ORDER => 'Pesanan',
             self::TYPE_STOCK => 'Stok',
             self::TYPE_PRICE => 'Harga',
+            self::TYPE_PRODUCT => 'Produk',
             default          => ucfirst($this->type),
         };
     }
@@ -90,6 +94,7 @@ class JubelioSyncLog extends Model
             self::TYPE_ORDER => 'bg-indigo-100 text-indigo-700',
             self::TYPE_STOCK => 'bg-sky-100 text-sky-700',
             self::TYPE_PRICE => 'bg-amber-100 text-amber-700',
+            self::TYPE_PRODUCT => 'bg-violet-100 text-violet-700',
             default          => 'bg-gray-100 text-gray-600',
         };
     }

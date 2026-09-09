@@ -41,6 +41,7 @@
                     <option value="order" @selected($type==='order')>Pesanan</option>
                     <option value="stock" @selected($type==='stock')>Stok</option>
                     <option value="price" @selected($type==='price')>Harga</option>
+                    <option value="product" @selected($type==='product')>Produk</option>
                 </select>
             </div>
             <div>

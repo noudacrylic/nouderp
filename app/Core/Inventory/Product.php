@@ -91,6 +91,26 @@ class Product extends Model
         return $this->sale_type === 'preorder' && ! $this->made_to_order;
     }
 
+    /**
+     * Barang buatan yang mengikuti permintaan pembeli (CS1, CS2, …) —
+     * kebalikan dari sharesStockAcrossOrders().
+     *
+     * `made_to_order` SAJA tidak cukup: bawaannya true untuk SEMUA produk
+     * (lihat migrasi 2026_08_08_160000), jadi memakainya sendirian menyapu
+     * seluruh katalog termasuk barang ready. Yang membedakan adalah pasangan
+     * preorder + penanda itu.
+     */
+    public function isMadeToOrder(): bool
+    {
+        return $this->sale_type === 'preorder' && (bool) $this->made_to_order;
+    }
+
+    /** Penyaring kueri untuk isMadeToOrder(). */
+    public function scopeMadeToOrder($query)
+    {
+        return $query->where('sale_type', 'preorder')->where('made_to_order', 1);
+    }
+
     public function bundleComponents()
     {
         return $this->hasMany(\App\Core\Inventory\BundleComponent::class, 'bundle_product_id');
@@ -148,6 +168,12 @@ class Product extends Model
         $price = $this->prices()->orderBy('id')->first();
 
         return $price ? $price->price : 0;
+    }
+
+    /** Tautan luar (Shopee dsb.) yang ditempel manual — dipakai panel CRM. */
+    public function links()
+    {
+        return $this->hasMany(ProductLink::class);
     }
 
     public function costLayers()

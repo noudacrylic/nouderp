@@ -45,8 +45,8 @@ class WahaNotifikasiTest extends TestCase
         $teks = TemplateResmi::render('pembayaran_diterima', ['Budi', '150.000', 'SO-1', 'Lunas']);
 
         $this->assertSame(
-            'Halo Budi, pembayaran sebesar Rp150.000 untuk pesanan SO-1 sudah kami terima. '
-            . 'Status pembayaran saat ini: Lunas. Terima kasih atas kepercayaan Anda.',
+            'Halo Kak Budi, pembayaran sebesar Rp150.000 untuk pesanan SO-1 sudah kami terima. '
+            . 'Status pembayaran saat ini: Lunas. Terima kasih atas kepercayaan Kakak.',
             $teks
         );
     }
@@ -75,7 +75,7 @@ class WahaNotifikasiTest extends TestCase
         $teks = TemplateResmi::render('pesanan_dikirim', ['Budi', 'SO-1', 'JNE', 'JX123'], null);
 
         $this->assertSame(
-            'Halo Budi, pesanan SO-1 sudah kami serahkan ke JNE dengan nomor resi JX123.',
+            'Halo Kak Budi, pesanan SO-1 sudah kami serahkan ke JNE dengan nomor resi JX123.',
             $teks
         );
     }
@@ -86,6 +86,33 @@ class WahaNotifikasiTest extends TestCase
     }
 
     /* ------------------------------------------------------------------ kirim */
+
+    /** Kirim satu notifikasi lewat WAHA palsu, kembalikan teks yang dikirimkan. */
+    private function kirimDapatTeks(): string
+    {
+        Http::fake([
+            '*/api/sessions/notifikasi' => Http::response(['name' => 'notifikasi', 'status' => 'WORKING']),
+            '*/api/sendText'            => Http::response(['id' => 'true_628_ABC']),
+        ]);
+
+        app(WahaProvider::class)->kirimNotifikasi([
+            'to'       => '628998844666',
+            'template' => 'pembayaran_diterima',
+            'body'     => ['Budi', '150.000', 'SO-1', 'Lunas'],
+        ]);
+
+        $teks = '';
+
+        Http::assertSent(function ($request) use (&$teks) {
+            if (str_contains($request->url(), '/api/sendText')) {
+                $teks = (string) $request['text'];
+            }
+
+            return true;
+        });
+
+        return $teks;
+    }
 
     public function test_pengiriman_memakai_endpoint_dan_bentuk_chatid_waha(): void
     {
@@ -110,9 +137,40 @@ class WahaNotifikasiTest extends TestCase
 
             return $request['session'] === 'notifikasi'
                 && $request['chatId'] === '628998844666@c.us'
-                && str_contains($request['text'], 'Halo Budi')
+                && str_contains($request['text'], 'Halo Kak Budi')
                 && $request->header('X-Api-Key')[0] === 'kunci-uji';
         });
+    }
+
+    /**
+     * Tiap pesan WAHA memperkenalkan diri lebih dulu.
+     *
+     * Nomor WAHA tak punya centang hijau maupun nama bisnis terverifikasi.
+     * Pesan "pesanan Anda belum dibayar, klik tautan ini" dari nomor asing
+     * adalah bentuk penipuan yang paling lazim — pelanggan yang berhati-hati
+     * justru benar kalau mengabaikannya. Kepala suratnya yang membedakan.
+     */
+    public function test_pesan_waha_selalu_memperkenalkan_diri(): void
+    {
+        $teks = $this->kirimDapatTeks();
+
+        $this->assertStringStartsWith('*NOUD ACRYLIC*', $teks);
+        $this->assertStringContainsString('Pesan resmi dari', $teks);
+        // Badannya tetap utuh di bawah kepala surat.
+        $this->assertStringContainsString('Halo Kak Budi', $teks);
+    }
+
+    /**
+     * Jalur RESMI tidak memakai kepala surat itu: identitas kita sudah dijamin
+     * Meta, dan menambah teks ke template yang sudah disetujui bukan urusan
+     * kode kita — template itu akan ditolak karena tidak cocok.
+     */
+    public function test_jalur_resmi_tidak_ikut_memakai_kepala_surat(): void
+    {
+        $this->assertStringNotContainsString(
+            'NOUD ACRYLIC',
+            (string) \App\Modules\CRM\Support\TemplateResmi::render('pembayaran_diterima', ['Budi', '150.000', 'SO-1', 'Lunas'])
+        );
     }
 
     /**
@@ -189,7 +247,7 @@ class WahaNotifikasiTest extends TestCase
 
         Http::assertNothingSent();
         $this->assertCount(1, $manager->fake()->terkirim);
-        $this->assertStringContainsString('Halo Budi', $manager->fake()->terkirim[0]['teks']);
+        $this->assertStringContainsString('Halo Kak Budi', $manager->fake()->terkirim[0]['teks']);
     }
 
     public function test_driver_bawaan_tetap_jalur_resmi(): void

@@ -298,7 +298,11 @@ class ApiCoIdProvider implements ChatProvider
 
             return [
                 'id'        => (string) ($row['id'] ?? ''),
-                'name'      => (string) ($row['name'] ?? ''),
+                // Dua bentuk respons beredar: dokumentasi menyebut
+                // `template_name`, sebagian jawaban memakai `name`. Yang dibaca
+                // KEDUANYA — kalau cuma satu, daftar template di layar tampil
+                // kosong tanpa satu pun pesan galat, dan tak ada yang curiga.
+                'name'      => (string) ($row['template_name'] ?? $row['name'] ?? ''),
                 'language'  => (string) ($row['language'] ?? 'id'),
                 'category'  => $row['category'] ?? null,
                 'status'    => strtoupper((string) ($row['status'] ?? 'UNKNOWN')),
@@ -313,6 +317,11 @@ class ApiCoIdProvider implements ChatProvider
     /** Bunyi badan template; bentuk komponennya beda-beda antar respons vendor. */
     private static function bodyTemplate(array $row): ?string
     {
+        // `content` (bentuk yang didokumentasikan), `body`, lalu components[].
+        if (is_string($row['content'] ?? null)) {
+            return $row['content'];
+        }
+
         if (is_string($row['body'] ?? null)) {
             return $row['body'];
         }
@@ -338,6 +347,79 @@ class ApiCoIdProvider implements ChatProvider
         }
 
         return max(array_map('intval', $m[1]));
+    }
+
+    /**
+     * Buat template BARU lalu langsung ajukan ke Meta.
+     *
+     * Vendor memisahkannya jadi dua langkah: `POST /templates` cuma menyimpan
+     * catatan di sisi mereka, dan baru `POST /templates/{id}/submit` yang
+     * mengirimkannya ke Meta. Keduanya disatukan di sini justru karena
+     * pemisahan itu adalah jebakan: melewatkan langkah kedua menghasilkan
+     * template yang tampak "sudah dibuat", berstatus PENDING selamanya, dan
+     * tak pernah sampai ke Meta — kegagalan yang tidak menimbulkan gejala apa
+     * pun sampai ada yang bertanya kenapa template itu belum disetujui juga.
+     *
+     * Kalau pembuatannya berhasil tapi pengajuannya gagal, itu DIKATAKAN
+     * apa adanya berikut id-nya, supaya bisa diajukan ulang tanpa membuat
+     * duplikat (nama template unik per bahasa — percobaan kedua akan ditolak).
+     *
+     * @param  string[]  $variabel  contoh nilai tiap {{n}}, berurutan
+     * @return array{success:bool, id:?string, status:?string, error:?string}
+     */
+    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id'): array
+    {
+        $muatan = [
+            'template_name' => $nama,
+            'category'      => strtoupper($kategori),
+            'language'      => $bahasa,
+            'body'          => $body,
+        ];
+
+        if ($variabel) {
+            $muatan['variables'] = array_values(array_map('strval', $variabel));
+        }
+
+        if ($id = $this->setting->default_phone_number_id) {
+            $muatan['whatsapp_phone_number_id'] = $id;
+        }
+
+        $buat = $this->post('/templates', $muatan);
+
+        if (! $buat['success']) {
+            return ['success' => false, 'id' => null, 'status' => null, 'error' => $buat['error']];
+        }
+
+        $idTemplate = (string) (data_get($buat['data'], 'data.id') ?? data_get($buat['data'], 'id') ?? '');
+
+        if ($idTemplate === '') {
+            return [
+                'success' => false,
+                'id'      => null,
+                'status'  => null,
+                'error'   => 'Vendor tidak mengembalikan id template, jadi pengajuannya tidak bisa dilanjutkan.',
+            ];
+        }
+
+        $ajukan = $this->post('/templates/' . rawurlencode($idTemplate) . '/submit');
+
+        if (! $ajukan['success']) {
+            return [
+                'success' => false,
+                'id'      => $idTemplate,
+                'status'  => 'PENDING',
+                'error'   => 'Template tersimpan (id ' . $idTemplate . ') tapi GAGAL diajukan ke Meta: '
+                    . ($ajukan['error'] ?: 'tanpa keterangan')
+                    . '. Ajukan ulang dari dasbor vendor — jangan dibuat ulang, namanya sudah terpakai.',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'id'      => $idTemplate,
+            'status'  => (string) (data_get($ajukan['data'], 'data.status') ?? 'PENDING'),
+            'error'   => null,
+        ];
     }
 
     public function windowStatus(string $identifier): array
@@ -410,7 +492,7 @@ class ApiCoIdProvider implements ChatProvider
         return $this->request('get', $path);
     }
 
-    private function post(string $path, array $body): array
+    private function post(string $path, array $body = []): array
     {
         return $this->request('post', $path, $body);
     }

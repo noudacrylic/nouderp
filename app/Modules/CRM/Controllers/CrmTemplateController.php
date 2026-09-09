@@ -39,6 +39,53 @@ class CrmTemplateController extends Controller
         ]);
     }
 
+    /**
+     * Ajukan satu bunyi yang sudah disepakati ke Meta lewat vendor.
+     *
+     * Yang dikirim diambil dari TemplateResmi berdasarkan NAMANYA, bukan dari
+     * isian form. Bedanya penting: bunyi template adalah sesuatu yang sekali
+     * disetujui akan dikirim ke ribuan pelanggan, dan mengizinkannya diketik di
+     * layar berarti kalimat yang beredar bisa berbeda dari yang dipakai kode —
+     * lalu jalur WAHA dan jalur resmi diam-diam mengucapkan hal yang berbeda.
+     */
+    public function ajukan(Request $request, ChatManager $chat)
+    {
+        $data = $request->validate(['nama' => 'required|string|max:120']);
+
+        $usulan = TemplateResmi::usulan($data['nama']);
+
+        if (! $usulan) {
+            return back()->with('error', 'Template "' . $data['nama'] . '" tidak dikenal.');
+        }
+
+        /*
+         * Yang khusus WAHA TIDAK boleh diajukan. Nadanya mengingatkan &
+         * menawarkan, jadi Meta akan menggolongkannya MARKETING — dan
+         * penggolongan itu menempel pada nomornya, bukan pada satu template.
+         */
+        if (! empty($usulan['hanya_waha'])) {
+            return back()->with('error',
+                'Template "' . $usulan['nama'] . '" khusus jalur WAHA dan tidak boleh diajukan ke Meta. '
+                . 'Nadanya akan digolongkan MARKETING.');
+        }
+
+        $hasil = $chat->provider()->buatTemplate(
+            $usulan['nama'],
+            $usulan['kategori'],
+            $usulan['body'],
+            TemplateResmi::contoh($usulan['nama'])
+        );
+
+        if (! ($hasil['success'] ?? false)) {
+            return back()->with('error', 'Gagal mengajukan "' . $usulan['nama'] . '": ' . ($hasil['error'] ?? 'tanpa keterangan'));
+        }
+
+        return back()->with('success',
+            'Template "' . $usulan['nama'] . '" diajukan ke Meta. Statusnya '
+            . ($hasil['status'] ?? 'PENDING') . ' — peninjauan bisa memakan waktu sampai 24 jam. '
+            . 'Muat ulang halaman ini untuk melihat perkembangannya.');
+    }
+
     /** Form Chat Baru — hanya template APPROVED yang boleh dipilih. */
     public function formBaru(ChatManager $chat)
     {

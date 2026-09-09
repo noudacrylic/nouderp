@@ -59,11 +59,13 @@ class JenisNotifikasiTest extends TestCase
 
     /* ------------------------------------------------------------------ katalog */
 
-    public function test_katalog_memuat_tiga_jenis_beserta_teks_jadinya(): void
+    public function test_katalog_memuat_semua_jenis_beserta_teks_jadinya(): void
     {
         $katalog = JenisNotifikasi::katalog();
 
-        $this->assertCount(3, $katalog);
+        // Empat berbayar (template Meta, termasuk "Jatuh Tempo") + dua yang
+        // khusus WAHA ("Tagihan Pembayaran" & "Stok Sudah Ada").
+        $this->assertCount(6, $katalog);
 
         foreach ($katalog as $j) {
             $this->assertNotEmpty($j['teks'], "Teks contoh {$j['event']} kosong.");
@@ -156,7 +158,14 @@ class JenisNotifikasiTest extends TestCase
         $this->assertFalse(JenisNotifikasi::aktif(CrmOutboxMessage::EVENT_SIAP_AMBIL));
 
         $this->assertSame(
-            ['pembayaran_diterima' => false, 'siap_diambil' => false, 'dikirim' => true],
+            [
+                'pembayaran_diterima' => false,
+                'siap_diambil'        => false,
+                'dikirim'             => true,
+                'jatuh_tempo'         => false,
+                'tagihan_pembayaran'  => false,
+                'stok_tersedia'       => false,
+            ],
             CrmSetting::for('apicoid')->config['notifikasi_aktif']
         );
     }

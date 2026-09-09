@@ -242,6 +242,69 @@ class CrmReplyService
     }
 
     /**
+     * Kirim SATU gambar yang alamatnya sudah kita punya (foto etalase di R2)
+     * berikut captionnya.
+     *
+     * Ada karena WhatsApp TIDAK selalu memunculkan pratinjau otomatis untuk
+     * tautan yang dikirim — kalau pengambil pratinjau Meta gagal membuka
+     * halaman etalase, yang sampai ke pembeli cuma sebaris URL telanjang.
+     * Mengirim fotonya sendiri membuat pratinjaunya jadi urusan kita, bukan
+     * urusan pengambil halaman milik orang lain.
+     *
+     * @return array{success:bool, message:?CrmMessage, error:?string}
+     */
+    public function kirimFoto(
+        CrmConversation $percakapan,
+        string $urlGambar,
+        string $caption,
+        ?int $userId = null
+    ): array {
+        if (! $percakapan->windowIsOpen()) {
+            return $this->gagal(
+                'Jendela 24 jam sudah tertutup — foto tidak bisa dikirim. '
+                . 'Pakai template penyusul, atau tunggu pelanggan membalas lebih dulu.'
+            );
+        }
+
+        $caption = trim($caption);
+        $pesan   = $this->catat($percakapan, 'image', $caption ?: null, [], $userId, null);
+
+        $lampiran = $this->media->simpanDariUrl($pesan, $urlGambar);
+
+        if (! $lampiran) {
+            $pesan->delete();
+
+            return $this->gagal('Foto produk tidak bisa diambil dari etalase. Kirim tautannya saja, atau tempel fotonya manual.');
+        }
+
+        $hasil = $this->chat->provider()->sendMedia([
+            'to'              => $percakapan->contact_key,
+            'type'            => 'image',
+            'media'           => $this->tautanSementara($lampiran),
+            'caption'         => $caption ?: null,
+            'nama_berkas'     => $lampiran->original_name,
+            'channel'         => $percakapan->channel,
+            'phone_number_id' => $percakapan->business_number_id,
+        ]);
+
+        if (! ($hasil['success'] ?? false)) {
+            $lampiran->delete();
+            $pesan->delete();
+
+            return $this->gagal('Gagal mengirim foto produk: ' . ($hasil['error'] ?? 'tanpa keterangan'));
+        }
+
+        $pesan->forceFill([
+            'provider_message_id' => $hasil['message_id'] ?? null,
+            'raw'                 => $hasil['raw'] ?? [],
+        ])->save();
+
+        $this->geserBola($percakapan);
+
+        return ['success' => true, 'message' => $pesan, 'error' => null];
+    }
+
+    /**
      * URL sementara bertanda tangan untuk satu lampiran keluar.
      *
      * Meta harus bisa MENGAMBIL berkasnya sendiri, jadi tak ada jalan lain

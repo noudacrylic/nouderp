@@ -55,6 +55,21 @@ Schedule::command('crm:kirim-notifikasi')->everyFiveMinutes()->name('crm-kirim-n
 // Denyut jantung sesi WAHA. Sesi yang putus TIDAK menimbulkan gejala apa pun:
 // ERP tetap mengantre dengan rapi, cuma pelanggan tak menerima apa-apa. Kalau
 // hanya diperiksa saat mengirim, jeda antar-pesanan bisa berjam-jam.
+// Titipan "kabari kalau stok ada". Observer stok sudah menyalakan pemeriksaan
+// seketika; ini jaring pengaman untuk perubahan stok yang tidak lewat ledger
+// (impor, koreksi langsung, perintah yang mematikan event model).
+Schedule::command('crm:cek-stok-titipan')->everyFifteenMinutes()->name('crm-cek-stok-titipan')->withoutOverlapping();
+
+// Penagihan pesanan yang tautan bayarnya belum dibayar — dan pembatalan yang
+// lewat batas. SEKALI SEHARI di jam kerja: jadwalnya berbasis hari penuh, jadi
+// jalan berkali-kali sehari tak menghasilkan apa pun selain risiko, dan pesan
+// tagihan yang tiba tengah malam mengundang blokir.
+// Pengingat jatuh tempo pesanan tempo (H-3 & hari-H). Jalur RESMI berbayar,
+// apa pun driver yang sedang dipilih — lihat TemplateResmi::wajibResmi().
+Schedule::command('crm:ingatkan-jatuh-tempo')->dailyAt('09:00')->name('crm-ingatkan-jatuh-tempo')->withoutOverlapping();
+
+Schedule::command('crm:tagih-pembayaran')->dailyAt('09:15')->name('crm-tagih-pembayaran')->withoutOverlapping();
+
 Schedule::command('crm:pantau-waha')->everyFiveMinutes()->name('crm-pantau-waha')->withoutOverlapping();
 
 // Lampiran chat diunduh ke penyimpanan sendiri secepat mungkin: media di sisi

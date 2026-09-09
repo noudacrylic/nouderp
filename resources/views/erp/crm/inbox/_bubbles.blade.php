@@ -72,33 +72,47 @@
                             @include('erp.crm.inbox._kutipan', ['dikutip' => $m->pesanDikutip()])
                         @endif
 
-                        @if($m->content)
-                            <div class="whitespace-pre-wrap">{{ $m->content }}</div>
+                        {{-- Media DI ATAS teks, seperti WhatsApp: di HP pelanggan yang
+                             terlihat lebih dulu adalah gambarnya, dan captionnya
+                             duduk di bawahnya. Kalau di sini urutannya terbalik,
+                             admin memeriksa sesuatu yang bentuknya bukan yang
+                             diterima pelanggan. --}}
+                        @if($m->attachments->isNotEmpty())
+                            <div class="space-y-2 {{ $m->content ? 'mb-2' : '' }}">
+                                @foreach($m->attachments as $l)
+                                    <div>
+                                        @if($l->sudahDisapu())
+                                            <div class="text-xs text-gray-500 italic">
+                                                Lampiran dihapus otomatis {{ $l->purged_at->translatedFormat('d M Y') }} (lewat masa simpan).
+                                            </div>
+                                        @elseif(! $l->tersimpanAman())
+                                            <div class="text-xs text-amber-700">
+                                                Lampiran belum tersimpan{{ $l->download_error ? ': ' . $l->download_error : ' — menunggu diunduh.' }}
+                                            </div>
+                                        @elseif($l->isGambar())
+                                            <a href="{{ route('crm.inbox.lampiran', $l->id) }}" target="_blank">
+                                                <img src="{{ route('crm.inbox.lampiran', $l->id) }}" alt="{{ $l->original_name }}"
+                                                     class="rounded border max-h-56">
+                                            </a>
+                                        @else
+                                            <a href="{{ route('crm.inbox.lampiran', $l->id) }}"
+                                               class="inline-block border border-gray-300 rounded px-2 py-1 text-xs hover:bg-gray-50">
+                                                ⬇ {{ $l->original_name ?: 'Unduh lampiran' }}
+                                            </a>
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </div>
                         @endif
 
-                        @foreach($m->attachments as $l)
-                            <div class="mt-2">
-                                @if($l->sudahDisapu())
-                                    <div class="text-xs text-gray-500 italic">
-                                        Lampiran dihapus otomatis {{ $l->purged_at->translatedFormat('d M Y') }} (lewat masa simpan).
-                                    </div>
-                                @elseif(! $l->tersimpanAman())
-                                    <div class="text-xs text-amber-700">
-                                        Lampiran belum tersimpan{{ $l->download_error ? ': ' . $l->download_error : ' — menunggu diunduh.' }}
-                                    </div>
-                                @elseif($l->isGambar())
-                                    <a href="{{ route('crm.inbox.lampiran', $l->id) }}" target="_blank">
-                                        <img src="{{ route('crm.inbox.lampiran', $l->id) }}" alt="{{ $l->original_name }}"
-                                             class="rounded border max-h-56">
-                                    </a>
-                                @else
-                                    <a href="{{ route('crm.inbox.lampiran', $l->id) }}"
-                                       class="inline-block border border-gray-300 rounded px-2 py-1 text-xs hover:bg-gray-50">
-                                        ⬇ {{ $l->original_name ?: 'Unduh lampiran' }}
-                                    </a>
-                                @endif
-                            </div>
-                        @endforeach
+                        {{-- Tautan dibuat bisa diklik: thread ini dipakai MEMERIKSA apa
+                             yang sudah terkirim, dan pemeriksaan itu setengah jalan
+                             kalau alamatnya harus disalin dulu ke tab baru. Isinya
+                             di-escape lebih dulu di dalam TeksPesan — lihat di sana
+                             kenapa urutannya tidak boleh dibalik. --}}
+                        @if($m->content)
+                            <div class="whitespace-pre-wrap">{!! \App\Modules\CRM\Support\TeksPesan::tautkan($m->content) !!}</div>
+                        @endif
 
                         <div class="mt-1 text-[11px] text-gray-500 flex items-center gap-2 {{ $masuk ? '' : 'justify-end' }}">
                             <span>{{ $m->sent_at?->translatedFormat('d M Y H:i') }}</span>

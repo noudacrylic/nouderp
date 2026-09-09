@@ -11,9 +11,10 @@
      @buka-tab.window="tab = $event.detail.tab">
 
     <div class="shrink-0 flex gap-1 px-2 py-2 border-b border-gray-200 bg-gray-50 text-xs">
-        {{-- Produk pindah ke menu klip di kotak ketik — tempatnya memang di sisi
-             lampiran, bukan panel telaah. --}}
-        @foreach(['info' => 'Info', 'template' => 'Template', 'ongkir' => 'Ongkir', 'pesanan' => 'Pesanan'] as $key => $label)
+        {{-- Produk kembali ke rail (7 Sep 2026): di menu klip ia cuma jadi
+             pengirim tautan, padahal yang paling sering dibutuhkan justru
+             MEMBACA — stok dan harga — sambil mengetik balasan. --}}
+        @foreach(['info' => 'Info', 'template' => 'Template', 'produk' => 'Produk', 'ongkir' => 'Ongkir', 'pesanan' => 'Pesanan'] as $key => $label)
             <button type="button" @click="tab = '{{ $key }}'"
                     :class="tab === '{{ $key }}' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50'"
                     class="px-2 py-1 rounded border">{{ $label }}</button>
@@ -83,6 +84,11 @@
                     <button class="w-full border border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm">Simpan</button>
                 </form>
             </details>
+        </div>
+
+        {{-- ---------------------------------------------------------- produk --}}
+        <div x-show="tab === 'produk'" x-cloak>
+            @include('erp.crm.inbox._produk')
         </div>
 
         {{-- ---------------------------------------------------------- ongkir --}}

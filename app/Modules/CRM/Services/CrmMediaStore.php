@@ -157,6 +157,61 @@ class CrmMediaStore
     }
 
     /**
+     * Tarik sebuah gambar dari URL publik (foto etalase di R2) dan jadikan
+     * lampiran KELUAR milik sebuah pesan.
+     *
+     * Kenapa disalin, bukan cukup menyerahkan URL R2-nya ke vendor: gelembung
+     * di thread membaca berkas dari disk kita. Kalau lampirannya cuma menunjuk
+     * alamat luar, admin mengirim foto yang tak pernah bisa ia lihat lagi di
+     * riwayat — dan foto etalase memang berganti tiap kali produknya difoto
+     * ulang, jadi yang tersimpan di chat harus yang BENAR-BENAR terkirim.
+     *
+     * Null bila gambarnya tak bisa diambil; pemanggilnya yang memutuskan
+     * apakah itu berarti batal kirim.
+     */
+    public function simpanDariUrl(CrmMessage $pesan, string $url, ?string $namaAsli = null): ?CrmAttachment
+    {
+        try {
+            $res = Http::timeout(20)->get($url);
+        } catch (\Throwable $e) {
+            Log::warning('CRM: gambar produk gagal diambil', ['url' => $url, 'error' => $e->getMessage()]);
+            return null;
+        }
+
+        if (!$res->successful() || $res->body() === '') {
+            Log::warning('CRM: gambar produk gagal diambil', ['url' => $url, 'status' => $res->status()]);
+            return null;
+        }
+
+        $mime = Str::before((string) $res->header('Content-Type'), ';') ?: 'image/jpeg';
+        if (!Str::startsWith($mime, 'image/')) {
+            Log::warning('CRM: alamat foto produk bukan gambar', ['url' => $url, 'mime' => $mime]);
+            return null;
+        }
+
+        $lampiran = CrmAttachment::create([
+            'message_id'    => $pesan->id,
+            'original_name' => $namaAsli ?: basename(parse_url($url, PHP_URL_PATH) ?: 'foto'),
+            'mime'          => $mime,
+            'size_bytes'    => strlen($res->body()),
+            'source_url'    => $url,
+        ]);
+
+        $disk = (string) config('crm.media_disk', 'local');
+        $path = $this->path($lampiran, $mime);
+
+        Storage::disk($disk)->put($path, $res->body());
+
+        $lampiran->forceFill([
+            'disk'          => $disk,
+            'path'          => $path,
+            'downloaded_at' => now(),
+        ])->save();
+
+        return $lampiran;
+    }
+
+    /**
      * Salin lampiran ke pesan lain — dipakai saat meneruskan.
      *
      * Berkasnya benar-benar DIGANDAKAN, bukan sekadar ditunjuk ulang, karena

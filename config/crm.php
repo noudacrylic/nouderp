@@ -116,6 +116,34 @@ return [
      */
     'storefront_url' => rtrim((string) env('CRM_STOREFRONT_URL', 'https://noudakrilik.com'), '/'),
 
+    /*
+     * Nomor admin yang dicantumkan di notifikasi "stok sudah ada".
+     *
+     * Jadi variabel, bukan teks mati di dalam template: kalau nomornya berganti
+     * (ganti SIM, pindah ke nomor bisnis kedua), yang harus diubah satu baris
+     * env — bukan bunyi template yang punya konsekuensi ke sisi Meta.
+     */
+    'admin_phone' => env('CRM_ADMIN_PHONE', '08998844666'),
+
+    /*
+     * Penagihan pesanan yang tautan bayarnya sudah dibuat tapi belum dibayar.
+     *
+     * `hari_kirim` dihitung dari lahirnya tautan bayar, bukan dari SO-nya:
+     * yang ditagih adalah tautan itu, dan SO bisa saja dibuat jauh lebih dulu
+     * (nego panjang) tanpa satu pun tagihan pantas dikirim.
+     *
+     * Rapat di depan lalu merenggang: tiga hari pertama tiap hari (saat niat
+     * membeli masih hangat), sesudahnya mingguan (menagih tiap hari selama
+     * sebulan adalah cara tercepat diblokir). `batal_hari` = 4 minggu.
+     */
+    'tagihan' => [
+        'hari_kirim' => array_values(array_filter(array_map(
+            'intval',
+            explode(',', (string) env('CRM_TAGIHAN_HARI', '1,2,3,10,17,24'))
+        ))),
+        'batal_hari' => (int) env('CRM_TAGIHAN_BATAL_HARI', 28),
+    ],
+
     /* Jam toko untuk template "siap diambil" ({{4}}). Diubah lewat Pengaturan nanti. */
     'store_hours_text' => env('CRM_STORE_HOURS', 'Senin–Sabtu 08.00–16.00'),
 

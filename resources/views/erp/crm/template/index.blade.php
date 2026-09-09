@@ -59,24 +59,43 @@
 @endif
 
 {{-- ------------------------------------------------------- usulan siap ajukan --}}
-<h2 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-2">Bunyi yang sudah disepakati</h2>
+{{-- Sejak ada jalur WAHA, daftar ini BERCAMPUR: sebagian bunyi memang untuk
+     diajukan ke Meta, sebagian lagi cuma hidup di jalur tak resmi dan justru
+     TIDAK BOLEH diajukan. Tanpa dipisahkan di layar, yang mengajukan akan
+     menyalin semuanya — dan yang bernada promosi (kabar stok, tagihan) akan
+     direklasifikasi MARKETING, menyeret seluruh nomor ke tarif & aturan yang
+     berbeda. --}}
+@php
+    $perluDaftar = array_values(array_filter($usulan, fn ($u) => empty($u['hanya_waha'])));
+    $khususWaha  = array_values(array_filter($usulan, fn ($u) => ! empty($u['hanya_waha'])));
+@endphp
+
+<h2 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-2">Bunyi yang perlu diajukan ke Meta</h2>
 <p class="text-xs text-gray-500 mb-3">
     Salin apa adanya ke dasbor vendor. Semua sudah mematuhi aturan Meta: tidak diawali/diakhiri variabel,
     tidak ada dua variabel berdampingan, tanpa nada promosi (satu kalimat promosi = direklasifikasi MARKETING).
+    <b>Pendaftarannya tidak bisa dari ERP</b> — vendor hanya memberi kita jalan MEMBACA daftar template,
+    tidak membuatnya. Status di tabel atas terisi sendiri begitu disetujui.
 </p>
 
 <div class="space-y-3">
-    @foreach($usulan as $u)
-        <div class="bg-white rounded shadow p-3">
-            <div class="flex flex-wrap items-center gap-2 mb-1">
-                <span class="font-mono text-sm font-semibold">{{ $u['nama'] }}</span>
-                <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs">{{ $u['kategori'] }}</span>
-                <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs">id</span>
-            </div>
-            <p class="text-xs text-gray-500 mb-2">{{ $u['guna'] }}</p>
-            <textarea readonly rows="3" onclick="this.select()"
-                      class="w-full border rounded px-3 py-2 text-sm bg-gray-50">{{ $u['body'] }}</textarea>
-        </div>
+    @foreach($perluDaftar as $u)
+        @include('erp.crm.template._usulan', ['u' => $u, 'daftar' => $daftar, 'wajibResmi' => \App\Modules\CRM\Support\TemplateResmi::wajibResmi($u['nama'])])
     @endforeach
 </div>
+
+@if($khususWaha)
+    <h2 class="mt-8 text-sm font-bold uppercase tracking-wider text-gray-500 mb-2">Khusus jalur WAHA — jangan diajukan</h2>
+    <p class="text-xs text-gray-500 mb-3">
+        Bunyi ini dikirim sebagai teks biasa dari nomor WAHA, jadi tidak butuh persetujuan Meta.
+        Mengajukannya justru merugikan: nadanya mengingatkan/menawarkan, dan Meta akan
+        menggolongkannya MARKETING.
+    </p>
+
+    <div class="space-y-3">
+        @foreach($khususWaha as $u)
+            @include('erp.crm.template._usulan', ['u' => $u, 'daftar' => $daftar, 'wajibResmi' => false])
+        @endforeach
+    </div>
+@endif
 @endsection

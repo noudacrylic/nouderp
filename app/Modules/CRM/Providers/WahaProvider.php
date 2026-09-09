@@ -92,6 +92,17 @@ class WahaProvider implements NotificationProvider
         }
 
         /*
+         * Kepala surat WAJIB, dan hanya di jalur ini. Nomor WAHA tak punya
+         * centang hijau maupun nama bisnis terverifikasi — pesan "pesanan Anda
+         * belum dibayar, klik tautan ini" dari nomor asing adalah bentuk
+         * penipuan paling lazim, dan pelanggan yang mengabaikannya justru
+         * benar. Jalur resmi tidak memakainya: di sana identitas kita sudah
+         * dijamin Meta, dan menambah teks ke template yang disetujui bukan
+         * urusan kode ini.
+         */
+        $teks = TemplateResmi::pembukaWaha() . $teks;
+
+        /*
          * Status sesi diperiksa DULU, sebelum mengirim. Tanpa ini, pesan yang
          * dikirim saat sesi mati ditolak WAHA dengan galat yang bentuknya
          * berubah-ubah dan mudah salah dibaca sebagai kegagalan permanen.

@@ -3,8 +3,7 @@
 namespace App\Http\Controllers\Api\Storefront;
 
 use App\Core\Inventory\Product;
-use App\Core\Inventory\ProductStock;
-use App\Core\Inventory\StockReservation;
+use App\Core\Inventory\Services\StokTersediaService;
 use App\Http\Controllers\Controller;
 use App\Models\StoreArticle;
 use App\Models\StoreArticleCategory;
@@ -116,60 +115,16 @@ class StorefrontController extends Controller
             return response()->json(['data' => []]);
         }
 
-        // Muat produk + relasi bundle → tahu mana SKU bundle & komponennya.
-        $products = Product::whereIn('id', $ids)
-            ->with(['bundleItems', 'bundleComponents'])
-            ->get()->keyBy('id');
+        // Rumus tersedianya tinggal di StokTersediaService supaya panel Produk
+        // di CRM membacakan angka yang PERSIS sama dengan yang dilihat pembeli.
+        $tersedia = app(StokTersediaService::class)->untuk($ids);
+        $sold     = $this->soldCounts($ids);
 
-        // Kumpulkan semua product_id relevan: SKU diminta + komponen bundle
-        // (stok bundle dihitung dari stok komponennya, bukan on_hand sendiri).
-        $allIds = collect($ids);
-        foreach ($products as $p) {
-            if ($p->sale_type === 'bundle') {
-                $components = $p->bundleItems->isNotEmpty() ? $p->bundleItems : $p->bundleComponents;
-                $allIds = $allIds->merge($components->pluck('component_product_id'));
-            }
-        }
-        $allIds = $allIds->filter()->unique()->values();
-
-        $onHand = ProductStock::whereIn('product_id', $allIds)
-            ->whereHas('warehouse', fn($q) => $q->where('is_sellable', true))
-            ->selectRaw('product_id, SUM(qty_on_hand) as qty')
-            ->groupBy('product_id')->pluck('qty', 'product_id');
-
-        $reserved = StockReservation::whereIn('product_id', $allIds)
-            ->where('status', 'active')
-            ->selectRaw('product_id, SUM(qty) as qty')
-            ->groupBy('product_id')->pluck('qty', 'product_id');
-
-        $sold = $this->soldCounts($ids);
-
-        $data = $ids->map(function ($id) use ($products, $onHand, $reserved, $sold) {
-            $p = $products->get($id);
-
-            // SKU bundle: tersedia = MIN antar komponen floor((sellable − reservasi) / qty_dibutuhkan).
-            if ($p && $p->sale_type === 'bundle') {
-                $components = $p->bundleItems->isNotEmpty() ? $p->bundleItems : $p->bundleComponents;
-                $avail = null;
-                foreach ($components as $c) {
-                    $req = (float) ($c->qty_required ?? $c->qty ?? 1);
-                    if ($req <= 0) continue;
-                    $cid  = $c->component_product_id;
-                    $free = (float) ($onHand[$cid] ?? 0) - (float) ($reserved[$cid] ?? 0);
-                    $byComp = (int) floor(max(0, $free) / $req);
-                    $avail = is_null($avail) ? $byComp : min($avail, $byComp);
-                }
-                return ['product_id' => $id, 'available' => max(0, $avail ?? 0), 'sold' => (int) ($sold[$id] ?? 0)];
-            }
-
-            // Produk biasa / preorder: on_hand sellable − reservasi + preorder_stock.
-            $preorder = $p->preorder_stock ?? 0;
-            return [
-                'product_id' => $id,
-                'available'  => max(0, (float) ($onHand[$id] ?? 0) - (float) ($reserved[$id] ?? 0) + (float) $preorder),
-                'sold'       => (int) ($sold[$id] ?? 0),
-            ];
-        });
+        $data = $ids->map(fn ($id) => [
+            'product_id' => $id,
+            'available'  => $tersedia[$id] ?? 0,
+            'sold'       => (int) ($sold[$id] ?? 0),
+        ]);
 
         return response()->json(['data' => $data]);
     }

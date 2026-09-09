@@ -2,19 +2,30 @@
 
 namespace App\Modules\CRM\Controllers;
 
+use App\Core\Inventory\Product;
+use App\Core\Inventory\ProductLink;
+use App\Core\Inventory\Services\StokTersediaService;
 use App\Core\Inventory\Warehouse;
 use App\Http\Controllers\Controller;
+use App\Models\StoreProduct;
 use App\Models\User;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmLabel;
+use App\Modules\CRM\Models\CrmMarketplaceLink;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSnippet;
+use App\Modules\CRM\Models\CrmStockWatch;
 use App\Modules\CRM\Services\CrmReplyService;
+use App\Modules\CRM\Services\StockWatchService;
 use App\Modules\CRM\Services\WahaHealthService;
 use App\Modules\CRM\Services\WebhookHealthService;
+use App\Models\ProductPrice;
+use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
+use App\Modules\Marketplace\Jubelio\Services\JubelioStockSyncService;
 use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Sales\Services\PromotionService;
 use App\Modules\Sales\Services\SalesOrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -454,38 +465,505 @@ class CrmInboxController extends Controller
     }
 
     /**
-     * Cari produk etalase untuk rail Produk.
+     * Cari produk untuk panel Produk di rail kanan.
      *
-     * Hanya produk BERSTATUS TERBIT yang boleh muncul: mengirim tautan produk
-     * yang masih draf berarti pelanggan membuka halaman 404 — kesalahan yang
-     * tak bisa ditarik kembali setelah pesannya terkirim.
+     * Dasarnya SKU GUDANG, bukan produk etalase — pertanyaan yang datang di chat
+     * hampir selalu "stoknya ada berapa" dan "harganya berapa", dan dua angka itu
+     * hidup di SKU. Halaman etalase-nya ditemukan lewat varian yang menunjuk SKU
+     * ini; kalau tidak ada, tautan webnya memang tidak ada dan lebih baik
+     * dikatakan begitu daripada mengirim tautan ke halaman 404.
+     *
+     * `mode` memisahkan dua sub-tab yang memang punya pekerjaan berbeda:
+     *  - `web`    : barang yang halaman etalasenya TERBIT — yang dikirim ke
+     *               pembeli adalah stok, harga (setelah promo) dan tautannya.
+     *  - `custom` : barang buatan (made_to_order). Tidak punya halaman etalase,
+     *               harganya sering baru ditetapkan saat ditanya, dan yang
+     *               dikirim adalah tautan lapaknya.
+     * Tanpa pemisahan ini satu daftar panjang bercampur, dan sub-tab Custom
+     * penuh barang ready yang tak akan pernah diedit harganya dari sini.
      */
-    public function cariProduk(Request $request)
+    public function cariProduk(Request $request, PromotionService $promosi)
     {
-        $cari = trim((string) $request->input('q', ''));
+        $cari   = trim((string) $request->input('q', ''));
+        $mode   = $request->input('mode') === 'custom' ? 'custom' : 'web';
+        $chatId = (int) $request->input('chat', 0);
+
+        return $mode === 'custom'
+            ? $this->cariProdukCustom($cari, $chatId, $promosi)
+            : $this->cariProdukWeb($cari, $chatId, $promosi);
+    }
+
+    /**
+     * Sub-tab WEB: hasilnya DIKELOMPOKKAN per halaman etalase, bukan per SKU.
+     *
+     * Satu halaman produk sering menampung banyak SKU yang berbeda tipis —
+     * "1 Kotak", "1 Kotak Instant", "1 Kotak Packing Kayu". Sebagai kartu
+     * terpisah mereka memakan seluruh layar dan tampak seperti tiga barang
+     * yang tak berhubungan, padahal yang ditanya pembeli justru
+     * PERBANDINGANNYA: mana yang lebih murah, mana yang stoknya ada.
+     * Dijejer sebagai baris di bawah satu nama, jawabannya terbaca sekilas.
+     *
+     * Varian saudara ikut ditarik walau tidak cocok dengan kata pencarian:
+     * kelompok yang cuma memuat sebagian variannya menyesatkan — admin
+     * menyimpulkan "cuma ada dua pilihan" padahal ada lima.
+     */
+    private function cariProdukWeb(string $cari, int $chatId, PromotionService $promosi)
+    {
         $basis = rtrim((string) config('crm.storefront_url'), '/');
 
-        $produk = \App\Models\StoreProduct::published()
-            // Dicari lewat nama MAUPUN SKU: admin yang sedang membalas biasanya
-            // sudah memegang SKU dari percakapan, bukan nama panjang produknya.
+        $halaman = StoreProduct::query()
+            ->published()
             ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('name', 'like', "%{$cari}%")
-                ->orWhereHas('variants.product', fn ($v) => $v->where('sku', 'like', "%{$cari}%"))))
-            ->with(['variants' => fn ($q) => $q->with('product:id,sku')->orderBy('sort_order')->limit(1)])
-            ->orderByDesc('is_featured')
-            ->orderBy('sort_order')
+                ->orWhereHas('variants.product', fn ($p) => $p
+                    ->where('name', 'like', "%{$cari}%")
+                    ->orWhere('sku', 'like', "%{$cari}%"))))
+            ->with([
+                'images',
+                'variants' => fn ($q) => $q->orderBy('sort_order')->orderBy('id'),
+                'variants.product' => fn ($q) => $q->where('is_active', 1)->where('is_sellable', 1),
+            ])
             ->orderBy('name')
-            ->limit(12)
-            ->get(['id', 'name', 'slug', 'short_description']);
+            ->limit(15)
+            ->get();
+
+        // Varian yang produknya sudah mati/tidak dijual disaring di sini, bukan
+        // di kueri: `with` yang berkondisi hanya mengosongkan relasinya.
+        $produkIds = $halaman->flatMap(
+            fn ($h) => $h->variants->filter(fn ($v) => $v->product)->pluck('product_id')
+        )->unique()->values();
+
+        $stok     = app(StokTersediaService::class)->untuk($produkIds);
+        $diskon   = $this->diskonItem($halaman->flatMap(fn ($h) => $h->variants)->pluck('product')->filter(), $promosi);
+        $ditandai = $this->titipanAktif($chatId, $produkIds);
+
+        $grup = $halaman->map(function (StoreProduct $h) use ($basis, $stok, $diskon, $ditandai) {
+            $varian = $h->variants
+                ->filter(fn ($v) => $v->product)
+                ->map(fn ($v) => $this->barisVarian($v->product, $stok, $diskon, $ditandai, [
+                    // Label varian kadang kosong (halaman satu-SKU); nama produknya
+                    // yang dipakai, supaya kolomnya tidak pernah melompong.
+                    'label' => $v->variant_label ?: $v->product->name,
+                ]))
+                ->values();
+
+            return [
+                'id'     => $h->id,
+                'nama'   => $h->name,
+                'url'    => $basis . '/produk/' . $h->slug,
+                'foto'   => $h->images->sortByDesc('is_primary')->first()?->url,
+                'varian' => $varian,
+            ];
+        })->filter(fn ($g) => $g['varian']->isNotEmpty())->values();
+
+        return response()->json(['grup' => $grup]);
+    }
+
+    /**
+     * Sub-tab CUSTOM: tetap per SKU, tanpa pengelompokan.
+     *
+     * Barang buatan tidak punya halaman etalase untuk dijadikan induk, dan
+     * memang tidak berpasangan — tiap SKU berdiri sendiri.
+     */
+    private function cariProdukCustom(string $cari, int $chatId, PromotionService $promosi)
+    {
+        $produk = Product::query()
+            ->where('is_active', 1)
+            ->where('is_sellable', 1)
+            ->madeToOrder()
+            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('name', 'like', "%{$cari}%")
+                ->orWhere('sku', 'like', "%{$cari}%")))
+            ->with(['links' => fn ($q) => $q->orderBy('urutan')->orderBy('id')])
+            ->orderBy('name')
+            ->limit(15)
+            ->get();
+
+        $stok     = app(StokTersediaService::class)->untuk($produk->pluck('id'));
+        $diskon   = $this->diskonItem($produk, $promosi);
+        $ditandai = $this->titipanAktif($chatId, $produk->pluck('id'));
 
         return response()->json([
-            'produk' => $produk->map(fn ($p) => [
-                'nama'    => $p->name,
-                'sku'     => optional($p->variants->first()?->product)->sku,
-                'ringkas' => \Illuminate\Support\Str::limit((string) $p->short_description, 70),
-                'url'     => $basis . '/produk/' . $p->slug,
-            ])->all(),
+            'produk' => $produk->map(fn ($p) => $this->barisVarian($p, $stok, $diskon, $ditandai, [
+                'berat'  => (int) ($p->weight_gram ?? 0),
+                'tautan' => $p->links->map(fn ($l) => [
+                    'id'    => $l->id,
+                    'judul' => $l->judul,
+                    'url'   => $l->url,
+                ])->values(),
+            ]))->values(),
         ]);
+    }
+
+    /**
+     * Satu baris SKU siap tampil — dipakai kedua sub-tab supaya angka yang
+     * dibacakan admin tak pernah berbeda bentuk antar layar.
+     */
+    private function barisVarian(Product $p, array $stok, array $diskon, $ditandai, array $tambahan = []): array
+    {
+        $harga = round((float) $p->display_price, 2);
+        $promo = $diskon[$p->id] ?? null;
+
+        return array_merge([
+            'id'          => $p->id,
+            'nama'        => $p->name,
+            'label'       => $p->name,
+            'sku'         => $p->sku,
+            'harga'       => $promo ? round(max(0, $harga - (float) $promo['discount_amount']), 2) : $harga,
+            'harga_coret' => $promo ? $harga : null,
+            'promo'       => $promo['promotion_name'] ?? null,
+            'stok'        => (float) ($stok[$p->id] ?? 0),
+            'preorder'    => $p->isPreorder(),
+            'custom'      => $p->isMadeToOrder(),
+            'titipan'     => $ditandai[$p->id]->id ?? null,
+            // Jumlah yang ditunggu ikut, supaya tanda di layar berbunyi
+            // "dikabari saat mencapai 10" — bukan sekadar "ditandai".
+            'titipan_qty' => isset($ditandai[$p->id]) ? (float) $ditandai[$p->id]->qty : null,
+        ], $tambahan);
+    }
+
+    /**
+     * Diskon item aktif, dihitung sekali untuk seluruh hasil.
+     *
+     * Harga yang dibacakan ke pembeli WAJIB harga setelah promo — angka yang
+     * sama dengan yang terpampang di etalase. Menyebut harga coret di chat lalu
+     * pembeli melihat harga lain di web adalah cara tercepat kehilangan
+     * kepercayaan, dan koreksinya selalu merugikan kita.
+     */
+    private function diskonItem($produk, PromotionService $promosi): array
+    {
+        $items = collect($produk)->filter()->unique('id')
+            ->map(fn ($p) => [
+                'product_id' => $p->id,
+                'qty'        => 1,
+                'unit_price' => (float) $p->display_price,
+            ])->values()->all();
+
+        return $items ? $promosi->resolveItemDiscounts($items) : [];
+    }
+
+    /** Titipan "kabari kalau stok ada" milik chat yang sedang dibuka. */
+    private function titipanAktif(int $chatId, $produkIds)
+    {
+        if (! $chatId) {
+            return collect();
+        }
+
+        return CrmStockWatch::aktif()
+            ->where('conversation_id', $chatId)
+            ->whereIn('product_id', collect($produkIds)->all())
+            ->get(['id', 'product_id', 'qty'])
+            ->keyBy('product_id');
+    }
+
+    /** Tambah satu tautan luar (Shopee dsb.) pada sebuah SKU. */
+    public function tambahTautanProduk(Request $request, Product $product)
+    {
+        $data = $request->validate([
+            'judul' => ['required', 'string', 'max:120'],
+            'url'   => ['required', 'url', 'max:500'],
+        ]);
+
+        $tautan = $product->links()->create($data + [
+            'urutan'     => (int) $product->links()->max('urutan') + 1,
+            'created_by' => auth()->id(),
+        ]);
+
+        return response()->json([
+            'tautan' => ['id' => $tautan->id, 'judul' => $tautan->judul, 'url' => $tautan->url],
+        ]);
+    }
+
+    /** Ubah judul/alamat satu tautan luar — salah ketik baru ketahuan belakangan. */
+    public function ubahTautanProduk(Request $request, ProductLink $link)
+    {
+        $data = $request->validate([
+            'judul' => ['required', 'string', 'max:120'],
+            'url'   => ['required', 'url', 'max:500'],
+        ]);
+
+        $link->update($data);
+
+        return response()->json([
+            'tautan' => ['id' => $link->id, 'judul' => $link->judul, 'url' => $link->url],
+        ]);
+    }
+
+    /** Hapus satu tautan luar. */
+    public function hapusTautanProduk(ProductLink $link)
+    {
+        $link->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Ubah harga & berat satu SKU custom dari layar chat, lalu (opsional)
+     * dorong ke Jubelio.
+     *
+     * Kenapa boleh diedit dari sini: barang custom harganya baru lahir saat
+     * ditanya. Memaksa admin membuka menu Produk di tab lain berarti ia
+     * meninggalkan chat yang sedang berjalan, dan yang terjadi di lapangan
+     * adalah harga itu tidak pernah dicatat sama sekali — cuma diketik di
+     * WhatsApp lalu hilang.
+     *
+     * Beratnya ikut karena keduanya selalu berubah bersama: barang yang lebih
+     * besar lebih mahal DAN lebih berat, dan berat yang tertinggal salah
+     * membuat ongkirnya salah di setiap pesanan berikutnya.
+     */
+    public function simpanHargaProduk(Request $request, Product $product, JubelioProductSyncService $jubelio)
+    {
+        $data = $request->validate([
+            'harga'         => ['required', 'numeric', 'min:0'],
+            'berat'         => ['nullable', 'integer', 'min:0', 'max:1000000'],
+            'kirim_jubelio' => ['nullable', 'boolean'],
+        ]);
+
+        $harga = (float) $data['harga'];
+        $berat = isset($data['berat']) ? (int) $data['berat'] : null;
+
+        /*
+         * Harga produk berstok hidup di baris product_prices, bukan di kolom
+         * produk — dan observer harga yang menandai "perlu didorong ke Jubelio"
+         * memantau baris itu. Menulis ke base_price untuk produk berstok berarti
+         * angkanya tersimpan di tempat yang tidak pernah dibaca display_price.
+         */
+        if (in_array($product->type, ['service', 'non_stock'], true)) {
+            $product->forceFill([
+                ($product->type === 'service' ? 'base_price' : 'cost_price') => $harga,
+            ])->save();
+        } else {
+            $baris = $product->prices()->orderBy('id')->first();
+
+            $baris
+                ? $baris->update(['price' => $harga])
+                : ProductPrice::create([
+                    'product_id' => $product->id,
+                    'unit_name'  => $product->unit ?: 'pcs',
+                    'price'      => $harga,
+                ]);
+        }
+
+        if ($berat !== null) {
+            $product->forceFill(['weight_gram' => $berat])->save();
+        }
+
+        $product->refresh();
+
+        $catatan = ['Harga & berat tersimpan.'];
+
+        if ($request->boolean('kirim_jubelio')) {
+            $h = $jubelio->pushPrice($product);
+
+            $catatan[] = match ($h) {
+                'pushed'  => 'Harga terkirim ke Jubelio.',
+                'skipped' => 'Harga TIDAK dikirim ke Jubelio — lihat Riwayat Sinkron.',
+                default   => 'Harga GAGAL dikirim ke Jubelio — lihat Riwayat Sinkron.',
+            };
+
+            if ($h !== 'failed') {
+                $product->forceFill(['jubelio_price_pending' => false])->save();
+            }
+
+            if ($berat !== null && $berat > 0) {
+                $b = $jubelio->pushWeight($product, $berat);
+                $catatan[] = $b['ok'] ? 'Berat terkirim ke Jubelio.' : ('Berat: ' . $b['message']);
+            }
+        }
+
+        return response()->json([
+            'ok'    => true,
+            'pesan' => implode(' ', $catatan),
+            'harga' => (float) $product->display_price,
+            'berat' => (int) ($product->weight_gram ?? 0),
+        ]);
+    }
+
+    /**
+     * Setel stok sebuah produk DI JUBELIO dari layar chat.
+     *
+     * Stok ERP TIDAK disentuh, dan itu bukan kelalaian melainkan intinya.
+     * Barang custom belum ada wujudnya sampai dipesan — SKU-nya cuma wadah —
+     * jadi angka yang diketik di sini adalah "berapa yang sanggup dikerjakan",
+     * bukan "berapa yang ada di rak". Menuliskannya ke stok ERP berarti
+     * mengarang persediaan, dan HPP serta laporan ikut karangan.
+     */
+    public function simpanStokJubelio(Request $request, Product $product, JubelioStockSyncService $stok)
+    {
+        $data = $request->validate([
+            'stok' => ['required', 'numeric', 'min:0', 'max:1000000'],
+        ]);
+
+        $hasil = $stok->setStokManual($product, (float) $data['stok']);
+
+        return response()->json(
+            ['ok' => $hasil['ok'], 'pesan' => $hasil['message']],
+            $hasil['ok'] ? 200 : 422
+        );
+    }
+
+    /**
+     * Kirim FOTO produk berikut captionnya — bukan sekadar tautannya.
+     *
+     * WhatsApp tidak selalu memunculkan pratinjau untuk tautan yang dikirim;
+     * kalau pengambil pratinjaunya gagal membuka halaman etalase, yang sampai
+     * ke pembeli hanya sebaris URL telanjang. Mengirim fotonya sendiri membuat
+     * pratinjau itu jadi urusan kita, bukan urusan pengambil halaman milik
+     * orang lain.
+     */
+    public function kirimFotoProduk(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
+    {
+        $data = $request->validate([
+            'foto'    => ['required', 'url', 'max:1000'],
+            'caption' => ['nullable', 'string', 'max:1024'],
+        ]);
+
+        $hasil = $balasan->kirimFoto(
+            $conversation,
+            $data['foto'],
+            (string) ($data['caption'] ?? ''),
+            $request->user()?->id
+        );
+
+        if (! $hasil['success']) {
+            return response()->json(['success' => false, 'error' => $hasil['error']], 422);
+        }
+
+        $baru = $conversation->messages()
+            ->with(self::MUATAN_GELEMBUNG)
+            ->where('id', '>', (int) $request->input('after', 0))
+            ->orderBy('sent_at')->orderBy('id')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'html'    => view('erp.crm.inbox._bubbles', ['pesan' => $baru])->render(),
+            'last_id' => (int) ($baru->max('id') ?: $request->input('after', 0)),
+        ]);
+    }
+
+    /* ------------------------------------------------------ titipan stok */
+
+    /**
+     * Tandai sebuah SKU: "kabari pelanggan ini kalau stoknya sudah ada".
+     *
+     * Ditempel ke PERCAKAPAN, bukan ke pelanggan master: yang menitipkan
+     * sering belum pernah jadi pelanggan — ia baru bertanya. Memaksa ada
+     * record pelanggan lebih dulu berarti janjinya tidak bisa dicatat justru
+     * pada saat paling sering diucapkan.
+     */
+    public function tandaiTitipanStok(Request $request, CrmConversation $conversation, StockWatchService $titipan)
+    {
+        $data = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'qty'        => ['nullable', 'numeric', 'min:1', 'max:100000'],
+        ]);
+
+        $product = Product::findOrFail($data['product_id']);
+
+        $watch = $titipan->tandai(
+            $conversation,
+            $product,
+            (float) ($data['qty'] ?? 1),
+            $request->user()?->id
+        );
+
+        /*
+         * Diperiksa SEKARANG JUGA. Stoknya bisa saja sudah ada — barang masuk
+         * kemarin, pelanggannya belum sempat dikabari. Menunggu perubahan stok
+         * berikutnya berarti titipan itu menggantung sampai ada pergerakan yang
+         * mungkin baru datang minggu depan.
+         */
+        $hasil = $titipan->periksa([$product->id]);
+
+        return response()->json([
+            'ok'       => true,
+            'ditandai' => $hasil['dikabari'] === 0,
+            'pesan'    => $hasil['dikabari'] > 0
+                ? 'Stoknya ternyata sudah ada — kabar langsung diantrekan untuk pelanggan ini.'
+                : 'Ditandai. Pelanggan akan dikabari begitu stoknya masuk.',
+            'watch_id' => $watch->id,
+        ]);
+    }
+
+    /** Batalkan titipan tanpa mengabari (salah tandai, atau pelanggan berubah pikiran). */
+    public function hapusTitipanStok(CrmStockWatch $watch, StockWatchService $titipan)
+    {
+        $titipan->batalkan($watch);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** Titipan yang masih aktif untuk satu percakapan — dipakai panel Produk. */
+    public function daftarTitipanStok(CrmConversation $conversation, StockWatchService $titipan)
+    {
+        return response()->json([
+            'titipan' => $titipan->untukPercakapan($conversation)->map(fn ($w) => [
+                'id'         => $w->id,
+                'product_id' => $w->product_id,
+                'nama'       => $w->product?->name,
+                'sku'        => $w->product?->sku,
+                'qty'        => (float) $w->qty,
+            ])->values(),
+        ]);
+    }
+
+    /* --------------------------------------------------- tautan marketplace */
+
+    /**
+     * Daftar tautan marketplace yang berdiri sendiri (nama diketik manual).
+     *
+     * Sengaja TIDAK menempel ke SKU: yang dijual di lapak sering bukan satu SKU
+     * gudang — paket bundling, listing lama yang namanya sudah dikenal pembeli,
+     * barang titipan. Memaksanya punya SKU berarti mengarang produk ERP hanya
+     * demi tempat menyimpan sebuah alamat, dan produk karangan itu ikut bocor ke
+     * laporan stok.
+     */
+    public function daftarTautanPasar(Request $request)
+    {
+        $cari = trim((string) $request->input('q', ''));
+
+        $daftar = CrmMarketplaceLink::query()
+            ->when($cari !== '', fn ($q) => $q->where('nama', 'like', "%{$cari}%"))
+            ->orderBy('urutan')->orderBy('id')
+            ->limit(200)
+            ->get(['id', 'nama', 'url']);
+
+        return response()->json(['tautan' => $daftar]);
+    }
+
+    public function simpanTautanPasar(Request $request)
+    {
+        $data = $request->validate([
+            'nama' => ['required', 'string', 'max:160'],
+            'url'  => ['required', 'url', 'max:500'],
+        ]);
+
+        $tautan = CrmMarketplaceLink::create($data + [
+            'urutan'     => (int) CrmMarketplaceLink::max('urutan') + 1,
+            'created_by' => auth()->id(),
+        ]);
+
+        return response()->json(['tautan' => $tautan->only(['id', 'nama', 'url'])]);
+    }
+
+    public function ubahTautanPasar(Request $request, CrmMarketplaceLink $tautan)
+    {
+        $data = $request->validate([
+            'nama' => ['required', 'string', 'max:160'],
+            'url'  => ['required', 'url', 'max:500'],
+        ]);
+
+        $tautan->update($data);
+
+        return response()->json(['tautan' => $tautan->only(['id', 'nama', 'url'])]);
+    }
+
+    public function hapusTautanPasar(CrmMarketplaceLink $tautan)
+    {
+        $tautan->delete();
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -989,15 +1467,60 @@ class CrmInboxController extends Controller
     }
 
     /** Oper percakapan ke admin lain — pengganti rotator otomatis yang ditunda. */
+    /**
+     * Oper percakapan ke agen lain — dan tandai BELUM DIBACA untuk yang menerima.
+     *
+     * Tanpa tanda itu, chat yang dioper mendarat di daftar orang lain tanpa
+     * gejala apa pun: ia sudah "terbaca" karena yang mengoper baru saja
+     * membukanya, jadi ia tidak muncul di penyaring "Belum dibaca" dan
+     * tenggelam di antara chat lama. Penerimanya baru tahu ada yang dioper
+     * kepadanya kalau kebetulan menggulir sampai bawah — atau saat pelanggan
+     * menagih.
+     *
+     * Dua pengecualian, keduanya karena tandanya akan berbohong:
+     *  - mengoper ke DIRI SENDIRI (mengambil alih) — orangnya sedang membaca
+     *    chat itu sekarang juga;
+     *  - pemiliknya tidak berubah — tak ada siapa pun yang perlu disadarkan.
+     */
     public function oper(Request $request, CrmConversation $conversation)
     {
         $data = $request->validate([
             'owner_user_id' => ['nullable', User::assignableExistsRule()],
         ]);
 
-        $conversation->forceFill(['owner_user_id' => $data['owner_user_id'] ?: null])->save();
+        $pemilikBaru = $data['owner_user_id'] ? (int) $data['owner_user_id'] : null;
+        $pemilikLama = $conversation->owner_user_id ? (int) $conversation->owner_user_id : null;
 
-        return back()->with('success', $data['owner_user_id'] ? 'Percakapan dioper.' : 'Kepemilikan dilepas.');
+        $berpindah = $pemilikBaru !== $pemilikLama;
+        $keOrangLain = $berpindah && $pemilikBaru !== (int) $request->user()?->id;
+
+        $ubah = ['owner_user_id' => $pemilikBaru];
+
+        if ($keOrangLain) {
+            $ubah['unread_count'] = max(1, (int) $conversation->unread_count);
+        }
+
+        $conversation->forceFill($ubah)->save();
+
+        $pesan = $pemilikBaru ? 'Percakapan dioper.' : 'Kepemilikan dilepas.';
+
+        if ($keOrangLain) {
+            $pesan .= ' Ditandai belum dibaca supaya terlihat sebagai pekerjaan baru.';
+
+            /*
+             * Kalau chat yang dioper adalah yang SEDANG terbuka — dan itu
+             * hampir selalu — back() memuat ulang layarnya dan show() langsung
+             * menghapus tanda yang baru saja dipasang. Jadi kita lempar ke
+             * daftar, dengan penyaring yang sedang dipakai tetap utuh. Lagi
+             * pula pekerjaannya memang sudah pindah tangan.
+             */
+            $kueri = (string) $request->getQueryString();
+
+            return redirect()->to(route('crm.inbox.index') . ($kueri ? '?' . $kueri : ''))
+                ->with('success', $pesan);
+        }
+
+        return back()->with('success', $pesan);
     }
 
     public function antrean(Request $request, CrmConversation $conversation)
@@ -1020,6 +1543,35 @@ class CrmInboxController extends Controller
         ])->save();
 
         return back()->with('success', $keArsip ? 'Percakapan diarsipkan.' : 'Percakapan diaktifkan lagi.');
+    }
+
+    /**
+     * Kembalikan tanda "belum dibaca".
+     *
+     * Membuka chat menandainya terbaca seketika, padahal admin sering cuma
+     * mengintip lalu menundanya. Tanpa jalan pulang, pekerjaan itu lenyap dari
+     * penyaring "Belum dibaca" dan baru teringat saat pelanggan menagih.
+     */
+    public function belumDibaca(Request $request, CrmConversation $conversation)
+    {
+        $conversation->forceFill([
+            'unread_count' => max(1, (int) $conversation->unread_count),
+        ])->save();
+
+        /*
+         * Kalau yang ditandai justru chat yang SEDANG terbuka, back() akan
+         * memuat ulang layarnya dan show() langsung menghapus tandanya lagi.
+         * Jadi khusus kasus itu kita lempar ke daftar — dengan penyaring yang
+         * sedang dipakai tetap utuh.
+         */
+        if ((int) $request->input('terbuka') === $conversation->id) {
+            $kueri = (string) $request->getQueryString();
+
+            return redirect()->to(route('crm.inbox.index') . ($kueri ? '?' . $kueri : ''))
+                ->with('success', 'Ditandai belum dibaca.');
+        }
+
+        return back()->with('success', 'Ditandai belum dibaca.');
     }
 
     public function catatan(Request $request, CrmConversation $conversation)

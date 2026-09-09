@@ -18,8 +18,11 @@ use App\Modules\CRM\Models\CrmOutboxMessage;
  * layar dan kalimat sungguhan akan berbeda pelan-pelan tanpa ada yang sadar,
  * dan layar ini justru jadi sumber keyakinan yang keliru.
  *
- * SENGAJA cuma tiga. Menambah jenis berarti mengajukan template baru ke Meta,
- * dan mengirim terlalu sering mengundang blokir.
+ * Menambah jenis BERBAYAR berarti mengajukan template baru ke Meta, dan
+ * mengirim terlalu sering mengundang blokir — karena itu yang berbayar tetap
+ * tiga. "Stok Sudah Ada" jadi yang keempat justru karena ia TIDAK berbayar:
+ * jalurnya WAHA saja, dan pemicunya adalah pelanggan yang meminta sendiri
+ * dikabari. Lihat TemplateResmi::hanyaWaha().
  */
 class JenisNotifikasi
 {
@@ -38,6 +41,35 @@ class JenisNotifikasi
             'label'  => 'Pesanan Dikirim',
             'pemicu' => 'Saat surat jalan sudah punya nomor resi. Tanpa resi, tidak dikirim — tak ada yang bisa dilacak.',
             'contoh' => ['Budi', 'SO-2609-0012', 'JNE', 'JX1234567890'],
+        ],
+        CrmOutboxMessage::EVENT_JATUH_TEMPO => [
+            'label'  => 'Jatuh Tempo',
+            'pemicu' => 'Pesanan tempo yang belum lunas: 3 hari sebelum jatuh tempo, lalu pada hari-H. '
+                      . 'Satu-satunya jenis yang WAJIB lewat jalur resmi berbayar, apa pun driver yang dipilih.',
+            'contoh' => ['Budi', 'SO-2609-0012', '500.000', '12 Oktober 2026', '08998844666'],
+        ],
+        CrmOutboxMessage::EVENT_TAGIHAN => [
+            'label'  => 'Tagihan Pembayaran',
+            'pemicu' => 'Pesanan non-marketplace yang tautan bayarnya sudah dibuat tapi belum dibayar: '
+                      . 'hari ke-1, 2, 3, lalu tiap minggu. Lewat 4 minggu, pesanannya dibatalkan otomatis.',
+            'contoh' => [
+                'Budi',
+                'SO-2609-0012',
+                '500.000',
+                'https://noudakrilik.com/pay/contoh-token',
+                '7 Oktober 2026',
+                '08998844666',
+            ],
+        ],
+        CrmOutboxMessage::EVENT_STOK_TERSEDIA => [
+            'label'  => 'Stok Sudah Ada',
+            'pemicu' => 'Saat stok siap sebuah SKU mencukupi titipan "kabari kalau ada" yang ditandai admin dari panel Produk. Sekali kirim, lalu tandanya lepas sendiri.',
+            'contoh' => [
+                'Budi',
+                'Akrilik Frame Poster A3',
+                'https://noudakrilik.com/produk/akrilik-frame-poster-a3',
+                '08998844666',
+            ],
         ],
     ];
 

@@ -24,12 +24,33 @@ class CrmOutboxMessage extends Model
     public const EVENT_PEMBAYARAN  = 'pembayaran_diterima';
     public const EVENT_SIAP_AMBIL  = 'siap_diambil';
     public const EVENT_DIKIRIM     = 'dikirim';
+    /**
+     * Kabar "stok sudah ada" atas titipan pelanggan di chat. Berbeda dari tiga
+     * di atas: TIDAK menempel pada pesanan (sales_order_id kosong) dan tidak
+     * punya padanan template di Meta — lihat TemplateResmi::hanyaWaha().
+     */
+    public const EVENT_STOK_TERSEDIA = 'stok_tersedia';
+    /**
+     * Penagihan pesanan yang tautan bayarnya sudah dibuat tapi belum dibayar.
+     * Sama seperti stok_tersedia: tanpa padanan template di Meta, jadi jalurnya
+     * WAHA saja — lihat TemplateResmi::hanyaWaha().
+     */
+    public const EVENT_TAGIHAN = 'tagihan_pembayaran';
+    /**
+     * Pengingat jatuh tempo pesanan tempo (H-3 & hari-H). BERBEDA dari dua
+     * event WAHA di atas: ini justru WAJIB lewat jalur resmi berbayar —
+     * lihat TemplateResmi::wajibResmi().
+     */
+    public const EVENT_JATUH_TEMPO = 'jatuh_tempo';
 
     /** Nama template sebagaimana didaftarkan ke Meta. */
     public const TEMPLATES = [
         self::EVENT_PEMBAYARAN => 'pembayaran_diterima',
         self::EVENT_SIAP_AMBIL => 'pesanan_siap_diambil',
         self::EVENT_DIKIRIM    => 'pesanan_dikirim',
+        self::EVENT_STOK_TERSEDIA => 'stok_tersedia',
+        self::EVENT_TAGIHAN       => 'tagihan_pembayaran',
+        self::EVENT_JATUH_TEMPO   => 'jatuh_tempo',
     ];
 
     public const STATUS_MENUNGGU = 'menunggu';

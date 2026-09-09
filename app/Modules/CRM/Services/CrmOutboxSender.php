@@ -4,6 +4,7 @@ namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\Models\CrmOutboxMessage;
 use App\Modules\CRM\NotificationManager;
+use App\Modules\CRM\Support\TemplateResmi;
 use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Support\Facades\Log;
 
@@ -56,7 +57,21 @@ class CrmOutboxSender
             return 'gagal';
         }
 
-        $hasil = $this->notifikasi->provider()->kirimNotifikasi([
+        /*
+         * Sebagian pesan TIDAK boleh ikut driver yang sedang dipilih.
+         *
+         * Pengingat jatuh tempo selalu lewat jalur resmi walau seluruh sistem
+         * sedang memakai WAHA: pesan soal utang yang jatuh tempo adalah yang
+         * paling mudah disalahartikan sebagai penipuan, dan dari nomor tanpa
+         * centang ia menempatkan pelanggan pada pilihan yang sama-sama buruk —
+         * mengabaikan tagihan yang sah, atau memercayai pesan yang tak bisa ia
+         * verifikasi. Untuk yang satu ini kita membayar template.
+         */
+        $jalur = TemplateResmi::wajibResmi((string) $baris->template_name)
+            ? $this->notifikasi->resmi()
+            : $this->notifikasi->provider();
+
+        $hasil = $jalur->kirimNotifikasi([
             'to'        => $baris->recipient,
             'template'  => $baris->template_name,
             'language'  => 'id',
@@ -99,6 +114,33 @@ class CrmOutboxSender
     private function tahanAtauEskalasi(CrmOutboxMessage $baris, string $alasan): string
     {
         $batas = (int) config('crm.notifikasi.tahan_maks_jam', 3);
+
+        /*
+         * Sebagian pesan TIDAK punya padanan template di Meta (kabar "stok
+         * sudah ada"). Mengeskalasikannya ke jalur berbayar berarti mengirim
+         * nama template yang tak dikenal di sana: pasti ditolak, dan alasannya
+         * terbaca seperti gangguan jalur padahal bukan. Ia ditahan seperti
+         * biasa, lalu lewat batas dinyatakan GAGAL dengan alasan yang jujur —
+         * supaya adminnya tahu pesan ini perlu dikirim tangan.
+         */
+        if (TemplateResmi::hanyaWaha((string) $baris->template_name)) {
+            $baris->tandaiTertahan($alasan, now()->addMinutes((int) config('crm.notifikasi.tahan_jeda_menit', 10)));
+
+            if ($batas <= 0 || ! $baris->tertahanLebihDari($batas)) {
+                return 'tertahan';
+            }
+
+            $baris->tandaiGagal(
+                $alasan . ' | Pesan ini hanya bisa lewat WAHA (tidak ada template resminya), '
+                . 'jadi tidak bisa dialihkan ke jalur berbayar. Kirim manual dari layar chat.'
+            );
+
+            Log::warning('[CRM] notifikasi khusus WAHA menyerah setelah tertahan', [
+                'outbox_id' => $baris->id, 'alasan' => $alasan,
+            ]);
+
+            return 'gagal';
+        }
 
         // Dicatat DULU, supaya penahanan pertama punya jam mulai sebelum
         // batasnya diperiksa pada jalan berikutnya.

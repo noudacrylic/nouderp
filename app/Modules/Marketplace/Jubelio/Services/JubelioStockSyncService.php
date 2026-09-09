@@ -334,6 +334,131 @@ class JubelioStockSyncService
      * menahannya → komponen tetap ditawarkan penuh → barang yang sama dijanjikan dua kali
      * (5 bundle + 10 satuan dari 10 unit fisik) sampai stok tersedia minus dalam.
      */
+    /**
+     * Setel stok sebuah item DI JUBELIO ke angka yang diketik admin — tanpa
+     * menyentuh stok ERP sama sekali.
+     *
+     * Ini kebalikan dari pushProduct(), dan bedanya disengaja. Barang custom
+     * (CS1, CS2, …) tidak punya stok fisik yang bisa dihitung: SKU-nya cuma
+     * wadah, barangnya baru dibuat setelah ada yang memesan. Karena itu
+     * stoknya di marketplace TIDAK ikut disinkronkan otomatis — ia diisi
+     * tangan, sebesar yang sedang sanggup dikerjakan, lalu dibiarkan habis
+     * sendiri saat terjual.
+     *
+     * Yang WAJIB dijaga di sini: tak ada satu pun tulisan ke ledger, layer
+     * FIFO, atau reservasi ERP. Angka ini hidup di Jubelio saja. Kalau ia
+     * sampai bocor ke stok ERP, HPP dan laporan persediaan ikut karangan —
+     * barangnya memang belum ada.
+     *
+     * @return array{ok:bool, message:string}
+     */
+    public function setStokManual(Product $product, float $qty): array
+    {
+        if ($qty < 0) {
+            return ['ok' => false, 'message' => 'Stok tidak boleh negatif.'];
+        }
+
+        if (!$this->client->isReady()) {
+            return ['ok' => false, 'message' => 'Integrasi Jubelio belum aktif/dikonfigurasi.'];
+        }
+
+        $setting = JubelioSetting::singleton();
+
+        $itemId = $this->resolveItemId($product);
+        if (!$itemId) {
+            $this->catatManual($product, JubelioSyncLog::SKIP, 'Produk belum ter-match ke item Jubelio (SKU tidak ditemukan).', $qty);
+
+            return ['ok' => false, 'message' => 'Produk belum ter-match ke item Jubelio. Jalankan pencocokan produk dulu.'];
+        }
+
+        $locationId = $product->jubelio_location_id ?: $setting->default_location_id;
+        if (!$locationId) {
+            $this->catatManual($product, JubelioSyncLog::SKIP, 'Location ID Jubelio belum diatur (Settings → Jubelio).', $qty);
+
+            return ['ok' => false, 'message' => 'Location ID Jubelio belum diatur (Settings → Jubelio).'];
+        }
+
+        /*
+         * Adjustment Jubelio bersifat DELTA, jadi angka yang dikirim hanya
+         * benar bila saldo di sana benar-benar DIUKUR lebih dulu. Menebaknya
+         * nol berarti seluruh angka ini DITAMBAHKAN ke saldo yang sudah ada —
+         * stok dobel, lalu oversell. Sama seperti pushProduct(), gagal baca =
+         * batal, bukan menebak.
+         */
+        $baseline = $this->client->getItemAvailable($itemId, $locationId);
+        if ($baseline === null) {
+            $this->catatManual($product, JubelioSyncLog::FAIL, 'Stok Jubelio tidak terbaca — pengiriman dibatalkan agar stok tidak dobel.', $qty);
+
+            return ['ok' => false, 'message' => 'Stok Jubelio tidak terbaca sekarang — belum ada yang diubah. Coba lagi sebentar lagi.'];
+        }
+
+        $delta = round($qty - $baseline, 4);
+
+        if (abs($delta) < 0.0001) {
+            $this->catatManual($product, JubelioSyncLog::SKIP, 'Stok Jubelio sudah ' . $this->angka($qty) . ' — tidak ada yang perlu diubah.', $qty);
+
+            return ['ok' => true, 'message' => 'Stok di Jubelio memang sudah ' . $this->angka($qty) . '.'];
+        }
+
+        $resp = $this->client->postAdjustment($locationId, [[
+            'item_id'     => $itemId,
+            'qty_in_base' => $delta,
+            'cost'        => (float) ($product->last_cost ?: $product->cost_price ?: 0),
+            'bin_id'      => $this->defaultBin($locationId),
+            'unit'        => $product->base_unit ?: 'Pcs',
+        ]], 'Stok manual dari Noud ERP (produk custom)');
+
+        if (!$resp['success']) {
+            Log::warning('Jubelio stok manual: adjustment gagal', [
+                'product' => $product->id, 'delta' => $delta, 'error' => $resp['error'],
+            ]);
+            $this->catatManual($product, JubelioSyncLog::FAIL, $resp['error'] ?: 'Gagal mengirim penyesuaian stok ke Jubelio.', $qty, $delta);
+
+            return ['ok' => false, 'message' => $resp['error'] ?: 'Gagal mengirim stok ke Jubelio.'];
+        }
+
+        /*
+         * Cache push ERP di-NULL-kan, bukan diisi angka ini. `jubelio_synced_qty`
+         * artinya "hasil push ERP terakhir"; mengisinya dengan angka manual
+         * membuat penyaring murah di pushProduct() salah menyimpulkan "tidak ada
+         * yang berubah" dan melewatkan koreksi yang sebenarnya perlu. Null =
+         * "kami tidak tahu lagi", yang memaksa pengukuran ulang.
+         */
+        $product->forceFill(['jubelio_synced_qty' => null])->save();
+
+        $this->catatManual($product, JubelioSyncLog::OK,
+            'Stok Jubelio disetel manual ke ' . $this->angka($qty) . ' (delta ' . ($delta > 0 ? '+' : '') . $this->angka($delta) . ').',
+            $qty, $delta);
+
+        $pesan = 'Stok di Jubelio kini ' . $this->angka($qty) . '.';
+
+        /*
+         * Kalau produknya ikut sinkron otomatis, angka ini akan ditimpa cron
+         * dalam hitungan menit. Dikatakan sekarang, bukan dibiarkan admin
+         * menemukannya sendiri besok saat stoknya "berubah sendiri".
+         */
+        if ($product->sync_to_jubelio) {
+            $pesan .= ' ⚠️ Produk ini masih ikut sinkron stok otomatis, jadi angkanya akan ditimpa cron. Matikan sinkron stoknya di menu Produk kalau ingin tetap manual.';
+        }
+
+        return ['ok' => true, 'message' => $pesan];
+    }
+
+    private function catatManual(Product $product, string $status, string $pesan, float $qty, ?float $delta = null): void
+    {
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_STOCK, $status, $product->name, [
+            'reference'  => $product->sku,
+            'product_id' => $product->id,
+            'message'    => $pesan,
+            'meta'       => ['mode' => 'manual', 'qty' => $qty, 'delta' => $delta],
+        ]);
+    }
+
+    private function angka(float $n): string
+    {
+        return rtrim(rtrim(number_format($n, 4, '.', ''), '0'), '.') ?: '0';
+    }
+
     private function reservedNotHeldByJubelio(int $productId): float
     {
         $reserved = (float) \App\Core\Inventory\StockReservation::where('product_id', $productId)

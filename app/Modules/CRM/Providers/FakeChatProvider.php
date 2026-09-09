@@ -134,6 +134,21 @@ class FakeChatProvider implements ChatProvider
         return ['success' => true, 'templates' => $this->templateList, 'error' => null];
     }
 
+    /**
+     * Template yang "diajukan" selama mode aman. Tercatat lengkap supaya
+     * alurnya teruji, tapi tak sebutir pun sampai ke vendor.
+     *
+     * @var array<int,array<string,mixed>>
+     */
+    public array $templateDiajukan = [];
+
+    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id'): array
+    {
+        $this->templateDiajukan[] = compact('nama', 'kategori', 'body', 'variabel', 'bahasa');
+
+        return ['success' => true, 'id' => 'fake_' . $nama, 'status' => 'PENDING', 'error' => null];
+    }
+
     public function windowStatus(string $identifier): array
     {
         return [
