@@ -65,6 +65,13 @@ class IncomingWebhookService
             'queue_state'       => CrmConversation::QUEUE_KITA,
             'status'            => CrmConversation::STATUS_AKTIF,
         ])->save();
+
+        /*
+         * Kabari tim. Ditaruh PALING AKHIR, sesudah pesan & percakapan
+         * tersimpan: yang tidak boleh hilang adalah pesannya, bukan
+         * notifikasinya. Servicenya sendiri tidak pernah melempar.
+         */
+        app(NotifikasiChatService::class)->pesanMasuk($percakapan, $pesan);
     }
 
     /* ----------------------------------------------------------------- keluar */

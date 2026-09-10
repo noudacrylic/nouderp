@@ -85,6 +85,43 @@ class WebPushNotifier
     }
 
     /**
+     * Kirim hanya ke user ERP yang PUNYA AKSES ke satu menu tertentu.
+     *
+     * Alasan method ini ada: `push_subscriptions` tidak punya kolom topik, jadi
+     * `notifyErpUsers()` menyiarkan ke SEMUA orang. Selama ERP cuma punya satu
+     * notifikasi itu tidak jadi soal — "berlangganan" sama artinya dengan
+     * "ingin notifikasi pesanan". Begitu ada topik kedua, siaran menyeluruh
+     * mengirim tiap kabar ke orang yang tidak bisa menindaklanjutinya, dan yang
+     * terjadi berikutnya selalu sama: notifikasinya dimatikan — termasuk yang
+     * benar-benar penting.
+     *
+     * Aturan aksesnya DISALIN dari EnsureMenuAccess, bukan dikarang sendiri:
+     * admin & super_admin berakses penuh, role `user` butuh izin menu eksplisit.
+     * Kalau di sini dibuat aturan kedua, suatu hari nanti orang bisa membuka
+     * layarnya tapi tidak pernah dikabari — atau sebaliknya.
+     */
+    public function notifyMenuAccess(string $menuKey, string $title, string $body, array $opts = []): int
+    {
+        $kecuali = (int) ($opts['kecuali_user_id'] ?? 0);
+
+        $subs = PushSubscription::whereIn('user_id', User::denganAksesMenu($menuKey)->select('id'))
+            /*
+             * Yang memicu peristiwanya tidak perlu dikabari tentang perbuatannya
+             * sendiri — ia sedang menatap layarnya. Notifikasi yang memantul
+             * balik ke pengirimnya adalah cara tercepat membuat orang
+             * mematikannya.
+             */
+            ->when($kecuali, fn ($q) => $q->where('user_id', '!=', $kecuali))
+            ->get();
+
+        if ($subs->isEmpty()) {
+            return 0;
+        }
+
+        return $this->sendToSubscriptions($subs, $title, $body, $opts);
+    }
+
+    /**
      * @param  \Illuminate\Support\Collection<PushSubscription>  $subs
      */
     public function sendToSubscriptions($subs, string $title, string $body, array $opts = []): int

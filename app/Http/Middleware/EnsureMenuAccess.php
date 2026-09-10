@@ -49,6 +49,21 @@ class EnsureMenuAccess
             return redirect()->route('login')->withErrors(['username' => 'Akun Anda telah dinonaktifkan.']);
         }
 
+        /*
+         * Langganan Web Push: bukan menu, dan isinya milik penggunanya sendiri
+         * (controllernya membatasi hapus ke pemilik endpoint). Tiap pengguna ERP
+         * berhak menyalakan notifikasinya, apa pun menu yang ia punya — dulu
+         * rutenya duduk di bawah `pos.*` dan agen CRM berperan `user` tidak
+         * pernah bisa berlangganan, dengan gejala tombol yang diam saja.
+         *
+         * Letaknya SESUDAH penjaga login & akun aktif, bukan sebelumnya: yang
+         * dilepas di sini cuma pemeriksaan MENU. Ditaruh di atas, tamu ikut
+         * lolos dan controllernya pecah saat membaca id pengguna yang tidak ada.
+         */
+        if ($request->is('erp/push/*') || $request->is('erp/notifikasi', 'erp/notifikasi/*')) {
+            return $next($request);
+        }
+
         // super_admin & admin → akses penuh
         if (in_array($user->role, ['super_admin', 'admin'], true)) {
             return $next($request);

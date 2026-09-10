@@ -53,11 +53,17 @@ class PushSubscriptionController extends Controller
     /** Kirim notifikasi uji ke perangkat user (konfirmasi setelah aktivasi). */
     public function test(Request $request, WebPushNotifier $push)
     {
+        /*
+         * Bunyinya tidak lagi menyebut "pesanan" saja: langganan yang sama kini
+         * membawa chat CRM juga, dan yang menyalakannya belum tentu tim packing.
+         * Tautannya ke beranda ERP — mengarahkan agen CRM ke layar Pemrosesan
+         * Pesanan yang tak bisa ia buka cuma menghasilkan halaman ditolak.
+         */
         $sent = $push->notifyUser(
             $request->user(),
-            '🔔 Notifikasi pesanan aktif',
-            'Anda akan diberi tahu di sini saat ada pesanan instant masuk.',
-            ['url' => route('pos.fulfillment.perlu-diproses'), 'tag' => 'erp-push-test']
+            '🔔 Notifikasi aktif',
+            'Anda akan diberi tahu di sini saat ada chat masuk, chat dioper ke Anda, atau pesanan instant.',
+            ['url' => url('/erp'), 'tag' => 'erp-push-test']
         );
 
         return response()->json(['ok' => true, 'sent' => $sent]);

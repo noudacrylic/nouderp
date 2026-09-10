@@ -1107,6 +1107,14 @@
                 @php $currentModule = current_module(); @endphp
                 @if($currentModule && $currentModule !== 'dashboard' && config("menu_permissions.$currentModule.children"))
                     @include('layouts.partials._top_tabs', ['module' => $currentModule])
+                @else
+                    {{-- Halaman tanpa bilah modul (Dashboard, dll). Loncengnya tetap
+                         di pojok kanan atas yang sama — notifikasi yang kadang ada
+                         kadang tidak akan berhenti dipercaya, dan orang kembali
+                         mengandalkan menagih lewat WhatsApp. --}}
+                    <div class="lonceng-bar">
+                        @include('layouts.partials._lonceng')
+                    </div>
                 @endif
             @endauth
 

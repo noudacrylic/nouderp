@@ -17,6 +17,7 @@ use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmTemplate;
 use App\Modules\CRM\Models\CrmStockWatch;
 use App\Modules\CRM\Services\CrmReplyService;
+use App\Modules\CRM\Services\NotifikasiChatService;
 use App\Modules\CRM\Services\PencarianProdukService;
 use App\Modules\CRM\Support\PhoneNumber;
 use App\Modules\CRM\Services\StockWatchService;
@@ -1596,6 +1597,18 @@ class CrmInboxController extends Controller
 
         if ($keOrangLain) {
             $pesan .= ' Ditandai belum dibaca supaya terlihat sebagai pekerjaan baru.';
+
+            /*
+             * Dan penerimanya dikabari sungguhan. Tanda belum-dibaca saja hanya
+             * terlihat kalau ia kebetulan membuka Inbox — sedangkan operan itu
+             * pekerjaan yang baru saja berpindah ke tangannya, sering justru
+             * karena yang mengoper tidak bisa melanjutkan.
+             */
+            app(NotifikasiChatService::class)->dioper(
+                $conversation,
+                User::find($pemilikBaru),
+                $request->user()
+            );
 
             /*
              * Kalau chat yang dioper adalah yang SEDANG terbuka — dan itu

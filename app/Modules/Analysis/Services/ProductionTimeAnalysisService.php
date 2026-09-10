@@ -282,7 +282,20 @@ class ProductionTimeAnalysisService
                 $execByDept[$deptKey][(int) $ex->id] = $ex->name;
             }
         }
-        $execByDept = array_map(fn ($names) => array_values($names), $execByDept);
+        /*
+         * Diurutkan menurut nama sebelum keluar. Relasi `executors` adalah
+         * belongsToMany TANPA orderBy, jadi urutannya terserah MySQL — dan itu
+         * berarti daftar nama yang sama bisa tampil berbeda urutan dari satu
+         * pemuatan halaman ke pemuatan berikutnya, tanpa ada yang berubah.
+         *
+         * `natcasesort` supaya "Mesin 2" berdiri sebelum "Mesin 10", bukan
+         * sesudahnya seperti pada urutan teks biasa.
+         */
+        $execByDept = array_map(function ($names) {
+            natcasesort($names);
+
+            return array_values($names);
+        }, $execByDept);
 
         if (!empty($filters['department_id'])) {
             $deptId     = (int) $filters['department_id'];

@@ -43,6 +43,28 @@ class User extends Authenticatable
         return $this->hasMany(UserMenuPermission::class);
     }
 
+    /**
+     * Pengguna ERP yang punya akses ke satu menu — SATU definisi, dipakai
+     * bersama oleh notifikasi (web push & notifikasi dalam ERP).
+     *
+     * Aturannya sengaja disalin dari EnsureMenuAccess, bukan dikarang ulang:
+     * admin & super_admin berakses penuh, role `user` butuh izin eksplisit.
+     * Kalau di sini tumbuh aturan kedua, suatu hari ada orang yang bisa membuka
+     * layarnya tapi tidak pernah dikabari — atau sebaliknya, dan keduanya tidak
+     * menimbulkan galat apa pun sampai ada yang mengeluh.
+     *
+     * Yang nonaktif ikut disaring: akun mati tidak perlu menerima pekerjaan.
+     */
+    public function scopeDenganAksesMenu($query, string $menuKey)
+    {
+        return $query
+            ->where('role', '!=', 'karyawan')
+            ->where('is_active', true)
+            ->where(fn ($w) => $w
+                ->whereIn('role', ['super_admin', 'admin'])
+                ->orWhereHas('menuPermissions', fn ($m) => $m->where('menu_key', $menuKey)));
+    }
+
     public function isSuperAdmin(): bool
     {
         return $this->role === 'super_admin';

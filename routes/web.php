@@ -1019,12 +1019,37 @@ Route::get('erp/sw.js', function () {
     ]);
 });
 
+/*
+ | Web Push ERP — langganan notifikasi milik SENDIRI.
+ |
+ | Dipindah keluar dari prefix `erp/pos` (11 Sep 2026) karena fiturnya sudah
+ | bukan milik POS: notifikasi chat CRM memakai langganan yang sama. Selama ia
+ | duduk di bawah `pos.api.*`, EnsureMenuAccess hanya meloloskan staf yang punya
+ | akses menu POS — artinya agen CRM berperan `user` TIDAK PERNAH bisa
+ | menyalakan notifikasinya, dan gejalanya cuma tombol yang diam.
+ |
+ | Rutenya dilewati EnsureMenuAccess (lihat middleware): ini bukan menu, dan
+ | tiap pengguna ERP berhak mengurus langganannya sendiri.
+ */
+Route::prefix('erp/push')->name('push.')->group(function () {
+    Route::post('/subscribe',   [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'store'])->name('subscribe');
+    Route::post('/unsubscribe', [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'destroy'])->name('unsubscribe');
+    Route::post('/test',        [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'test'])->name('test');
+});
+
+/*
+ | Lonceng notifikasi ERP. Sama seperti langganan push di atas: bukan menu, dan
+ | isinya milik penggunanya sendiri — jadi dilewati pemeriksaan MENU di
+ | EnsureMenuAccess (tetap wajib login). Kalau ia diikat ke satu menu, orang
+ | yang menunya sedikit tidak akan pernah bisa membaca notifikasinya sendiri.
+ */
+Route::prefix('erp/notifikasi')->name('notifikasi.')->group(function () {
+    Route::get ('/',                     [\App\Http\Controllers\NotifikasiErpController::class, 'index'])->name('index');
+    Route::post('/baca-semua',           [\App\Http\Controllers\NotifikasiErpController::class, 'bacaSemua'])->name('baca-semua');
+    Route::post('/{notifikasi}/baca',    [\App\Http\Controllers\NotifikasiErpController::class, 'baca'])->name('baca');
+});
+
 Route::prefix('erp/pos')->name('pos.')->group(function () {
-    // Web Push notifikasi pesanan (tim packing). Nama ber-segmen `api` agar staf role `user`
-    // yang punya akses menu POS lolos EnsureMenuAccess (route bantu, bukan menu tersendiri).
-    Route::post('/push/subscribe',   [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'store'])->name('api.push-subscribe');
-    Route::post('/push/unsubscribe', [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'destroy'])->name('api.push-unsubscribe');
-    Route::post('/push/test',        [\App\Http\Controllers\Pos\PushSubscriptionController::class, 'test'])->name('api.push-test');
 
     // Kasir POS — buat transaksi langsung (Invoice + Bayar, tanpa SO)
     Route::get('/kasir',          [\App\Modules\POS\Controllers\PosOrderController::class, 'kasir'])->name('kasir');

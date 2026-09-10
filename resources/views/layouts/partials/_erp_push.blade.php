@@ -1,4 +1,6 @@
-{{-- Web Push notifikasi pesanan untuk tim packing (ERP desktop).
+{{-- Web Push ERP desktop: pesanan instant untuk tim packing, DAN chat CRM
+     (pesan masuk + operan) untuk agen. Satu langganan, beberapa topik —
+     penargetan siapa menerima apa ada di WebPushNotifier, bukan di sini.
      Registrasi service worker + logika toggle tombol #erpPushToggle di user-menu popup.
      No-op bila VAPID belum diatur (tombol tak dirender di erp.blade.php). --}}
 @php $vapidPublicKey = config('services.webpush.public_key'); @endphp
@@ -9,9 +11,9 @@
     const VAPID_PUBLIC_KEY = @json($vapidPublicKey);
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
     const URLS = {
-        subscribe:   @json(route('pos.api.push-subscribe')),
-        unsubscribe: @json(route('pos.api.push-unsubscribe')),
-        test:        @json(route('pos.api.push-test')),
+        subscribe:   @json(route('push.subscribe')),
+        unsubscribe: @json(route('push.unsubscribe')),
+        test:        @json(route('push.test')),
     };
 
     const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
