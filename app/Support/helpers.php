@@ -199,6 +199,14 @@ if (!function_exists('user_landing_url')) {
             return url('/me');
         }
 
+        // Akun CS chat-saja → PWA CRM. Syaratnya flag `pwa_crm` DAN tidak punya
+        // pintu ERP lain: yang memegang Inbox desktop (atau menu apa pun) tetap
+        // mendarat di ERP dan membuka /cs sendiri dari HP-nya, kalau tidak
+        // admin yang dicentang flag ini kehilangan seluruh ERP-nya saat login.
+        if ($u && $u->pwa_crm && $u->role === 'user' && $u->menuPermissions()->count() === 0) {
+            return url('/cs');
+        }
+
         if (user_can_access('dashboard')) {
             return url('/erp/dashboard');
         }

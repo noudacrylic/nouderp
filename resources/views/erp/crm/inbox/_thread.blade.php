@@ -13,6 +13,14 @@
      * {pesanan} perlu membaca pesanan terakhir pelanggan, dan itu tidak
      * mungkin diketahui browser.
      */
+    /* Mode PWA (`/cs`): layar chat penuh di HP, bukan kolom tengah di antara dua
+       kolom lain. Tiga hal yang berbeda — bingkai wadahnya, tombol kembali (di
+       desktop daftar chatnya masih terlihat di sebelah, di HP tidak), dan strip
+       alat Produk/Ongkir/Pesanan yang di desktop hidup di kolom kanan.
+       Selebihnya IDENTIK, dan memang harus: ini partial 1.400 baris. */
+    $modePwa   = $modePwa   ?? false;
+    $gayaWadah = $modePwa ? 'bg-white' : 'bg-white border border-gray-200 rounded-lg';
+
     $potongan = $snippets->map(fn ($t) => [
         'id'    => $t->id,
         'judul' => $t->title,
@@ -49,7 +57,7 @@
 
      Zonanya hanya dipasang saat jendela 24 jam terbuka — kalau tidak, berkas
      yang dilepas hilang tanpa jejak karena kotak ketiknya memang tidak ada. --}}
-<div class="relative flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden"
+<div class="relative flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }}"
      x-data="threadCrm({{ $terpilih->id }}, {{ (int) ($pesan->max('id') ?? 0) }})"
      {{-- Foto produk dikirim dari panel Produk di rail kanan. Yang MENGIRIM
           tetap thread, bukan panelnya: hanya di sini id pesan terakhir diketahui,
@@ -88,6 +96,17 @@
          chat berturut-turut kehilangan jejak sedang bicara dengan siapa. --}}
     <div class="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 bg-white"
          x-data="{ menu: false, catatan: false }">
+        @if($modePwa)
+            {{-- Tautan sungguhan, bukan history.back(): chat sering dibuka
+                 langsung dari notifikasi push, dan di situ tidak ada halaman
+                 sebelumnya untuk dikembalikan. --}}
+            <a href="{{ route('cs.chat') }}" aria-label="Kembali ke daftar chat"
+               class="-ml-1 shrink-0 w-8 h-8 flex items-center justify-center rounded text-gray-500 active:bg-gray-100">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+            </a>
+        @endif
         <div class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-semibold shrink-0">
             {{ mb_strtoupper(mb_substr($terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key, 0, 1)) }}
         </div>
@@ -174,6 +193,28 @@
             </div>
         </div>
     </div>
+
+    @if($modePwa)
+        {{-- Strip alat: pengganti kolom kanan desktop. SENGAJA berdiri sendiri,
+             bukan disembunyikan di dalam menu titik tiga — Produk, Ongkir, dan
+             Pesanan dipakai berkali-kali dalam satu percakapan, sementara isi
+             titik tiga (catatan, arsip, unduh lampiran) dipakai sekali-sekali.
+             Menyatukan keduanya membuat yang sering jadi dua ketukan demi
+             merapikan yang jarang. --}}
+        <div class="shrink-0 grid grid-cols-3 gap-1 px-2 py-1.5 border-b border-gray-200 bg-gray-50">
+            @foreach([
+                'produk'  => ['Produk',  '📦'],
+                'ongkir'  => ['Ongkir',  '🚚'],
+                'pesanan' => ['Pesanan', '🧾'],
+            ] as $kunci => [$label, $ikon])
+                <button type="button" @click="$dispatch('buka-tab', { tab: '{{ $kunci }}' })"
+                        class="flex items-center justify-center gap-1.5 rounded border border-gray-300 bg-white
+                               px-2 py-1.5 text-xs font-semibold text-gray-600 active:bg-gray-100">
+                    <span>{{ $ikon }}</span>{{ $label }}
+                </button>
+            @endforeach
+        </div>
+    @endif
 
     {{-- Daftar pesan: SATU-SATUNYA bagian yang menggulir. Kepala tetap di atas,
          kotak ketik tetap di bawah — seperti aplikasi chat. --}}
@@ -589,6 +630,12 @@
                              */
                             kutipan: null,
 
+                            /* Penunjuk jam polling. Dinyatakan di sini, bukan
+                               lahir diam-diam di init(): ia dimatikan & dihidupkan
+                               dari tiga tempat, dan yang tak terlihat di daftar
+                               properti gampang dikira tidak ada. */
+                            jam: null,
+
                             /* Satu menu aksi, dipinjamkan ke gelembung yang diklik. */
                             menuAksi: {
                                 tampil: false, x: 0, y: 0,
@@ -602,15 +649,40 @@
                                 galat: '', sukses: '',
                             },
 
+                            /* Jeda 8 detik: cukup terasa "langsung" untuk chat
+                               manusia, cukup jarang untuk tidak membebani. */
+                            mulaiJam() {
+                                if (this.jam) return;   // jangan sampai dua jam berdetak bersamaan
+                                this.jam = setInterval(() => this.tarik(), 8000);
+                            },
+
+                            hentikanJam() {
+                                clearInterval(this.jam);
+                                this.jam = null;
+                            },
+
                             init() {
                                 this.keBawah(true);
-                                // Jeda 8 detik: cukup terasa "langsung" untuk chat
-                                // manusia, cukup jarang untuk tidak membebani.
-                                this.jam = setInterval(() => this.tarik(), 8000);
-                                // Berhenti menarik saat tab disembunyikan — laptop
-                                // yang ditinggal semalam tak perlu ribuan permintaan.
+                                this.mulaiJam();
+                                /*
+                                 * Berhenti BETULAN saat layar disembunyikan, bukan
+                                 * sekadar menarik ulang saat kembali: dulu jamnya
+                                 * tetap berdetak di latar, dan laptop yang ditinggal
+                                 * semalam mengirim ribuan permintaan. Di HP ongkosnya
+                                 * bukan cuma server — itu baterai dan kuota CS, dan
+                                 * gejalanya tak pernah terlihat dari layar mana pun.
+                                 *
+                                 * Yang menutup celahnya: sekali kembali terlihat,
+                                 * tarik SEGERA. Pesan yang masuk selama layar mati
+                                 * kalau tidak begitu baru muncul 8 detik kemudian.
+                                 */
                                 document.addEventListener('visibilitychange', () => {
-                                    if (!document.hidden) this.tarik();
+                                    if (document.hidden) {
+                                        this.hentikanJam();
+                                    } else {
+                                        this.tarik();
+                                        this.mulaiJam();
+                                    }
                                 });
 
                                 /*

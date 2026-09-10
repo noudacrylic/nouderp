@@ -8,7 +8,10 @@
 {{-- Tabnya bisa dipindahkan dari dalam panel: "Tambahkan ke Pesanan" di tab
      Ongkir mengantar operator ke tab Pesanan, karena itu memang langkah
      berikutnya dan menyuruhnya mengklik tab sendiri cuma satu langkah sia-sia. --}}
-<div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden"
+{{-- $gayaWadah: di desktop ia kartu bersisi di kolom kanan; di PWA CRM ia isi
+     lembar geser yang sudah punya bingkainya sendiri. --}}
+@php $gayaWadah = $gayaWadah ?? 'bg-white border border-gray-200 rounded-lg'; @endphp
+<div class="flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }}"
      x-data="{ tab: 'produk' }"
      @buka-tab.window="tab = $event.detail.tab">
 

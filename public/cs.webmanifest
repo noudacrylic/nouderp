@@ -1,0 +1,32 @@
+{
+    "name": "NOUD Chat",
+    "short_name": "NOUD Chat",
+    "description": "Aplikasi CS Noud Acrylic — membalas chat WhatsApp pelanggan.",
+    "start_url": "/cs",
+    "scope": "/cs/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#f1f5f9",
+    "theme_color": "#0f766e",
+    "lang": "id",
+    "icons": [
+        {
+            "src": "/icons/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

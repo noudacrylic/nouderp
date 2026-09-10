@@ -15,9 +15,17 @@
        ikut hilang. Dua '%s' diisi di sisi Alpine (id percakapan, lalu aksinya). */
     $kueriKini = request()->getQueryString();
     $basisAksi = route('crm.inbox.index') . '/%s/%s' . ($kueriKini ? '?' . $kueriKini : '');
+
+    /* Dipakai dua aplikasi: kolom kiri ERP desktop dan layar daftar chat di PWA
+       CRM (`/cs`). Yang berbeda cuma KE MANA satu baris membawa — endpoint,
+       penyaring, dan aksi titik-tiganya sama persis, jadi daftarnya tidak boleh
+       ditulis dua kali. Aksi POST tetap menuju `/erp/crm/*`: semuanya menutup
+       dengan back(), yang mengembalikan orang ke layar asalnya sendiri. */
+    $rutaChat   = $rutaChat   ?? 'crm.inbox.show';
+    $gayaWadah  = $gayaWadah  ?? 'bg-white border border-gray-200 rounded-lg';
 @endphp
 
-<div class="flex flex-col h-full min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden"
+<div class="flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }}"
      x-data="menuChatDaftar(@js($basisAksi), @js($terpilih?->id))">
 
     {{-- Kepala kolom: TIGA baris, tidak lebih.
@@ -144,7 +152,7 @@
                  dalam tautan. Tautannya dibentangkan jadi lapisan tak terlihat dan
                  isinya dibuat tembus-klik — tampilan sama, tapi tombolnya sah. --}}
             <div class="relative hover:bg-emerald-50 {{ $aktif ? 'bg-emerald-50 border-l-4 border-emerald-600' : '' }}">
-                <a href="{{ route('crm.inbox.show', $p->id) }}" class="absolute inset-0 z-0"
+                <a href="{{ route($rutaChat, $p->id) }}" class="absolute inset-0 z-0"
                    aria-label="Buka chat {{ $namaTampil }}"></a>
 
                 <div class="relative z-10 pointer-events-none px-3 py-2">

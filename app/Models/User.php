@@ -13,7 +13,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name', 'username', 'email', 'password',
-        'role', 'is_active', 'karyawan_id', 'last_login_at',
+        'role', 'is_active', 'karyawan_id', 'last_login_at', 'pwa_crm',
     ];
 
     protected $hidden = [
@@ -28,6 +28,7 @@ class User extends Authenticatable
             'last_login_at'     => 'datetime',
             'password'          => 'hashed',
             'is_active'         => 'boolean',
+            'pwa_crm'           => 'boolean',
         ];
     }
 
@@ -73,6 +74,21 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return $this->role === 'admin';
+    }
+
+    /**
+     * Boleh masuk PWA CRM (`/cs`)?
+     *
+     * Dua pintu, sengaja: flag eksplisit untuk akun CS chat-saja, dan izin menu
+     * `crm.inbox` supaya admin/agen yang sudah memegang Inbox desktop tidak
+     * perlu dicentang ulang cuma untuk membuka layar yang sama dari HP.
+     */
+    public function canUseCrmPwa(): bool
+    {
+        if (! $this->is_active) return false;
+        if (in_array($this->role, ['super_admin', 'admin'], true)) return true;
+
+        return (bool) $this->pwa_crm || $this->hasMenuPermission('crm.inbox');
     }
 
     public function isStaff(): bool

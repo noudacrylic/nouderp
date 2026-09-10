@@ -1,4 +1,20 @@
-@php $vapidPublicKey = config('services.webpush.public_key'); @endphp
+@php
+    $vapidPublicKey = config('services.webpush.public_key');
+
+    /* Dipakai dua aplikasi: PWA Karyawan (`/me`) dan PWA CRM (`/cs`). Yang
+       berbeda cuma endpoint langganan & warna aksen — langganannya sendiri
+       menempel ke PENGGUNA, bukan ke aplikasi, jadi menyalin partial ini
+       cuma akan melahirkan dua salinan logika push yang wajib sama persis.
+       Pemanggil boleh menimpanya:
+         @include('me.partials._push_toggle', ['pushUrls' => [...], 'pushAksen' => 'teal']) */
+    $pushUrls = $pushUrls ?? [
+        'subscribe'   => route('me.push.subscribe'),
+        'unsubscribe' => route('me.push.unsubscribe'),
+        'test'        => route('me.push.test'),
+    ];
+    $pushAksen = $pushAksen ?? 'emerald';
+    $pushKeterangan = $pushKeterangan ?? 'Dapatkan pemberitahuan izin & info penting.';
+@endphp
 
 @if ($vapidPublicKey)
 <div id="push-card" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 hidden">
@@ -10,10 +26,10 @@
         </span>
         <div class="flex-1 min-w-0">
             <p class="text-sm font-bold text-slate-800">Notifikasi</p>
-            <p id="push-desc" class="text-[11px] text-slate-400 mt-0.5">Dapatkan pemberitahuan izin &amp; info penting.</p>
+            <p id="push-desc" class="text-[11px] text-slate-400 mt-0.5">{{ $pushKeterangan }}</p>
         </div>
         <button id="push-toggle" type="button"
-                class="shrink-0 text-xs font-bold px-3.5 py-2 rounded-lg bg-emerald-600 text-white active:bg-emerald-700 disabled:opacity-50">
+                class="shrink-0 text-xs font-bold px-3.5 py-2 rounded-lg bg-{{ $pushAksen }}-600 text-white active:bg-{{ $pushAksen }}-700 disabled:opacity-50">
             Aktifkan
         </button>
     </div>
@@ -27,11 +43,9 @@
 (function () {
     const VAPID_PUBLIC_KEY = @json($vapidPublicKey);
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-    const URLS = {
-        subscribe:   @json(route('me.push.subscribe')),
-        unsubscribe: @json(route('me.push.unsubscribe')),
-        test:        @json(route('me.push.test')),
-    };
+    const URLS  = @json($pushUrls);
+    const AKSEN = @json($pushAksen);
+    const KETERANGAN = @json($pushKeterangan);
 
     const card   = document.getElementById('push-card');
     const btn     = document.getElementById('push-toggle');
@@ -76,9 +90,8 @@
         btn.textContent = active ? 'Matikan' : 'Aktifkan';
         btn.className = 'shrink-0 text-xs font-bold px-3.5 py-2 rounded-lg disabled:opacity-50 '
             + (active ? 'bg-slate-100 text-slate-600 active:bg-slate-200'
-                      : 'bg-emerald-600 text-white active:bg-emerald-700');
-        desc.textContent = active ? 'Notifikasi aktif di perangkat ini.'
-                                  : 'Dapatkan pemberitahuan izin & info penting.';
+                      : 'bg-' + AKSEN + '-600 text-white active:bg-' + AKSEN + '-700');
+        desc.textContent = active ? 'Notifikasi aktif di perangkat ini.' : KETERANGAN;
     }
 
     async function currentSub() {

@@ -47,6 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'jubelio.signature'  => \App\Modules\Marketplace\Jubelio\Http\Middleware\VerifyJubelioSignature::class,
             'crm.signature'      => \App\Modules\CRM\Http\Middleware\VerifyCrmWebhookSignature::class,
             'karyawan'           => \App\Http\Middleware\EnsureKaryawan::class,
+            'crm.pwa'            => \App\Http\Middleware\EnsureCrmPwa::class,
             'storefront.api'     => \App\Http\Middleware\StorefrontApiKey::class,
         ]);
 

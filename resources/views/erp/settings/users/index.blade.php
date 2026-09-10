@@ -76,6 +76,7 @@
                                 'role' => $user->role,
                                 'karyawan_id' => $user->karyawan_id,
                                 'is_active' => (bool) $user->is_active,
+                                'pwa_crm' => (bool) $user->pwa_crm,
                                 'permissions' => $user->menuPermissions->pluck('menu_key')->all(),
                             ];
                         @endphp
@@ -232,6 +233,21 @@
                             <input type="checkbox" name="is_active" value="1" x-model="form.is_active" class="rounded">
                             <span>Akun aktif (bisa login)</span>
                         </label>
+
+                        {{-- Akses PWA CRM: aplikasi chat di HP (/cs). Sengaja berdiri di
+                             tab Profil, bukan di daftar Permissions, karena ia bukan menu
+                             ERP — ia membuka aplikasi lain di luar /erp. --}}
+                        <label class="flex items-start gap-2 text-sm text-gray-700">
+                            <input type="checkbox" name="pwa_crm" value="1" x-model="form.pwa_crm" class="rounded mt-0.5">
+                            <span>
+                                Akses <b>PWA CRM</b> (aplikasi chat di HP)
+                                <span class="block text-xs text-gray-500">
+                                    Boleh membuka <span class="font-mono">/cs</span> dan membalas chat WhatsApp,
+                                    walau tidak punya menu ERP sama sekali. User tanpa menu apa pun akan
+                                    langsung mendarat di sana setelah login.
+                                </span>
+                            </span>
+                        </label>
                     </div>
 
                     {{-- TAB PERMISSIONS --}}
@@ -326,7 +342,7 @@ function userManager() {
     return {
         modalOpen: false,
         tab: 'profile',
-        form: { id: null, username: '', name: '', email: '', password: '', role: 'user', karyawan_id: '', is_active: true, permissions: [] },
+        form: { id: null, username: '', name: '', email: '', password: '', role: 'user', karyawan_id: '', is_active: true, pwa_crm: false, permissions: [] },
 
         openCreate() {
             this.form = { id: null, username: '', name: '', email: '', password: '', role: 'user', karyawan_id: '', is_active: true, permissions: [] };
@@ -343,6 +359,7 @@ function userManager() {
                 role: data.role,
                 karyawan_id: data.karyawan_id || '',
                 is_active: !!data.is_active,
+                pwa_crm: !!data.pwa_crm,
                 permissions: Array.isArray(data.permissions) ? [...data.permissions] : [],
             };
             this.tab = 'profile';

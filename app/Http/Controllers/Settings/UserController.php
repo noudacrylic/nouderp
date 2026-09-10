@@ -71,6 +71,7 @@ class UserController extends Controller
             'role'         => $data['role'],
             'is_active'    => $request->boolean('is_active', true),
             'karyawan_id'  => $data['karyawan_id'] ?: null,
+            'pwa_crm'      => $request->boolean('pwa_crm'),
         ]);
 
         if ($user->role === 'user') {
@@ -104,6 +105,7 @@ class UserController extends Controller
             'role'         => $data['role'],
             'is_active'    => $request->boolean('is_active', true),
             'karyawan_id'  => $data['karyawan_id'] ?: null,
+            'pwa_crm'      => $request->boolean('pwa_crm'),
         ];
         if (!empty($data['password'])) {
             $payload['password'] = Hash::make($data['password']);
@@ -167,6 +169,7 @@ class UserController extends Controller
             'password' => [$existing ? 'nullable' : 'required', 'string', 'min:6', 'max:60'],
             'role'     => ['required', Rule::in(['super_admin', 'admin', 'user', 'karyawan'])],
             'karyawan_id' => ['nullable', 'integer', 'exists:sdm_karyawan,id', Rule::unique('users', 'karyawan_id')->ignore($userId)],
+            'pwa_crm'  => ['nullable', 'boolean'],
             'permissions'   => 'array',
             'permissions.*' => 'string|max:80',
         ], [

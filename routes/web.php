@@ -1536,6 +1536,43 @@ Route::prefix('erp/analisa')->name('analisa.')->group(function () {
 
 // ── PWA Karyawan (`/me/*`) — aplikasi mobile karyawan ────────────────
 // Tidak lewat EnsureMenuAccess (hanya cek path erp/*). Auth + karyawan via middleware 'karyawan'.
+/*
+ | PWA CRM (`/cs`) — aplikasi chat CS di HP.
+ |
+ | Prefix SENGAJA di luar `/erp`: scope service worker mengikuti prefix URL, dan
+ | mendaftarkannya di bawah `/erp` akan membuat satu service worker menguasai
+ | seluruh ERP desktop. Data chatnya sendiri tetap dipanggil dari `erp/crm/*`
+ | yang sama dengan Inbox desktop — lihat EnsureMenuAccess untuk jalan lewat
+ | pemegang flag `pwa_crm`.
+ */
+Route::prefix('cs')->name('cs.')->group(function () {
+    // Publik: halaman offline (fallback service worker saat jaringan mati).
+    Route::view('/offline', 'cs.offline')->name('offline');
+
+    // Service worker dilayani via route (bukan file fisik) agar scope = /cs/
+    // tanpa direktori public/cs yang akan membayangi route di bawah ini.
+    Route::get('/sw.js', function () {
+        return response(file_get_contents(resource_path('pwa/cs-sw.js')), 200, [
+            'Content-Type'           => 'application/javascript; charset=utf-8',
+            'Service-Worker-Allowed' => '/cs/',
+            'Cache-Control'          => 'no-cache, must-revalidate',
+        ]);
+    })->name('sw');
+
+    Route::middleware('crm.pwa')->group(function () {
+        Route::get('/notifikasi', [\App\Http\Controllers\Cs\ShellController::class, 'notifikasi'])->name('notifikasi');
+        Route::get('/profil',     [\App\Http\Controllers\Cs\ShellController::class, 'profil'])->name('profil');
+
+        // Daftar chat & satu percakapan: datanya dari CrmInboxController yang
+        // sama dengan Inbox desktop, hanya viewnya yang berbeda.
+        Route::get('/', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pwaDaftar'])->name('chat');
+        // Berdiri PALING BAWAH: '{conversation}' akan menangkap 'notifikasi' &
+        // 'profil' sebagai id percakapan kalau didaftarkan lebih dulu.
+        Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pwaThread'])
+            ->whereNumber('conversation')->name('thread');
+    });
+});
+
 Route::prefix('me')->name('me.')->group(function () {
     // Publik (belum login): self-register + halaman offline (fallback service worker)
     Route::get ('/register',       [\App\Http\Controllers\Me\RegisterController::class, 'show'])->name('register');

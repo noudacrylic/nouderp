@@ -359,6 +359,32 @@ class CrmInboxController extends Controller
         return view('erp.crm.inbox.workspace', $this->ruangKerja($request, $conversation));
     }
 
+    /**
+     * PWA CRM (`/cs`) — daftar chat layar penuh di HP.
+     *
+     * Sengaja duduk di controller ini, bukan di controller PWA sendiri: datanya
+     * berasal dari ruangKerja() yang sama, dan menyusunnya ulang di tempat lain
+     * berarti dua daftar chat dengan aturan penyaring yang bisa menyimpang
+     * diam-diam — persis yang dihindari saat index() & show() disatukan.
+     */
+    public function pwaDaftar(Request $request)
+    {
+        return view('cs.chat', $this->ruangKerja($request));
+    }
+
+    /** PWA CRM — satu percakapan layar penuh. Kembarannya show() untuk desktop. */
+    public function pwaThread(Request $request, CrmConversation $conversation)
+    {
+        $conversation->load(['customer', 'owner']);
+
+        // Sama seperti show(): membuka menandai TERBACA, tapi tidak memindahkan antrean.
+        if ($conversation->unread_count > 0) {
+            $conversation->forceFill(['unread_count' => 0])->save();
+        }
+
+        return view('cs.thread', $this->ruangKerja($request, $conversation));
+    }
+
     public function balas(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
     {
         /*

@@ -64,6 +64,20 @@ class EnsureMenuAccess
             return $next($request);
         }
 
+        /*
+         * PWA CRM (`/cs`): layarnya duduk di luar `erp/`, tapi SELURUH isinya —
+         * kirim pesan, muat produk, cek ongkir, polling pesan baru — memanggil
+         * endpoint `erp/crm/*` yang sama dengan Inbox desktop. Tanpa jalan lewat
+         * ini, akun CS chat-saja (role 'user' tanpa menu apa pun) melihat layar
+         * yang hidup dengan isi yang mati: tiap panggilan balik 403.
+         *
+         * Yang dilepas cuma pemeriksaan MENU, dan hanya untuk pemegang flag —
+         * penjaga login & akun aktif di atas tetap berlaku.
+         */
+        if ($request->is('erp/crm', 'erp/crm/*') && $user->pwa_crm) {
+            return $next($request);
+        }
+
         // super_admin & admin → akses penuh
         if (in_array($user->role, ['super_admin', 'admin'], true)) {
             return $next($request);
