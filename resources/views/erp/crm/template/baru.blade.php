@@ -11,6 +11,12 @@
             Hanya template yang boleh dikirim; begitu ia membalas, jendela 24 jam terbuka dan Anda bisa mengetik bebas.
         </p>
 
+        @if(filled($nomorAwal ?? ''))
+            <div class="mb-4 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                Tujuannya sudah diisikan: <b class="font-mono">{{ $nomorAwal }}</b>. Ganti kalau bukan nomor ini.
+            </div>
+        @endif
+
         @if($dryRun)
             <div class="mb-4 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 <b>Mode aman menyala.</b> Percakapan tetap dibuat dan tercatat, tapi templatenya tidak benar-benar dikirim.
@@ -19,19 +25,25 @@
 
         @if($templates->isEmpty())
             <div class="rounded border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                <b>Belum ada template yang disetujui.</b>
-                {{ $error ? 'Daftar template tidak terbaca: ' . $error : 'Ajukan dulu lewat dasbor vendor.' }}
-                <a href="{{ route('crm.template.index') }}" class="text-blue-700 underline">Lihat bunyi yang sudah disiapkan</a>.
+                <b>Belum ada template yang disetujui Meta.</b>
+                Buat dulu di <a href="{{ route('crm.template.index') }}" class="text-blue-700 underline">Template Pesan</a>,
+                centang &ldquo;Daftarkan ke Meta&rdquo;, lalu tekan Ajukan.
             </div>
         @else
             <form method="POST" action="{{ route('crm.template.mulai') }}" class="space-y-4"
-                  x-data="{ pilih: @js(old('template')), daftar: @js($templates),
-                            get t() { return this.daftar.find(x => x.name === this.pilih) || null } }">
+                  x-data="{ pilih: @js(old('template')),
+                            daftar: @js($templates->map(fn ($t) => [
+                                'id'        => $t->id,
+                                'nama'      => $t->title,
+                                'body'      => $t->body,
+                                'variables' => $t->jumlahVariabel(),
+                            ])->values()),
+                            get t() { return this.daftar.find(x => String(x.id) === String(this.pilih)) || null } }">
                 @csrf
 
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Nomor Tujuan</label>
-                    <input type="text" name="nomor" value="{{ old('nomor') }}" required
+                    <input type="text" name="nomor" value="{{ old('nomor', $nomorAwal ?? '') }}" required
                            class="w-full border rounded px-3 py-2 text-sm font-mono"
                            placeholder="0855-777-4446">
                     <p class="text-xs text-gray-400 mt-1">Bentuk apa pun boleh — dinormalkan otomatis.</p>
@@ -42,7 +54,7 @@
                     <select name="template" x-model="pilih" required class="w-full border rounded px-3 py-2 text-sm">
                         <option value="">— pilih —</option>
                         @foreach($templates as $t)
-                            <option value="{{ $t['name'] }}">{{ $t['name'] }} ({{ $t['language'] }})</option>
+                            <option value="{{ $t->id }}">{{ $t->title }} &middot; {{ $t->meta_name }}</option>
                         @endforeach
                     </select>
                 </div>

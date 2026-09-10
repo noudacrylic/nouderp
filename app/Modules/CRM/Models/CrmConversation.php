@@ -37,13 +37,15 @@ class CrmConversation extends Model
     protected $fillable = [
         'channel', 'contact_key', 'display_name', 'provider_customer_id', 'business_number_id',
         'customer_id', 'owner_user_id', 'queue_state', 'status',
-        'window_expires_at', 'last_inbound_at', 'last_outbound_at', 'last_message_at',
+        'window_expires_at', 'pancingan_untuk_jendela_at',
+        'last_inbound_at', 'last_outbound_at', 'last_message_at',
         'unread_count', 'notes', 'order_draft',
     ];
 
     protected $casts = [
         'order_draft'       => 'array',
         'window_expires_at' => 'datetime',
+        'pancingan_untuk_jendela_at' => 'datetime',
         'last_inbound_at'   => 'datetime',
         'last_outbound_at'  => 'datetime',
         'last_message_at'   => 'datetime',
@@ -123,6 +125,21 @@ class CrmConversation extends Model
     }
 
     /**
+     * Sapaan siap tempel untuk pesan yang dikirim KE pelanggan ini.
+     *
+     * Beda dari namaTampil(), dan bedanya disengaja: namaTampil() jatuh ke
+     * nomor telepon sebagai jaring terakhir — benar untuk layar kita, keliru
+     * untuk pesan. "Halo Kak 6289…" yang dibaca pelanggan terbaca seperti
+     * robot yang salah sasaran. Tanpa nama, "Kak" saja sudah sopan dan wajar.
+     */
+    public function sapaan(): string
+    {
+        $nama = trim((string) ($this->customer->name ?? $this->display_name ?? ''));
+
+        return $nama !== '' ? 'Kak ' . $nama : 'Kak';
+    }
+
+    /**
      * Jendela 24 jam masih terbuka?
      *
      * Dipakai layar Inbox untuk menandai thread SEBELUM admin mengetik panjang
@@ -138,6 +155,31 @@ class CrmConversation extends Model
     public function windowHoursLeft(): ?int
     {
         return $this->windowIsOpen() ? (int) now()->diffInHours($this->window_expires_at, false) : null;
+    }
+
+    /**
+     * Sisa jendela dalam MENIT, null bila sudah tertutup.
+     *
+     * Ada karena jam saja terlalu kasar di ujung: `windowHoursLeft()`
+     * mengembalikan 0 untuk apa pun di bawah satu jam, sehingga "tinggal 55
+     * menit" dan "tinggal 30 detik" tak bisa dibedakan — padahal justru di
+     * rentang itulah keputusan bertanya ke vendor diambil.
+     */
+    public function windowMinutesLeft(): ?int
+    {
+        return $this->windowIsOpen() ? (int) now()->diffInMinutes($this->window_expires_at, false) : null;
+    }
+
+    /**
+     * Jendela masih terbuka menurut catatan kita, TAPI tinggal sedikit.
+     *
+     * Inilah satu-satunya rentang yang layak diverifikasi ke vendor: di luar
+     * itu, selisih beberapa menit antara jam kita dan jam Meta tak pernah
+     * mengubah keputusan apa pun.
+     */
+    public function windowHampirTutup(int $menit = 60): bool
+    {
+        return $this->windowIsOpen() && (int) $this->windowMinutesLeft() <= $menit;
     }
 
     public function scopeAktif($query)

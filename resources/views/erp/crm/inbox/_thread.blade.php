@@ -1,6 +1,25 @@
 {{-- Kolom TENGAH: percakapan + kotak balasan. Dipisah jadi partial supaya
      kolom kiri & rail kanan tidak ikut disusun ulang tiap kali thread dibuka. --}}
-@php $terbuka = $terpilih->windowIsOpen(); @endphp
+@php
+    $terbuka = $terpilih->windowIsOpen();
+    // Ambangnya dibaca dari servicenya, bukan diketik ulang: angka yang
+    // berbeda sedikit saja berarti tombolnya muncul di layar lalu ditolak
+    // saat ditekan.
+    $hampirTutup = $terpilih->windowHampirTutup(\App\Modules\CRM\Services\CrmReplyService::AMBANG_PANCINGAN_MENIT);
+
+    /*
+     * Potongan balasan untuk pintasan "/" di kotak ketik. Isiannya ({nama},
+     * {nomor}, {pesanan}, {admin}) diganti DI SINI, sekali, bukan di skrip:
+     * {pesanan} perlu membaca pesanan terakhir pelanggan, dan itu tidak
+     * mungkin diketahui browser.
+     */
+    $potongan = $snippets->map(fn ($t) => [
+        'id'    => $t->id,
+        'judul' => $t->title,
+        'grup'  => $t->category,
+        'teks'  => $t->render($terpilih, auth()->user()?->name),
+    ])->values();
+@endphp
 
 {{-- Keadaan centang dipilih CSS, bukan dengan membangun ulang HTML: memperbarui
      status jadi sekadar mengganti satu atribut, dan gelembung sementara di skrip
@@ -67,7 +86,8 @@
     {{-- Kepala percakapan: siapa yang sedang dibalas, selalu terlihat walau
          thread digulir jauh ke atas. Tanpa ini admin yang membuka beberapa
          chat berturut-turut kehilangan jejak sedang bicara dengan siapa. --}}
-    <div class="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 bg-white">
+    <div class="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 bg-white"
+         x-data="{ menu: false, catatan: false }">
         <div class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-semibold shrink-0">
             {{ mb_strtoupper(mb_substr($terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key, 0, 1)) }}
         </div>
@@ -84,13 +104,74 @@
                 @endif
             </div>
         </div>
-        <div class="ml-auto shrink-0">
+        <div class="ml-auto shrink-0 flex items-center gap-2">
             @if($terpilih->customer_id)
                 <a href="{{ url('/erp/master/customers/' . $terpilih->customer_id . '/edit') }}"
                    class="text-[11px] px-2 py-1 rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50">Pelanggan</a>
             @else
                 <span class="text-[11px] px-2 py-1 rounded bg-slate-100 text-slate-600" title="Belum tertaut pelanggan mana pun di ERP">Lead</span>
             @endif
+
+            {{-- Bekas tab "Info". Yang tersisa di sana setelah label & pemilik
+                 pindah ke kolom kiri cuma tiga hal yang jarang disentuh —
+                 catatan, arsip, dan penarik lampiran tertunda. Satu kolom penuh
+                 untuk tiga tombol itu terlalu mahal, jadi mereka masuk ke menu
+                 titik tiga yang menempel pada percakapan yang sedang dibuka. --}}
+            <div class="relative" @click.outside="menu = false" @keydown.escape.window="menu = false">
+                <button type="button" @click="menu = !menu" title="Aksi percakapan"
+                        class="w-7 h-7 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 leading-none">&vellip;</button>
+
+                <div x-show="menu" x-cloak
+                     class="absolute right-0 top-8 z-30 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+
+                    <button type="button" @click="menu = false; catatan = true"
+                            class="w-full text-left px-3 py-2 hover:bg-gray-50">
+                        Catatan internal
+                        @if(filled($terpilih->notes))<span class="ml-1 text-[10px] text-emerald-700">&bull; ada</span>@endif
+                    </button>
+
+                    <form method="POST" action="{{ route('crm.inbox.arsip', $terpilih->id) }}">
+                        @csrf
+                        <button class="w-full text-left px-3 py-2 hover:bg-gray-50">
+                            {{ $terpilih->status === 'aktif' ? 'Arsipkan' : 'Aktifkan lagi' }}
+                        </button>
+                    </form>
+
+                    {{-- Penjadwal menarik lampiran tiap menit; tombol ini jaring
+                         pengaman saat penjadwalnya mati (di lokal tak pernah
+                         hidup). Hanya muncul kalau memang ada yang menggantung. --}}
+                    @php $lampiranTertunda = \App\Modules\CRM\Models\CrmAttachment::belumTerunduh()->count(); @endphp
+                    @if($lampiranTertunda > 0)
+                        <form method="POST" action="{{ route('crm.lampiran.unduh') }}">
+                            @csrf
+                            <button class="w-full text-left px-3 py-2 text-amber-700 hover:bg-amber-50">
+                                Unduh {{ $lampiranTertunda }} lampiran tertunda
+                            </button>
+                        </form>
+                    @endif
+                </div>
+            </div>
+        </div>
+
+        {{-- Catatan internal sebagai popup, bukan kolom yang selalu terbuka:
+             isinya dibaca sekali di awal percakapan lalu ditinggalkan. --}}
+        <div x-show="catatan" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+             @keydown.escape.window="catatan = false">
+            <div class="absolute inset-0 bg-black/40" @click="catatan = false"></div>
+            <div class="relative bg-white rounded-lg shadow-xl w-full max-w-md p-4">
+                <div class="text-sm font-semibold">Catatan internal</div>
+                <div class="text-xs text-gray-500 mb-3">{{ $terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key }}</div>
+                <form method="POST" action="{{ route('crm.inbox.catatan', $terpilih->id) }}">
+                    @csrf
+                    <textarea name="notes" rows="7" class="border rounded w-full px-3 py-2 text-sm"
+                              placeholder="Spesifikasi, kesepakatan, hal yang perlu diingat…">{{ $terpilih->notes }}</textarea>
+                    <div class="mt-3 flex justify-end gap-2">
+                        <button type="button" @click="catatan = false"
+                                class="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50">Tutup</button>
+                        <button class="px-3 py-1.5 rounded border border-emerald-600 text-emerald-700 text-sm hover:bg-emerald-50">Simpan Catatan</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -110,6 +191,34 @@
             <div x-show="galat" x-cloak x-text="galat"
                  class="mb-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700"></div>
             @if($terbuka)
+                {{-- Peringatan dini. Jendela yang tinggal sebentar tidak
+                     kelihatan dari kotak ketik yang bekerja normal — dan yang
+                     paling sering menutupnya bukan pelanggan yang pergi,
+                     melainkan akhir pekan yang datang di tengah pembahasan.
+                     Diberikan bersama tombolnya, karena peringatan tanpa jalan
+                     keluar cuma memindahkan kepanikan. --}}
+                @if($hampirTutup)
+                    <div class="mb-2 flex flex-wrap items-center gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        <span>
+                            Jendela 24 jam tinggal
+                            <b>{{ $terpilih->windowMinutesLeft() < 60
+                                ? $terpilih->windowMinutesLeft() . ' menit'
+                                : $terpilih->windowHoursLeft() . ' jam' }}</b>.
+                            Penjadwal memancing sendiri di rentang ini; tombol ini untuk mendahuluinya.
+                            Selagi jendela belum tutup, pancingannya <b>gratis</b>.
+                        </span>
+                        @if($terpilih->pancingan_untuk_jendela_at?->equalTo($terpilih->window_expires_at))
+                            <span class="text-[11px] text-amber-700">sudah dipancing untuk jendela ini</span>
+                        @endif
+                        <form method="POST" action="{{ route('crm.inbox.pancingan', $terpilih) }}" class="ml-auto">
+                            @csrf
+                            <button type="submit"
+                                    class="px-2.5 py-1 rounded border border-amber-600 text-amber-800 hover:bg-amber-100">
+                                Kirim pancingan
+                            </button>
+                        </form>
+                    </div>
+                @endif
                 @if($dryRun)
                     <div class="mb-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                         Mode aman menyala — balasan dicatat di thread, tidak dikirim ke pelanggan.
@@ -122,11 +231,11 @@
                       class="relative"
                       enctype="multipart/form-data"
                       @submit.prevent="$dispatch('kirim-balasan', { form: $el })"
-                      x-data="komposerCrm()"
+                      x-data="komposerCrm(@js($potongan))"
                       {{-- Panel Produk memakai peristiwa yang sama, hanya dengan
                            penanda `kirim` — tautan produk memang tak perlu
                            disunting lagi sebelum berangkat. --}}
-                      @sisip-snippet.window="sisip($event.detail.teks); if ($event.detail.kirim) $el.requestSubmit()"
+                      @sisip-teks.window="sisip($event.detail.teks); if ($event.detail.kirim) $el.requestSubmit()"
                       @balasan-terkirim="bersihkan()"
                       {{-- Berkas datang dari zona jatuh sekolom penuh di atas,
                            bukan dari form ini. Dilempar lewat peristiwa supaya
@@ -211,11 +320,71 @@
                             </div>
                         </div>
 
+                        {{-- Template = potongan balasan milik sendiri, GRATIS,
+                             tapi hanya sah di dalam jendela 24 jam — karena itu
+                             ia hidup di kotak ketik yang memang cuma muncul saat
+                             jendelanya terbuka.
+
+                             Dua pintu ke barang yang sama: tekan "/" di kotak
+                             kosong (kebiasaan WhatsApp) atau tombol ini, untuk
+                             yang tak tahu ada pintasannya. Isian {nama}, {nomor}
+                             dst. sudah diganti di server, jadi yang disisipkan
+                             sudah berupa kalimat jadi. --}}
+                        <div class="relative shrink-0" @click.outside="tutupTemplate(false)">
+                            <button type="button" @click="tplBuka ? tutupTemplate() : bukaTemplate()"
+                                    title="Template balasan (tekan / di kotak kosong)"
+                                    class="w-10 h-10 flex items-center justify-center rounded-full border text-gray-500 hover:bg-gray-50"
+                                    :class="tplBuka ? 'border-emerald-500 text-emerald-600 bg-emerald-50' : 'border-gray-300'">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                          d="M8 10h8M8 14h5M21 12a8 8 0 0 1-8 8H7l-4 3v-4.6A8 8 0 1 1 21 12Z"/>
+                                </svg>
+                            </button>
+
+                            <div x-show="tplBuka" x-cloak
+                                 class="absolute bottom-12 left-0 z-30 w-[22rem] max-w-[80vw] bg-white border border-gray-200 rounded-lg shadow-xl text-sm overflow-hidden">
+
+                                <div class="p-2 border-b border-gray-200 bg-gray-50">
+                                    {{-- Bukan <input type=text> polos: Enter di
+                                         dalam form akan mengirim balasan setengah
+                                         jadi, jadi tiap tombol dijaga sendiri. --}}
+                                    <input type="text" x-ref="tplCari" x-model="tplCari"
+                                           @keydown="tplNavigasi($event)"
+                                           placeholder="Cari template…"
+                                           class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                                </div>
+
+                                <div class="max-h-72 overflow-y-auto">
+                                    <template x-for="(t, i) in tplHasil" :key="t.id">
+                                        <button type="button" @click="pakaiTemplate(t)" @mouseenter="tplPilih = i"
+                                                class="w-full text-left px-3 py-2 border-b border-gray-100 last:border-0"
+                                                :class="tplPilih === i ? 'bg-emerald-50' : 'hover:bg-gray-50'">
+                                            <div class="flex items-baseline gap-2">
+                                                <span class="font-medium truncate" x-text="t.judul"></span>
+                                                <span x-show="t.grup" class="text-[10px] uppercase tracking-wide text-gray-400 shrink-0" x-text="t.grup"></span>
+                                            </div>
+                                            <div class="text-xs text-gray-500 overflow-hidden" x-text="t.teks"
+                                                 style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical"></div>
+                                        </button>
+                                    </template>
+
+                                    <p x-show="! tplHasil.length" class="px-3 py-4 text-center text-xs text-gray-500">
+                                        <span x-text="tpl.length ? 'Tidak ada yang cocok.' : 'Belum ada template balasan.'"></span>
+                                    </p>
+                                </div>
+
+                                <div class="px-3 py-1.5 border-t border-gray-200 bg-gray-50 flex items-center justify-between text-[11px] text-gray-500">
+                                    <span>&uarr;&darr; pilih &middot; Enter sisipkan &middot; Esc tutup</span>
+                                    <a href="{{ route('crm.template.index') }}" class="text-emerald-700 hover:underline">Kelola</a>
+                                </div>
+                            </div>
+                        </div>
+
                         <textarea name="teks" rows="1" maxlength="4000"
                                   x-ref="teks"
                                   class="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm resize-none overflow-y-auto leading-6 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
                                   @paste="tempel($event)"
-                                  @keydown="enterKirim($event)"
+                                  @keydown="enterKirim($event); pintasTemplate($event)"
                                   @input="tumbuh()"
                                   placeholder="Tulis balasan…">{{ old('teks') }}</textarea>
 
@@ -232,8 +401,8 @@
                     </div>
 
                     <div class="mt-1.5 text-[11px] text-gray-400">
-                        Enter kirim &middot; Shift+Enter baris baru &middot; Ctrl+V tempel gambar
-                        &middot; seret berkas ke mana saja di percakapan ini
+                        Enter kirim &middot; Shift+Enter baris baru &middot; <b>/</b> template
+                        &middot; Ctrl+V tempel gambar &middot; seret berkas ke mana saja di percakapan ini
                     </div>
 
                 </form>
@@ -245,6 +414,32 @@
                 <div class="rounded border border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700">
                     <b>Jendela 24 jam tertutup.</b> Pesan bebas tidak bisa dikirim; hanya template berbayar
                     yang boleh keluar. Cara termurah membukanya kembali: pelanggan membalas lebih dulu.
+
+                    {{-- Jalan keluarnya diberikan di tempat kebuntuannya terbaca.
+                         Sebelumnya kotak ini hanya menerangkan keadaan lalu
+                         berhenti, dan yang tersisa bagi admin cuma membuka
+                         WhatsApp di HP — persis hal yang membuat layar ini
+                         berhenti dipakai.
+
+                         BUKAN tombol "Kirim pancingan": pancingan itu satu
+                         kalimat tetap yang berangkat tanpa ditinjau, dan di luar
+                         jendela ia berbayar. Yang benar di sini adalah membuka
+                         percakapan seperti nomor dingin — pilih templatenya,
+                         lihat bunyinya, baru kirim. Karena itu tombolnya
+                         MENGANTAR ke layar Chat Baru, bukan mengirim sendiri;
+                         nomornya sudah dibawa serta supaya tidak perlu disalin. --}}
+                    <div class="mt-2">
+                        <button type="button"
+                                @click="$dispatch('mulai-chat', @js(['nomor' => $terpilih->contact_key, 'nama' => $terpilih->namaTampil()]))"
+                                class="text-xs px-2.5 py-1 rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50">
+                            Mulai chat
+                        </button>
+                        <span class="text-[11px] text-gray-500 ml-1">
+                            Anda diantar ke template <b>pembuka chat</b> yang sudah disetujui Meta &mdash;
+                            berbayar, tapi satu-satunya yang boleh keluar di luar jendela.
+                            Begitu pelanggan membalas, jendela 24 jamnya terbuka lagi dan Anda bisa mengetik bebas.
+                        </span>
+                    </div>
                 </div>
             @endif
 
@@ -1018,11 +1213,93 @@
                         };
                     }
 
-                    function komposerCrm() {
+                    function komposerCrm(potongan) {
                         return {
                             daftar: [],
                             nomor: 0,
                             menu: false,
+
+                            // --- template balasan ("/" atau tombol gelembung) ---
+                            tpl: potongan || [],
+                            tplBuka: false,
+                            tplCari: '',
+                            tplPilih: 0,
+
+                            /*
+                             * Isi template ikut dicari, bukan cuma judulnya:
+                             * yang diingat admin biasanya kalimatnya ("ongkir
+                             * gratis"), bukan nama yang diberikan orang lain
+                             * waktu menyimpannya.
+                             */
+                            get tplHasil() {
+                                const q = this.tplCari.trim().toLowerCase();
+                                if (! q) return this.tpl;
+                                return this.tpl.filter(t =>
+                                    (t.judul + ' ' + (t.grup || '') + ' ' + t.teks).toLowerCase().includes(q));
+                            },
+
+                            /*
+                             * "/" hanya dibajak saat kotaknya KOSONG. Garis miring
+                             * itu huruf biasa di tengah kalimat ("30x30 / kotak"),
+                             * dan menu yang menyembul di sana cuma menghalangi.
+                             */
+                            pintasTemplate(e) {
+                                if (e.key !== '/' || e.target.value !== '' || e.isComposing) return;
+                                e.preventDefault();
+                                this.bukaTemplate();
+                            },
+
+                            bukaTemplate() {
+                                this.tplBuka = true;
+                                this.tplCari = '';
+                                this.tplPilih = 0;
+                                this.$nextTick(() => this.$refs.tplCari?.focus());
+                            },
+
+                            tutupTemplate(fokusKembali = true) {
+                                if (! this.tplBuka) return;
+                                this.tplBuka = false;
+                                if (fokusKembali) this.$nextTick(() => this.$refs.teks?.focus());
+                            },
+
+                            /*
+                             * Semua tombol dijaga sendiri: kotak cari ini duduk DI
+                             * DALAM form balasan, jadi Enter yang dibiarkan lewat
+                             * akan mengirim balasan yang belum ditulis.
+                             */
+                            tplNavigasi(e) {
+                                const n = this.tplHasil.length;
+
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    this.tplPilih = n ? (this.tplPilih + 1) % n : 0;
+                                } else if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    this.tplPilih = n ? (this.tplPilih - 1 + n) % n : 0;
+                                } else if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const t = this.tplHasil[this.tplPilih];
+                                    if (t) this.pakaiTemplate(t);
+                                } else if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    this.tutupTemplate();
+                                } else {
+                                    // Daftar menyusut saat mengetik; sorotan yang
+                                    // tertinggal di baris ke-7 jadi tak kelihatan.
+                                    this.tplPilih = 0;
+                                }
+                            },
+
+                            /*
+                             * DISISIPKAN, bukan dikirim langsung: potongan teks
+                             * hampir selalu perlu disunting sedikit, dan tombol
+                             * yang langsung mengirim meloloskan kalimat setengah
+                             * jadi ke pelanggan.
+                             */
+                            pakaiTemplate(t) {
+                                this.tutupTemplate(false);
+                                this.sisip(t.teks);
+                            },
 
                             /*
                              * Enter mengirim, Shift+Enter baris baru — kebiasaan

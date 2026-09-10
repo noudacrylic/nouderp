@@ -624,17 +624,17 @@ function panelProduk(percakapanId) {
          * semuanya tetap berlaku tanpa satu pun digandakan di sini.
          */
         sisip(teks) {
-            window.dispatchEvent(new CustomEvent('sisip-snippet', { detail: { teks } }));
+            window.dispatchEvent(new CustomEvent('sisip-teks', { detail: { teks } }));
         },
 
         kirim(teks) {
-            window.dispatchEvent(new CustomEvent('sisip-snippet', { detail: { teks, kirim: true } }));
+            window.dispatchEvent(new CustomEvent('sisip-teks', { detail: { teks, kirim: true } }));
         },
 
         /* ------------------------------------------------------------- foto */
 
         /*
-         * Foto TIDAK lewat peristiwa 'sisip-snippet': kotak ketik hanya tahu
+         * Foto TIDAK lewat peristiwa 'sisip-teks': kotak ketik hanya tahu
          * teks, dan menempelkan gambar ke sana berarti menyalin ulang seluruh
          * jalur unggah. Yang dikirim di sini adalah ALAMAT foto etalase; server
          * yang menariknya, menyimpannya sebagai lampiran keluar, lalu

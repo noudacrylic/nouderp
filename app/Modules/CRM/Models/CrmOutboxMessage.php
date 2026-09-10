@@ -42,6 +42,20 @@ class CrmOutboxMessage extends Model
      * lihat TemplateResmi::wajibResmi().
      */
     public const EVENT_JATUH_TEMPO = 'jatuh_tempo';
+    /**
+     * Pancingan sebelum jendela 24 jam habis.
+     *
+     * BERBEDA dari semua yang di atas: jalurnya tidak ditentukan driver
+     * melainkan JENDELANYA. Selama jendela masih terbuka ia berangkat sebagai
+     * pesan sesi bertombol — gratis, tanpa peninjauan Meta; sesudah tutup,
+     * satu-satunya yang sah adalah template berbayar. Karena itu pengirimannya
+     * menyimpang lewat CrmReplyService::kirimPancingan(), bukan lewat
+     * NotificationProvider seperti tetangganya. Lihat CrmOutboxSender.
+     *
+     * Tidak menempel pesanan (sales_order_id kosong); yang dipegangnya
+     * conversation_id.
+     */
+    public const EVENT_PANCINGAN = 'pancingan';
 
     /** Nama template sebagaimana didaftarkan ke Meta. */
     public const TEMPLATES = [
@@ -51,6 +65,7 @@ class CrmOutboxMessage extends Model
         self::EVENT_STOK_TERSEDIA => 'stok_tersedia',
         self::EVENT_TAGIHAN       => 'tagihan_pembayaran',
         self::EVENT_JATUH_TEMPO   => 'jatuh_tempo',
+        self::EVENT_PANCINGAN     => 'lanjut_diskusi',
     ];
 
     public const STATUS_MENUNGGU = 'menunggu';

@@ -80,6 +80,57 @@ class CrmMessage extends Model
      * TIDAK ada jalan mundur ke id vendor — mengirimkannya berarti mengulang
      * kegagalan senyap yang sama.
      */
+    /**
+     * Tombol balasan cepat yang IKUT berangkat bersama pesan ini.
+     *
+     * Ada dua jalur yang menghasilkannya dan keduanya menaruh jejaknya di
+     * `raw`: pesan sesi interaktif (gratis, di dalam jendela) dan template Meta
+     * bertombol (berbayar, di luar jendela). Dibaca dari satu tempat supaya
+     * gelembungnya tidak perlu tahu pesan ini lahir dari jalur yang mana.
+     *
+     * Gunanya bukan hiasan. Kalimat pancingan berbunyi "silakan tekan tombol di
+     * bawah ini" — dan selama gelembung kita tidak menggambarnya, layar ERP
+     * menunjukkan janji tanpa tombol. Yang terbaca admin adalah fiturnya rusak,
+     * padahal tombolnya sampai dengan baik di HP pelanggan.
+     *
+     * @return string[] judul tombol, urut seperti yang diterima pelanggan
+     */
+    public function tombolBalasanCepat(): array
+    {
+        $raw = (array) $this->raw;
+
+        /*
+         * Penanda netral yang ditulis sendiri saat mengirim. Didahulukan karena
+         * yang tersimpan di `raw` selebihnya adalah JAWABAN vendor, dan jawaban
+         * tidak selalu memuat ulang apa yang kita kirim.
+         */
+        $sendiri = collect((array) data_get($raw, 'tombol', []))
+            ->map(fn ($t) => (string) $t);
+
+        // Jalur sesi: objek `interactive` gaya Meta, apa adanya.
+        $dariInteraktif = collect((array) data_get($raw, 'interactive.action.buttons', []))
+            ->map(fn ($t) => (string) data_get($t, 'reply.title', ''));
+
+        // Jalur template: tombolnya milik deklarasi template, bukan kiriman —
+        // yang tersimpan di baris ini cuma namanya.
+        $dariTemplate = collect(
+            ($nama = (string) data_get($raw, 'template', ''))
+                ? \App\Modules\CRM\Support\TemplateResmi::tombol($nama)
+                : []
+        )
+            ->filter(fn ($t) => strtoupper((string) ($t['type'] ?? '')) === 'QUICK_REPLY')
+            ->map(fn ($t) => (string) ($t['text'] ?? ''));
+
+        return $sendiri
+            ->merge($dariInteraktif)
+            ->merge($dariTemplate)
+            ->map(fn (string $t) => trim($t))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     public function bisaDikutip(): bool
     {
         return $this->wam_id !== null;

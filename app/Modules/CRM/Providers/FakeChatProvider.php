@@ -30,6 +30,15 @@ class FakeChatProvider implements ChatProvider
     /** Jawaban windowStatus() yang dipalsukan. */
     public bool $windowOpen = true;
 
+    /**
+     * Buat windowStatus() gagal seolah vendor tak terjangkau.
+     *
+     * Perlu dibedakan dari $windowOpen = false: "vendor bilang tutup" dan
+     * "vendor tidak menjawab" harus berakibat berbeda — yang pertama menutup
+     * jendela, yang kedua tidak boleh menghalangi apa pun.
+     */
+    public ?string $windowStatusError = null;
+
     /** Endpoint webhook palsu; layar Pengaturan memakainya untuk uji tampilan. */
     public array $webhookEndpoints = [[
         'id'             => 'fake-webhook-1',
@@ -76,6 +85,19 @@ class FakeChatProvider implements ChatProvider
     public function sendMedia(array $payload): array
     {
         return $this->record('media', $payload);
+    }
+
+    public function sendInteraktif(array $payload): array
+    {
+        // Bentuk objeknya disusun lewat kelas asli, sama alasannya dengan
+        // sendTemplate() di bawah: yang diuji harus bentuk yang benar-benar
+        // berangkat ke vendor, bukan tiruan yang kebetulan mirip.
+        $payload['interactive'] = ApiCoIdProvider::buildInteraktif(
+            (string) ($payload['text'] ?? ''),
+            (array) ($payload['buttons'] ?? [])
+        );
+
+        return $this->record('interaktif', $payload);
     }
 
     public function sendTemplate(array $payload): array
@@ -142,15 +164,25 @@ class FakeChatProvider implements ChatProvider
      */
     public array $templateDiajukan = [];
 
-    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id'): array
+    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id', array $tombol = []): array
     {
-        $this->templateDiajukan[] = compact('nama', 'kategori', 'body', 'variabel', 'bahasa');
+        $this->templateDiajukan[] = compact('nama', 'kategori', 'body', 'variabel', 'bahasa', 'tombol');
 
         return ['success' => true, 'id' => 'fake_' . $nama, 'status' => 'PENDING', 'error' => null];
     }
 
     public function windowStatus(string $identifier): array
     {
+        if ($this->windowStatusError !== null) {
+            return [
+                'success'    => false,
+                'is_open'    => false,
+                'expires_at' => null,
+                'raw'        => [],
+                'error'      => $this->windowStatusError,
+            ];
+        }
+
         return [
             'success'    => true,
             'is_open'    => $this->windowOpen,
@@ -174,8 +206,9 @@ class FakeChatProvider implements ChatProvider
 
     public function reset(): void
     {
-        $this->sent     = [];
-        $this->failWith = null;
+        $this->sent              = [];
+        $this->failWith          = null;
+        $this->windowStatusError = null;
     }
 
     private function record(string $kind, array $payload): array

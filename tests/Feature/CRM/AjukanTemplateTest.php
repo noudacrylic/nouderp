@@ -10,12 +10,16 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Mengajukan template ke Meta langsung dari ERP.
+ * Mengajukan template NOTIFIKASI ke Meta, dari layar Notifikasi Pesanan.
  *
- * Bunyi template adalah sesuatu yang sekali disetujui akan dikirim ke ribuan
- * pelanggan, dan sesudah itu hanya bisa diubah lewat dasbor vendor. Karena itu
- * yang dijaga di sini bukan "pengajuannya berhasil", melainkan APA YANG
- * DIAJUKAN: hanya bunyi yang sudah ada di TemplateResmi, tidak pernah yang
+ * Letaknya di sana, bukan di layar Template Pesan, dan itu inti pemisahannya:
+ * bunyi notifikasi milik kode — satu kalimat berangkat lewat dua jalur (WAHA
+ * merangkai teksnya, jalur resmi mengirim nama templatenya) dan keduanya wajib
+ * mengucapkan hal yang sama persis. Yang bisa dilakukan dari layar cuma
+ * MENGAJUKANNYA.
+ *
+ * Karena itu yang dijaga di sini bukan "pengajuannya berhasil", melainkan APA
+ * YANG DIAJUKAN: hanya bunyi yang sudah ada di TemplateResmi, tidak pernah yang
  * khusus WAHA, dan jumlah contoh variabelnya persis sebanyak placeholder-nya.
  */
 class AjukanTemplateTest extends TestCase
@@ -44,7 +48,7 @@ class AjukanTemplateTest extends TestCase
         $palsu = $this->palsu();
 
         $this->actingAs($this->admin())
-            ->post(route('crm.template.ajukan'), ['nama' => 'jatuh_tempo'])
+            ->post(route('crm.notifikasi.template.ajukan'), ['event' => 'jatuh_tempo'])
             ->assertRedirect()
             ->assertSessionHas('success', fn ($p) => str_contains($p, 'jatuh_tempo'));
 
@@ -89,33 +93,54 @@ class AjukanTemplateTest extends TestCase
         $palsu = $this->palsu();
 
         $this->actingAs($this->admin())
-            ->post(route('crm.template.ajukan'), ['nama' => 'stok_tersedia'])
+            ->post(route('crm.notifikasi.template.ajukan'), ['event' => 'stok_tersedia'])
             ->assertRedirect()
             ->assertSessionHas('error', fn ($p) => str_contains($p, 'MARKETING'));
 
         $this->assertCount(0, $palsu->templateDiajukan);
     }
 
-    public function test_nama_yang_tidak_dikenal_ditolak(): void
+    public function test_jenis_yang_tidak_dikenal_ditolak(): void
     {
         $palsu = $this->palsu();
 
         $this->actingAs($this->admin())
-            ->post(route('crm.template.ajukan'), ['nama' => 'template_hantu'])
+            ->post(route('crm.notifikasi.template.ajukan'), ['event' => 'notifikasi_hantu'])
             ->assertRedirect()
             ->assertSessionHas('error');
 
         $this->assertCount(0, $palsu->templateDiajukan);
     }
 
-    /** Layar memisahkan mana yang perlu diajukan & mana yang tidak boleh. */
-    public function test_layar_memisahkan_yang_khusus_waha(): void
+    /**
+     * Layar notifikasi menandai mana yang perlu diajukan & mana yang tidak
+     * boleh — tanpa itu, yang mengajukan akan menekan semuanya, dan yang
+     * bernada promosi menyeret seluruh nomor ke tarif & aturan MARKETING.
+     */
+    public function test_layar_notifikasi_menandai_yang_khusus_waha(): void
     {
         $this->actingAs($this->admin())
-            ->get(route('crm.template.index'))
+            ->get(route('crm.notifikasi.index'))
             ->assertOk()
-            ->assertSee('Bunyi yang perlu diajukan ke Meta')
-            ->assertSee('Khusus jalur WAHA — jangan diajukan', false)
-            ->assertSee('Ajukan ke Meta');
+            ->assertSee('Ajukan ke Meta')
+            ->assertSee('khusus WAHA — jangan diajukan', false);
+    }
+
+    /**
+     * Bunyi notifikasi TIDAK boleh dititipkan lewat form — yang dikirim
+     * ditentukan namanya, dan kalimatnya diambil dari kode.
+     */
+    public function test_bunyi_tidak_bisa_dititipkan_lewat_form(): void
+    {
+        $palsu = $this->palsu();
+
+        $this->actingAs($this->admin())
+            ->post(route('crm.notifikasi.template.ajukan'), [
+                'event' => 'jatuh_tempo',
+                'body'  => 'Kalimat karangan sendiri yang tak pernah disepakati.',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(TemplateResmi::body('jatuh_tempo'), $palsu->templateDiajukan[0]['body']);
     }
 }

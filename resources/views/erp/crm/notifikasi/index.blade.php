@@ -28,8 +28,10 @@
         <div>
             <h2 class="text-sm font-bold uppercase tracking-wider text-gray-500">Jenis Notifikasi</h2>
             <p class="text-xs text-gray-400 mt-0.5">
-                Hanya tiga, dan sengaja. Menambah jenis berarti mengajukan template baru ke Meta,
-                sedangkan mengirim terlalu sering mengundang blokir.
+                Semua yang dikirim sistem sendiri, berikut pengajuan templatenya ke Meta.
+                Bunyinya tidak bisa diubah dari layar: satu kalimat berangkat lewat dua jalur
+                (WAHA &amp; resmi) dan wajib sama persis. Kalimat yang Anda pilih sendiri saat chat
+                ada di <a href="{{ route('crm.template.index') }}" class="text-blue-600 underline">Template Pesan</a>.
             </p>
         </div>
         <button class="border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded text-xs font-semibold text-gray-700">
@@ -52,7 +54,45 @@
 
                 <div class="mt-3 rounded bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-gray-700 whitespace-pre-line leading-relaxed">{{ $j['teks'] }}</div>
 
-                <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                {{-- Status template Meta + jalan mengajukannya, di tempat bunyinya
+                     terbaca. Selama ini pengajuan hidup di layar lain, dan
+                     akibatnya orang membaca bunyi di sini lalu harus mengingat
+                     nama templatenya untuk dicari di sana. --}}
+                <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                    @if($j['ke_meta'])
+                        <span class="px-1.5 py-0.5 rounded-full
+                            {{ $j['status_meta'] === 'APPROVED' ? 'bg-green-100 text-green-700'
+                               : ($j['status_meta'] === 'REJECTED' ? 'bg-red-100 text-red-700'
+                               : ($j['status_meta'] ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600')) }}"
+                              title="Nama template di Meta: {{ $j['template'] }}">
+                            Meta: {{ $j['status_meta'] ?: 'belum diajukan' }}
+                        </span>
+
+                        @if($j['wajib_resmi'])
+                            <span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800"
+                                  title="Tak punya jalur cadangan — kalau templatenya belum disetujui, pesannya gagal, bukan dialihkan ke WAHA">
+                                wajib jalur resmi
+                            </span>
+                        @endif
+
+                        @unless($j['status_meta'])
+                            {{-- Tombolnya menumpang form di luar: <form> di dalam
+                                 <form> bukan HTML yang sah, dan peramban akan
+                                 membuang salah satunya diam-diam. --}}
+                            <button type="submit" form="ajukan-{{ $j['event'] }}"
+                                    class="px-2 py-0.5 rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50">
+                                Ajukan ke Meta
+                            </button>
+                        @endunless
+                    @else
+                        <span class="px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700"
+                              title="Nadanya akan digolongkan MARKETING, dan penggolongan itu menempel pada nomornya">
+                            khusus WAHA — jangan diajukan
+                        </span>
+                    @endif
+                </div>
+
+                <div class="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                     <span class="px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ $j['hitungan']['terkirim'] }} terkirim</span>
                     <span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">{{ $j['hitungan']['menunggu'] }} menunggu</span>
                     <span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700">{{ $j['hitungan']['gagal'] }} gagal</span>
@@ -69,6 +109,18 @@
         @endforeach
     </div>
 </form>
+
+{{-- Form pengajuan tiap jenis. Berdiri di luar form saklar di atas dan
+     dirujuk lewat atribut form="…" — form bersarang bukan HTML yang sah. --}}
+@foreach($jenis as $j)
+    @if($j['ke_meta'] && ! $j['status_meta'])
+        <form id="ajukan-{{ $j['event'] }}" method="POST" action="{{ route('crm.notifikasi.template.ajukan') }}"
+              onsubmit="return confirm('Ajukan template &quot;{{ $j['template'] }}&quot; ke Meta? Bunyinya tidak bisa diubah dari ERP setelah diajukan.')">
+            @csrf
+            <input type="hidden" name="event" value="{{ $j['event'] }}">
+        </form>
+    @endif
+@endforeach
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     <div>

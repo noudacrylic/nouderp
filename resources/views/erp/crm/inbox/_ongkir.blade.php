@@ -718,11 +718,90 @@
                 window.dispatchEvent(new CustomEvent('buka-tab', { detail: { tab: 'pesanan' } }));
             },
 
-            // Menumpang peristiwa yang sama dengan potongan balasan, jadi kotak
-            // ketik tak perlu tahu ada panel baru di sebelahnya.
+            /*
+             * Nama kurir datang sebagai "JNE · REG". Titik-tengah itu terbaca
+             * sebagai kotak kosong di sebagian HP lawas, jadi diganti tanda
+             * hubung sebelum berangkat ke pelanggan.
+             */
+            rapiKurir(nama) {
+                return String(nama || '').replace(/\s*·\s*/g, ' — ').trim();
+            },
+
+            /*
+             * Berat disebut dalam satuan yang dipakai pelanggan sehari-hari.
+             * "1000 gram" benar, tapi tidak pernah diucapkan orang.
+             */
+            beratTerbaca() {
+                const g = Number(this.berat) || 0;
+                if (! g) return '';
+
+                return g >= 1000
+                    ? (g / 1000).toLocaleString('id-ID', { maximumFractionDigits: 2 }) + ' kg'
+                    : g.toLocaleString('id-ID') + ' gram';
+            },
+
+            /*
+             * Tiap vendor menjawab lama kirim dengan gayanya sendiri: "2-3 days",
+             * "2 hari", atau angka telanjang "2". Yang sampai ke pelanggan harus
+             * satu bahasa — kalimat setengah Inggris membuat toko terlihat
+             * seperti menyalin mentah dari layar lain.
+             */
+            etdTerbaca(r) {
+                let e = String(r.etd || '').trim();
+                if (! e) return '';
+
+                e = e.replace(/\bdays?\b/gi, 'hari').replace(/\bhours?\b/gi, 'jam');
+
+                return /^[\d\s.-]+$/.test(e) ? e.trim() + ' hari' : e;
+            },
+
+            /*
+             * Alamat tujuan dipegang partial pencarian wilayah lewat DOM, bukan
+             * Alpine — dibaca dari kotaknya sendiri, sama seperti yang sudah
+             * dilakukan init() saat menyimpan draft.
+             */
+            tujuanTerbaca() {
+                return (document.getElementById('crmong_search')?.value || '').trim();
+            },
+
+            /*
+             * Kalimat jadi, bukan potongan data. Sebelumnya yang disisipkan cuma
+             * "Ongkir JNE · REG: Rp 15.000 (2-3 days)" — benar isinya, tapi admin
+             * selalu mengetik ulang pengantarnya, dan yang diketik buru-buru
+             * berbeda-beda tiap chat.
+             *
+             * Tujuan & berat ikut disebut karena keduanya SYARAT angka itu sah:
+             * pelanggan yang belakangan menyebut alamat lain atau menambah barang
+             * akan menagih ongkir lama kalau dasarnya tidak pernah tertulis.
+             *
+             * Tetap DISISIPKAN ke kotak ketik, bukan langsung dikirim — kalimat
+             * penutupnya sering perlu disesuaikan dengan nada percakapan.
+             */
             sisipKeChat(r) {
-                window.dispatchEvent(new CustomEvent('sisip-snippet', {
-                    detail: { teks: 'Ongkir ' + r.nama + ': ' + r.harga + (r.etd ? ' (' + r.etd + ')' : '') },
+                const baris  = [];
+                const tujuan = this.tujuanTerbaca();
+                const berat  = this.beratTerbaca();
+                const etd    = this.etdTerbaca(r);
+
+                baris.push('Halo Kak, sudah kami cek ongkirnya ya 🙏');
+                baris.push('');
+
+                if (tujuan) baris.push('📍 Tujuan: ' + tujuan);
+                if (berat)  baris.push('⚖️ Berat: ' + berat);
+                if (tujuan || berat) baris.push('');
+
+                baris.push('🚚 Ekspedisi: ' + this.rapiKurir(r.nama));
+                baris.push('💰 Ongkir: ' + r.harga);
+                if (etd) baris.push('⏱️ Estimasi: ' + etd);
+
+                baris.push('');
+                baris.push(r.instant
+                    ? 'Ini layanan instant — paket dijemput dan diantar di hari yang sama, selama pesanan masuk sebelum jam tutup.'
+                    : 'Estimasi dihitung sejak paket diserahkan ke ekspedisi, di luar hari libur.');
+                baris.push('Kalau sudah cocok, boleh kami siapkan pesanannya 😊');
+
+                window.dispatchEvent(new CustomEvent('sisip-teks', {
+                    detail: { teks: baris.join('\n') },
                 }));
             },
         };

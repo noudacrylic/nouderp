@@ -79,9 +79,20 @@
                class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100"
                title="Hapus pencarian">✕</a>
         @endif
-        <a href="{{ route('crm.template.baru') }}"
-           class="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2.5 py-1.5 text-sm font-medium leading-5"
-           title="Mulai chat baru">＋</a>
+        {{-- Popup, bukan pindah halaman: memulai chat itu sisipan di tengah
+             kerja, dan meninggalkan layar berarti membuang thread yang sedang
+             dibaca beserta filter kolom ini. --}}
+        <button type="button" @click="$dispatch('mulai-chat', {})"
+                class="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2.5 py-1.5 text-sm font-medium leading-5"
+                title="Mulai chat baru">＋</button>
+
+        {{-- Ekspor mengikuti SARINGAN YANG SEDANG AKTIF, bukan seluruh chat:
+             yang dipakai menyusun pengetahuan agen adalah kumpulan yang sudah
+             dipilih orang (satu label, satu pemilik, satu kata kunci), dan
+             mengunduh semuanya cuma memindahkan pekerjaan memilah ke luar. --}}
+        <a href="{{ route('crm.inbox.ekspor') . ($kueriKini ? '?' . $kueriKini : '') }}"
+           class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100 leading-5"
+           title="Unduh chat sesuai saringan ini sebagai teks — bahan menyusun pengetahuan agen">⭳</a>
     </form>
 
     {{-- ---------------------------------------------------------- 3. label --}}

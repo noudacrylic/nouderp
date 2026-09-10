@@ -114,6 +114,34 @@
                             <div class="whitespace-pre-wrap">{!! \App\Modules\CRM\Support\TeksPesan::tautkan($m->content) !!}</div>
                         @endif
 
+                        {{-- Tombol balasan cepat yang IKUT dikirim ke pelanggan.
+
+                             Digambar meniru WhatsApp — dipisah garis, teks biru,
+                             selebar gelembung — karena inilah yang benar-benar
+                             dilihat pelanggan di HP-nya. Sebelum ini gelembung
+                             kita cuma menampilkan teksnya, dan kalimat "silakan
+                             tekan tombol di bawah ini" tampil tanpa tombol apa
+                             pun: yang terbaca admin adalah fiturnya rusak,
+                             padahal tombolnya sampai dengan baik.
+
+                             MATI di sisi kita, dan memang begitu seharusnya:
+                             yang menekannya pelanggan. Ditandai lewat title,
+                             bukan dibuat seolah bisa diklik lalu diam saja. --}}
+                        @php $tombolCepat = $m->tombolBalasanCepat(); @endphp
+                        @if($tombolCepat)
+                            <div class="mt-2 -mx-3 border-t border-black/10"
+                                 title="Tombol ini dilihat &amp; ditekan pelanggan di WhatsApp — tekanannya masuk ke sini sebagai pesan baru">
+                                @foreach($tombolCepat as $judul)
+                                    <div class="px-3 py-1.5 text-center text-[13px] font-medium text-sky-700 {{ ! $loop->first ? 'border-t border-black/10' : '' }}">
+                                        <svg class="inline-block w-3.5 h-3.5 -mt-0.5 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h11M9 21V3m0 18-6-6m6 6 6-6M21 6h-4"/>
+                                        </svg>
+                                        {{ $judul }}
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
                         <div class="mt-1 text-[11px] text-gray-500 flex items-center gap-2 {{ $masuk ? '' : 'justify-end' }}">
                             <span>{{ $m->sent_at?->translatedFormat('d M Y H:i') }}</span>
                             @if($m->dibalasDariHp())

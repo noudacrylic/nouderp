@@ -7,7 +7,7 @@ use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
-use App\Modules\CRM\Models\CrmSnippet;
+use App\Modules\CRM\Models\CrmTemplate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -502,20 +502,25 @@ class InboxTriaseTest extends TestCase
      * DALAM jendela 24 jam. Bukan template Meta; menyatukan keduanya di satu
      * daftar tanpa penanda membuat admin memilih yang salah tiap hari.
      */
-    public function test_potongan_balasan_tersimpan_dan_tampil_di_rail(): void
+    public function test_potongan_balasan_tersimpan_dan_tampil_di_kotak_ketik(): void
     {
+        // Tempatnya di kotak ketik (pintasan "/"), bukan lagi di rail kanan —
+        // jadi ia hanya ada saat sebuah percakapan dibuka DAN jendelanya masih
+        // terbuka. Di luar jendela potongan gratis memang tidak sah dikirim.
+        $percakapan = $this->percakapan();
+
         $this->actingAs($this->admin())
-            ->post(route('crm.snippet.store'), [
+            ->post(route('crm.template.cepat.store'), [
                 'title'    => 'Sapaan awal',
                 'category' => 'Sapaan',
                 'body'     => 'Halo {nama}, terima kasih sudah menghubungi Noud Acrylic.',
             ])
             ->assertRedirect();
 
-        $this->assertDatabaseHas('crm_snippets', ['title' => 'Sapaan awal']);
+        $this->assertDatabaseHas('crm_templates', ['title' => 'Sapaan awal']);
 
         $this->actingAs($this->admin())
-            ->get(route('crm.inbox.index'))
+            ->get(route('crm.inbox.show', $percakapan->id))
             ->assertOk()
             ->assertSee('Sapaan awal');
     }
@@ -529,7 +534,7 @@ class InboxTriaseTest extends TestCase
     {
         $percakapan = $this->percakapan(['window_expires_at' => now()->addHours(5)]);
 
-        $potongan = CrmSnippet::create([
+        $potongan = CrmTemplate::create([
             'title' => 'Tindak lanjut',
             'body'  => 'Halo {nama}, pesanan {pesanan} sedang kami proses. - {admin}',
         ]);

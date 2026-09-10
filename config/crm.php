@@ -55,6 +55,7 @@ return [
             'pembayaran_diterima' => true,
             'siap_diambil'        => true,
             'dikirim'             => true,
+            'pancingan'           => true,
         ],
 
         /*
@@ -144,6 +145,37 @@ return [
         'batal_hari' => (int) env('CRM_TAGIHAN_BATAL_HARI', 28),
     ],
 
+    /*
+     |--------------------------------------------------------------------------
+     | Pancingan jendela 24 jam
+     |--------------------------------------------------------------------------
+     |
+     | Sejam sebelum jendela habis, percakapan yang pembahasannya masih hidup
+     | dikirimi pesan bertombol. Selama jendelanya belum tutup, pesan itu GRATIS
+     | — dan itulah seluruh alasan fitur ini ada: memindahkan pancingan ke sisi
+     | jendela yang tidak berbayar, supaya template Meta tinggal jadi jaring
+     | pengaman.
+     |
+     | Jamnya BUKAN jam toko. Yang ditakar di sini bukan kapan kita melayani,
+     | melainkan kapan pantas mengganggu orang — pelanggan justru paling banyak
+     | membuka WhatsApp selepas jam kerja. Jendela yang akan habis di tengah
+     | malam ditarik maju ke jam sopan terakhir, bukan dibiarkan berbunyi
+     | pukul dua pagi.
+     */
+    'pancingan' => [
+        /*
+         | Saklar mati-nyalanya BUKAN di sini melainkan di layar Notifikasi
+         | Pesanan, sederet dengan jenis lain (JenisNotifikasi::aktif). Yang
+         | tersisa di sini cuma yang tak masuk akal diatur dari layar.
+         */
+        'jam_mulai'      => (int) env('CRM_PANCINGAN_JAM_MULAI', 7),
+        'jam_akhir'      => (int) env('CRM_PANCINGAN_JAM_AKHIR', 21),
+        // Rem yang sama alasannya dengan crm:kirim-notifikasi: vendor membatasi
+        // 60 permintaan per menit, dan penjadwal tidak boleh jadi yang pertama
+        // menabraknya.
+        'maks_per_jalan' => (int) env('CRM_PANCINGAN_MAKS', 50),
+    ],
+
     /* Jam toko untuk template "siap diambil" ({{4}}). Diubah lewat Pengaturan nanti. */
     'store_hours_text' => env('CRM_STORE_HOURS', 'Senin–Sabtu 08.00–16.00'),
 
@@ -194,4 +226,59 @@ return [
      | tercetak berada, dan itu tak bisa diambil lagi dari mana pun.
      */
     'attachment_retention_days' => (int) env('CRM_ATTACHMENT_RETENTION_DAYS', 180),
+
+    /*
+     |--------------------------------------------------------------------------
+     | Agen AI (Tahap 8)
+     |--------------------------------------------------------------------------
+     |
+     | 'aktif' adalah saklar INDUK, di atas saklar per-agen di crm_agents. Selama
+     | ia mati, tidak ada satu pun agen yang boleh membalas pelanggan, apa pun
+     | isi barisnya di basis data. Dua lapis sengaja, dengan alasan yang sama
+     | seperti 'dry_run' di atas: yang paling mahal di modul ini bukan salah
+     | hitung melainkan pesan yang terlanjur keluar.
+     |
+     | Mode uji di layar TIDAK dijaga saklar ini — ia memang tidak pernah
+     | menyentuh pelanggan.
+     */
+    'agen' => [
+        'aktif' => (bool) env('CRM_AGEN_AKTIF', false),
+
+        /*
+         | Model per agen; baris di crm_agents boleh menimpanya.
+         |
+         | Penyambutan pakai Haiku: kerjanya klasifikasi & jawaban pendek, dan ia
+         | jalan di SETIAP pesan masuk — di situlah volume, jadi di situ pula
+         | selisih harga paling terasa. Penjualan & cetak pakai Sonnet: keduanya
+         | berantai panjang dan berujung pada uang atau akrilik yang terlanjur
+         | dipotong, dan salah di langkah ketiga baru ketahuan di langkah ketujuh.
+         */
+        'model_bawaan' => [
+            'penyambutan' => env('CRM_AGEN_MODEL_PENYAMBUTAN', 'claude-haiku-4-5'),
+            'penjualan'   => env('CRM_AGEN_MODEL_PENJUALAN', 'claude-sonnet-5'),
+            'cetak'       => env('CRM_AGEN_MODEL_CETAK', 'claude-sonnet-5'),
+        ],
+
+        // Dipakai kalau kodenya tidak ada di peta di atas.
+        'model_cadangan' => env('CRM_AGEN_MODEL_CADANGAN', 'claude-haiku-4-5'),
+
+        'maks_token_keluar' => (int) env('CRM_AGEN_MAKS_TOKEN', 1024),
+
+        /*
+         | Tarif per 1 juta token, dalam USD, apa adanya dari daftar harga
+         | Anthropic. Ditaruh di config karena harga model berubah — dan biaya
+         | tiap run dihitung SAAT run, bukan saat dibaca, supaya angka masa lalu
+         | tidak ikut berubah waktu tarifnya naik.
+         |
+         | 'cache' = pembacaan dari cache, 0,1x tarif input.
+         */
+        'tarif' => [
+            'claude-haiku-4-5' => ['masuk' => 1.00, 'cache' => 0.10, 'keluar' => 5.00],
+            'claude-sonnet-5'  => ['masuk' => 2.00, 'cache' => 0.20, 'keluar' => 10.00],
+            'claude-opus-5'    => ['masuk' => 5.00, 'cache' => 0.50, 'keluar' => 25.00],
+        ],
+
+        // Kurs untuk mengubah tarif USD di atas jadi rupiah yang terbaca di layar.
+        'kurs_usd' => (float) env('CRM_AGEN_KURS_USD', 16400),
+    ],
 ];

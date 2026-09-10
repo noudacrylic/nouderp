@@ -3,10 +3,23 @@
 namespace App\Modules\CRM\Support;
 
 /**
- * Bunyi template yang sudah disepakati & diajukan ke Meta.
+ * Bunyi NOTIFIKASI — pesan yang dikirim sistem sendiri, tanpa ada yang mengetik.
+ *
+ * Sejak template pembuka chat pindah ke tabel `crm_templates` (10 Sep 2026),
+ * yang tersisa di sini hanya yang dikirim KODE. Pemisahannya bukan soal harga
+ * melainkan soal siapa yang mengirim, dan itu yang menentukan boleh-tidaknya
+ * bunyinya disunting dari layar:
+ *
+ *  - Notifikasi (berkas ini): TIDAK boleh. Satu bunyi berangkat lewat DUA jalur
+ *    — WAHA merangkai teksnya, jalur resmi mengirim nama templatenya — dan
+ *    keduanya wajib mengucapkan kalimat yang sama persis. Antrean WAHA yang
+ *    tertahan tiga jam dieskalasi ke jalur resmi; pelanggan tidak boleh bisa
+ *    menebak jalur mana yang dipakai dari kalimat yang ia terima.
+ *  - Template pembuka chat (`CrmTemplate`): boleh, karena manusia yang memilih
+ *    dan mengirimnya satu per satu, dan ia tak punya jalur WAHA sama sekali.
  *
  * SUMBER TUNGGAL. Sengaja duduk di lapis Support, bukan di controller, karena
- * sejak jalur WAHA ada, bunyinya dipakai DUA arah:
+ * bunyinya dipakai DUA arah:
  *  - jalur resmi mengirim NAMA template-nya (bunyinya ada di Meta);
  *  - jalur WAHA mengirim TEKSNYA, dirangkai di sini.
  *
@@ -24,21 +37,17 @@ namespace App\Modules\CRM\Support;
  */
 class TemplateResmi
 {
+    /**
+     * Nama template PANCINGAN, disebut dari kode (CrmReplyService, layar chat).
+     *
+     * Diberi konstanta karena ia satu-satunya template yang dipanggil dari
+     * dalam kode berdasarkan namanya — sisanya dipilih manusia dari daftar.
+     * Nama yang diketik ulang di beberapa berkas adalah cara paling sunyi
+     * untuk mengirim template yang tak dikenal Meta.
+     */
+    public const TEMPLATE_PANCINGAN = 'lanjut_diskusi';
+
     public const USULAN = [
-        [
-            'nama'     => 'sapa_umum',
-            'kategori' => 'UTILITY',
-            'guna'     => 'Menyapa duluan nomor yang ditinggalkan pelanggan di toko. Tanpa variabel — tidak mungkin salah isi.',
-            'contoh'   => [],
-            'body'     => 'Selamat siang Kak, kami dari Noud Acrylic. Kami ingin melanjutkan pembahasan pesanan Kakak. Mohon balas pesan ini ya.',
-        ],
-        [
-            'nama'     => 'konfirmasi_desain',
-            'kategori' => 'UTILITY',
-            'guna'     => 'Menyapa terkait pesanan yang sudah ada. Menempel pada transaksi berjalan, jadi peluang masuk UTILITY lebih besar.',
-            'contoh'   => ['Budi', 'SO-2609-0012'],
-            'body'     => 'Halo Kak {{1}}, kami dari Noud Acrylic ingin mengonfirmasi desain untuk pesanan {{2}}. Mohon balas pesan ini agar kami kirimkan pratinjaunya.',
-        ],
         [
             'nama'     => 'pembayaran_diterima',
             'kategori' => 'UTILITY',
@@ -97,8 +106,76 @@ class TemplateResmi
             'guna'     => 'Tombol URL dinamis → halaman lacak pesanan.',
             'contoh'   => ['Budi', 'SO-2609-0012', 'JNE', 'JX1234567890'],
             'body'     => 'Halo Kak {{1}}, pesanan {{2}} sudah kami serahkan ke {{3}} dengan nomor resi {{4}}. Silakan pantau perjalanan paket Kakak lewat tombol di bawah ini.',
+            // Tombol URL-nya dipasang langsung di dasbor vendor, sebelum field
+            // 'tombol' di bawah ada. TIDAK didaftarkan ulang di sini: nama
+            // template unik per bahasa, jadi ia tak mungkin diajukan lagi —
+            // mendeklarasikannya cuma memberi kesan tombolnya berasal dari kode.
+            'kalimat_tombol' => ' Silakan pantau perjalanan paket Kakak lewat tombol di bawah ini.',
+            'tanpa_tombol'   => ' Silakan pantau perjalanan paket Kakak di sini:' . PHP_EOL . '{url}',
+        ],
+        [
+            'nama'     => 'lanjut_diskusi',
+            'kategori' => 'UTILITY',
+            'guna'     => 'PANCINGAN. Dikirim saat jendela 24 jam hampir/sudah tutup padahal '
+                        . 'pembahasan belum kelar — terutama di hari libur & di luar jam kerja. '
+                        . 'Tombolnya yang bekerja: sekali ditekan, pelanggan mengirim pesan masuk, '
+                        . 'dan pesan masuk itulah yang membuka jendela 24 jam yang baru. '
+                        . 'Jam layanan jadi variabel dengan alasan yang sama seperti '
+                        . 'template "pesanan_siap_diambil": jamnya berubah saat Lebaran, dan mengubah '
+                        . 'body berarti mengajukan ulang ke Meta.',
+            'contoh'   => ['Kak Budi', 'Senin–Sabtu 08.00–16.00'],
+            /*
+             * Tombol BALASAN CEPAT, bukan tombol URL. Bedanya justru inti dari
+             * template ini: tombol URL membawa pelanggan KELUAR ke peramban dan
+             * tidak menghasilkan satu pun pesan masuk, jadi jendelanya tetap
+             * tertutup dan kita tetap tak bisa menjawab. Balasan cepat mengirim
+             * pesan sungguhan dari nomor pelanggan — itulah yang dihitung Meta.
+             */
+            'tombol'   => [['type' => 'QUICK_REPLY', 'text' => 'Lanjutkan diskusi']],
+            /*
+             * Sapaannya utuh di dalam {{1}} ('Kak Budi'), bukan 'Halo Kak {{1}}'
+             * seperti tetangganya. Sebabnya khas template ini: ia dipakai pada
+             * PERCAKAPAN, dan percakapan boleh saja belum punya nama sama sekali
+             * (lead yang baru chat sekali). Pola tetangga memaksa nilai cadangan
+             * masuk ke belakang kata "Kak", dan yang keluar adalah "Halo Kak
+             * Pelanggan". Di sini cadangannya cukup "Kak" — dan yang bernama
+             * tetap menerima kalimat yang sama persis.
+             */
+            'body'     => 'Halo {{1}}, mohon maaf pembahasan pesanan Kakak belum sempat kami tuntaskan. '
+                        . 'Tim kami sedang di luar jam layanan dan kembali melayani {{2}}. '
+                        . 'Agar obrolan ini bisa kami sambung lagi, silakan tekan tombol di bawah ini '
+                        . '— kami balas begitu jam layanan dibuka. Terima kasih sudah menunggu, Kak.',
+            'kalimat_tombol' => ' Agar obrolan ini bisa kami sambung lagi, silakan tekan tombol di bawah ini '
+                              . '— kami balas begitu jam layanan dibuka.',
+            'tanpa_tombol'   => ' Agar obrolan ini bisa kami sambung lagi, silakan balas pesan ini '
+                              . '— kami jawab begitu jam layanan dibuka.',
         ],
     ];
+
+    /** Judul tombol pancingan. Maks 20 karakter — batas Meta, bukan selera. */
+    public const TOMBOL_PANCINGAN = 'Lanjutkan diskusi';
+
+    /**
+     * Bunyi pancingan versi GRATIS — pesan sesi biasa, dikirim SELAGI jendela
+     * masih terbuka (kira-kira sejam sebelum habis).
+     *
+     * Duduk di sini walau BUKAN template Meta, dan itu disengaja: ia kembaran
+     * dari 'lanjut_diskusi', cuma beda jalur dan beda harga. Pelanggan yang
+     * sama bisa menerima keduanya di minggu yang berbeda, dan dua kalimat yang
+     * perlahan menyimpang akan terbaca seperti dua perusahaan. Bersebelahan,
+     * keduanya berubah bersama.
+     *
+     * Bedanya dengan versi berbayar tinggal satu hal, dan itu soal kejujuran:
+     * di sini jendelanya BELUM tutup, jadi kalimatnya tidak boleh berbunyi
+     * seolah kita sudah tak bisa dihubungi.
+     */
+    public static function bunyiPancinganSesi(string $sapaan, string $jamLayanan): string
+    {
+        return 'Halo ' . $sapaan . ', mohon maaf pembahasan pesanan Kakak belum sempat kami tuntaskan. '
+             . 'Tim kami kembali melayani ' . $jamLayanan . '. '
+             . 'Supaya obrolan ini tetap bisa kami balas nanti, silakan tekan tombol di bawah ini ya '
+             . '— kami lanjutkan begitu jam layanan dibuka. Terima kasih sudah menunggu, Kak.';
+    }
 
     /**
      * Kepala surat untuk jalur TIDAK RESMI.
@@ -187,6 +264,50 @@ class TemplateResmi
         return array_map('strval', (array) (self::usulan($nama)['contoh'] ?? []));
     }
 
+    /**
+     * Deklarasi tombol untuk pengajuan ke Meta, kosong bila template ini
+     * memang tak bertombol.
+     *
+     * @return array<array{type:string, text:string, url?:string, phone_number?:string}>
+     */
+    public static function tombol(string $nama): array
+    {
+        return array_values((array) (self::usulan($nama)['tombol'] ?? []));
+    }
+
+    /**
+     * Ganti kalimat yang menyebut-nyebut tombol dengan padanan tanpa tombol.
+     *
+     * Pasangan kalimatnya duduk di entri templatenya sendiri
+     * ('kalimat_tombol' & 'tanpa_tombol'), bukan dipatri di sini. Dulu ia
+     * dipatri, dan akibatnya persis yang bisa ditebak: begitu sapaan diubah
+     * ke "Kak", kalimat di body tak lagi cocok dengan kalimat di kode, jadi
+     * tak pernah terpotong — dan pesan WAHA dengan tenang menjanjikan tombol
+     * yang tak akan pernah muncul. Bersebelahan dengan bodynya, keduanya
+     * berubah bersama atau tidak sama sekali.
+     *
+     * '{url}' di dalam 'tanpa_tombol' diisi $urlLacak. Bila penanda itu ada
+     * TAPI urlnya tidak, kalimatnya dibuang seluruhnya: menjanjikan tautan
+     * yang tak disertakan sama buruknya dengan menjanjikan tombol yang tak ada.
+     */
+    private static function lepasTombol(string $nama, string $body, ?string $urlLacak): string
+    {
+        $usulan  = self::usulan($nama) ?? [];
+        $kalimat = (string) ($usulan['kalimat_tombol'] ?? '');
+
+        if ($kalimat === '' || ! str_contains($body, $kalimat)) {
+            return $body;
+        }
+
+        $ganti = (string) ($usulan['tanpa_tombol'] ?? '');
+
+        if (str_contains($ganti, '{url}')) {
+            $ganti = $urlLacak ? str_replace('{url}', $urlLacak, $ganti) : '';
+        }
+
+        return str_replace($kalimat, $ganti, $body);
+    }
+
     /** Bunyi badan satu template, atau null bila namanya tak dikenal. */
     public static function body(string $nama): ?string
     {
@@ -226,19 +347,6 @@ class TemplateResmi
             $body = str_replace(['{{' . $i . '}}', '{{ ' . $i . ' }}'], (string) $nilai, $body);
         }
 
-        // WAJIB sama PERSIS dengan potongan di body 'pesanan_dikirim'. Sempat
-        // meleset saat sapaannya diubah ke "Kak": kalimatnya tak lagi cocok,
-        // jadi tak terpotong, dan pesan WAHA menjanjikan tombol yang tidak ada.
-        $kalimatTombol = ' Silakan pantau perjalanan paket Kakak lewat tombol di bawah ini.';
-
-        if (str_contains($body, $kalimatTombol)) {
-            $body = str_replace(
-                $kalimatTombol,
-                $urlLacak ? ' Silakan pantau perjalanan paket Kakak di sini:' . PHP_EOL . $urlLacak : '',
-                $body
-            );
-        }
-
-        return trim($body);
+        return trim(self::lepasTombol($nama, $body, $urlLacak));
     }
 }

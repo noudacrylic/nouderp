@@ -364,6 +364,46 @@ class WebhookMasukTest extends TestCase
         $this->assertSame('https://media.example.com/logo.png', $lampiran->source_url);
     }
 
+    /**
+     * `media_url` hanya boleh dipercaya bila `media_status` = "ok".
+     *
+     * Vendor tetap mengirim alamat untuk media yang GAGAL ia ambil dari Meta,
+     * dan alamat itu menjawab 404. Kalau disimpan apa adanya, lampirannya duduk
+     * selamanya sebagai "belum terunduh" yang dicoba ulang tiap menit — dan
+     * tak seorang pun tahu sebabnya, karena tak ada yang salah dari sisi kita.
+     */
+    public function test_media_yang_gagal_diambil_vendor_tidak_menyimpan_alamat_palsu(): void
+    {
+        $payload = $this->payloadMedia('m-13b');
+        $payload['data']['media_status'] = 'download_failed';
+
+        $this->kirim($payload, 'k-13b')->assertOk();
+
+        $lampiran = CrmAttachment::firstOrFail();
+
+        $this->assertNull($lampiran->source_url);
+        $this->assertStringContainsString('Vendor gagal mengambil', (string) $lampiran->download_error);
+
+        // Sudah punya alasan → keluar dari antrean unduh, tidak dicoba ulang.
+        $this->assertSame(0, CrmAttachment::belumTerunduh()->count());
+    }
+
+    /** Pesan sekali-lihat memang tak bisa diunduh; alasannya disebut apa adanya. */
+    public function test_media_sekali_lihat_dijelaskan_bukan_didiamkan(): void
+    {
+        $payload = $this->payloadMedia('m-13c');
+        $payload['data']['media_status'] = 'unsupported';
+
+        $this->kirim($payload, 'k-13c')->assertOk();
+
+        $lampiran = CrmAttachment::firstOrFail();
+
+        // Barisnya TETAP dibuat: pelanggan memang mengirim sesuatu, dan
+        // gelembung yang diam-diam kosong membuat admin mengira tak ada apa-apa.
+        $this->assertNotNull($lampiran);
+        $this->assertStringContainsString('sekali-lihat', (string) $lampiran->download_error);
+    }
+
     public function test_perintah_unduh_menyimpan_berkas_ke_disk_sendiri(): void
     {
         Http::fake(['media.example.com/*' => Http::response('gambar-palsu', 200, ['Content-Type' => 'image/png'])]);

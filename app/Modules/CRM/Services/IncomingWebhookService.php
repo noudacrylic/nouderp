@@ -282,10 +282,32 @@ class IncomingWebhookService
             return;
         }
 
+        /*
+         * `media_status` menentukan boleh-tidaknya `media_url` DIPERCAYA.
+         *
+         * Vendor menyatakannya sendiri: hanya "ok" yang berarti berkasnya
+         * benar-benar berhasil mereka ambil dari Meta. "download_failed" dan
+         * "unsupported" (mis. pesan sekali-lihat) tetap datang membawa alamat,
+         * tapi alamat itu menjawab 404 — dan tanpa pemeriksaan ini lampirannya
+         * duduk selamanya sebagai "belum terunduh" yang dicoba ulang tiap menit
+         * oleh crm:unduh-lampiran, tanpa seorang pun tahu sebabnya.
+         *
+         * Barisnya tetap DIBUAT: pelanggan memang mengirim sesuatu, dan
+         * gelembung yang diam-diam kosong membuat admin mengira tak ada apa-apa.
+         * Yang berubah cuma alasannya, dan alasannya terbaca.
+         */
+        $statusMedia = (string) ($data['media_status'] ?? 'ok');
+        $bisaDiambil = $statusMedia === 'ok';
+
         CrmAttachment::create([
             'message_id'        => $pesan->id,
             'provider_media_id' => $mediaId ? (string) $mediaId : null,
-            'source_url'        => $url ? (string) $url : null,
+            'source_url'        => $bisaDiambil && $url ? (string) $url : null,
+            'download_error'    => $bisaDiambil ? null : match ($statusMedia) {
+                'download_failed' => 'Vendor gagal mengambil media ini dari Meta. Minta pelanggan mengirim ulang.',
+                'unsupported'     => 'Media tidak bisa diunduh (mis. pesan sekali-lihat). Hanya bisa dilihat di HP.',
+                default           => 'Media ditandai vendor sebagai "' . $statusMedia . '" — tidak bisa diambil.',
+            },
             /*
              * Nama & mime aslinya duduk di dalam `raw.<jenis>` — DIVERIFIKASI atas
              * payload sungguhan: raw.document.filename = "MIMBAR DUDUK MASJID.cdr".
@@ -365,8 +387,28 @@ class IncomingWebhookService
     private function isi(array $data): ?string
     {
         $isi = $data['content'] ?? $data['text'] ?? $data['body'] ?? $data['caption'] ?? null;
+        $isi = is_string($isi) ? $isi : (is_array($isi) ? ($isi['body'] ?? null) : null);
 
-        return is_string($isi) ? $isi : (is_array($isi) ? ($isi['body'] ?? null) : null);
+        return $isi !== null && trim($isi) !== '' ? $isi : $this->judulTombol($data);
+    }
+
+    /**
+     * Judul tombol yang ditekan pelanggan, untuk pesan `interactive`.
+     *
+     * Pesan hasil tekan tombol tidak selalu membawa `content` — yang pasti ada
+     * cuma id & judul tombolnya di dalam raw. Tanpa cadangan ini, pancingan yang
+     * BERHASIL justru meninggalkan gelembung kosong di thread: jendelanya
+     * terbuka lagi, tapi tak ada yang bisa membaca bahwa pelanggan menekannya,
+     * dan admin menyimpulkan pancingannya tidak bekerja.
+     */
+    private function judulTombol(array $data): ?string
+    {
+        $judul = data_get($data, 'raw.interactive.button_reply.title')
+            ?? data_get($data, 'raw.interactive.list_reply.title')
+            ?? data_get($data, 'raw.button.text')
+            ?? data_get($data, 'interactive.button_reply.title');
+
+        return is_string($judul) && trim($judul) !== '' ? $judul : null;
     }
 
     /**

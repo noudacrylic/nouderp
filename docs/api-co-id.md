@@ -3,9 +3,9 @@
 Salinan dokumentasi vendor per **9 September 2026**, ditambah koreksi yang kita
 temukan sendiri di lapangan.
 
-> **Salinan ini TIDAK lengkap.** Bagian Webhooks terpotong di tengah daftar
-> `data` fields. Untuk apa pun yang tidak ada di sini, buka dasbor vendor —
-> jangan menebak bentuk payload.
+Salinannya lengkap per tanggal itu, tapi tetap **bukan pengganti dasbor
+vendor**: yang di sini bisa basi, dan payload sungguhan selalu lebih berhak
+dipercaya daripada catatan ini.
 
 Alasan berkas ini ada: pengetahuan tentang API ini sebelumnya cuma hidup di
 komentar `ApiCoIdProvider.php`, dan sebagiannya adalah koreksi atas dokumentasi
@@ -101,6 +101,33 @@ Respons: `data.message_id`, `data.customer_id`, `data.status`,
 }
 ```
 
+### Interaktif (tombol balasan cepat)
+
+```json
+{
+  "phone_number": "628123456789",
+  "channel": "whatsapp",
+  "message_type": "interactive",
+  "interactive": {
+    "type": "button",
+    "body": { "text": "..." },
+    "action": { "buttons": [
+      { "type": "reply", "reply": { "id": "lanjut_diskusi", "title": "Lanjutkan diskusi" } }
+    ] }
+  }
+}
+```
+
+Maks 3 tombol, judul maks 20 karakter. **Pesan sesi biasa** — hanya sah di
+dalam jendela 24 jam, tapi GRATIS dan tanpa peninjauan Meta. Itulah dasar
+`crm:pancing-jendela`: tombol yang sama lewat template berarti satu pengajuan
+ke Meta plus tarif per kirim.
+
+> ⚠️ Bentuk di atas **belum diuji ke vendor sungguhan** — ia mengikuti Meta
+> karena di situlah taruhan terbaiknya (`template` pun diteruskan apa adanya
+> dalam bentuk Meta). Kalau vendor menuntut bentuk lain, yang berubah cukup
+> `ApiCoIdProvider::buildInteraktif()`.
+
 Komponen lain: `header` (text/image/video/document), `button` dengan
 `sub_type: url` + `index` (isi sufiks URL dinamis), atau `sub_type: copy_code`
 dengan `{ "type": "coupon_code", "coupon_code": "..." }`.
@@ -180,38 +207,123 @@ Di luar jendela, hanya template yang boleh berangkat.
 
 ## Webhook
 
-Envelope tiap kiriman:
+Alurnya: daftarkan URL di dasbor → pilih peristiwa → vendor POST ke URL itu →
+server menjawab `200 OK`.
+
+### Peristiwa
+
+`message.received` · `message.sent` · `message.delivered` · `message.read` ·
+`message.failed` (plus `test` dari tombol Test Webhook di dasbor).
+
+### Amplop (semua peristiwa)
 
 ```json
 {
   "event_type": "message.received",
-  "event_id": "uuid",
+  "event_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "timestamp": "2026-07-24T10:30:00.000Z",
   "data": { }
 }
 ```
 
-Peristiwa: `message.received`, `message.sent`, `message.delivered`,
-`message.read`, `message.failed`.
-
-Header:
+### Header
 
 ```
+Content-Type: application/json
 X-Webhook-Signature: <hex HMAC-SHA256 dari BODY MENTAH>
 X-Webhook-Event: <event_type>
 X-Webhook-Delivery: <event_id>_<endpoint_id>
 X-Webhook-Idempotency-Key: <message_id>_<event_type>_<minute_bucket>
 ```
 
-Tanda tangan diverifikasi atas **byte mentah** body, bukan hasil parse —
-lihat `VerifyCrmWebhookSignature`.
+### Isi `data`
 
-Sebagian `data`: `message_id` (id internal, **bukan selalu wamid Meta**),
-`customer_id`, `customer_phone`, `customer_username`, `channel`, `direction`,
-`message_type`, `content`, `media_url`, `media_status`
-(`ok|download_failed|unsupported`), `phone_number_id`, `business_phone`, `raw`.
+| Field | Catatan |
+|---|---|
+| `message_id` | id internal vendor — **bukan selalu wamid Meta** |
+| `customer_id` | id pelanggan/percakapan internal |
+| `customer_phone` | angka gaya E.164, mis. `628123456789` |
+| `customer_username` | Instagram saja |
+| `channel` | `whatsapp` \| `instagram` \| `messenger` |
+| `direction` | `inbound` \| `outbound` |
+| `message_type` | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `interactive`, `reaction` |
+| `content` | teks atau caption |
+| `media_url` | URL media yang sudah di-*rehost* vendor (bisa tidak ada) |
+| `media_status` | media saja: `ok` \| `download_failed` \| `unsupported` |
+| `phone_number_id` | id **internal** nomor WA (bukan id Meta) |
+| `business_phone` | nomor WABA kita yang menerima/mengirim |
+| `raw` | payload Meta yang sudah disaring; `raw.id` = wamid, `raw.context.id` = wamid yang dikutip |
+| `ctwa_clid` | id klik iklan Click-to-WhatsApp — hanya di pesan masuk PERTAMA dari iklan |
+| `referral` | objek CTWA: `source_type`, `source_id`, `headline`, `ctwa_clid`, … |
 
-> Daftar `data` di salinan ini terpotong. Lengkapi dari dasbor vendor saat perlu.
+> ⚠️ **`media_url` hanya boleh dipercaya bila `media_status === "ok"`.**
+> `download_failed` dan `unsupported` (mis. pesan sekali-lihat) TETAP membawa
+> alamat, tapi alamat itu menjawab 404. `IncomingWebhookService::simpanLampiran`
+> menolak menyimpannya sebagai `source_url` dan menuliskan alasannya ke
+> `download_error` — kalau tidak, lampirannya duduk selamanya sebagai "belum
+> terunduh" yang dicoba ulang tiap menit tanpa seorang pun tahu sebabnya.
+
+### Balas di thread yang sama
+
+Pakai `customer_phone` pada Send Message. Untuk kutipan WhatsApp, kirim wamid
+dari `data.raw.id` (pesan masuk) atau `data.raw.context.id` (saat pelanggan
+membalas pesan tertentu) sebagai `reply_to_message_id`.
+
+### Keamanan
+
+Tanda tangan = HMAC-SHA256 heksadesimal atas **byte mentah** body, dengan
+`webhook_secret` yang hanya diperlihatkan SEKALI saat webhook dibuat.
+
+Empat jebakan yang disebut vendor sendiri, semuanya nyata:
+
+1. **Membandingkan JSON hasil parse, bukan body mentah.** Beda spasi atau
+   urutan kunci sudah cukup untuk mematahkan tanda tangan.
+2. **Membandingkan dengan `==`/`===`.** Pakai `hash_equals()` — perbandingan
+   waktu-tetap.
+3. **Menyimpan secret di kode.** Simpan di env.
+4. **Menjawab lambat.** Wajib `200` dalam 5 detik; lebih dari itu dikirim ulang.
+   Karena itu `IncomingWebhookService` **tidak** mengunduh media di dalam
+   permintaan — unduhan diserahkan ke `crm:unduh-lampiran`.
+
+### Endpoint webhook
+
+- `GET /webhooks` — daftar beserta `is_active`, `status`, `failure_count`,
+  `last_failed_at`, `disabled_at`, `disable_reason`.
+- `GET /webhooks/:id` — satu endpoint.
+- `POST /webhooks/:id/enable` — hidupkan lagi + reset `failure_count`.
+
+> **Webhook dimatikan otomatis setelah 10 kegagalan pengiriman beruntun**
+> (satu keberhasilan mereset hitungannya). Ini kegagalan yang tak bergejala:
+> ERP tetap tenang, cuma tak ada pesan masuk lagi sama sekali. Karena itu ada
+> pita peringatan di layar Pengaturan CRM plus tombol menghidupkan ulang.
+
+---
+
+## Galat & batas laju
+
+Kode HTTP: `400` validasi · `401` API key salah · `403` ditolak · `404` tak ada
+· `429` kena batas · `500` galat server.
+
+```json
+{
+  "error": {
+    "code": "ValidationError",
+    "message": "phone_number is required",
+    "details": [{ "field": "phone_number", "message": "phone_number is required" }]
+  }
+}
+```
+
+`ApiCoIdProvider::request()` membaca `error.message`, dan mencatat **seluruh
+badan jawaban + badan permintaan** ke log saat ditolak — pesan vendor sering
+cuma "Data yang Anda masukkan tidak valid" tanpa menyebut field mana.
+
+**Batas laju**: WhatsApp **60 pesan/menit**, Instagram & Messenger 180/jam.
+Tak ada batas jumlah permintaan harian selama nomornya berlisensi. Jawaban
+membawa `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `X-RateLimit-Channel`.
+
+> 60/menit adalah alasan `crm:kirim-notifikasi` mengambil paling banyak 50 baris
+> per jalan. Menaikkannya berarti harus ikut menghitung jeda antar-kirim.
 
 ---
 
@@ -219,7 +331,8 @@ Sebagian `data`: `message_id` (id internal, **bukan selalu wamid Meta**),
 
 `instagram-accounts`, `facebook-pages`, `conversations` + `/messages`,
 `typing`, `messages/:id/read`, CRUD `customers` + `consent` + `notes` +
-`blacklist`, `interactive` (cta_url / reply buttons / list menu), `broadcast`.
+`blacklist`, `broadcast`, serta sisa `interactive` yang belum dipakai
+(cta_url & list menu — reply buttons sudah dipakai, lihat di atas).
 
 Beberapa di antaranya menarik untuk nanti — indikator "sedang mengetik" dan
 tanda dibaca akan membuat chat di ERP terasa seperti WhatsApp sungguhan.

@@ -63,9 +63,10 @@ class JenisNotifikasiTest extends TestCase
     {
         $katalog = JenisNotifikasi::katalog();
 
-        // Empat berbayar (template Meta, termasuk "Jatuh Tempo") + dua yang
-        // khusus WAHA ("Tagihan Pembayaran" & "Stok Sudah Ada").
-        $this->assertCount(6, $katalog);
+        // Empat berbayar (template Meta, termasuk "Jatuh Tempo"), dua khusus
+        // WAHA ("Tagihan Pembayaran" & "Stok Sudah Ada"), dan "Pancingan" yang
+        // biasanya gratis — templatenya cuma cadangan saat jendelanya tutup.
+        $this->assertCount(7, $katalog);
 
         foreach ($katalog as $j) {
             $this->assertNotEmpty($j['teks'], "Teks contoh {$j['event']} kosong.");
@@ -164,6 +165,7 @@ class JenisNotifikasiTest extends TestCase
                 'dikirim'             => true,
                 'jatuh_tempo'         => false,
                 'tagihan_pembayaran'  => false,
+                'pancingan'           => false,
                 'stok_tersedia'       => false,
             ],
             CrmSetting::for('apicoid')->config['notifikasi_aktif']

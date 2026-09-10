@@ -106,6 +106,10 @@ Route::prefix('erp')->group(function () {
         Route::get('/notifikasi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'index'])->name('notifikasi.index');
         Route::post('/notifikasi/kirim', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'kirimSekarang'])->name('notifikasi.kirim');
         Route::post('/notifikasi/jenis', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'simpanJenis'])->name('notifikasi.jenis');
+        // Pengajuan template ke Meta duduk DI SINI, bukan di layar Template
+        // Pesan: bunyi notifikasi milik kode (satu bunyi, dua jalur, wajib sama
+        // persis), jadi yang bisa dilakukan dari layar cuma mengajukannya.
+        Route::post('/notifikasi/template/ajukan', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'ajukanTemplate'])->name('notifikasi.template.ajukan');
         Route::post('/notifikasi/{outbox}/ulangi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'ulangi'])->name('notifikasi.ulangi');
 
         // Template & memulai percakapan baru. WAJIB didaftarkan SEBELUM rute
@@ -118,12 +122,32 @@ Route::prefix('erp')->group(function () {
         Route::post  ('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'update'])->name('label.update');
         Route::delete('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'destroy'])->name('label.destroy');
 
-        Route::get ('/template',      [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'index'])->name('template.index');
-        Route::get ('/template/baru', [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'formBaru'])->name('template.baru');
-        Route::post('/template/mulai',[\App\Modules\CRM\Controllers\CrmTemplateController::class, 'mulai'])->name('template.mulai');
-        // Ajukan satu bunyi yang sudah disepakati ke Meta lewat vendor
-        // (buat + submit dalam satu langkah — lihat ajukan()).
-        Route::post('/template/ajukan',[\App\Modules\CRM\Controllers\CrmTemplateController::class, 'ajukan'])->name('template.ajukan');
+        // Agen AI (Tahap 8). Sama seperti tetangganya, WAJIB berdiri sebelum
+        // '/{conversation}' supaya 'agen' tidak ditangkap sebagai id percakapan.
+        Route::get ('/agen',                 [\App\Modules\CRM\Controllers\CrmAgenController::class, 'index'])->name('agen.index');
+        Route::get ('/agen/{agen}',          [\App\Modules\CRM\Controllers\CrmAgenController::class, 'edit'])->name('agen.edit');
+        Route::post('/agen/{agen}',          [\App\Modules\CRM\Controllers\CrmAgenController::class, 'update'])->name('agen.update');
+        Route::post('/agen/{agen}/pengetahuan', [\App\Modules\CRM\Controllers\CrmAgenController::class, 'simpanPengetahuan'])->name('agen.pengetahuan.simpan');
+        Route::post('/agen/{agen}/pengetahuan/{pengetahuan}/pakai', [\App\Modules\CRM\Controllers\CrmAgenController::class, 'pakaiPengetahuan'])->name('agen.pengetahuan.pakai');
+        // Menjalankan agen TANPA mengirim apa pun ke pelanggan — satu-satunya
+        // jalur yang menghidupkan agen di ronde ini.
+        Route::post('/agen/{agen}/uji',      [\App\Modules\CRM\Controllers\CrmAgenController::class, 'uji'])->name('agen.uji');
+
+        // Unduh percakapan tersaring sebagai teks, bahan menyusun pengetahuan agen.
+        Route::get ('/ekspor',         [\App\Modules\CRM\Controllers\CrmInboxController::class, 'ekspor'])->name('inbox.ekspor');
+
+        Route::get ('/template',       [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'index'])->name('template.index');
+        // 'baru' WAJIB berdiri sebelum '/template/{template}' di bawah, kalau
+        // tidak ia ditangkap sebagai id template dan halamannya 404.
+        Route::get ('/template/baru',  [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'formBaru'])->name('template.baru');
+        Route::post('/template/mulai', [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'mulai'])->name('template.mulai');
+        Route::post('/template',       [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'store'])->name('template.store');
+        Route::post('/template/{template}',        [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'update'])->name('template.update');
+        Route::delete('/template/{template}',      [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'destroy'])->name('template.destroy');
+        // Buat + submit ke Meta dalam satu langkah — memisahkannya adalah
+        // jebakan: yang dibuat tapi lupa diajukan tampak "sudah ada",
+        // PENDING selamanya, dan tak pernah sampai ke Meta.
+        Route::post('/template/{template}/ajukan', [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'ajukan'])->name('template.ajukan');
 
         // Potongan balasan ("template teks") — milik kita, gratis, hanya sah di
         // dalam jendela 24 jam. Beda dari template Meta di /crm/template.
@@ -156,15 +180,24 @@ Route::prefix('erp')->group(function () {
         // 'template' di atas, keduanya WAJIB berdiri sebelum '/{conversation}'
         // supaya 'percakapan' dan 'pesan' tidak ditangkap sebagai id chat.
         Route::get ('/percakapan',           [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariPercakapan'])->name('percakapan.cari');
+        // Kontak untuk popup "Mulai Chat": percakapan lama + pelanggan ERP.
+        // Sama seperti tetangganya, WAJIB berdiri sebelum '/{conversation}'.
+        Route::get ('/kontak',               [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariKontak'])->name('kontak.cari');
         Route::post('/pesan/{message}/teruskan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'teruskan'])->name('pesan.teruskan');
-        Route::post  ('/snippet',            [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanSnippet'])->name('snippet.store');
-        Route::delete('/snippet/{snippet}',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusSnippet'])->name('snippet.destroy');
+        // Tambah/hapus template kilat dari rail kanan. Layar Template Pesan
+        // punya CRUD penuh; ini jalur pintas untuk kalimat yang baru saja
+        // diketik dan ternyata akan dipakai lagi.
+        Route::post  ('/template-cepat',             [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanTemplateCepat'])->name('template.cepat.store');
+        Route::delete('/template-cepat/{template}',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'hapusTemplateCepat'])->name('template.cepat.destroy');
 
         // Lampiran disajikan controller (disk privat), bukan lewat /storage.
         Route::get('/lampiran/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lampiran'])->name('inbox.lampiran');
 
         Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'show'])->name('inbox.show');
         Route::post('/{conversation}/balas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'balas'])->name('inbox.balas');
+        // Pancingan: template bertombol yang membuka lagi jendela 24 jam yang
+        // habis di tengah pembahasan (hari libur, di luar jam kerja).
+        Route::post('/{conversation}/pancingan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pancingan'])->name('inbox.pancingan');
         // Kirim foto produk (etalase) sebagai gambar berikut caption — pratinjau
         // tautan WhatsApp tidak bisa diandalkan, lihat kirimFotoProduk().
         Route::post('/{conversation}/kirim-foto', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'kirimFotoProduk'])->name('inbox.kirim-foto');

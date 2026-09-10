@@ -1073,7 +1073,7 @@
                         return;
                     }
 
-                    window.dispatchEvent(new CustomEvent('sisip-snippet', { detail: { teks: d.teks } }));
+                    window.dispatchEvent(new CustomEvent('sisip-teks', { detail: { teks: d.teks } }));
                 } catch (e) {
                     this.galat = 'Jaringan bermasalah — rincian belum siap.';
                 } finally {
@@ -1087,7 +1087,7 @@
                     + (p.status ? ' · ' + p.status : '')
                     + (p.catatan ? ' (' + p.catatan + ')' : '');
 
-                window.dispatchEvent(new CustomEvent('sisip-snippet', { detail: { teks } }));
+                window.dispatchEvent(new CustomEvent('sisip-teks', { detail: { teks } }));
             },
         };
     }

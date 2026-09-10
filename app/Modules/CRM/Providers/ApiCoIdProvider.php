@@ -96,6 +96,56 @@ class ApiCoIdProvider implements ChatProvider
         return $this->send($body, $payload);
     }
 
+    public function sendInteraktif(array $payload): array
+    {
+        $to = PhoneNumber::normalize($payload['to'] ?? null);
+
+        if ($blocked = $this->rejectRecipient($to)) {
+            return $blocked;
+        }
+
+        return $this->send([
+            'phone_number' => $to,
+            'channel'      => $payload['channel'] ?? 'whatsapp',
+            'message_type' => 'interactive',
+            'interactive'  => self::buildInteraktif(
+                (string) ($payload['text'] ?? ''),
+                (array) ($payload['buttons'] ?? [])
+            ),
+        ], $payload);
+    }
+
+    /**
+     * Susun objek `interactive` gaya Meta. Static murni supaya bentuknya bisa
+     * diuji tanpa jaringan — sama alasannya dengan buildTemplateComponents().
+     *
+     * ⚠️ BELUM PERNAH DIUJI KE VENDOR SUNGGUHAN. Bentuknya mengikuti Meta
+     * karena di situlah taruhan terbaiknya: `template` pun diteruskan vendor
+     * apa adanya dalam bentuk Meta (components sebagai array). Kalau ternyata
+     * vendor menuntut bentuk lain, YANG BERUBAH CUKUP METHOD INI.
+     *
+     * Batas Meta yang ditegakkan di sini, bukan diserahkan ke API: maksimal 3
+     * tombol, judul maksimal 20 karakter. Dipotong diam-diam memang tidak
+     * ideal, tapi jauh lebih baik daripada seluruh pesan ditolak dengan galat
+     * yang tak menyebut tombol mana yang kepanjangan.
+     */
+    public static function buildInteraktif(string $teks, array $tombol): array
+    {
+        return [
+            'type'   => 'button',
+            'body'   => ['text' => $teks],
+            'action' => [
+                'buttons' => array_values(array_map(fn (array $t) => [
+                    'type'  => 'reply',
+                    'reply' => [
+                        'id'    => (string) ($t['id'] ?? 'balas'),
+                        'title' => mb_substr((string) ($t['title'] ?? ''), 0, 20),
+                    ],
+                ], array_slice($tombol, 0, 3))),
+            ],
+        ];
+    }
+
     /** Ada URL di dalam teks? Penanda pratinjau hanya disertakan bila ada. */
     private static function mengandungTautan(string $teks): bool
     {
@@ -367,7 +417,7 @@ class ApiCoIdProvider implements ChatProvider
      * @param  string[]  $variabel  contoh nilai tiap {{n}}, berurutan
      * @return array{success:bool, id:?string, status:?string, error:?string}
      */
-    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id'): array
+    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id', array $tombol = []): array
     {
         $muatan = [
             'template_name' => $nama,
@@ -378,6 +428,10 @@ class ApiCoIdProvider implements ChatProvider
 
         if ($variabel) {
             $muatan['variables'] = array_values(array_map('strval', $variabel));
+        }
+
+        if ($tombol) {
+            $muatan['buttons'] = array_values($tombol);
         }
 
         if ($id = $this->setting->default_phone_number_id) {

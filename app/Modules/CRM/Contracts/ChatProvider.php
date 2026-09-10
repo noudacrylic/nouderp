@@ -62,6 +62,30 @@ interface ChatProvider
     public function sendMedia(array $payload): array;
 
     /**
+     * Kirim pesan bertombol BALASAN CEPAT. Sama seperti sendText(), ia hanya
+     * sah di dalam jendela 24 jam — dan justru di situlah gunanya.
+     *
+     * Bedanya dengan sendTemplate() bukan bentuk, melainkan HARGA dan izin:
+     * ini pesan sesi biasa, jadi gratis, tanpa peninjauan Meta, dan kalimatnya
+     * boleh berubah kapan saja. Tombol yang sama lewat template berarti satu
+     * pengajuan ke Meta plus tarif per kirim.
+     *
+     * Dipakai memancing pelanggan menekan tombol SEBELUM jendelanya habis:
+     * tekanan itu tercatat sebagai pesan masuk, dan pesan masuk itulah yang
+     * memperbarui jendela — semuanya tanpa biaya. Template berbayar baru
+     * diperlukan kalau pancingan ini terlewat dan jendelanya terlanjur tutup.
+     *
+     * @param array $payload [
+     *   'to' => string,
+     *   'text' => string (badan pesan),
+     *   'buttons' => array<array{id:string, title:string}> (maks 3, judul maks 20 karakter),
+     *   'phone_number_id' => ?string, 'channel' => ?string,
+     * ]
+     * @return array{success:bool, message_id:?string, customer_id:?string, raw:array, error:?string}
+     */
+    public function sendInteraktif(array $payload): array;
+
+    /**
      * Kirim template yang sudah disetujui Meta. Ini satu-satunya jalan
      * menghubungi pelanggan di LUAR jendela 24 jam — dan berbayar.
      *
@@ -143,9 +167,16 @@ interface ChatProvider
      * pernah sampai ke Meta.
      *
      * @param  string[]  $variabel  contoh nilai tiap {{n}}, berurutan
+     * @param  array<array{type:string, text:string, url?:string, phone_number?:string}>  $tombol
+     *         Tombol yang ikut diajukan. Bentuknya mengikuti Meta:
+     *         QUICK_REPLY (balasan cepat), URL, PHONE_NUMBER, OTP.
+     *         Tombol TIDAK bisa ditambahkan belakangan ke template yang sudah
+     *         disetujui — ia bagian dari yang ditinjau Meta, jadi kalau
+     *         terlewat di sini satu-satunya jalan adalah membuat template baru
+     *         dengan nama lain.
      * @return array{success:bool, id:?string, status:?string, error:?string}
      */
-    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id'): array;
+    public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id', array $tombol = []): array;
 
     public function windowStatus(string $identifier): array;
 }

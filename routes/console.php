@@ -70,6 +70,11 @@ Schedule::command('crm:ingatkan-jatuh-tempo')->dailyAt('09:00')->name('crm-ingat
 
 Schedule::command('crm:tagih-pembayaran')->dailyAt('09:15')->name('crm-tagih-pembayaran')->withoutOverlapping();
 
+// Pancingan jendela 24 jam. Tiap 15 menit karena jendela habis di menit mana
+// saja: jarak antar-jalan itulah yang menentukan seberapa mepet pancingan
+// terkirim, dan yang terkirim lima menit sebelum tutup hampir pasti mubazir.
+Schedule::command('crm:pancing-jendela')->everyFifteenMinutes()->name('crm-pancing-jendela')->withoutOverlapping();
+
 Schedule::command('crm:pantau-waha')->everyFiveMinutes()->name('crm-pantau-waha')->withoutOverlapping();
 
 // Lampiran chat diunduh ke penyimpanan sendiri secepat mungkin: media di sisi

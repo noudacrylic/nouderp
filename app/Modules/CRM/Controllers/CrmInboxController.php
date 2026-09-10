@@ -4,10 +4,9 @@ namespace App\Modules\CRM\Controllers;
 
 use App\Core\Inventory\Product;
 use App\Core\Inventory\ProductLink;
-use App\Core\Inventory\Services\StokTersediaService;
 use App\Core\Inventory\Warehouse;
 use App\Http\Controllers\Controller;
-use App\Models\StoreProduct;
+use App\Models\Customer;
 use App\Models\User;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmAttachment;
@@ -15,9 +14,11 @@ use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmLabel;
 use App\Modules\CRM\Models\CrmMarketplaceLink;
 use App\Modules\CRM\Models\CrmMessage;
-use App\Modules\CRM\Models\CrmSnippet;
+use App\Modules\CRM\Models\CrmTemplate;
 use App\Modules\CRM\Models\CrmStockWatch;
 use App\Modules\CRM\Services\CrmReplyService;
+use App\Modules\CRM\Services\PencarianProdukService;
+use App\Modules\CRM\Support\PhoneNumber;
 use App\Modules\CRM\Services\StockWatchService;
 use App\Modules\CRM\Services\WahaHealthService;
 use App\Modules\CRM\Services\WebhookHealthService;
@@ -74,68 +75,20 @@ class CrmInboxController extends Controller
      */
     private function ruangKerja(Request $request, ?CrmConversation $terpilih = null): array
     {
-        $antrean     = $request->string('antrean')->toString();
-        $status      = $request->string('status')->toString() ?: CrmConversation::STATUS_AKTIF;
-        $belumDibaca = $request->boolean('belum_dibaca');
-
         /*
-         * Daftar BAWAAN untuk agen non-super-admin hanya berisi chat miliknya —
-         * tapi ini penyaringan tampilan, BUKAN penguncian: begitu ia memilih
-         * pemilik lain atau mencari, seluruh percakapan tetap terbuka, dan
-         * thread mana pun tetap bisa dibuka lewat tautan langsung. Sengaja
-         * begitu: saat satu orang berhalangan, chat pelanggannya tidak boleh
-         * jadi tak terlihat siapa pun.
+         * Saringannya sendiri hidup di dasarPercakapan() & saringPercakapan() —
+         * dipisah supaya tombol Ekspor memakai saringan yang sama persis dengan
+         * daftar yang sedang dilihat orang. Yang tinggal di sini hanya dua
+         * penanda yang ikut dibaca layar.
          */
         $pengguna       = $request->user();
         $lihatSemua     = (bool) $pengguna?->isSuperAdmin();
-        $memilihSendiri = $request->filled('pemilik') || $request->filled('search');
-        $dibatasiKeSaya = ! $lihatSemua && ! $memilihSendiri && $pengguna;
+        $dibatasiKeSaya = ! $lihatSemua && ! ($request->filled('pemilik') || $request->filled('search')) && $pengguna;
 
-        /*
-         * Saringan PEMILIK + status dipisah jadi satu penutup karena dipakai
-         * dua kali: sekali untuk daftarnya, sekali untuk angka di tiap tombol
-         * label. Kalau angkanya dihitung dari seluruh percakapan sementara
-         * daftarnya cuma milik satu agen, tombol bertuliskan "12" akan membuka
-         * daftar berisi dua — dan angkanya berhenti dipercaya.
-         */
-        $dasar = function () use ($status, $request, $dibatasiKeSaya, $pengguna) {
-            return CrmConversation::query()
-                ->where('status', $status)
-                // 'semua' = permintaan sadar untuk melepas pembatas bawaan, jadi ia
-                // TIDAK menyaring apa pun. Tanpa cabang ini nilainya jatuh ke
-                // where('owner_user_id', 'semua') dan daftarnya kosong melompong.
-                ->when($request->filled('pemilik') && $request->pemilik !== 'semua', function ($q) use ($request) {
-                    $request->pemilik === 'belum'
-                        ? $q->whereNull('owner_user_id')
-                        : $q->where('owner_user_id', $request->pemilik);
-                })
-                ->when($dibatasiKeSaya, fn ($q) => $q->where('owner_user_id', $pengguna->id));
-        };
+        $dasar = $this->dasarPercakapan($request);
 
-        $percakapan = $dasar()
+        $percakapan = $this->saringPercakapan($request, $dasar)
             ->with(['customer:id,name', 'owner:id,name'])
-            ->when($antrean, fn ($q) => $q->where('queue_state', $antrean))
-            ->when($belumDibaca, fn ($q) => $q->where('unread_count', '>', 0))
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $cari = trim((string) $request->search);
-                $q->where(fn ($w) => $w
-                    ->where('contact_key', 'like', "%{$cari}%")
-                    ->orWhere('display_name', 'like', "%{$cari}%")
-                    ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$cari}%"))
-                    /*
-                     * Nomor pesanan ikut dicari lewat pelanggannya — pertanyaan
-                     * yang datang ke admin hampir selalu berbunyi "SO-xxxx itu
-                     * chat yang mana?", dan tanpa jalur ini ia harus buka menu
-                     * Penjualan dulu cuma untuk mendapatkan nomor teleponnya.
-                     */
-                    ->orWhereIn('customer_id', SalesOrder::query()
-                        ->where('order_number', 'like', "%{$cari}%")
-                        ->whereNotNull('customer_id')
-                        ->select('customer_id')));
-            })
-            // Yang belum pernah ada pesannya pun harus muncul; ORDER BY kolom
-            // nullable menaruhnya di ujung, jadi dipakai created_at sebagai jaring.
-            ->orderByRaw('COALESCE(last_message_at, created_at) DESC')
             ->paginate(per_page_size())
             ->withQueryString();
 
@@ -187,14 +140,202 @@ class CrmInboxController extends Controller
                 ? $terpilih->messages()->with(self::MUATAN_GELEMBUNG)->orderBy('sent_at')->orderBy('id')->get()
                 : collect(),
             'snippets' => $this->snippets(),
-            'isian'    => CrmSnippet::ISIAN,
+            /*
+             * Template pembuka chat untuk popup "Mulai Chat". Hanya yang sudah
+             * APPROVED di Meta: di luar jendela 24 jam tidak ada jalur lain,
+             * dan template yang masih PENDING ditolak vendor saat dikirim —
+             * gagalnya baru ketahuan sesudah admin mengetik isian.
+             */
+            'templateMeta' => CrmTemplate::aktif()
+                ->keMeta()
+                ->where('meta_status', CrmTemplate::META_APPROVED)
+                ->orderBy('title')
+                ->get(),
         ];
     }
 
-    /** Potongan balasan untuk rail kanan; yang paling sering dipakai di atas. */
+    /**
+     * Saringan PEMILIK + status, sebagai penutup karena dipakai dua kali:
+     * sekali untuk daftarnya, sekali untuk angka di tiap tombol label. Kalau
+     * angkanya dihitung dari seluruh percakapan sementara daftarnya cuma milik
+     * satu agen, tombol bertuliskan "12" akan membuka daftar berisi dua — dan
+     * angkanya berhenti dipercaya.
+     *
+     * Daftar BAWAAN untuk agen non-super-admin hanya berisi chat miliknya —
+     * tapi ini penyaringan tampilan, BUKAN penguncian: begitu ia memilih
+     * pemilik lain atau mencari, seluruh percakapan tetap terbuka, dan thread
+     * mana pun tetap bisa dibuka lewat tautan langsung. Sengaja begitu: saat
+     * satu orang berhalangan, chat pelanggannya tidak boleh jadi tak terlihat
+     * siapa pun.
+     */
+    private function dasarPercakapan(Request $request): \Closure
+    {
+        $status         = $request->string('status')->toString() ?: CrmConversation::STATUS_AKTIF;
+        $pengguna       = $request->user();
+        $lihatSemua     = (bool) $pengguna?->isSuperAdmin();
+        $memilihSendiri = $request->filled('pemilik') || $request->filled('search');
+        $dibatasiKeSaya = ! $lihatSemua && ! $memilihSendiri && $pengguna;
+
+        return function () use ($status, $request, $dibatasiKeSaya, $pengguna) {
+            return CrmConversation::query()
+                ->where('status', $status)
+                // 'semua' = permintaan sadar untuk melepas pembatas bawaan, jadi ia
+                // TIDAK menyaring apa pun. Tanpa cabang ini nilainya jatuh ke
+                // where('owner_user_id', 'semua') dan daftarnya kosong melompong.
+                ->when($request->filled('pemilik') && $request->pemilik !== 'semua', function ($q) use ($request) {
+                    $request->pemilik === 'belum'
+                        ? $q->whereNull('owner_user_id')
+                        : $q->where('owner_user_id', $request->pemilik);
+                })
+                ->when($dibatasiKeSaya, fn ($q) => $q->where('owner_user_id', $pengguna->id));
+        };
+    }
+
+    /**
+     * Saringan yang terlihat di layar (label, belum dibaca, pencarian).
+     *
+     * Dipisah supaya Ekspor memakai saringan yang SAMA PERSIS dengan daftarnya.
+     * Kalau disalin, tombol Ekspor cepat mengunduh kumpulan yang berbeda dari
+     * yang sedang dilihat orang — dan itu baru ketahuan setelah berkasnya
+     * dipakai menyusun pengetahuan agen.
+     */
+    private function saringPercakapan(Request $request, \Closure $dasar)
+    {
+        $antrean     = $request->string('antrean')->toString();
+        $belumDibaca = $request->boolean('belum_dibaca');
+
+        return $dasar()
+            ->when($antrean, fn ($q) => $q->where('queue_state', $antrean))
+            ->when($belumDibaca, fn ($q) => $q->where('unread_count', '>', 0))
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $cari = trim((string) $request->search);
+                $q->where(fn ($w) => $w
+                    ->where('contact_key', 'like', "%{$cari}%")
+                    ->orWhere('display_name', 'like', "%{$cari}%")
+                    ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$cari}%"))
+                    /*
+                     * Nomor pesanan ikut dicari lewat pelanggannya — pertanyaan
+                     * yang datang ke admin hampir selalu berbunyi "SO-xxxx itu
+                     * chat yang mana?", dan tanpa jalur ini ia harus buka menu
+                     * Penjualan dulu cuma untuk mendapatkan nomor teleponnya.
+                     */
+                    ->orWhereIn('customer_id', SalesOrder::query()
+                        ->where('order_number', 'like', "%{$cari}%")
+                        ->whereNotNull('customer_id')
+                        ->select('customer_id')));
+            })
+            // Yang belum pernah ada pesannya pun harus muncul; ORDER BY kolom
+            // nullable menaruhnya di ujung, jadi dipakai created_at sebagai jaring.
+            ->orderByRaw('COALESCE(last_message_at, created_at) DESC');
+    }
+
+    /**
+     * Unduh percakapan yang SEDANG DISARING sebagai satu berkas teks.
+     *
+     * Ini bahan mentah untuk menyusun pengetahuan agen: yang paling ampuh
+     * membuat agen terdengar seperti kita bukan instruksi gaya, melainkan
+     * puluhan balasan asli. Mengambilnya satu per satu dari layar terlalu
+     * lambat untuk dikerjakan, jadi tidak akan pernah dikerjakan.
+     *
+     * Formatnya sengaja teks biasa, bukan CSV atau JSON: tujuannya dibaca dan
+     * ditempel ke ruang diskusi, bukan diolah mesin.
+     */
+    public function ekspor(Request $request)
+    {
+        $batasChat  = 30;
+        $batasPesan = 100;
+
+        $percakapan = $this->saringPercakapan($request, $this->dasarPercakapan($request))
+            ->with(['customer:id,name', 'owner:id,name'])
+            ->limit($batasChat)
+            ->get();
+
+        $baris = [
+            '# Ekspor percakapan CRM',
+            '',
+            'Diunduh: ' . now()->translatedFormat('l, d M Y H:i'),
+            'Jumlah percakapan: ' . $percakapan->count() . ' (maksimal ' . $batasChat . ' per unduhan)',
+        ];
+
+        if ($request->filled('search')) {
+            $baris[] = 'Pencarian: ' . $request->string('search');
+        }
+
+        if ($request->filled('antrean')) {
+            $baris[] = 'Label: ' . CrmLabel::nama($request->string('antrean')->toString());
+        }
+
+        foreach ($percakapan as $p) {
+            $pesan = $p->messages()
+                ->with('attachments')
+                ->latest('id')
+                ->limit($batasPesan)
+                ->get()
+                ->reverse();
+
+            $baris[] = '';
+            $baris[] = '---';
+            $baris[] = '';
+            $baris[] = '## ' . $p->namaTampil() . ' (' . $p->contact_key . ')';
+            $baris[] = '';
+            $baris[] = '- Label: ' . CrmLabel::nama($p->queue_state);
+            $baris[] = '- Pemilik: ' . ($p->owner?->name ?: 'belum dioper');
+            $baris[] = '- Status: ' . ($p->customer_id ? 'pelanggan terdaftar' : 'lead');
+
+            if (filled($p->notes)) {
+                $baris[] = '- Catatan internal: ' . str_replace("\n", ' ', $p->notes);
+            }
+
+            $baris[] = '';
+
+            if ($pesan->isEmpty()) {
+                $baris[] = '_(belum ada pesan)_';
+                continue;
+            }
+
+            foreach ($pesan as $m) {
+                /*
+                 * "Pelanggan" dan "Kami", bukan nama admin. Yang sedang disusun
+                 * adalah contoh bagi agen — nama siapa yang kebetulan membalas
+                 * hari itu cuma derau, dan menyertakannya mengundang agen
+                 * memakai nama orang yang tidak ada di percakapan berikutnya.
+                 */
+                $siapa = $m->isInbound() ? 'Pelanggan' : 'Kami';
+                $isi   = trim((string) $m->content);
+
+                if ($isi === '' && $m->attachments->isNotEmpty()) {
+                    $isi = '[' . $m->attachments->count() . ' lampiran]';
+                }
+
+                if ($isi === '') {
+                    continue;
+                }
+
+                $baris[] = '**' . $siapa . '** (' . $m->sent_at?->format('d/m H:i') . '): '
+                    . str_replace("\n", ' ', $isi);
+            }
+        }
+
+        $nama = 'chat-crm-' . now()->format('Ymd-Hi') . '.md';
+
+        return response(implode("\n", $baris), 200, [
+            'Content-Type'        => 'text/markdown; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $nama . '"',
+        ]);
+    }
+
+    /**
+     * Template untuk pintasan "/" di kotak ketik; yang paling sering dipakai di atas.
+     *
+     * HANYA yang milik sendiri. Yang didaftarkan ke Meta bertebaran {{1}},
+     * {{2}} di dalam bodynya — disisipkan mentah ke kotak ketik, yang sampai ke
+     * pelanggan adalah kalimat berkurung kurawal. Tempatnya di layar Chat Baru,
+     * yang memang meminta isian tiap variabel.
+     */
     private function snippets()
     {
-        return CrmSnippet::aktif()
+        return CrmTemplate::aktif()
+            ->milikSendiri()
             ->orderBy('sort_order')
             ->orderByDesc('used_count')
             ->orderBy('title')
@@ -419,6 +560,79 @@ class CrmInboxController extends Controller
     }
 
     /**
+     * Kontak untuk popup "Mulai Chat": percakapan yang sudah ada DAN pelanggan
+     * ERP yang punya nomor.
+     *
+     * Dua sumber, bukan satu, karena keduanya memang dua keadaan berbeda:
+     * pelanggan lama yang jendelanya sudah tutup hidup di crm_conversations,
+     * sedangkan yang meninggalkan nomor di toko baru ada di master pelanggan.
+     * Menyediakan yang pertama saja memaksa admin mengetik ulang nomor dari
+     * layar lain — persis titik paling mudah salah kirim ke orang lain.
+     *
+     * Deduplikasi memakai nomor yang SUDAH dinormalkan: "0855…" di master dan
+     * "62855…" di percakapan adalah orang yang sama, dan menampilkannya dua
+     * kali membuat admin menebak mana yang benar.
+     */
+    public function cariKontak(Request $request)
+    {
+        $cari = trim((string) $request->input('q', ''));
+
+        $percakapan = CrmConversation::query()
+            ->with('customer:id,name')
+            ->where('status', CrmConversation::STATUS_AKTIF)
+            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('contact_key', 'like', "%{$cari}%")
+                ->orWhere('display_name', 'like', "%{$cari}%")
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$cari}%"))))
+            ->orderByRaw('COALESCE(last_message_at, created_at) DESC')
+            ->limit(15)
+            ->get();
+
+        $hasil  = [];
+        $sudah  = [];
+
+        foreach ($percakapan as $p) {
+            $sudah[$p->contact_key] = true;
+
+            $hasil[] = [
+                'nama'    => $p->namaTampil(),
+                'nomor'   => $p->contact_key,
+                'sumber'  => 'chat',
+                'terbuka' => $p->windowIsOpen(),
+            ];
+        }
+
+        $pelanggan = Customer::query()
+            ->whereNotNull('phone')
+            ->where('phone', '!=', '')
+            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('name', 'like', "%{$cari}%")
+                ->orWhere('phone', 'like', "%{$cari}%")))
+            ->orderBy('name')
+            ->limit(15)
+            ->get(['id', 'name', 'phone']);
+
+        foreach ($pelanggan as $c) {
+            $nomor = PhoneNumber::normalize($c->phone);
+
+            if (! $nomor || isset($sudah[$nomor])) {
+                continue;
+            }
+
+            $sudah[$nomor] = true;
+
+            $hasil[] = [
+                'nama'    => $c->name,
+                'nomor'   => $nomor,
+                'sumber'  => 'pelanggan',
+                'terbuka' => false,
+            ];
+        }
+
+        return response()->json(['hasil' => array_slice($hasil, 0, 20)]);
+    }
+
+    /**
      * Teruskan satu pesan ke percakapan lain.
      *
      * Tujuannya diterima sebagai id percakapan, BUKAN nomor telepon: nomor
@@ -482,178 +696,21 @@ class CrmInboxController extends Controller
      * Tanpa pemisahan ini satu daftar panjang bercampur, dan sub-tab Custom
      * penuh barang ready yang tak akan pernah diedit harganya dari sini.
      */
-    public function cariProduk(Request $request, PromotionService $promosi)
+    public function cariProduk(Request $request, PencarianProdukService $pencarian)
     {
         $cari   = trim((string) $request->input('q', ''));
         $mode   = $request->input('mode') === 'custom' ? 'custom' : 'web';
         $chatId = (int) $request->input('chat', 0);
 
-        return $mode === 'custom'
-            ? $this->cariProdukCustom($cari, $chatId, $promosi)
-            : $this->cariProdukWeb($cari, $chatId, $promosi);
-    }
-
-    /**
-     * Sub-tab WEB: hasilnya DIKELOMPOKKAN per halaman etalase, bukan per SKU.
-     *
-     * Satu halaman produk sering menampung banyak SKU yang berbeda tipis —
-     * "1 Kotak", "1 Kotak Instant", "1 Kotak Packing Kayu". Sebagai kartu
-     * terpisah mereka memakan seluruh layar dan tampak seperti tiga barang
-     * yang tak berhubungan, padahal yang ditanya pembeli justru
-     * PERBANDINGANNYA: mana yang lebih murah, mana yang stoknya ada.
-     * Dijejer sebagai baris di bawah satu nama, jawabannya terbaca sekilas.
-     *
-     * Varian saudara ikut ditarik walau tidak cocok dengan kata pencarian:
-     * kelompok yang cuma memuat sebagian variannya menyesatkan — admin
-     * menyimpulkan "cuma ada dua pilihan" padahal ada lima.
-     */
-    private function cariProdukWeb(string $cari, int $chatId, PromotionService $promosi)
-    {
-        $basis = rtrim((string) config('crm.storefront_url'), '/');
-
-        $halaman = StoreProduct::query()
-            ->published()
-            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
-                ->where('name', 'like', "%{$cari}%")
-                ->orWhereHas('variants.product', fn ($p) => $p
-                    ->where('name', 'like', "%{$cari}%")
-                    ->orWhere('sku', 'like', "%{$cari}%"))))
-            ->with([
-                'images',
-                'variants' => fn ($q) => $q->orderBy('sort_order')->orderBy('id'),
-                'variants.product' => fn ($q) => $q->where('is_active', 1)->where('is_sellable', 1),
-            ])
-            ->orderBy('name')
-            ->limit(15)
-            ->get();
-
-        // Varian yang produknya sudah mati/tidak dijual disaring di sini, bukan
-        // di kueri: `with` yang berkondisi hanya mengosongkan relasinya.
-        $produkIds = $halaman->flatMap(
-            fn ($h) => $h->variants->filter(fn ($v) => $v->product)->pluck('product_id')
-        )->unique()->values();
-
-        $stok     = app(StokTersediaService::class)->untuk($produkIds);
-        $diskon   = $this->diskonItem($halaman->flatMap(fn ($h) => $h->variants)->pluck('product')->filter(), $promosi);
-        $ditandai = $this->titipanAktif($chatId, $produkIds);
-
-        $grup = $halaman->map(function (StoreProduct $h) use ($basis, $stok, $diskon, $ditandai) {
-            $varian = $h->variants
-                ->filter(fn ($v) => $v->product)
-                ->map(fn ($v) => $this->barisVarian($v->product, $stok, $diskon, $ditandai, [
-                    // Label varian kadang kosong (halaman satu-SKU); nama produknya
-                    // yang dipakai, supaya kolomnya tidak pernah melompong.
-                    'label' => $v->variant_label ?: $v->product->name,
-                ]))
-                ->values();
-
-            return [
-                'id'     => $h->id,
-                'nama'   => $h->name,
-                'url'    => $basis . '/produk/' . $h->slug,
-                'foto'   => $h->images->sortByDesc('is_primary')->first()?->url,
-                'varian' => $varian,
-            ];
-        })->filter(fn ($g) => $g['varian']->isNotEmpty())->values();
-
-        return response()->json(['grup' => $grup]);
-    }
-
-    /**
-     * Sub-tab CUSTOM: tetap per SKU, tanpa pengelompokan.
-     *
-     * Barang buatan tidak punya halaman etalase untuk dijadikan induk, dan
-     * memang tidak berpasangan — tiap SKU berdiri sendiri.
-     */
-    private function cariProdukCustom(string $cari, int $chatId, PromotionService $promosi)
-    {
-        $produk = Product::query()
-            ->where('is_active', 1)
-            ->where('is_sellable', 1)
-            ->madeToOrder()
-            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
-                ->where('name', 'like', "%{$cari}%")
-                ->orWhere('sku', 'like', "%{$cari}%")))
-            ->with(['links' => fn ($q) => $q->orderBy('urutan')->orderBy('id')])
-            ->orderBy('name')
-            ->limit(15)
-            ->get();
-
-        $stok     = app(StokTersediaService::class)->untuk($produk->pluck('id'));
-        $diskon   = $this->diskonItem($produk, $promosi);
-        $ditandai = $this->titipanAktif($chatId, $produk->pluck('id'));
-
-        return response()->json([
-            'produk' => $produk->map(fn ($p) => $this->barisVarian($p, $stok, $diskon, $ditandai, [
-                'berat'  => (int) ($p->weight_gram ?? 0),
-                'tautan' => $p->links->map(fn ($l) => [
-                    'id'    => $l->id,
-                    'judul' => $l->judul,
-                    'url'   => $l->url,
-                ])->values(),
-            ]))->values(),
-        ]);
-    }
-
-    /**
-     * Satu baris SKU siap tampil — dipakai kedua sub-tab supaya angka yang
-     * dibacakan admin tak pernah berbeda bentuk antar layar.
-     */
-    private function barisVarian(Product $p, array $stok, array $diskon, $ditandai, array $tambahan = []): array
-    {
-        $harga = round((float) $p->display_price, 2);
-        $promo = $diskon[$p->id] ?? null;
-
-        return array_merge([
-            'id'          => $p->id,
-            'nama'        => $p->name,
-            'label'       => $p->name,
-            'sku'         => $p->sku,
-            'harga'       => $promo ? round(max(0, $harga - (float) $promo['discount_amount']), 2) : $harga,
-            'harga_coret' => $promo ? $harga : null,
-            'promo'       => $promo['promotion_name'] ?? null,
-            'stok'        => (float) ($stok[$p->id] ?? 0),
-            'preorder'    => $p->isPreorder(),
-            'custom'      => $p->isMadeToOrder(),
-            'titipan'     => $ditandai[$p->id]->id ?? null,
-            // Jumlah yang ditunggu ikut, supaya tanda di layar berbunyi
-            // "dikabari saat mencapai 10" — bukan sekadar "ditandai".
-            'titipan_qty' => isset($ditandai[$p->id]) ? (float) $ditandai[$p->id]->qty : null,
-        ], $tambahan);
-    }
-
-    /**
-     * Diskon item aktif, dihitung sekali untuk seluruh hasil.
-     *
-     * Harga yang dibacakan ke pembeli WAJIB harga setelah promo — angka yang
-     * sama dengan yang terpampang di etalase. Menyebut harga coret di chat lalu
-     * pembeli melihat harga lain di web adalah cara tercepat kehilangan
-     * kepercayaan, dan koreksinya selalu merugikan kita.
-     */
-    private function diskonItem($produk, PromotionService $promosi): array
-    {
-        $items = collect($produk)->filter()->unique('id')
-            ->map(fn ($p) => [
-                'product_id' => $p->id,
-                'qty'        => 1,
-                'unit_price' => (float) $p->display_price,
-            ])->values()->all();
-
-        return $items ? $promosi->resolveItemDiscounts($items) : [];
-    }
-
-    /** Titipan "kabari kalau stok ada" milik chat yang sedang dibuka. */
-    private function titipanAktif(int $chatId, $produkIds)
-    {
-        if (! $chatId) {
-            return collect();
-        }
-
-        return CrmStockWatch::aktif()
-            ->where('conversation_id', $chatId)
-            ->whereIn('product_id', collect($produkIds)->all())
-            ->get(['id', 'product_id', 'qty'])
-            ->keyBy('product_id');
+        /*
+         * Pencariannya sendiri pindah ke PencarianProdukService saat agen AI
+         * lahir: alat `cari_produk` milik agen membaca sumber yang sama persis.
+         * Kalau disalin, stok & diskon dihitung dua kali dengan aturan yang
+         * cepat berbeda, dan bedanya baru ketahuan dari pembeli.
+         */
+        return response()->json($mode === 'custom'
+            ? $pencarian->custom($cari, $chatId)
+            : $pencarian->web($cari, $chatId));
     }
 
     /** Tambah satu tautan luar (Shopee dsb.) pada sebuah SKU. */
@@ -799,6 +856,28 @@ class CrmInboxController extends Controller
         return response()->json(
             ['ok' => $hasil['ok'], 'pesan' => $hasil['message']],
             $hasil['ok'] ? 200 : 422
+        );
+    }
+
+    /**
+     * Kirim PANCINGAN: template bertombol yang membuka kembali jendela 24 jam.
+     *
+     * Satu-satunya jalan keluar dari kebuntuan yang paling sering terjadi di
+     * layar ini — pembahasan yang belum kelar bertemu hari libur, jendelanya
+     * habis, dan Senin pagi tak satu kalimat pun bisa dikirim sampai pelanggan
+     * kebetulan menyapa duluan. Berbayar, jadi tombolnya sengaja hanya muncul
+     * di keadaan yang memang membutuhkannya (lihat kirimPancingan()).
+     */
+    public function pancingan(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
+    {
+        $hasil = $balasan->kirimPancingan($conversation, $request->user()?->id);
+
+        return back()->with(
+            $hasil['success'] ? 'success' : 'error',
+            $hasil['success']
+                ? 'Pancingan terkirim. Begitu ' . $conversation->namaTampil()
+                  . ' menekan tombolnya, jendela 24 jam terbuka lagi dan chat bisa dilanjutkan seperti biasa.'
+                : $hasil['error']
         );
     }
 
@@ -1023,8 +1102,8 @@ class CrmInboxController extends Controller
         );
     }
 
-    /** Simpan potongan balasan baru dari rail kanan. */
-    public function simpanSnippet(Request $request)
+    /** Simpan template baru lewat jalur pintas (CRUD penuhnya di layar Template Pesan). */
+    public function simpanTemplateCepat(Request $request)
     {
         $data = $request->validate([
             'title'    => 'required|string|max:120',
@@ -1032,17 +1111,28 @@ class CrmInboxController extends Controller
             'category' => 'nullable|string|max:60',
         ]);
 
-        CrmSnippet::create($data + ['created_by' => $request->user()?->id]);
+        CrmTemplate::create($data + ['created_by' => $request->user()?->id]);
 
-        return back()->with('success', 'Potongan balasan disimpan.');
+        return back()->with('success', 'Template disimpan.');
     }
 
-    /** Hapus potongan balasan. */
-    public function hapusSnippet(CrmSnippet $snippet)
+    /**
+     * Hapus template lewat jalur pintas.
+     *
+     * Yang sudah didaftarkan ke Meta DITOLAK di sini: menghapus barisnya tidak
+     * menghapus templatenya di Meta, dan namanya tetap terpakai di sana — yang
+     * tersisa cuma template yang hidup tapi tak bisa lagi dipilih dari mana pun.
+     */
+    public function hapusTemplateCepat(CrmTemplate $template)
     {
-        $snippet->delete();
+        if ($template->keMeta()) {
+            return back()->with('error',
+                'Template "' . $template->title . '" sudah didaftarkan ke Meta — hapus lewat layar Template Pesan.');
+        }
 
-        return back()->with('success', 'Potongan balasan dihapus.');
+        $template->delete();
+
+        return back()->with('success', 'Template dihapus.');
     }
 
     /**
@@ -1193,7 +1283,7 @@ class CrmInboxController extends Controller
      * EnsureMenuAccess mengikat izin ke menu pemilik route-nya: operator CRM
      * yang tidak punya menu Promosi akan kena 403 di tengah menyusun pesanan.
      */
-    public function promoKeranjang(Request $request, CrmConversation $conversation, \App\Modules\Sales\Services\PromotionService $promosi)
+    public function promoKeranjang(Request $request, CrmConversation $conversation, PromotionService $promosi)
     {
         $items = array_map(fn ($it) => [
             'product_id' => (int) ($it['product_id'] ?? 0),

@@ -8,6 +8,8 @@ use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Support\MediaKind;
 use App\Modules\CRM\Support\PhoneNumber;
+use App\Modules\CRM\Support\TemplateResmi;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Http\UploadedFile;
 
@@ -52,11 +54,12 @@ class CrmReplyService
             return $this->gagal('Pesan kosong.');
         }
 
-        if (! $percakapan->windowIsOpen()) {
-            return $this->gagal(
-                'Jendela 24 jam sudah tertutup — pesan bebas tidak bisa dikirim. '
-                . 'Pakai template penyusul, atau tunggu pelanggan membalas lebih dulu.'
-            );
+        if ($tolak = $this->pastikanJendela(
+            $percakapan,
+            'Jendela 24 jam sudah tertutup — pesan bebas tidak bisa dikirim. '
+            . 'Pakai template penyusul, atau tunggu pelanggan membalas lebih dulu.'
+        )) {
+            return $tolak;
         }
 
         return $berkas
@@ -110,19 +113,7 @@ class CrmReplyService
 
         $percakapan = CrmConversation::findOrCreateFor($tujuan);
 
-        $pesan = $this->catat(
-            $percakapan,
-            'template',
-            // Bunyi template disusun ulang di sini supaya thread bisa DIBACA.
-            // Menyimpan sekadar nama template membuat riwayatnya tak berarti
-            // bagi siapa pun yang membukanya bulan depan.
-            $this->susunBunyi($bunyiTemplate, $variabel) ?: $template,
-            $hasil,
-            $userId,
-            null
-        );
-
-        $pesan->forceFill(['raw' => ['template' => $template, 'variables' => $variabel] + (array) $pesan->raw])->save();
+        $this->catatTemplate($percakapan, $template, $variabel, $bunyiTemplate, $hasil, $userId);
 
         /*
          * Bola ada di PELANGGAN: kita sudah menyapa, sekarang menunggu ia
@@ -131,6 +122,178 @@ class CrmReplyService
         $this->geserBola($percakapan);
 
         return ['success' => true, 'conversation' => $percakapan, 'error' => null];
+    }
+
+    /**
+     * Ambang (menit) sisa jendela yang membuat pancingan pantas dikirim.
+     *
+     * Satu jam. Cukup lama untuk sempat dilihat & ditekan sebelum jendelanya
+     * habis, cukup dekat untuk tidak mengganggu percakapan yang sebenarnya
+     * masih berjalan — kalau pelanggan membalas sesudah ini, jendelanya
+     * bergeser dan pancingan berikutnya lahir dari hitungan yang baru.
+     */
+    public const AMBANG_PANCINGAN_MENIT = 60;
+
+    /**
+     * PANCINGAN: minta pelanggan menekan tombol supaya jendelanya diperbarui.
+     *
+     * Lahir dari keadaan yang tidak jarang sama sekali — diskusi desain yang
+     * belum kelar lalu bertemu hari libur. Jendela 24 jam habis di tengah
+     * pembahasan, dan Senin pagi kita tak bisa menyambung satu kalimat pun
+     * sampai pelanggan kebetulan menyapa duluan.
+     *
+     * DUA JALUR, dan yang memilih adalah keadaan jendelanya:
+     *
+     *  1. MASIH TERBUKA (jalur biasa, dan yang dituju penjadwal): pesan sesi
+     *     bertombol. GRATIS, tanpa peninjauan Meta. Inilah alasan pancingan
+     *     dikirim sejam SEBELUM habis, bukan sesudah — sejam lebih awal
+     *     harganya nol, semenit terlambat harganya tarif template.
+     *
+     *  2. SUDAH TERTUTUP (jaring pengaman, dipanggil tangan dari layar chat):
+     *     template 'lanjut_diskusi'. BERBAYAR. Dipakai kalau pancingan gratis
+     *     terlewat — penjadwal mati, chat baru diperhatikan Senin siang — dan
+     *     pelanggan tidak menyapa duluan.
+     *
+     * Tombolnyalah yang bekerja, bukan kalimatnya. Sekali ditekan, pelanggan
+     * mengirim pesan masuk sungguhan — dan pesan masuk itu yang memperbarui
+     * jendela, tanpa ia perlu memikirkan kalimat apa pun. Meminta "mohon balas
+     * ya" memindahkan beban itu kepada orang yang sedang tidak memikirkan kita.
+     *
+     * @param  bool  $waktunyaSudahDiputuskan  penjadwal sudah menimbang sendiri
+     *         kapan pancingan ini pantas berangkat, jadi ambang sejam di bawah
+     *         tidak berlaku. Dipakai untuk satu keadaan saja, dan keadaan itu
+     *         nyata: jendela yang habis pukul tiga pagi harus dipancing malam
+     *         sebelumnya, jauh lebih awal dari sejam. Yang menekan tombol
+     *         di layar TIDAK PERNAH mengirimkan ini — di sanalah ambangnya
+     *         justru berguna.
+     * @return array{success:bool, message:?CrmMessage, error:?string}
+     */
+    public function kirimPancingan(
+        CrmConversation $percakapan,
+        ?int $userId = null,
+        bool $waktunyaSudahDiputuskan = false
+    ): array {
+        /*
+         * Jendela yang masih lapang DITOLAK, dan itu bukan kehati-hatian
+         * berlebihan: pancingan yang datang saat percakapan masih hangat
+         * terbaca seperti diusir. Ia baru masuk akal di ujung jendela.
+         */
+        if (! $waktunyaSudahDiputuskan
+            && $percakapan->windowIsOpen()
+            && ! $percakapan->windowHampirTutup(self::AMBANG_PANCINGAN_MENIT)) {
+            return $this->gagal(
+                'Jendela masih terbuka ' . $percakapan->windowHoursLeft() . ' jam lagi — '
+                . 'balas biasa saja. Pancingan baru berguna saat jendelanya tinggal sekitar sejam atau sudah tutup.'
+            );
+        }
+
+        $hasil = $percakapan->windowIsOpen()
+            ? $this->pancinganSesi($percakapan, $userId)
+            : $this->pancinganTemplate($percakapan, $userId);
+
+        /*
+         * Penanda dipasang hanya kalau pesannya benar-benar berangkat.
+         * Dipasang di depan, kegagalan sesaat (vendor 500) akan mengunci
+         * percakapan itu dari pancingan sampai jendelanya berganti — dan
+         * jendelanya tak akan berganti, karena justru itu yang sedang
+         * diusahakan.
+         */
+        if ($hasil['success']) {
+            $percakapan->forceFill(['pancingan_untuk_jendela_at' => $percakapan->window_expires_at])->save();
+        }
+
+        return $hasil;
+    }
+
+    /** Jalur GRATIS: pesan sesi bertombol, selagi jendela masih terbuka. */
+    private function pancinganSesi(CrmConversation $percakapan, ?int $userId): array
+    {
+        $teks = TemplateResmi::bunyiPancinganSesi(
+            $percakapan->sapaan(),
+            (string) config('crm.store_hours_text', 'jam kerja')
+        );
+
+        $hasil = $this->chat->provider()->sendInteraktif([
+            'to'              => $percakapan->contact_key,
+            'text'            => $teks,
+            'buttons'         => [['id' => 'lanjut_diskusi', 'title' => TemplateResmi::TOMBOL_PANCINGAN]],
+            'channel'         => $percakapan->channel,
+            'phone_number_id' => $percakapan->business_number_id,
+        ]);
+
+        if (! ($hasil['success'] ?? false)) {
+            return $this->gagal('Gagal mengirim pancingan: ' . ($hasil['error'] ?? 'tanpa keterangan'));
+        }
+
+        $pesan = $this->catat($percakapan, 'interactive', $teks, $hasil, $userId, null);
+
+        /*
+         * Tombolnya ikut dicatat. Yang dikembalikan vendor cuma jawaban atas
+         * kiriman, bukan salinan kirimannya — tanpa baris ini gelembung di ERP
+         * tak punya cara tahu pesan ini bertombol, dan kalimat "silakan tekan
+         * tombol di bawah ini" tampil menggantung tanpa tombol.
+         */
+        $pesan->forceFill([
+            'raw' => ['tombol' => [TemplateResmi::TOMBOL_PANCINGAN]] + (array) $pesan->raw,
+        ])->save();
+
+        $this->geserBola($percakapan);
+
+        return ['success' => true, 'message' => $pesan, 'error' => null];
+    }
+
+    /** Jalur BERBAYAR: template Meta, satu-satunya yang sah setelah jendela tutup. */
+    private function pancinganTemplate(CrmConversation $percakapan, ?int $userId): array
+    {
+        $nama     = TemplateResmi::TEMPLATE_PANCINGAN;
+        $variabel = [$percakapan->sapaan(), (string) config('crm.store_hours_text', 'jam kerja')];
+
+        $hasil = $this->chat->provider()->sendTemplate([
+            'to'       => $percakapan->contact_key,
+            'template' => $nama,
+            'language' => 'id',
+            'body'     => $variabel,
+        ]);
+
+        if (! ($hasil['success'] ?? false)) {
+            return $this->gagal('Gagal mengirim pancingan berbayar: ' . ($hasil['error'] ?? 'tanpa keterangan'));
+        }
+
+        $pesan = $this->catatTemplate($percakapan, $nama, $variabel, TemplateResmi::body($nama), $hasil, $userId);
+
+        $this->geserBola($percakapan);
+
+        return ['success' => true, 'message' => $pesan, 'error' => null];
+    }
+
+    /**
+     * Catat satu template terkirim ke thread.
+     *
+     * Yang disimpan sebagai isi pesan adalah BUNYINYA yang sudah terisi, bukan
+     * nama templatenya. Nama template membuat riwayat tak berarti bagi siapa
+     * pun yang membukanya bulan depan — sedangkan nama & variabel aslinya tetap
+     * ikut, di `raw`, untuk yang memang sedang menelusuri.
+     */
+    private function catatTemplate(
+        CrmConversation $percakapan,
+        string $template,
+        array $variabel,
+        ?string $bunyiTemplate,
+        array $hasil,
+        ?int $userId
+    ): CrmMessage {
+        $pesan = $this->catat(
+            $percakapan,
+            'template',
+            $this->susunBunyi($bunyiTemplate, $variabel) ?: $template,
+            $hasil,
+            $userId,
+            null
+        );
+
+        $pesan->forceFill(['raw' => ['template' => $template, 'variables' => $variabel] + (array) $pesan->raw])->save();
+
+        return $pesan;
     }
 
     /** Ganti {{1}}, {{2}}, … dengan nilainya untuk ditampilkan di thread. */
@@ -259,11 +422,12 @@ class CrmReplyService
         string $caption,
         ?int $userId = null
     ): array {
-        if (! $percakapan->windowIsOpen()) {
-            return $this->gagal(
-                'Jendela 24 jam sudah tertutup — foto tidak bisa dikirim. '
-                . 'Pakai template penyusul, atau tunggu pelanggan membalas lebih dulu.'
-            );
+        if ($tolak = $this->pastikanJendela(
+            $percakapan,
+            'Jendela 24 jam sudah tertutup — foto tidak bisa dikirim. '
+            . 'Pakai template penyusul, atau tunggu pelanggan membalas lebih dulu.'
+        )) {
+            return $tolak;
         }
 
         $caption = trim($caption);
@@ -345,11 +509,12 @@ class CrmReplyService
      */
     public function teruskan(CrmMessage $sumber, CrmConversation $tujuan, ?int $userId = null): array
     {
-        if (! $tujuan->windowIsOpen()) {
-            return $this->gagal(
-                'Jendela 24 jam ' . $tujuan->namaTampil() . ' sudah tertutup — pesan tidak bisa diteruskan ke sana. '
-                . 'Pakai template penyusul, atau tunggu ia membalas lebih dulu.'
-            );
+        if ($tolak = $this->pastikanJendela(
+            $tujuan,
+            'Jendela 24 jam ' . $tujuan->namaTampil() . ' sudah tertutup — pesan tidak bisa diteruskan ke sana. '
+            . 'Pakai template penyusul, atau tunggu ia membalas lebih dulu.'
+        )) {
+            return $tolak;
         }
 
         $sumber->loadMissing('attachments');
@@ -453,6 +618,88 @@ class CrmReplyService
         $this->geserBola($tujuan);
 
         return ['success' => true, 'message' => $terakhir, 'error' => null];
+    }
+
+    /* ---------------------------------------------------- penjaga jendela 24 jam */
+
+    /**
+     * Ambang (menit) sisa jendela yang membuat kita berhenti percaya catatan
+     * sendiri dan bertanya ke vendor.
+     *
+     * Satu jam, bukan lebih: yang sedang dijaga adalah SELISIH antara jam kita
+     * dan jam Meta, dan selisih itu lahir dari webhook yang terlambat sampai —
+     * hitungan menit, sesekali belasan menit. Ambang yang lebih lebar hanya
+     * menambah panggilan API tanpa menangkap kekeliruan tambahan.
+     */
+    private const AMBANG_TANYA_MENIT = 60;
+
+    /**
+     * Pastikan pesan bebas memang boleh keluar, sebelum satu huruf pun dikirim.
+     *
+     * Catatan lokal `window_expires_at` dihitung dari timestamp webhook, dan itu
+     * hampir selalu cukup. Yang tidak cukup: webhook yang datang terlambat.
+     * Kalau pesan pelanggan pukul 09.00 baru sampai ke ERP pukul 09.20 tanpa
+     * membawa timestamp, jendela versi kita berakhir 20 menit LEBIH LAMBAT dari
+     * versi Meta — dan di dua puluh menit itu layar dengan yakin menampilkan
+     * kotak ketik untuk pesan yang pasti ditolak.
+     *
+     * Karena itu vendor hanya ditanya di ujung jendela. Menanyakannya tiap kali
+     * berarti satu panggilan API untuk setiap balasan; menanyakannya di daftar
+     * percakapan berarti satu panggilan per baris. Keduanya membayar mahal untuk
+     * kepastian yang, di tengah jendela, tidak pernah dibutuhkan.
+     *
+     * Vendor yang TIDAK BISA DIHUBUNGI sengaja tidak menghalangi: jaringan
+     * bermasalah bukan alasan menolak balasan yang menurut catatan kita sah.
+     * Kalau ternyata Meta menolaknya, penolakan itu tetap sampai ke admin lewat
+     * jalur kirim biasa — sedangkan menutup layar karena vendor sedang lambat
+     * mengunci admin dari pekerjaan yang sebenarnya boleh ia lakukan.
+     *
+     * @return array{success:bool, message:null, error:string}|null  null = boleh lanjut
+     */
+    private function pastikanJendela(CrmConversation $percakapan, string $tolakan): ?array
+    {
+        if ($percakapan->windowHampirTutup(self::AMBANG_TANYA_MENIT)) {
+            $this->selaraskanJendela($percakapan);
+        }
+
+        return $percakapan->windowIsOpen() ? null : $this->gagal($tolakan);
+    }
+
+    /**
+     * Samakan catatan jendela kita dengan jawaban vendor.
+     *
+     * Yang disimpan adalah jawabannya apa adanya, termasuk saat vendor bilang
+     * TUTUP: `window_expires_at` dimundurkan ke masa lalu, bukan dikosongkan.
+     * Bedanya kelihatan saat menelusuri masalah — kolom kosong terbaca seperti
+     * percakapan yang belum pernah menerima pesan masuk sama sekali, padahal
+     * yang terjadi adalah jendelanya baru saja habis.
+     */
+    private function selaraskanJendela(CrmConversation $percakapan): void
+    {
+        $status = $this->chat->provider()->windowStatus($percakapan->contact_key);
+
+        if (! ($status['success'] ?? false)) {
+            return;   // vendor tak terjangkau — catatan lokal tetap dipakai
+        }
+
+        if (! ($status['is_open'] ?? false)) {
+            $percakapan->forceFill(['window_expires_at' => now()->subSecond()])->save();
+
+            return;
+        }
+
+        // Vendor bilang masih terbuka. Kalau ia menyebutkan sampai kapan,
+        // angkanya dipakai — dialah yang berwenang, bukan hitungan kita.
+        if ($kapan = $status['expires_at'] ?? null) {
+            try {
+                $percakapan->forceFill([
+                    'window_expires_at' => Carbon::parse((string) $kapan)->setTimezone(config('app.timezone', 'UTC')),
+                ])->save();
+            } catch (\Throwable) {
+                // Bentuk tanggal yang tak terbaca bukan alasan menutup jendela
+                // yang vendor sendiri bilang terbuka.
+            }
+        }
     }
 
     /* ---------------------------------------------------------------- bantuan */

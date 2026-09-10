@@ -2,6 +2,7 @@
 
 namespace App\Modules\CRM\Services;
 
+use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmOutboxMessage;
 use App\Modules\CRM\NotificationManager;
 use App\Modules\CRM\Support\TemplateResmi;
@@ -22,7 +23,10 @@ use Illuminate\Support\Facades\Log;
  */
 class CrmOutboxSender
 {
-    public function __construct(private NotificationManager $notifikasi)
+    public function __construct(
+        private NotificationManager $notifikasi,
+        private CrmReplyService $balasan,
+    )
     {
     }
 
@@ -55,6 +59,24 @@ class CrmOutboxSender
             $baris->tandaiGagal('Baris outbox tidak lengkap (nomor atau nama template kosong).');
 
             return 'gagal';
+        }
+
+        /*
+         * Pancingan menyimpang dari seluruh alur di bawah, dan alasannya bukan
+         * kerapian melainkan HARGA. Jalurnya tidak ditentukan driver melainkan
+         * jendela pelanggan: selama masih terbuka ia berangkat sebagai pesan
+         * sesi bertombol yang GRATIS; sesudah tutup, satu-satunya yang sah
+         * adalah template berbayar. Keputusan itu sudah ada di satu tempat
+         * (CrmReplyService::kirimPancingan), dan menyalinnya ke sini berarti
+         * dua tempat yang bisa memilih jalur berbeda untuk pesan yang sama.
+         *
+         * Bonusnya kebetulan tepat: baris yang tertahan tiga jam karena WAHA
+         * mati akan menemukan jendelanya sudah tutup saat akhirnya dikirim, dan
+         * dengan sendirinya naik ke jalur berbayar — persis eskalasi yang
+         * berlaku untuk notifikasi lain, tanpa satu baris pun aturan tambahan.
+         */
+        if ($baris->event === CrmOutboxMessage::EVENT_PANCINGAN) {
+            return $this->kirimPancingan($baris);
         }
 
         /*
@@ -93,6 +115,44 @@ class CrmOutboxSender
 
         $baris->tandaiGagal($alasan);
         Log::warning('[CRM] notifikasi gagal terkirim', ['outbox_id' => $baris->id, 'error' => $alasan]);
+
+        return 'gagal';
+    }
+
+    /**
+     * @return 'terkirim'|'gagal'
+     */
+    private function kirimPancingan(CrmOutboxMessage $baris): string
+    {
+        $percakapan = $baris->conversation_id
+            ? CrmConversation::find($baris->conversation_id)
+            : null;
+
+        if (! $percakapan) {
+            $baris->tandaiGagal('Percakapannya sudah tidak ada — pancingan tidak punya tujuan.');
+
+            return 'gagal';
+        }
+
+        $hasil = $this->balasan->kirimPancingan($percakapan, null, true);
+
+        if ($hasil['success']) {
+            $baris->tandaiTerkirim(
+                $hasil['message']?->provider_message_id,
+                // Jalurnya DICATAT, karena inilah satu-satunya keterangan yang
+                // membedakan pancingan gratis dari yang berbayar setelah
+                // kejadiannya lewat.
+                $percakapan->windowIsOpen() ? 'Jalur sesi (gratis).' : 'Jendela sudah tutup — lewat template berbayar.'
+            );
+
+            return 'terkirim';
+        }
+
+        $baris->tandaiGagal((string) $hasil['error']);
+
+        Log::warning('[CRM] pancingan gagal terkirim', [
+            'outbox_id' => $baris->id, 'error' => $hasil['error'],
+        ]);
 
         return 'gagal';
     }

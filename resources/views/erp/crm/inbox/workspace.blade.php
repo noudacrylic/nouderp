@@ -77,7 +77,7 @@
                 <div class="h-full flex items-center justify-center bg-white border border-gray-200 rounded-lg">
                     <p class="text-sm text-gray-500 px-6 text-center">
                         Pilih percakapan di sebelah kiri.<br>
-                        <span class="text-xs text-gray-400">Atau mulai yang baru lewat tombol <b>Chat Baru</b>.</span>
+                        <span class="text-xs text-gray-400">Atau mulai yang baru lewat tombol <b>＋</b> di atas daftar.</span>
                     </p>
                 </div>
             @endif
@@ -87,5 +87,10 @@
             @include('erp.crm.inbox._rail')
         </div>
     </div>
+
+    {{-- Satu popup untuk dua pintu masuk (tombol ＋ dan kotak jendela-tertutup).
+         Dipasang di sini, di luar ketiga kolom, supaya tidak ikut terpotong
+         oleh kolom yang overflow-hidden. --}}
+    @include('erp.crm.inbox._mulai_chat')
 </div>
 @endsection
