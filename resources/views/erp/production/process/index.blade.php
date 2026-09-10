@@ -10,17 +10,28 @@
          warehouses: {{ Js::from($warehouses) }},
          defaultWh: {{ (int) $defaultWarehouseId }} || null,
          openSelesai(d) {
-             // Inisialisasi qty aktual = rencana bila belum diisi; seed % dari nilai tersimpan
-             // (dipakai mode tanpa BOM agar operator bisa override), lalu hitung % awal.
-             // Default alokasi = gudang Utama (defaultWh); fallback ke gudang order.
+             // Default qty penutup = SISA target (target − yang sudah diambil lewat penyelesaian
+             // sebagian), BUKAN angka batch terakhir. Batch penutup menyapu SELURUH sisa WIP, jadi
+             // qty yang kekecilan membuat HPP unit terakhir meledak tanpa peringatan apa pun
+             // (mis. sisa 62 pcs diisi 2 → HPP 1,1 jt/pcs) dan tidak bisa dibatalkan begitu
+             // stoknya terjual. Belum ada yang diambil → default = target penuh.
+             // Seed % dari nilai tersimpan (dipakai mode tanpa BOM agar operator bisa override),
+             // lalu hitung % awal. Default alokasi = gudang Utama (defaultWh); fallback gudang order.
              const defWh = this.defaultWh || (d && d.warehouse_id) || null;
              if (d && Array.isArray(d.outputs)) {
                  d.outputs.forEach(o => {
-                     o.qty_produced = (parseFloat(o.qty_produced) > 0) ? parseFloat(o.qty_produced) : parseFloat(o.qty_planned);
+                     const planned  = parseFloat(o.qty_planned) || 0;
+                     const released = parseFloat(o.qty_released) || 0;
+                     o.qty_released = released;
+                     o.qty_sisa     = Math.max(0, Math.round((planned - released) * 10000) / 10000);
+                     o.qty_produced = o.qty_sisa;
                      if (o.calc_percentage === undefined) o.calc_percentage = parseFloat(o.percentage) || 0;
                      // Seed alokasi gudang: pakai yang tersimpan (retry), kalau tidak ada → semua ke gudang order.
                      if (Array.isArray(o.allocations) && o.allocations.length) {
                          o.allocations = o.allocations.map(a => ({ warehouse_id: a.warehouse_id, qty: parseFloat(a.qty) || 0 }));
+                         // Alokasi tersimpan berasal dari batch SEBELUMNYA (angkanya qty batch itu).
+                         // Pertahankan pilihan gudangnya, samakan angkanya dengan qty penutup.
+                         this.rescaleAlloc(o);
                      } else {
                          o.allocations = [{ warehouse_id: defWh, qty: o.qty_produced }];
                      }
@@ -28,6 +39,26 @@
              }
              this.selesai = d;
              this.recalcSelesai();
+         },
+         // Samakan total alokasi gudang dengan qty output, pertahankan proporsi & pilihan gudang.
+         rescaleAlloc(o) {
+             const target = parseFloat(o.qty_produced) || 0;
+             const s = this.allocSum(o);
+             if (Math.abs(s - target) < 1e-6) return;
+             if (s <= 0 || o.allocations.length === 1) {
+                 o.allocations.forEach((a, i) => { a.qty = i === 0 ? target : 0; });
+                 return;
+             }
+             let acc = 0;
+             const last = o.allocations.length - 1;
+             o.allocations.forEach((a, i) => {
+                 if (i === last) {
+                     a.qty = Math.round((target - acc) * 10000) / 10000;
+                 } else {
+                     a.qty = Math.round((a.qty / s) * target * 100) / 100;
+                     acc += a.qty;
+                 }
+             });
          },
          // Jumlah qty yang sudah dialokasikan ke gudang untuk satu output.
          allocSum(o) {
@@ -55,7 +86,30 @@
          },
          // Cegah submit bila ada alokasi gudang yang tidak pas dengan qty terpakai.
          validateSelesai(e) {
-             if (!this.selesai || !this.selesai.is_last || this.warehouses.length <= 1) return true;
+             if (!this.selesai || !this.selesai.is_last) return true;
+
+             // Jaring salah ketik: batch penutup menyapu SELURUH sisa WIP ke qty yang diisi,
+             // jadi angka yang jauh di bawah sisa target meledakkan HPP unit terakhir dan tidak
+             // bisa dibatalkan setelah stoknya terjual. Selisih wajar (cacat beberapa pcs) lewat
+             // tanpa gangguan — yang ditanya hanya penyimpangan besar (< 50% sisa).
+             for (const o of (this.selesai.outputs || [])) {
+                 if (o.output_type !== 'main') continue;
+                 const sisa = parseFloat(o.qty_sisa) || 0;
+                 const qty  = parseFloat(o.qty_produced) || 0;
+                 if (sisa <= 0 || qty >= sisa * 0.5) continue;
+                 const fmt = (n) => Number(n).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+                 const lonjak = qty > 0
+                     ? 'HPP per pcs akan melonjak sekitar ' + fmt(Math.round((sisa / qty) * 10) / 10) + '× dari normal.'
+                     : 'seluruh sisa biaya akan menumpuk di produk sampingan.';
+                 const ok = confirm(
+                     'Qty penutup ' + o.product_name + ' cuma ' + fmt(qty) + ' dari sisa ' + fmt(sisa) + '.\n\n' +
+                     'Finalisasi penutup membebankan SELURUH sisa biaya produksi ke qty ini, jadi ' + lonjak + '\n\n' +
+                     'Kalau sisanya memang sudah selesai, isi ' + fmt(sisa) + '. Lanjut dengan ' + fmt(qty) + '?'
+                 );
+                 if (!ok) { e.preventDefault(); return false; }
+             }
+
+             if (this.warehouses.length <= 1) return true;
              for (const o of (this.selesai.outputs || [])) {
                  if ((parseFloat(o.qty_produced) || 0) <= 0) continue;
                  if (!this.allocBalanced(o)) {
@@ -428,12 +482,22 @@
                                         <div class="text-sm font-bold text-gray-600 bg-white border border-gray-100 rounded-lg px-2 py-2 text-right"
                                              x-text="Number(out.qty_planned).toLocaleString('id-ID', {minimumFractionDigits: 0, maximumFractionDigits: 2})"></div>
                                     </div>
+                                    {{-- Konteks batch penutup: berapa yang sudah masuk stok lewat penyelesaian sebagian. --}}
+                                    <div class="w-16" x-show="(out.qty_released || 0) > 0">
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Diambil</label>
+                                        <div class="text-sm font-bold text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-2 py-2 text-right"
+                                             x-text="Number(out.qty_released || 0).toLocaleString('id-ID', {minimumFractionDigits: 0, maximumFractionDigits: 2})"></div>
+                                    </div>
                                     <div class="w-24">
-                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Terpakai *</label>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1"
+                                               x-text="(out.qty_released || 0) > 0 ? 'Qty Penutup *' : 'Qty Terpakai *'"></label>
                                         <input type="number" step="0.01" min="0" required
                                                x-model.number="out.qty_produced" @input="recalcSelesai(); syncSingleAlloc(out)"
                                                :name="'outputs[' + idx + '][qty_produced]'"
                                                class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
+                                        <p class="text-[10px] text-gray-400 mt-1 leading-tight"
+                                           x-show="(out.qty_released || 0) > 0"
+                                           x-text="'sisa ' + Number(out.qty_sisa || 0).toLocaleString('id-ID', {maximumFractionDigits: 2})"></p>
                                     </div>
                                     <div class="w-24">
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">
