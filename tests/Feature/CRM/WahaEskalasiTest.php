@@ -174,7 +174,7 @@ class WahaEskalasiTest extends TestCase
 
         Http::fake([
             '*/api/sessions/notifikasi' => Http::response(['status' => 'SCAN_QR_CODE']),
-            '*/auth/qr'                 => Http::response('PNG-PALSU'),
+            '*/auth/qr*'                => Http::response('PNG-PALSU'),
             'api.telegram.org/*'        => Http::response(['ok' => true]),
         ]);
 
@@ -198,7 +198,7 @@ class WahaEskalasiTest extends TestCase
         Http::fake([
             '*/api/sessions/notifikasi' => Http::response(['status' => 'STOPPED']),
             '*/sessions/notifikasi/start' => Http::response(['status' => 'STARTING']),
-            '*/auth/qr'                 => Http::response('PNG-PALSU'),
+            '*/auth/qr*'                => Http::response('PNG-PALSU'),
             'api.telegram.org/*'        => Http::response(['ok' => true]),
         ]);
 

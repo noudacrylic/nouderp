@@ -32,6 +32,7 @@ class IntegrationsController extends Controller
         $jubelio    = JubelioSetting::singleton();
         $telegram   = TelegramSetting::current();
         $crm        = CrmSetting::for('apicoid');
+        $waha       = CrmSetting::for('waha');
         $anthropic  = AnthropicSetting::current();
         $r2         = R2Setting::current();
         $storefront = StorefrontSetting::current();
@@ -132,6 +133,23 @@ class IntegrationsController extends Controller
                     ? (($crm->config['dry_run'] ?? config('crm.dry_run', true)) ? 'Jangan-kirim' : 'Kirim nyata')
                     : 'Belum aktif',
                 'url'         => route('settings.crm.edit'),
+            ],
+            [
+                'name'        => 'WhatsApp Notifikasi (WAHA)',
+                'category'    => 'Notifikasi',
+                'description' => 'Jalur self-host untuk notifikasi pesanan — gratis, tak resmi. Tautkan/ganti nomor lewat QR langsung dari ERP.',
+                'icon'        => '📲',
+                'active'      => $waha->isConfigured(),
+                /*
+                 * Modenya membaca hasil pemeriksaan TERSIMPAN, bukan menelepon
+                 * WAHA. Halaman Integrasi memuat belasan kartu sekaligus; satu
+                 * panggilan ke container yang mati sudah cukup membuat seluruh
+                 * halaman menggantung sampai timeout.
+                 */
+                'mode'        => $waha->isConfigured()
+                    ? (($waha->config['last_status'] ?? null) ?: 'Belum diperiksa')
+                    : 'Belum aktif',
+                'url'         => route('settings.waha.edit'),
             ],
             [
                 'name'        => 'Claude AI',

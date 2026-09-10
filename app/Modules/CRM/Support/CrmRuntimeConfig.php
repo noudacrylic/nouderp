@@ -66,11 +66,35 @@ class CrmRuntimeConfig
             return;
         }
 
-        if (! $setting) {
+        if ($setting) {
+            self::siram((array) $setting->config);
+        }
+
+        /*
+         * Baris 'waha' menang untuk kunci yang memang miliknya (pilihan jalur
+         * notifikasi). Layarnya sudah terpisah dari api.co.id, jadi nilainya
+         * ditulis di sana — sedangkan nilai lama yang terlanjur mengendap di
+         * baris apicoid tetap dihormati selama baris waha belum pernah
+         * disimpan, kalau tidak jalur yang dulu dipilih diam-diam kembali ke
+         * 'resmi' begitu kode ini naik.
+         */
+        try {
+            $waha = CrmSetting::query()->where('provider', 'waha')->first();
+        } catch (\Throwable $e) {
             return;
         }
 
-        foreach ((array) $setting->config as $key => $value) {
+        if ($waha) {
+            self::siram(array_intersect_key((array) $waha->config, array_flip(self::KUNCI_WAHA)));
+        }
+    }
+
+    /** Kunci yang boleh datang dari baris 'waha'. */
+    private const KUNCI_WAHA = ['notifikasi_driver'];
+
+    private static function siram(array $config): void
+    {
+        foreach ($config as $key => $value) {
             if (! isset(self::KEYS[$key]) || $value === null) {
                 continue;
             }

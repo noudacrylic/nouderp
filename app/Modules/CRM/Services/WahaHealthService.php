@@ -130,7 +130,12 @@ class WahaHealthService
         $pesan = "⚠️ <b>Notifikasi WhatsApp berhenti.</b>\n"
             . 'Sesi <b>' . $adapter->sesi() . '</b> berstatus <b>' . $status['status'] . "</b>.\n"
             . 'Notifikasi pesanan sedang ditahan di antrean, dan setelah '
-            . (int) config('crm.notifikasi.tahan_maks_jam', 3) . ' jam akan dialihkan ke template berbayar.';
+            . (int) config('crm.notifikasi.tahan_maks_jam', 3) . " jam akan dialihkan ke template berbayar.
+"
+            // QR juga terbit di layar ERP, dan di sana ada tombol putus/ganti
+            // nomor. Tautannya disertakan supaya pemulihan tidak selalu harus
+            // menunggu peringatan berikutnya kalau QR di Telegram kedaluwarsa.
+            . 'Bisa juga dipindai dari ERP: ' . route('settings.waha.edit');
 
         $this->kabari($pesan);
 

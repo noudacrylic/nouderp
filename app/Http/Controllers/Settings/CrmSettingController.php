@@ -6,13 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Models\CrmSetting;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Providers\ApiCoIdProvider;
-use App\Modules\CRM\Providers\WahaProvider;
 use App\Modules\CRM\Support\CrmRuntimeConfig;
 use App\Modules\CRM\Support\PhoneNumber;
 use Illuminate\Http\Request;
 
 /**
  * Settings → Integrasi → CRM WhatsApp (api.co.id Chat Gateway).
+ *
+ * Jalur notifikasi WAHA punya layarnya sendiri (WahaSettingController): vendor
+ * berbeda, kunci berbeda, dan jatuh sendiri-sendiri. Yang TETAP tinggal di
+ * sini adalah pengaman GLOBAL — saklar jangan-kirim & daftar putih penerima —
+ * karena kedua jalur mematuhi config yang sama persis, dan menduplikasinya
+ * akan melahirkan dua sumber kebenaran.
  *
  * Layar ini memegang dua hal yang sifatnya berbeda:
  *  1. KREDENSIAL vendor (api key, base url, rahasia webhook, nomor default) →
@@ -44,14 +49,6 @@ class CrmSettingController extends Controller
 
         return view('erp.settings.crm.edit', [
             'setting'    => $setting,
-            /*
-             * Sengaja TIDAK memanggil statusJalur() di sini. WAHA duduk di
-             * 127.0.0.1 dan saat container-nya mati panggilan itu menggantung
-             * sampai timeout — layar Pengaturan akan ikut menggantung, persis
-             * pada saat orang membukanya untuk mencari tahu kenapa mati.
-             * Statusnya diambil lewat tombol "Uji Sesi WAHA".
-             */
-            'waha'       => CrmSetting::for('waha'),
             'numbers'    => $numbers,
             'webhooks'   => $webhooks,
             'webhookUrl'      => url('/crm/webhook'),
@@ -77,12 +74,6 @@ class CrmSettingController extends Controller
             'store_close_hour'          => 'nullable|integer|min:1|max:24',
             'max_media_mb'              => 'nullable|integer|min:1|max:200',
             'attachment_retention_days' => 'nullable|integer|min:30|max:3650',
-
-            'notifikasi_driver' => 'nullable|in:resmi,waha',
-            'waha_enabled'      => 'nullable|boolean',
-            'waha_api_key'      => 'nullable|string|max:255',
-            'waha_base_url'     => 'nullable|url|max:255',
-            'waha_session'      => 'nullable|string|max:64',
         ]);
 
         $setting = CrmSetting::for('apicoid');
@@ -109,21 +100,14 @@ class CrmSettingController extends Controller
             'store_close_hour'          => (int) ($data['store_close_hour'] ?? 16),
             'max_media_bytes'           => (int) ($data['max_media_mb'] ?? 25) * 1024 * 1024,
             'attachment_retention_days' => (int) ($data['attachment_retention_days'] ?? 180),
-            'notifikasi_driver'         => $data['notifikasi_driver'] ?? 'resmi',
         ]);
 
         $setting->save();
-
-        $this->simpanWaha($data);
 
         CrmRuntimeConfig::forget();
         CrmRuntimeConfig::apply();
 
         $pesan = 'Pengaturan CRM disimpan.';
-
-        if (($setting->config['notifikasi_driver'] ?? 'resmi') === 'waha') {
-            $pesan .= ' Notifikasi lewat WAHA (jalur tak resmi).';
-        }
 
         if (! ($setting->config['dry_run'] ?? true)) {
             $daftar = $setting->config['allowed_recipients'] ?? [];
@@ -217,81 +201,6 @@ class CrmSettingController extends Controller
         }
 
         return back()->with('success', "{$berhasil} endpoint webhook diaktifkan kembali.");
-    }
-
-    /**
-     * Kredensial WAHA duduk di barisnya sendiri (provider='waha'), bukan
-     * menumpang baris api.co.id: keduanya vendor berbeda dengan kunci berbeda,
-     * dan menyatukannya akan membuat "matikan chat resmi" ikut mematikan
-     * notifikasi — dua hal yang justru sengaja dipisah.
-     */
-    private function simpanWaha(array $data): void
-    {
-        $waha = CrmSetting::for('waha');
-
-        $waha->is_enabled = (bool) ($data['waha_enabled'] ?? false);
-        $waha->base_url   = ($data['waha_base_url'] ?? null) ?: null;
-
-        // Kunci dibiarkan kosong = JANGAN diubah (tak pernah ditampilkan balik).
-        if (filled($data['waha_api_key'] ?? null)) {
-            $waha->api_key = trim($data['waha_api_key']);
-        }
-
-        $waha->config = array_merge((array) $waha->config, [
-            'session' => trim((string) ($data['waha_session'] ?? '')) ?: 'notifikasi',
-        ]);
-
-        $waha->save();
-    }
-
-    /**
-     * Uji sesi WAHA. Bukan sekadar "kredensial benar": yang dijawab adalah
-     * apakah nomornya masih TERTAUT. Sesi bisa putus tanpa gejala apa pun
-     * (HP mati, WhatsApp mengeluarkan perangkat tertaut), dan sejak itu tak
-     * satu pun notifikasi berangkat.
-     */
-    public function ujiWaha()
-    {
-        $waha = CrmSetting::for('waha');
-
-        if (! $waha->isConfigured()) {
-            return back()->with('error', 'Isi API Key WAHA dan centang "Aktifkan WAHA" dulu, lalu simpan.');
-        }
-
-        $status = (new WahaProvider($waha))->statusJalur();
-
-        if ($status['siap']) {
-            return back()->with('success', 'Sesi WAHA tertaut dan siap mengirim (status WORKING).');
-        }
-
-        /*
-         * Saran tindakannya menyesuaikan sebab, bukan satu kalimat untuk semua.
-         * "Scan ulang QR" pada kasus kunci yang ditolak mengirim orang mencari
-         * HP dan memindai QR, padahal yang salah cuma satu kolom di layar ini.
-         */
-        $saran = match ($status['status']) {
-            /*
-             * Sebab yang paling sering & paling membingungkan: nilai env
-             * berbentuk 'sha512:...' — itu HASH, bukan kuncinya. Klien wajib
-             * mengirim nilai polosnya, yang tidak bisa dibalik dari hash. Tanpa
-             * disebut di sini, orang akan menyalin hash itu berulang kali dan
-             * bertanya-tanya kenapa ditolak terus.
-             */
-            'KUNCI_DITOLAK'  => 'WAHA menolak API Key-nya. Ambil dari env container (WAHA_API_KEY, versi lama: WHATSAPP_API_KEY). '
-                                . 'Bila nilainya diawali "sha512:", itu hash — yang harus diisi di sini nilai polosnya, bukan hash-nya.',
-            'SESI_TIDAK_ADA' => 'Kunci & alamatnya SUDAH benar — yang tidak ada cuma sesi bernama "'
-                                . (new WahaProvider(CrmSetting::for('waha')))->sesi()
-                                . '". Buka dasbor WAHA → panel Sessions → dropdown Columns → aktifkan kolom Name, '
-                                . 'lalu salin nama sesi yang berstatus WORKING ke kolom "Nama Sesi WAHA" di layar ini.',
-            'TAK_TERJANGKAU' => 'ERP tidak bisa menjangkau WAHA di ' . CrmSetting::for('waha')->effectiveBaseUrl()
-                                . '. Pastikan container hidup, dan bila menguji dari laptop, terowongan SSH ke port 3000 terbuka.',
-            'SCAN_QR_CODE'   => 'Sesi menunggu dipindai. Ambil QR-nya lalu pindai dari HP pemegang nomor.',
-            'STOPPED', 'FAILED' => 'Sesi berhenti. Nyalakan lebih dulu, QR baru terbit setelah sesi hidup.',
-            default          => 'Periksa keadaan sesi di WAHA.',
-        };
-
-        return back()->with('error', 'Sesi WAHA belum siap — status ' . $status['status']
-            . ($status['keterangan'] ? ': ' . $status['keterangan'] : '') . ' ' . $saran);
     }
 
     /** Nilai efektif yang sedang dipakai modul (DB bila ada, kalau tidak config/env). */

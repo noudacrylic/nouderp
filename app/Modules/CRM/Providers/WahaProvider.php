@@ -204,9 +204,15 @@ class WahaProvider implements NotificationProvider
         }
 
         try {
-            $res = Http::withHeaders(['X-Api-Key' => (string) $this->setting->api_key])
+            $res = Http::withHeaders([
+                'X-Api-Key' => (string) $this->setting->api_key,
+                // Tanpa ini WAHA boleh menjawab JSON berisi base64; yang
+                // dipakai pemanggil (Telegram sendPhoto, <img> di layar
+                // Pengaturan) adalah PNG mentah.
+                'Accept'    => 'image/png',
+            ])
                 ->timeout((int) config('crm.notifikasi.waha.timeout', 20))
-                ->get($this->setting->effectiveBaseUrl() . '/api/' . rawurlencode($this->sesi()) . '/auth/qr');
+                ->get($this->setting->effectiveBaseUrl() . '/api/' . rawurlencode($this->sesi()) . '/auth/qr', ['format' => 'image']);
         } catch (\Throwable $e) {
             Log::warning('[CRM] QR WAHA tidak terambil', ['error' => $e->getMessage()]);
 
@@ -220,6 +226,76 @@ class WahaProvider implements NotificationProvider
     public function mulaiSesi(): bool
     {
         return $this->request('post', '/api/sessions/' . rawurlencode($this->sesi()) . '/start')['success'];
+    }
+
+    /**
+     * Pastikan sesi bernama ini ADA lalu hidup.
+     *
+     * Dipisah dari mulaiSesi() karena dua keadaan yang tampak sama menuntut
+     * panggilan berbeda: sesi yang ada tapi mati cukup di-start, sedangkan
+     * sesi yang belum pernah dibuat menjawab 404 pada /start dan harus
+     * dibuat lebih dulu. Menyatukannya membuat pemasangan nomor pertama kali
+     * selalu gagal dengan galat yang tak menjelaskan apa-apa.
+     *
+     * @return array{success:bool, error:?string}
+     */
+    public function pastikanSesiHidup(): array
+    {
+        $nama = $this->sesi();
+        $ada  = $this->request('get', '/api/sessions/' . rawurlencode($nama));
+
+        if (! $ada['success'] && ($ada['kode'] ?? 0) === 404) {
+            /*
+             * Engine TIDAK disebut di sini: nilainya ditentukan env container
+             * (WHATSAPP_DEFAULT_ENGINE=NOWEB). Mengirimkannya dari ERP berarti
+             * dua tempat yang bisa berbeda diam-diam, dan adapter ini hanya
+             * benar untuk NOWEB.
+             */
+            $buat = $this->request('post', '/api/sessions', ['name' => $nama, 'start' => true]);
+
+            return $buat['success']
+                ? ['success' => true, 'error' => null]
+                : ['success' => false, 'error' => 'Sesi "' . $nama . '" tidak bisa dibuat: ' . $buat['error']];
+        }
+
+        if (! $ada['success']) {
+            return ['success' => false, 'error' => (string) $ada['error']];
+        }
+
+        $status = strtoupper((string) (data_get($ada['data'], 'status') ?: ''));
+
+        // Sudah hidup (atau sedang menunggu dipindai) = jangan disentuh.
+        // Me-restart sesi WORKING justru memutus nomor yang sedang sehat.
+        if (in_array($status, ['WORKING', 'STARTING', 'SCAN_QR_CODE'], true)) {
+            return ['success' => true, 'error' => null];
+        }
+
+        $mulai = $this->request('post', '/api/sessions/' . rawurlencode($nama) . '/start');
+
+        return $mulai['success']
+            ? ['success' => true, 'error' => null]
+            : ['success' => false, 'error' => (string) $mulai['error']];
+    }
+
+    /**
+     * Putuskan nomor yang sedang tertaut, lalu hidupkan sesinya lagi supaya
+     * QR baru terbit. Ini jalur "ganti nomor WhatsApp": tanpa logout, WAHA
+     * tetap memegang sesi lama dan QR tidak pernah muncul.
+     *
+     * @return array{success:bool, error:?string}
+     */
+    public function putuskanSesi(): array
+    {
+        $nama   = $this->sesi();
+        $logout = $this->request('post', '/api/sessions/' . rawurlencode($nama) . '/logout');
+
+        // 404 = memang belum ada sesinya; itu bukan kegagalan untuk niat
+        // "mulai dari nol", jadi diteruskan ke pembuatan sesi di bawah.
+        if (! $logout['success'] && ($logout['kode'] ?? 0) !== 404) {
+            return ['success' => false, 'error' => (string) $logout['error']];
+        }
+
+        return $this->pastikanSesiHidup();
     }
 
     /**

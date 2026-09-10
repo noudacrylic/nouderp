@@ -110,69 +110,17 @@
                 </div>
             </div>
 
-            {{-- ===== Jalur notifikasi (WAHA) ===== --}}
+            {{-- ===== Jalur notifikasi (pindah ke layar WAHA) ===== --}}
             <div class="border-t pt-5">
                 <h3 class="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">Jalur Notifikasi</h3>
-
-                <p class="text-xs text-gray-500 mb-4 leading-relaxed">
-                    Chat dan notifikasi dipisah berdasarkan <b>peran</b>, bukan vendor. Chat pelanggan tetap di
-                    jalur resmi berbayar di atas. Notifikasi pesanan &mdash; yang volumenya paling besar tapi
-                    isinya paling sederhana &mdash; boleh dialihkan ke <b>WAHA</b> yang berjalan di server sendiri.
-                    Bunyi kalimatnya sama persis dengan template yang disetujui Meta, jadi pelanggan tidak
-                    bisa membedakan jalur mana yang dipakai.
-                </p>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Kirim Notifikasi Lewat</label>
-                        <select name="notifikasi_driver" class="w-full border rounded px-3 py-2 text-sm">
-                            <option value="resmi" @selected(old('notifikasi_driver', $nilai['notifikasi_driver']) === 'resmi')>
-                                Template resmi Meta (berbayar)
-                            </option>
-                            <option value="waha" @selected(old('notifikasi_driver', $nilai['notifikasi_driver']) === 'waha')>
-                                WAHA &mdash; self-host, gratis (tak resmi)
-                            </option>
-                        </select>
-                        <p class="text-xs text-gray-400 mt-1">
-                            Pindah ke WAHA baru sah setelah sesinya benar-benar tertaut &mdash; uji dengan tombol di bawah.
-                        </p>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nama Sesi WAHA</label>
-                        <input type="text" name="waha_session"
-                               value="{{ old('waha_session', $waha->config['session'] ?? 'notifikasi') }}"
-                               class="w-full border rounded px-3 py-2 font-mono text-sm">
-                        <p class="text-xs text-gray-400 mt-1">
-                            Dua sesi dijalankan: nomor aktif + nomor cadangan yang sudah dipanaskan. Ganti nama di sini
-                            bila nomor utama kena blokir.
-                        </p>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Alamat WAHA</label>
-                        <input type="text" name="waha_base_url"
-                               value="{{ old('waha_base_url', $waha->base_url) }}"
-                               placeholder="http://127.0.0.1:3000"
-                               class="w-full border rounded px-3 py-2 font-mono text-sm">
-                        <p class="text-xs text-amber-700 mt-1">
-                            <b>Wajib 127.0.0.1.</b> API key WAHA = kunci penuh sebuah akun WhatsApp, dan instance
-                            WAHA terbuka rutin dipindai bot. Jangan pernah disambungkan ke Cloudflare Tunnel.
-                        </p>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">API Key WAHA</label>
-                        <input type="password" name="waha_api_key" autocomplete="new-password"
-                               placeholder="{{ $waha->api_key ? 'Tersimpan — kosongkan bila tidak diubah' : 'Belum diisi' }}"
-                               class="w-full border rounded px-3 py-2 font-mono text-sm">
-                        <label class="inline-flex items-start gap-2 text-sm font-semibold text-gray-700 mt-3">
-                            <input type="checkbox" name="waha_enabled" value="1"
-                                   {{ old('waha_enabled', $waha->is_enabled) ? 'checked' : '' }}
-                                   class="rounded border-gray-300 mt-0.5">
-                            <span>Aktifkan WAHA</span>
-                        </label>
-                    </div>
+                <div class="rounded-lg border bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                    Notifikasi pesanan sekarang lewat
+                    <b>{{ $nilai['notifikasi_driver'] === 'waha' ? 'WAHA (self-host, tak resmi)' : 'template resmi Meta (berbayar)' }}</b>.
+                    Kredensial, nama sesi, dan QR penautan nomornya ada di layar sendiri &mdash;
+                    <a href="{{ route('settings.waha.edit') }}" class="text-blue-600 hover:underline font-semibold">WhatsApp Notifikasi (WAHA)</a>.
+                    <span class="block text-xs text-gray-400 mt-1">
+                        Saklar jangan-kirim &amp; daftar putih penerima di halaman ini berlaku untuk <b>kedua</b> jalur.
+                    </span>
                 </div>
             </div>
 
@@ -353,10 +301,6 @@
             <form method="POST" action="{{ route('settings.crm.uji') }}">
                 @csrf
                 <button type="submit" class="px-3 py-2 border border-gray-300 hover:bg-gray-50 rounded text-sm font-semibold text-gray-700">Uji Koneksi</button>
-            </form>
-            <form method="POST" action="{{ route('settings.crm.uji-waha') }}">
-                @csrf
-                <button type="submit" class="px-3 py-2 border border-gray-300 hover:bg-gray-50 rounded text-sm font-semibold text-gray-700">Uji Sesi WAHA</button>
             </form>
             <form method="POST" action="{{ route('settings.crm.aktifkan-webhook') }}">
                 @csrf

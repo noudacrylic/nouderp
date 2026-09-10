@@ -274,7 +274,18 @@ Route::prefix('erp')->group(function () {
         Route::post('/crm/uji',              [\App\Http\Controllers\Settings\CrmSettingController::class, 'uji'])->name('settings.crm.uji');
         Route::post('/crm/aktifkan-webhook', [\App\Http\Controllers\Settings\CrmSettingController::class, 'aktifkanWebhook'])->name('settings.crm.aktifkan-webhook');
         Route::post('/crm/token-baru',       [\App\Http\Controllers\Settings\CrmSettingController::class, 'regenerateToken'])->name('settings.crm.token-baru');
-        Route::post('/crm/uji-waha',         [\App\Http\Controllers\Settings\CrmSettingController::class, 'ujiWaha'])->name('settings.crm.uji-waha');
+
+        // Integrasi — WhatsApp Notifikasi (WAHA self-host). Layar terpisah dari
+        // CRM api.co.id: vendor berbeda, kunci berbeda, jatuh sendiri-sendiri.
+        // QR & pemutusan sesi dikunci ke admin di dalam controller — menautkan
+        // nomor = memberi WAHA kendali penuh atas sebuah akun WhatsApp.
+        Route::get ('/waha',           [\App\Http\Controllers\Settings\WahaSettingController::class, 'edit'])->name('settings.waha.edit');
+        Route::post('/waha',           [\App\Http\Controllers\Settings\WahaSettingController::class, 'update'])->name('settings.waha.update');
+        Route::post('/waha/uji',       [\App\Http\Controllers\Settings\WahaSettingController::class, 'uji'])->name('settings.waha.uji');
+        Route::post('/waha/tautkan',   [\App\Http\Controllers\Settings\WahaSettingController::class, 'tautkan'])->name('settings.waha.tautkan');
+        Route::post('/waha/putuskan',  [\App\Http\Controllers\Settings\WahaSettingController::class, 'putuskan'])->name('settings.waha.putuskan');
+        Route::get ('/waha/qr',        [\App\Http\Controllers\Settings\WahaSettingController::class, 'qr'])->name('settings.waha.qr');
+        Route::get ('/waha/status',    [\App\Http\Controllers\Settings\WahaSettingController::class, 'status'])->name('settings.waha.status');
 
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');
