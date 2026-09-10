@@ -17,11 +17,17 @@
          alasannya dengan panel ongkir di rail: pelengkap-otomatis wilayah
          mengikat elemennya lewat id saat halaman dimuat, jadi panel yang baru
          lahir saat tombol ditekan tidak akan pernah terpasang. --}}
-    <div class="fixed inset-0 z-40" x-show="alat" x-cloak>
+    {{-- lapis-layar menimpa tinggi 'inset-0': saat keyboard terbuka, layout
+         viewport masih setinggi layar penuh sedangkan yang terlihat cuma
+         separuhnya — lembar tanpa tinggi yang benar berakhir menggantung di
+         balik keyboard. Kelasnya cuma hidup di layout /cs; di ERP desktop
+         elemen yang sama tetap memakai inset-0 apa adanya. --}}
+    <div class="fixed inset-0 z-40 lapis-layar" x-show="alat" x-cloak>
         <div class="absolute inset-0 bg-black/40" @click="alat = false"></div>
 
-        <div class="absolute inset-x-0 bottom-0 max-w-md mx-auto h-[85dvh] bg-white rounded-t-2xl
+        <div class="absolute inset-x-0 bottom-0 max-w-md mx-auto bg-white rounded-t-2xl
                     shadow-2xl flex flex-col overflow-hidden"
+             style="height: calc(var(--tinggi-app, 100dvh) * 0.85)"
              @keydown.escape.window="alat = false">
 
             {{-- Gagang geser + tombol tutup. Tanpa tombol yang jelas, satu-satunya

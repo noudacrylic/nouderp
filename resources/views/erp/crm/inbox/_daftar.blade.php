@@ -226,7 +226,7 @@
             </div>
 
             {{-- popup ganti label / oper chat --}}
-            <div x-show="popup" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div x-show="popup" x-cloak class="fixed inset-0 z-50 lapis-layar flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-black/40" @click="popup = null"></div>
 
                 <div class="relative bg-white rounded-lg shadow-xl w-full max-w-sm p-4"

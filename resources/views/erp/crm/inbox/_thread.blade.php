@@ -174,7 +174,7 @@
 
         {{-- Catatan internal sebagai popup, bukan kolom yang selalu terbuka:
              isinya dibaca sekali di awal percakapan lalu ditinggalkan. --}}
-        <div x-show="catatan" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        <div x-show="catatan" x-cloak class="fixed inset-0 z-50 lapis-layar flex items-center justify-center p-4"
              @keydown.escape.window="catatan = false">
             <div class="absolute inset-0 bg-black/40" @click="catatan = false"></div>
             <div class="relative bg-white rounded-lg shadow-xl w-full max-w-md p-4">
@@ -664,6 +664,24 @@
                             init() {
                                 this.keBawah(true);
                                 this.mulaiJam();
+
+                                /*
+                                 * Keyboard di HP. Layar yang mengecil membuat
+                                 * daftar pesan ikut memendek, dan pesan terakhir
+                                 * — satu-satunya yang sedang dibalas — hilang di
+                                 * balik kotak ketik yang baru naik. Ditempelkan
+                                 * ulang ke bawah TANPA animasi: gulir mulus di
+                                 * sini terlihat seperti layar yang melompat
+                                 * sendiri tepat saat orang mulai mengetik.
+                                 *
+                                 * Hanya saat MENGECIL. Keyboard yang ditutup
+                                 * melebarkan layar lagi, dan menyeret admin yang
+                                 * baru saja menggulir ke atas untuk membaca
+                                 * riwayat adalah persis kelakuan yang bikin jengkel.
+                                 */
+                                window.addEventListener('layar-berubah', (e) => {
+                                    if (e.detail?.mengecil) this.keBawah(true);
+                                });
                                 /*
                                  * Berhenti BETULAN saat layar disembunyikan, bukan
                                  * sekadar menarik ulang saat kembali: dulu jamnya

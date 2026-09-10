@@ -18,7 +18,7 @@
      @mulai-chat.window="buka($event.detail)"
      x-cloak>
 
-    <div x-show="tampil" class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-16 overflow-y-auto"
+    <div x-show="tampil" class="fixed inset-0 z-50 lapis-layar flex items-start justify-center p-4 pt-16 overflow-y-auto"
          @keydown.escape.window="tutup()">
         <div class="absolute inset-0 bg-black/40" @click="tutup()"></div>
 

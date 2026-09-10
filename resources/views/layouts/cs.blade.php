@@ -2,7 +2,14 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+    {{-- interactive-widget=resizes-content WAJIB. Bawaan Chrome Android adalah
+         resizes-visual: keyboard yang muncul TIDAK mengecilkan layout viewport,
+         halamannya cuma digeser ke atas — kepala chat, strip Produk/Ongkir/Pesanan,
+         dan percakapannya terdorong keluar layar sementara 100dvh tetap merasa
+         setinggi layar penuh. Dengan resizes-content, tinggi layar benar-benar
+         menyusut dan susunan flex (kepala tetap · pesan menggulir · kotak ketik
+         menempel) menyesuaikan diri sendiri. --}}
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#0f766e">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,11 +28,21 @@
             -webkit-tap-highlight-color: transparent;
             overscroll-behavior-y: none;
         }
-        /* Tinggi dipatok ke layar, BUKAN mengalir mengikuti isi — sama alasannya
-           dengan ruang kerja CRM desktop: kotak ketik harus menempel di bawah,
-           dan di HP keyboard yang muncul tidak boleh mendorongnya keluar layar.
-           100dvh (bukan 100vh) supaya bilah URL Safari yang menyusut ikut dihitung. */
-        .app-shell { height: 100dvh; display: flex; flex-direction: column; }
+        /* Halaman TIDAK boleh menggulir sama sekali — yang menggulir cuma daftar
+           pesan di dalamnya. Tanpa ini, keyboard iOS menggeser seluruh dokumen
+           ke atas dan kepala chat hilang di balik tepi layar. */
+        html, body { height: 100%; overflow: hidden; }
+        /* Tinggi dipatok ke layar, BUKAN mengalir mengikuti isi — kotak ketik harus
+           menempel di bawah, dan keyboard yang muncul tidak boleh mendorongnya
+           keluar layar. 100dvh (bukan 100vh) supaya bilah URL Safari yang menyusut
+           ikut dihitung, dan --tinggi-app diisi skrip dari visualViewport untuk peramban yang belum
+           mengenal interactive-widget (Safari iOS). 100dvh tetap jadi nilai
+           mundur, jadi layarnya benar bahkan sebelum skrip sempat jalan. */
+        .app-shell { height: 100dvh; height: var(--tinggi-app, 100dvh); display: flex; flex-direction: column; }
+        /* Lembar geser ikut tinggi yang sama: 'fixed inset-0' mengacu ke layout
+           viewport, yang saat keyboard terbuka jauh lebih tinggi dari yang
+           benar-benar terlihat — panelnya jadi menggantung di bawah keyboard. */
+        .lapis-layar { height: 100dvh; height: var(--tinggi-app, 100dvh); }
         .bottom-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
         ::-webkit-scrollbar { width: 0; height: 0; }
         [x-cloak] { display: none !important; }
@@ -62,6 +79,49 @@
     </div>
 
     @stack('scripts')
+
+    {{-- Keyboard di layar: Safari iOS belum mengenal interactive-widget, jadi
+         tingginya diukur sendiri lewat visualViewport. Tanpa ini gejalanya
+         persis seperti tanpa perbaikan apa pun di Android — semuanya tergeser
+         ke atas dan percakapannya tidak kelihatan. --}}
+    <script>
+        (function () {
+            var vv = window.visualViewport;
+
+            if (! vv) return;
+
+            var akar = document.documentElement;
+            var sebelumnya = vv.height;
+
+            function ukur() {
+                akar.style.setProperty('--tinggi-app', vv.height + 'px');
+
+                /*
+                 * iOS menggeser DOKUMEN saat keyboard naik, bukan mengecilkan
+                 * layout viewport. Menariknya balik ke 0 adalah satu-satunya
+                 * cara membuat kepala chat tetap di tempatnya; tanpa ini tinggi
+                 * yang sudah benar pun tetap tampak terpotong di atas.
+                 */
+                window.scrollTo(0, 0);
+
+                /*
+                 * Layar yang MENGECIL berarti keyboard baru saja naik. Yang
+                 * paling menjengkelkan bukan tingginya, melainkan pesan terakhir
+                 * yang tertutup begitu kotak ketik naik — jadi daftar pesannya
+                 * dikabari supaya menempel lagi ke bawah.
+                 */
+                window.dispatchEvent(new CustomEvent('layar-berubah', {
+                    detail: { tinggi: vv.height, mengecil: vv.height < sebelumnya - 40 },
+                }));
+
+                sebelumnya = vv.height;
+            }
+
+            vv.addEventListener('resize', ukur);
+            vv.addEventListener('scroll', function () { window.scrollTo(0, 0); });
+            ukur();
+        })();
+    </script>
 
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 

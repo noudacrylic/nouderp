@@ -49,6 +49,26 @@ class CrmPwaLayarTest extends TestCase
         return $p;
     }
 
+    /**
+     * Keyboard di HP. Bawaan Chrome Android (resizes-visual) TIDAK mengecilkan
+     * layout viewport — halamannya cuma digeser ke atas, dan kepala chat, strip
+     * Produk/Ongkir/Pesanan, serta percakapannya terdorong keluar layar
+     * sementara 100dvh tetap merasa setinggi layar penuh. Satu penanda di meta
+     * viewport yang menahannya, dan hilangnya tidak menimbulkan galat apa pun:
+     * layarnya cuma jadi tak terpakai di HP, persis keadaan yang diperbaiki.
+     */
+    public function test_layar_menyusut_saat_keyboard_muncul(): void
+    {
+        $pengguna = $this->cs();
+        $p = $this->percakapan(['owner_user_id' => $pengguna->id]);
+
+        $layar = $this->actingAs($pengguna)->get(route('cs.thread', $p))->assertOk();
+
+        $layar->assertSee('interactive-widget=resizes-content', false);
+        // Nilai mundur untuk Safari iOS, yang belum mengenal penanda di atas.
+        $layar->assertSee('--tinggi-app', false);
+    }
+
     public function test_daftar_chat_menampilkan_percakapan_dan_menunjuk_ke_layar_pwa(): void
     {
         $pengguna = $this->cs();
