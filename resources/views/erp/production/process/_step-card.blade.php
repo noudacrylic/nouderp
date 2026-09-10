@@ -106,7 +106,10 @@
                 'percentage'      => rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.'),
                 'unit_percentage' => $o->unit_percentage !== null ? (float) $o->unit_percentage : null,
                 'qty_planned'     => (float) $o->qty_planned,
-                'qty_produced'    => (float) ($o->qty_produced ?? 0),
+                // qty_produced di baris output bersifat KUMULATIF (hasil yang sudah masuk stok
+                // lewat penyelesaian sebagian), bukan angka batch terakhir. Dikirim dengan nama
+                // qty_released supaya modal tidak salah memakainya sebagai default qty penutup.
+                'qty_released'    => (float) ($o->qty_produced ?? 0),
                 'variance_notes'  => $o->variance_notes ?? '',
                 // Alokasi gudang tersimpan (bila ada) untuk pre-fill saat retry finalisasi.
                 'allocations'     => is_array($o->warehouse_allocations) ? $o->warehouse_allocations : null,

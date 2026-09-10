@@ -18,7 +18,7 @@
     </div>
 
 
-    <form action="{{ route('production.orders.finalize', $order->id) }}" method="POST">
+    <form id="form-finalize" action="{{ route('production.orders.finalize', $order->id) }}" method="POST">
         @csrf
 
         <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -139,6 +139,9 @@
                                     <input type="number"
                                            name="outputs[{{ $i }}][qty_produced]"
                                            x-model.number="qty" @input="syncSingle()"
+                                           data-main="{{ $out->output_type === 'main' ? 1 : 0 }}"
+                                           data-sisa="{{ $qtyReleased > 0 ? $sisaTarget : $qtyPlanned }}"
+                                           data-label="{{ $out->product?->name ?? 'output' }}"
                                            step="0.01" min="0" required
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                 </div>
@@ -305,7 +308,6 @@
         {{-- Action Buttons --}}
         <div class="mt-6 flex items-center gap-3">
             <button type="submit"
-                    onclick="return confirm('Selesaikan produksi dan masukkan output ke stok?')"
                     class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-xl transition shadow-sm">
                 ✓ Selesaikan Produksi
             </button>
@@ -317,6 +319,35 @@
         </div>
 
     </form>
+
+    {{-- Jaring salah ketik qty penutup. Finalisasi penutup menyapu SELURUH sisa WIP ke qty yang
+         diisi, jadi angka yang jauh di bawah sisa target meledakkan HPP unit terakhir dan tidak
+         bisa dibatalkan lagi begitu stoknya terjual. Selisih wajar (cacat beberapa pcs) lewat
+         tanpa gangguan — yang ditanya hanya penyimpangan besar (< 50% sisa). --}}
+    <script>
+        document.getElementById('form-finalize').addEventListener('submit', function (e) {
+            const fmt = (n) => Number(n).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+
+            for (const el of this.querySelectorAll('input[data-main="1"]')) {
+                const sisa = parseFloat(el.dataset.sisa) || 0;
+                const qty  = parseFloat(el.value) || 0;
+                if (sisa <= 0 || qty >= sisa * 0.5) continue;
+
+                const lonjak = qty > 0
+                    ? 'HPP per pcs akan melonjak sekitar ' + fmt(Math.round((sisa / qty) * 10) / 10) + '\u00d7 dari normal.'
+                    : 'seluruh sisa biaya akan menumpuk di produk sampingan.';
+
+                const ok = confirm(
+                    'Qty penutup ' + el.dataset.label + ' cuma ' + fmt(qty) + ' dari sisa ' + fmt(sisa) + '.\n\n' +
+                    'Finalisasi penutup membebankan SELURUH sisa biaya produksi ke qty ini, jadi ' + lonjak + '\n\n' +
+                    'Kalau sisanya memang sudah selesai, isi ' + fmt(sisa) + '. Lanjut dengan ' + fmt(qty) + '?'
+                );
+                if (!ok) { e.preventDefault(); return; }
+            }
+
+            if (!confirm('Selesaikan produksi dan masukkan output ke stok?')) e.preventDefault();
+        });
+    </script>
 
 </div>
 @endsection
