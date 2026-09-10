@@ -18,7 +18,10 @@
     <link rel="manifest" href="{{ asset('cs.webmanifest') }}">
     <title>@yield('title', 'NOUD Chat')</title>
     @include('layouts.partials._favicon')
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('icons/icon-180.png') }}">
+    {{-- Ikon SENDIRI, bukan centang hijau milik PWA Karyawan. Keduanya duduk
+         berdampingan di layar HP yang sama: dua ikon mirip berarti CS membuka
+         aplikasi perizinan setiap kali buru-buru membalas pelanggan. --}}
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('icons/cs-icon-180.png') }}">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root { --nav-h: 60px; }

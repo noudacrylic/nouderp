@@ -48,7 +48,9 @@ self.addEventListener('push', (event) => {
     const title = data.title || 'NOUD Chat';
     const options = {
         body: data.body || '',
-        icon: '/favicon.png',
+        // Ikon aplikasi Chat, bukan logo usaha: di rak notifikasi, chat pelanggan
+        // berdiri di sebelah notifikasi ERP lain yang memakai logo yang sama.
+        icon: '/icons/cs-icon-192.png',
         badge: '/favicon.png',
         data: { url: data.url || '/cs' },
         tag: data.tag || undefined,

@@ -50,6 +50,27 @@ class CrmPwaLayarTest extends TestCase
     }
 
     /**
+     * Ikon PWA Chat WAJIB berbeda dari PWA Karyawan. Keduanya terpasang
+     * berdampingan di layar HP yang sama, dan dua ikon kembar berarti CS
+     * membuka aplikasi perizinan setiap kali buru-buru membalas pelanggan —
+     * kekeliruan yang tak menimbulkan galat apa pun, cuma waktu terbuang.
+     */
+    public function test_ikon_pwa_chat_berbeda_dari_pwa_karyawan(): void
+    {
+        $chat     = json_decode(file_get_contents(public_path('cs.webmanifest')), true);
+        $karyawan = json_decode(file_get_contents(public_path('karyawan.webmanifest')), true);
+
+        $ikonChat     = array_column($chat['icons'], 'src');
+        $ikonKaryawan = array_column($karyawan['icons'], 'src');
+
+        $this->assertSame([], array_intersect($ikonChat, $ikonKaryawan));
+
+        foreach ($ikonChat as $src) {
+            $this->assertFileExists(public_path(ltrim($src, '/')));
+        }
+    }
+
+    /**
      * Keyboard di HP. Bawaan Chrome Android (resizes-visual) TIDAK mengecilkan
      * layout viewport — halamannya cuma digeser ke atas, dan kepala chat, strip
      * Produk/Ongkir/Pesanan, serta percakapannya terdorong keluar layar
