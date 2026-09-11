@@ -192,6 +192,28 @@ class FakeChatProvider implements ChatProvider
         ];
     }
 
+    /**
+     * Nama profil palsu per nomor (bentuk ternormal). Nomor yang tak terdaftar
+     * dijawab "sukses tanpa nama" — persis kontak sungguhan yang tak bernama.
+     *
+     * @var array<string,string>
+     */
+    public array $profil = [];
+
+    /** Bila diisi, profilKontak() gagal seolah vendor tak terjangkau. */
+    public ?string $profilError = null;
+
+    public function profilKontak(string $identifier): array
+    {
+        if ($this->profilError !== null) {
+            return ['success' => false, 'name' => null, 'error' => $this->profilError];
+        }
+
+        $nomor = PhoneNumber::normalize($identifier) ?? $identifier;
+
+        return ['success' => true, 'name' => $this->profil[$nomor] ?? null, 'error' => null];
+    }
+
     /** Panggilan kirim terakhir, atau null bila belum ada. */
     public function lastSent(): ?array
     {
@@ -209,6 +231,8 @@ class FakeChatProvider implements ChatProvider
         $this->sent              = [];
         $this->failWith          = null;
         $this->windowStatusError = null;
+        $this->profil            = [];
+        $this->profilError       = null;
     }
 
     private function record(string $kind, array $payload): array

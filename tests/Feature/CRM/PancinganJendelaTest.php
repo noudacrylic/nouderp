@@ -57,6 +57,8 @@ class PancinganJendelaTest extends TestCase
 
         $p->forceFill([
             'display_name'      => 'Budi',
+            // Hanya nama ketikan CS yang dipakai menyapa — nama profil WhatsApp tidak.
+            'name_source'       => CrmConversation::NAMA_MANUAL,
             'window_expires_at' => now()->addMinutes($sisaMenit),
             'last_inbound_at'   => now()->subHours(23),
             'last_outbound_at'  => now()->subHours(22),

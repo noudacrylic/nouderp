@@ -17,6 +17,7 @@ use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmTemplate;
 use App\Modules\CRM\Models\CrmStockWatch;
 use App\Modules\CRM\Services\CrmReplyService;
+use App\Modules\CRM\Services\NamaKontakService;
 use App\Modules\CRM\Services\NotifikasiChatService;
 use App\Modules\CRM\Services\PencarianProdukService;
 use App\Modules\CRM\Support\PhoneNumber;
@@ -1710,6 +1711,37 @@ class CrmInboxController extends Controller
         $conversation->forceFill(['notes' => $data['notes']])->save();
 
         return back()->with('success', 'Catatan disimpan.');
+    }
+
+    /**
+     * Simpan nama kontak — supaya lead yang belum beli tidak cuma dikenali
+     * dari nomornya. Tidak menyentuh master pelanggan: pelanggan baru lahir
+     * saat ada dokumen, bukan saat seseorang bertanya-tanya.
+     *
+     * `ambil_wa` = tombol "Ambil dari WhatsApp": ganti dengan nama profil,
+     * termasuk menimpa nama ketikan sebelumnya — CS sendiri yang memintanya.
+     */
+    public function nama(Request $request, CrmConversation $conversation, NamaKontakService $namaKontak)
+    {
+        if ($request->boolean('ambil_wa')) {
+            $hasil = $namaKontak->ambilDariWhatsapp($conversation, timpaManual: true);
+
+            if (! $hasil['success']) {
+                return back()->with('error', 'Gagal mengambil nama dari WhatsApp: ' . $hasil['error']);
+            }
+
+            return $hasil['name'] !== null
+                ? back()->with('success', 'Nama WhatsApp dipakai: ' . $hasil['name'] . '.')
+                : back()->with('warning', 'Kontak ini belum punya nama profil WhatsApp. Ketik namanya sendiri.');
+        }
+
+        $data = $request->validate(['display_name' => 'nullable|string|max:100']);
+
+        $namaKontak->simpanManual($conversation, $data['display_name'] ?? null);
+
+        return back()->with('success', filled($data['display_name'] ?? null)
+            ? 'Nama kontak disimpan.'
+            : 'Nama kontak dikosongkan — kembali ke nama profil WhatsApp.');
     }
 
     /**

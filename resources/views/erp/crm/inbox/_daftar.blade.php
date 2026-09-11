@@ -191,7 +191,11 @@
                 </div>
 
                 <button type="button"
-                        @click.prevent.stop="buka($event, @js(['id' => $p->id, 'nama' => $namaTampil, 'label' => $p->queue_state, 'pemilik' => $p->owner_user_id]))"
+                        @click.prevent.stop="buka($event, @js([
+                            'id' => $p->id, 'nama' => $namaTampil, 'label' => $p->queue_state, 'pemilik' => $p->owner_user_id,
+                            'namaKontak' => $p->display_name, 'namaManual' => $p->name_source === \App\Modules\CRM\Models\CrmConversation::NAMA_MANUAL,
+                            'pelanggan' => $p->customer?->name,
+                        ]))"
                         class="absolute top-1.5 right-1 z-20 w-6 h-6 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 leading-none"
                         title="Aksi cepat">⋮</button>
             </div>
@@ -218,6 +222,9 @@
                     <button class="w-full text-left px-3 py-2 hover:bg-gray-50">Tandai belum dibaca</button>
                 </form>
 
+                <button type="button" @click="popup = 'nama'; menu = false; $nextTick(() => $refs.inputNama?.select())"
+                        class="w-full text-left px-3 py-2 hover:bg-gray-50">Nama kontak…</button>
+
                 <button type="button" @click="popup = 'label'; menu = false"
                         class="w-full text-left px-3 py-2 hover:bg-gray-50">Label…</button>
 
@@ -231,8 +238,42 @@
 
                 <div class="relative bg-white rounded-lg shadow-xl w-full max-w-sm p-4"
                      @keydown.escape.window="popup = null">
-                    <div class="text-sm font-semibold" x-text="popup === 'label' ? 'Ganti label' : 'Oper chat'"></div>
+                    <div class="text-sm font-semibold"
+                         x-text="{ nama: 'Nama kontak', label: 'Ganti label', oper: 'Oper chat' }[popup]"></div>
                     <div class="text-xs text-gray-500 mb-3" x-text="chat.nama"></div>
+
+                    {{-- Nama kontak: untuk mengenali lead yang belum beli. Tidak
+                         membuat pelanggan di master — itu baru lahir saat ada
+                         dokumen. Nama profil WhatsApp terisi sendiri; yang diketik
+                         di sini menang dan tak pernah ditimpa otomatis. --}}
+                    <div x-show="popup === 'nama'">
+                        <form :action="aksi('nama')" method="POST">
+                            @csrf
+                            <input type="text" name="display_name" maxlength="100" x-ref="inputNama"
+                                   :value="chat.namaKontak ?? ''" placeholder="mis. Bu Ferina — tanya kotak kepuasan"
+                                   class="border rounded px-2 py-1.5 text-sm w-full">
+                            <p class="mt-1.5 text-[11px] text-gray-500">
+                                <span x-show="chat.namaKontak && ! chat.namaManual">Saat ini memakai nama profil WhatsApp.</span>
+                                <span x-show="chat.namaManual">Nama ini diketik manual — tidak akan ditimpa nama WhatsApp.</span>
+                                Kosongkan untuk kembali ke nama profil WhatsApp.
+                            </p>
+                            <p x-show="chat.pelanggan" class="mt-1 text-[11px] text-amber-700">
+                                Chat ini sudah tertaut pelanggan <b x-text="chat.pelanggan"></b> — yang tampil tetap nama pelanggan itu.
+                            </p>
+                            <div class="mt-4 flex items-center justify-end gap-2">
+                                <button type="submit" form="formAmbilNamaWa"
+                                        class="mr-auto px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-gray-50"
+                                        title="Ganti dengan nama profil WhatsApp pelanggan">Ambil dari WhatsApp</button>
+                                <button type="button" @click="popup = null"
+                                        class="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50">Batal</button>
+                                <button class="px-3 py-1.5 rounded border border-emerald-600 text-emerald-700 text-sm hover:bg-emerald-50">Simpan</button>
+                            </div>
+                        </form>
+                        <form id="formAmbilNamaWa" :action="aksi('nama')" method="POST" class="hidden">
+                            @csrf
+                            <input type="hidden" name="ambil_wa" value="1">
+                        </form>
+                    </div>
 
                     <form x-show="popup === 'label'" :action="aksi('antrean')" method="POST">
                         @csrf
@@ -274,7 +315,7 @@ function menuChatDaftar(basis, terbukaId) {
         basis, terbukaId,
         menu: false,
         popup: null,
-        chat: { id: null, nama: '', label: null, pemilik: null },
+        chat: { id: null, nama: '', label: null, pemilik: null, namaKontak: null, namaManual: false, pelanggan: null },
         posisi: { x: 0, y: 0 },
 
         buka(e, data) {
@@ -284,7 +325,7 @@ function menuChatDaftar(basis, terbukaId) {
             // sisa ruang di bawah tak cukup — baris terbawah daftar paling sering.
             this.posisi = {
                 x: Math.max(8, Math.min(r.right - 192, window.innerWidth - 200)),
-                y: r.bottom + 140 > window.innerHeight ? Math.max(8, r.top - 132) : r.bottom + 4,
+                y: r.bottom + 180 > window.innerHeight ? Math.max(8, r.top - 172) : r.bottom + 4,
             };
             this.menu = true;
         },

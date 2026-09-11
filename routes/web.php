@@ -212,6 +212,8 @@ Route::prefix('erp')->group(function () {
         // tapi belum sempat dikerjakan.
         Route::post('/{conversation}/belum-dibaca', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'belumDibaca'])->name('inbox.belum-dibaca');
         Route::post('/{conversation}/catatan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'catatan'])->name('inbox.catatan');
+        // Nama kontak untuk lead yang belum beli (ketik sendiri / ambil nama profil WhatsApp).
+        Route::post('/{conversation}/nama', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'nama'])->name('inbox.nama');
         // Susun SO draft langsung dari layar chat (tab "Pesanan" di rail kanan).
         Route::post('/{conversation}/buat-so', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'buatSo'])->name('inbox.buat-so');
         // Simpan keranjang setengah jadi (alamat, ongkir, produk) supaya tidak

@@ -497,6 +497,26 @@ class ApiCoIdProvider implements ChatProvider
     }
 
     /**
+     * GET /customers/{nomor} — DIVERIFIKASI 11 Sep 2026: jawabannya membawa
+     * `data.name` ("Ferina mei"), nama yang sama dengan yang tampil di OneInbox.
+     * Nomor dipakai sebagai kunci, bukan customer_id vendor, karena nomor
+     * selalu kita punya sedangkan customer_id tidak.
+     */
+    public function profilKontak(string $identifier): array
+    {
+        $id  = PhoneNumber::normalize($identifier) ?: $identifier;
+        $res = $this->get('/customers/' . rawurlencode($id));
+
+        if (! $res['success']) {
+            return ['success' => false, 'name' => null, 'error' => $res['error']];
+        }
+
+        $nama = trim((string) data_get($res['data'], 'data.name', ''));
+
+        return ['success' => true, 'name' => $nama !== '' ? $nama : null, 'error' => null];
+    }
+
+    /**
      * Tolak penerima di luar daftar putih SEBELUM menyentuh jaringan.
      * Daftar kosong = penjaga mati (mode produksi penuh).
      */

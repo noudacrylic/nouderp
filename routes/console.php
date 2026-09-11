@@ -81,6 +81,10 @@ Schedule::command('crm:pantau-waha')->everyFiveMinutes()->name('crm-pantau-waha'
 // Meta hanya bertahan ~30 hari, dan diskusi custom menggantung lebih lama.
 Schedule::command('crm:unduh-lampiran')->everyMinute()->name('crm-unduh-lampiran')->withoutOverlapping();
 
+// Nama profil WhatsApp untuk lead yang masih tampil sebagai nomor. Webhook tidak
+// membawa nama, jadi ditanyakan ke vendor — hanya untuk yang belum bernama.
+Schedule::command('crm:ambil-nama-kontak')->everyMinute()->name('crm-ambil-nama-kontak')->withoutOverlapping();
+
 // Penyapu masa simpan — hanya lampiran yang tidak tertaut dokumen ERP.
 Schedule::command('crm:gc-lampiran')->dailyAt('03:20')->name('crm-gc-lampiran')->withoutOverlapping();
 

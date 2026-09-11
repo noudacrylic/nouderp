@@ -108,7 +108,8 @@ class CrmTemplate extends Model
         $pelanggan = $percakapan?->customer;
 
         return strtr($this->body, [
-            '{nama}'    => $pelanggan?->name ?? $percakapan?->display_name ?? $percakapan?->contact_key ?? '',
+            // Nama profil WhatsApp tidak ikut — lihat CrmConversation::namaUntukPesan().
+            '{nama}'    => $percakapan?->namaUntukPesan() ?? $percakapan?->contact_key ?? '',
             '{nomor}'   => $percakapan?->contact_key ?? '',
             '{pesanan}' => $this->pesananTerakhir($pelanggan) ?? '',
             '{admin}'   => $namaAdmin ?? '',

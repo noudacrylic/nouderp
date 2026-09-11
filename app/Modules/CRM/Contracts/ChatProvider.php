@@ -179,4 +179,16 @@ interface ChatProvider
     public function buatTemplate(string $nama, string $kategori, string $body, array $variabel = [], string $bahasa = 'id', array $tombol = []): array;
 
     public function windowStatus(string $identifier): array;
+
+    /**
+     * Nama profil WhatsApp sebuah kontak, sebagaimana dicatat vendor.
+     *
+     * Ada karena webhook TIDAK membawanya — diverifikasi atas 105 kiriman
+     * sungguhan: yang ada cuma nomor dan customer_id vendor. Namanya duduk di
+     * data kontak vendor, jadi harus ditanyakan terpisah. 'name' null dengan
+     * success true berarti vendor menjawab tapi kontak itu memang tak bernama.
+     *
+     * @return array{success:bool, name:?string, error:?string}
+     */
+    public function profilKontak(string $identifier): array;
 }

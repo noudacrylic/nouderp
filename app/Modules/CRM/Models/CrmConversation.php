@@ -34,8 +34,13 @@ class CrmConversation extends Model
     public const STATUS_AKTIF = 'aktif';
     public const STATUS_ARSIP = 'arsip';
 
+    /** Asal `display_name` — lihat migrasi add_name_source_to_crm_conversations. */
+    public const NAMA_WHATSAPP = 'whatsapp';
+    public const NAMA_MANUAL   = 'manual';
+
     protected $fillable = [
-        'channel', 'contact_key', 'display_name', 'provider_customer_id', 'business_number_id',
+        'channel', 'contact_key', 'display_name', 'name_source', 'name_checked_at',
+        'provider_customer_id', 'business_number_id',
         'customer_id', 'owner_user_id', 'queue_state', 'status',
         'window_expires_at', 'pancingan_untuk_jendela_at',
         'last_inbound_at', 'last_outbound_at', 'last_message_at',
@@ -44,6 +49,7 @@ class CrmConversation extends Model
 
     protected $casts = [
         'order_draft'       => 'array',
+        'name_checked_at'   => 'datetime',
         'window_expires_at' => 'datetime',
         'pancingan_untuk_jendela_at' => 'datetime',
         'last_inbound_at'   => 'datetime',
@@ -134,9 +140,26 @@ class CrmConversation extends Model
      */
     public function sapaan(): string
     {
-        $nama = trim((string) ($this->customer->name ?? $this->display_name ?? ''));
+        $nama = $this->namaUntukPesan();
 
-        return $nama !== '' ? 'Kak ' . $nama : 'Kak';
+        return $nama !== null ? 'Kak ' . $nama : 'Kak';
+    }
+
+    /**
+     * Nama yang PANTAS ditulis di pesan ke pelanggan, null bila tak ada.
+     *
+     * Nama profil WhatsApp sengaja TIDAK ikut: isinya terserah pemilik akun —
+     * nama toko, emoji, "Mama Rafa 🌸" — bagus untuk mengenali chat di layar
+     * kita, tapi "Halo Kak Toko Berkah Jaya" terbaca seperti salah sasaran.
+     * Yang lolos hanya nama pelanggan ERP dan nama yang sengaja diketik CS.
+     */
+    public function namaUntukPesan(): ?string
+    {
+        $nama = trim((string) ($this->customer->name
+            ?? ($this->name_source === self::NAMA_MANUAL ? $this->display_name : null)
+            ?? ''));
+
+        return $nama !== '' ? $nama : null;
     }
 
     /**

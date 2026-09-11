@@ -95,7 +95,7 @@
          thread digulir jauh ke atas. Tanpa ini admin yang membuka beberapa
          chat berturut-turut kehilangan jejak sedang bicara dengan siapa. --}}
     <div class="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 bg-white"
-         x-data="{ menu: false, catatan: false }">
+         x-data="{ menu: false, catatan: false, nama: false }">
         @if($modePwa)
             {{-- Tautan sungguhan, bukan history.back(): chat sering dibuka
                  langsung dari notifikasi push, dan di situ tidak ada halaman
@@ -143,6 +143,9 @@
                 <div x-show="menu" x-cloak
                      class="absolute right-0 top-8 z-30 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
 
+                    <button type="button" @click="menu = false; nama = true; $nextTick(() => $refs.inputNamaThread?.select())"
+                            class="w-full text-left px-3 py-2 hover:bg-gray-50">Nama kontak…</button>
+
                     <button type="button" @click="menu = false; catatan = true"
                             class="w-full text-left px-3 py-2 hover:bg-gray-50">
                         Catatan internal
@@ -169,6 +172,48 @@
                         </form>
                     @endif
                 </div>
+            </div>
+        </div>
+
+        {{-- Nama kontak — kembaran popup di menu titik tiga kolom kiri. --}}
+        @php $namaManual = $terpilih->name_source === \App\Modules\CRM\Models\CrmConversation::NAMA_MANUAL; @endphp
+        <div x-show="nama" x-cloak class="fixed inset-0 z-50 lapis-layar flex items-center justify-center p-4"
+             @keydown.escape.window="nama = false">
+            <div class="absolute inset-0 bg-black/40" @click="nama = false"></div>
+            <div class="relative bg-white rounded-lg shadow-xl w-full max-w-sm p-4">
+                <div class="text-sm font-semibold">Nama kontak</div>
+                <div class="text-xs text-gray-500 mb-3">{{ $terpilih->contact_key }}</div>
+                <form method="POST" action="{{ route('crm.inbox.nama', $terpilih->id) }}">
+                    @csrf
+                    <input type="text" name="display_name" maxlength="100" x-ref="inputNamaThread"
+                           value="{{ $terpilih->display_name }}" placeholder="mis. Bu Ferina — tanya kotak kepuasan"
+                           class="border rounded px-2 py-1.5 text-sm w-full">
+                    <p class="mt-1.5 text-[11px] text-gray-500">
+                        @if($namaManual)
+                            Nama ini diketik manual — tidak akan ditimpa nama WhatsApp.
+                        @elseif($terpilih->display_name)
+                            Saat ini memakai nama profil WhatsApp.
+                        @endif
+                        Kosongkan untuk kembali ke nama profil WhatsApp.
+                    </p>
+                    @if($terpilih->customer)
+                        <p class="mt-1 text-[11px] text-amber-700">
+                            Chat ini sudah tertaut pelanggan <b>{{ $terpilih->customer->name }}</b> — yang tampil tetap nama pelanggan itu.
+                        </p>
+                    @endif
+                    <div class="mt-4 flex items-center justify-end gap-2">
+                        <button type="submit" form="formAmbilNamaWaThread"
+                                class="mr-auto px-2 py-1 rounded border border-gray-300 text-xs text-gray-600 hover:bg-gray-50"
+                                title="Ganti dengan nama profil WhatsApp pelanggan">Ambil dari WhatsApp</button>
+                        <button type="button" @click="nama = false"
+                                class="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50">Batal</button>
+                        <button class="px-3 py-1.5 rounded border border-emerald-600 text-emerald-700 text-sm hover:bg-emerald-50">Simpan</button>
+                    </div>
+                </form>
+                <form id="formAmbilNamaWaThread" method="POST" action="{{ route('crm.inbox.nama', $terpilih->id) }}" class="hidden">
+                    @csrf
+                    <input type="hidden" name="ambil_wa" value="1">
+                </form>
             </div>
         </div>
 
