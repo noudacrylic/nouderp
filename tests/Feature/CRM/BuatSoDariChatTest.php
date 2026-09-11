@@ -653,4 +653,83 @@ class BuatSoDariChatTest extends TestCase
             ->assertOk()
             ->assertJsonPath('pesanan', []);
     }
+
+    /**
+     * Alamat lengkap (jalan) + wilayah dari tab Ongkir mendarat di pelanggan.
+     * SO tidak punya kolom alamat; pemesanan resi membacanya dari pelanggan,
+     * jadi tanpa ini SO dari chat tidak bisa dipesankan resinya.
+     */
+    public function test_alamat_lengkap_dan_wilayah_disimpan_ke_pelanggan(): void
+    {
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.inbox.buat-so', $this->percakapan()), $this->muatan([
+                'delivery_method'  => 'kurir',
+                'shipping_address' => 'Jl. Kelud Raya No. 12, RT 03/RW 05 (depan masjid)',
+                'shipping_area'    => [
+                    'district' => 'Gajahmungkur', 'city' => 'KOTA SEMARANG', 'province' => 'JAWA TENGAH',
+                    'postal_code' => '50237', 'jubelio_area_id' => 'JB-123',
+                    'latitude' => -7.01, 'longitude' => 110.41,
+                ],
+            ]))
+            ->assertOk();
+
+        $c = Customer::where('name', 'Pak Budi')->first();
+
+        $this->assertSame('Jl. Kelud Raya No. 12, RT 03/RW 05 (depan masjid)', $c->shipping_address);
+        $this->assertSame('Gajahmungkur', $c->district);
+        $this->assertSame('50237', $c->postal_code);
+        $this->assertSame('JB-123', $c->jubelio_area_id);
+        $this->assertEquals(-7.01, (float) $c->latitude);
+        // Nomor chat jadi nomor penerima — kurir wajib punya nomor.
+        $this->assertSame('628998844666', $c->recipient_phone);
+    }
+
+    /** SO kedua tanpa mencari wilayah lagi tidak boleh menghapus alamat yang sudah benar. */
+    public function test_alamat_kosong_tidak_menghapus_alamat_lama(): void
+    {
+        $lama = Customer::create([
+            'code' => 'CUST-ALM', 'name' => 'Bu Sari', 'is_active' => true,
+            'shipping_address' => 'Jl. Lama 1', 'postal_code' => '50237', 'jubelio_area_id' => 'JB-1',
+            'recipient_phone' => '08111',
+        ]);
+
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.inbox.buat-so', $this->percakapan()), $this->muatan([
+                'customer_id' => $lama->id, 'delivery_method' => 'kurir',
+                'shipping_address' => null, 'shipping_area' => null,
+            ]))
+            ->assertOk();
+
+        $lama->refresh();
+        $this->assertSame('Jl. Lama 1', $lama->shipping_address);
+        $this->assertSame('JB-1', $lama->jubelio_area_id);
+        $this->assertSame('08111', $lama->recipient_phone);
+    }
+
+    public function test_ambil_di_toko_tidak_mengubah_alamat(): void
+    {
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.inbox.buat-so', $this->percakapan()), $this->muatan([
+                'delivery_method'  => 'ambil_toko',
+                'shipping_address' => 'Jl. Seharusnya Tidak Tersimpan',
+            ]))
+            ->assertOk();
+
+        $this->assertNull(Customer::where('name', 'Pak Budi')->value('shipping_address'));
+    }
+
+    /** Kartu Pengiriman SO mengirim jubelio_area_id — dulu dibuang validate(). */
+    public function test_kartu_pengiriman_so_menyimpan_area_jubelio(): void
+    {
+        $c = Customer::create(['code' => 'CUST-JB', 'name' => 'Pak Jubel', 'is_active' => true]);
+
+        $this->actingAs($this->admin())
+            ->postJson('/erp/api/customers/' . $c->id . '/shipping', [
+                'shipping_address' => 'Jl. Baru 5', 'postal_code' => '50237', 'jubelio_area_id' => 'JB-77',
+            ])
+            ->assertOk()
+            ->assertJsonPath('jubelio_area_id', 'JB-77');
+
+        $this->assertSame('JB-77', $c->fresh()->jubelio_area_id);
+    }
 }

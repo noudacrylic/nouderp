@@ -39,6 +39,7 @@
 
 <div class="space-y-3 text-sm" x-data="ongkirCrm()"
      @hitung-ulang-ongkir.window="hitungUlang($event.detail.produk)"
+     @tab-rail.window="$event.detail.tab === 'ongkir' && ambilKeranjangPesanan()"
      @pesanan-dibuat.window="lepasSetelahJadi()">
 
     {{-- --------------------------------------------------------------- asal --}}
@@ -63,6 +64,11 @@
             'label'          => 'Alamat Tujuan',
             'placeholder'    => 'Ketik kelurahan / kecamatan / kota…',
             'postalTargetId' => 'crmong_postal',
+            // Ikut ditangkap karena tab Pesanan menyimpannya ke alamat
+            // pelanggan saat SO dibuat — pemesanan resi membacanya dari sana.
+            'provinceTargetId' => 'crmong_province',
+            'cityTargetId'     => 'crmong_city',
+            'districtTargetId' => 'crmong_district',
             'providers'      => $areaProviders,
             'providerField'  => 'destination_provider',
             'providerNames'  => [
@@ -78,6 +84,9 @@
             'providerValues' => $idArea,
         ])
         <input type="hidden" id="crmong_postal" value="{{ $tujuan['postal'] ?? '' }}">
+        <input type="hidden" id="crmong_province" value="{{ $tujuan['province'] ?? '' }}">
+        <input type="hidden" id="crmong_city" value="{{ $tujuan['city'] ?? '' }}">
+        <input type="hidden" id="crmong_district" value="{{ $tujuan['district'] ?? '' }}">
     </div>
 
     {{-- ------------------------------------------------------ titik lokasi --}}
@@ -329,6 +338,23 @@
                 const utama = document.getElementById('crmong_id')?.value;
                 if (utama && prov && !ids[prov]) ids[prov] = utama;
 
+                const nilai = id => document.getElementById(id)?.value ?? '';
+                const tujuan = {
+                    label: nilai('crmong_search'),
+                    provider: prov,
+                    ids,
+                    postal: nilai('crmong_postal'),
+                    province: nilai('crmong_province'),
+                    city: nilai('crmong_city'),
+                    district: nilai('crmong_district'),
+                };
+
+                // Tab Pesanan memegang alamat lengkap (jalan) dan menyimpannya
+                // bersama wilayah ini ke pelanggan saat SO dibuat.
+                window.dispatchEvent(new CustomEvent('tujuan-ongkir', {
+                    detail: { ...tujuan, lat: this.lat, lng: this.lng },
+                }));
+
                 fetch('{{ $terpilih ? route('crm.inbox.draft-pesanan', $terpilih) : '' }}', {
                     method: 'POST',
                     headers: {
@@ -344,12 +370,7 @@
                             berat: this.berat, p: this.p, l: this.l, t: this.t,
                             baris: this.baris,
                             dipilih: this.dipilih,
-                            tujuan: {
-                                label: document.getElementById('crmong_search')?.value ?? '',
-                                provider: prov,
-                                ids,
-                                postal: document.getElementById('crmong_postal')?.value ?? '',
-                            },
+                            tujuan,
                         },
                     }),
                 // Gagal simpan TIDAK diteriakkan: draft cuma kenyamanan, dan
@@ -437,6 +458,20 @@
                 this.sudahCek = false;
             },
 
+            /*
+             * Tab ini dibuka lewat tombolnya sendiri (bukan "Hitung Ongkir" di
+             * tab Pesanan) padahal keranjang pesanan sudah terisi: produknya
+             * tetap ikut, supaya berat tidak perlu disusun ulang dari nol.
+             * Hanya saat panel ini masih kosong — produk yang sengaja ditimbang
+             * di sini, atau tarif yang sudah dipilih dari berat ketikan manual,
+             * tidak boleh tertimpa diam-diam.
+             */
+            ambilKeranjangPesanan() {
+                if (this.baris.length || this.dipilih) return;
+
+                window.dispatchEvent(new CustomEvent('minta-keranjang-ongkir'));
+            },
+
             hitungUlang(produk) {
                 this.baris = (produk ?? []).map(p => ({
                     key: ++this.nomor,
@@ -444,7 +479,9 @@
                     harga: p.harga ?? 0,
                     berat: p.berat ?? 0,
                     qty: p.qty || 1,
-                    dim: [0, 0, 0],
+                    // Dimensi ikut bila penyusun pesanan membawanya — penentu
+                    // kelas kendaraan kurir instant.
+                    dim: Array.isArray(p.dim) ? p.dim.map(n => Number(n) || 0) : [0, 0, 0],
                 }));
 
                 this.dipilih = null;
@@ -701,7 +738,7 @@
                         // sini memang barang yang mau dipesan, dan mengetiknya
                         // ulang di tab sebelah cuma kesempatan untuk salah.
                         produk: this.baris.map(b => ({
-                            id: b.id, nama: b.nama, harga: b.harga, qty: b.qty, berat: b.berat,
+                            id: b.id, nama: b.nama, harga: b.harga, qty: b.qty, berat: b.berat, dim: b.dim,
                         })).filter(b => b.id),
                     },
                 }));

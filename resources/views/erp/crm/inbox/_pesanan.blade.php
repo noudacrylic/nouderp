@@ -16,10 +16,25 @@
      keranjang berubah setelahnya, segmen Ongkir menandai dirinya basi. --}}
 @php
     $draftPesanan = (array) ($terpilih?->order_draft['pesanan'] ?? []);
+
+    // Wilayah tujuan hasil tab Ongkir (kecamatan/kota + id area kurir) — alamat
+    // lengkap di segmen Ongkir melengkapinya dengan nama jalan.
+    $draftOngkir  = (array) ($terpilih?->order_draft['ongkir'] ?? []);
+    $tujuanAwal   = (array) ($draftOngkir['tujuan'] ?? []) + [
+        'lat' => $draftOngkir['lat'] ?? null,
+        'lng' => $draftOngkir['lng'] ?? null,
+    ];
+
+    // Pelanggan lama yang alamatnya sudah pernah diisi: jalannya dipakai lagi.
+    $pelangganChat = $terpilih?->customer;
+    $wilayahPelanggan = collect([$pelangganChat?->district, $pelangganChat?->city, $pelangganChat?->postal_code])
+        ->filter()->implode(', ');
 @endphp
 
 <div class="space-y-3 text-sm" x-data="pesananCrm()"
-     @ongkir-dipilih.window="terimaDariOngkir($event.detail)">
+     @ongkir-dipilih.window="terimaDariOngkir($event.detail)"
+     @tujuan-ongkir.window="tujuan = $event.detail"
+     @minta-keranjang-ongkir.window="baris.length && kirimKeranjangKeOngkir()">
 
     {{-- ============================================================= DAFTAR --}}
     {{-- Yang pertama dilihat saat tab dibuka adalah pesanan yang SEDANG
@@ -310,6 +325,27 @@
                 </div>
 
                 <div x-show="metode !== 'ambil_toko'" class="space-y-2">
+
+                {{-- Alamat pengiriman. Tab Ongkir hanya mencari WILAYAH
+                     (kelurahan/kecamatan/kota) — cukup untuk menghitung tarif,
+                     tapi kurir tetap butuh nama jalan. Keduanya disimpan ke
+                     alamat pelanggan saat SO dibuat, karena dari sanalah resi
+                     dipesan. --}}
+                <div class="space-y-1">
+                    <label class="block text-[10px] font-bold text-gray-400 uppercase">Alamat Lengkap</label>
+                    <textarea x-model="alamat" rows="2" maxlength="2000"
+                              placeholder="Nama jalan, No. rumah, RT/RW, patokan…"
+                              class="w-full border rounded px-1.5 py-1 text-xs"
+                              :class="alamat.trim() ? 'border-gray-300' : 'border-amber-300'"></textarea>
+                    <div class="text-[11px]" :class="wilayahTampil() ? 'text-gray-500' : 'text-amber-700'">
+                        <span x-show="wilayahTampil()">
+                            Wilayah: <span x-text="wilayahTampil()"></span>
+                            <span class="text-gray-400">— ubah di tab Ongkir</span>
+                        </span>
+                        <span x-show="!wilayahTampil()">Wilayah (kecamatan/kota) belum dicari — isi di tab Ongkir.</span>
+                    </div>
+                </div>
+
                 <template x-if="ongkir">
                     <div class="space-y-1.5">
                         <div class="text-xs">
@@ -566,6 +602,10 @@
             tempoHari: awal.tempoHari ?? '',
             metode: awal.metode ?? 'kurir',
             catatan: awal.catatan ?? '',
+            // Jalan, No. rumah, patokan. Draft dulu, lalu alamat pelanggan yang
+            // sudah tersimpan — alamat orang tidak berubah antar pesanan.
+            alamat: awal.alamat ?? @json((string) ($pelangganChat?->shipping_address ?? '')),
+            tujuan: @json($tujuanAwal ?: new stdClass),
             ongkir: awal.ongkir ?? null,
             // Sidik keranjang saat ongkir dipasang — pembanding untuk tahu
             // tarifnya masih cocok atau sudah untuk berat yang lain.
@@ -585,7 +625,7 @@
 
             init() {
                 ['namaPelanggan', 'baris', 'diskonBelanja', 'diskonBelanjaJenis', 'minDp',
-                 'keepStok', 'tempo', 'tempoHari', 'metode', 'catatan', 'ongkir', 'ongkirSidik',
+                 'keepStok', 'tempo', 'tempoHari', 'metode', 'catatan', 'alamat', 'ongkir', 'ongkirSidik',
                  'diskonOngkir', 'diskonOngkirJenis', 'diskonBelanjaManual', 'diskonOngkirManual']
                     .forEach(k => this.$watch(k, () => this.simpanNanti()));
 
@@ -626,6 +666,31 @@
                 return (this.ongkirBasi() ? 'perlu hitung ulang · ' : '') + this.rupiah(this.ongkirBersih());
             },
 
+            /*
+             * Wilayah hasil tab Ongkir; bila belum dicari, wilayah yang sudah
+             * tersimpan di pelanggan — itulah yang akan dipakai memesan resi.
+             */
+            wilayahTampil() {
+                return (this.tujuan?.label || '').trim() || @json($wilayahPelanggan);
+            },
+
+            /* Wilayah + id area kurir dari tab Ongkir, hanya bila benar-benar dipilih. */
+            areaTujuan() {
+                const t = this.tujuan || {};
+                const ids = t.ids || {};
+
+                if (!Object.keys(ids).length && !t.postal) return null;
+
+                return {
+                    district: t.district || null, city: t.city || null, province: t.province || null,
+                    postal_code: t.postal || null,
+                    jubelio_area_id: ids.jubelio_shipment || null,
+                    biteship_area_id: ids.biteship || null,
+                    kiriminaja_area_id: ids.kiriminaja || null,
+                    latitude: t.lat ?? null, longitude: t.lng ?? null,
+                };
+            },
+
             ringkasLain() {
                 const bagian = ['DP ' + (Number(this.minDp) || 0) + '%'];
                 if (this.keepStok) bagian.push('keep stock');
@@ -653,6 +718,7 @@
                 this.masukkan({
                     id: p.id, nama: p.name, sku: p.sku, harga: Number(p.price) || 0, qty: 1,
                     berat: Number(p.weight_gram) || 0,
+                    dim: [Number(p.length_cm) || 0, Number(p.width_cm) || 0, Number(p.height_cm) || 0],
                 });
 
                 this.cari = '';
@@ -674,6 +740,7 @@
                     id: p.id, nama: p.nama, sku: p.sku ?? null,
                     harga: p.harga, qty: p.qty || 1,
                     berat: p.berat || 0,
+                    dim: p.dim ?? null,
                     diskonJenis: 'nominal', diskonNilai: 0, buka: false,
                     // Belum disentuh tangan → promo boleh mengisinya.
                     diskonManual: false, promo: null,
@@ -846,12 +913,39 @@
             terimaDariOngkir(d) {
                 this.ongkir = d.ongkir ?? d;
 
-                // Produk penimbang ikut pindah ke keranjang: yang ditimbang di
-                // tab Ongkir memang barang yang mau dipesan, dan mengetiknya
-                // ulang di sini cuma kesempatan untuk salah.
-                for (const p of (d.produk ?? [])) this.masukkan(p);
+                /*
+                 * Produk penimbang ikut pindah ke keranjang: yang ditimbang di
+                 * tab Ongkir memang barang yang mau dipesan, dan mengetiknya
+                 * ulang di sini cuma kesempatan untuk salah.
+                 *
+                 * Yang SUDAH ada di keranjang disamakan jumlahnya, BUKAN
+                 * ditambah. Daftar di tab Ongkir hampir selalu berasal dari
+                 * keranjang ini sendiri (tombol Hitung Ongkir, atau diisi
+                 * otomatis saat tab dibuka) — menambahkannya lagi membuat
+                 * jumlah pesanan jadi dua kali lipat.
+                 */
+                const produk = (d.produk ?? []).filter(p => p.id);
 
-                this.ongkirSidik = this.sidikKeranjang();
+                for (const p of produk) {
+                    const ada = this.baris.find(b => b.id === p.id);
+
+                    if (!ada) { this.masukkan(p); continue; }
+
+                    ada.qty = Number(p.qty) || ada.qty;
+                    if (!ada.berat && p.berat) ada.berat = p.berat;
+                    if (!ada.dim && p.dim) ada.dim = p.dim;
+                }
+
+                /*
+                 * Sidik diambil dari barang yang DITIMBANG, bukan dari isi
+                 * keranjang: produk keranjang yang tidak ikut ditimbang tidak
+                 * tercakup tarif ini, dan harus langsung terbaca "perlu hitung
+                 * ulang". Tanpa daftar timbangan (berat diketik manual), isi
+                 * keranjang saat ini yang dianggap tercakup.
+                 */
+                this.ongkirSidik = produk.length
+                    ? JSON.stringify(produk.map(p => [p.id, Number(p.qty) || 0]).sort())
+                    : this.sidikKeranjang();
 
                 // Ongkir yang datang berarti barangnya dikirim, bukan diambil.
                 this.metode = 'kurir';
@@ -862,12 +956,19 @@
             // Keranjang dibawa serta supaya tab Ongkir tidak perlu diisi ulang
             // produknya; beratnya langsung terhitung dari sana.
             keOngkir() {
+                this.kirimKeranjangKeOngkir();
+                window.dispatchEvent(new CustomEvent('buka-tab', { detail: { tab: 'ongkir' } }));
+            },
+
+            // Dipakai juga saat tab Ongkir dibuka lewat tombolnya sendiri
+            // dengan panel yang masih kosong — lihat ambilKeranjangPesanan().
+            kirimKeranjangKeOngkir() {
                 window.dispatchEvent(new CustomEvent('hitung-ulang-ongkir', {
                     detail: { produk: this.baris.map(b => ({
                         id: b.id, nama: b.nama, harga: b.harga, qty: b.qty, berat: b.berat || 0,
+                        dim: b.dim ?? null,
                     })) },
                 }));
-                window.dispatchEvent(new CustomEvent('buka-tab', { detail: { tab: 'ongkir' } }));
             },
 
             /* --------------------------------------------------------- simpan */
@@ -898,7 +999,7 @@
                             diskonOngkirManual: this.diskonOngkirManual,
                             minDp: this.minDp, keepStok: this.keepStok,
                             tempo: this.tempo, tempoHari: this.tempoHari,
-                            metode: this.metode, catatan: this.catatan,
+                            metode: this.metode, catatan: this.catatan, alamat: this.alamat,
                             ongkir: this.ongkir, ongkirSidik: this.ongkirSidik,
                         },
                     }),
@@ -965,6 +1066,13 @@
                     delivery_method: this.metode,
                     notes: this.catatan.trim() || null,
                 };
+
+                // Alamat ikut hanya untuk pesanan yang DIKIRIM; barang yang
+                // diambil di toko tidak berhak mengubah alamat pelanggan.
+                if (this.metode !== 'ambil_toko') {
+                    muatan.shipping_address = this.alamat.trim() || null;
+                    muatan.shipping_area = this.areaTujuan();
+                }
 
                 if (this.ongkir && this.metode !== 'ambil_toko') {
                     Object.assign(muatan, {

@@ -13,6 +13,7 @@
 @php $gayaWadah = $gayaWadah ?? 'bg-white border border-gray-200 rounded-lg'; @endphp
 <div class="flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }}"
      x-data="{ tab: 'produk' }"
+     x-init="$watch('tab', t => window.dispatchEvent(new CustomEvent('tab-rail', { detail: { tab: t } })))"
      @buka-tab.window="tab = $event.detail.tab">
 
     <div class="shrink-0 flex gap-1 px-2 py-2 border-b border-gray-200 bg-gray-50 text-xs">

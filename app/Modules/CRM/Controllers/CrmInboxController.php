@@ -1497,12 +1497,31 @@ class CrmInboxController extends Controller
             'shipping_provider'       => 'nullable|string|max:30',
             'shipping_courier_code'   => 'nullable|string|max:50',
             'shipping_service_code'   => 'nullable|string|max:80',
+
+            // Alamat pengiriman: jalan diketik di tab Pesanan, wilayah & id area
+            // kurir datang dari tab Ongkir. Disimpan ke PELANGGAN — SO tidak
+            // punya kolom alamat, dan pemesanan resi membacanya dari pelanggan.
+            'shipping_address'                 => 'nullable|string|max:2000',
+            'shipping_area'                    => 'nullable|array',
+            'shipping_area.district'           => 'nullable|string|max:100',
+            'shipping_area.city'               => 'nullable|string|max:100',
+            'shipping_area.province'           => 'nullable|string|max:100',
+            'shipping_area.postal_code'        => 'nullable|string|max:10',
+            'shipping_area.jubelio_area_id'    => 'nullable|string|max:100',
+            'shipping_area.biteship_area_id'   => 'nullable|string|max:100',
+            'shipping_area.kiriminaja_area_id' => 'nullable|string|max:100',
+            'shipping_area.latitude'           => 'nullable|numeric|between:-90,90',
+            'shipping_area.longitude'          => 'nullable|numeric|between:-180,180',
         ]);
 
         try {
             $customerId = $this->pelangganUntukSo($conversation, $data);
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        if (($data['delivery_method'] ?? 'kurir') !== 'ambil_toko') {
+            $this->simpanAlamatPelanggan($customerId, $conversation, $data);
         }
 
         try {
@@ -1582,6 +1601,38 @@ class CrmInboxController extends Controller
         }
 
         return $id;
+    }
+
+    /**
+     * Tulis alamat pengiriman dari layar chat ke pelanggan.
+     *
+     * Hanya medan yang BERISI yang ditulis: SO kedua dari chat yang sama sering
+     * dibuat tanpa mencari wilayah lagi, dan itu tidak boleh menghapus kecamatan
+     * & id area yang sudah benar dari pesanan sebelumnya.
+     */
+    private function simpanAlamatPelanggan(int $customerId, CrmConversation $conversation, array $data): void
+    {
+        $customer = \App\Models\Customer::find($customerId);
+
+        if (! $customer) {
+            return;
+        }
+
+        $ubah = array_filter(
+            ['shipping_address' => trim((string) ($data['shipping_address'] ?? ''))]
+                + array_map(fn ($v) => is_string($v) ? trim($v) : $v, (array) ($data['shipping_area'] ?? [])),
+            fn ($v) => $v !== null && $v !== ''
+        );
+
+        // Nomor chat = nomor penerima yang paling mungkin benar, dan kurir wajib
+        // punya nomor. Hanya bila belum ada — nomor yang sudah diisi orang menang.
+        if (blank($customer->recipient_phone) && $conversation->channel === 'whatsapp') {
+            $ubah['recipient_phone'] = $conversation->contact_key;
+        }
+
+        if ($ubah) {
+            $customer->forceFill($ubah)->save();
+        }
     }
 
     /** Oper percakapan ke admin lain — pengganti rotator otomatis yang ditunda. */
