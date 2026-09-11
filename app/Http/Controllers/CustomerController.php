@@ -214,11 +214,24 @@ class CustomerController extends Controller
             }
         }
 
+        $phone = trim((string) ($data['phone'] ?? '')) ?: null;
+
+        // Kode berbasis detik bentrok bila dua pelanggan dibuat di detik yang sama
+        // (kolomnya unik → simpan gagal 500). Ekor acak hanya dipasang saat bentrok,
+        // jadi bentuk kode yang biasa tidak berubah.
+        $code = 'CUST-' . time();
+        while (Customer::where('code', $code)->exists()) {
+            $code = 'CUST-' . time() . '-' . strtoupper(\Illuminate\Support\Str::random(3));
+        }
+
         $customer = Customer::create([
             'name'          => $data['name'],
-            'phone'         => $data['phone'] ?? null,
+            'phone'         => $phone,
+            // Ikut jadi No. HP penerima: kartu Pengiriman membacanya dari sini, dan
+            // pelanggan baru hampir selalu menerima paketnya sendiri.
+            'recipient_phone' => $phone,
             'address'       => $data['address'] ?? null,
-            'code'          => 'CUST-' . time(),
+            'code'          => $code,
             'customer_type' => 'regular',
             'is_active'     => true,
         ]);
@@ -301,7 +314,8 @@ class CustomerController extends Controller
         $customers = Customer::aktif()
             ->where(function ($w) use ($q) {
                 $w->where('name', 'like', "%{$q}%")
-                  ->orWhere('code', 'like', "%{$q}%");
+                  ->orWhere('code', 'like', "%{$q}%")
+                  ->orWhere('phone', 'like', "%{$q}%");
             })
             ->orderBy('name')
             ->limit(10)

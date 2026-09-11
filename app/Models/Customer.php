@@ -85,18 +85,22 @@ class Customer extends Model
     }
 
     /**
-     * Nama yang tampil di kotak pilih & daftar hasil cari: kode dulu, baru nama.
+     * Nama yang tampil di kotak pilih & daftar hasil cari: nama, lalu No. HP.
      *
      * Dua gunanya. Pertama, membedakan orang yang namanya sama persis — dan itu
-     * nyata: ada tiga "Dhita Maharani" di data. Kedua, kehadiran kode itu sendiri
+     * nyata: ada tiga "Dhita Maharani" di data. Kedua, kehadiran ekor itu sendiri
      * menandai "ini pelanggan yang SUDAH ADA", bukan nama yang baru saja diketik dan
      * belum tersimpan.
+     *
+     * No. HP dipilih ketimbang kode karena itulah yang dikenali admin ("CUST-17…"
+     * tak berarti apa-apa bagi siapa pun). Pelanggan tanpa HP jatuh ke kode, supaya
+     * dua gunanya di atas tetap berlaku.
      */
     public function getPickerLabelAttribute(): string
     {
-        $code = trim((string) $this->code);
+        $ekor = trim((string) $this->phone) ?: trim((string) $this->code);
 
-        return $code !== '' ? $code . ' · ' . $this->name : (string) $this->name;
+        return $ekor !== '' ? $this->name . ' · ' . $ekor : (string) $this->name;
     }
 
     public function marketplaceIntegration()

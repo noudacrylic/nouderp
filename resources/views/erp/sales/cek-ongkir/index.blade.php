@@ -484,7 +484,7 @@
                         list.forEach(c=>{
                             const row = document.createElement('div');
                             row.className = 'px-3 py-2 cursor-pointer hover:bg-blue-50 border-b border-gray-50 last:border-0';
-                            row.innerHTML = '<b>' + esc(c.code||'') + '</b> — ' + esc(c.name||'');
+                            row.innerHTML = '<b>' + esc(c.name||'') + '</b> — ' + esc(c.phone || c.code || '');
                             row.addEventListener('mousedown', function(e){ e.preventDefault(); pickCust(c.id, c.name); });
                             csBox.appendChild(row);
                         });

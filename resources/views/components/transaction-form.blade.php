@@ -226,7 +226,12 @@
             <div class="mb-4">
                 <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Nama Lengkap <span class="text-red-500">*</span></label>
                 <input type="text" name="name" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Masukkan nama pelanggan..." required>
-                <p class="text-[10px] text-gray-400 mt-1.5">No. HP &amp; alamat diisi nanti di kartu Pengiriman.</p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">No. HP <span class="normal-case tracking-normal font-normal">(opsional)</span></label>
+                <input type="tel" name="phone" maxlength="30" inputmode="tel" class="form-control w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="mis. 0812 3456 7890">
+                <p class="text-[10px] text-gray-400 mt-1.5">Alamat diisi nanti di kartu Pengiriman.</p>
             </div>
 
             {{-- Peringatan nama kembar. Menghadang, bukan melarang: dua orang boleh saja
@@ -556,12 +561,12 @@
             $.get('/erp/api/customers/search', {q: keyword}, function(customers){
                 let html = '';
                 if (!customers.length) {
-                    html = '<div class="customer-item text-gray-400 italic">Tidak ada pelanggan aktif dengan nama itu. Tekan + untuk menambah baru.</div>';
+                    html = '<div class="customer-item text-gray-400 italic">Tidak ada pelanggan aktif dengan nama/No. HP itu. Tekan + untuk menambah baru.</div>';
                 }
                 customers.forEach(function(c){
                     html += `
                     <div class="customer-item" data-id="${c.id}" data-name="${c.name}" data-label="${c.label || c.name}">
-                        <b>${c.code || ''}</b> — ${c.name}
+                        <b>${c.name}</b> — ${c.phone || '<span class="text-gray-400">' + (c.code || 'tanpa No. HP') + '</span>'}
                     </div>
                     `;
                 });
@@ -1118,7 +1123,16 @@
         form.style.top = (rect.bottom + window.scrollY + 10) + 'px';
         form.style.left = (rect.left + window.scrollX - 10) + 'px';
         
-        form.querySelector('[name="name"]').focus();
+        // Yang tadi diketik di kotak Pelanggan ikut dibawa — mengetiknya dua kali
+        // cuma mengundang salah ketik. Kalau yang diketik angka, itu No. HP.
+        const ketikan = (document.getElementById('customer_search')?.value || '').trim();
+        if (ketikan && !document.getElementById('customer_id')?.value) {
+            const field = /^[+\d][\d\s\-()]{5,}$/.test(ketikan) ? 'phone' : 'name';
+            form.querySelector(`[name="${field}"]`).value = ketikan;
+        }
+
+        const nama = form.querySelector('[name="name"]');
+        (nama.value ? form.querySelector('[name="phone"]') : nama).focus();
     }
 
     function tampilkanNamaKembar(daftar) {
@@ -1129,7 +1143,7 @@
             <div class="flex items-center justify-between gap-2 bg-white/70 rounded px-2 py-1.5">
                 <div class="min-w-0">
                     <div class="font-bold truncate">${c.name}</div>
-                    <div class="text-[10px] text-amber-700/80 truncate">${c.code || 'tanpa kode'}${c.phone ? ' · ' + c.phone : ''}</div>
+                    <div class="text-[10px] text-amber-700/80 truncate">${c.phone || c.code || 'tanpa No. HP'}</div>
                 </div>
                 <button type="button" onclick="pakaiPelangganLama(${c.id}, '${(c.label || c.name).replace(/'/g, "\'")}')"
                         class="shrink-0 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold px-2 py-1 rounded">

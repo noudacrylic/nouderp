@@ -11,8 +11,9 @@ use Tests\TestCase;
  * Kotak "Pelanggan" di dokumen penjualan.
  *
  * Tiga hal yang dijaga di sini: pelanggan arsip tidak boleh muncul lagi sebagai
- * pilihan, nama kembar dihadang sebelum tersimpan, dan yang tampil membawa kode
- * pelanggannya supaya "ambil yang sudah ada" terlihat beda dari "ketik nama baru".
+ * pilihan, nama kembar dihadang sebelum tersimpan, dan yang tampil membawa No. HP
+ * (atau kode, bila HP kosong) supaya "ambil yang sudah ada" terlihat beda dari
+ * "ketik nama baru".
  */
 class PelangganPickerTest extends TestCase
 {
@@ -55,13 +56,45 @@ class PelangganPickerTest extends TestCase
         $this->assertSame([], $hasil);
     }
 
-    public function test_hasil_pencarian_membawa_kode_pelanggan(): void
+    public function test_hasil_pencarian_membawa_no_hp_bukan_kode(): void
+    {
+        $this->pelanggan('Ifa', 'CUST-777')->update(['phone' => '081234567890']);
+
+        $hasil = $this->getJson('/erp/api/customers/search?q=Ifa')->assertOk()->json();
+
+        $this->assertSame('Ifa · 081234567890', $hasil[0]['label']);
+    }
+
+    public function test_pelanggan_tanpa_no_hp_jatuh_ke_kode(): void
     {
         $this->pelanggan('Ifa', 'CUST-777');
 
         $hasil = $this->getJson('/erp/api/customers/search?q=Ifa')->assertOk()->json();
 
-        $this->assertSame('CUST-777 · Ifa', $hasil[0]['label']);
+        $this->assertSame('Ifa · CUST-777', $hasil[0]['label']);
+    }
+
+    public function test_pelanggan_bisa_dicari_lewat_no_hp(): void
+    {
+        $this->pelanggan('Nana Urais', 'CUST-888')->update(['phone' => '085867614623']);
+
+        $hasil = $this->getJson('/erp/api/customers/search?q=0858676')->assertOk()->json();
+
+        $this->assertSame('Nana Urais', $hasil[0]['name']);
+    }
+
+    public function test_simpan_cepat_menyimpan_no_hp_opsional(): void
+    {
+        $res = $this->postJson('/customers/store', ['name' => 'Nana Urais', 'phone' => ' 0858 6761 4623 '])->assertOk();
+
+        $baru = Customer::find($res->json('id'));
+        $this->assertSame('0858 6761 4623', $baru->phone);
+        $this->assertSame('0858 6761 4623', $baru->recipient_phone);
+        $this->assertSame('Nana Urais · 0858 6761 4623', $res->json('label'));
+
+        // Tanpa HP pun tetap bisa disimpan.
+        $this->postJson('/customers/store', ['name' => 'Tanpa HP'])->assertOk();
+        $this->assertNull(Customer::where('name', 'Tanpa HP')->value('phone'));
     }
 
     public function test_nama_kembar_dihadang_dan_menawarkan_yang_sudah_ada(): void
@@ -73,7 +106,7 @@ class PelangganPickerTest extends TestCase
             ->assertJson(['duplicate' => true]);
 
         $this->assertSame($lama->id, $res->json('existing.0.id'));
-        $this->assertSame('CUST-001 · Dhita Maharani', $res->json('existing.0.label'));
+        $this->assertSame('Dhita Maharani · CUST-001', $res->json('existing.0.label'));
         $this->assertSame(1, Customer::where('name', 'like', 'dhita%')->count());
     }
 
@@ -124,7 +157,7 @@ class PelangganPickerTest extends TestCase
     {
         $res = $this->postJson('/customers/store', ['name' => 'Pelanggan Baru'])->assertOk();
 
-        $this->assertStringContainsString('· Pelanggan Baru', $res->json('label'));
+        $this->assertStringStartsWith('Pelanggan Baru · CUST-', $res->json('label'));
         $this->assertStringStartsWith('CUST-', $res->json('code'));
     }
 }
