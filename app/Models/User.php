@@ -66,6 +66,32 @@ class User extends Authenticatable
                 ->orWhereHas('menuPermissions', fn ($m) => $m->where('menu_key', $menuKey)));
     }
 
+    /**
+     * Orang yang bertanggung jawab atas chat pelanggan — penerima notifikasi
+     * chat masuk yang belum bertuan.
+     *
+     * BEDA dari denganAksesMenu('crm.inbox'), dan bedanya itu yang dulu jadi
+     * lubang: akun CS chat-saja memegang flag `pwa_crm` TANPA izin menu apa pun
+     * (memang tidak boleh masuk ERP), sehingga tidak pernah dikabari chat baru.
+     * Gejalanya menipu — notifikasi terasa "cuma muncul kalau aplikasinya
+     * dibuka", padahal yang terjadi adalah tidak pernah dikirim sama sekali,
+     * dan chat baru hanya ketahuan saat CS membuka daftar sendiri.
+     *
+     * Syaratnya disamakan dengan canUseCrmPwa(): yang bisa MEMBUKA layar chat
+     * adalah yang perlu dikabari. Dua aturan berbeda di sini berarti suatu hari
+     * ada orang yang dikabari tapi tidak bisa membukanya — atau sebaliknya.
+     */
+    public function scopeBisaChatCrm($query)
+    {
+        return $query
+            ->where('role', '!=', 'karyawan')
+            ->where('is_active', true)
+            ->where(fn ($w) => $w
+                ->whereIn('role', ['super_admin', 'admin'])
+                ->orWhere('pwa_crm', true)
+                ->orWhereHas('menuPermissions', fn ($m) => $m->where('menu_key', 'crm.inbox')));
+    }
+
     public function isSuperAdmin(): bool
     {
         return $this->role === 'super_admin';

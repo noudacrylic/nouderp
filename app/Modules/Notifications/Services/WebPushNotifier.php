@@ -122,6 +122,29 @@ class WebPushNotifier
     }
 
     /**
+     * Kirim ke semua perangkat dari sekumpulan user yang ditentukan kueri.
+     *
+     * Pendamping notifyMenuAccess() untuk audiens yang batasnya bukan izin
+     * menu — lihat PusatNotifikasi::keKumpulan().
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $users
+     */
+    public function notifyUsers($users, string $title, string $body, array $opts = []): int
+    {
+        $kecuali = (int) ($opts['kecuali_user_id'] ?? 0);
+
+        $subs = PushSubscription::whereIn('user_id', $users->select('id'))
+            ->when($kecuali, fn ($q) => $q->where('user_id', '!=', $kecuali))
+            ->get();
+
+        if ($subs->isEmpty()) {
+            return 0;
+        }
+
+        return $this->sendToSubscriptions($subs, $title, $body, $opts);
+    }
+
+    /**
      * @param  \Illuminate\Support\Collection<PushSubscription>  $subs
      */
     public function sendToSubscriptions($subs, string $title, string $body, array $opts = []): int

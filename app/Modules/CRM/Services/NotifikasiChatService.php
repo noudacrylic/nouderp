@@ -97,7 +97,14 @@ class NotifikasiChatService
             return;
         }
 
-        $this->pusat->keAksesMenu(self::MENU, ErpNotification::CHAT_MASUK, $judul, $isi, $opts);
+        /*
+         * BUKAN keAksesMenu(): akun CS chat-saja memegang flag pwa_crm tanpa
+         * izin menu apa pun — memang sengaja tidak boleh masuk ERP — sehingga
+         * dulu tidak pernah dikabari chat yang belum bertuan. Gejalanya
+         * menipu: notifikasi terasa "cuma muncul kalau aplikasinya dibuka",
+         * padahal tidak pernah dikirim sama sekali.
+         */
+        $this->pusat->keKumpulan(User::bisaChatCrm(), ErpNotification::CHAT_MASUK, $judul, $isi, $opts);
     }
 
     private function url(CrmConversation $percakapan): string

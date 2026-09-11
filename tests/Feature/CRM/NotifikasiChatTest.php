@@ -158,6 +158,43 @@ class NotifikasiChatTest extends TestCase
         $this->assertNotContains($lain->id, $this->log()[0]['user_ids']);
     }
 
+    /**
+     * Akun CS chat-saja memegang flag `pwa_crm` TANPA izin menu apa pun — ia
+     * memang tidak boleh masuk ERP. Dulu ia jatuh di luar jaring "orang CRM"
+     * dan tidak pernah dikabari chat baru; gejalanya menipu, karena terasa
+     * seperti notifikasi yang "cuma jalan kalau aplikasinya dibuka" padahal
+     * tidak pernah dikirim sama sekali.
+     */
+    public function test_akun_cs_chat_saja_ikut_dikabari(): void
+    {
+        $cs = $this->pengguna('user');
+        $cs->forceFill(['pwa_crm' => true])->save();
+
+        $this->percakapan(['owner_user_id' => null]);
+        $this->pesanMasuk();
+
+        $this->assertSame([$cs->id], $this->log()[0]['user_ids']);
+    }
+
+    /**
+     * Tautannya menunjuk Inbox desktop karena notifikasi dibuat sekali untuk
+     * semua perangkat. Yang menerjemahkannya ke layar PWA adalah sisi penerima
+     * (UrlPwa & service worker), jadi bentuk aslinya harus tetap utuh di sini —
+     * kalau berubah, aturan penerjemahan di dua tempat itu berhenti cocok.
+     */
+    public function test_url_notifikasi_menunjuk_percakapan_dan_bisa_dipetakan_ke_pwa(): void
+    {
+        $this->pengguna('user', 'crm.inbox');
+        $percakapan = $this->percakapan(['owner_user_id' => null]);
+
+        $this->pesanMasuk();
+
+        $url = $this->log()[0]['opts']['url'] ?? '';
+
+        $this->assertStringEndsWith('/erp/crm/' . $percakapan->id, $url);
+        $this->assertSame('/cs/' . $percakapan->id, \App\Modules\CRM\Support\UrlPwa::dariErp($url));
+    }
+
     /** Yang tidak mengurus CRM tidak ikut terganggu. */
     public function test_yang_tak_punya_akses_crm_tidak_dikabari(): void
     {

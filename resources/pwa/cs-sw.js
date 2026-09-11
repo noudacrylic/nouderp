@@ -33,6 +33,32 @@ self.addEventListener('fetch', (event) => {
     }
 });
 
+/*
+ * Terjemahkan tautan Inbox desktop jadi tautan PWA.
+ *
+ * Notifikasi dibuat SEKALI untuk semua perangkat seorang CS, jadi url-nya
+ * menunjuk Inbox desktop (/erp/crm/123). Ditekan dari rak notifikasi HP, itu
+ * berarti membuka peramban ke layar tiga kolom yang tidak muat — dan untuk
+ * akun CS chat-saja, halaman ditolak. Yang menentukan bukan siapa penerimanya
+ * melainkan DI MANA ia menekan, dan berkas ini hanya hidup di dalam PWA.
+ *
+ * KEMBAR dengan App\Modules\CRM\Support\UrlPwa di PHP. Service worker tak bisa
+ * memanggil PHP, jadi aturannya hidup di dua tempat - ubah berpasangan.
+ */
+function petaKeCs(url) {
+    try {
+        const path = new URL(url, self.location.origin).pathname.replace(/\/+$/, '');
+        const chat = path.match(/^\/erp\/crm\/(\d+)$/);
+
+        if (chat) return '/cs/' + chat[1];
+        if (path === '/erp/crm') return '/cs';
+
+        return url;
+    } catch (e) {
+        return url;
+    }
+}
+
 /* ───────────── Web Push ───────────── */
 
 // Chat masuk saat aplikasi ditutup. Berlangganannya lewat endpoint ERP yang
@@ -52,7 +78,7 @@ self.addEventListener('push', (event) => {
         // berdiri di sebelah notifikasi ERP lain yang memakai logo yang sama.
         icon: '/icons/cs-icon-192.png',
         badge: '/favicon.png',
-        data: { url: data.url || '/cs' },
+        data: { url: petaKeCs(data.url || '/cs') },
         tag: data.tag || undefined,
         renotify: !!data.tag,
         vibrate: [80, 40, 80],
@@ -65,7 +91,7 @@ self.addEventListener('push', (event) => {
 // baru menumpuk. Kalau tujuannya chat lain, jendela yang ada diarahkan ke sana.
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    const target = (event.notification.data && event.notification.data.url) || '/cs';
+    const target = petaKeCs((event.notification.data && event.notification.data.url) || '/cs');
 
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {

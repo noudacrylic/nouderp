@@ -17,7 +17,11 @@
 @section('content')
     @forelse ($daftar as $n)
         @php $baru = ! $n->sudahDibaca(); @endphp
-        <a href="{{ $n->url ?: url('/cs') }}"
+        {{-- Tautannya diterjemahkan ke layar PWA. Baris notifikasi ini dibuat
+             sekali untuk semua perangkat, jadi url-nya menunjuk Inbox desktop —
+             ditekan dari HP itu berarti terlempar ke layar tiga kolom yang
+             tidak muat, atau (untuk akun CS chat-saja) halaman ditolak. --}}
+        <a href="{{ \App\Modules\CRM\Support\UrlPwa::dariErp($n->url) ?: url('/cs') }}"
            data-notif-id="{{ $n->id }}"
            class="cs-notif flex gap-3 px-4 py-3 border-b border-slate-100 active:bg-slate-100 {{ $baru ? 'bg-teal-50/60' : 'bg-white' }}">
             <span class="mt-0.5 w-2 h-2 shrink-0 rounded-full {{ $baru ? 'bg-teal-600' : 'bg-transparent' }}"></span>

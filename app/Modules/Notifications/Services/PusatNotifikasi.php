@@ -75,6 +75,38 @@ class PusatNotifikasi
         });
     }
 
+    /**
+     * Kabari sekumpulan orang yang batasnya BUKAN satu izin menu.
+     *
+     * Ada di samping keAksesMenu() karena tidak semua audiens bisa dinyatakan
+     * sebagai "pemegang menu X": CS chat-saja memegang chat pelanggan tanpa
+     * boleh masuk ERP sama sekali. Memaksakannya lewat izin menu akan memberi
+     * mereka pintu yang justru sengaja ditutup.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $users  kueri penerima
+     * @param  array{url?:string, tag?:string, kecuali_user_id?:int}  $opts
+     */
+    public function keKumpulan($users, string $jenis, string $judul, string $isi, array $opts = []): void
+    {
+        $kecuali = (int) ($opts['kecuali_user_id'] ?? 0);
+
+        $this->aman(function () use ($users, $jenis, $judul, $isi, $opts, $kecuali) {
+            // Kueri dipakai dua kali (baris lonceng & langganan push), jadi
+            // masing-masing memakai salinannya sendiri — Builder yang sama
+            // membawa serta klausa yang sudah ditambahkan pemakai sebelumnya.
+            (clone $users)
+                ->when($kecuali, fn ($q) => $q->where('id', '!=', $kecuali))
+                ->select('id')
+                ->chunkById(200, function ($daftar) use ($jenis, $judul, $isi, $opts) {
+                    foreach ($daftar as $u) {
+                        $this->tulis($u->id, $jenis, $judul, $isi, $opts);
+                    }
+                });
+
+            $this->push->notifyUsers(clone $users, $judul, $isi, $opts);
+        });
+    }
+
     /* ------------------------------------------------------------------ dalam */
 
     /**

@@ -50,6 +50,33 @@ class CrmPwaLayarTest extends TestCase
     }
 
     /**
+     * Daftar notifikasi di PWA harus menuju layar chat PWA, bukan Inbox
+     * desktop. Barisnya dibuat sekali untuk semua perangkat, jadi url-nya
+     * memang menunjuk /erp/crm/{id} — ditekan dari HP itu berarti terlempar ke
+     * layar tiga kolom yang tidak muat, dan untuk akun CS chat-saja berujung
+     * halaman ditolak.
+     */
+    public function test_daftar_notifikasi_menunjuk_layar_pwa_bukan_inbox_desktop(): void
+    {
+        $pengguna = $this->cs();
+        $p = $this->percakapan(['owner_user_id' => $pengguna->id]);
+
+        \App\Models\ErpNotification::create([
+            'user_id' => $pengguna->id,
+            'jenis'   => \App\Models\ErpNotification::CHAT_MASUK,
+            'judul'   => 'Chat baru',
+            'isi'     => 'Fahri mengirim pesan.',
+            'url'     => url('/erp/crm/' . $p->id),
+        ]);
+
+        $this->actingAs($pengguna)
+            ->get(route('cs.notifikasi'))
+            ->assertOk()
+            ->assertSee('href="/cs/' . $p->id . '"', false)
+            ->assertDontSee('/erp/crm/' . $p->id, false);
+    }
+
+    /**
      * Ikon PWA Chat WAJIB berbeda dari PWA Karyawan. Keduanya terpasang
      * berdampingan di layar HP yang sama, dan dua ikon kembar berarti CS
      * membuka aplikasi perizinan setiap kali buru-buru membalas pelanggan —
