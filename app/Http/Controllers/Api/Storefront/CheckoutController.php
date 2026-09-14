@@ -416,6 +416,9 @@ class CheckoutController extends Controller
             'customer.postal_code'         => 'nullable|string|max:10',
             'customer.destination_label'   => 'nullable|string|max:255',
             'customer.destination_area_id' => 'nullable|string|max:50',
+            // Persetujuan notifikasi WhatsApp. Boleh tidak dikirim etalase — lihat
+            // resolveCustomer(); yang dikirim eksplisit `false` dihormati sebagai penolakan.
+            'customer.wa_opt_in'           => 'nullable|boolean',
             'items'                        => 'required|array|min:1',
             'items.*.product_id'           => 'required|integer',
             'items.*.qty'                  => 'required|numeric|min:1',
@@ -825,6 +828,21 @@ class CheckoutController extends Controller
             $customer->web_order_pin = \Illuminate\Support\Facades\Hash::make($pin);
         }
         $customer->save();
+
+        /*
+         * Sikap pembeli terhadap notifikasi WhatsApp.
+         *
+         * Bukan lagi syarat kirim — orang yang membuat pesanan dikabari soal pesanannya
+         * sendiri tanpa perlu izin terpisah (lihat OrderNotificationService::kelayakan).
+         * Yang dicatat di sini tetap berguna: persetujuan eksplisit dari checkout adalah
+         * bukti terkuat bila Meta bertanya.
+         *
+         * Bawaannya menyetujui. Etalase yang kelak menyediakan centang tinggal mengirim
+         * `wa_opt_in: false` saat pembeli melepasnya — dan penolakan itu BUKAN sekadar
+         * diabaikan: ia tercatat sebagai keberatan (`wa_opt_out_at`), satu-satunya hal
+         * yang benar-benar menghentikan notifikasi.
+         */
+        $customer->catatOptIn((bool) ($c['wa_opt_in'] ?? true), 'checkout_web');
 
         return $customer;
     }

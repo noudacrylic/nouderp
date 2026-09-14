@@ -348,6 +348,7 @@
                 </form>
             </div>
         </div>
+        @include('erp.pos.fulfillment._siap_ambil_btn', ['r' => $r])
         @if(!empty($r['measured_at']))
             {{-- Ukuran yang akan dipakai saat resi terbit — ditampilkan supaya salah timbang
                  masih bisa ketahuan sebelum pesanan diproses. --}}
@@ -406,6 +407,9 @@
             @endif
         </div>
         @if($mode === 'belum_lunas')
+            {{-- Ambil di toko: barangnya sudah siap, cuma menunggu uang. Melunasi di kasir saat
+                 mengambil barang itu hal biasa, jadi pembeli tetap pantas dikabari dari sini. --}}
+            @include('erp.pos.fulfillment._siap_ambil_btn', ['r' => $r])
             <p class="text-[11px] text-gray-400 mt-1 text-right">
                 Otomatis pindah ke "Siap Proses" begitu pelunasan masuk.
             </p>

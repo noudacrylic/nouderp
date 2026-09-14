@@ -1080,6 +1080,8 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::get('/fulfillment/perlu-diproses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'perluDiproses'])->name('fulfillment.perlu-diproses');
     Route::post('/fulfillment/so/{so}/ukur',              [\App\Modules\POS\Controllers\FulfillmentController::class, 'simpanUkuran'])->whereNumber('so')->name('fulfillment.ukur');
     Route::post('/fulfillment/so/{so}/batal-ukur',        [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalUkuran'])->whereNumber('so')->name('fulfillment.batal-ukur');
+    Route::post('/fulfillment/so/{so}/siap-diambil',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiSiapDiambil'])->whereNumber('so')->name('fulfillment.siap-diambil');
+    Route::post('/fulfillment/so/{so}/batal-siap-diambil', [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalSiapDiambil'])->whereNumber('so')->name('fulfillment.batal-siap-diambil');
     Route::post('/fulfillment/so/{so}/bebaskan-produksi', [\App\Modules\POS\Controllers\FulfillmentController::class, 'waiveProduksi'])->whereNumber('so')->name('fulfillment.bebaskan-produksi');
     Route::post('/fulfillment/so/{so}/batal-bebas',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalWaiveProduksi'])->whereNumber('so')->name('fulfillment.batal-bebas');
     Route::post('/fulfillment/sj/{delivery}/sampai',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiSampai'])->whereNumber('delivery')->name('fulfillment.sampai');

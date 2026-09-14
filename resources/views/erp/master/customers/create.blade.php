@@ -32,10 +32,10 @@
                 <input type="text" name="phone" class="border rounded px-3 py-2 w-full">
 
                 <label class="flex items-start gap-2 mt-2 text-sm text-gray-700">
-                    <input type="checkbox" name="wa_opt_in" value="1" class="mt-1">
+                    <input type="checkbox" name="wa_opt_out" value="1" class="mt-1">
                     <span>
-                        Bersedia menerima notifikasi pesanan lewat WhatsApp
-                        <span class="block text-xs text-gray-500">Centang hanya bila pelanggan benar-benar menyetujui — tanpa ini, notifikasi tidak dikirim.</span>
+                        Jangan kirim notifikasi pesanan lewat WhatsApp
+                        <span class="block text-xs text-gray-500">Bawaannya pelanggan DIKABARI soal pesanannya sendiri (pembayaran, siap diambil, nomor resi). Centang ini hanya bila ia menyatakan keberatan.</span>
                     </span>
                 </label>
 

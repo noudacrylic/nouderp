@@ -93,7 +93,7 @@ class CustomerController extends Controller
         $data['is_active'] = true;
 
         $customer = Customer::create($data);
-        $customer->catatOptIn($request->boolean('wa_opt_in'));
+        $customer->catatKeberatan($request->boolean('wa_opt_out'));
 
         return redirect(list_url('customers.index'));
     }
@@ -145,7 +145,7 @@ class CustomerController extends Controller
         $customer = Customer::findOrFail($id);
 
         $customer->update($this->customerFormData($request));
-        $customer->catatOptIn($request->boolean('wa_opt_in'));
+        $customer->catatKeberatan($request->boolean('wa_opt_out'));
 
         return redirect(list_url('customers.index'));
     }

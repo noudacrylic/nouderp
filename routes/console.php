@@ -60,6 +60,12 @@ Schedule::command('crm:kirim-notifikasi')->everyFiveMinutes()->name('crm-kirim-n
 // (impor, koreksi langsung, perintah yang mematikan event model).
 Schedule::command('crm:cek-stok-titipan')->everyFifteenMinutes()->name('crm-cek-stok-titipan')->withoutOverlapping();
 
+// Pesanan Ambil di Toko yang barangnya sudah siap. Kesiapan tidak punya peristiwa
+// yang bisa diamati — ia disimpulkan dari stok, pembayaran & order produksi yang
+// bergerak sendiri-sendiri — jadi pemindaian berkala inilah jalur otomatisnya.
+// Pesannya sendiri tetap tunduk pada jam buka toko (OrderNotificationService).
+Schedule::command('pos:pindai-siap-diambil')->everyFifteenMinutes()->name('pos-pindai-siap-diambil')->withoutOverlapping();
+
 // Penagihan pesanan yang tautan bayarnya belum dibayar — dan pembatalan yang
 // lewat batas. SEKALI SEHARI di jam kerja: jadwalnya berbasis hari penuh, jadi
 // jalan berkali-kali sehari tak menghasilkan apa pun selain risiko, dan pesan

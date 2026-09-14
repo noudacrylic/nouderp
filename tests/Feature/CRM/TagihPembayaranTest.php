@@ -223,9 +223,9 @@ class TagihPembayaranTest extends TestCase
         $this->assertSame(0, $this->barisTagihan($so)->count());
     }
 
-    public function test_pelanggan_tanpa_opt_in_tidak_ditagih(): void
+    public function test_pelanggan_yang_menyatakan_keberatan_tidak_ditagih(): void
     {
-        $so = $this->pesanan($this->pelanggan(['wa_opt_in' => false]));
+        $so = $this->pesanan($this->pelanggan(['wa_opt_in' => false, 'wa_opt_out_at' => now()]));
         $this->tautan($so, 3);
 
         $this->assertSame(0, $this->tagihan()->jalankan()['ditagih']);

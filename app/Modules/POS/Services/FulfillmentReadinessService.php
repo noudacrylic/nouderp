@@ -697,6 +697,9 @@ class FulfillmentReadinessService
             'pickup_code'     => $so->pickup_code,
             'pickup_status'   => $so->pickup_status,
             'pickup_date'     => $so->pickup_date,
+            // Sudah dikabari "silakan diambil" atau belum. Ditampilkan di kartu supaya
+            // tidak ada yang menebak-nebak apakah pembeli sudah tahu barangnya menunggu.
+            'ready_at'        => $so->ready_at,
 
             'grand_total' => $grand,
             'paid'        => $paid,

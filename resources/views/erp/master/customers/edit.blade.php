@@ -34,16 +34,20 @@
                 <input type="text" name="phone" value="{{ $customer->phone }}" class="border rounded px-3 py-2 w-full">
 
                 <label class="flex items-start gap-2 mt-2 text-sm text-gray-700">
-                    <input type="checkbox" name="wa_opt_in" value="1" class="mt-1" @checked(old('wa_opt_in', $customer->wa_opt_in))>
+                    <input type="checkbox" name="wa_opt_out" value="1" class="mt-1" @checked(old('wa_opt_out', $customer->wa_opt_out_at !== null))>
                     <span>
-                        Bersedia menerima notifikasi pesanan lewat WhatsApp
-                        @if ($customer->wa_opt_in_at)
+                        Jangan kirim notifikasi pesanan lewat WhatsApp
+                        @if ($customer->wa_opt_out_at)
                             <span class="block text-xs text-gray-500">
-                                Disetujui {{ $customer->wa_opt_in_at->translatedFormat('d M Y H:i') }}
+                                Menyatakan keberatan {{ $customer->wa_opt_out_at->translatedFormat('d M Y H:i') }}
+                            </span>
+                        @elseif ($customer->wa_opt_in_at)
+                            <span class="block text-xs text-gray-500">
+                                Menyetujui {{ $customer->wa_opt_in_at->translatedFormat('d M Y H:i') }}
                                 @if ($customer->wa_opt_in_source) &middot; {{ str_replace('_', ' ', $customer->wa_opt_in_source) }} @endif
                             </span>
                         @else
-                            <span class="block text-xs text-gray-500">Centang hanya bila pelanggan benar-benar menyetujui — tanpa ini, notifikasi tidak dikirim.</span>
+                            <span class="block text-xs text-gray-500">Bawaannya pelanggan DIKABARI soal pesanannya sendiri. Centang ini hanya bila ia menyatakan keberatan.</span>
                         @endif
                     </span>
                 </label>

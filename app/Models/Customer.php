@@ -22,6 +22,7 @@ class Customer extends Model
         'wa_opt_in',
         'wa_opt_in_at',
         'wa_opt_in_source',
+        'wa_opt_out_at',
         'biteship_area_id',
         'jubelio_area_id',
         'kiriminaja_area_id',
@@ -43,6 +44,7 @@ class Customer extends Model
     protected $casts = [
         'wa_opt_in'    => 'boolean',
         'wa_opt_in_at' => 'datetime',
+        'wa_opt_out_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -65,15 +67,29 @@ class Customer extends Model
     }
 
     /**
-     * Catat persetujuan menerima notifikasi WhatsApp.
+     * Catat sikap pelanggan terhadap notifikasi WhatsApp.
      *
-     * Meta menuntut BUKTI opt-in, bukan sekadar kolom bernilai true — karena itu
-     * waktu & asal persetujuan ikut disimpan. Mencabut centang tidak menghapus
-     * jejaknya: `wa_opt_in_at` terakhir tetap berguna saat Meta bertanya.
+     * DUA fakta yang berbeda, dan keduanya disimpan:
+     *
+     *  - `wa_opt_in` + waktu + asalnya = persetujuan EKSPLISIT. Bukti terkuat
+     *    bila Meta bertanya, jadi tetap dicatat meski bukan lagi syarat kirim.
+     *  - `wa_opt_out_at` = KEBERATAN eksplisit. Inilah yang kini menghentikan
+     *    pengiriman (OrderNotificationService::kelayakan).
+     *
+     * Yang TIDAK ada di antara keduanya — pelanggan yang tak pernah ditanya —
+     * tetap dikabari soal pesanannya sendiri. Itu bedanya dengan aturan lama,
+     * yang menyamakan "belum pernah ditanya" dengan "menolak" dan akibatnya
+     * mendiamkan hampir seluruh daftar pelanggan.
+     *
+     * Menolak tidak menghapus jejak persetujuan lama: `wa_opt_in_at` terakhir
+     * tetap berguna untuk menjelaskan urutan kejadiannya.
      */
     public function catatOptIn(bool $setuju, string $sumber = 'input_manual'): void
     {
-        if ((bool) $this->wa_opt_in === $setuju) {
+        $sudahSama = (bool) $this->wa_opt_in === $setuju
+            && ($setuju ? true : $this->wa_opt_out_at !== null);
+
+        if ($sudahSama) {
             return;
         }
 
@@ -81,7 +97,27 @@ class Customer extends Model
             'wa_opt_in'        => $setuju,
             'wa_opt_in_at'     => $setuju ? now() : $this->wa_opt_in_at,
             'wa_opt_in_source' => $setuju ? $sumber : $this->wa_opt_in_source,
+            // Keberatan dicatat dengan waktunya; persetujuan menariknya kembali.
+            'wa_opt_out_at'    => $setuju ? null : now(),
         ])->save();
+    }
+
+    /**
+     * Keberatan yang dicatat ADMIN dari master pelanggan.
+     *
+     * Sengaja tidak memakai catatOptIn(): melepas centang "jangan kirim" bukan
+     * pernyataan persetujuan dari pelanggan, dan menyimpannya sebagai opt-in
+     * berarti setiap penyuntingan data pelanggan menambah satu bukti
+     * persetujuan yang tidak pernah terjadi. Yang di sini hanya menyalakan atau
+     * memadamkan keberatannya; `wa_opt_in` tetap milik persetujuan sungguhan.
+     */
+    public function catatKeberatan(bool $keberatan): void
+    {
+        if ($keberatan === ($this->wa_opt_out_at !== null)) {
+            return;
+        }
+
+        $this->forceFill(['wa_opt_out_at' => $keberatan ? now() : null])->save();
     }
 
     /**

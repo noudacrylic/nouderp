@@ -40,7 +40,8 @@ class JenisNotifikasi
         ],
         CrmOutboxMessage::EVENT_SIAP_AMBIL => [
             'label'  => 'Siap Diambil',
-            'pemicu' => 'Saat pesanan ambil-di-toko selesai dikerjakan. Satu-satunya yang menunggu jam buka — pesan ini mengajak orang datang.',
+            'pemicu' => 'Saat pesanan ambil-di-toko ditandai siap di Pemrosesan Pesanan — otomatis begitu barangnya siap, '
+                      . 'atau lewat tombol "Tandai Siap Diambil". Satu-satunya yang menunggu jam buka: pesan ini mengajak orang datang.',
             'contoh' => ['Budi', 'SO-2609-0012', 'AMB-4471', 'Senin–Sabtu 08.00–16.00'],
         ],
         CrmOutboxMessage::EVENT_DIKIRIM => [

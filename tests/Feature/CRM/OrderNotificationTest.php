@@ -93,26 +93,52 @@ class OrderNotificationTest extends TestCase
 
     /* ------------------------------------------------------------- empat penjaga */
 
-    public function test_pesanan_marketplace_tidak_pernah_dikirimi_tapi_tetap_meninggalkan_jejak(): void
+    /**
+     * Marketplace tidak meninggalkan baris APA PUN — bukan 'dilewati'.
+     *
+     * Pembelinya dikabari platformnya sendiri, jadi tidak ada keputusan yang
+     * perlu ditinjau ulang belakangan. Kalau tetap dicatat, sinkron Jubelio
+     * tiap lima menit akan menimbun layar Notifikasi Pesanan dengan baris yang
+     * tak seorang pun tindaklanjuti — menutupi yang justru perlu dilihat.
+     */
+    public function test_pesanan_marketplace_tidak_diantrekan_sama_sekali(): void
     {
         $so = $this->salesOrder([], ['is_marketplace' => true, 'wa_opt_in' => true, 'phone' => '628998844666']);
 
-        $baris = $this->notifikasi->antrekanSiapDiambil($so);
-
-        $this->assertSame(CrmOutboxMessage::STATUS_DILEWATI, $baris->status);
-        $this->assertStringContainsString('marketplace', $baris->reason);
-        $this->assertNull($baris->recipient);
-        $this->assertSame(0, CrmOutboxMessage::jatuhTempo()->count());
+        $this->assertNull($this->notifikasi->antrekanSiapDiambil($so));
+        $this->assertSame(0, CrmOutboxMessage::count());
     }
 
-    public function test_pelanggan_tanpa_opt_in_dilewati(): void
+    /**
+     * Belum pernah ditanya BUKAN menolak.
+     *
+     * Pelanggan yang membuat pesanan menunggu kabar tentang pesanannya sendiri;
+     * aturan lama menyamakan "tidak ada catatan izin" dengan "menolak" dan
+     * akibatnya hampir seluruh daftar pelanggan didiamkan.
+     */
+    public function test_pelanggan_tanpa_catatan_izin_tetap_dikabari(): void
     {
         $so = $this->salesOrder([], ['wa_opt_in' => false, 'phone' => '628998844666']);
 
         $baris = $this->notifikasi->antrekanSiapDiambil($so);
 
+        $this->assertSame(CrmOutboxMessage::STATUS_MENUNGGU, $baris->status);
+        $this->assertSame('628998844666', $baris->recipient);
+    }
+
+    /** Keberatan yang dinyatakan sungguh-sungguh tetap dihormati. */
+    public function test_pelanggan_yang_menyatakan_keberatan_dilewati(): void
+    {
+        $so = $this->salesOrder([], [
+            'wa_opt_in'     => false,
+            'wa_opt_out_at' => now(),
+            'phone'         => '628998844666',
+        ]);
+
+        $baris = $this->notifikasi->antrekanSiapDiambil($so);
+
         $this->assertSame(CrmOutboxMessage::STATUS_DILEWATI, $baris->status);
-        $this->assertStringContainsString('opt-in', $baris->reason);
+        $this->assertStringContainsString('meminta tidak dikirimi', $baris->reason);
     }
 
     public function test_nomor_kosong_dilewati_dengan_alasan(): void
@@ -180,14 +206,50 @@ class OrderNotificationTest extends TestCase
         $this->assertSame(1, CrmOutboxMessage::where('event', CrmOutboxMessage::EVENT_PEMBAYARAN)->count());
     }
 
-    public function test_pickup_status_menjadi_pending_memicu_notifikasi_siap_diambil(): void
+    public function test_ready_at_terisi_memicu_notifikasi_siap_diambil(): void
+    {
+        $so = $this->salesOrder(['pickup_code' => 'AMB-01']);
+
+        $so->update(['ready_at' => now()]);
+        $so->update(['ready_at' => now()]);   // stempel ulang, tetap satu
+
+        $this->assertSame(1, CrmOutboxMessage::where('event', CrmOutboxMessage::EVENT_SIAP_AMBIL)->count());
+    }
+
+    /**
+     * Inti perbaikannya: kode booking terbit saat SO DIKONFIRMASI, dan untuk pesanan toko
+     * online itu terjadi sebelum pembeli membayar. Kalau kolom itu masih memicu notifikasi,
+     * pembeli menerima "silakan diambil" di detik pesanan dibuat.
+     */
+    public function test_pickup_status_pending_tidak_lagi_memicu_apa_pun(): void
     {
         $so = $this->salesOrder(['pickup_code' => 'AMB-01']);
 
         $so->update(['pickup_status' => 'pending']);
-        $so->update(['pickup_status' => 'pending']);   // simpan ulang, tetap satu
 
+        $this->assertSame(0, CrmOutboxMessage::where('event', CrmOutboxMessage::EVENT_SIAP_AMBIL)->count());
+    }
+
+    public function test_penandaan_siap_dicabut_membatalkan_notifikasi_yang_belum_berangkat(): void
+    {
+        $so   = $this->salesOrder(['pickup_code' => 'AMB-01', 'delivery_method' => 'ambil_toko']);
+        $siap = app(\App\Modules\POS\Services\PickupReadyService::class);
+
+        $this->assertTrue($siap->tandaiSiap($so));
         $this->assertSame(1, CrmOutboxMessage::where('event', CrmOutboxMessage::EVENT_SIAP_AMBIL)->count());
+
+        $siap->batalSiap($so);
+
+        $this->assertNull($so->fresh()->ready_at);
+        $this->assertSame(0, CrmOutboxMessage::where('event', CrmOutboxMessage::EVENT_SIAP_AMBIL)->count());
+    }
+
+    public function test_pesanan_bukan_ambil_toko_tidak_bisa_ditandai_siap(): void
+    {
+        $so = $this->salesOrder(['delivery_method' => 'kurir']);
+
+        $this->assertFalse(app(\App\Modules\POS\Services\PickupReadyService::class)->tandaiSiap($so));
+        $this->assertNull($so->fresh()->ready_at);
     }
 
     public function test_resi_terisi_memicu_notifikasi_dikirim(): void
@@ -261,8 +323,11 @@ class OrderNotificationTest extends TestCase
 
     public function test_baris_dilewati_tidak_pernah_ikut_terkirim(): void
     {
-        $so = $this->salesOrder([], ['is_marketplace' => true, 'wa_opt_in' => true, 'phone' => '628998844666']);
-        $this->notifikasi->antrekanSiapDiambil($so);
+        $so = $this->salesOrder([], ['wa_opt_out_at' => now(), 'phone' => '628998844666']);
+        $this->assertSame(
+            CrmOutboxMessage::STATUS_DILEWATI,
+            $this->notifikasi->antrekanSiapDiambil($so)->status
+        );
 
         $hasil = app(CrmOutboxSender::class)->kirimYangJatuhTempo();
 

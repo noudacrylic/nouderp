@@ -8,6 +8,7 @@ use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use App\Modules\Marketplace\Jubelio\Services\JubelioFulfillmentService;
 use App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService;
 use App\Modules\POS\Services\FulfillmentReadinessService;
+use App\Modules\POS\Services\PickupReadyService;
 use App\Modules\POS\Services\PosFulfillmentService;
 use App\Modules\Sales\Models\SalesDelivery;
 use App\Modules\Sales\Models\SalesOrder;
@@ -230,6 +231,38 @@ class FulfillmentController extends Controller
         $order->update(['production_waived_at' => null, 'production_waived_reason' => null]);
 
         return back()->with('success', "Pembebasan {$order->order_number} ditarik kembali.");
+    }
+
+    /**
+     * Tandai pesanan ambil-di-toko SIAP DIAMBIL → pembeli dikabari lewat WhatsApp.
+     *
+     * Tombol manualnya ada karena pemindaian otomatis (`pos:pindai-siap-diambil`) hanya
+     * menyimpulkan kesiapan dari bucket, dan ada pesanan yang barangnya sudah selesai lebih
+     * dulu daripada yang bisa disimpulkan ERP. Keduanya menstempel kolom yang sama lewat
+     * service yang sama, jadi pesannya tidak mungkin berbeda.
+     */
+    public function tandaiSiapDiambil(int $so, PickupReadyService $svc)
+    {
+        $order = SalesOrder::findOrFail($so);
+
+        if (! $order->isPickup()) {
+            return back()->with('error', "Pesanan {$order->order_number} bukan Ambil di Toko.");
+        }
+        if (! $svc->tandaiSiap($order, auth()->id())) {
+            return back()->with('error', "Pesanan {$order->order_number} sudah ditandai siap atau sudah diambil.");
+        }
+
+        return back()->with('success', "Pesanan {$order->order_number} ditandai siap diambil — "
+            . 'pembeli dikabari lewat WhatsApp (menyesuaikan jam buka toko).');
+    }
+
+    /** Tarik kembali penandaan siap diambil; notifikasi yang belum berangkat ikut dibatalkan. */
+    public function batalSiapDiambil(int $so, PickupReadyService $svc)
+    {
+        $order = SalesOrder::findOrFail($so);
+        $svc->batalSiap($order);
+
+        return back()->with('success', "Penandaan siap diambil {$order->order_number} ditarik kembali.");
     }
 
     /** Batalkan penandaan sudah-diukur; pesanan kembali ke sub-tab "Perlu Ukur". */

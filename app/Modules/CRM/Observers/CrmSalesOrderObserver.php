@@ -55,12 +55,17 @@ class CrmSalesOrderObserver
     }
 
     /**
-     * Barang siap diambil. 'pending' di kolom pickup_status berarti MENUNGGU
-     * DIAMBIL (bukan "belum diproses") — penamaan lama yang mudah salah baca.
+     * Barang siap diambil.
+     *
+     * Pemicunya `ready_at`, BUKAN `pickup_status`. Kolom pickup_status terisi 'pending' saat
+     * SO dikonfirmasi — untuk pesanan toko online itu terjadi sebelum pembeli membayar —
+     * sehingga dulu pesan "silakan diambil" berangkat di detik pesanan dibuat. `ready_at`
+     * distempel Pemrosesan Pesanan saat barangnya benar-benar selesai (lihat
+     * PickupReadyService), yang memang saat yang pantas untuk mengajak pembeli datang.
      */
     private function siapDiambil(SalesOrder $so): void
     {
-        if (! $so->wasChanged('pickup_status') || $so->pickup_status !== 'pending') {
+        if (! $so->wasChanged('ready_at') || $so->ready_at === null) {
             return;
         }
 

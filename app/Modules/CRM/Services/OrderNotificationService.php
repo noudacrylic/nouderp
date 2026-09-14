@@ -78,6 +78,22 @@ class OrderNotificationService
      */
     private function antrekan(SalesOrder $so, string $event, string $dedupeKey, callable $bodyBuilder): ?CrmOutboxMessage
     {
+        /*
+         * Marketplace berhenti di sini, TANPA meninggalkan baris.
+         *
+         * Berbeda dari alasan-alasan di bawah, yang satu ini bukan kekurangan
+         * yang bisa diperbaiki: pembeli Shopee/Tokopedia memang dikabari oleh
+         * platformnya sendiri, dan kita tidak akan pernah mengiriminya apa pun.
+         * Mencatatnya sebagai 'dilewati' cuma menghasilkan satu baris per
+         * pesanan marketplace — dan dengan sinkron Jubelio tiap lima menit,
+         * layar Notifikasi Pesanan tenggelam oleh baris yang tak seorang pun
+         * perlu tindaklanjuti, menutupi justru yang perlu (opt-in kosong,
+         * nomor tidak valid).
+         */
+        if ($so->customer?->is_marketplace) {
+            return null;
+        }
+
         [$layak, $alasan, $nomor] = $this->kelayakan($so);
 
         /*
@@ -127,8 +143,20 @@ class OrderNotificationService
             return [false, 'Pesanan marketplace — pembeli tidak boleh dihubungi di luar platform.', null];
         }
 
-        if (! $customer->wa_opt_in) {
-            return [false, 'Pelanggan belum menyetujui notifikasi WhatsApp (opt-in).', null];
+        /*
+         * Yang menghentikan pengiriman adalah KEBERATAN, bukan tiadanya izin.
+         *
+         * Orang yang sudah membuat pesanan di Noud menunggu kabar tentang
+         * pesanannya — dan yang dikirim memang hanya itu: pembayaran masuk,
+         * barang siap, nomor resi. Dulu syaratnya `wa_opt_in` menyala, dan
+         * akibatnya 72 dari 73 pelanggan tidak pernah dikabari apa pun padahal
+         * tak seorang pun dari mereka pernah menyatakan keberatan.
+         *
+         * Penolakan yang sungguh-sungguh tetap dihormati: pembeli yang melepas
+         * centang di checkout, atau yang diminta admin berhenti dikirimi.
+         */
+        if ($customer->wa_opt_out_at) {
+            return [false, 'Pelanggan meminta tidak dikirimi notifikasi WhatsApp.', null];
         }
 
         $nomor = PhoneNumber::normalize($customer->recipient_phone ?: $customer->phone);
