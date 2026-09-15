@@ -141,6 +141,9 @@ Route::prefix('erp')->group(function () {
         // di samping jendela web.whatsapp.com. Berdiri SEBELUM '/{conversation}'
         // seperti tetangganya, kalau tidak 'mode-wa' dibaca sebagai id chat.
         Route::post('/mode-wa',        [\App\Modules\CRM\Controllers\CrmInboxController::class, 'modeWa'])->name('inbox.mode-wa');
+        // Mode WhatsApp Web: buka/buat percakapan dari nomor tanpa mengirim apa
+        // pun, supaya tab Pesanan & Buat SO punya kontak untuk ditempeli.
+        Route::post('/buka-kontak',    [\App\Modules\CRM\Controllers\CrmInboxController::class, 'bukaKontak'])->name('inbox.buka-kontak');
 
         Route::get ('/template',       [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'index'])->name('template.index');
         // 'baru' WAJIB berdiri sebelum '/template/{template}' di bawah, kalau

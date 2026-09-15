@@ -95,6 +95,48 @@ class CrmInboxController extends Controller
     }
 
     /**
+     * Buka kontak dari nomor/nama yang dilihat di WhatsApp Web — TANPA mengirim apa pun.
+     *
+     * Di mode WhatsApp Web pesan masuk tidak lewat ERP, jadi percakapannya
+     * belum ada untuk dipilih. Padahal tab Pesanan & Buat SO menempel ke
+     * percakapan (draft keranjang, pelanggan, tautan SO). Maka percakapan
+     * dibuat/diambil di sini dari nomor saja — tanpa template, tanpa biaya.
+     *
+     * Pelanggan ditautkan hanya kalau dipilih eksplisit dari hasil pencarian:
+     * mencocokkan nomor diam-diam gampang salah (format HP di master pelanggan
+     * berantakan), dan tab Pesanan toh masih bisa memilih pelanggan sendiri.
+     */
+    public function bukaKontak(Request $request, NamaKontakService $namaKontak)
+    {
+        $data = $request->validate([
+            'nomor'       => 'required|string|max:30',
+            'nama'        => 'nullable|string|max:255',
+            'customer_id' => 'nullable|integer|exists:customers,id',
+        ]);
+
+        $nomor = PhoneNumber::normalize($data['nomor']);
+
+        if (! $nomor || strlen($nomor) < 9) {
+            return back()->with('error', 'Nomor HP tidak valid: ' . $data['nomor']);
+        }
+
+        $percakapan = CrmConversation::findOrCreateFor($nomor);
+
+        if (! empty($data['customer_id']) && ! $percakapan->customer_id) {
+            $percakapan->forceFill(['customer_id' => (int) $data['customer_id']])->save();
+        }
+
+        // Nama ketikan hanya untuk lead: pelanggan tertaut sudah punya nama master,
+        // dan nama manual yang sudah ada tidak ditimpa (lihat NamaKontakService).
+        $nama = trim((string) ($data['nama'] ?? ''));
+        if ($nama !== '' && ! $percakapan->customer_id && $percakapan->name_source !== CrmConversation::NAMA_MANUAL) {
+            $namaKontak->simpanManual($percakapan, $nama);
+        }
+
+        return redirect()->route('crm.inbox.show', $percakapan);
+    }
+
+    /**
      * Apakah mode WhatsApp Web sedang menyala — HANYA untuk layar desktop.
      *
      * PWA CS (/cs) sengaja tidak pernah menanyakannya meski berbagi
@@ -653,7 +695,15 @@ class CrmInboxController extends Controller
     {
         $cari = trim((string) $request->input('q', ''));
 
-        $percakapan = CrmConversation::query()
+        /*
+         * Mode WhatsApp Web mencari PELANGGAN saja: percakapan ERP di mode itu
+         * tidak pernah berisi chat sungguhan, jadi menawarkannya hanya membuat
+         * operator bingung memilih antara "kontak CRM" dan "pelanggan" untuk
+         * orang yang sama.
+         */
+        $hanyaPelanggan = $request->input('hanya') === 'pelanggan';
+
+        $percakapan = $hanyaPelanggan ? collect() : CrmConversation::query()
             ->with('customer:id,name')
             ->where('status', CrmConversation::STATUS_AKTIF)
             ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
@@ -698,10 +748,11 @@ class CrmInboxController extends Controller
             $sudah[$nomor] = true;
 
             $hasil[] = [
-                'nama'    => $c->name,
-                'nomor'   => $nomor,
-                'sumber'  => 'pelanggan',
-                'terbuka' => false,
+                'nama'        => $c->name,
+                'nomor'       => $nomor,
+                'sumber'      => 'pelanggan',
+                'terbuka'     => false,
+                'customer_id' => $c->id,
             ];
         }
 

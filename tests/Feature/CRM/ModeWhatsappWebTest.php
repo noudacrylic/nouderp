@@ -122,10 +122,10 @@ class ModeWhatsappWebTest extends TestCase
     }
 
     /*
-     * Daftar kontak disembunyikan di balik tombol, bukan dibuang: tanpa dia
-     * tidak ada cara memilih kontak, dan tab Pesanan / Buat SO jadi mati.
+     * Daftar percakapan dibuang (chat masuk tak lewat ERP); penggantinya kotak
+     * kontak yang membuka percakapan dari nomor.
      */
-    public function test_mode_nyala_menyembunyikan_daftar_di_balik_tombol(): void
+    public function test_mode_nyala_mengganti_daftar_dengan_kotak_kontak(): void
     {
         $percakapan = $this->percakapanBerisi();
         $admin      = $this->admin();
@@ -135,10 +135,109 @@ class ModeWhatsappWebTest extends TestCase
         $this->actingAs($admin)
             ->get(route('crm.inbox.show', $percakapan))
             ->assertOk()
-            ->assertSee('Pilih kontak')
-            ->assertSee('x-show="daftar"', false)
+            ->assertSee('kontakModeWa', false)
+            ->assertSee(route('crm.inbox.buka-kontak'), false)
             ->assertSee($percakapan->contact_key)
             ->assertDontSee('Pilih percakapan di sebelah kiri.');
+    }
+
+    /* ------------------------------------------------------------ buka kontak */
+
+    public function test_buka_kontak_nomor_baru_membuat_percakapan_tanpa_mengirim(): void
+    {
+        $r = $this->actingAs($this->admin())
+            ->post(route('crm.inbox.buka-kontak'), ['nomor' => '0812-3456-7890']);
+
+        $p = CrmConversation::where('contact_key', '6281234567890')->first();
+
+        $this->assertNotNull($p);
+        $r->assertRedirect(route('crm.inbox.show', $p));
+        $this->assertSame(0, CrmMessage::count());
+    }
+
+    public function test_buka_kontak_nomor_lama_memakai_percakapan_yang_ada(): void
+    {
+        $lama = $this->percakapanBerisi();
+
+        $this->actingAs($this->admin())
+            ->post(route('crm.inbox.buka-kontak'), ['nomor' => '+62 899-8844-666'])
+            ->assertRedirect(route('crm.inbox.show', $lama));
+
+        $this->assertSame(1, CrmConversation::count());
+    }
+
+    public function test_buka_kontak_menautkan_pelanggan_yang_dipilih(): void
+    {
+        $pelanggan = \App\Models\Customer::create([
+            'code' => 'CUST-WA01', 'name' => 'Alfira', 'phone' => '081299990000', 'is_active' => true,
+        ]);
+
+        $this->actingAs($this->admin())
+            ->post(route('crm.inbox.buka-kontak'), [
+                'nomor' => '6281299990000', 'nama' => 'Alfira', 'customer_id' => $pelanggan->id,
+            ]);
+
+        $p = CrmConversation::where('contact_key', '6281299990000')->firstOrFail();
+
+        $this->assertSame($pelanggan->id, (int) $p->customer_id);
+        // Pelanggan tertaut: nama master yang dipakai, bukan disalin jadi nama manual.
+        $this->assertNull($p->name_source);
+    }
+
+    /*
+     * Alur tombol "＋ Pelanggan": simpan lewat store-ajax lalu buka-kontak
+     * dengan id & nomor hasilnya — dua langkah yang sama dengan yang dijalankan
+     * browser.
+     */
+    public function test_tambah_pelanggan_lalu_langsung_terpilih(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->post(route('crm.inbox.mode-wa'));
+
+        $this->actingAs($admin)
+            ->get(route('crm.inbox.index'))
+            ->assertSee('＋ Pelanggan')
+            ->assertSee('/erp/customers/store-ajax', false);
+
+        $baru = $this->actingAs($admin)
+            ->postJson('/erp/customers/store-ajax', ['name' => 'Alissa WA', 'phone' => '0812 8899 1122'])
+            ->assertOk()
+            ->json();
+
+        $this->actingAs($admin)
+            ->post(route('crm.inbox.buka-kontak'), ['nomor' => $baru['phone'], 'customer_id' => $baru['id']]);
+
+        $p = CrmConversation::where('contact_key', '6281288991122')->firstOrFail();
+        $this->assertSame($baru['id'], (int) $p->customer_id);
+        $this->assertSame('Alissa WA', $p->namaTampil());
+    }
+
+    public function test_pencarian_mode_wa_hanya_menampilkan_pelanggan(): void
+    {
+        $this->percakapanBerisi(); // lead tanpa pelanggan, nomor 628998844666
+
+        \App\Models\Customer::create([
+            'code' => 'CUST-WA02', 'name' => 'Toko Alfira', 'phone' => '081277776666', 'is_active' => true,
+        ]);
+
+        $hasil = $this->actingAs($this->admin())
+            ->getJson(route('crm.kontak.cari', ['hanya' => 'pelanggan', 'q' => 'a']))
+            ->assertOk()
+            ->json('hasil');
+
+        $this->assertSame(['pelanggan'], array_values(array_unique(array_column($hasil, 'sumber'))));
+        $this->assertSame('Toko Alfira', $hasil[0]['nama']);
+    }
+
+    public function test_buka_kontak_menolak_nomor_ngawur(): void
+    {
+        $this->actingAs($this->admin())
+            ->from(route('crm.inbox.index'))
+            ->post(route('crm.inbox.buka-kontak'), ['nomor' => '123'])
+            ->assertRedirect(route('crm.inbox.index'));
+
+        $this->assertSame(0, CrmConversation::count());
     }
 
     /* --------------------------------------------------------------------- PWA */

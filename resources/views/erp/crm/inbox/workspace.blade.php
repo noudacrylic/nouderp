@@ -70,7 +70,7 @@
         @include('erp.crm.inbox._mode_wa')
     @endif
 
-    {{-- Di mode WhatsApp Web sakelar menumpang di baris "Pilih kontak" supaya
+    {{-- Di mode WhatsApp Web sakelar menumpang di baris kotak kontak supaya
          tidak memakan satu baris sendiri. --}}
     @unless($modeWa)
         <div class="shrink-0 mb-2 flex justify-end">@include('erp.crm.inbox._sakelar_mode_wa')</div>
@@ -79,29 +79,16 @@
     {{-- Di mode WhatsApp Web kolom thread DILIPAT, bukan dikosongkan: chat
          betulan dilayani di jendela web.whatsapp.com sebelah, dan gelembung
          yang tak akan pernah terisi cuma memakan lebar yang dibutuhkan panel.
-         Kolom kiri ikut DISEMBUNYIKAN (permintaan 15 Sep 2026: pakai kanan
-         saja), tapi tetap tergambar di balik tombol — dialah yang menentukan
-         draft pesanan dan tombol Buat SO menempel ke kontak yang mana. Dihapus
-         total berarti tab Pesanan tidak pernah bisa dipakai di mode ini. --}}
+         Kolom kiri juga DIBUANG: pesan masuk tidak lewat ERP, jadi daftarnya
+         tak pernah berisi chat yang sedang dilayani. Penggantinya kotak
+         "cari / ketik nomor" di _kontak_mode_wa — ia membuka (atau membuat)
+         percakapan dari nomor yang dilihat di WhatsApp Web tanpa mengirim
+         apa pun, supaya tab Pesanan & Buat SO tetap punya kontak. --}}
     @if($modeWa)
-        <div x-data="{ daftar: false }" class="flex-1 min-h-0 flex flex-col gap-2">
-            <div class="shrink-0 flex items-center gap-2 text-xs">
-                <button type="button" @click="daftar = ! daftar"
-                        class="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50"
-                        x-text="daftar ? 'Tutup daftar kontak' : 'Pilih kontak'"></button>
-                <span class="flex-1 min-w-0 truncate text-gray-600">
-                    @if($terpilih)
-                        Kontak: <b>{{ $terpilih->namaTampil() }}</b>
-                        <span class="text-gray-400">{{ $terpilih->contact_key }}</span>
-                    @else
-                        <span class="text-gray-400">Belum ada kontak dipilih — tab Pesanan butuh kontak.</span>
-                    @endif
-                </span>
+        <div class="flex-1 min-h-0 flex flex-col gap-2">
+            <div class="shrink-0 flex items-start gap-2 text-xs">
+                @include('erp.crm.inbox._kontak_mode_wa')
                 @include('erp.crm.inbox._sakelar_mode_wa')
-            </div>
-
-            <div x-show="daftar" x-cloak class="shrink-0 h-80 min-h-0">
-                @include('erp.crm.inbox._daftar')
             </div>
 
             <div class="flex-1 min-h-0">
