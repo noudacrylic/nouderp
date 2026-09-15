@@ -70,6 +70,17 @@ class TemplateResmi
              */
             'kalimat_balas' => ' Di luar jam tersebut, silakan balas pesan ini untuk membuat janji pengambilan.',
             'ganti_balas'   => ' Di luar jam tersebut, silakan hubungi admin kami di {admin} untuk membuat janji pengambilan.',
+            /*
+             * Kekurangan bayar pesanan ambil-toko (15 Sep 2026). Pesanan ambil-toko tidak
+             * dapat "Pengingat Pelunasan" — sisanya disebut di sini, dilunasi di kasir.
+             * Variabel {{5}} OPSIONAL & khusus WAHA: hanya diisi bila ada sisa, dan
+             * dipangkas dari jalur resmi (variabelResmi()) karena template Meta-nya
+             * cuma punya empat variabel.
+             */
+            'tambahan_waha' => [
+                'setelah' => ' kepada petugas.',
+                'kalimat' => ' Masih ada sisa pembayaran sebesar Rp{{5}} yang dapat Kakak lunasi di kasir saat pengambilan.',
+            ],
         ],
         [
             'nama'     => 'stok_tersedia',
@@ -108,6 +119,21 @@ class TemplateResmi
                         . 'Kakak bisa membayar lewat tautan berikut:' . PHP_EOL . '{{4}}' . PHP_EOL
                         . 'Bila sampai {{5}} belum ada pembayaran, pesanannya kami batalkan otomatis. '
                         . 'Kalau sudah membayar atau ingin mengubah pesanan, silakan hubungi admin kami di {{6}}.',
+        ],
+        [
+            'nama'     => 'tagihan_pelunasan',
+            'kategori' => 'UTILITY',
+            'guna'     => 'Pengingat pelunasan pesanan kirim yang barangnya sudah siap (bucket "Belum Lunas"). '
+                        . 'HANYA jalur WAHA — lihat hanyaWaha(). SENGAJA tanpa tautan bayar: tautan hanya '
+                        . 'dibagikan dari nomor admin utama ({{4}}), supaya pelanggan tidak terbiasa membayar '
+                        . 'lewat tautan yang datang dari nomor lain.',
+            'contoh'   => ['Budi', 'SO-2609-0012', '95.000', '08998844666'],
+            'hanya_waha' => true,
+            'body'     => 'Halo Kak {{1}}, pesanan {{2}} sudah siap dan tinggal menunggu pelunasan sebesar Rp{{3}} '
+                        . 'sebelum kami kirimkan. Silakan selesaikan pembayaran melalui tautan yang sudah dibagikan '
+                        . 'oleh admin kami lewat WhatsApp {{4}}. Demi keamanan, tautan pembayaran hanya kami kirim '
+                        . 'dari nomor tersebut. Bila tautannya belum diterima atau ada kendala, Kakak bisa langsung '
+                        . 'menghubungi admin kami di nomor yang sama. Terima kasih, Kak.',
         ],
         [
             'nama'     => 'pesanan_dikirim',
@@ -361,6 +387,8 @@ class TemplateResmi
             return null;
         }
 
+        $body = self::sisipTambahan($nama, $body, $variabel);
+
         $i = 0;
         foreach (array_values($variabel) as $nilai) {
             $i++;
@@ -368,6 +396,56 @@ class TemplateResmi
         }
 
         return trim(self::gantiAjakanBalas($nama, self::lepasTombol($nama, $body, $urlLacak)));
+    }
+
+    /**
+     * Sisipkan kalimat tambahan khusus WAHA bila variabel opsionalnya terisi.
+     *
+     * Variabel opsional = yang nomornya melampaui jumlah {{n}} di body Meta. Kosong atau
+     * tidak dikirim → kalimatnya tidak disisipkan, jadi pesan tanpa sisa tetap persis
+     * sama dengan bunyi template.
+     */
+    private static function sisipTambahan(string $nama, string $body, array $variabel): string
+    {
+        $tambahan = (array) (self::usulan($nama)['tambahan_waha'] ?? []);
+        $kalimat  = (string) ($tambahan['kalimat'] ?? '');
+        $setelah  = (string) ($tambahan['setelah'] ?? '');
+
+        $nilai = array_values($variabel);
+
+        if ($kalimat === '' || $setelah === '' || blank($nilai[self::jumlahVariabel($body)] ?? null)) {
+            return $body;
+        }
+
+        $pos = strpos($body, $setelah);
+
+        return $pos === false
+            ? $body
+            : substr_replace($body, $setelah . $kalimat, $pos, strlen($setelah));
+    }
+
+    /** Jumlah {{n}} berbeda di sebuah body. */
+    private static function jumlahVariabel(string $body): int
+    {
+        preg_match_all('~\{\{\s*\d+\s*\}\}~', $body, $cocok);
+
+        return count(array_unique(array_map(fn ($v) => preg_replace('~\s~', '', $v), $cocok[0])));
+    }
+
+    /**
+     * Variabel untuk jalur RESMI: dipangkas ke jumlah {{n}} template Meta-nya.
+     *
+     * Variabel opsional khusus WAHA ('tambahan_waha') tidak boleh ikut — Meta menolak
+     * pesan yang jumlah parameternya tak sama dengan templatenya. Template yang tak
+     * dikenal di sini dibiarkan apa adanya.
+     */
+    public static function variabelResmi(string $nama, array $variabel): array
+    {
+        $body = self::body($nama);
+
+        $variabel = array_values($variabel);
+
+        return $body === null ? $variabel : array_slice($variabel, 0, self::jumlahVariabel($body));
     }
 
     /**

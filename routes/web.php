@@ -1091,6 +1091,8 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::post('/fulfillment/so/{so}/batal-ukur',        [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalUkuran'])->whereNumber('so')->name('fulfillment.batal-ukur');
     Route::post('/fulfillment/so/{so}/siap-diambil',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiSiapDiambil'])->whereNumber('so')->name('fulfillment.siap-diambil');
     Route::post('/fulfillment/so/{so}/batal-siap-diambil', [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalSiapDiambil'])->whereNumber('so')->name('fulfillment.batal-siap-diambil');
+    // Kabari pembeli pesanan kirim di "Belum Lunas" untuk melunasi (pasangan manual pos:pindai-pelunasan).
+    Route::post('/fulfillment/so/{so}/kabari-pelunasan',   [\App\Modules\POS\Controllers\FulfillmentController::class, 'kabariPelunasan'])->whereNumber('so')->name('fulfillment.kabari-pelunasan');
     Route::post('/fulfillment/so/{so}/bebaskan-produksi', [\App\Modules\POS\Controllers\FulfillmentController::class, 'waiveProduksi'])->whereNumber('so')->name('fulfillment.bebaskan-produksi');
     Route::post('/fulfillment/so/{so}/batal-bebas',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalWaiveProduksi'])->whereNumber('so')->name('fulfillment.batal-bebas');
     Route::post('/fulfillment/sj/{delivery}/sampai',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiSampai'])->whereNumber('delivery')->name('fulfillment.sampai');

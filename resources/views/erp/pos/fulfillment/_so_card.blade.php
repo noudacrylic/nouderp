@@ -410,6 +410,8 @@
             {{-- Ambil di toko: barangnya sudah siap, cuma menunggu uang. Melunasi di kasir saat
                  mengambil barang itu hal biasa, jadi pembeli tetap pantas dikabari dari sini. --}}
             @include('erp.pos.fulfillment._siap_ambil_btn', ['r' => $r])
+            {{-- Kirim-kurir: barang baru dikirim setelah lunas, jadi pembeli dikabari untuk melunasi. --}}
+            @include('erp.pos.fulfillment._pelunasan_btn', ['r' => $r])
             <p class="text-[11px] text-gray-400 mt-1 text-right">
                 Otomatis pindah ke "Siap Proses" begitu pelunasan masuk.
             </p>

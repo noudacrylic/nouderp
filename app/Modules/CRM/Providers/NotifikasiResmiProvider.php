@@ -39,7 +39,12 @@ class NotifikasiResmiProvider implements NotificationProvider
             'to'                => $payload['to'] ?? null,
             'template'          => $payload['template'] ?? '',
             'language'          => $payload['language'] ?? 'id',
-            'body'              => (array) ($payload['body'] ?? []),
+            // Variabel opsional khusus WAHA (mis. sisa bayar di "siap diambil") dipangkas:
+            // template Meta hanya menerima jumlah parameter yang sama dengan saat disetujui.
+            'body'              => \App\Modules\CRM\Support\TemplateResmi::variabelResmi(
+                (string) ($payload['template'] ?? ''),
+                (array) ($payload['body'] ?? [])
+            ),
             /*
              * Tombol URL dinamis hanya menerima POTONGAN AKHIR url-nya; sisanya
              * sudah tertanam di template saat disetujui Meta. Pemanggil

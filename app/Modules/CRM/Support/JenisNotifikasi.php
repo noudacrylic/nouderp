@@ -68,6 +68,14 @@ class JenisNotifikasi
                 '08998844666',
             ],
         ],
+        CrmOutboxMessage::EVENT_PELUNASAN => [
+            'label'  => 'Pengingat Pelunasan',
+            'pemicu' => 'Pesanan kirim (Kurir & Instant) yang barangnya sudah siap tapi belum lunas (tab "Belum Lunas" di '
+                      . 'Pemrosesan Pesanan) — otomatis lewat pemindaian tiap 15 menit, atau tombol "Kabari Pelunasan" '
+                      . 'di kartunya. Satu pesan per sisa tagihan, pada jam buka. Tanpa tautan bayar: pelanggan '
+                      . 'diarahkan ke tautan dari nomor admin. Ambil di Toko tidak ikut — sisa bayarnya disebut di pesan "Siap Diambil".',
+            'contoh' => ['Budi', 'SO-2609-0012', '95.000', '08998844666'],
+        ],
         CrmOutboxMessage::EVENT_PANCINGAN => [
             'label'  => 'Pancingan Sebelum Sesi Habis',
             'pemicu' => 'Sekitar sejam sebelum jendela 24 jam sebuah percakapan habis, '

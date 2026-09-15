@@ -37,6 +37,13 @@ class CrmOutboxMessage extends Model
      */
     public const EVENT_TAGIHAN = 'tagihan_pembayaran';
     /**
+     * Pengingat pelunasan: barang pesanan KIRIM sudah siap, tinggal menunggu
+     * sisa pembayaran (bucket "Belum Lunas"). WAHA saja, dan SENGAJA tanpa
+     * tautan bayar — tautan hanya dibagikan dari nomor admin utama, supaya
+     * pelanggan tak terbiasa membayar lewat tautan dari nomor lain.
+     */
+    public const EVENT_PELUNASAN = 'pelunasan';
+    /**
      * Pengingat jatuh tempo pesanan tempo (H-3 & hari-H). BERBEDA dari dua
      * event WAHA di atas: ini justru WAJIB lewat jalur resmi berbayar —
      * lihat TemplateResmi::wajibResmi().
@@ -64,6 +71,7 @@ class CrmOutboxMessage extends Model
         self::EVENT_DIKIRIM    => 'pesanan_dikirim',
         self::EVENT_STOK_TERSEDIA => 'stok_tersedia',
         self::EVENT_TAGIHAN       => 'tagihan_pembayaran',
+        self::EVENT_PELUNASAN     => 'tagihan_pelunasan',
         self::EVENT_JATUH_TEMPO   => 'jatuh_tempo',
         self::EVENT_PANCINGAN     => 'lanjut_diskusi',
     ];

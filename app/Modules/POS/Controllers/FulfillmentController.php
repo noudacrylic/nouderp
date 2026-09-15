@@ -256,6 +256,19 @@ class FulfillmentController extends Controller
             . 'pembeli dikabari lewat WhatsApp (menyesuaikan jam buka toko).');
     }
 
+    /**
+     * Kabari pembeli pesanan kirim bahwa barangnya siap & tinggal dilunasi.
+     *
+     * Pasangan manual `pos:pindai-pelunasan` — lewat service yang sama, jadi pesan dan
+     * pagarnya (bukan ambil-toko, bukan tempo, satu kabar per sisa tagihan) tidak bercabang.
+     */
+    public function kabariPelunasan(int $so, \App\Modules\POS\Services\PelunasanNoticeService $svc)
+    {
+        [$ok, $pesan] = $svc->kabari(SalesOrder::with('customer')->findOrFail($so), manual: true);
+
+        return back()->with($ok ? 'success' : 'error', $pesan);
+    }
+
     /** Tarik kembali penandaan siap diambil; notifikasi yang belum berangkat ikut dibatalkan. */
     public function batalSiapDiambil(int $so, PickupReadyService $svc)
     {

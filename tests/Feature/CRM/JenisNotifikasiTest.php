@@ -63,10 +63,10 @@ class JenisNotifikasiTest extends TestCase
     {
         $katalog = JenisNotifikasi::katalog();
 
-        // Empat berbayar (template Meta, termasuk "Jatuh Tempo"), dua khusus
-        // WAHA ("Tagihan Pembayaran" & "Stok Sudah Ada"), dan "Pancingan" yang
+        // Empat berbayar (template Meta, termasuk "Jatuh Tempo"), tiga khusus
+        // WAHA ("Tagihan Pembayaran", "Pengingat Pelunasan" & "Stok Sudah Ada"), dan "Pancingan" yang
         // biasanya gratis — templatenya cuma cadangan saat jendelanya tutup.
-        $this->assertCount(7, $katalog);
+        $this->assertCount(8, $katalog);
 
         foreach ($katalog as $j) {
             $this->assertNotEmpty($j['teks'], "Teks contoh {$j['event']} kosong.");
@@ -165,6 +165,7 @@ class JenisNotifikasiTest extends TestCase
                 'dikirim'             => true,
                 'jatuh_tempo'         => false,
                 'tagihan_pembayaran'  => false,
+                'pelunasan'           => false,
                 'pancingan'           => false,
                 'stok_tersedia'       => false,
             ],

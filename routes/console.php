@@ -65,6 +65,8 @@ Schedule::command('crm:cek-stok-titipan')->everyFifteenMinutes()->name('crm-cek-
 // bergerak sendiri-sendiri — jadi pemindaian berkala inilah jalur otomatisnya.
 // Pesannya sendiri tetap tunduk pada jam buka toko (OrderNotificationService).
 Schedule::command('pos:pindai-siap-diambil')->everyFifteenMinutes()->name('pos-pindai-siap-diambil')->withoutOverlapping();
+// Kabari pembeli pesanan kirim yang barangnya siap tapi belum lunas (tanpa tautan bayar).
+Schedule::command('pos:pindai-pelunasan')->everyFifteenMinutes()->name('pos-pindai-pelunasan')->withoutOverlapping();
 
 // Penagihan pesanan yang tautan bayarnya belum dibayar — dan pembatalan yang
 // lewat batas. SEKALI SEHARI di jam kerja: jadwalnya berbasis hari penuh, jadi

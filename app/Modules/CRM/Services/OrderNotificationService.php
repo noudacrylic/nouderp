@@ -46,11 +46,45 @@ class OrderNotificationService
     /** Barang selesai & menunggu diambil di toko. */
     public function antrekanSiapDiambil(SalesOrder $so): ?CrmOutboxMessage
     {
-        return $this->antrekan($so, CrmOutboxMessage::EVENT_SIAP_AMBIL, "so:{$so->id}:siap_diambil", fn () => [
+        return $this->antrekan($so, CrmOutboxMessage::EVENT_SIAP_AMBIL, "so:{$so->id}:siap_diambil", function () use ($so) {
+            $body = [
+                $this->namaPelanggan($so),
+                $so->order_number,
+                (string) ($so->pickup_code ?: '-'),
+                (string) config('crm.store_hours_text'),
+            ];
+
+            /*
+             * Ambil-toko tidak dapat "Pengingat Pelunasan" — kekurangan bayarnya disebut di
+             * pesan ini (variabel ke-5, khusus WAHA; lihat TemplateResmi 'tambahan_waha').
+             * Tempo tidak: sisanya memang ditagih belakangan, bukan di kasir.
+             */
+            $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
+
+            if ($sisa > 0.01 && ! $so->is_tempo) {
+                $body[] = $this->rupiah($sisa);
+            }
+
+            return $body;
+        });
+    }
+
+    /**
+     * Barang pesanan kirim sudah siap, tinggal menunggu pelunasan.
+     *
+     * Kunci memakai SISA tagihan: pelunasan sebagian yang mengubah sisanya
+     * boleh memicu satu kabar baru dengan angka yang benar, sedangkan
+     * pemindaian berulang atas sisa yang sama tetap satu pesan.
+     */
+    public function antrekanPelunasan(SalesOrder $so, float $sisa): ?CrmOutboxMessage
+    {
+        $key = sprintf('so:%d:pelunasan:%d', $so->id, (int) round($sisa * 100));
+
+        return $this->antrekan($so, CrmOutboxMessage::EVENT_PELUNASAN, $key, fn () => [
             $this->namaPelanggan($so),
             $so->order_number,
-            (string) ($so->pickup_code ?: '-'),
-            (string) config('crm.store_hours_text'),
+            $this->rupiah($sisa),
+            (string) config('crm.admin_phone'),
         ]);
     }
 
@@ -175,10 +209,14 @@ class OrderNotificationService
      * pelanggan datang — memberitahunya pukul 23.00 atau di hari libur cuma
      * membuat orang datang ke toko yang tutup. Konfirmasi pembayaran dan nomor
      * resi justru ditunggu segera; menundanya lebih buruk daripada mengirim malam.
+     *
+     * Pengingat pelunasan ikut menunggu jam buka: tagihan yang datang tengah
+     * malam terasa menekan, dan pelanggan yang ingin bertanya ke admin baru
+     * dilayani saat toko buka.
      */
     public function jadwalKirim(string $event, ?Carbon $sekarang = null): ?Carbon
     {
-        if ($event !== CrmOutboxMessage::EVENT_SIAP_AMBIL) {
+        if (! in_array($event, [CrmOutboxMessage::EVENT_SIAP_AMBIL, CrmOutboxMessage::EVENT_PELUNASAN], true)) {
             return null;
         }
 

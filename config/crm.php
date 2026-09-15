@@ -55,6 +55,7 @@ return [
             'pembayaran_diterima' => true,
             'siap_diambil'        => true,
             'dikirim'             => true,
+            'pelunasan'           => true,
             'pancingan'           => true,
         ],
 
