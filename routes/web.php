@@ -136,6 +136,12 @@ Route::prefix('erp')->group(function () {
         // Unduh percakapan tersaring sebagai teks, bahan menyusun pengetahuan agen.
         Route::get ('/ekspor',         [\App\Modules\CRM\Controllers\CrmInboxController::class, 'ekspor'])->name('inbox.ekspor');
 
+        // Sakelar mode WhatsApp Web (darurat selama Coexistence belum keluar di
+        // akun Meta): melipat kolom thread supaya layar muat di setengah monitor
+        // di samping jendela web.whatsapp.com. Berdiri SEBELUM '/{conversation}'
+        // seperti tetangganya, kalau tidak 'mode-wa' dibaca sebagai id chat.
+        Route::post('/mode-wa',        [\App\Modules\CRM\Controllers\CrmInboxController::class, 'modeWa'])->name('inbox.mode-wa');
+
         Route::get ('/template',       [\App\Modules\CRM\Controllers\CrmTemplateController::class, 'index'])->name('template.index');
         // 'baru' WAJIB berdiri sebelum '/template/{template}' di bawah, kalau
         // tidak ia ditangkap sebagai id template dan halamannya 404.

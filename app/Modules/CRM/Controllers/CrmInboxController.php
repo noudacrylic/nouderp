@@ -62,9 +62,50 @@ class CrmInboxController extends Controller
         'diteruskanDari.conversation.customer:id,name',
     ];
 
+    /**
+     * Kunci sesi untuk mode WhatsApp Web.
+     *
+     * Disimpan di SESI, bukan di parameter URL: operator berpindah-pindah
+     * antar percakapan, saringan, dan halaman sepanjang hari, dan mode yang
+     * ikut hilang tiap pindah halaman akan mengembalikan kolom thread kosong
+     * di tengah layar yang sudah sengaja disempitkan ke setengah monitor.
+     */
+    private const KUNCI_MODE_WA = 'crm.mode_wa';
+
     public function index(Request $request)
     {
-        return view('erp.crm.inbox.workspace', $this->ruangKerja($request));
+        return view('erp.crm.inbox.workspace', $this->ruangKerja($request, null, $this->modeWaAktif($request)));
+    }
+
+    /**
+     * Nyalakan/matikan mode WhatsApp Web.
+     *
+     * Sengaja sakelar, bukan pengaturan global: ini keadaan darurat sementara
+     * selama Coexistence belum keluar di akun Meta, dan begitu chat resmi
+     * hidup lagi ia harus bisa dimatikan seketika tanpa deploy.
+     */
+    public function modeWa(Request $request)
+    {
+        $request->session()->put(
+            self::KUNCI_MODE_WA,
+            ! $request->session()->get(self::KUNCI_MODE_WA, false),
+        );
+
+        return back();
+    }
+
+    /**
+     * Apakah mode WhatsApp Web sedang menyala — HANYA untuk layar desktop.
+     *
+     * PWA CS (/cs) sengaja tidak pernah menanyakannya meski berbagi
+     * ruangKerja() yang sama: di HP tidak ada jendela web.whatsapp.com untuk
+     * ditempeli, dan mode ini mengosongkan gelembung. Kalau sesinya ikut
+     * terbaca di sana, satu klik di desktop membuat layar chat HP orang itu
+     * tampak kosong tanpa sebab yang terlihat.
+     */
+    private function modeWaAktif(Request $request): bool
+    {
+        return (bool) $request->session()->get(self::KUNCI_MODE_WA, false);
     }
 
     /**
@@ -75,7 +116,7 @@ class CrmInboxController extends Controller
      * dua kali dengan aturan yang sedikit beda, membuka satu thread akan
      * mengubah isi daftar di sebelahnya tanpa sebab yang terlihat.
      */
-    private function ruangKerja(Request $request, ?CrmConversation $terpilih = null): array
+    private function ruangKerja(Request $request, ?CrmConversation $terpilih = null, bool $modeWa = false): array
     {
         /*
          * Saringannya sendiri hidup di dasarPercakapan() & saringPercakapan() —
@@ -138,7 +179,14 @@ class CrmInboxController extends Controller
                 ->whereNull('owner_user_id')
                 ->count(),
             'terpilih' => $terpilih,
-            'pesan'    => $terpilih
+            'modeWa'   => $modeWa,
+            /*
+             * Gelembung tidak DIMUAT sama sekali di mode WhatsApp Web, bukan
+             * sekadar disembunyikan lewat CSS: thread panjang menyeret ratusan
+             * pesan berikut lampiran & kutipannya (lihat MUATAN_GELEMBUNG)
+             * untuk digambar ke kolom yang tidak ada di layar.
+             */
+            'pesan'    => $terpilih && ! $modeWa
                 ? $terpilih->messages()->with(self::MUATAN_GELEMBUNG)->orderBy('sent_at')->orderBy('id')->get()
                 : collect(),
             'snippets' => $this->snippets(),
@@ -357,7 +405,7 @@ class CrmInboxController extends Controller
             $conversation->forceFill(['unread_count' => 0])->save();
         }
 
-        return view('erp.crm.inbox.workspace', $this->ruangKerja($request, $conversation));
+        return view('erp.crm.inbox.workspace', $this->ruangKerja($request, $conversation, $this->modeWaAktif($request)));
     }
 
     /**
