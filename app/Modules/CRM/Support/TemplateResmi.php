@@ -61,6 +61,15 @@ class TemplateResmi
             'guna'     => 'Jam toko sengaja jadi variabel — jam berubah saat Lebaran, dan mengubah body template berarti ajukan ulang ke Meta.',
             'contoh'   => ['Budi', 'SO-2609-0012', 'AMB-4471', 'Senin–Sabtu 08.00–16.00'],
             'body'     => 'Halo Kak {{1}}, pesanan {{2}} sudah selesai dan siap diambil di toko kami. Tunjukkan kode pengambilan {{3}} kepada petugas. Kami buka {{4}}. Di luar jam tersebut, silakan balas pesan ini untuk membuat janji pengambilan.',
+            /*
+             * Versi WAHA TIDAK boleh menyuruh membalas (15 Sep 2026): nomor WAHA
+             * cuma pengirim notifikasi, chat-nya tidak dibaca siapa pun — balasan
+             * ke sana hilang. Diganti nomor admin. Body Meta sengaja dibiarkan:
+             * di jalur resmi membalas memang sampai ke admin, dan mengubahnya
+             * berarti mengajukan ulang template.
+             */
+            'kalimat_balas' => ' Di luar jam tersebut, silakan balas pesan ini untuk membuat janji pengambilan.',
+            'ganti_balas'   => ' Di luar jam tersebut, silakan hubungi admin kami di {admin} untuk membuat janji pengambilan.',
         ],
         [
             'nama'     => 'stok_tersedia',
@@ -94,7 +103,7 @@ class TemplateResmi
                         . '({{5}}) karena pesanannya memang dibatalkan otomatis kalau lewat.',
             'contoh'   => ['Budi', 'SO-2609-0012', '500.000', 'https://noudakrilik.com/pay/contoh', '7 Oktober 2026', '08998844666'],
             'hanya_waha' => true,
-            'body'     => 'Halo Kak {{1}}, kami dari tim marketing Noud Akrilik Shop ingin mengingatkan '
+            'body'     => 'Halo Kak {{1}}, kami dari tim marketing Noud Acrylic Shop ingin mengingatkan '
                         . 'bahwa pesanan {{2}} senilai Rp{{3}} masih menunggu pembayaran. '
                         . 'Kakak bisa membayar lewat tautan berikut:' . PHP_EOL . '{{4}}' . PHP_EOL
                         . 'Bila sampai {{5}} belum ada pembayaran, pesanannya kami batalkan otomatis. '
@@ -177,27 +186,38 @@ class TemplateResmi
              . '— kami lanjutkan begitu jam layanan dibuka. Terima kasih sudah menunggu, Kak.';
     }
 
+    /** Perkenalan diri pesan WAHA — satu tempat, supaya ejaan nama toko tidak bercabang. */
+    public const PERKENALAN = 'kami dari tim marketing Noud Acrylic Shop';
+
     /**
-     * Kepala surat untuk jalur TIDAK RESMI.
+     * Perkenalan diri untuk jalur TIDAK RESMI, diselipkan setelah sapaan.
      *
      * WAHA mengirim dari nomor WhatsApp biasa: tak ada centang hijau, tak ada
-     * nama bisnis terverifikasi, cuma sederet angka asing. Pesan "pesanan Anda
-     * belum dibayar, klik tautan ini" dari nomor semacam itu adalah bentuk
-     * penipuan yang paling lazim — dan pelanggan yang berhati-hati justru
-     * benar kalau mengabaikannya.
+     * nama bisnis terverifikasi. Karena itu tiap pesan WAHA wajib menyebut
+     * siapa pengirimnya. Dulu berupa kepala surat "*NOUD ACRYLIC* — Pesan
+     * resmi dari…" di atas badan; diganti (15 Sep 2026) jadi kalimat
+     * perkenalan yang manusiawi karena kepala kaku justru terbaca seperti
+     * pesan massal — yang meyakinkan pelanggan adalah isinya yang spesifik
+     * (namanya, nomor SO, kode ambil), bukan kop suratnya.
      *
-     * Karena itu tiap pesan WAHA memperkenalkan diri lebih dulu. Ini SATU-
-     * SATUNYA penyimpangan yang boleh dari bunyi template: badannya tetap sama
-     * persis, yang ditambahkan hanya kepala suratnya.
+     *   "Halo Kak Budi, pesanan SO-1 sudah…"
+     *   → "Halo Kak Budi, kami dari tim marketing Noud Acrylic Shop. Pesanan SO-1 sudah…"
+     *
+     * Badan yang sudah memperkenalkan diri (tagihan_pembayaran) dibiarkan.
      */
-    public static function pembukaWaha(): string
+    public static function perkenalkanDiri(string $teks): string
     {
-        $situs = preg_replace('~^https?://~', '', rtrim((string) config('crm.storefront_url'), '/'));
+        if (str_contains($teks, self::PERKENALAN)) {
+            return $teks;
+        }
 
-        return '*NOUD ACRYLIC*' . PHP_EOL
-             . 'Pesan resmi dari ' . ($situs ?: 'noudakrilik.com')
-             . '. Nomor ini kami pakai untuk mengabari pesanan.' . PHP_EOL
-             . '——————' . PHP_EOL . PHP_EOL;
+        if (preg_match('/^(Halo [^,\n]{1,80}), (.)/u', $teks, $m)) {
+            return $m[1] . ', ' . self::PERKENALAN . '. '
+                 . mb_strtoupper($m[2]) . mb_substr($teks, mb_strlen($m[0]));
+        }
+
+        // Tanpa sapaan "Halo …," — perkenalan jadi kalimat pembuka sendiri.
+        return 'Halo Kak, ' . self::PERKENALAN . '. ' . $teks;
     }
 
     /**
@@ -347,6 +367,28 @@ class TemplateResmi
             $body = str_replace(['{{' . $i . '}}', '{{ ' . $i . ' }}'], (string) $nilai, $body);
         }
 
-        return trim(self::lepasTombol($nama, $body, $urlLacak));
+        return trim(self::gantiAjakanBalas($nama, self::lepasTombol($nama, $body, $urlLacak)));
+    }
+
+    /**
+     * Ganti "silakan balas pesan ini" dengan nomor admin — khusus teks WAHA.
+     *
+     * Balasan ke nomor WAHA tidak sampai ke siapa pun. Pasangan kalimatnya
+     * duduk di entri template ('kalimat_balas' & 'ganti_balas') dengan alasan
+     * yang sama seperti lepasTombol(): bersebelahan dengan bodynya supaya tak
+     * diam-diam berhenti cocok saat body diubah.
+     */
+    private static function gantiAjakanBalas(string $nama, string $body): string
+    {
+        $usulan  = self::usulan($nama) ?? [];
+        $kalimat = (string) ($usulan['kalimat_balas'] ?? '');
+
+        if ($kalimat === '' || ! str_contains($body, $kalimat)) {
+            return $body;
+        }
+
+        $ganti = str_replace('{admin}', (string) config('crm.admin_phone'), (string) ($usulan['ganti_balas'] ?? ''));
+
+        return str_replace($kalimat, $ganti, $body);
     }
 }

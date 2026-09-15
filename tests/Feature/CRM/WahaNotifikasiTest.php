@@ -69,6 +69,21 @@ class WahaNotifikasiTest extends TestCase
         $this->assertStringContainsString('https://noudakrilik.com/pesanan/tok3n', $teks);
     }
 
+    /*
+     * Nomor WAHA tidak dibaca siapa pun, jadi teks WAHA tidak boleh menyuruh
+     * membalas — pelanggan diarahkan ke nomor admin. Body Meta tetap utuh.
+     */
+    public function test_ajakan_balas_diganti_nomor_admin_di_waha(): void
+    {
+        config(['crm.admin_phone' => '08998844666']);
+
+        $teks = TemplateResmi::render('pesanan_siap_diambil', ['Budi', 'SO-1', 'AMB-1', 'Senin–Sabtu 08.00–16.00']);
+
+        $this->assertStringNotContainsString('balas pesan ini', $teks);
+        $this->assertStringContainsString('silakan hubungi admin kami di 08998844666 untuk membuat janji pengambilan.', $teks);
+        $this->assertStringContainsString('balas pesan ini', TemplateResmi::body('pesanan_siap_diambil'));
+    }
+
     /** Tanpa URL, janji tombolnya dibuang seluruhnya — bukan disisakan menggantung. */
     public function test_tanpa_url_kalimat_tombol_hilang_bersih(): void
     {
@@ -154,10 +169,40 @@ class WahaNotifikasiTest extends TestCase
     {
         $teks = $this->kirimDapatTeks();
 
-        $this->assertStringStartsWith('*NOUD ACRYLIC*', $teks);
-        $this->assertStringContainsString('Pesan resmi dari', $teks);
-        // Badannya tetap utuh di bawah kepala surat.
-        $this->assertStringContainsString('Halo Kak Budi', $teks);
+        // Perkenalan diselipkan setelah sapaan, bukan kop surat di atasnya.
+        $this->assertStringStartsWith(
+            'Halo Kak Budi, kami dari tim marketing Noud Acrylic Shop. Pembayaran sebesar Rp150.000',
+            $teks
+        );
+        $this->assertStringNotContainsString('Pesan resmi dari', $teks);
+    }
+
+    /** Badan yang sudah memperkenalkan diri tidak diberi perkenalan dobel. */
+    public function test_perkenalan_tidak_dobel(): void
+    {
+        $teks = \App\Modules\CRM\Support\TemplateResmi::perkenalkanDiri((string) \App\Modules\CRM\Support\TemplateResmi::render(
+            'tagihan_pembayaran',
+            ['Budi', 'SO-1', '500.000', 'https://x/pay', '7 Oktober 2026', '08998844666']
+        ));
+
+        $this->assertSame(1, substr_count($teks, 'tim marketing Noud Acrylic Shop'));
+    }
+
+    public function test_perkenalan_siap_diambil_sesuai_usulan(): void
+    {
+        config(['crm.admin_phone' => '08998844666']);
+
+        $teks = \App\Modules\CRM\Support\TemplateResmi::perkenalkanDiri((string) \App\Modules\CRM\Support\TemplateResmi::render(
+            'pesanan_siap_diambil',
+            ['Alfira', 'SO/2026/09/00018', '0161', 'Senin–Sabtu 08.00–16.00']
+        ));
+
+        $this->assertSame(
+            'Halo Kak Alfira, kami dari tim marketing Noud Acrylic Shop. Pesanan SO/2026/09/00018 sudah selesai dan siap diambil di toko kami. '
+            . 'Tunjukkan kode pengambilan 0161 kepada petugas. Kami buka Senin–Sabtu 08.00–16.00. '
+            . 'Di luar jam tersebut, silakan hubungi admin kami di 08998844666 untuk membuat janji pengambilan.',
+            $teks
+        );
     }
 
     /**
@@ -168,7 +213,7 @@ class WahaNotifikasiTest extends TestCase
     public function test_jalur_resmi_tidak_ikut_memakai_kepala_surat(): void
     {
         $this->assertStringNotContainsString(
-            'NOUD ACRYLIC',
+            'tim marketing',
             (string) \App\Modules\CRM\Support\TemplateResmi::render('pembayaran_diterima', ['Budi', '150.000', 'SO-1', 'Lunas'])
         );
     }
