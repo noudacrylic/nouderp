@@ -24,6 +24,10 @@ class RatesController extends Controller
             // Dipakai untuk melengkapi area/kode pos tujuan dari data customer bila
             // pemanggil hanya mengirim salah satunya (tiap provider punya kamus wilayah sendiri).
             'customer_id'             => 'nullable|exists:customers,id',
+            // Cabang tujuan. Tanpa ini, ongkir pesanan untuk cabang dilengkapi
+            // dari alamat PUSAT — dan salahnya tidak bersuara: ongkirnya tetap
+            // keluar, cuma dihitung ke kota yang keliru.
+            'customer_branch_id'      => 'nullable|exists:customer_branches,id',
             'weight_gram'             => 'nullable|integer|min:1',
             'item_value'              => 'nullable|numeric|min:0',
             // Koordinat tujuan (opsional) — wajib agar kurir instant muncul.
@@ -48,8 +52,12 @@ class RatesController extends Controller
             ]);
         }
 
-        // Lengkapi id/kode pos tujuan dari master customer bila belum dikirim.
-        $customer = !empty($data['customer_id']) ? \App\Models\Customer::find($data['customer_id']) : null;
+        // Lengkapi id/kode pos tujuan dari master bila belum dikirim — dari
+        // CABANG bila pesanannya untuk cabang, kalau tidak dari induk.
+        $customer = \App\Models\CustomerBranch::tujuanUntuk(
+            $data['customer_id'] ?? null,
+            $data['customer_branch_id'] ?? null
+        );
 
         $dest = array_filter([
             'destination_area_id'       => $data['destination_area_id'] ?? null,

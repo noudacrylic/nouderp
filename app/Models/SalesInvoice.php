@@ -6,14 +6,24 @@ use Illuminate\Database\Eloquent\Model;
 use App\Models\Customer;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Core\Inventory\Warehouse;
+use App\Models\Concerns\PunyaTujuanKirim;
 
 
 class SalesInvoice extends Model
 {
+    use PunyaTujuanKirim;
+
+    /** Cabang ikut pesanannya bila faktur ini belum menyalinnya. */
+    protected function cabangWarisan(): ?\App\Models\CustomerBranch
+    {
+        return $this->salesOrder?->customerBranch;
+    }
+
     protected $fillable = [
         'invoice_number',
         'sales_order_id',
         'customer_id',
+        'customer_branch_id',
         'warehouse_id',
         'delivery_method',
         'invoice_date',

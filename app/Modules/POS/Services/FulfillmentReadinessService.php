@@ -230,7 +230,8 @@ class FulfillmentReadinessService
     public function allPaginated(?string $search, array $filters, int $perPage)
     {
         $q = SalesOrder::query()->with([
-            'customer:id,name,is_marketplace,phone,address,shipping_address,city',
+            'customer:id,name,is_marketplace,phone,recipient_phone,address,shipping_address,district,city,province,postal_code,biteship_area_id,kiriminaja_area_id,jubelio_area_id,latitude,longitude',
+            'customerBranch',
             'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock,made_to_order',
             'deliveries' => fn ($d) => $d->where('status', '!=', 'void'),
             'deliveries.items',
@@ -449,7 +450,8 @@ class FulfillmentReadinessService
                 }
             })
             ->with([
-                'customer:id,name,is_marketplace,phone,address,shipping_address,city',
+                'customer:id,name,is_marketplace,phone,recipient_phone,address,shipping_address,district,city,province,postal_code,biteship_area_id,kiriminaja_area_id,jubelio_area_id,latitude,longitude',
+                'customerBranch',
                 'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock,made_to_order',
                 'deliveries' => fn ($q) => $q->where('status', '!=', 'void'),
                 'deliveries.items',
@@ -673,7 +675,9 @@ class FulfillmentReadinessService
             'kind'        => 'so',
             'id'          => $so->id,
             'number'      => $so->order_number,
-            'customer'    => $so->customer->name ?? '-',
+            // Nama TUJUAN: untuk pesanan cabang ia sudah memuat nama induknya
+            // ("PT X - Cabang Bandung"), jadi kartu tetap terbaca utuh.
+            'customer'    => $so->namaTujuan() ?: '-',
             'customer_id' => $so->customer_id,
             'date'        => $so->order_date,
             'date_sort'   => (string) ($so->order_date ?? $so->created_at),
@@ -683,8 +687,8 @@ class FulfillmentReadinessService
 
             'notes'         => $so->notes,
             'seller_notes'  => $so->seller_notes,
-            'phone'         => $so->customer->phone ?? null,
-            'address'       => $this->shortAddress($so->customer),
+            'phone'         => $so->tujuan()?->nomorNotifikasi(),
+            'address'       => $this->shortAddress($so->tujuan()),
             'delivery_display' => $deliveryDisplay,
             // Kurir untuk filter: marketplace pakai nama shipper Jubelio bila ada.
             'courier'       => $link ? ($link->shipper ?: 'Marketplace') : $deliveryDisplay,
@@ -927,12 +931,19 @@ class FulfillmentReadinessService
         return $ship->isNotEmpty() && $ship->every(fn ($d) => !empty($d->resi_printed_at));
     }
 
-    /** Alamat ringkas customer untuk kartu (shipping_address diutamakan), + kota. */
-    private function shortAddress(?\App\Models\Customer $customer): string
+    /**
+     * Alamat ringkas untuk kartu: jalan + kota.
+     *
+     * Menerima tujuan dokumen (cabang atau induk-sebagai-cabang), bukan
+     * Customer. Kartu inilah yang dipakai orang gudang memutuskan ke mana
+     * barang dikirim — menampilkan alamat pusat untuk pesanan cabang berarti
+     * salah kirim, dan tidak ada apa pun di layar yang akan mengoreksinya.
+     */
+    private function shortAddress($tujuan): string
     {
-        if (!$customer) return '';
-        $base = trim((string) ($customer->shipping_address ?: $customer->address));
-        $city = trim((string) ($customer->city ?? ''));
+        if (!$tujuan) return '';
+        $base = trim((string) ($tujuan->shipping_address ?: ($tujuan->address ?? '')));
+        $city = trim((string) ($tujuan->city ?? ''));
         return trim($base . ($city ? ($base ? ', ' : '') . $city : ''));
     }
 

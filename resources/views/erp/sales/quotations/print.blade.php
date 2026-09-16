@@ -357,15 +357,26 @@
     <tr>
         <td style="width:62%; padding-right:18px;">
             @php
-                $cust = $quotation->customer;
-                // Alamat lengkap gaya alamat pengiriman (jalan + wilayah + kode pos).
-                $custAddress = $cust ? $cust->fullAddress() : '';
+                // Tujuan dokumen: baris cabang bila dipilih, kalau tidak induk yang
+                // dituangkan jadi cabang bayangan. Satu bentuk, jadi nota tak perlu tahu
+                // bedanya — lihat App\Models\Concerns\PunyaTujuanKirim.
+                $tujuan = $quotation->tujuan();
+                $custName = $tujuan?->name ?: '-';
+                $custAddress = (string) ($tujuan?->fullAddress() ?? '');
+                // Kontak penerima ikut dicetak: surat jalan yang tak memuat nomor
+                // memaksa kurir yang kesasar menelepon kantor dulu.
+                $custPhone = (string) ($tujuan?->nomorPengiriman() ?? '');
+                $custPic   = trim((string) ($tujuan?->pic_name ?? ''));
             @endphp
             <div class="recipient">
                 <div class="label">Kepada Yth.</div>
-                <div class="name">{{ $cust->name ?? '-' }}</div>
+                <div class="name">{{ $custName }}</div>
                 @if($custAddress !== '')
                     <div class="addr">{{ $custAddress }}</div>
+                @endif
+                @php $kontakPenerima = trim($custPic . ($custPic && $custPhone ? ' · ' : '') . $custPhone); @endphp
+                @if($kontakPenerima !== '')
+                    <div class="addr">{{ $kontakPenerima }}</div>
                 @endif
             </div>
         </td>

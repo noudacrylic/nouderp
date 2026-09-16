@@ -93,6 +93,7 @@ class SalesDeliveryService
                     'delivery_number'       => NumberGeneratorService::generate('DOINV'),
                     'invoice_id'            => $invoice->id,
                     'sales_order_id'        => $invoice->sales_order_id ?? null,
+                    'customer_branch_id'    => $invoice->customer_branch_id,
                     'reference_type'        => 'sales_invoice',
                     'reference_id'          => $invoice->id,
                     'warehouse_id'          => $invoice->warehouse_id,
@@ -187,6 +188,7 @@ class SalesDeliveryService
                 $delivery = SalesDelivery::create([
                     'delivery_number' => NumberGeneratorService::generate('DOSO'),
                     'sales_order_id'  => $so->id,
+                    'customer_branch_id' => $so->customer_branch_id,
                     'reference_type'  => 'sales_order',
                     'reference_id'    => $so->id,
                     'warehouse_id'    => $so->warehouse_id,

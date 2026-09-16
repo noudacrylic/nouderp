@@ -2,8 +2,20 @@
     /**
      * Editor alamat pengiriman customer — kolom yang SAMA dengan popup "Edit/Tambah Alamat"
      * di form SO/Invoice (CustomerController::updateShipping). Dipakai di create & edit master.
+     *
+     * Dipakai ulang apa adanya oleh form CABANG pelanggan: CustomerBranch punya
+     * nama kolom yang sama persis dengan Customer, jadi cukup dioper lewat
+     * `customer`. Judul & keterangannya bisa diganti karena kalimat "dipakai di
+     * nota & ongkir" itu benar untuk induk, tapi menyesatkan di layar cabang.
+     *
+     * CATATAN: id elemennya tetap (`cust_area`, `cust_postal`, …) dan dipakai
+     * pencarian area untuk mengisi kota/kecamatan/kode pos. Jadi partial ini
+     * hanya boleh muncul SEKALI per halaman.
      */
     $c = $customer ?? null;
+    $hintPenerima = $hintPenerima ?? 'Dicetak di label/resi kurir. Dikosongkan = pakai No. WhatsApp Utama.';
+    $judul      = $judul      ?? 'Alamat Pengiriman';
+    $keterangan = $keterangan ?? 'Alamat ini dipakai di nota (Penawaran/SO/Faktur) & perhitungan ongkir. Sama dengan popup "Edit/Tambah Alamat" di form Sales Order.';
     // Pemilih provider area: tampil hanya bila KiriminAja diaktifkan di Settings.
     $kaOn = \App\Models\ShippingSetting::for('kiriminaja')->is_enabled;
     $btOn = \App\Models\ShippingSetting::for('biteship')->is_enabled;
@@ -21,14 +33,15 @@
 @endphp
 
 <div class="col-span-2 border-t pt-5 mt-1">
-    <h2 class="text-sm font-bold text-gray-700 mb-1">Alamat Pengiriman</h2>
-    <p class="text-xs text-gray-400 mb-3">Alamat ini dipakai di nota (Penawaran/SO/Faktur) & perhitungan ongkir. Sama dengan popup "Edit/Tambah Alamat" di form Sales Order.</p>
+    <h2 class="text-sm font-bold text-gray-700 mb-1">{{ $judul }}</h2>
+    <p class="text-xs text-gray-400 mb-3">{{ $keterangan }}</p>
 </div>
 
 <div>
-    <label class="block text-sm mb-1">No. HP Penerima</label>
+    <label class="block text-sm mb-1">No. HP Penerima Barang</label>
     <input type="text" name="recipient_phone" value="{{ old('recipient_phone', $c?->recipient_phone ?? '') }}"
         class="border rounded px-3 py-2 w-full">
+    <p class="text-xs text-gray-400 mt-1">{{ $hintPenerima }}</p>
 </div>
 
 <div>

@@ -66,6 +66,16 @@
 </style>
 
 <form id="transactionForm" method="POST" action="{{ $action }}" enctype="multipart/form-data">
+
+    {{--
+        Cabang tujuan dokumen. Ditaruh DI DALAM form bersama ini, bukan di
+        sebelah tiap `customer_id`: Faktur & Penawaran menaruh headernya di luar
+        form (lewat `form="transactionForm"`), jadi satu-satunya tempat yang
+        pasti ikut terkirim untuk ketiga dokumen adalah di sini.
+        Kosong = pesanan atas nama induk.
+    --}}
+    <input type="hidden" name="customer_branch_id" id="customer_branch_id"
+        value="{{ old('customer_branch_id', $model->customer_branch_id ?? '') }}">
     @csrf
 
     <input type="hidden" name="quotation_id" id="quotation_id" value="{{ $quotation->id ?? ($so->quotation_id ?? '') }}">
@@ -564,8 +574,11 @@
                     html = '<div class="customer-item text-gray-400 italic">Tidak ada pelanggan aktif dengan nama/No. HP itu. Tekan + untuk menambah baru.</div>';
                 }
                 customers.forEach(function(c){
+                    // Cabang menjorok ke dalam supaya terbaca sebagai "yang mana",
+                    // bukan sebagai pelanggan lain yang kebetulan mirip namanya.
+                    const sub = c.branch_id ? ' style="padding-left:18px"' : '';
                     html += `
-                    <div class="customer-item" data-id="${c.id}" data-name="${c.name}" data-label="${c.label || c.name}">
+                    <div class="customer-item" data-id="${c.id}" data-branch-id="${c.branch_id || ''}" data-name="${c.name}" data-label="${c.label || c.name}"${sub}>
                         <b>${c.name}</b> — ${c.phone || '<span class="text-gray-400">' + (c.code || 'tanpa No. HP') + '</span>'}
                     </div>
                     `;
@@ -583,12 +596,13 @@
             let label = item.data('label') || item.data('name');
 
             $('#customer_id').val(id);
+            $('#customer_branch_id').val(item.data('branch-id') || '');
             $('#customer_search').val(label);
             $('.customer-dropdown').html('');
             if (window.reloadShippingAddress) window.reloadShippingAddress();
 
             // Trigger address fetch
-            fetch('/erp/customers/address/' + id)
+            fetch('/erp/customers/address/' + id + ($('#customer_branch_id').val() ? '?branch=' + $('#customer_branch_id').val() : ''))
                 .then(res => res.json())
                 .then(data => {
                     let addrField = document.getElementById('shipping_address');
@@ -1181,12 +1195,14 @@
     /** Pakai pelanggan yang sudah ada, batalkan pembuatan yang baru. */
     window.pakaiPelangganLama = function(id, label) {
         $('#customer_id').val(id);
+        // Pelanggan yang dipilih dari peringatan nama kembar selalu induk.
+        $('#customer_branch_id').val('');
         $('#customer_search').val(label);
         $('.customer-dropdown').html('');
         closeQuickCustomer();
         if (window.reloadShippingAddress) window.reloadShippingAddress();
 
-        fetch('/erp/customers/address/' + id)
+        fetch('/erp/customers/address/' + id + ($('#customer_branch_id').val() ? '?branch=' + $('#customer_branch_id').val() : ''))
             .then(res => res.json())
             .then(data => {
                 let addrField = document.getElementById('shipping_address');
@@ -1210,6 +1226,8 @@
             success: function(res){
                 // Fill context fields
                 $('#customer_id').val(res.id);
+                // Pelanggan yang baru dibuat belum punya cabang.
+                $('#customer_branch_id').val('');
                 $('#customer_search').val(res.label || res.name);
 
                 // Clear dropdown and close

@@ -2,119 +2,101 @@
 
 @section('content')
 
-    <h1 class="text-lg font-semibold mb-6">
-        Edit Customer
-    </h1>
+<div class="max-w-4xl mx-auto">
 
-    <form method="POST" action="{{ route('customers.update', $customer->id) }}">
+<h1 class="text-lg font-semibold mb-4">Edit Pelanggan &mdash; {{ $customer->name }}</h1>
 
-        @csrf
-        @method('PUT')
+<form method="POST" action="{{ route('customers.update', $customer->id) }}">
+    @method('PUT')
+    @include('erp.master.customers._form')
+</form>
 
-        <div class="grid grid-cols-2 gap-6 max-w-3xl">
+{{--
+    Cabang SENGAJA di luar form di atas: tombolnya sendiri berupa form
+    (arsip/hapus), dan form bersarang tidak sah di HTML — yang di dalam akan
+    diabaikan browser tanpa pesan kesalahan apa pun.
+--}}
+<div class="mt-10 border-t pt-6">
 
-            <div>
-
-                <label class="block text-sm mb-1">
-                    Name
-                </label>
-
-                <input type="text" name="name" value="{{ $customer->name }}" class="border rounded px-3 py-2 w-full"
-                    required>
-
-            </div>
-
-
-            <div>
-
-                <label class="block text-sm mb-1">
-                    Phone
-                </label>
-
-                <input type="text" name="phone" value="{{ $customer->phone }}" class="border rounded px-3 py-2 w-full">
-
-                <label class="flex items-start gap-2 mt-2 text-sm text-gray-700">
-                    <input type="checkbox" name="wa_opt_out" value="1" class="mt-1" @checked(old('wa_opt_out', $customer->wa_opt_out_at !== null))>
-                    <span>
-                        Jangan kirim notifikasi pesanan lewat WhatsApp
-                        @if ($customer->wa_opt_out_at)
-                            <span class="block text-xs text-gray-500">
-                                Menyatakan keberatan {{ $customer->wa_opt_out_at->translatedFormat('d M Y H:i') }}
-                            </span>
-                        @elseif ($customer->wa_opt_in_at)
-                            <span class="block text-xs text-gray-500">
-                                Menyetujui {{ $customer->wa_opt_in_at->translatedFormat('d M Y H:i') }}
-                                @if ($customer->wa_opt_in_source) &middot; {{ str_replace('_', ' ', $customer->wa_opt_in_source) }} @endif
-                            </span>
-                        @else
-                            <span class="block text-xs text-gray-500">Bawaannya pelanggan DIKABARI soal pesanannya sendiri. Centang ini hanya bila ia menyatakan keberatan.</span>
-                        @endif
-                    </span>
-                </label>
-
-            </div>
-
-
-            <div>
-
-                <label class="block text-sm mb-1">
-                    Email
-                </label>
-
-                <input type="email" name="email" value="{{ $customer->email }}" class="border rounded px-3 py-2 w-full">
-
-            </div>
-
-
-            <div>
-
-                <label class="block text-sm mb-1">
-                    Customer Type
-                </label>
-
-                <select name="customer_type" class="border rounded px-3 py-2 w-full">
-
-                    <option value="regular" {{ $customer->customer_type == 'regular' ? 'selected' : '' }}>
-                        Regular
-                    </option>
-
-                    <option value="marketplace" {{ $customer->customer_type == 'marketplace' ? 'selected' : '' }}>
-                        Marketplace
-                    </option>
-
-                    <option value="reseller" {{ $customer->customer_type == 'reseller' ? 'selected' : '' }}>
-                        Reseller
-                    </option>
-
-                </select>
-
-            </div>
-
-
-            <div class="col-span-2">
-
-                <label class="block text-sm mb-1">
-                    Alamat (umum / penagihan)
-                </label>
-
-                <textarea name="address" rows="3"
-                    class="border rounded px-3 py-2 w-full">{{ old('address', $customer->address) }}</textarea>
-
-            </div>
-
-            @include('erp.master.customers._shipping_fields', ['customer' => $customer])
-
+    <div class="flex items-start justify-between gap-4 mb-3">
+        <div>
+            <h2 class="text-sm font-bold text-gray-700">Cabang / Alamat Kirim Lain</h2>
+            <p class="text-xs text-gray-400 mt-1">
+                Untuk pelanggan yang barangnya dikirim ke beberapa tempat tapi tagihannya tetap satu.
+                Tagihan, piutang, dan termin tetap atas nama {{ $customer->name }}.
+            </p>
         </div>
+        <a href="{{ route('customers.branches.create', $customer->id) }}"
+            class="shrink-0 text-sm border border-blue-600 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded">
+            + Tambah Cabang
+        </a>
+    </div>
 
+    @php $cabangList = $customer->branches; @endphp
 
-        <div class="mt-6">
+    @if ($cabangList->isEmpty())
+        <p class="text-sm text-gray-400 border rounded px-3 py-4 text-center">
+            Belum ada cabang. Pesanan untuk pelanggan ini memakai alamat pengiriman di atas.
+        </p>
+    @else
+        <table class="w-full text-sm border">
+            <thead class="bg-gray-50 text-gray-600">
+                <tr>
+                    <th class="text-left px-3 py-2 font-medium">Nama Cabang</th>
+                    <th class="text-left px-3 py-2 font-medium">Alamat</th>
+                    <th class="text-left px-3 py-2 font-medium">Kontak</th>
+                    <th class="text-right px-3 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($cabangList as $cabang)
+                    <tr class="border-t {{ $cabang->is_active ? '' : 'bg-gray-50 text-gray-400' }}">
+                        <td class="px-3 py-2 align-top">
+                            {{ $cabang->name }}
+                            @unless ($cabang->is_active)
+                                <span class="block text-xs">Diarsipkan</span>
+                            @endunless
+                        </td>
+                        <td class="px-3 py-2 align-top">{{ $cabang->fullAddress() ?: '—' }}</td>
+                        <td class="px-3 py-2 align-top">
+                            {{ $cabang->pic_name ?: '—' }}
+                            <span class="block text-xs text-gray-500">
+                                Kabar: {{ $cabang->phone ?: 'ikut pusat' }}
+                            </span>
+                            <span class="block text-xs text-gray-500">
+                                Kurir: {{ $cabang->recipient_phone ?: ($cabang->phone ?: 'ikut pusat') }}
+                            </span>
+                        </td>
+                        <td class="px-3 py-2 align-top text-right whitespace-nowrap">
+                            <a href="{{ route('customers.branches.edit', [$customer->id, $cabang->id]) }}"
+                                class="text-blue-600 hover:underline">Edit</a>
 
-            <button class="bg-blue-600 text-white px-4 py-2 rounded">
-                Update Customer
-            </button>
+                            @if ($cabang->is_active)
+                                <form method="POST" action="{{ route('customers.branches.archive', [$customer->id, $cabang->id]) }}" class="inline">
+                                    @csrf
+                                    <button class="text-gray-500 hover:underline ml-2">Arsipkan</button>
+                                </form>
+                            @else
+                                <form method="POST" action="{{ route('customers.branches.restore', [$customer->id, $cabang->id]) }}" class="inline">
+                                    @csrf
+                                    <button class="text-gray-500 hover:underline ml-2">Aktifkan</button>
+                                </form>
+                            @endif
 
-        </div>
+                            <form method="POST" action="{{ route('customers.branches.destroy', [$customer->id, $cabang->id]) }}" class="inline"
+                                onsubmit="return confirm('Hapus cabang {{ $cabang->name }} permanen?')">
+                                @csrf @method('DELETE')
+                                <button class="text-red-600 hover:underline ml-2">Hapus</button>
+                            </form>
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    @endif
 
-    </form>
+</div>
+
+</div>
 
 @endsection

@@ -225,7 +225,7 @@ class IncomingWebhookService
          */
         $bersih = fn (string $kolom) => "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE({$kolom}, '-', ''), ' ', ''), '+', ''), '(', ''), ')', '')";
 
-        return Customer::where(fn ($q) => $q
+        $cocok = Customer::where(fn ($q) => $q
                 ->whereRaw($bersih('phone') . ' LIKE ?', ['%' . $ekor])
                 ->orWhereRaw($bersih('recipient_phone') . ' LIKE ?', ['%' . $ekor]))
             ->get()
@@ -235,6 +235,55 @@ class IncomingWebhookService
                 PhoneNumber::normalize($c->phone),
                 PhoneNumber::normalize($c->recipient_phone),
             ]), true));
+
+        if ($cocok) {
+            return $cocok;
+        }
+
+        /*
+         * Belum ketemu di nomor induk → coba nomor CABANG dan nomor notifikasi
+         * tambahan perusahaan.
+         *
+         * Orang cabang dan purchasing menghubungi kita dari nomor mereka
+         * sendiri. Tanpa langkah ini mereka selalu masuk sebagai lead baru
+         * tanpa riwayat, dan admin yang melayani tidak melihat satu pun pesanan
+         * perusahaan itu — padahal justru pesanan itulah yang sedang ditanyakan.
+         *
+         * Yang dikembalikan tetap pelanggan INDUK: percakapan, riwayat, dan
+         * piutangnya memang milik satu perusahaan.
+         */
+        return $this->pelangganDariNomorLain($contactKey, $ekor, $bersih);
+    }
+
+    /**
+     * Pelanggan induk dari nomor cabang atau nomor notifikasi tambahannya.
+     *
+     * @param  \Closure  $bersih  perakit SQL pembuang pemisah — sama dengan di atas
+     */
+    private function pelangganDariNomorLain(string $contactKey, string $ekor, \Closure $bersih): ?Customer
+    {
+        $cabang = \App\Models\CustomerBranch::query()
+            ->where(fn ($q) => $q
+                ->whereRaw($bersih('phone') . ' LIKE ?', ['%' . $ekor])
+                ->orWhereRaw($bersih('recipient_phone') . ' LIKE ?', ['%' . $ekor]))
+            ->with('customer')
+            ->get()
+            ->first(fn ($b) => in_array($contactKey, array_filter([
+                PhoneNumber::normalize($b->phone),
+                PhoneNumber::normalize($b->recipient_phone),
+            ]), true));
+
+        if ($cabang?->customer) {
+            return $cabang->customer;
+        }
+
+        $tambahan = \App\Models\CustomerNotificationPhone::query()
+            ->whereRaw($bersih('phone') . ' LIKE ?', ['%' . $ekor])
+            ->with('customer')
+            ->get()
+            ->first(fn ($n) => PhoneNumber::normalize($n->phone) === $contactKey);
+
+        return $tambahan?->customer;
     }
 
     /**

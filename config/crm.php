@@ -181,6 +181,18 @@ return [
     'store_hours_text' => env('CRM_STORE_HOURS', 'Senin–Sabtu 08.00–16.00'),
 
     /*
+     * Alamat & peta toko untuk pesan "siap diambil".
+     *
+     * Disisipkan sebagai kalimat tambahan KHUSUS WAHA — body template Meta
+     * tidak boleh ikut berubah, karena mengubahnya berarti mengajukan ulang
+     * template dan namanya unik per bahasa (tak bisa diajukan dua kali).
+     * Salah satunya dikosongkan → kalimatnya tidak muncul sama sekali, jadi
+     * pesannya tetap persis sama dengan bunyi template.
+     */
+    'store_address'   => env('CRM_STORE_ADDRESS', 'Jl. Suren Raya No.25A, Padangsari, Banyumanik, Semarang'),
+    'store_maps_url'  => env('CRM_STORE_MAPS_URL', 'https://g.co/kgs/Hmxdw9K'),
+
+    /*
      * Jam buka/tutup dalam angka, dipakai penjadwal "jam sopan".
      * WAJIB sejalan dengan kalimat di atas: yang satu dibaca pelanggan, yang
      * satu lagi menentukan kapan pesannya dikirim. Beda = pelanggan diberi tahu

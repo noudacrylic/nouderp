@@ -1486,6 +1486,10 @@ class CrmInboxController extends Controller
                     'ambil'     => $so->delivery_method === 'ambil_toko',
                     'id'      => $so->id,
                     'nomor'   => $so->order_number,
+                    // Cabang tujuan, bila pesanan ini untuk cabang. Orang cabang
+                    // yang menghubungi kita perlu langsung melihat pesanan MANA
+                    // yang miliknya di antara pesanan perusahaan yang sama.
+                    'cabang'  => $so->customer_branch_id ? $so->customerBranch?->name : null,
                     'tanggal' => optional($so->order_date)->format('d M Y'),
                     'total'   => (float) $so->grand_total,
                     'draft'   => $so->status === 'draft',

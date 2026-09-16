@@ -3,12 +3,16 @@
 namespace App\Modules\Sales\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\PunyaTujuanKirim;
 
 class SalesDelivery extends Model
 {
+    use PunyaTujuanKirim;
+
     protected $fillable = [
         'delivery_number',
         'sales_order_id',
+        'customer_branch_id',
         'invoice_id',       // ✅ Tambahkan ini
         'reference_type',
         'reference_id',
@@ -63,6 +67,22 @@ class SalesDelivery extends Model
     public function items()
     {
         return $this->hasMany(SalesDeliveryItem::class, 'sales_delivery_id');
+    }
+
+    /**
+     * Surat jalan tak punya `customer_id` sendiri — pelanggannya ikut dokumen
+     * induknya. Faktur ikut diperiksa: surat jalan bisa lahir dari faktur
+     * langsung (Kasir) yang tidak punya pesanan sama sekali.
+     */
+    protected function pelangganTujuan()
+    {
+        return $this->order?->customer ?: $this->invoice?->customer;
+    }
+
+    /** Cabangnya pun ikut induknya bila surat jalan ini belum menyalinnya. */
+    protected function cabangWarisan(): ?\App\Models\CustomerBranch
+    {
+        return $this->order?->customerBranch ?: $this->invoice?->customerBranch;
     }
 
     public function order()

@@ -148,6 +148,22 @@
     $(document).on('input change', '#items .qty, #items .price, #items .unit-select', scheduleApply);
     $(document).on('click', '.remove-item, .btn-remove-item', scheduleApply);
 
+    /*
+     * ONGKIR KOTOR ikut memicu hitung ulang.
+     *
+     * Diskon ongkir bertingkat dihitung ATAS shipping_gross, sementara saat
+     * form dibuka ongkirnya masih 0 — jadi promo ongkir selalu ter-resolve
+     * sebagai "tidak ada" dan tidak pernah dihitung lagi setelah tarif kurir
+     * dipilih. Akibatnya diskonnya baru muncul setelah SO tersimpan, bukan
+     * saat orang masih memutuskan.
+     *
+     * `pickCourier`/`pickManual` di shipping-embed mengisi kolom ini secara
+     * programatik — penyetelan `.value` tidak menerbitkan event apa pun —
+     * karena itu keduanya menembakkan 'change' sendiri.
+     */
+    $(document).on('input change', '#shipping_gross_input', scheduleApply);
+    $(document).on('change', '#delivery_method', scheduleApply);
+
     // ── Voucher input (disisipkan ke ringkasan) ──
     document.addEventListener('DOMContentLoaded', function () {
         const sec = document.querySelector('.summary-section .space-y-3');

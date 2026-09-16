@@ -12,8 +12,10 @@
     $shipping   = (float) ($order->shipping_cost ?? 0);
     $shipDisc   = max(0, $shipGross - $shipping);
     $grandTotal = (float) ($order->grand_total ?? $wp->expected_amount);
-    $cust       = $order->customer;
-    $custAddr   = $cust && method_exists($cust, 'fullAddress') ? $cust->fullAddress() : ($cust->address ?? '');
+    // Tujuan pesanan: cabang bila dipilih, kalau tidak induk sebagai bayangan.
+    $tujuan     = $order->tujuan();
+    $custName   = $tujuan?->name ?: 'Pelanggan';
+    $custAddr   = (string) ($tujuan?->fullAddress() ?? '');
     $methodLabel = match ($wp->method) {
         'midtrans' => 'Midtrans (Virtual Account / QRIS / Kartu)',
         'qris'     => 'QRIS',
@@ -112,7 +114,7 @@
         <div class="meta">
             <div class="col">
                 <div class="lbl">Ditagihkan kepada</div>
-                <div class="val"><b>{{ $cust->name ?? 'Pelanggan' }}</b>{{ $custAddr }}</div>
+                <div class="val"><b>{{ $custName }}</b>{{ $custAddr }}</div>
             </div>
             <div class="col">
                 <div class="lbl">No. Pesanan</div>

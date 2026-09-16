@@ -153,6 +153,7 @@ class SalesDeliveryController extends Controller
             $delivery = SalesDelivery::create([
                 'delivery_number' => NumberGeneratorService::generate('DOSO'),
                 'sales_order_id' => $so->id,
+                'customer_branch_id' => $so->customer_branch_id,
                 'reference_type' => 'sales_order',
                 'reference_id' => $so->id,
                 'warehouse_id' => $request->warehouse_id ?? $so->warehouse_id ?? 1,
@@ -343,19 +344,20 @@ class SalesDeliveryController extends Controller
     {
         $warehouse = \App\Core\Inventory\Warehouse::find($delivery->warehouse_id);
         $profile   = \App\Models\BusinessProfile::instance();
-        $customer  = $delivery->order?->customer ?: $delivery->invoice?->customer;
+        $customer  = $delivery->tujuan();
 
         $origin = [
             'name'    => $warehouse->contact_name ?: $profile->name,
             'phone'   => $warehouse->contact_phone ?: ($profile->phone ?: $profile->whatsapp),
             'address' => collect([$warehouse->address, $warehouse->city, $warehouse->province, $warehouse->postal_code])->filter()->implode(', '),
         ];
+        // Tujuan label = tujuan dokumen: cabang bila dipilih, kalau tidak induk.
+        // Perakit alamatnya pun satu (CustomerBranch::fullAddress) supaya label
+        // dan nota tidak pelan-pelan berbeda formatnya.
         $dest = [
-            'name'    => $customer->name ?? '-',
-            'phone'   => $customer->recipient_phone ?? $customer->phone ?? '-',
-            'address' => $customer
-                ? (collect([$customer->shipping_address, $customer->district, $customer->city, $customer->province, $customer->postal_code])->filter()->implode(', ') ?: $customer->address)
-                : '-',
+            'name'    => $customer?->name ?: '-',
+            'phone'   => $customer?->nomorPengiriman() ?: '-',
+            'address' => $customer?->fullAddress() ?: '-',
         ];
 
         return [$origin, $dest];

@@ -157,7 +157,15 @@ class TagihPembayaranTest extends TestCase
 
     /* ------------------------------------------------------------ isi pesan */
 
-    public function test_pesan_membawa_tautan_bayar_dan_tanggal_batas(): void
+    /**
+     * Pesannya menyebut tanggal batas, TANPA tautan bayar.
+     *
+     * Tautan pembayaran hanya dibagikan dari nomor admin utama; pesan ini
+     * berangkat lewat WAHA dari nomor lain, dan membiasakan pelanggan membayar
+     * lewat tautan yang datang dari nomor mana saja adalah persis kebiasaan
+     * yang membuat penipuan berhasil. Aturan yang sama dengan tagihan_pelunasan.
+     */
+    public function test_pesan_membawa_tanggal_batas_tanpa_tautan_bayar(): void
     {
         Carbon::setTestNow('2026-09-01 10:00:00');
 
@@ -171,9 +179,12 @@ class TagihPembayaranTest extends TestCase
         $this->assertSame('Budi', $isi[0]);
         $this->assertSame($so->order_number, $isi[1]);
         $this->assertSame('500.000', $isi[2]);
-        $this->assertStringContainsString('/pay/' . $link->link_token, $isi[3]);
         // Batasnya dihitung dari lahirnya TAUTAN (31 Agu + 28 hari), bukan dari hari ini.
-        $this->assertSame('28 September 2026', $isi[4]);
+        $this->assertSame('28 September 2026', $isi[3]);
+
+        foreach ($isi as $bagian) {
+            $this->assertStringNotContainsString('/pay/' . $link->link_token, (string) $bagian);
+        }
 
         Carbon::setTestNow();
     }

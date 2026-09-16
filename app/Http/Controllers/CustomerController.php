@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Customer;
+use App\Models\CustomerBranch;
 
 class CustomerController extends Controller
 {
@@ -94,6 +95,7 @@ class CustomerController extends Controller
 
         $customer = Customer::create($data);
         $customer->catatKeberatan($request->boolean('wa_opt_out'));
+        $this->simpanNomorNotifikasi($customer, $request);
 
         return redirect(list_url('customers.index'));
     }
@@ -133,9 +135,42 @@ class CustomerController extends Controller
         return $data;
     }
 
+    /**
+     * Nomor tambahan yang ikut dikabari — ditulis ulang seluruhnya tiap simpan.
+     *
+     * Barisnya cuma label + nomor, tidak dirujuk dokumen mana pun, jadi tak ada
+     * yang hilang dengan menghapus lalu menulis ulang; memasangkan baris lama
+     * dengan baris form cuma menambah kerumitan tanpa ada yang dijaga.
+     * Baris bernomor kosong dibuang diam-diam: itu baris yang ditambahkan lalu
+     * tidak jadi diisi, bukan kesalahan yang perlu dilaporkan.
+     */
+    private function simpanNomorNotifikasi(Customer $customer, Request $request): void
+    {
+        $data = $request->validate([
+            'nomor_notifikasi'           => 'nullable|array|max:10',
+            'nomor_notifikasi.*.label'   => 'nullable|string|max:100',
+            'nomor_notifikasi.*.phone'   => 'nullable|string|max:30',
+        ]);
+
+        $customer->notificationPhones()->delete();
+
+        foreach ($data['nomor_notifikasi'] ?? [] as $baris) {
+            $nomor = trim((string) ($baris['phone'] ?? ''));
+
+            if ($nomor === '') {
+                continue;
+            }
+
+            $customer->notificationPhones()->create([
+                'label' => trim((string) ($baris['label'] ?? '')) ?: null,
+                'phone' => $nomor,
+            ]);
+        }
+    }
+
     public function edit($id)
     {
-        $customer = Customer::findOrFail($id);
+        $customer = Customer::with('notificationPhones')->findOrFail($id);
 
         return view('erp.master.customers.edit', compact('customer'));
     }
@@ -146,6 +181,7 @@ class CustomerController extends Controller
 
         $customer->update($this->customerFormData($request));
         $customer->catatKeberatan($request->boolean('wa_opt_out'));
+        $this->simpanNomorNotifikasi($customer, $request);
 
         return redirect(list_url('customers.index'));
     }
@@ -245,17 +281,36 @@ class CustomerController extends Controller
             'address' => $customer->address,
         ]);
     }
-    /** Info alamat pengiriman customer (untuk panel Pengiriman di SO/Invoice). */
-    public function shippingInfo($id)
+    /**
+     * Info alamat pengiriman (untuk panel Pengiriman di SO/Invoice).
+     *
+     * `?branch=` menentukan alamat SIAPA yang dibaca. Tanpa itu panel selalu
+     * menunjukkan alamat pusat, dan ongkir pesanan untuk cabang dihitung ke
+     * kota yang salah tanpa gejala apa pun.
+     */
+    public function shippingInfo(Request $request, $id)
     {
-        $c = Customer::findOrFail($id);
-        return response()->json($this->shippingPayload($c));
+        Customer::findOrFail($id);
+
+        return response()->json($this->shippingPayload(
+            CustomerBranch::tujuanUntuk($id, $request->input('branch'))
+        ));
     }
 
-    /** Simpan/ubah alamat pengiriman customer dari popup. */
+    /**
+     * Simpan/ubah alamat pengiriman dari popup "Edit/Tambah Alamat".
+     *
+     * Bila sebuah cabang sedang dipilih, yang disunting adalah alamat CABANG.
+     * Tanpa pembedaan ini, membetulkan alamat dari form SO untuk pesanan cabang
+     * akan diam-diam menimpa alamat kantor pusat — dan pesanan berikutnya untuk
+     * pusat berangkat ke kota cabang.
+     */
     public function updateShipping(Request $request, $id)
     {
         $c = Customer::findOrFail($id);
+        $cabang = $request->filled('branch')
+            ? CustomerBranch::where('id', $request->input('branch'))->where('customer_id', $c->id)->first()
+            : null;
 
         $data = $request->validate([
             'recipient_phone'  => 'nullable|string|max:30',
@@ -278,18 +333,30 @@ class CustomerController extends Controller
         $data['latitude']  = $point['latitude'];
         $data['longitude'] = $point['longitude'];
 
-        $c->update($data);
+        $sasaran = $cabang ?: $c;
+        $sasaran->update($data);
 
-        return response()->json($this->shippingPayload($c->fresh()));
+        return response()->json($this->shippingPayload($sasaran->fresh()));
     }
 
-    private function shippingPayload(Customer $c): array
+    /**
+     * Bentuk alamat untuk panel Pengiriman.
+     *
+     * Menerima Customer maupun CustomerBranch: nama kolomnya memang sengaja
+     * dibuat sama persis, jadi satu perakit cukup untuk keduanya.
+     */
+    private function shippingPayload($c): array
     {
+        if ($c instanceof Customer) {
+            $c = $c->sebagaiCabang();
+        }
+
         $line = collect([$c->shipping_address, $c->district, $c->city, $c->province, $c->postal_code])
             ->filter()->implode(', ');
 
         return [
-            'id'               => $c->id,
+            'id'               => $c->customer_id ?? $c->id,
+            'branch_id'        => $c->exists ? $c->id : null,
             'name'             => $c->name,
             'recipient_phone'  => $c->recipient_phone,
             'shipping_address' => $c->shipping_address,
@@ -309,6 +376,33 @@ class CustomerController extends Controller
         ];
     }
 
+    /**
+     * Satu baris hasil pencarian — induk, atau salah satu cabangnya.
+     *
+     * `id` SELALU id pelanggan induk, juga untuk baris cabang. Itu yang membuat
+     * piutang tidak pernah terbelah: dokumen tetap menempel ke induk, dan cabang
+     * hanya menambah `branch_id` di sampingnya. Bonusnya, setiap pemakai lama
+     * kotak cari ini tetap bekerja tanpa diubah — yang belum tahu soal cabang
+     * cukup mengabaikan satu field baru.
+     */
+    private function barisPicker(Customer $c, ?CustomerBranch $cabang = null): array
+    {
+        $nomor = $cabang ? ($cabang->phone ?: $c->phone) : $c->phone;
+        $nama  = $cabang ? $cabang->name : $c->name;
+        $ekor  = trim((string) $nomor) ?: trim((string) $c->code);
+
+        return [
+            'id'                    => $c->id,
+            'branch_id'             => $cabang?->id,
+            'name'                  => $nama,
+            'code'                  => $c->code,
+            'label'                 => $ekor !== '' ? $nama . ' · ' . $ekor : $nama,
+            'phone'                 => $nomor,
+            'is_marketplace'        => (bool) $c->is_marketplace,
+            'marketplace_hold_name' => $c->marketplace_hold_name ?: 'Overpay Customer',
+        ];
+    }
+
     public function search(Request $request)
     {
         $q = trim((string) $request->q);
@@ -316,6 +410,7 @@ class CustomerController extends Controller
         // Kurungnya WAJIB: tanpa itu `is_active` cuma menempel pada cabang nama, dan
         // pelanggan arsip tetap bocor lewat pencarian kode.
         $customers = Customer::aktif()
+            ->with(['branches' => fn ($b) => $b->aktif()])
             ->where(function ($w) use ($q) {
                 $w->where('name', 'like', "%{$q}%")
                   ->orWhere('code', 'like', "%{$q}%")
@@ -325,18 +420,38 @@ class CustomerController extends Controller
             ->limit(10)
             ->get();
 
-        $results = $customers->map(function ($c) {
-            return [
-                'id' => $c->id,
-                'name' => $c->name,
-                'code' => $c->code,
-                'label' => $c->picker_label,
-                'phone' => $c->phone,
-                'is_marketplace' => (bool)$c->is_marketplace,
-                'marketplace_hold_name' => $c->marketplace_hold_name ?: 'Overpay Customer'
-            ];
-        });
+        /*
+         * Cabang yang namanya cocok walau induknya tidak.
+         *
+         * Orang mencari "Bandung", bukan "PT Sumber Jaya" — justru nama cabang
+         * yang diingat saat menyiapkan pesanan untuk cabang. Tanpa ini, cabang
+         * hanya bisa ditemukan oleh yang sudah hafal nama induknya.
+         */
+        $cabangLepas = CustomerBranch::aktif()
+            ->where('name', 'like', "%{$q}%")
+            ->whereHas('customer', fn ($w) => $w->where('is_active', true))
+            ->with('customer')
+            ->orderBy('name')
+            ->limit(10)
+            ->get()
+            ->reject(fn ($b) => $customers->contains('id', $b->customer_id));
 
-        return response()->json($results);
+        $results = collect();
+
+        foreach ($customers as $c) {
+            $results->push($this->barisPicker($c));
+
+            // Cabang ditaruh tepat di bawah induknya, bukan di daftar terpisah:
+            // yang dipilih orang adalah "Sumber Jaya yang mana", satu keputusan.
+            foreach ($c->branches as $cabang) {
+                $results->push($this->barisPicker($c, $cabang));
+            }
+        }
+
+        foreach ($cabangLepas as $cabang) {
+            $results->push($this->barisPicker($cabang->customer, $cabang));
+        }
+
+        return response()->json($results->values());
     }
 }

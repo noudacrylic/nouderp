@@ -77,9 +77,25 @@ class TemplateResmi
              * dipangkas dari jalur resmi (variabelResmi()) karena template Meta-nya
              * cuma punya empat variabel.
              */
+            /*
+             * Alamat & peta toko ({{6}} & {{7}}, 16 Sep 2026). Pesan yang menyuruh
+             * orang datang tapi tidak menyebut ke mana memaksa mereka bertanya
+             * dulu — dan di luar jam kerja pertanyaan itu tidak terjawab.
+             * Khusus WAHA dengan alasan yang sama seperti {{5}}: body Meta punya
+             * empat variabel, dan mengubahnya berarti mengajukan ulang template.
+             */
             'tambahan_waha' => [
-                'setelah' => ' kepada petugas.',
-                'kalimat' => ' Masih ada sisa pembayaran sebesar Rp{{5}} yang dapat Kakak lunasi di kasir saat pengambilan.',
+                [
+                    'setelah' => ' kepada petugas.',
+                    'kalimat' => ' Masih ada sisa pembayaran sebesar Rp{{5}} yang dapat Kakak lunasi di kasir saat pengambilan.',
+                ],
+                [
+                    // Dua variabel sekaligus: alamat tanpa peta (atau sebaliknya)
+                    // setengah menolong, jadi keduanya harus ada atau tidak sama sekali.
+                    'setelah'  => ' Kami buka {{4}}.',
+                    'variabel' => 2,
+                    'kalimat'  => ' Alamat toko kami: {{6}} — peta lokasi: {{7}}.',
+                ],
             ],
         ],
         [
@@ -111,14 +127,19 @@ class TemplateResmi
             'kategori' => 'UTILITY',
             'guna'     => 'Menagih pesanan yang tautan bayarnya sudah dibuat tapi belum dibayar. '
                         . 'HANYA jalur WAHA — lihat hanyaWaha(). Batas waktunya disebut terang-terangan '
-                        . '({{5}}) karena pesanannya memang dibatalkan otomatis kalau lewat.',
-            'contoh'   => ['Budi', 'SO-2609-0012', '500.000', 'https://noudakrilik.com/pay/contoh', '7 Oktober 2026', '08998844666'],
+                        . '({{4}}) karena pesanannya memang dibatalkan otomatis kalau lewat. '
+                        . 'SENGAJA tanpa tautan bayar, sama seperti tagihan_pelunasan: tautan hanya '
+                        . 'dibagikan dari nomor admin utama ({{5}}), supaya pelanggan tidak terbiasa '
+                        . 'membayar lewat tautan yang datang dari nomor lain.',
+            'contoh'   => ['Budi', 'SO-2609-0012', '500.000', '7 Oktober 2026', '08998844666'],
             'hanya_waha' => true,
             'body'     => 'Halo Kak {{1}}, kami dari tim marketing Noud Acrylic Shop ingin mengingatkan '
                         . 'bahwa pesanan {{2}} senilai Rp{{3}} masih menunggu pembayaran. '
-                        . 'Kakak bisa membayar lewat tautan berikut:' . PHP_EOL . '{{4}}' . PHP_EOL
-                        . 'Bila sampai {{5}} belum ada pembayaran, pesanannya kami batalkan otomatis. '
-                        . 'Kalau sudah membayar atau ingin mengubah pesanan, silakan hubungi admin kami di {{6}}.',
+                        . 'Silakan selesaikan pembayaran melalui tautan yang sudah dibagikan oleh admin '
+                        . 'kami lewat WhatsApp {{5}}. Demi keamanan, tautan pembayaran hanya kami kirim '
+                        . 'dari nomor tersebut. Bila sampai {{4}} belum ada pembayaran, pesanannya kami '
+                        . 'batalkan otomatis. Bila tautannya belum diterima, sudah membayar, atau ingin '
+                        . 'mengubah pesanan, silakan hubungi admin kami di nomor yang sama.',
         ],
         [
             'nama'     => 'tagihan_pelunasan',
@@ -407,21 +428,59 @@ class TemplateResmi
      */
     private static function sisipTambahan(string $nama, string $body, array $variabel): string
     {
-        $tambahan = (array) (self::usulan($nama)['tambahan_waha'] ?? []);
-        $kalimat  = (string) ($tambahan['kalimat'] ?? '');
-        $setelah  = (string) ($tambahan['setelah'] ?? '');
+        $daftar = (array) (self::usulan($nama)['tambahan_waha'] ?? []);
 
-        $nilai = array_values($variabel);
-
-        if ($kalimat === '' || $setelah === '' || blank($nilai[self::jumlahVariabel($body)] ?? null)) {
+        if (! $daftar) {
             return $body;
         }
 
-        $pos = strpos($body, $setelah);
+        // Bentuk lama (satu entri) tetap diterima apa adanya.
+        if (isset($daftar['kalimat'])) {
+            $daftar = [$daftar];
+        }
 
-        return $pos === false
-            ? $body
-            : substr_replace($body, $setelah . $kalimat, $pos, strlen($setelah));
+        $nilai = array_values($variabel);
+
+        /*
+         * Dihitung SEKALI dari body asli. Tiap kalimat yang disisipkan membawa
+         * {{n}} baru, jadi menghitung ulang di dalam gelung akan menggeser
+         * slot variabel berikutnya dan memasangkan kalimat dengan nilai milik
+         * kalimat lain.
+         */
+        $offset = self::jumlahVariabel($body);
+
+        foreach ($daftar as $tambahan) {
+            $kalimat = (string) ($tambahan['kalimat'] ?? '');
+            $setelah = (string) ($tambahan['setelah'] ?? '');
+            $jumlah  = max(1, (int) ($tambahan['variabel'] ?? 1));
+
+            $terisi = true;
+            for ($i = 0; $i < $jumlah; $i++) {
+                if (blank($nilai[$offset + $i] ?? null)) {
+                    $terisi = false;
+                    break;
+                }
+            }
+
+            // Slot tetap dimajukan walau kalimatnya dilewati: posisi variabel
+            // milik kalimat berikutnya tidak boleh bergantung pada terisi atau
+            // tidaknya yang sebelumnya.
+            $offset += $jumlah;
+
+            if (! $terisi || $kalimat === '' || $setelah === '') {
+                continue;
+            }
+
+            $pos = strpos($body, $setelah);
+
+            if ($pos === false) {
+                continue;
+            }
+
+            $body = substr_replace($body, $setelah . $kalimat, $pos, strlen($setelah));
+        }
+
+        return $body;
     }
 
     /** Jumlah {{n}} berbeda di sebuah body. */

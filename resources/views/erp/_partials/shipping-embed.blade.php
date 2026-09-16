@@ -260,6 +260,12 @@
     // ---- state alamat customer terpilih ----
     let area = '';   // biteship_area_id customer
     let areaKa = ''; // kiriminaja_area_id customer
+    // Jubelio Shipment kini SATU-SATUNYA provider yang hidup, jadi alamat yang
+    // baru disimpan hampir selalu cuma punya id ini. Sebelum dilacak di sini,
+    // panel bilang "✓ Area siap" (server memang menghitung Jubelio) sementara
+    // tombol Cek Ongkir menolak dengan "belum punya area" — dua pernyataan
+    // bertentangan di layar yang sama.
+    let areaJb = ''; // jubelio_area_id customer
     const ACTIVE_PROVIDER = @json($activeProviderKey ?? '');
     let destLat = null, destLong = null; // koordinat tujuan (untuk kurir instant)
 
@@ -272,6 +278,12 @@
     function setAreaVal(prov, val){ const el = areaInput(prov); if (el) el.value = val || ''; }
 
     function currentCustomerId(){ return ($id('customer_id')?.value || '').trim(); }
+
+    // Cabang yang sedang dipilih di kotak cari pelanggan. Panel ini HARUS ikut:
+    // tanpa itu alamat & ongkir yang tampil selalu milik pusat, sementara
+    // pesanannya berangkat ke cabang — dan selisihnya tak terlihat di layar.
+    function currentBranchId(){ return ($id('customer_branch_id')?.value || '').trim(); }
+    function branchQuery(){ const b = currentBranchId(); return b ? ('?branch=' + encodeURIComponent(b)) : ''; }
 
     function applyMethod(){
         const dm = $id('delivery_method')?.value || 'kurir';
@@ -327,6 +339,7 @@
     function renderAddress(d){
         area   = d.biteship_area_id || '';
         areaKa = d.kiriminaja_area_id || '';
+        areaJb = d.jubelio_area_id || '';
         destLat  = (d.latitude != null && d.latitude !== '') ? d.latitude : null;
         destLong = (d.longitude != null && d.longitude !== '') ? d.longitude : null;
         $id('ship_addr_name').textContent = d.name || '—';
@@ -344,7 +357,7 @@
     window.reloadShippingAddress = function(){
         const cid = currentCustomerId();
         if (!cid){ renderAddress({}); return; }
-        fetch('/erp/api/customers/' + cid + '/shipping', {headers:{'Accept':'application/json'}})
+        fetch('/erp/api/customers/' + cid + '/shipping' + branchQuery(), {headers:{'Accept':'application/json'}})
             .then(r => r.json()).then(renderAddress).catch(()=>{});
     };
 
@@ -353,7 +366,7 @@
         if (!currentCustomerId()){ $id('addr_no_customer').classList.remove('hidden'); }
         else { $id('addr_no_customer').classList.add('hidden'); }
         // prefill dari data tampil saat ini
-        fetch('/erp/api/customers/' + (currentCustomerId()||0) + '/shipping', {headers:{'Accept':'application/json'}})
+        fetch('/erp/api/customers/' + (currentCustomerId()||0) + '/shipping' + branchQuery(), {headers:{'Accept':'application/json'}})
             .then(r=>r.json()).then(d=>{
                 $id('addr_phone').value    = d.recipient_phone || '';
                 $id('addr_address').value  = d.shipping_address || '';
@@ -392,7 +405,8 @@
             jubelio_area_id: areaVal('jubelio_shipment'),
             location_point:   $id('addr_location_point').value,
         };
-        fetch('/erp/api/customers/' + cid + '/shipping', {
+        // Cabang dipilih → yang disunting alamat CABANG, bukan alamat pusat.
+        fetch('/erp/api/customers/' + cid + '/shipping' + branchQuery(), {
             method:'POST',
             headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':csrf},
             body: JSON.stringify(payload),
@@ -547,7 +561,7 @@
     function cekOngkir(){
         const cid = currentCustomerId();
         if (!cid){ $id('ongkir_hint').textContent = 'Pilih customer dulu.'; return; }
-        if (!area && !areaKa){ $id('ongkir_hint').textContent = 'Alamat customer belum punya area. Klik Edit Alamat.'; return; }
+        if (!area && !areaKa && !areaJb){ $id('ongkir_hint').textContent = 'Alamat customer belum punya area. Klik Edit Alamat.'; return; }
 
         // mode kurir: 'instant' → hanya kurir instant; selain itu → kurir reguler (kecuali instant).
         const dm = $id('delivery_method')?.value || 'kurir';
@@ -564,8 +578,11 @@
         const params = {warehouse_id: wh, weight_gram: weight, mode: mode};
         // customer_id: server melengkapi area/kode pos tujuan milik provider yang belum terisi.
         if (cid)    params.customer_id = cid;
+        const bid = currentBranchId();
+        if (bid)    params.customer_branch_id = bid;
         if (area)   params.destination_area_id = area;
         if (areaKa) params.destination_kiriminaja_id = areaKa;
+        if (areaJb) params.destination_jubelio_id = areaJb;
         // Koordinat tujuan → kurir instant (Grab/GoSend/Lalamove) ikut muncul.
         if (destLat != null && destLong != null){ params.destination_latitude = destLat; params.destination_longitude = destLong; }
         // Dimensi paket manual (volumetrik) → pilihan kendaraan instant yang tepat (Pickup utk barang besar).
@@ -631,6 +648,9 @@
         $id('ongkir_results').classList.add('hidden');
         clearManualHighlight();
         computeNet();
+        // Promo diskon ongkir dihitung atas ongkir kotor — beri tahu bahwa
+        // angkanya baru berubah, karena menyetel .value tidak menerbitkan event.
+        $id('shipping_gross_input').dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     // Pilih kurir manual: set kurir, biarkan ongkir kosong/editable untuk diisi sendiri.
@@ -647,6 +667,7 @@
         if (num(gi.value) === 0){ gi.value = ''; }   // kosongkan agar jelas harus diisi
         gi.focus(); gi.select();
         computeNet();
+        gi.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     document.addEventListener('DOMContentLoaded', function(){

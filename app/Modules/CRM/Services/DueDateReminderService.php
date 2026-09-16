@@ -127,7 +127,9 @@ class DueDateReminderService
 
         $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
 
-        $baris = CrmOutboxMessage::antrekan("so:{$so->id}:tempo:h{$titik}", [
+        $kunci = "so:{$so->id}:tempo:h{$titik}";
+
+        $atribut = [
             'event'          => CrmOutboxMessage::EVENT_JATUH_TEMPO,
             'sales_order_id' => $so->id,
             'recipient'      => $nomor,
@@ -141,7 +143,14 @@ class DueDateReminderService
             ],
             'status'         => CrmOutboxMessage::STATUS_MENUNGGU,
             'scheduled_at'   => null,
-        ]);
+        ];
+
+        $baris = CrmOutboxMessage::antrekan($kunci, $atribut);
+
+        // Satu-satunya jenis yang WAJIB lewat jalur resmi berbayar, jadi tiap
+        // nomor tambahan di sini benar-benar menambah ongkos — bukan alasan
+        // untuk tidak mengirimkannya, tapi alasan untuk tahu bahwa itu terjadi.
+        $this->notifikasi->antrekanTembusan($so, $kunci, $atribut, $nomor);
 
         return (bool) $baris;
     }

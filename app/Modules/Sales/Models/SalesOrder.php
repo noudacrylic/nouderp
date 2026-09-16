@@ -5,9 +5,12 @@ namespace App\Modules\Sales\Models;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Customer;
 use App\Core\Inventory\Warehouse;
+use App\Models\Concerns\PunyaTujuanKirim;
 
 class SalesOrder extends Model
 {
+    use PunyaTujuanKirim;
+
     /**
      * Alamat publik halaman lacak pesanan; dibuat sekali lalu tetap.
      *
@@ -48,6 +51,7 @@ class SalesOrder extends Model
     protected $fillable = [
         'order_number',
         'customer_id',
+        'customer_branch_id',
         'quotation_id',
         'customer_po_number',
         'warehouse_id',

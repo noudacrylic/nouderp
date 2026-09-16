@@ -228,6 +228,10 @@ class SalesInvoiceService
                 'invoice_number' => $externalNumber ?? NumberGeneratorService::forCustomer('SI', $dto->customer_id, $marketplaceRef),
                 'sales_order_id' => $dto->sales_order_id,
                 'customer_id' => $dto->customer_id,
+                // Cabang disalin dari pesanannya — faktur adalah dokumen sendiri,
+                // dan alamat yang tercetak di sana tidak boleh ikut berubah kalau
+                // pesanannya kelak disunting.
+                'customer_branch_id' => $so?->customer_branch_id,
                 'warehouse_id' => $dto->warehouse_id,
                 'invoice_date' => $dto->invoice_date,
 

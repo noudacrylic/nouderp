@@ -64,7 +64,10 @@ class ShipmentBookingService
 
         $warehouse = \App\Core\Inventory\Warehouse::find($delivery->warehouse_id);
         $profile   = \App\Models\BusinessProfile::instance();
-        $customer  = $delivery->order?->customer ?: $delivery->invoice?->customer;
+        // Tujuan pengiriman: baris cabang bila pesanannya untuk cabang, kalau
+        // tidak induk sebagai cabang bayangan. Bentuknya sama, jadi seluruh blok
+        // di bawah tidak perlu tahu bedanya — lihat PunyaTujuanKirim.
+        $customer  = $delivery->tujuan();
 
         if (!$warehouse || (empty($warehouse->biteship_area_id) && empty($warehouse->postal_code))) {
             return $this->fail($delivery, 'Gudang asal belum punya area/kode pos.');
@@ -72,7 +75,7 @@ class ShipmentBookingService
         if (!$customer || (empty($customer->biteship_area_id) && empty($customer->postal_code))) {
             return $this->fail($delivery, 'Alamat tujuan customer belum punya area/kode pos.');
         }
-        $destPhone = $customer->recipient_phone ?: $customer->phone;
+        $destPhone = $customer?->nomorPengiriman();
         if (empty($destPhone)) {
             return $this->fail($delivery, 'No. HP penerima kosong.');
         }
@@ -153,7 +156,7 @@ class ShipmentBookingService
 
             'destination_contact_name'  => $customer->name,
             'destination_contact_phone' => $destPhone,
-            'destination_address'       => $customer->shipping_address ?: $customer->address,
+            'destination_address'       => $customer->shipping_address,
             'destination_postal_code'   => $customer->postal_code ?: null,
             'destination_area_id'       => $customer->biteship_area_id ?: null,
 
@@ -237,7 +240,10 @@ class ShipmentBookingService
 
         $warehouse = \App\Core\Inventory\Warehouse::find($delivery->warehouse_id);
         $profile   = \App\Models\BusinessProfile::instance();
-        $customer  = $delivery->order?->customer ?: $delivery->invoice?->customer;
+        // Tujuan pengiriman: baris cabang bila pesanannya untuk cabang, kalau
+        // tidak induk sebagai cabang bayangan. Bentuknya sama, jadi seluruh blok
+        // di bawah tidak perlu tahu bedanya — lihat PunyaTujuanKirim.
+        $customer  = $delivery->tujuan();
 
         if (!$warehouse || empty($warehouse->postal_code)) {
             return $this->fail($delivery, 'Gudang asal belum punya kode pos (wajib untuk Jubelio Shipment).');
@@ -246,7 +252,7 @@ class ShipmentBookingService
             return $this->fail($delivery, 'Alamat tujuan customer belum punya kode pos (wajib untuk Jubelio Shipment).');
         }
 
-        $destPhone = $customer->recipient_phone ?: $customer->phone;
+        $destPhone = $customer?->nomorPengiriman();
         if (empty($destPhone)) {
             return $this->fail($delivery, 'No. HP penerima kosong.');
         }
@@ -273,7 +279,7 @@ class ShipmentBookingService
             'origin_longitude'          => $warehouse->longitude,
             'destination_contact_name'  => $customer->name,
             'destination_contact_phone' => $destPhone,
-            'destination_address'       => $customer->shipping_address ?: $customer->address,
+            'destination_address'       => $customer->shipping_address,
             'destination_postal_code'   => $customer->postal_code,
             'destination_area_id'       => $customer->jubelio_area_id ?: null,
             'destination_latitude'      => $customer->latitude,

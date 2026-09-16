@@ -23,6 +23,19 @@ use Carbon\Carbon;
  */
 class OrderNotificationService
 {
+    /**
+     * Kabar yang menyangkut BARANG — satu-satunya yang boleh mendarat di nomor cabang.
+     *
+     * Sisanya menyangkut UANG (pembayaran, tagihan, jatuh tempo, pelunasan) dan
+     * selalu ke nomor utama pelanggan, walaupun cabangnya punya nomor sendiri.
+     * Tanpa pemisahan ini, tagihan purchasing mendarat di tangan orang gudang
+     * cabang — dan itu jenis kebocoran yang baru ketahuan setelah terjadi.
+     */
+    public const EVENT_BARANG = [
+        CrmOutboxMessage::EVENT_DIKIRIM,
+        CrmOutboxMessage::EVENT_SIAP_AMBIL,
+    ];
+
     /** Pembayaran masuk (DP maupun pelunasan). */
     public function antrekanPembayaranDiterima(SalesOrder $so, float $paidAmount): ?CrmOutboxMessage
     {
@@ -61,9 +74,20 @@ class OrderNotificationService
              */
             $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
 
-            if ($sisa > 0.01 && ! $so->is_tempo) {
-                $body[] = $this->rupiah($sisa);
-            }
+            /*
+             * Slot {{5}} SELALU dikirim, walau kosong.
+             *
+             * Kalimat tambahan berikutnya ({{6}} & {{7}}) membaca slot setelah
+             * ini. Kalau slot sisa dilewati saat nihil, alamat akan menempati
+             * nomor yang salah dan muncul sebagai nominal pembayaran.
+             */
+            $body[] = ($sisa > 0.01 && ! $so->is_tempo) ? $this->rupiah($sisa) : '';
+
+            // Alamat & peta toko. Pesan yang menyuruh orang datang tapi tidak
+            // menyebut ke mana memaksa mereka bertanya dulu — dan di luar jam
+            // kerja pertanyaan itu tidak terjawab.
+            $body[] = (string) config('crm.store_address');
+            $body[] = (string) config('crm.store_maps_url');
 
             return $body;
         });
@@ -128,7 +152,7 @@ class OrderNotificationService
             return null;
         }
 
-        [$layak, $alasan, $nomor] = $this->kelayakan($so);
+        [$layak, $alasan, $nomor] = $this->kelayakan($so, $event);
 
         /*
          * Jenis yang dimatikan tetap DICATAT sebagai 'dilewati', bukan
@@ -141,7 +165,7 @@ class OrderNotificationService
             $alasan = 'Jenis notifikasi "' . JenisNotifikasi::label($event) . '" sedang dimatikan di layar Notifikasi Pesanan.';
         }
 
-        $baris = CrmOutboxMessage::antrekan($dedupeKey, [
+        $atribut = [
             'event'          => $event,
             'sales_order_id' => $so->id,
             'recipient'      => $nomor,
@@ -150,9 +174,62 @@ class OrderNotificationService
             'status'         => $layak ? CrmOutboxMessage::STATUS_MENUNGGU : CrmOutboxMessage::STATUS_DILEWATI,
             'reason'         => $layak ? null : $alasan,
             'scheduled_at'   => $layak ? $this->jadwalKirim($event) : null,
-        ]);
+        ];
+
+        $baris = CrmOutboxMessage::antrekan($dedupeKey, $atribut);
+
+        // Tembusan hanya untuk yang benar-benar berangkat. Kalau tidak layak,
+        // satu baris 'dilewati' sudah cukup menjelaskan — mengalikannya per
+        // nomor cuma menenggelamkan layar tanpa menambah satu pun keterangan.
+        if ($layak) {
+            $this->antrekanTembusan($so, $dedupeKey, $atribut, $nomor, $this->cabangKabar($so, $event));
+        }
 
         return $baris;
+    }
+
+    /**
+     * Salin satu kabar ke nomor tambahan perusahaan.
+     *
+     * Satu pelanggan bisa ditangani beberapa orang berbeda posisi, dan mereka
+     * sama-sama perlu tahu. Kunci dedupe pesan utama SENGAJA tidak berubah,
+     * jadi menyalakan fitur ini tidak membangunkan ulang kabar lama yang sudah
+     * terkirim; tiap tembusan punya kuncinya sendiri.
+     *
+     * @return int berapa tembusan yang benar-benar masuk antrean
+     */
+    public function antrekanTembusan(SalesOrder $so, string $dedupeKey, array $atribut, ?string $nomorUtama, $cabang = null): int
+    {
+        $jumlah = 0;
+
+        foreach ($this->nomorTembusan($so, $nomorUtama, $cabang) as $nomor) {
+            $atribut['recipient'] = $nomor;
+
+            if (CrmOutboxMessage::antrekan($dedupeKey . ':cc:' . $nomor, $atribut)) {
+                $jumlah++;
+            }
+        }
+
+        return $jumlah;
+    }
+
+    /**
+     * Nomor tambahan yang ikut dikabari, tanpa nomor utama itu sendiri.
+     *
+     * @return string[]
+     */
+    public function nomorTembusan(SalesOrder $so, ?string $kecuali, $cabang = null): array
+    {
+        $customer = $so->customer;
+
+        if (! $customer || $customer->is_marketplace || $customer->wa_opt_out_at) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $customer->semuaNomorNotifikasi($cabang),
+            fn ($nomor) => $nomor !== $kecuali
+        ));
     }
 
     /**
@@ -160,7 +237,7 @@ class OrderNotificationService
      *
      * @return array{0:bool, 1:?string, 2:?string} [layak, alasan, nomor]
      */
-    public function kelayakan(SalesOrder $so): array
+    public function kelayakan(SalesOrder $so, ?string $event = null): array
     {
         $customer = $so->customer;
 
@@ -193,13 +270,42 @@ class OrderNotificationService
             return [false, 'Pelanggan meminta tidak dikirimi notifikasi WhatsApp.', null];
         }
 
-        $nomor = PhoneNumber::normalize($customer->recipient_phone ?: $customer->phone);
+        /*
+         * Nomor UTAMA, bukan nomor penerima barang.
+         *
+         * Dulu urutannya `recipient_phone ?: phone`, dan akibatnya mengisi
+         * "No. HP Penerima Barang" diam-diam memindahkan SELURUH kabar — kabar
+         * uang sekalian — ke orang yang cuma menunggu paket di lokasi.
+         * Rantainya kini satu arah dan tertulis di Customer::nomorNotifikasi().
+         */
+        $nomor = PhoneNumber::normalize($this->sumberNomor($so, $event)->nomorNotifikasi());
 
         if (! $nomor) {
             return [false, 'Nomor WhatsApp pelanggan kosong atau tidak valid.', null];
         }
 
         return [true, null, $nomor];
+    }
+
+    /**
+     * Pemilik nomor yang dikabari untuk satu jenis kabar.
+     *
+     * Kabar barang memakai cabang tujuan pesanan bila ada; rantai jatuh-balik
+     * di CustomerBranch::nomorNotifikasi() yang mengurus cabang tanpa nomor.
+     */
+    private function sumberNomor(SalesOrder $so, ?string $event)
+    {
+        return $this->cabangKabar($so, $event) ?: $so->customer;
+    }
+
+    /** Cabang yang berhak menerima kabar ini, atau null bila kabarnya soal uang. */
+    private function cabangKabar(SalesOrder $so, ?string $event)
+    {
+        if (! $event || ! in_array($event, self::EVENT_BARANG, true)) {
+            return null;
+        }
+
+        return $so->customer_branch_id ? $so->customerBranch : null;
     }
 
     /**

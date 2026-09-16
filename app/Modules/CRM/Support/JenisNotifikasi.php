@@ -42,7 +42,11 @@ class JenisNotifikasi
             'label'  => 'Siap Diambil',
             'pemicu' => 'Saat pesanan ambil-di-toko ditandai siap di Pemrosesan Pesanan — otomatis begitu barangnya siap, '
                       . 'atau lewat tombol "Tandai Siap Diambil". Satu-satunya yang menunggu jam buka: pesan ini mengajak orang datang.',
-            'contoh' => ['Budi', 'SO-2609-0012', 'AMB-4471', 'Senin–Sabtu 08.00–16.00'],
+            'contoh' => [
+                'Budi', 'SO-2609-0012', 'AMB-4471', 'Senin–Sabtu 08.00–16.00',
+                // Slot sisa bayar sengaja kosong di contoh; alamat & peta selalu ikut.
+                '', 'Jl. Suren Raya No.25A, Padangsari, Banyumanik, Semarang', 'https://g.co/kgs/Hmxdw9K',
+            ],
         ],
         CrmOutboxMessage::EVENT_DIKIRIM => [
             'label'  => 'Pesanan Dikirim',
@@ -58,12 +62,12 @@ class JenisNotifikasi
         CrmOutboxMessage::EVENT_TAGIHAN => [
             'label'  => 'Tagihan Pembayaran',
             'pemicu' => 'Pesanan non-marketplace yang tautan bayarnya sudah dibuat tapi belum dibayar: '
-                      . 'hari ke-1, 2, 3, lalu tiap minggu. Lewat 4 minggu, pesanannya dibatalkan otomatis.',
+                      . 'hari ke-1, 2, 3, lalu tiap minggu. Lewat 4 minggu, pesanannya dibatalkan otomatis. '
+                      . 'Tanpa tautan bayar: pelanggan diarahkan ke tautan dari nomor admin.',
             'contoh' => [
                 'Budi',
                 'SO-2609-0012',
                 '500.000',
-                'https://noudakrilik.com/pay/contoh-token',
                 '7 Oktober 2026',
                 '08998844666',
             ],

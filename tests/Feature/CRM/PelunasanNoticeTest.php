@@ -140,7 +140,9 @@ class PelunasanNoticeTest extends TestCase
         $baris = app(\App\Modules\CRM\Services\OrderNotificationService::class)->antrekanSiapDiambil($so);
         $body  = $baris->template_body;
 
-        $this->assertCount(5, $body);
+        // Tujuh variabel sejak alamat & peta toko ikut (16 Sep 2026): empat milik
+        // template Meta, lalu sisa bayar, alamat, dan peta — ketiganya khusus WAHA.
+        $this->assertCount(7, $body);
         $this->assertSame('95.000', $body[4]);
 
         $teks = TemplateResmi::render('pesanan_siap_diambil', $body);
@@ -159,8 +161,15 @@ class PelunasanNoticeTest extends TestCase
 
         $body = app(\App\Modules\CRM\Services\OrderNotificationService::class)->antrekanSiapDiambil($so)->template_body;
 
-        $this->assertCount(4, $body);
-        $this->assertStringNotContainsString('sisa pembayaran', TemplateResmi::render('pesanan_siap_diambil', $body));
+        // Slot sisa bayar tetap ADA walau kosong: alamat & peta membacanya dari
+        // slot sesudahnya, dan melewatinya akan menggeser keduanya ke nomor yang
+        // salah — alamat muncul sebagai nominal pembayaran.
+        $this->assertCount(7, $body);
+        $this->assertSame('', $body[4]);
+
+        $teks = TemplateResmi::render('pesanan_siap_diambil', $body);
+        $this->assertStringNotContainsString('sisa pembayaran', $teks);
+        $this->assertStringContainsString('Alamat toko kami:', $teks);
     }
 
     /* ---------------------------------------------------------------- dua pintu */

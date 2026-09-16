@@ -116,7 +116,10 @@
     const num = (v) => parseFloat(String(v).replace(/[^0-9.-]/g, '')) || 0;
     const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-    let area = '', areaKa = '', destLat = null, destLong = null;
+    // areaJb: Jubelio Shipment satu-satunya provider yang hidup, jadi alamat
+    // yang baru disimpan hampir selalu cuma punya id ini. Tanpa dilacak,
+    // tombol cek ongkir menolak alamat yang sebenarnya sudah lengkap.
+    let area = '', areaKa = '', areaJb = '', destLat = null, destLong = null;
 
     function areaInput(prov){
         return document.getElementById('ckw_area_' + prov + '_id')
@@ -128,6 +131,7 @@
     function renderAddr(d) {
         area = d.biteship_area_id || '';
         areaKa = d.kiriminaja_area_id || '';
+        areaJb = d.jubelio_area_id || '';
         destLat = (d.latitude != null && d.latitude !== '') ? d.latitude : null;
         destLong = (d.longitude != null && d.longitude !== '') ? d.longitude : null;
         $id('ckw_addr_name').textContent = d.name || '—';
@@ -177,7 +181,7 @@
     }
 
     function cek() {
-        if (!area && !areaKa) { $id('ckw_hint').textContent = 'Alamat belum punya area. Klik Edit Alamat.'; return; }
+        if (!area && !areaKa && !areaJb) { $id('ckw_hint').textContent = 'Alamat belum punya area. Klik Edit Alamat.'; return; }
         const mode = $id('ckw_method').value === 'instant' ? 'instant' : 'regular';
         if (mode === 'instant' && (destLat == null || destLong == null)) {
             $id('ckw_hint').textContent = 'Kurir instant butuh Titik Lokasi. Klik Edit Alamat, isi Titik Lokasi.'; return;
@@ -188,6 +192,7 @@
         if (cid)    params.customer_id = cid;
         if (area)   params.destination_area_id = area;
         if (areaKa) params.destination_kiriminaja_id = areaKa;
+        if (areaJb) params.destination_jubelio_id = areaJb;
         if (destLat != null && destLong != null) { params.destination_latitude = destLat; params.destination_longitude = destLong; }
         const pl = num($id('ckw_pl').value), pw = num($id('ckw_pw').value), ph = num($id('ckw_ph').value);
         if (pl > 0) params.package_length = pl; if (pw > 0) params.package_width = pw; if (ph > 0) params.package_height = ph;

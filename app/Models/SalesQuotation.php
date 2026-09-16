@@ -3,14 +3,18 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\PunyaTujuanKirim;
 
 class SalesQuotation extends Model
 {
+    use PunyaTujuanKirim;
+
     protected $fillable = [
         'quotation_number',
         'perihal',
         'lampiran',
         'customer_id',
+        'customer_branch_id',
         'shipping_address',
         'notes',
         'opening_text',

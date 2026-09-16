@@ -17,6 +17,7 @@ use App\Http\Controllers\Inventory\InventoryTransferController;
 use App\Http\Controllers\Inventory\InventoryAdjustmentController;
 use App\Http\Controllers\Sales\SalesOrderController;
 use App\Http\Controllers\Sales\SalesDeliveryController;
+use App\Http\Controllers\CustomerBranchController;
 use App\Http\Controllers\CustomerController;
 use App\Core\Inventory\StockLayer;
 use App\Core\Inventory\ProductStock;
@@ -490,6 +491,18 @@ Route::prefix('erp/master')->group(function () {
     Route::resource('customers', CustomerController::class);
     Route::post('customers/{id}/archive', [CustomerController::class, 'archive'])->name('customers.archive');
     Route::post('customers/{id}/restore', [CustomerController::class, 'restore'])->name('customers.restore');
+
+    // Cabang pelanggan — alamat kirim tambahan. Bersarang di bawah pelanggannya
+    // supaya kepemilikannya terbaca dari URL dan tak pernah jadi daftar lepas.
+    Route::prefix('customers/{customer}/cabang')->name('customers.branches.')->group(function () {
+        Route::get('create', [CustomerBranchController::class, 'create'])->name('create');
+        Route::post('/', [CustomerBranchController::class, 'store'])->name('store');
+        Route::get('{cabang}/edit', [CustomerBranchController::class, 'edit'])->name('edit');
+        Route::put('{cabang}', [CustomerBranchController::class, 'update'])->name('update');
+        Route::post('{cabang}/archive', [CustomerBranchController::class, 'archive'])->name('archive');
+        Route::post('{cabang}/restore', [CustomerBranchController::class, 'restore'])->name('restore');
+        Route::delete('{cabang}', [CustomerBranchController::class, 'destroy'])->name('destroy');
+    });
 });
 
 Route::get('/erp/api/customers/search', [CustomerController::class, 'search']);
@@ -500,11 +513,13 @@ Route::get('/erp/api/products/{id}/prices', [ProductController::class, 'prices']
 Route::get('/erp/api/products/{id}/components', [ProductController::class, 'components']);
 Route::get('/erp/api/bundle/{id}/components', [ProductBundleController::class, 'components']);
 
-Route::get('/erp/customers/address/{id}', function ($id) {
-    $customer = \App\Models\Customer::find($id);
+Route::get('/erp/customers/address/{id}', function ($id, \Illuminate\Http\Request $request) {
+    // `?branch=` — alamat cabang bila pesanannya untuk cabang. Tanpa ini kolom
+    // alamat di form Penawaran selalu terisi alamat pusat.
+    $tujuan = \App\Models\CustomerBranch::tujuanUntuk($id, $request->input('branch'));
 
     return response()->json([
-        'shipping_address' => $customer->shipping_address
+        'shipping_address' => $tujuan?->shipping_address,
     ]);
 });
 

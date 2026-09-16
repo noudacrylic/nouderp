@@ -51,6 +51,10 @@
                     <a :href="p.url" class="text-xs font-semibold truncate underline" x-text="p.nomor"></a>
                     <span class="shrink-0 text-xs font-bold" x-text="rupiah(p.total)"></span>
                 </div>
+                {{-- Cabang tujuan. Satu perusahaan bisa punya beberapa cabang yang
+                     pesanannya berjalan bersamaan; tanpa penanda ini orang cabang
+                     yang bertanya tak bisa menemukan mana yang miliknya. --}}
+                <div x-show="p.cabang" class="text-[11px] text-indigo-600 truncate mt-0.5" x-text="p.cabang"></div>
                 <div class="flex items-baseline justify-between gap-2 mt-0.5">
                     <span class="text-[11px] font-semibold shrink-0"
                           :class="p.draft ? 'text-amber-700' : (p.selesai ? 'text-gray-500' : 'text-emerald-700')"

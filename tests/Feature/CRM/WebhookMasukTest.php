@@ -285,6 +285,55 @@ class WebhookMasukTest extends TestCase
         $this->assertSame($pelanggan->id, CrmConversation::first()->customer_id);
     }
 
+    /**
+     * Orang cabang menghubungi kita dari nomornya sendiri.
+     *
+     * Tanpa penautan ini ia selalu masuk sebagai lead baru tanpa riwayat, dan
+     * admin yang melayani tidak melihat satu pun pesanan perusahaan itu —
+     * padahal justru pesanan itulah yang sedang ditanyakan.
+     */
+    public function test_chat_dari_nomor_cabang_tertaut_ke_pelanggan_induknya(): void
+    {
+        $induk = Customer::create([
+            'code' => 'CUST-C', 'name' => 'PT Sumber Jaya', 'phone' => '628111111111', 'is_active' => true,
+        ]);
+        $induk->branches()->create([
+            'name' => 'PT Sumber Jaya - Cabang Bandung', 'phone' => '0899-8844-666', 'is_active' => true,
+        ]);
+
+        $this->kirim($this->payloadMasuk('m-cabang'), 'k-cabang')->assertOk();
+
+        // Yang ditautkan INDUK: percakapan & piutangnya milik satu perusahaan.
+        $this->assertSame($induk->id, CrmConversation::first()->customer_id);
+    }
+
+    public function test_chat_dari_nomor_notifikasi_tambahan_juga_tertaut(): void
+    {
+        $induk = Customer::create([
+            'code' => 'CUST-D', 'name' => 'PT Sumber Jaya', 'phone' => '628111111111', 'is_active' => true,
+        ]);
+        $induk->notificationPhones()->create(['label' => 'Purchasing', 'phone' => '0899-8844-666']);
+
+        $this->kirim($this->payloadMasuk('m-tambahan'), 'k-tambahan')->assertOk();
+
+        $this->assertSame($induk->id, CrmConversation::first()->customer_id);
+    }
+
+    /** Nomor cabang yang cuma mirip tetap tidak boleh tertaut. */
+    public function test_nomor_cabang_yang_mirip_tidak_ikut_tercocokkan(): void
+    {
+        $induk = Customer::create([
+            'code' => 'CUST-E', 'name' => 'PT Lain', 'phone' => '628222222222', 'is_active' => true,
+        ]);
+        $induk->branches()->create([
+            'name' => 'PT Lain - Cabang', 'phone' => '62899884466', 'is_active' => true,
+        ]);
+
+        $this->kirim($this->payloadMasuk('m-mirip-cabang'), 'k-mirip-cabang')->assertOk();
+
+        $this->assertNull(CrmConversation::first()->customer_id);
+    }
+
     public function test_nomor_mirip_tidak_ikut_tercocokkan(): void
     {
         Customer::create([

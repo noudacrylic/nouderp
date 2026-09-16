@@ -161,6 +161,108 @@ class Customer extends Model
         return $this->hasMany(CustomerOverpayment::class);
     }
 
+    /**
+     * Induk ini, dituangkan ke bentuk cabang — TIDAK disimpan ke basis data.
+     *
+     * Inilah yang membuat seluruh ERP cukup menghadapi satu bentuk tujuan
+     * pengiriman. Tanpa ini, lima belas pembaca alamat masing-masing harus
+     * menulis "pakai cabang kalau ada, kalau tidak induk" — lima belas salinan
+     * aturan yang sama, yang pasti melenceng satu per satu seiring waktu.
+     *
+     * Alamat jalannya jatuh ke `address` bila `shipping_address` kosong, persis
+     * seperti Customer::fullAddress(). Cabang sungguhan sengaja TIDAK punya
+     * jatuh-balik itu — lihat CustomerBranch::fullAddress().
+     */
+    public function sebagaiCabang(): CustomerBranch
+    {
+        $bayangan = new CustomerBranch([
+            'customer_id'        => $this->id,
+            'name'               => $this->name,
+            'phone'              => $this->phone,
+            'recipient_phone'    => $this->recipient_phone,
+            'shipping_address'   => $this->shipping_address ?: $this->address,
+            'district'           => $this->district,
+            'city'               => $this->city,
+            'province'           => $this->province,
+            'postal_code'        => $this->postal_code,
+            'biteship_area_id'   => $this->biteship_area_id,
+            'kiriminaja_area_id' => $this->kiriminaja_area_id,
+            'jubelio_area_id'    => $this->jubelio_area_id,
+            'latitude'           => $this->latitude,
+            'longitude'          => $this->longitude,
+            'is_active'          => true,
+        ]);
+
+        // Supaya rantai nomornya bisa menoleh ke induk tanpa memukul basis data
+        // lagi — dan tanpa risiko menoleh ke pelanggan yang keliru.
+        $bayangan->setRelation('customer', $this);
+
+        return $bayangan;
+    }
+
+    /** Nomor tambahan yang ikut dikabari — lihat CustomerNotificationPhone. */
+    public function notificationPhones()
+    {
+        return $this->hasMany(CustomerNotificationPhone::class);
+    }
+
+    /**
+     * Nomor yang DIKABARI. Akar dari semua rantai jatuh-balik nomor.
+     *
+     * Sengaja bukan `recipient_phone ?: phone`. Nomor penerima barang itu milik
+     * orang yang menunggu paket di lokasi; kabar pembayaran dan tagihan bukan
+     * urusannya, dan mengirimkannya ke sana berarti tagihan purchasing mendarat
+     * di tangan orang gudang.
+     */
+    public function nomorNotifikasi(): ?string
+    {
+        return trim((string) $this->phone) ?: null;
+    }
+
+    /** Nomor yang diberikan ke kurir & dicetak di label. Kosong = ikut nomor utama. */
+    public function nomorPengiriman(): ?string
+    {
+        return trim((string) $this->recipient_phone) ?: $this->nomorNotifikasi();
+    }
+
+    /**
+     * Semua nomor yang harus menerima satu kabar, tanpa kembar.
+     *
+     * Nomor utama (milik cabang bila pesanannya untuk cabang, kalau tidak milik
+     * pusat) ditambah nomor tambahan perusahaan. Dinormalkan lebih dulu supaya
+     * "0899…" dan "62899…" tidak terkirim dua kali ke orang yang sama.
+     *
+     * @return string[]
+     */
+    public function semuaNomorNotifikasi(?CustomerBranch $cabang = null): array
+    {
+        $nomor = [$cabang ? $cabang->nomorNotifikasi() : $this->nomorNotifikasi()];
+
+        foreach ($this->notificationPhones as $tambahan) {
+            $nomor[] = $tambahan->phone;
+        }
+
+        return collect($nomor)
+            ->map(fn ($n) => \App\Modules\CRM\Support\PhoneNumber::normalize($n))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Alamat kirim tambahan milik pelanggan ini — cabang/gudang/outlet.
+     *
+     * Yang diarsipkan sengaja ikut terbawa: nota lama boleh saja menunjuk
+     * cabang yang kini tak dipakai lagi, dan alamatnya harus tetap terbaca.
+     * Penyaringan `aktif()` dikerjakan di tempat yang MEMILIH cabang untuk
+     * dokumen baru, bukan di sini.
+     */
+    public function branches()
+    {
+        return $this->hasMany(CustomerBranch::class)->orderBy('name');
+    }
+
     public function getCreditBalanceAttribute()
     {
         return $this->overpayments_sum_amount ?? 0;

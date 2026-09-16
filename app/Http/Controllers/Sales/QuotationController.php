@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Sales;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\MenyimpanCabangPelanggan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Models\SalesQuotation;
@@ -20,6 +21,8 @@ use App\Services\NumberGeneratorService;
 
 class QuotationController extends Controller
 {
+    use MenyimpanCabangPelanggan;
+
     public function index(Request $request)
     {
         $query = SalesQuotation::with('customer');
@@ -90,6 +93,7 @@ class QuotationController extends Controller
                 'perihal' => $request->perihal,
                 'lampiran' => $request->lampiran,
                 'customer_id' => $request->customer_id,
+                'customer_branch_id' => $this->cabangDariRequest($request, $request->customer_id),
                 'warehouse_id' => $request->warehouse_id,
                 'delivery_method' => in_array($request->delivery_method, ['kurir','instant','ambil_toko'], true) ? $request->delivery_method : 'kurir',
                 'quotation_date' => $request->quotation_date,
@@ -215,6 +219,7 @@ class QuotationController extends Controller
                 'perihal' => $request->perihal,
                 'lampiran' => $request->lampiran,
                 'customer_id' => $request->customer_id,
+                'customer_branch_id' => $this->cabangDariRequest($request, $request->customer_id),
                 'warehouse_id' => $request->warehouse_id,
                 'delivery_method' => in_array($request->delivery_method, ['kurir','instant','ambil_toko'], true) ? $request->delivery_method : 'kurir',
                 'quotation_date' => $request->quotation_date,
@@ -328,6 +333,9 @@ class QuotationController extends Controller
         $so = \App\Modules\Sales\Models\SalesOrder::create([
             'order_number'  => NumberGeneratorService::generate('SO'), // 🔥 Generate nomor SO standar
             'customer_id'   => $quotation->customer_id,
+            // Cabang ikut turun ke SO: penawaran untuk Cabang Bandung tidak boleh
+            // berubah jadi pesanan ke alamat pusat hanya karena dikonversi.
+            'customer_branch_id' => $quotation->customer_branch_id,
             'warehouse_id'  => $quotation->warehouse_id,
             'quotation_id'  => $quotation->id,
             'order_date'    => now()->toDateString(),

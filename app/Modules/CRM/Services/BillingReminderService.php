@@ -8,7 +8,6 @@ use App\Core\Inventory\StockReservation;
 use App\Models\MidtransTransaction;
 use App\Modules\CRM\Models\CrmOutboxMessage;
 use App\Modules\CRM\Support\JenisNotifikasi;
-use App\Modules\Payment\Services\PaymentLinkService;
 use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -33,7 +32,6 @@ class BillingReminderService
 {
     public function __construct(
         private OrderNotificationService $notifikasi,
-        private PaymentLinkService $tautan,
     ) {
     }
 
@@ -254,7 +252,9 @@ class BillingReminderService
 
         [, , $nomor] = $this->notifikasi->kelayakan($so);
 
-        $baris = CrmOutboxMessage::antrekan("so:{$so->id}:tagih:h{$titik}", [
+        $kunci = "so:{$so->id}:tagih:h{$titik}";
+
+        $atribut = [
             'event'          => CrmOutboxMessage::EVENT_TAGIHAN,
             'sales_order_id' => $so->id,
             'recipient'      => $nomor,
@@ -263,7 +263,9 @@ class BillingReminderService
                 (string) ($so->customer?->name ?: 'Pelanggan'),
                 (string) $so->order_number,
                 number_format((float) $so->grand_total, 0, ',', '.'),
-                $this->tautan->publicUrl($link),
+                // Tautan bayarnya SENGAJA tidak ikut. Pelanggan diarahkan ke
+                // tautan yang sudah dibagikan admin dari nomor utama, supaya
+                // tak ada yang terbiasa membayar lewat tautan dari nomor lain.
                 // Tanggal batasnya disebut terang-terangan. Pembatalan yang
                 // datang tanpa peringatan terbaca sebagai pembatalan sepihak,
                 // dan itulah yang berubah jadi keluhan.
@@ -272,7 +274,11 @@ class BillingReminderService
             ],
             'status'         => CrmOutboxMessage::STATUS_MENUNGGU,
             'scheduled_at'   => null,
-        ]);
+        ];
+
+        $baris = CrmOutboxMessage::antrekan($kunci, $atribut);
+
+        $this->notifikasi->antrekanTembusan($so, $kunci, $atribut, $nomor);
 
         return (bool) $baris;
     }

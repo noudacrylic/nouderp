@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Sales;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\MenyimpanCabangPelanggan;
 use Illuminate\Http\Request;
 use App\Models\Customer;
 use App\Core\Inventory\Product;
@@ -22,12 +23,15 @@ use App\Http\Controllers\Concerns\InlinesPrintAssets;
 
 class SalesOrderController extends Controller
 {
+    use MenyimpanCabangPelanggan;
+
     use InlinesPrintAssets;
 
     public function index(Request $request)
     {
         $query = SalesOrder::with([
                 'customer',
+                'customerBranch',
                 'deliveries' => fn($q) => $q->whereIn('status', ['draft', 'posted'])->orderBy('id'),
             ])
             ->withExists('returns as has_return');
@@ -381,6 +385,7 @@ class SalesOrderController extends Controller
             $so = SalesOrder::create([
                 'order_number' => NumberGeneratorService::forCustomer('SO', $customerId, $customerPoNumber),
                 'customer_id' => $customerId,
+                'customer_branch_id' => $this->cabangDariRequest($request, $customerId),
                 'customer_po_number' => $customerPoNumber,
                 'quotation_id' => $request->filled('quotation_id') ? $request->quotation_id : null,
                 'warehouse_id' => $warehouseId,
@@ -554,6 +559,7 @@ class SalesOrderController extends Controller
 
             $so->update([
                 'customer_id' => $customerId,
+                'customer_branch_id' => $this->cabangDariRequest($request, $customerId),
                 'customer_po_number' => $request->customer_po_number,
                 'quotation_id' => $request->filled('quotation_id') ? $request->quotation_id : null,
                 'warehouse_id' => $warehouseId,
@@ -1195,7 +1201,7 @@ class SalesOrderController extends Controller
 
         $warehouse = $order->warehouse ?: Warehouse::find($order->warehouse_id);
         $profile   = \App\Models\BusinessProfile::instance();
-        $customer  = $order->customer;
+        $customer  = $order->tujuan();
 
         $origin = [
             'name'    => $warehouse?->contact_name ?: $profile->name,
@@ -1204,12 +1210,13 @@ class SalesOrderController extends Controller
                 ? collect([$warehouse->address, $warehouse->city, $warehouse->province, $warehouse->postal_code])->filter()->implode(', ')
                 : collect([$profile->address, $profile->city, $profile->province, $profile->postal_code])->filter()->implode(', '),
         ];
+        // Tujuan label = tujuan dokumen: cabang bila dipilih, kalau tidak induk.
+        // Perakit alamatnya pun satu (CustomerBranch::fullAddress) supaya label
+        // dan nota tidak pelan-pelan berbeda formatnya.
         $dest = [
-            'name'    => $customer->name ?? '-',
-            'phone'   => $customer->recipient_phone ?? $customer->phone ?? '-',
-            'address' => $customer
-                ? (collect([$customer->shipping_address, $customer->district, $customer->city, $customer->province, $customer->postal_code])->filter()->implode(', ') ?: $customer->address)
-                : '-',
+            'name'    => $customer?->name ?: '-',
+            'phone'   => $customer?->nomorPengiriman() ?: '-',
+            'address' => $customer?->fullAddress() ?: '-',
         ];
 
         return view('erp.sales.orders.label', compact('order', 'origin', 'dest'));

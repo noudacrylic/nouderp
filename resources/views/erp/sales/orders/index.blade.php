@@ -131,7 +131,14 @@
                         {{ \Carbon\Carbon::parse($so->order_date)->format('d M Y') }}
                         @include('erp._partials.age-badge', ['date' => $so->order_date, 'show' => $invStatus === 'not_invoiced' && !$isCancelled])
                     </td>
-                    <td class="px-3 py-2">{{ $so->customer->name ?? '-' }}</td>
+                    <td class="px-3 py-2">
+                        {{ $so->customer->name ?? '-' }}
+                        {{-- Cabang tujuan disebut terpisah: tagihannya tetap atas nama
+                             induk, jadi nama induk tidak boleh hilang dari daftar. --}}
+                        @if ($so->customer_branch_id)
+                            <span class="block text-xs text-gray-500">{{ $so->customerBranch?->name }}</span>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-right">{{ number_format($so->grand_total, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
                         <span class="px-2 py-0.5 rounded text-xs uppercase {{ $stCls }}">{{ $stLabel }}</span>
