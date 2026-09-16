@@ -238,15 +238,29 @@ class InvoicePostingService
             throw new \Exception('Accounting period not found');
         }
 
-        $journal = \App\Core\Journal\Journal::create([
-            'journal_number'   => $this->generateJournalNumber(),
-            'date'             => $invoice->invoice_date,
-            'period_id'        => $period->id,
-            'reference_type'   => 'sales_invoice',
-            'reference_id'     => $invoice->id,
-            'reference_number' => $invoice->invoice_number,
-            'description'      => 'Sales Invoice ' . $invoice->invoice_number,
-        ]);
+        // Nomor bisa tetap bentrok bila dua proses (webhook Jubelio + cron)
+        // memposting bersamaan: baris proses lain belum ter-commit sehingga
+        // tak terlihat saat nomor dihitung. Duplikat di MySQL hanya
+        // membatalkan statement-nya, bukan transaksinya — cukup coba lagi.
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                $journal = \App\Core\Journal\Journal::create([
+                    'journal_number'   => $this->generateJournalNumber(),
+                    'date'             => $invoice->invoice_date,
+                    'period_id'        => $period->id,
+                    'reference_type'   => 'sales_invoice',
+                    'reference_id'     => $invoice->id,
+                    'reference_number' => $invoice->invoice_number,
+                    'description'      => 'Sales Invoice ' . $invoice->invoice_number,
+                ]);
+                break;
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                if ($attempt >= 5) {
+                    throw $e;
+                }
+                usleep(random_int(50, 250) * 1000);
+            }
+        }
 
         $invoice->journal_id = $journal->id;
         $invoice->save();
@@ -426,12 +440,23 @@ class InvoicePostingService
         }
     }
 
+    /**
+     * Nomor = angka TERBESAR yang sudah dipakai prefiks bulan ini + 1.
+     *
+     * Dulu dihitung dari JUMLAH jurnal yang TANGGAL-nya bulan ini, padahal
+     * prefiksnya diambil dari bulan saat posting. Faktur marketplace sering
+     * bertanggal bulan lalu → memakai nomor bulan ini tanpa ikut terhitung →
+     * faktur berikutnya mendapat nomor yang sama ("Duplicate entry JV/…").
+     * Angka dibaca numerik, bukan urut string, supaya tetap benar lewat 9999.
+     */
     protected function generateJournalNumber()
     {
-        $date = now()->format('Y/m');
-        $count = \App\Core\Journal\Journal::whereMonth('date', now()->month)
-            ->whereYear('date', now()->year)->count() + 1;
-        return 'JV/' . $date . '/' . str_pad($count, 4, '0', STR_PAD_LEFT);
+        $prefix = 'JV/' . now()->format('Y/m') . '/';
+        $max = (int) \App\Core\Journal\Journal::where('journal_number', 'like', $prefix . '%')
+            ->selectRaw('MAX(CAST(SUBSTRING(journal_number, ?) AS UNSIGNED)) AS n', [strlen($prefix) + 1])
+            ->value('n');
+
+        return $prefix . str_pad($max + 1, 4, '0', STR_PAD_LEFT);
     }
 
     protected function createJournalLine($invoice, $accountId, $type, $amount)
