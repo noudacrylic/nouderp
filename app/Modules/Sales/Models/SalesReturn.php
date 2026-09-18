@@ -16,7 +16,16 @@ class SalesReturn extends Model
         'return_date',
         'grand_total',
         'status',
+        'stage',
         'notes'
+    ];
+
+    /** Tahap penanganan retur — terpisah dari `status` yang mengurus akuntansi. */
+    public const STAGES = [
+        'baru'     => 'Retur Baru',
+        'diproses' => 'Retur Diproses',
+        'selesai'  => 'Retur Selesai',
+        'batal'    => 'Batal',
     ];
 
     protected $casts = [

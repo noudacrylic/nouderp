@@ -21,8 +21,19 @@ class SalesReturnController extends Controller
         $search = trim((string) $request->get('search', ''));
         $status = $request->get('status');
 
+        // Tahap penanganan (tab). Default "diproses" — di situlah retur menunggu tindakan.
+        $stage = $request->get('stage', 'diproses');
+        if (!array_key_exists($stage, SalesReturn::STAGES)) {
+            $stage = 'diproses';
+        }
+
+        $stageCounts = SalesReturn::selectRaw('stage, count(*) as total')
+            ->groupBy('stage')
+            ->pluck('total', 'stage');
+
         $returns = SalesReturn::with(['customer', 'invoice', 'salesOrder'])
             ->withCount(['items as repair_items_count' => fn($q) => $q->where('condition', 'repair')])
+            ->where('stage', $stage)
             ->when($status !== null && $status !== '', fn($q) => $q->where('status', $status))
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
@@ -37,7 +48,7 @@ class SalesReturnController extends Controller
             ->paginate(per_page_size())
             ->withQueryString();
 
-        return view('erp.sales.returns.index', compact('returns'));
+        return view('erp.sales.returns.index', compact('returns', 'stage', 'stageCounts'));
     }
 
     public function create()
@@ -414,6 +425,7 @@ class SalesReturnController extends Controller
                 }
 
                 $return->status = 'void';
+                $return->stage  = 'batal';
                 $return->save();
             });
         } catch (\Throwable $e) {

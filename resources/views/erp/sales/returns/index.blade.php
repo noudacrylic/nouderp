@@ -6,7 +6,19 @@
     <a href="{{ route('sales.returns.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Retur</a>
 </div>
 
+<div class="flex gap-1 mb-3 border-b text-sm">
+    @foreach(\App\Modules\Sales\Models\SalesReturn::STAGES as $key => $label)
+        @php $aktif = $stage === $key; @endphp
+        <a href="{{ route('sales.returns.index', ['stage' => $key]) }}"
+           class="px-3 py-2 -mb-px border-b-2 {{ $aktif ? 'border-blue-600 text-blue-700 font-medium' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
+            {{ $label }}
+            <span class="ml-1 text-xs {{ $aktif ? 'text-blue-600' : 'text-gray-400' }}">{{ $stageCounts[$key] ?? 0 }}</span>
+        </a>
+    @endforeach
+</div>
+
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
+    <input type="hidden" name="stage" value="{{ $stage }}">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
         'placeholder' => 'Cari nomor retur, faktur, atau pelanggan...',

@@ -40,6 +40,7 @@ class SalesReturnService
                 'return_date'    => $dto->date,
                 'grand_total'    => $totals['net'],
                 'status'         => 'draft',
+                'stage'          => 'diproses',
             ]);
 
             foreach ($dto->items as $item) {
@@ -119,6 +120,7 @@ class SalesReturnService
                     'return_date' => $dto->date,
                     'grand_total' => $totals['net'],
                     'status'      => 'posted',
+                    'stage'       => 'selesai',
                 ]);
                 $return->items()->delete();
                 foreach ($dto->items as $item) {
@@ -133,6 +135,7 @@ class SalesReturnService
                     'return_date'    => $dto->date,
                     'grand_total'    => $totals['net'],
                     'status'         => 'posted',
+                    'stage'          => 'selesai',
                 ]);
 
                 foreach ($dto->items as $item) {

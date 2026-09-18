@@ -400,19 +400,29 @@ class JubelioOrderSyncService
             return $stats;
         }
 
-        $resp = $this->client->listUnprocessedReturns(1, 100);
-        if (!$resp['success']) {
-            return $stats;
-        }
-
-        // Kelompokkan baris retur per pesanan Jubelio (salesorder_id).
+        // WAJIB telusuri SEMUA halaman. Daftar ini terurut dari yang PALING LAMA dan
+        // baris hanya hilang bila retur di-accept/reject di Jubelio — yang tak pernah
+        // dilakukan. Jadi baris lama menyumbat halaman 1 permanen dan retur baru selalu
+        // mendarat di halaman berikutnya. Dulu hanya halaman 1 yang dibaca → ERP buta
+        // terhadap seluruh retur sejak daftar menembus 100 baris (5 Agu 2026, 53 pesanan).
         $byOrder = [];
-        foreach ($this->rows($resp['data']) as $row) {
-            $soId = (int) ($row['salesorder_id'] ?? 0);
-            if ($soId > 0) {
-                $byOrder[$soId][] = $row;
+        $page = 1;
+        do {
+            $resp = $this->client->listUnprocessedReturns($page, 100);
+            if (!$resp['success']) {
+                break;
             }
-        }
+
+            $rows = $this->rows($resp['data']);
+            foreach ($rows as $row) {
+                $soId = (int) ($row['salesorder_id'] ?? 0);
+                if ($soId > 0) {
+                    $byOrder[$soId][] = $row;
+                }
+            }
+
+            $page++;
+        } while (count($rows) >= 100 && $page <= 50);
 
         foreach ($byOrder as $soId => $rows) {
             $link = JubelioOrderLink::where('jubelio_salesorder_id', $soId)->first();
