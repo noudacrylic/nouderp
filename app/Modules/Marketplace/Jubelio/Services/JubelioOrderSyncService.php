@@ -16,6 +16,7 @@ use App\Modules\Marketplace\Jubelio\Models\JubelioSyncLog;
 use App\Modules\Notifications\Services\WebPushNotifier;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesOrderItem;
+use App\Modules\Sales\Models\SalesReturn;
 use App\Modules\Sales\Services\CustomerPaymentService;
 use App\Modules\Sales\Services\SalesDeliveryService;
 use App\Modules\Sales\Services\SalesInvoiceService;
@@ -656,9 +657,15 @@ class JubelioOrderSyncService
     /**
      * Pesanan dibatalkan di Jubelio → batalkan di ERP.
      *  - Belum ada SO / SO sudah void → cukup catat.
-     *  - Sudah ada Faktur/Surat Jalan aktif → JANGAN auto-void (berisiko stok/akuntansi);
-     *    tandai agar ditangani manual di tab Pembatalan.
-     *  - Aman (hanya DP/belum dikirim) → void DP + void SO otomatis.
+     *  - BARANG SUDAH KELUAR (ada Surat Jalan posted) → JANGAN void; buka kasus RETUR.
+     *  - Barang belum keluar → void DP + Faktur + SO otomatis.
+     *
+     * Void hanya sah selama barang belum keluar gudang: batal bayar (jendela bayar habis)
+     * atau sudah bayar lalu dibatalkan sebelum dikirim. Begitu barang dikirim, pembatalan di
+     * marketplace berarti paket hilang / dikembalikan pembeli — itu kasus retur, bukan void.
+     * Mem-void-nya akan membalik omzet & memasukkan kembali stok yang sebenarnya tak pernah
+     * kembali (stok hantu), lalu membunuh faktur yang justru dibutuhkan agar dana kompensasi
+     * marketplace bisa dicocokkan saat rekonsiliasi.
      *
      * Logika void mengikuti SalesOrderController::void & PaymentController::void (sumber kebenaran).
      */
@@ -682,9 +689,21 @@ class JubelioOrderSyncService
             return;
         }
 
+        // Barang sudah keluar gudang → bukan pembatalan, melainkan retur/klaim. Dokumen
+        // dibiarkan utuh (omzet tetap diakui, stok tetap keluar) dan kasusnya dibuka sebagai
+        // Retur tahap `baru` untuk ditindaklanjuti manual.
+        $hasShipped = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
+            ->where('status', 'posted')
+            ->exists();
+
+        if ($hasShipped) {
+            $this->openReturnCaseInsteadOfVoid($so, $link, $ref);
+            return;
+        }
+
         // Auto-void PENUH saat Jubelio sinyal batal (operator cukup terima/tolak di Seller
-        // Center). Faktur/Surat Jalan yang sudah terbit ikut di-void otomatis: jurnal Faktur
-        // & stok SJ dibalik via service void yang sama dgn jalur manual (sumber kebenaran).
+        // Center). Faktur yang sudah terbit ikut di-void otomatis: jurnal Faktur dibalik via
+        // service void yang sama dgn jalur manual (sumber kebenaran).
         // Bila ada dependency yang menghalangi (Payment/Retur/Garansi/Billing aktif) atau error
         // lain → catch di bawah menandai 'perlu tangani manual' (tak ada perubahan separuh
         // jalan karena seluruhnya dalam satu transaksi).
@@ -713,13 +732,8 @@ class JubelioOrderSyncService
                     $this->invoiceService->voidPosted($inv);
                 }
 
-                // 1c. Void Surat Jalan posted yang belum ter-void lewat Faktur (SJ tanpa Faktur,
-                //     mis. order yg sudah dipick/resi tapi belum di-faktur) — balik stok ke ERP.
-                $activeDeliveries = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
-                    ->where('status', 'posted')->get();
-                foreach ($activeDeliveries as $del) {
-                    $this->deliveryService->voidDelivery($del);
-                }
+                // (Tak ada penanganan Surat Jalan di sini: SO dengan SJ posted sudah dialihkan
+                //  ke kasus retur di atas dan tak pernah sampai ke titik ini.)
 
                 // 2. Void SO — mirror SalesOrderController::void.
                 \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)->update(['status' => 'cancelled']);
@@ -744,7 +758,7 @@ class JubelioOrderSyncService
                 'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
                 'message'   => $wasUnpaid
                     ? "SO {$so->order_number} di-void otomatis (belum dibayar / dibatalkan di marketplace) — reservasi stok dilepas."
-                    : "SO {$so->order_number} di-void otomatis (dibatalkan di Jubelio) — Faktur/Surat Jalan ikut di-void & stok dikembalikan.",
+                    : "SO {$so->order_number} di-void otomatis (dibatalkan di Jubelio sebelum barang keluar) — Faktur ikut di-void.",
             ]);
         } catch (\Throwable $e) {
             $link->last_error = 'Gagal auto-void: ' . $e->getMessage();
@@ -755,6 +769,137 @@ class JubelioOrderSyncService
             ]);
             Log::error('Jubelio cancelOrder auto-void gagal', ['id' => $link->jubelio_salesorder_id, 'error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Pembatalan marketplace atas pesanan yang barangnya SUDAH keluar → buka kasus Retur
+     * tahap `baru`, tanpa menyentuh SO/Faktur/Surat Jalan sama sekali.
+     *
+     * Tak ada jurnal & tak ada pergerakan stok di sini: retur lahir sebagai draft, jadi omzet
+     * tetap diakui dan barang tetap tercatat keluar sampai nasib kasusnya jelas. Bila klaim
+     * menang, dana kompensasi marketplace akan cocok sendiri dengan faktur saat rekonsiliasi
+     * dan retur ini cukup dibatalkan. Bila klaim kalah, retur di-post untuk membalik omzet &
+     * memindahkan HPP-nya ke Beban Kerugian Retur.
+     *
+     * Kondisi item default `damaged` karena barang tidak ada di tangan kita — kondisi itulah
+     * satu-satunya yang TIDAK memasukkan stok kembali saat di-post. Dikoreksi manual bila
+     * ternyata barangnya benar-benar dikembalikan pembeli.
+     */
+    private function openReturnCaseInsteadOfVoid(SalesOrder $so, JubelioOrderLink $link, string $ref): void
+    {
+        // Klaim atomik return_created — flag yang sama dipakai syncReturns, supaya kasus ini
+        // tak berlipat bila Jubelio kemudian juga menampilkannya di daftar retur.
+        $claimed = JubelioOrderLink::where('id', $link->id)
+            ->where('return_created', false)
+            ->update(['return_created' => true]);
+
+        if (!$claimed) {
+            $link->save();
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . $ref, [
+                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'   => "SO {$so->order_number} dibatalkan di Jubelio setelah barang keluar — kasus retur sudah ada, dilewati.",
+            ]);
+            return;
+        }
+
+        try {
+            $return = $this->createShippedCancellationReturn($so);
+
+            if (!$return) {
+                // Tak ada item yang bisa dipetakan → lepas klaim agar bisa dicoba lagi.
+                JubelioOrderLink::where('id', $link->id)->update(['return_created' => false]);
+                $link->last_error = 'Batal setelah kirim, tapi kasus retur gagal dibuat (item tak terpetakan) — tangani manual.';
+                $link->save();
+                JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::FAIL, 'Pesanan ' . $ref, [
+                    'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                    'message'   => "SO {$so->order_number} dibatalkan setelah barang keluar, tapi item tak terpetakan — buat retur manual.",
+                ]);
+                return;
+            }
+
+            $link->last_error = null;
+            $link->save();
+
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . $ref, [
+                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'   => "SO {$so->order_number} dibatalkan di Jubelio SETELAH barang keluar — tidak di-void. "
+                    . "Kasus retur {$return->return_number} dibuka (tahap Retur Baru); SO/Faktur/Surat Jalan dibiarkan utuh.",
+            ]);
+        } catch (\Throwable $e) {
+            JubelioOrderLink::where('id', $link->id)->update(['return_created' => false]);
+            $link->last_error = 'Gagal membuka kasus retur: ' . $e->getMessage();
+            $link->save();
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::FAIL, 'Pesanan ' . $ref, [
+                'reference' => $link->jubelio_salesorder_no, 'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                'message'   => 'Gagal membuka kasus retur: ' . $e->getMessage() . ' — tangani manual.',
+            ]);
+            Log::error('Jubelio openReturnCase gagal', ['id' => $link->jubelio_salesorder_id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Draft retur dari barang yang BENAR-BENAR terkirim (baris Surat Jalan posted), bukan dari
+     * qty pesanan — pengiriman sebagian hanya boleh melahirkan retur sebesar yang terkirim.
+     *
+     * Retur ditautkan ke Faktur bila ada yang aktif (agar pembalikan omzet mengenai akun
+     * Penjualan), selain itu ke SO (mengenai Uang Muka Penjualan).
+     */
+    private function createShippedCancellationReturn(SalesOrder $so): ?SalesReturn
+    {
+        $shippedQty = [];
+        $deliveries = \App\Modules\Sales\Models\SalesDelivery::with('items')
+            ->where('sales_order_id', $so->id)
+            ->where('status', 'posted')
+            ->get();
+
+        foreach ($deliveries as $delivery) {
+            foreach ($delivery->items as $di) {
+                $qty = (float) $di->qty;
+                if ($di->product_id && $qty > 0) {
+                    $shippedQty[$di->product_id] = ($shippedQty[$di->product_id] ?? 0) + $qty;
+                }
+            }
+        }
+
+        if (empty($shippedQty)) {
+            return null;
+        }
+
+        $invoice = \App\Models\SalesInvoice::with('items')
+            ->where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->latest('id')
+            ->first();
+
+        $doc = $invoice ?: $so->loadMissing('items');
+
+        $items = [];
+        foreach ($shippedQty as $productId => $qty) {
+            $docItem = $doc->items->firstWhere('product_id', $productId);
+            if (!$docItem) {
+                continue;
+            }
+            $items[] = [
+                'invoice_item_id' => $docItem->id,
+                'qty'             => min($qty, (float) $docItem->qty),
+                'condition'       => 'damaged', // barang tak di tangan kita → tidak masuk stok
+            ];
+        }
+
+        if (empty($items)) {
+            return null;
+        }
+
+        $dto = new SalesReturnDTO(
+            customer_id: $so->customer_id,
+            items: $items,
+            date: now()->toDateString(),
+            invoice_id: $invoice?->id,
+            sales_order_id: $invoice ? null : $so->id,
+        );
+
+        // DRAFT tahap `baru` — belum ada jurnal & stok sampai diputuskan manual.
+        return $this->returnService->saveDraft($dto, 'baru');
     }
 
     /** Void DP/uang muka (mirror PaymentController::void). Dipanggil di dalam transaksi. */

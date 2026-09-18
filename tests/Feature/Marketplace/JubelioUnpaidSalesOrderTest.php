@@ -10,7 +10,10 @@ use App\Models\CustomerPayment;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService;
+use App\Modules\Sales\Models\SalesDelivery;
+use App\Modules\Sales\Models\SalesDeliveryItem;
 use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Sales\Models\SalesReturn;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Tests\TestCase;
@@ -147,5 +150,90 @@ class JubelioUnpaidSalesOrderTest extends TestCase
         $link->refresh();
         $this->assertSame('canceled', $link->last_status);
         $this->assertSame('Belum dibayar', $link->cancel_reason);
+    }
+
+    /**
+     * Barang SUDAH keluar gudang lalu pesanan dibatalkan di marketplace (mis. paket hilang):
+     * SO/Surat Jalan TIDAK boleh di-void — itu kasus retur. Mem-void-nya akan membalik omzet,
+     * memasukkan kembali stok yang tak pernah kembali, dan membunuh faktur yang dibutuhkan
+     * agar dana kompensasi marketplace bisa dicocokkan saat rekonsiliasi.
+     */
+    public function test_canceled_order_after_shipment_opens_return_case_instead_of_void(): void
+    {
+        $svc = $this->syncServiceReturning($this->orderDetail(), $this->orderDetail(['is_canceled' => true]));
+
+        $link = $svc->syncOrderById(self::SO_ID);
+        $soId = (int) $link->sales_order_id;
+        $this->assertGreaterThan(0, $soId);
+
+        $this->postDeliveryFor($soId, 2);
+
+        $svc->syncOrderById(self::SO_ID);
+
+        $so = SalesOrder::find($soId);
+        $this->assertNotSame('void', $so->status, 'SO yang barangnya sudah keluar tidak boleh di-void');
+
+        $this->assertSame('posted', SalesDelivery::where('sales_order_id', $soId)->first()->status,
+            'Surat Jalan harus tetap posted supaya stok tetap tercatat keluar');
+
+        $return = SalesReturn::where('sales_order_id', $soId)->first();
+        $this->assertNotNull($return, 'kasus retur harus dibuka');
+        $this->assertSame('baru', $return->stage);
+        $this->assertSame('draft', $return->status, 'retur lahir sebagai draft: belum ada jurnal & stok');
+        $this->assertEqualsWithDelta(2.0, (float) $return->items->first()->qty, 0.001,
+            'qty retur mengikuti yang benar-benar terkirim');
+        $this->assertSame('damaged', $return->items->first()->condition,
+            'barang tidak di tangan kita → kondisi damaged agar tidak masuk stok saat di-post');
+
+        $link->refresh();
+        $this->assertSame('canceled', $link->last_status);
+        $this->assertTrue((bool) $link->return_created);
+    }
+
+    /** Sinkron berulang atas pembatalan yang sama tak boleh melahirkan kasus retur dobel. */
+    public function test_canceled_order_after_shipment_is_idempotent(): void
+    {
+        $svc = $this->syncServiceReturning(
+            $this->orderDetail(),
+            $this->orderDetail(['is_canceled' => true]),
+            $this->orderDetail(['is_canceled' => true]),
+        );
+
+        $link = $svc->syncOrderById(self::SO_ID);
+        $soId = (int) $link->sales_order_id;
+        $this->postDeliveryFor($soId, 2);
+
+        $svc->syncOrderById(self::SO_ID);
+        $svc->syncOrderById(self::SO_ID);
+
+        $this->assertSame(1, SalesReturn::where('sales_order_id', $soId)->count(),
+            'kasus retur tidak boleh dobel');
+    }
+
+    /**
+     * Surat Jalan posted buatan langsung — cukup untuk menguji aturan pembatalan tanpa
+     * menyeret seluruh rantai fulfillment (pick/resi/faktur) ke dalam tes ini.
+     */
+    private function postDeliveryFor(int $soId, float $qty): SalesDelivery
+    {
+        $so = SalesOrder::with('items')->find($soId);
+
+        $delivery = SalesDelivery::create([
+            'sales_order_id'  => $soId,
+            'delivery_number' => 'DO-TEST-' . $soId,
+            'warehouse_id'    => $this->warehouseId,
+            'delivery_method' => 'kurir',
+            'delivery_date'   => now()->toDateString(),
+            'status'          => 'posted',
+        ]);
+
+        SalesDeliveryItem::create([
+            'sales_delivery_id'    => $delivery->id,
+            'sales_order_item_id'  => $so->items->first()->id,
+            'product_id'           => $so->items->first()->product_id,
+            'qty'                  => $qty,
+        ]);
+
+        return $delivery;
     }
 }

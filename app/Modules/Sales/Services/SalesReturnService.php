@@ -25,10 +25,14 @@ class SalesReturnService
 {
     /**
      * Save return as draft (no accounting impact)
+     *
+     * $stage default `diproses` = barang sudah tiba & tinggal dicek (jalur normal, termasuk
+     * retur dari Jubelio yang baru tahu saat barang sampai gudang). Pakai `baru` untuk kasus
+     * yang barangnya belum tentu kembali, mis. pembatalan marketplace setelah barang keluar.
      */
-    public function saveDraft(SalesReturnDTO $dto): SalesReturn
+    public function saveDraft(SalesReturnDTO $dto, string $stage = 'diproses'): SalesReturn
     {
-        return DB::transaction(function () use ($dto) {
+        return DB::transaction(function () use ($dto, $stage) {
             $doc = $this->getDoc($dto);
             $totals = $this->calculateTotals($dto, $doc);
 
@@ -40,7 +44,7 @@ class SalesReturnService
                 'return_date'    => $dto->date,
                 'grand_total'    => $totals['net'],
                 'status'         => 'draft',
-                'stage'          => 'diproses',
+                'stage'          => array_key_exists($stage, SalesReturn::STAGES) ? $stage : 'diproses',
             ]);
 
             foreach ($dto->items as $item) {
