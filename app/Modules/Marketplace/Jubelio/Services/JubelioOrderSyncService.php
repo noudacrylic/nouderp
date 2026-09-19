@@ -1371,22 +1371,35 @@ class JubelioOrderSyncService
      */
     public function terbitkanFakturPengiriman(SalesOrder $so, ?float $shippingOverride = null): ?\App\Models\SalesInvoice
     {
-        $so->loadMissing('items');
+        $so->loadMissing('items.product');
         $shipping = $shippingOverride !== null ? (float) $shippingOverride : (float) ($so->shipping_cost ?? 0);
 
-        // Qty yang sudah KELUAR lewat Surat Jalan posted, per baris SO.
-        $terkirim = \App\Modules\Sales\Models\SalesDeliveryItem::query()
-            ->whereIn('sales_delivery_id', \App\Modules\Sales\Models\SalesDelivery::query()
-                ->where('sales_order_id', $so->id)->where('status', 'posted')->pluck('id'))
-            ->selectRaw('sales_order_item_id, SUM(qty) q')
-            ->groupBy('sales_order_item_id')
-            ->pluck('q', 'sales_order_item_id');
+        // Qty yang sudah KELUAR lewat Surat Jalan posted, per PRODUK untuk seluruh SO — bukan
+        // per baris SO. `sales_order_item_id` di baris SJ tak bisa dipercaya untuk menghitung:
+        //  - bundle dikirim sebagai KOMPONEN: satu baris SO = beberapa baris SJ;
+        //  - SJ menggabung per produk (SalesDeliveryService::addNeeded), jadi pesanan Jubelio
+        //    yang memecah "qty 5" jadi 5 baris SO @1 keluar sebagai SATU baris SJ qty 5 yang
+        //    menunjuk baris SO pertama saja.
+        // Maka qty terkirim dikumpulkan per produk lalu dibagikan ulang ke baris-baris SO.
+        $sjPosted = \App\Modules\Sales\Models\SalesDelivery::query()
+            ->where('sales_order_id', $so->id)->where('status', 'posted')->pluck('id');
+        $stokKeluar = \App\Modules\Sales\Models\SalesDeliveryItem::query()
+            ->whereIn('sales_delivery_id', $sjPosted)
+            ->selectRaw('product_id, SUM(qty) q')
+            ->groupBy('product_id')
+            ->pluck('q', 'product_id')
+            ->map(fn ($q) => (float) $q)
+            ->all();
 
         $items = [];
         $subtotal = 0.0;
         foreach ($so->items as $soItem) {
-            // Sebesar yang sudah dikirim & belum difakturkan — bukan sisa qty pesanan.
-            $remaining = (float) ($terkirim[$soItem->id] ?? 0) - (float) $soItem->qty_invoiced;
+            // Sebesar yang sudah dikirim & belum difakturkan — bukan sisa qty pesanan. Jasa /
+            // non-stok tak pernah lewat SJ: ikut penuh begitu ada pengiriman.
+            $dikirim = in_array($soItem->product?->sale_type, ['service', 'non_stock'], true)
+                ? ($sjPosted->isNotEmpty() ? (float) $soItem->qty : 0.0)
+                : $this->ambilDariStokKeluar($soItem, $stokKeluar);
+            $remaining = $dikirim - (float) $soItem->qty_invoiced;
             if ($remaining <= 0) {
                 continue;
             }
@@ -1444,6 +1457,53 @@ class JubelioOrderSyncService
         app(\App\Services\InvoicePostingService::class)->post($invoice);
 
         return $invoice->fresh();
+    }
+
+    /**
+     * Ambil jatah baris SO dari kumpulan stok keluar SO (per produk) dan kurangi kumpulannya,
+     * supaya baris berikutnya dengan produk yang sama hanya mendapat sisanya. Hasil tak pernah
+     * melebihi qty baris SO — faktur tak boleh lebih dari yang dipesan.
+     *
+     * Bundle: jatahnya = komponen yang paling sedikit tersedia dibagi takarannya per bundle —
+     * bundle baru dianggap terkirim kalau semua komponennya ikut. Komponen yang sama sekali tak
+     * muncul di SJ SO ini diabaikan (resep bundle diubah setelah SJ dibuat); bila tak satu pun
+     * muncul, bundle dianggap terkirim penuh daripada fakturnya tak pernah terbit.
+     *
+     * @param array<int,float> $stokKeluar product_id => qty keluar yang belum dibagikan
+     */
+    private function ambilDariStokKeluar(SalesOrderItem $soItem, array &$stokKeluar): float
+    {
+        $qty = (float) $soItem->qty;
+
+        if ($soItem->product?->sale_type !== 'bundle') {
+            $ambil = min($qty, max(0.0, $stokKeluar[$soItem->product_id] ?? 0.0));
+            if ($ambil > 0) {
+                $stokKeluar[$soItem->product_id] -= $ambil;
+            }
+            return $ambil;
+        }
+
+        $komponen = \App\Core\Inventory\BundleComponent::where('bundle_product_id', $soItem->product_id)
+            ->pluck('qty', 'component_product_id');
+        if ($komponen->isEmpty()) {
+            $komponen = \App\Core\Inventory\ProductBundle::where('bundle_product_id', $soItem->product_id)
+                ->pluck('qty_required', 'component_product_id');
+        }
+        $komponen = $komponen->filter(fn ($t, $pid) => (float) $t > 0 && isset($stokKeluar[$pid]));
+
+        if ($komponen->isEmpty()) {
+            return $qty;
+        }
+
+        $unit = $qty;
+        foreach ($komponen as $pid => $takaran) {
+            $unit = min($unit, floor(round(max(0.0, $stokKeluar[$pid]) / (float) $takaran, 4)));
+        }
+        foreach ($komponen as $pid => $takaran) {
+            $stokKeluar[$pid] -= $unit * (float) $takaran;
+        }
+
+        return $unit;
     }
 
     /**

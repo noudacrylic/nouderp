@@ -179,6 +179,43 @@ class InvoicePostingService
             }
         }
 
+        // HPP satu produk di SJ dibagi ke SEMUA baris faktur yang memakai produk itu, sebanding
+        // qty-nya. Dulu tiap baris mengambil HPP produk itu SEUTUHNYA — pesanan Jubelio yang
+        // memecah "qty 5" jadi 5 baris @1 (atau dua bundle berbagi komponen) membukukan HPP
+        // berlipat. Faktur satu baris per produk hasilnya tetap sama persis (porsi = 100%).
+        $porsi = [];     // invoice_item_id => [product_id => qty yang dipakai baris itu]
+        $pemakaian = []; // product_id => total qty dipakai semua baris faktur
+        foreach ($invoice->items as $invItem) {
+            $product = $invItem->product;
+            if (!$product || in_array($product->type, ['service', 'non_stock'], true)) {
+                continue;
+            }
+            $pakai = [];
+            if ($product->type === 'bundle') {
+                $components = \App\Core\Inventory\BundleComponent::where('bundle_product_id', $invItem->product_id)->get();
+                $takaranField = 'qty';
+                if ($components->isEmpty()) {
+                    $components = $product->bundleItems;
+                    $takaranField = 'qty_required';
+                }
+                foreach ($components as $comp) {
+                    $pakai[$comp->component_product_id] = ($pakai[$comp->component_product_id] ?? 0)
+                        + (float) $invItem->qty * (float) ($comp->{$takaranField} ?? 1);
+                }
+            } else {
+                $pakai[$invItem->product_id] = (float) $invItem->qty;
+            }
+            $porsi[$invItem->id] = $pakai;
+            foreach ($pakai as $pid => $q) {
+                $pemakaian[$pid] = ($pemakaian[$pid] ?? 0) + $q;
+            }
+        }
+        $bagian = function ($invItem, $pid) use ($porsi, $pemakaian) {
+            $q = $porsi[$invItem->id][$pid] ?? 0;
+            $total = $pemakaian[$pid] ?? 0;
+            return $total > 0 ? $q / $total : 1.0;
+        };
+
         foreach ($invoice->items as $invItem) {
             $product = $invItem->product;
             $cogsTotalForItem = 0;
@@ -210,7 +247,7 @@ class InvoicePostingService
                         throw new \Exception("Kalkulasi HPP Bundle Gagal: COGS komponen ID {$comp->{$compIdField}} belum tersedia. Selesaikan produksi terlebih dahulu.");
                     }
 
-                    $cogsTotalForItem += (float) $matched->sum('cogs_total');
+                    $cogsTotalForItem += (float) $matched->sum('cogs_total') * $bagian($invItem, $comp->{$compIdField});
                 }
             } else {
                 $matched = $deliveryItems->where('product_id', $invItem->product_id);
@@ -224,14 +261,14 @@ class InvoicePostingService
                     throw new \Exception("Kalkulasi HPP Gagal: COGS untuk produk ID {$invItem->product_id} belum tersedia. Selesaikan produksi terlebih dahulu sebelum invoice.");
                 }
 
-                $cogsTotalForItem = (float) $matched->sum('cogs_total');
+                $cogsTotalForItem = (float) $matched->sum('cogs_total') * $bagian($invItem, $invItem->product_id);
             }
 
             // Simpan HPP ke item invoice
-            $invItem->cogs_total = $cogsTotalForItem;
+            $invItem->cogs_total = round($cogsTotalForItem, 2);
             $invItem->save();
 
-            $totalHpp += $cogsTotalForItem;
+            $totalHpp += round($cogsTotalForItem, 2);
         }
 
         $invoice->hpp_total = $totalHpp;
