@@ -316,6 +316,7 @@ return [
             'reports.balance-sheet'    => ['label' => 'Neraca',                'url' => '/erp/accounting/reports/balance-sheet',    'route_patterns' => ['accounting.reports.balance-sheet']],
             'reports.income-statement' => ['label' => 'Laba Rugi',             'url' => '/erp/accounting/reports/income-statement', 'route_patterns' => ['accounting.reports.income-statement']],
             'reports.product-sales'    => ['label' => 'Laporan Penjualan',     'url' => '/erp/sales/reports/product-sales',         'route_patterns' => ['sales.reports.product-sales', 'sales.reports.manual-sales*']],
+            'reports.inventory-flow'   => ['label' => 'Arus Barang & HPP',    'url' => '/erp/inventory/reports/flow',              'route_patterns' => ['inventory.reports.flow']],
         ],
     ],
 

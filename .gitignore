@@ -40,6 +40,7 @@ Thumbs.db
 # Artefak maintenance di server produksi — BERISI RAHASIA / DATA PELANGGAN
 .env.bak_*
 /backup_*.sql.gz
+/noud_erp-*.sql.gz
 /deploy/SERVER-LOCAL-NOTES.md
 
 # Artefak lokal sesi ini: cadangan .env & PDF kontrak vendor (bukan bagian aplikasi)

@@ -796,6 +796,11 @@ Route::prefix('erp/inventory')->group(function () {
     Route::get('/reports/stock-card/{productId}', [\App\Http\Controllers\Inventory\InventoryReportController::class, 'stockCard'])
         ->name('inventory.reports.stock-card');
 
+    // Arus Barang & HPP — memperlihatkan jeda antara barang keluar gudang (Surat Jalan)
+    // dan saat harga pokoknya masuk buku besar (faktur).
+    Route::get('/reports/flow', [\App\Http\Controllers\Inventory\InventoryFlowReportController::class, 'index'])
+        ->name('inventory.reports.flow');
+
     Route::post('/products/{id}/opening-balance', [\App\Http\Controllers\Inventory\ProductController::class, 'postOpeningBalance'])
         ->name('products.opening.post');
 });

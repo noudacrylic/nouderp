@@ -1012,7 +1012,7 @@
 
                 {{-- ================= LAPORAN ================= --}}
                 @if(should_show_menu_group('reports'))
-                @php $isLaporan = request()->routeIs('sales.reports.*') || request()->routeIs('accounting.reports.*'); @endphp
+                @php $isLaporan = request()->routeIs('sales.reports.*') || request()->routeIs('accounting.reports.*') || request()->routeIs('inventory.reports.flow'); @endphp
                 <a href="{{ module_landing_url('reports') }}" class="menu-single {{ $isLaporan ? 'active' : '' }}" data-tip="Laporan">
                     <span class="menu-icon">{!! $svgReports !!}</span><span class="menu-label">&nbsp;Laporan</span>
                 </a>
