@@ -89,7 +89,16 @@ class InvoicePostingService
             }
 
             // 🔥 10. TRIGGER MARKETPLACE ENGINE (New Blueprint Phase 3)
-            app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice);
+            //
+            // HANYA faktur gaya LAMA yang di-settle di sini. Faktur gaya baru
+            // (`fee_at_settlement`) terbit saat PENGIRIMAN, jadi saat ini pesanannya belum
+            // selesai dan biaya adminnya belum diketahui — settlement-nya menunggu sinyal
+            // "pesanan selesai" dari marketplace (lihat JubelioOrderSyncService::ensureSettlement).
+            // Menjalankannya di sini akan melepas Saldo Ditahan terlalu cepat & membebankan
+            // fee yang masih nol.
+            if (!$invoice->fee_at_settlement) {
+                app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice);
+            }
         });
     }
 

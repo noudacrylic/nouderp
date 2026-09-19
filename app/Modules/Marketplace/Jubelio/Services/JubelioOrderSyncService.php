@@ -315,8 +315,16 @@ class JubelioOrderSyncService
         $shipOut = fn($l, $d) => $this->hasResi($d) || $this->isShipped($d) || (bool) $l->j_invoice_done;
         $sjWasCreated = (bool) $link->sj_created; // deteksi SJ yang BARU terbentuk run ini (untuk push stok seketika)
         $needB = $link->sales_order_id && $shipOut($link, $detail)    && !$link->sj_created;
-        $needC = $link->sales_order_id && $this->isCompleted($detail) && !$link->invoice_posted;
-        if ($needB || $needC) {
+        // FAKTUR terbit segera setelah barang keluar gudang, BUKAN menunggu pesanan selesai.
+        // Alasannya: pesanan marketplace yang berakhir retur / paket hilang tidak pernah
+        // berstatus "selesai", sehingga fakturnya dulu tak pernah terbit — omzet tak diakui,
+        // HPP & Persediaan tak pernah masuk buku besar, dan rekonsiliasi tak punya pasangan.
+        $needInv = $link->sales_order_id && $link->sj_created && !$link->invoice_posted;
+
+        // SETTLEMENT (lepas saldo ditahan + bebankan biaya admin) menunggu pesanan SELESAI,
+        // karena di situlah potongan marketplace baru diketahui.
+        $needC = $link->sales_order_id && $this->isCompleted($detail);
+        if ($needB || $needInv || $needC) {
             DB::transaction(function () use ($link, $detail, $shipOut) {
                 $locked = JubelioOrderLink::where('id', $link->id)->lockForUpdate()->first();
                 if (!$locked) {
@@ -326,8 +334,15 @@ class JubelioOrderSyncService
                 if ($shipOut($locked, $detail) && !$locked->sj_created) {
                     $this->ensureDelivery($locked);
                 }
-                if ($locked->sales_order_id && $this->isCompleted($detail) && !$locked->invoice_posted) {
+                // Barang sudah keluar → terbitkan fakturnya sekarang juga.
+                if ($locked->sales_order_id && $locked->sj_created && !$locked->invoice_posted) {
                     $this->ensureInvoice($detail, $locked);
+                }
+
+                // Pesanan SELESAI → lepas Saldo Ditahan ke Wallet & bebankan biaya admin,
+                // untuk faktur gaya baru yang terbit saat pengiriman tanpa fee.
+                if ($locked->sales_order_id && $this->isCompleted($detail)) {
+                    $this->ensureSettlement($detail, $locked);
                 }
 
                 // Sinkronkan flag hasil ke instance luar agar save() metadata di bawah
@@ -345,8 +360,13 @@ class JubelioOrderSyncService
         // diposting, buat juga Faktur Jubelio. IDEMPOTEN: SO yang sudah difaktur balas id yang
         // sama (tak dobel). DIBATASI cutoff: hanya order yang masuk sejak tanggal cutoff —
         // backlog lama dibuat manual oleh user (lihat JUBELIO_INVOICE_AUTOCREATE_SINCE).
+        // Digantungkan pada BARANG SUDAH KELUAR (sj_created), bukan pada faktur ERP.
+        // Dulu keduanya seiring karena faktur ERP juga terbit saat pesanan selesai; kini
+        // faktur ERP terbit saat pengiriman, jadi menggantungkannya pada faktur ERP hanya
+        // menyamarkan maksud aslinya: begitu stok keluar, Jubelio wajib punya faktur agar
+        // stok di sana ikut terpotong & reservasi-hantu tak menumpuk.
         if ($link->sales_order_id
-            && $link->invoice_posted
+            && $link->sj_created
             && !$link->j_invoice_done
             && $link->created_at
             && $link->created_at->gte(self::JUBELIO_INVOICE_AUTOCREATE_SINCE)
@@ -775,15 +795,15 @@ class JubelioOrderSyncService
      * Pembatalan marketplace atas pesanan yang barangnya SUDAH keluar → buka kasus Retur
      * tahap `baru`, tanpa menyentuh SO/Faktur/Surat Jalan sama sekali.
      *
-     * Tak ada jurnal & tak ada pergerakan stok di sini: retur lahir sebagai draft, jadi omzet
-     * tetap diakui dan barang tetap tercatat keluar sampai nasib kasusnya jelas. Bila klaim
-     * menang, dana kompensasi marketplace akan cocok sendiri dengan faktur saat rekonsiliasi
-     * dan retur ini cukup dibatalkan. Bila klaim kalah, retur di-post untuk membalik omzet &
-     * memindahkan HPP-nya ke Beban Kerugian Retur.
+     * Tak ada jurnal & tak ada pergerakan stok di sini: retur lahir sebagai draft di tahap
+     * `baru`, jadi omzet tetap diakui dan barang tetap tercatat keluar sampai admin
+     * mendefinisikan kasusnya.
      *
-     * Kondisi item default `damaged` karena barang tidak ada di tangan kita — kondisi itulah
-     * satu-satunya yang TIDAK memasukkan stok kembali saat di-post. Dikoreksi manual bila
-     * ternyata barangnya benar-benar dikembalikan pembeli.
+     * Kondisi item default `damaged` = anggapan paling hati-hati: barang hilang DAN dananya
+     * tidak diganti. Saat admin memilih Jenis Retur "Paket Hilang", form mengubahnya jadi
+     * `tidak_kembali` (dana diganti marketplace, penjualan tidak dibalik); kalau klaimnya
+     * ternyata ditolak, kondisinya dikembalikan ke `damaged`. Bila barangnya justru benar-benar
+     * dikembalikan pembeli, admin memilih `good`/`repair` setelah memeriksa paketnya.
      */
     private function openReturnCaseInsteadOfVoid(SalesOrder $so, JubelioOrderLink $link, string $ref): void
     {
@@ -882,7 +902,9 @@ class JubelioOrderSyncService
             $items[] = [
                 'invoice_item_id' => $docItem->id,
                 'qty'             => min($qty, (float) $docItem->qty),
-                'condition'       => 'damaged', // barang tak di tangan kita → tidak masuk stok
+                // Anggapan paling hati-hati sampai admin memeriksa kasusnya: barang hilang
+                // DAN dananya tidak diganti. Lihat docblock openReturnCaseInsteadOfVoid.
+                'condition'       => 'damaged',
             ];
         }
 
@@ -1003,9 +1025,27 @@ class JubelioOrderSyncService
             // Rekonsiliasi potongan marketplace (lihat resolveMarketplaceFee): bila Jubelio
             // tidak melaporkan potongan (mis. TikTok Tokopedia), pakai estimasi dari setting.
             $fees           = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, $customerId);
-            $grandTotal     = $fees['grand_total'];
             $marketplaceFee = $fees['fee'];
             $expense        = $fees['expense'];
+
+            // grand_total SO = nilai KOTOR (sebelum biaya admin marketplace), SENGAJA tidak
+            // memakai $fees['grand_total'] yang sudah bersih. Aturan alur marketplace:
+            // biaya admin di SO hanya ESTIMASI, pemotongan sesungguhnya terjadi di FAKTUR.
+            //
+            // Konsekuensinya DP = kotor, dan itulah yang membuat retur menutup rapi: retur atas
+            // SO menjurnal Dr Uang Muka / Cr Saldo Ditahan sebesar nilai KOTOR (SalesReturnService
+            // ::getRevenueReversalLines). Ketika DP masih bersih, selisih sebesar biaya admin
+            // menggantung selamanya di 2105 & hold. Nilai kotor juga yang dibayarkan marketplace
+            // saat klaim paket hilang menang, sehingga rekonsiliasi ikut cocok.
+            //
+            // Faktur TIDAK terpengaruh: ensureInvoice() menghitung fee-nya sendiri dari detail
+            // Jubelio, tidak membaca grand_total SO — jadi faktur tetap bersih & beban admin
+            // tetap dibebankan SEKALI di jurnal faktur. Selisih kotor↔bersih di akun hold
+            // ditutup oleh baris reklas $gap di MarketplaceEngineService.
+            //
+            // Rumusnya sengaja identik dengan SO manual ERP (SalesOrderService::applyItemsAndTotals)
+            // dan dengan resolveGross() di rekonsiliasi: kotor = faktur.grand_total + fee.
+            $grandTotal = round($subtotal + $shipping + $expense, 2);
 
             $so = SalesOrder::create([
                 'order_number'          => NumberGeneratorService::forCustomer('SO', $customerId, $poNumber),
@@ -1200,6 +1240,15 @@ class JubelioOrderSyncService
                 return false;
             }
             $this->ensureDelivery($locked);
+
+            // Faktur menyusul barang keluar, dalam transaksi & kunci yang sama. Tanpa ini,
+            // menekan "Proses Pesanan" hanya menghasilkan Surat Jalan dan fakturnya baru
+            // muncul saat cron menyinkron pesanan itu lagi — omzet & HPP tertunda tanpa
+            // alasan, dan operator melihat pesanan terproses tapi tak berfaktur.
+            if ($locked->sj_created && !$locked->invoice_posted) {
+                $this->ensureInvoice([], $locked);
+            }
+
             return true;
         });
     }
@@ -1223,8 +1272,27 @@ class JubelioOrderSyncService
         ]);
     }
 
-    // ───────────────────────────── Tahap C: Invoice ─────────────────────────────
+    // ──────────────────── Faktur (terbit saat barang keluar gudang) ────────────────────
 
+    /**
+     * Terbitkan faktur sebesar barang yang BENAR-BENAR sudah dikirim, mengikuti Sales Order
+     * persis: nilai KOTOR, tanpa biaya admin marketplace.
+     *
+     * KENAPA saat pengiriman, bukan saat pesanan selesai. Pesanan marketplace yang berakhir
+     * retur atau paket hilang tidak pernah berstatus "selesai" di Jubelio, jadi dulu fakturnya
+     * tak pernah terbit. Akibatnya permanen: omzetnya tak pernah diakui, HPP & Persediaan tak
+     * pernah masuk buku besar (Surat Jalan tidak menjurnal apa pun), saldo ditahan mengendap,
+     * dan baris settlement-nya tak punya faktur untuk dicocokkan saat rekonsiliasi.
+     *
+     * KENAPA tanpa biaya admin. Saat barang keluar, marketplace belum memotong apa pun —
+     * angkanya masih taksiran. Fee dibebankan nanti oleh MarketplaceEngineService saat pesanan
+     * selesai (lihat ensureSettlement), dan selisihnya terhadap potongan sebenarnya dikoreksi
+     * lagi saat rekonsiliasi settlement. Faktur ditandai `fee_at_settlement` supaya rekonsiliasi
+     * tahu grand_total-nya sudah kotor.
+     *
+     * QTY diambil dari Surat Jalan yang sudah posted, bukan dari sisa qty SO — supaya
+     * pengiriman bertahap menghasilkan faktur bertahap yang sepadan.
+     */
     private function ensureInvoice(array $detail, JubelioOrderLink $link): void
     {
         $so = SalesOrder::with('items')->find($link->sales_order_id);
@@ -1239,13 +1307,55 @@ class JubelioOrderSyncService
             return;
         }
 
-        $shipping   = (float) ($detail['shipping_cost'] ?? $so->shipping_cost ?? 0);
-        $grandTotal = (float) ($detail['grand_total'] ?? $so->grand_total);
+        $invoice = $this->terbitkanFakturPengiriman(
+            $so,
+            (float) ($detail['shipping_cost'] ?? $so->shipping_cost ?? 0)
+        );
+
+        $link->invoice_posted = true;
+        // Jangan timpa dgn null bila dipanggil tanpa payload Jubelio (jalur tombol Proses).
+        $link->jubelio_invoice_id = $detail['invoice_id'] ?? $link->jubelio_invoice_id;
+        $link->save();
+
+        if (!$invoice) {
+            return; // tak ada baris terkirim yang belum difakturkan
+        }
+
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+            'reference'             => $link->jubelio_salesorder_no,
+            'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+            'message'               => 'Invoice ' . ($invoice->invoice_number ?? '') . ' dibuat & diposting untuk SO ' . $so->order_number . '.',
+            'meta'                  => ['invoice_id' => $invoice->id ?? null],
+        ]);
+    }
+
+    /**
+     * Terbitkan & posting faktur pengiriman untuk sebuah SO marketplace.
+     *
+     * Dipakai dua tempat dengan aturan yang sama persis: sinkron Jubelio (saat Surat Jalan
+     * terbit) dan command faktur susulan untuk pesanan lama. Sengaja satu implementasi supaya
+     * keduanya tak pernah menyimpang.
+     *
+     * @return SalesInvoice|null null bila tak ada baris terkirim yang belum difakturkan.
+     */
+    public function terbitkanFakturPengiriman(SalesOrder $so, ?float $shippingOverride = null): ?\App\Models\SalesInvoice
+    {
+        $so->loadMissing('items');
+        $shipping = $shippingOverride !== null ? (float) $shippingOverride : (float) ($so->shipping_cost ?? 0);
+
+        // Qty yang sudah KELUAR lewat Surat Jalan posted, per baris SO.
+        $terkirim = \App\Modules\Sales\Models\SalesDeliveryItem::query()
+            ->whereIn('sales_delivery_id', \App\Modules\Sales\Models\SalesDelivery::query()
+                ->where('sales_order_id', $so->id)->where('status', 'posted')->pluck('id'))
+            ->selectRaw('sales_order_item_id, SUM(qty) q')
+            ->groupBy('sales_order_item_id')
+            ->pluck('q', 'sales_order_item_id');
 
         $items = [];
         $subtotal = 0.0;
         foreach ($so->items as $soItem) {
-            $remaining = (float) $soItem->qty - (float) $soItem->qty_invoiced;
+            // Sebesar yang sudah dikirim & belum difakturkan — bukan sisa qty pesanan.
+            $remaining = (float) ($terkirim[$soItem->id] ?? 0) - (float) $soItem->qty_invoiced;
             if ($remaining <= 0) {
                 continue;
             }
@@ -1267,17 +1377,14 @@ class JubelioOrderSyncService
         }
 
         if (empty($items)) {
-            $link->invoice_posted = true;
-            $link->save();
-            return;
+            return null;
         }
 
-        // Rekonsiliasi grand_total (sama seperti SO): potongan marketplace → marketplace_fee
-        // (dibukukan ke akun fee saat posting), bukan diskon. Selisih − = biaya tambahan.
-        // Tanpa potongan dari Jubelio → estimasi dari setting (resolveMarketplaceFee).
-        $fees           = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, $so->customer_id);
-        $marketplaceFee = $fees['fee'];
-        $additionalFee  = $fees['expense'];
+        // Biaya admin marketplace SENGAJA 0 di sini — lihat docblock. Yang ikut hanyalah biaya
+        // tambahan yang sudah melekat di SO (mis. biaya layanan yang menambah nilai pesanan),
+        // supaya nilai faktur sama persis dengan nilai kotor SO.
+        $marketplaceFee = 0.0;
+        $additionalFee  = (float) ($so->additional_fee ?? 0);
 
         $dto = new SalesInvoiceDTO(
             sales_order_id: $so->id,
@@ -1297,16 +1404,59 @@ class JubelioOrderSyncService
         );
 
         $invoice = $this->invoiceService->createDraft($dto);
+
+        // Tandai KONVENSI BARU sebelum posting: grand_total kotor & fee menyusul saat
+        // settlement. InvoicePostingService membaca penanda ini untuk melewatkan pemanggilan
+        // marketplace engine, dan rekonsiliasi membacanya untuk menghitung nilai jual.
+        $invoice->forceFill(['fee_at_settlement' => true])->save();
+
         app(\App\Services\InvoicePostingService::class)->post($invoice);
 
-        $link->invoice_posted = true;
-        $link->jubelio_invoice_id = $detail['invoice_id'] ?? null;
-        $link->save();
+        return $invoice->fresh();
+    }
+
+    /**
+     * Lepas Saldo Ditahan ke Wallet & bebankan biaya admin — untuk faktur GAYA BARU.
+     *
+     * Faktur gaya baru terbit saat PENGIRIMAN mengikuti Sales Order persis: nilainya kotor dan
+     * biaya adminnya belum dibebankan, karena saat itu marketplace belum memotong apa pun.
+     * Begitu pesanan dinyatakan SELESAI, barulah potongannya diketahui dan settlement dijalankan:
+     *
+     *     Dr Wallet (sisa hold − fee) + Dr Beban Admin (fee) / Cr Saldo Ditahan (sisa hold)
+     *
+     * Fee di sini masih TAKSIRAN dari data Jubelio; selisihnya terhadap potongan sebenarnya
+     * dikoreksi saat rekonsiliasi settlement lewat `feeDiff`.
+     *
+     * Faktur gaya LAMA dilewati: fee-nya sudah dibebankan di jurnal faktur dan settlement-nya
+     * sudah jalan saat faktur diposting.
+     */
+    private function ensureSettlement(array $detail, JubelioOrderLink $link): void
+    {
+        $invoice = \App\Models\SalesInvoice::where('sales_order_id', $link->sales_order_id)
+            ->where('status', '!=', 'void')
+            ->latest('id')->first();
+
+        if (!$invoice || !$invoice->fee_at_settlement || $invoice->marketplace_processed) {
+            return;
+        }
+
+        $so = SalesOrder::find($link->sales_order_id);
+        if (!$so) {
+            return;
+        }
+
+        $subtotal   = (float) $so->subtotal;
+        $shipping   = (float) ($detail['shipping_cost'] ?? $so->shipping_cost ?? 0);
+        $grandTotal = (float) ($detail['grand_total'] ?? ($subtotal + $shipping));
+        $fee        = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, (int) $so->customer_id)['fee'];
+
+        app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice, $fee);
+
         JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
             'reference'             => $link->jubelio_salesorder_no,
             'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
-            'message'               => 'Invoice ' . ($invoice->invoice_number ?? '') . ' dibuat & diposting untuk SO ' . $so->order_number . '.',
-            'meta'                  => ['invoice_id' => $invoice->id ?? null],
+            'message'               => 'Pesanan selesai → saldo ditahan dilepas ke wallet, biaya admin ' . number_format($fee, 0, ',', '.') . ' dibebankan.',
+            'meta'                  => ['invoice_id' => $invoice->id, 'fee' => $fee],
         ]);
     }
 
@@ -1320,7 +1470,22 @@ class JubelioOrderSyncService
             return false;
         }
 
-        // Map tiap baris retur Jubelio (item_id, qty) ke SO item ERP.
+        // Retur DIIKATKAN KE FAKTUR bila ada — dan sejak faktur terbit saat pengiriman,
+        // pesanan yang barangnya sudah keluar pasti punya faktur.
+        //
+        // Penting untuk jurnalnya: retur atas FAKTUR membalik Penjualan & memindahkan HPP yang
+        // memang sudah dibukukan faktur. Retur atas SO membalik Uang Muka dan mengkredit HPP
+        // yang belum tentu pernah ada — itulah yang dulu membuat HPP jadi minus. Jalur SO tetap
+        // dipertahankan sebagai cadangan (pesanan lama / non-marketplace).
+        $invoice = \App\Models\SalesInvoice::with('items')
+            ->where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->latest('id')
+            ->first();
+
+        $doc = $invoice ?: $so;
+
+        // Map tiap baris retur Jubelio (item_id, qty) ke baris dokumen ERP.
         $items = [];
         foreach ($rows as $row) {
             $itemId = (int) ($row['item_id'] ?? 0);
@@ -1332,13 +1497,13 @@ class JubelioOrderSyncService
             if (!$product) {
                 continue;
             }
-            $soItem = $so->items->firstWhere('product_id', $product->id);
-            if (!$soItem) {
+            $docItem = $doc->items->firstWhere('product_id', $product->id);
+            if (!$docItem) {
                 continue;
             }
             $items[] = [
-                'invoice_item_id' => $soItem->id, // getDoc(SO) mencari by SO item id
-                'qty'             => min($qty, (float) $soItem->qty),
+                'invoice_item_id' => $docItem->id, // getDoc() mencari by id baris dokumen induk
+                'qty'             => min($qty, (float) $docItem->qty),
                 'condition'       => 'good', // default; dikoreksi manual saat cek barang
             ];
         }
@@ -1351,7 +1516,8 @@ class JubelioOrderSyncService
             customer_id: $so->customer_id,
             items: $items,
             date: now()->toDateString(),
-            sales_order_id: $so->id,
+            invoice_id: $invoice?->id,
+            sales_order_id: $invoice ? null : $so->id,
         );
 
         $this->returnService->saveDraft($dto); // DRAFT — tidak di-post
@@ -1473,8 +1639,12 @@ class JubelioOrderSyncService
      *   • diff = 0 → Jubelio TIDAK melaporkan potongan (mis. TikTok Tokopedia). Pakai
      *               ESTIMASI dari setting integrasi (MarketplaceConfig: admin_fee_percent +
      *               admin_fee_fixed) sbg marketplace_fee, lalu turunkan grand_total agar
-     *               DP/hold = nilai bersih. Selisih estimasi vs aktual direkonsiliasi nanti
-     *               saat settlement (akun fee_diff).
+     *               nilai faktur = nilai bersih. Selisih estimasi vs aktual direkonsiliasi
+     *               nanti saat settlement (akun fee_diff).
+     *
+     * CATATAN: `grand_total` yang dikembalikan (= nilai BERSIH) hanya dipakai FAKTUR.
+     * Sales Order sengaja memakai nilai KOTOR (subtotal + ongkir + expense) supaya DP kotor
+     * dan retur menutup rapi — lihat komentar panjang di titik pembuatan SO.
      *
      * @return array{fee: float, expense: float, grand_total: float}
      */

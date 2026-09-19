@@ -16,5 +16,11 @@ class SalesReturnDTO
         public string $date,
         public ?int $invoice_id = null,
         public ?int $sales_order_id = null,
+        /** Jenis kasus retur — kunci SalesReturn::RETURN_TYPES. NULL = belum didefinisikan. */
+        public ?string $return_type = null,
+        /** Nomor retur dari marketplace (yang tertempel di paket saat barang datang). */
+        public ?string $external_return_number = null,
+        /** Catatan bebas penanganan: riwayat banding, video packing yang dikirim, dll. */
+        public ?string $notes = null,
     ) {}
 }

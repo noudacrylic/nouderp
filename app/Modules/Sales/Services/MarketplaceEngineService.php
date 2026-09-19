@@ -9,12 +9,20 @@ use App\Core\Journal\JournalPostingService;
 use App\DTO\JournalEntryDTO;
 use App\DTO\JournalLineDTO;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class MarketplaceEngineService
 {
-    public function handle($invoice)
+    /**
+     * @param float|null $feeAktual Biaya admin marketplace yang dibebankan SEKARANG. Hanya
+     *   dipakai faktur gaya baru (`fee_at_settlement`), yang terbit saat pengiriman tanpa fee
+     *   — fee-nya baru diketahui & dibukukan di sini, saat pesanan selesai. Faktur lama
+     *   mengabaikannya: fee-nya sudah masuk jurnal faktur. NULL → pakai yang tersimpan di
+     *   faktur (dipakai command perbaikan yang memanggil ulang engine).
+     */
+    public function handle($invoice, ?float $feeAktual = null)
     {
-        DB::transaction(function () use ($invoice) {
+        DB::transaction(function () use ($invoice, $feeAktual) {
 
             // 🔒 1. DETEKSI MARKETPLACE
             $config = MarketplaceConfig::where('customer_id', $invoice->customer_id)
@@ -75,29 +83,70 @@ class MarketplaceEngineService
                 return;
             }
 
-            // 🧾 SETTLEMENT: PELEPASAN SALDO DITAHAN → WALLET.
-            // payout = grand_total invoice = NET yang benar-benar diterima marketplace di wallet.
-            // Biaya admin marketplace sudah dibukukan sbg beban saat posting invoice
-            // (revenue di-gross-up), jadi TIDAK dibebankan lagi di sini.
+            // Akun hold tempat DP berada. Marketplace = selalu satu akun; bila ternyata lebih
+            // dari satu, ambil yang terbesar & catat peringatan agar ketahuan.
+            $holdAcctId = (int) $deposits->groupBy('bank_account_id')
+                ->map(fn ($g) => (float) $g->sum('amount'))->sortDesc()->keys()->first();
+            if ($deposits->pluck('bank_account_id')->unique()->count() > 1) {
+                Log::warning('MarketplaceEngine: DP tersebar di lebih dari satu akun hold', [
+                    'invoice' => $invoice->id, 'sales_order_id' => $invoice->sales_order_id,
+                ]);
+            }
+
+            // Retur yang diposting LEBIH DULU sudah mengkredit (mengurangi) akun hold sendiri.
+            // Tanpa dikurangkan di sini, akun hold dikredit dua kali dan jadi MINUS sebesar
+            // nilai returnya.
+            $returCredit = $this->returKreditKeHold($invoice, $holdAcctId);
+            $holdSisa    = round($deposited - $returCredit, 2);
+
+            // SETTLEMENT: PELEPASAN SALDO DITAHAN -> WALLET.
             //
-            // PENTING (fix "saldo siluman"): akun hold di-KREDIT sebesar DEPOSITED (nominal DP
-            // yang benar-benar masuk hold), BUKAN sebesar payout. Bila DP di-post saat
-            // grand_total SO masih GROSS (potongan marketplace belum ketahuan) sementara invoice
-            // sudah NET, selisih (deposited − payout = biaya admin) akan nyangkut selamanya di
-            // akun hold. Selisih itu direklas ke Uang Muka Customer (2105) — akun yang sama yang
-            // di-kredit DP secara gross & di-debit invoice secara net — sehingga hold & uang muka
-            // sama-sama bersih tanpa dampak laba-rugi (biaya admin tetap dibebankan sekali).
-            $payout = round((float) $invoice->grand_total, 2);
-            $gap    = round($deposited - $payout, 2);
+            // Faktur GAYA BARU (fee_at_settlement): terbit saat pengiriman mengikuti SO persis,
+            // jadi grand_total-nya KOTOR & fee belum pernah dibebankan. Di sinilah fee dicatat:
+            //   Dr Wallet (sisa hold - fee) + Dr Beban Admin (fee) / Cr Hold (sisa hold)
+            //
+            // Faktur LAMA: fee sudah dibebankan di jurnal faktur (revenue di-gross-up) dan
+            // grand_total-nya sudah bersih, jadi TIDAK dibebankan lagi di sini.
+            //
+            // Sisa yang tak terjelaskan (mis. DP kotor vs faktur lama yang bersih) direklas ke
+            // Uang Muka Customer (2105) supaya hold & uang muka sama-sama bersih tanpa dampak
+            // laba-rugi — biaya admin tetap dibebankan tepat sekali.
+            $feeBaru = 0.0;
+            if ($invoice->fee_at_settlement) {
+                $feeBaru = round($feeAktual ?? (float) ($invoice->marketplace_fee ?? 0), 2);
+                if ($feeBaru < 0) {
+                    $feeBaru = 0.0;
+                }
+                $payout = round($holdSisa - $feeBaru, 2);
+            } else {
+                $payout = round((float) $invoice->grand_total, 2);
+            }
+
+            $gap = round($holdSisa - $payout - $feeBaru, 2);
             $advanceAccountId = (int) DB::table('accounts')->where('code', '2105')->value('id');
 
+            if ($feeBaru > 0 && !$config->account_fee_id) {
+                Log::warning('MarketplaceEngine: akun fee belum diset - fee dilebur ke reklas uang muka', [
+                    'invoice' => $invoice->id, 'fee' => $feeBaru,
+                ]);
+                $gap     = round($gap + $feeBaru, 2);
+                $feeBaru = 0.0;
+            }
+
             $lines = [];
-            // Dr Wallet marketplace (net diterima)
+            // Dr Wallet marketplace (dana bersih yang benar-benar diterima)
             $lines[] = new JournalLineDTO(
                 account_id: (int) $config->account_wallet_id,
                 debit: $payout, credit: 0,
                 description: 'Net masuk wallet marketplace'
             );
+            if ($feeBaru > 0) {
+                $lines[] = new JournalLineDTO(
+                    account_id: (int) $config->account_fee_id,
+                    debit: $feeBaru, credit: 0,
+                    description: 'Biaya admin marketplace'
+                );
+            }
             // Dr/Cr Uang Muka Customer utk selisih gross↔net (agar hold & uang muka bersih)
             if (abs($gap) > 0.005 && $advanceAccountId) {
                 $lines[] = new JournalLineDTO(
@@ -107,14 +156,13 @@ class MarketplaceEngineService
                     description: 'Reklas selisih biaya admin marketplace (gross↔net)'
                 );
             }
-            // Cr akun Hold sebesar DEPOSITED — per akun hold aktual (umumnya satu).
-            foreach ($deposits->groupBy('bank_account_id') as $acctId => $grp) {
-                $lines[] = new JournalLineDTO(
-                    account_id: (int) $acctId,
-                    debit: 0, credit: round((float) $grp->sum('amount'), 2),
-                    description: 'Pelepasan saldo ditahan marketplace'
-                );
-            }
+            // Cr akun Hold sebesar SISA yang masih tertahan (DP dikurangi retur yang sudah
+            // mengkreditnya) — bukan sebesar DP penuh, supaya hold tidak jadi minus.
+            $lines[] = new JournalLineDTO(
+                account_id: $holdAcctId,
+                debit: 0, credit: $holdSisa,
+                description: 'Pelepasan saldo ditahan marketplace'
+            );
 
             $dto = new JournalEntryDTO(
                 date: $invoice->invoice_date,
@@ -126,10 +174,50 @@ class MarketplaceEngineService
 
             app(JournalPostingService::class)->post($dto);
 
-            // 🔒 4. TANDAI SUDAH DIPROSES
-            $invoice->update([
-                'marketplace_processed' => true
-            ]);
+            // 4. TANDAI SUDAH DIPROSES. Untuk faktur gaya baru, fee yang baru saja dibebankan
+            //    dicatat di faktur sbg "sudah dibukukan" — dipakai rekonsiliasi sebagai
+            //    `prebooked`. grand_total SENGAJA tidak diturunkan.
+            $isi = ['marketplace_processed' => true];
+            if ($invoice->fee_at_settlement) {
+                $isi['marketplace_fee'] = $feeBaru;
+            }
+            $invoice->update($isi);
         });
+    }
+
+    /**
+     * Nilai retur POSTED yang sudah MENGKREDIT akun hold ini untuk dokumen tsb.
+     *
+     * SalesReturnService menjurnal `Dr Uang Muka / Cr Saldo Ditahan` (retur atas SO) atau
+     * `Dr Penjualan / Cr Saldo Ditahan` (retur atas faktur). Jadi sebagian saldo hold sudah
+     * dilepas duluan oleh retur, dan settlement hanya boleh melepas sisanya.
+     */
+    private function returKreditKeHold($invoice, int $holdAcctId): float
+    {
+        if (!$holdAcctId) {
+            return 0.0;
+        }
+
+        $returIds = \App\Modules\Sales\Models\SalesReturn::query()
+            ->where('status', 'posted')
+            ->where(function ($w) use ($invoice) {
+                $w->where('invoice_id', $invoice->id);
+                if ($invoice->sales_order_id) {
+                    $w->orWhere('sales_order_id', $invoice->sales_order_id);
+                }
+            })
+            ->pluck('id');
+
+        if ($returIds->isEmpty()) {
+            return 0.0;
+        }
+
+        return round((float) DB::table('journal_lines as jl')
+            ->join('journals as j', 'j.id', '=', 'jl.journal_id')
+            ->where('j.status', '!=', 'void')
+            ->where('j.reference_type', 'sales_return')
+            ->whereIn('j.reference_id', $returIds)
+            ->where('jl.account_id', $holdAcctId)
+            ->selectRaw('SUM(jl.credit) - SUM(jl.debit) v')->value('v'), 2);
     }
 }

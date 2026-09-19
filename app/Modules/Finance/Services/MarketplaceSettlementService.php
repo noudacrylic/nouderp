@@ -215,7 +215,11 @@ class MarketplaceSettlementService
                     'sales_invoice_id'          => $invoice?->id,
                     'is_matched'                => (bool) $invoice,
                     'raw_row'                   => $row['raw_row'] ?? null,
-                    'note'                      => $invoice ? null : 'Invoice tidak ketemu (cek PO number di Sales Order)',
+                    'note'                      => $invoice
+                        ? null
+                        : ((float) $row['net_amount'] < 0
+                            ? 'Potongan marketplace tanpa pesanan (mis. premi asuransi) — dibukukan sbg biaya admin'
+                            : 'Invoice tidak ketemu (cek PO number di Sales Order)'),
                 ]);
 
                 $totals['gross']      += $gross;
@@ -325,8 +329,14 @@ class MarketplaceSettlementService
         }
 
         $ms->load('lines');
-        $matchedCount   = $ms->lines->where('is_matched', true)->count();
-        $unmatchedCount = $ms->lines->where('is_matched', false)->count();
+        $matchedCount = $ms->lines->where('is_matched', true)->count();
+
+        // Baris potongan (net negatif) TIDAK ikut dipindah ke draf pending meski tak punya
+        // faktur: ia bukan pesanan yang fakturnya belum dibuat, melainkan biaya marketplace
+        // (premi asuransi dsb) yang memang tak akan pernah punya faktur. Kalau ikut dipindah,
+        // ia mengendap di draf selamanya & preminya tak pernah terjurnal.
+        $pindah = $ms->lines->filter(fn ($l) => !$l->is_matched && (float) $l->net_amount >= 0);
+        $unmatchedCount = $pindah->count();
 
         if ($matchedCount === 0) {
             throw new DomainException('Tidak ada baris matched. Tambahkan invoice marketplace dulu, sistem akan auto-match (atau klik Retry Match).');
@@ -350,6 +360,7 @@ class MarketplaceSettlementService
                 // 2. Pindahkan unmatched lines ke settlement baru
                 MarketplaceSettlementLine::where('marketplace_settlement_id', $ms->id)
                     ->where('is_matched', false)
+                    ->where('net_amount', '>=', 0)
                     ->update(['marketplace_settlement_id' => $pending->id]);
 
                 // 3. Recalc totals di dua-duanya
@@ -491,22 +502,92 @@ class MarketplaceSettlementService
     }
 
     /**
-     * Tentukan gross (nilai jual penuh) & fee yang SUDAH dibukukan di faktur.
-     * - Ada faktur: gross = grand_total + marketplace_fee (= subtotal, nilai jual sebelum
-     *   biaya admin marketplace). prebooked = marketplace_fee (Biaya Admin yg sudah masuk jurnal faktur).
-     * - Tanpa faktur: gross = net (asumsi tanpa biaya, order pra-ERP), prebooked = 0.
+     * Tentukan gross (nilai jual penuh) & fee yang SUDAH dibukukan, lalu kurangi retur.
+     *
+     * DUA KONVENSI faktur marketplace hidup berdampingan, dibedakan `fee_at_settlement`:
+     *  - BARU (true) : faktur terbit saat pengiriman mengikuti SO persis → `grand_total`
+     *    SUDAH kotor. `marketplace_fee` diisi MarketplaceEngineService saat pesanan selesai
+     *    sebagai catatan "fee sudah dibebankan", tanpa menurunkan grand_total.
+     *    → gross = grand_total.
+     *  - LAMA (false): faktur terbit saat pesanan selesai dgn fee sudah dipotong →
+     *    `grand_total` BERSIH dan fee-nya dijurnal di faktur itu.
+     *    → gross = grand_total + marketplace_fee.
+     * Keduanya: prebooked = marketplace_fee (fee yang sudah masuk jurnal, di mana pun).
+     *
+     * Tanpa faktur: gross = net (asumsi tanpa biaya, order pra-ERP), prebooked = 0;
+     * kecuali baris potongan (net negatif) — lihat di bawah.
+     *
      * Return [gross, prebooked].
+     *
+     * KENAPA retur ikut dikurangkan. Pada refund sebagian, marketplace hanya mencairkan sisa
+     * pesanan (contoh nyata: subtotal 618.000 → 281.587, cair 235.613). Tanpa mengurangkan
+     * returnya, gross tetap 618.000 sehingga feeActual melar jadi ratusan ribu & baris itu
+     * tampak seperti potongan admin raksasa. `prebooked` sengaja TIDAK ikut dikurangi: jurnal
+     * retur membalik penjualan tapi tidak membalik biaya admin, jadi fee yang terlanjur
+     * dibebankan penuh justru dikoreksi lewat feeDiff yang negatif — dan itu memang benar.
      */
     protected function resolveGross(?SalesInvoice $invoice, array $row): array
     {
         if ($invoice) {
             $prebooked = (float) ($invoice->marketplace_fee ?? 0);
-            $gross = round((float) $invoice->grand_total + $prebooked, 2);
+            $gross = $invoice->fee_at_settlement
+                ? round((float) $invoice->grand_total, 2)
+                : round((float) $invoice->grand_total + $prebooked, 2);
+            $gross = round($gross - $this->postedReturnReversal($invoice), 2);
+            if ($gross < 0) $gross = 0.0;
             return [$gross, $prebooked];
         }
+        $net = (float) ($row['net_amount'] ?? 0);
+
+        // POTONGAN marketplace tanpa pesanan (net negatif): premi asuransi pengiriman,
+        // "Biaya Lainnya", dsb. gross = 0, sehingga feeActual = 0 − (−350) = +350 dan
+        // potongannya dibukukan Dr Beban Admin Marketplace / Cr Wallet lewat post().
+        //
+        // DULU gross disalin dari net (−350), membuat feeActual = 0 → baris ini tak pernah
+        // menghasilkan jurnal apa pun dan saldo wallet ERP melar sebesar preminya tiap pesanan.
+        //
+        // Premi diperlakukan sebagai biaya admin karena polanya memang sama: dibayar baik
+        // klaimnya nanti berhasil maupun gagal, dan dipotong langsung dari dana cair.
+        if ($net < 0) {
+            return [0.0, 0.0];
+        }
+
         $gross = (float) ($row['gross_amount'] ?? 0);
-        if ($gross <= 0) $gross = (float) ($row['net_amount'] ?? 0);
+        if ($gross <= 0) $gross = $net;
         return [$gross, 0.0];
+    }
+
+    /**
+     * Nilai retur POSTED yang benar-benar membalik penjualan untuk dokumen ini.
+     *
+     * Retur dicari lewat faktur MAUPUN Sales Order-nya, karena retur marketplace umumnya
+     * dibuka atas SO (barang keluar sebelum faktur terbit), bukan atas faktur.
+     *
+     * Dihitung PER BARIS, bukan per dokumen: baris berkondisi `tidak_kembali` (barang hilang
+     * tapi dananya diganti marketplace) tidak pernah membalik penjualan, jadi tidak boleh
+     * mengurangi nilai yang diharapkan cair. Satu retur bisa campur — sebagian diganti,
+     * sebagian benar-benar dikembalikan. Aturannya sama dengan SalesReturn::reversedAmount().
+     */
+    protected function postedReturnReversal(SalesInvoice $invoice): float
+    {
+        $returnIds = \App\Modules\Sales\Models\SalesReturn::query()
+            ->where('status', 'posted')
+            ->where(function ($w) use ($invoice) {
+                $w->where('invoice_id', $invoice->id);
+                if ($invoice->sales_order_id) {
+                    $w->orWhere('sales_order_id', $invoice->sales_order_id);
+                }
+            })
+            ->pluck('id');
+
+        if ($returnIds->isEmpty()) {
+            return 0.0;
+        }
+
+        return round((float) \App\Modules\Sales\Models\SalesReturnItem::query()
+            ->whereIn('sales_return_id', $returnIds)
+            ->where('condition', '!=', \App\Modules\Sales\Models\SalesReturn::CONDITION_NO_RETURN)
+            ->sum('subtotal'), 2);
     }
 
     /**

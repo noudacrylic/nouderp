@@ -14,7 +14,14 @@
             <h1 class="text-xl font-bold text-gray-800">
                 Form Retur Pelanggan
             </h1>
-            <p class="text-xs text-gray-500 mt-0.5">Retur akan membalik penjualan & menambah saldo Kelebihan Bayar Pelanggan (2106).</p>
+            <p class="text-xs text-gray-500 mt-0.5" x-show="summary.reversed > 0">
+                Retur akan membalik penjualan &amp; menambah saldo Kelebihan Bayar Pelanggan (2106).
+            </p>
+            {{-- Semua barisnya "tidak kembali" → dananya diganti, tak ada yang dibalik. --}}
+            <p class="text-xs text-green-600 mt-0.5 font-semibold"
+               x-show="summary.net > 0 && summary.reversed <= 0" x-cloak>
+                Semua barang tidak kembali &amp; dananya diganti — retur ini hanya dicatat sebagai kasus, tanpa jurnal pembalik.
+            </p>
         </div>
         <a href="{{ route('sales.returns.index') }}"
            class="inline-flex items-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
@@ -79,9 +86,9 @@
                             </div>
                         </div>
 
-                        {{-- Jenis Retur --}}
+                        {{-- Sumber Dokumen (faktur vs SO) — BUKAN jenis kasus retur, itu di Section 1 bawah. --}}
                         <div class="col-span-1">
-                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Jenis Retur</label>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Sumber Dokumen</label>
                             <select x-model="returnType" @change="onReturnTypeChange()" class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                                 <option value="invoice">🛍️ Dari Faktur</option>
                                 <option value="so">📋 Dari Sales Order</option>
@@ -94,8 +101,8 @@
                             
                             <input type="text"
                                 x-model="docQuery"
-                                @input="showDocDropdown = true"
-                                @focus="showDocDropdown = true"
+                                @input="showDocDropdown = true; ensureDocumentsLoaded()"
+                                @focus="showDocDropdown = true; ensureDocumentsLoaded()"
                                 placeholder="Cari nomor document..."
                                 autocomplete="off"
                                 class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
@@ -168,6 +175,43 @@
                                class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                :max="today">
                     </div>
+
+                    {{-- Definisi kasus retur. Selama Jenis Retur kosong, retur menunggu di
+                         tab "Retur Baru" dan tidak bisa diselesaikan. --}}
+                    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4" x-show="selectedDoc" x-transition>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                                Jenis Retur <span class="text-red-500">*</span>
+                            </label>
+                            <select name="return_type" x-model="caseType"
+                                    @change="applyDefaultConditionFromCaseType()"
+                                    class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">— Belum ditentukan —</option>
+                                @foreach(\App\Modules\Sales\Models\SalesReturn::RETURN_TYPES as $key => $label)
+                                    <option value="{{ $key }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                                Nomor Retur Marketplace
+                            </label>
+                            <input type="text" name="external_return_number" x-model="externalReturnNo"
+                                   placeholder="Nomor yang tertempel di paket retur"
+                                   class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p class="text-[11px] text-gray-400 mt-1">Sering berbeda dari nomor pesanan — dipakai gudang saat paket datang.</p>
+                        </div>
+
+                        <div class="md:col-span-2">
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                                Catatan Penanganan
+                            </label>
+                            <textarea name="notes" x-model="caseNotes" rows="3"
+                                      placeholder="Riwayat banding, video packing yang dikirim, tanggapan marketplace…"
+                                      class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                        </div>
+                    </div>
                 </div>
 
                 {{-- ═══ SECTION 2: ITEM LIST ═══ --}}
@@ -187,6 +231,7 @@
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-green-400"></span> Utuh → Stok kembali + HPP reverse</div>
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-yellow-400"></span> Perbaikan → Persediaan Perbaikan + HPP reverse</div>
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-red-400"></span> Rusak → Beban kerugian, tidak masuk stok</div>
+                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span> Tidak Kembali → dana diganti marketplace, tidak ada jurnal pembalik</div>
                         <div class="flex items-center gap-1.5 text-blue-400">Butuh campur kondisi? Klik <span class="font-bold">"Pisah kondisi"</span> pada baris produk.</div>
                     </div>
 
@@ -197,7 +242,7 @@
                                     <th class="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Produk</th>
                                     <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-24" x-text="returnType === 'invoice' ? 'Qty Faktur' : 'Qty Order'"></th>
                                     <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-28">Qty Retur</th>
-                                    <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-36">Kondisi</th>
+                                    <th class="px-4 py-3 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-36">Kondisi Barang<br><span class="normal-case font-semibold tracking-normal text-gray-300">yang kembali ke penjual</span></th>
                                     <th class="px-4 py-3 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest w-36">Nilai Retur</th>
                                 </tr>
                             </thead>
@@ -278,6 +323,7 @@
                                                                 <option value="good">🟢 Utuh</option>
                                                                 <option value="repair">🟡 Perbaikan</option>
                                                                 <option value="damaged">🔴 Rusak</option>
+                                                                <option value="tidak_kembali">⚪ Tidak Kembali</option>
                                                             </select>
                                                         </div>
                                                     </template>
@@ -297,6 +343,7 @@
                                                         <option value="good">🟢 Utuh</option>
                                                         <option value="repair">🟡 Perbaikan</option>
                                                         <option value="damaged">🔴 Tidak Dapat Diperbaiki</option>
+                                                        <option value="tidak_kembali">⚪ Tidak Kembali (dana diganti)</option>
                                                     </select>
                                                     <button type="button" @click="enableSplit(index)"
                                                             class="text-[9px] text-blue-500 hover:text-blue-700 hover:underline font-semibold">
@@ -575,12 +622,21 @@ function returForm(initialData = null) {
         items: [],
         returnDate: initialData?.return_date ? initialData.return_date.split('T')[0] : '{{ now()->format("Y-m-d") }}',
         today: '{{ now()->format("Y-m-d") }}',
+
+        // Definisi kasus retur. Dinamai caseType, BUKAN returnType — nama itu sudah dipakai
+        // di atas untuk memilih dokumen sumber (invoice vs SO).
+        caseType: initialData?.return_type || '',
+        externalReturnNo: initialData?.external_return_number || '',
+        caseNotes: initialData?.notes || '',
         customerBalance: initialData?.customer?.credit_balance || 0,
         isMarketplace: initialData?.customer?.is_marketplace || false,
         marketplaceHoldName: initialData?.customer?.marketplace_hold_name || '',
 
         // UI
         loadingDocs: false,
+        // Daftar penuh dokumen pelanggan sudah ditarik? Di mode edit sengaja belum —
+        // hanya satu dokumen yang dimuat agar halaman langsung terbuka.
+        fullDocsLoaded: false,
         loadingBalance: false,
         showConfirm: false,
 
@@ -625,6 +681,7 @@ function returForm(initialData = null) {
 
         summary: {
             net: 0,
+            reversed: 0,
             cogs: 0,
             conditionTotals: {
                 good: 0,
@@ -645,14 +702,18 @@ function returForm(initialData = null) {
                 // We are in EDIT mode (from Draft)
                 this.loadingDocs = true;
                 try {
-                    // 1. Load documents for this customer
-                    const url = this.returnType === 'invoice' 
-                        ? `{{ route('sales.ajax.returns.invoices') }}?customer_id=${this.customerId}`
-                        : `{{ route('sales.ajax.returns.orders') }}?customer_id=${this.customerId}`;
-                    
-                    const res = await fetch(url);
+                    // 1. Ambil HANYA dokumen yang sudah melekat pada retur ini (`&id=`).
+                    //    Menarik seluruh daftar pesanan pelanggan cuma untuk mencari satu baris
+                    //    membuat halaman menggantung lama pada pelanggan marketplace yang punya
+                    //    ribuan pesanan. Daftar lengkap baru dimuat kalau dokumennya mau diganti
+                    //    (lihat ensureDocumentsLoaded).
+                    const base = this.returnType === 'invoice'
+                        ? `{{ route('sales.ajax.returns.invoices') }}`
+                        : `{{ route('sales.ajax.returns.orders') }}`;
+
+                    const res = await fetch(`${base}?customer_id=${this.customerId}&id=${this.selectedDocId}`);
                     this.documents = await res.json();
-                    
+
                     // 2. Select the current document
                     this.selectedDoc = this.documents.find(d => d.id == this.selectedDocId);
                     
@@ -690,9 +751,42 @@ function returForm(initialData = null) {
             }
         },
 
+        /**
+         * Muat daftar lengkap dokumen pelanggan — hanya saat orangnya benar-benar hendak
+         * MENGGANTI dokumen sumber. Di mode edit kita sengaja hanya memuat satu dokumen
+         * supaya halaman langsung terbuka; kalau tidak dipanggil di sini, kotak pencarian
+         * dokumen akan tampak kosong padahal cuma belum dimuat.
+         */
+        async ensureDocumentsLoaded() {
+            if (this.fullDocsLoaded || this.loadingDocs || !this.customerId) return;
+
+            this.loadingDocs = true;
+            try {
+                const base = this.returnType === 'invoice'
+                    ? `{{ route('sales.ajax.returns.invoices') }}`
+                    : `{{ route('sales.ajax.returns.orders') }}`;
+
+                const res  = await fetch(`${base}?customer_id=${this.customerId}`);
+                const list = await res.json();
+
+                // Dokumen yang sedang dipakai belum tentu lolos saringan kelayakan daftar
+                // (mis. sudah punya retur draft) — jangan sampai hilang dari pilihan.
+                const dipakai = this.documents.find(d => d.id == this.selectedDocId);
+                if (dipakai && !list.some(d => d.id == dipakai.id)) list.unshift(dipakai);
+
+                this.documents = list;
+                this.fullDocsLoaded = true;
+            } catch (e) {
+                console.error('Gagal memuat daftar dokumen:', e);
+            } finally {
+                this.loadingDocs = false;
+            }
+        },
+
         // ── Customer Changed ──────────────────────────────
         async onCustomerChange(id) {
             this.customerId = id || null;
+            this.fullDocsLoaded = false; // ganti pelanggan → daftar lama tak berlaku
             this.documents = [];
             this.selectedDoc = null;
             this.selectedDocId = null;
@@ -700,6 +794,7 @@ function returForm(initialData = null) {
             this.customerBalance = 0;
             this.summary = {
                 net: 0,
+                reversed: 0,
                 cogs: 0,
                 conditionTotals: {
                     good: 0,
@@ -741,14 +836,16 @@ function returForm(initialData = null) {
 
         async onReturnTypeChange() {
             if (!this.customerId) return;
-            
+
             this.loadingDocs = true;
+            this.fullDocsLoaded = false; // ganti sumber dokumen → daftar lama tak berlaku
             this.documents = [];
             this.selectedDoc = null;
             this.selectedDocId = null;
             this.items = [];
             this.summary = {
                 net: 0,
+                reversed: 0,
                 cogs: 0,
                 conditionTotals: {
                     good: 0,
@@ -766,6 +863,7 @@ function returForm(initialData = null) {
                 
                 const res = await fetch(url);
                 this.documents = await res.json();
+                this.fullDocsLoaded = true; // ini memang daftar penuh
             } catch (e) {
                 console.error('Error loading documents:', e);
             } finally {
@@ -780,6 +878,7 @@ function returForm(initialData = null) {
             this.items         = [];
             this.summary       = {
                 net: 0,
+                reversed: 0,
                 cogs: 0,
                 conditionTotals: {
                     good: 0,
@@ -826,6 +925,38 @@ function returForm(initialData = null) {
         },
 
         onConditionChange(index) {
+            this.calculateSummary();
+        },
+
+        /**
+         * HANYA paket hilang yang kondisinya boleh ditentukan otomatis, dan bawaannya
+         * `tidak_kembali`: barangnya tidak pernah sampai ke tangan siapa pun untuk diperiksa,
+         * dan marketplace mengganti dananya — jadi tidak ada yang perlu dibalik.
+         * Kalau ternyata klaimnya ditolak, admin tinggal mengubah barisnya ke "Tidak Dapat
+         * Diperbaiki" supaya penjualannya dibalik & barangnya jadi Beban Kerugian Retur.
+         *
+         * Jenis lain SENGAJA TIDAK diisi otomatis. Barang yang datang belum tentu utuh: paket
+         * gagal kirim bisa penyok di jalan, barang "tidak sesuai" bisa sekalian rusak. Menebak
+         * "utuh" membuat admin tinggal klik simpan tanpa membuka paketnya, dan stok barang rusak
+         * masuk kembali sebagai barang baik. Kondisi wajib hasil pemeriksaan manual.
+         *
+         * Baris yang kondisinya sudah dipisah manual TIDAK diutak-atik.
+         */
+        applyDefaultConditionFromCaseType() {
+            const bawaan = { paket_hilang: 'tidak_kembali' }[this.caseType];
+
+            if (!bawaan) return;
+
+            this.items.forEach((item, i) => {
+                if (item.split) return;
+                if (item.is_bundle) {
+                    Object.keys(item.component_conditions || {}).forEach(pid => {
+                        item.component_conditions[pid] = bawaan;
+                    });
+                    return;
+                }
+                item.condition = bawaan;
+            });
             this.calculateSummary();
         },
 
@@ -962,12 +1093,14 @@ function returForm(initialData = null) {
         },
 
         calculateSummary() {
-            let net = 0;
+            let net = 0;        // nilai kasus retur seutuhnya
+            let reversed = 0;   // bagian yang benar-benar membalik penjualan
             let cogs = 0;
             const conditionTotals = {
                 good: 0,
                 repair: 0,
                 damaged: 0,
+                tidak_kembali: 0,
             };
 
             this.items.forEach(item => {
@@ -975,8 +1108,12 @@ function returForm(initialData = null) {
                     // Pendapatan/nilai retur = level bundle; COGS di-split per komponen sesuai kondisinya.
                     const q = parseFloat(item.qty_return) || 0;
                     if (q <= 0) return;
-                    net += this.lineValueFor(item, q);
+                    const nilai = this.lineValueFor(item, q);
+                    net += nilai;
+                    if (item.condition !== 'tidak_kembali') reversed += nilai;
                     this.bundleComponentCogs(item).forEach(cc => {
+                        // Komponen yang tidak kembali tak memindahkan HPP ke mana pun.
+                        if (cc.condition === 'tidak_kembali') return;
                         cogs += cc.cogs;
                         if (conditionTotals[cc.condition] !== undefined) {
                             conditionTotals[cc.condition] += cc.cogs;
@@ -985,7 +1122,10 @@ function returForm(initialData = null) {
                     return;
                 }
                 this.itemAllocations(item).forEach(a => {
-                    net  += this.lineValueFor(item, a.qty);
+                    const nilai = this.lineValueFor(item, a.qty);
+                    net += nilai;
+                    if (a.condition === 'tidak_kembali') return; // dana diganti → tak membalik apa pun
+                    reversed += nilai;
                     const lineCogs = this.lineCogsFor(item, a.qty);
                     cogs += lineCogs;
                     if (conditionTotals[a.condition] !== undefined) {
@@ -996,6 +1136,7 @@ function returForm(initialData = null) {
 
             this.summary = {
                 net: Math.round(net * 100) / 100,
+                reversed: Math.round(reversed * 100) / 100,
                 cogs: Math.round(cogs * 100) / 100,
                 conditionTotals: {
                     good: Math.round(conditionTotals.good * 100) / 100,
@@ -1041,14 +1182,15 @@ function returForm(initialData = null) {
                 conditions: [],
             };
 
-            if (this.summary.net > 0) {
+            // Hanya bagian yang membalik penjualan yang muncul sbg baris pembalik.
+            if (this.summary.reversed > 0) {
                 preview.revenue = {
                     debitLabel: this.returnType === 'so'
                         ? 'Dr. 2105 Uang Muka Penjualan'
                         : 'Dr. 4001 Penjualan',
                     creditLabel: `Cr. ${this.getReturnAccountName()}`,
                     debitClass: this.returnType === 'so' ? 'text-indigo-600' : 'text-blue-600',
-                    amount: this.summary.net,
+                    amount: this.summary.reversed,
                 };
             }
 

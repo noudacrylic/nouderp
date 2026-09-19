@@ -26,15 +26,22 @@ class SalesReturnService
     /**
      * Save return as draft (no accounting impact)
      *
-     * $stage default `diproses` = barang sudah tiba & tinggal dicek (jalur normal, termasuk
-     * retur dari Jubelio yang baru tahu saat barang sampai gudang). Pakai `baru` untuk kasus
-     * yang barangnya belum tentu kembali, mis. pembatalan marketplace setelah barang keluar.
+     * $stage default `diproses` = barang sudah tiba & tinggal dicek. Tapi tahap `baru` MENANG
+     * atas argumen ini bila jenis retur belum diisi: "Retur Baru" menurut definisinya adalah
+     * retur yang belum ketahuan kasusnya apa (paket hilang / gagal kirim / dst). Selama
+     * `return_type` kosong, retur menunggu di tab "Baru" untuk didefinisikan admin — termasuk
+     * retur yang ditarik otomatis dari Jubelio, yang datang tanpa keterangan jenis.
      */
     public function saveDraft(SalesReturnDTO $dto, string $stage = 'diproses'): SalesReturn
     {
         return DB::transaction(function () use ($dto, $stage) {
             $doc = $this->getDoc($dto);
             $totals = $this->calculateTotals($dto, $doc);
+
+            $stage = array_key_exists($stage, SalesReturn::STAGES) ? $stage : 'diproses';
+            if (empty($dto->return_type)) {
+                $stage = 'baru';
+            }
 
             $return = SalesReturn::create([
                 'return_number'  => NumberGeneratorService::generate('SR'),
@@ -44,7 +51,10 @@ class SalesReturnService
                 'return_date'    => $dto->date,
                 'grand_total'    => $totals['net'],
                 'status'         => 'draft',
-                'stage'          => array_key_exists($stage, SalesReturn::STAGES) ? $stage : 'diproses',
+                'stage'          => $stage,
+                'return_type'            => $dto->return_type,
+                'external_return_number' => $dto->external_return_number,
+                'notes'                  => $dto->notes,
             ]);
 
             foreach ($dto->items as $item) {
@@ -81,9 +91,15 @@ class SalesReturnService
             $doc = $this->getDoc($dto);
             $totals = $this->calculateTotals($dto, $doc);
 
+            // Mengisi jenis retur = mendefinisikan kasusnya → retur naik dari "baru" ke
+            // "diproses". Tahap yang sudah lebih jauh tidak ditarik mundur.
             $return->update([
                 'return_date' => $dto->date,
                 'grand_total' => $totals['net'],
+                'return_type'            => $dto->return_type,
+                'external_return_number' => $dto->external_return_number,
+                'notes'                  => $dto->notes,
+                'stage' => (!empty($dto->return_type) && $return->stage === 'baru') ? 'diproses' : $return->stage,
             ]);
 
             $return->items()->delete();
@@ -125,6 +141,9 @@ class SalesReturnService
                     'grand_total' => $totals['net'],
                     'status'      => 'posted',
                     'stage'       => 'selesai',
+                    'return_type'            => $dto->return_type ?? $return->return_type,
+                    'external_return_number' => $dto->external_return_number ?? $return->external_return_number,
+                    'notes'                  => $dto->notes ?? $return->notes,
                 ]);
                 $return->items()->delete();
                 foreach ($dto->items as $item) {
@@ -140,6 +159,9 @@ class SalesReturnService
                     'grand_total'    => $totals['net'],
                     'status'         => 'posted',
                     'stage'          => 'selesai',
+                    'return_type'            => $dto->return_type,
+                    'external_return_number' => $dto->external_return_number,
+                        'notes'                  => $dto->notes,
                 ]);
 
                 foreach ($dto->items as $item) {
@@ -147,8 +169,15 @@ class SalesReturnService
                 }
             }
 
+            // Penjualan hanya dibalik sebesar baris yang BUKAN `tidak_kembali`. Baris
+            // `tidak_kembali` dananya diganti marketplace, jadi omzet & HPP-nya tetap sah dan
+            // barangnya memang tidak pernah kembali — tidak ada yang perlu dibalik untuk baris
+            // itu. Kalau semua barisnya `tidak_kembali`, jurnalnya kosong sama sekali dan
+            // dokumen retur murni jadi catatan kasus.
             $journalLines = [];
-            $journalLines = array_merge($journalLines, $this->getRevenueReversalLines($doc, $totals['net'], (bool) $dto->sales_order_id));
+            if ($totals['reversed'] > 0) {
+                $journalLines = array_merge($journalLines, $this->getRevenueReversalLines($doc, $totals['reversed'], (bool) $dto->sales_order_id));
+            }
             $journalLines = array_merge($journalLines, $this->getCogsReversalLines($dto, $doc, $return->id));
 
             if (!empty($journalLines)) {
@@ -165,10 +194,10 @@ class SalesReturnService
                 ));
             }
 
-            if ($totals['net'] > 0 && !$doc->customer->is_marketplace) {
+            if ($totals['reversed'] > 0 && !$doc->customer->is_marketplace) {
                 CustomerOverpayment::create([
                     'customer_id' => $dto->customer_id,
-                    'amount'      => $totals['net'],
+                    'amount'      => $totals['reversed'],
                     'reference'   => $return->return_number,
                     'note'        => 'Sales Return',
                 ]);
@@ -299,6 +328,12 @@ class SalesReturnService
                 continue;
             }
 
+            // `tidak_kembali`: barang hilang & dananya diganti → penjualannya sah. HPP tetap
+            // di 5001, stok tidak dipulihkan, tidak ada baris jurnal sama sekali.
+            if (($item['condition'] ?? null) === SalesReturn::CONDITION_NO_RETURN) {
+                continue;
+            }
+
             $unitCogs = $cogsTotal > 0 ? $cogsTotal / $qty : 0;
             $returnCogs = round($unitCogs * $item['qty'], 2);
 
@@ -420,6 +455,12 @@ class SalesReturnService
 
         foreach ($components as $comp) {
             $cond = $componentConditions[(int) $comp->component_product_id] ?? 'good';
+
+            // Komponen yang tidak kembali & dananya diganti: tak ada stok masuk, tak ada
+            // pemindahan HPP — sama seperti baris non-bundle.
+            if ($cond === SalesReturn::CONDITION_NO_RETURN) {
+                continue;
+            }
             $compQtyPerBundle = (float) ($comp->{$qtyField} ?? 1);
             if ($compQtyPerBundle <= 0) {
                 continue;
@@ -476,6 +517,7 @@ class SalesReturnService
             'good' => AccountCodeEnum::INVENTORY,
             'repair' => AccountCodeEnum::INVENTORY_REPAIR,
             'damaged' => AccountCodeEnum::SALES_LOSS,
+            // tidak_kembali tak pernah sampai sini (dilewati di getCogsReversalLines).
             default => AccountCodeEnum::INVENTORY,
         };
     }
@@ -573,6 +615,7 @@ class SalesReturnService
     private function calculateTotals($dto, $doc)
     {
         $totalNet = 0;
+        $totalReversed = 0;
 
         foreach ($dto->items as $item) {
             $docItem = $doc->items->firstWhere('id', $item['invoice_item_id']);
@@ -585,10 +628,18 @@ class SalesReturnService
             $ratio = $item['qty'] / $docItem->qty;
             $lineNet = $docItemSubtotal * $ratio;
             $totalNet += $lineNet;
+
+            // Baris `tidak_kembali` dananya diganti marketplace → TIDAK mengurangi penjualan.
+            if (($item['condition'] ?? null) !== SalesReturn::CONDITION_NO_RETURN) {
+                $totalReversed += $lineNet;
+            }
         }
 
         return [
-            'net' => round($totalNet, 2),
+            // Nilai kasus retur seutuhnya (dipakai sbg grand_total dokumen).
+            'net'      => round($totalNet, 2),
+            // Bagian yang benar-benar membalik penjualan.
+            'reversed' => round($totalReversed, 2),
         ];
     }
 

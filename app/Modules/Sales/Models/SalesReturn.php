@@ -17,6 +17,8 @@ class SalesReturn extends Model
         'grand_total',
         'status',
         'stage',
+        'return_type',
+        'external_return_number',
         'notes'
     ];
 
@@ -28,10 +30,70 @@ class SalesReturn extends Model
         'batal'    => 'Batal',
     ];
 
+    /**
+     * Jenis kasus retur. NULL = belum didefinisikan → retur menunggu di tahap "baru".
+     * Jenis menentukan perlakuan barang & uang saat diselesaikan (lihat defaultCondition()).
+     */
+    public const RETURN_TYPES = [
+        'paket_hilang'   => 'Paket Hilang',
+        'gagal_kirim'    => 'Gagal Kirim',
+        'kembali_semula' => 'Ingin Mengembalikan seperti Semula',
+        'tidak_sesuai'   => 'Barang Tidak Sesuai',
+        'rusak'          => 'Barang Rusak',
+        'lainnya'        => 'Lainnya',
+    ];
+
+    /**
+     * Kondisi barang retur — menentukan nasib BARANG sekaligus nasib UANG.
+     *
+     *   utuh          : barang kembali utuh    → masuk persediaan;        dana dikembalikan
+     *   perbaikan     : barang kembali rusak   → Gudang Perbaikan;        dana dikembalikan
+     *   rusak         : barang & dana sama-sama hilang → Beban Kerugian Retur
+     *   tidak_kembali : barang hilang TAPI DANANYA DIGANTI marketplace → tidak membalik apa pun
+     *
+     * `tidak_kembali` satu-satunya yang tidak membalik penjualan: uangnya memang kita terima,
+     * jadi omzet & HPP tetap sah seperti penjualan normal dan barangnya tidak pernah kembali.
+     * Dipasang PER BARIS supaya satu pesanan bisa sebagian diganti & sebagian tidak.
+     */
+    public const CONDITION_NO_RETURN = 'tidak_kembali';
+
+    public const CONDITIONS = [
+        'good'                   => 'Utuh',
+        'repair'                 => 'Perbaikan',
+        'damaged'                => 'Tidak Dapat Diperbaiki',
+        self::CONDITION_NO_RETURN => 'Tidak Kembali (dana diganti)',
+    ];
+
     protected $casts = [
         'return_date' => 'date',
         'grand_total' => 'decimal:2',
     ];
+
+    /**
+     * Nilai yang benar-benar MEMBALIK penjualan = seluruh baris KECUALI `tidak_kembali`.
+     *
+     * Baris `tidak_kembali` dananya diganti marketplace, jadi tidak mengurangi omzet. Dipakai
+     * jurnal retur maupun rekonsiliasi marketplace agar keduanya memakai angka yang sama.
+     */
+    public function reversedAmount(): float
+    {
+        return round((float) $this->items()
+            ->where('condition', '!=', self::CONDITION_NO_RETURN)
+            ->sum('subtotal'), 2);
+    }
+
+    /** Seluruh baris berkondisi `tidak_kembali` → retur ini tidak membalik apa pun. */
+    public function skipsReversal(): bool
+    {
+        return $this->items()->exists()
+            && !$this->items()->where('condition', '!=', self::CONDITION_NO_RETURN)->exists();
+    }
+
+    /** Label jenis retur untuk tampilan; '—' bila belum didefinisikan. */
+    public function returnTypeLabel(): string
+    {
+        return self::RETURN_TYPES[$this->return_type] ?? '—';
+    }
 
     public function customer()
     {

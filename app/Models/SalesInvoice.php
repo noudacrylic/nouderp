@@ -45,6 +45,7 @@ class SalesInvoice extends Model
         'package_height',
         'additional_fee',
         'marketplace_fee',
+        'fee_at_settlement',
         'subtotal',
         'discount_total',
         'dpp',
@@ -63,6 +64,7 @@ class SalesInvoice extends Model
         'invoice_date' => 'date',
         'status' => \App\Enums\InvoiceStatusEnum::class,
         'unique_code' => 'integer',
+        'fee_at_settlement' => 'boolean',
     ];
 
     protected static function booted()

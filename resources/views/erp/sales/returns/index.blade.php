@@ -17,11 +17,23 @@
     @endforeach
 </div>
 
+@php
+    $stageHint = [
+        'baru'     => 'Kasusnya belum ditentukan. Buka tiap retur, isi Jenis Retur & Nomor Retur Marketplace — setelah itu retur pindah sendiri ke "Retur Diproses".',
+        'diproses' => 'Tahap penanganan: catat banding/tanggapan marketplace, lalu periksa barang yang benar-benar kembali dan isi kondisinya per baris sebelum diselesaikan.',
+        'selesai'  => 'Sudah diposting. Paket hilang dengan klaim menang tercatat di sini tanpa jurnal pembalik.',
+        'batal'    => 'Retur yang di-void.',
+    ][$stage] ?? null;
+@endphp
+@if($stageHint)
+    <p class="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-3">{{ $stageHint }}</p>
+@endif
+
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     <input type="hidden" name="stage" value="{{ $stage }}">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
-        'placeholder' => 'Cari nomor retur, faktur, atau pelanggan...',
+        'placeholder' => 'Cari nomor retur (ERP/marketplace), faktur, atau pelanggan...',
     ])
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
@@ -43,6 +55,7 @@
                 <th class="px-3 py-2 text-left">Tanggal</th>
                 <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-left">Referensi</th>
+                <th class="px-3 py-2 text-left">Jenis</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
                 <th class="px-3 py-2 text-right w-72">Aksi</th>
@@ -73,18 +86,43 @@
                     </td>
                     <td class="px-3 py-2">{{ $return->return_date->format('d M Y') }}</td>
                     <td class="px-3 py-2">{{ $return->customer->name ?? '-' }}</td>
-                    <td class="px-3 py-2 text-xs text-gray-600">{{ $refNumber }}</td>
+                    <td class="px-3 py-2 text-xs text-gray-600">
+                        {{ $refNumber }}
+                        @if($return->external_return_number)
+                            <div class="text-[11px] text-gray-400">Retur MP: {{ $return->external_return_number }}</div>
+                        @endif
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        @if($return->return_type)
+                            {{ $return->returnTypeLabel() }}
+                        @else
+                            <span class="text-gray-400">belum ditentukan</span>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-right">{{ number_format($return->grand_total ?? 0, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
                         <span class="px-2 py-0.5 rounded text-xs uppercase {{ $stCls }}">{{ $stLabel }}</span>
                     </td>
                     <td class="px-3 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex gap-1 flex-row-reverse flex-wrap">
-                            @if($isDraft)
-                                <form method="POST" action="{{ route('sales.returns.post', $return->id) }}" onsubmit="return confirm('Post retur ini?')">
+                            {{-- Aksi mengikuti TAHAP, bukan cuma status. Tahap "baru" belum
+                                 punya jenis kasus, jadi tombol Selesaikan sengaja tidak
+                                 ditampilkan — controller pun akan menolaknya. --}}
+                            @if($isDraft && !$return->return_type)
+                                <a href="{{ route('sales.returns.edit', $return->id) }}"
+                                   class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
+                                   title="Tentukan jenis kasus retur & nomor retur marketplace">Tentukan Jenis</a>
+                            @elseif($isDraft)
+                                <a href="{{ route('sales.returns.edit', $return->id) }}"
+                                   class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
+                                   title="Catat penanganan & kondisi barang yang kembali">Proses</a>
+                                <form method="POST" action="{{ route('sales.returns.post', $return->id) }}" onsubmit="return confirm('Selesaikan retur ini? Jurnal & stok diproses sesuai kondisi tiap barang.')">
                                     @csrf
-                                    <button class="bg-green-600 text-white px-2 py-1 rounded text-xs">POST</button>
+                                    <button class="bg-green-600 text-white px-2 py-1 rounded text-xs">Selesaikan</button>
                                 </form>
+                            @endif
+
+                            @if($isDraft)
                                 <form method="POST" action="{{ route('sales.returns.destroy', $return->id) }}" onsubmit="return confirm('Hapus draf retur ini?')">
                                     @csrf @method('DELETE')
                                     <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
@@ -107,7 +145,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada retur.</td></tr>
+                <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">Belum ada retur.</td></tr>
             @endforelse
         </tbody>
     </table>

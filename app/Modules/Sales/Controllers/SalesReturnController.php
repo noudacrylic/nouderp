@@ -37,7 +37,10 @@ class SalesReturnController extends Controller
             ->when($status !== null && $status !== '', fn($q) => $q->where('status', $status))
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
+                    // Nomor retur marketplace ikut dicari: paket retur fisik datang membawa
+                    // nomor itu, bukan nomor pesanan — itulah yang diketik orang gudang.
                     $sub->where('return_number', 'like', "%{$search}%")
+                        ->orWhere('external_return_number', 'like', "%{$search}%")
                         ->orWhereHas('customer', fn($c) => $c->where('name', 'like', "%{$search}%"))
                         ->orWhereHas('invoice', fn($i) => $i->where('invoice_number', 'like', "%{$search}%"))
                         ->orWhereHas('salesOrder', fn($s) => $s->where('order_number', 'like', "%{$search}%"));
@@ -70,25 +73,36 @@ class SalesReturnController extends Controller
     }
 
     /**
-     * API: Get confirmed/closed SOs belonging to a customer
+     * API: Get confirmed/closed SOs belonging to a customer.
+     *
+     * Dengan `?id=` hanya SATU SO yang dikembalikan dan seluruh saringan kelayakan dilewati.
+     * Dipakai saat MEMBUKA draft retur: dokumennya sudah terpilih, jadi menarik seluruh daftar
+     * pesanan pelanggan cuma untuk mencari satu baris itu pemborosan — untuk pelanggan
+     * marketplace (ribuan pesanan, item + surat jalan ikut di-eager-load) halamannya jadi
+     * menggantung lama di "Memuat Sales Order...". Saringan dilewati karena dokumennya memang
+     * sudah melekat pada retur itu; menyaringnya lagi malah bisa membuatnya hilang.
      */
     public function getSalesOrders(Request $request)
     {
         $customerId = $request->get('customer_id');
+        $onlyId     = $request->get('id');
 
         $orders = \App\Modules\Sales\Models\SalesOrder::query()
             ->with(['items.product', 'deliveries.items']) // Eager load SJ items for COGS calculation
             ->where('customer_id', $customerId)
-            // 1. Harus punya SJ (Pengiriman) yang sudah posted
-            ->whereHas('deliveries', function ($q) {
-                $q->where('status', 'posted');
+            ->when($onlyId, fn ($q) => $q->whereKey($onlyId))
+            ->unless($onlyId, function ($q) {
+                // 1. Harus punya SJ (Pengiriman) yang sudah posted
+                $q->whereHas('deliveries', function ($d) {
+                    $d->where('status', 'posted');
+                })
+                // 2. Harus sudah lunas (Uang Muka / Payment penuh)
+                ->whereRaw('COALESCE(paid_amount, 0) >= grand_total')
+                // 3. Menghindari double retur (hanya retur yang sudah POSTED yang memblokir;
+                //    draft tidak diblokir agar SO-nya tetap muncul saat draft retur diedit —
+                //    selaras dengan getInvoices()).
+                ->whereDoesntHave('returns', fn ($r) => $r->where('status', 'posted'));
             })
-            // 2. Harus sudah lunas (Uang Muka / Payment penuh)
-            ->whereRaw('COALESCE(paid_amount, 0) >= grand_total')
-            // 3. Menghindari double retur (hanya retur yang sudah POSTED yang memblokir;
-            //    draft tidak diblokir agar SO-nya tetap muncul saat draft retur diedit —
-            //    selaras dengan getInvoices()).
-            ->whereDoesntHave('returns', fn ($q) => $q->where('status', 'posted'))
             ->latest('order_date')
             ->get()
             ->map(function ($so) {
@@ -161,16 +175,21 @@ class SalesReturnController extends Controller
     }
 
     /**
-     * API: Get posted/partial invoices belonging to a customer
+     * API: Get posted/partial invoices belonging to a customer.
+     *
+     * `?id=` → satu faktur saja, tanpa saringan kelayakan. Alasannya sama dgn getSalesOrders().
      */
     public function getInvoices(Request $request)
     {
         $customerId = $request->get('customer_id');
+        $onlyId     = $request->get('id');
 
         $invoices = SalesInvoice::with(['items.product', 'delivery.items'])
             ->where('customer_id', $customerId)
-            ->whereIn('status', ['posted', 'partial'])
-            ->whereDoesntHave('returns', fn($q) => $q->where('status', 'posted'))
+            ->when($onlyId, fn ($q) => $q->whereKey($onlyId))
+            ->unless($onlyId, fn ($q) => $q
+                ->whereIn('status', ['posted', 'partial'])
+                ->whereDoesntHave('returns', fn ($r) => $r->where('status', 'posted')))
             ->latest('invoice_date')
             ->get()
             ->map(function ($inv) {
@@ -242,11 +261,20 @@ class SalesReturnController extends Controller
             'items'             => 'required|array|min:1',
             'items.*.invoice_item_id' => 'required|integer',
             'items.*.qty'       => 'required|numeric|min:0',
-            'items.*.condition' => 'required|in:good,damaged,repair',
+            'items.*.condition' => 'required|in:good,damaged,repair,tidak_kembali',
             // Bundle: kondisi per komponen { "<product_id>": "good|repair|damaged" }.
             'items.*.component_conditions'   => 'nullable|array',
-            'items.*.component_conditions.*' => 'in:good,damaged,repair',
+            'items.*.component_conditions.*' => 'in:good,damaged,repair,tidak_kembali',
+            'return_type'            => 'nullable|in:' . implode(',', array_keys(SalesReturn::RETURN_TYPES)),
+            'external_return_number' => 'nullable|string|max:60',
+            'notes'                  => 'nullable|string|max:5000',
         ]);
+
+        // Retur hanya boleh diselesaikan setelah kasusnya didefinisikan — tahap "Retur Baru"
+        // justru ada untuk memaksa itu. Tanpa jenis, perlakuan barang & uangnya tak tentu.
+        if ($request->status === 'posted' && empty($request->return_type)) {
+            return back()->with('error', 'Tentukan Jenis Retur dulu sebelum menyelesaikan retur.')->withInput();
+        }
 
         $items = collect($request->items)
             ->filter(fn($i) => (float)($i['qty'] ?? 0) > 0)
@@ -263,6 +291,9 @@ class SalesReturnController extends Controller
             date:           $request->return_date,
             invoice_id:     $request->invoice_id ? (int)$request->invoice_id : null,
             sales_order_id: $request->sales_order_id ? (int)$request->sales_order_id : null,
+            return_type:            $request->return_type ?: null,
+            external_return_number: trim((string) $request->external_return_number) ?: null,
+            notes:                  trim((string) $request->notes) ?: null,
         );
 
         try {
@@ -321,6 +352,12 @@ class SalesReturnController extends Controller
             return back()->with('error', 'Hanya retur draf yang dapat diposting.');
         }
 
+        // Kasusnya harus sudah didefinisikan — jenis menentukan perlakuan barang & uang,
+        // dan untuk paket hilang hasil banding menentukan jurnalnya dibalik atau tidak.
+        if (empty($return->return_type)) {
+            return back()->with('error', 'Tentukan Jenis Retur dulu sebelum menyelesaikan retur.');
+        }
+
         $items = $return->items->map(function ($i) {
             return [
                 'invoice_item_id' => $i->reference_item_id,
@@ -335,6 +372,9 @@ class SalesReturnController extends Controller
             date: $return->return_date->format('Y-m-d'),
             invoice_id: $return->invoice_id,
             sales_order_id: $return->sales_order_id,
+            return_type:            $return->return_type,
+            external_return_number: $return->external_return_number,
+            notes:                  $return->notes,
         );
 
         try {

@@ -45,7 +45,15 @@ class FixMarketplaceHoldPhantom extends Command
             ->whereNotNull('account_receivable_hold_id')
             ->pluck('account_receivable_hold_id')->unique()->all();
 
-        // Order gap: ada DP ke akun hold, tapi grand_total SO (basis DP) != grand_total invoice (basis settlement).
+        // Order gap: ada DP ke akun hold, tapi grand_total SO (basis DP) != grand_total invoice
+        // (basis settlement) SETELAH memperhitungkan biaya admin marketplace.
+        //
+        // Sejak DP marketplace memakai nilai KOTOR, `so.grand_total = si.grand_total +
+        // si.marketplace_fee` adalah kondisi NORMAL, bukan gap — perbandingan mentah
+        // `so.grand_total != si.grand_total` akan menandai SELURUH pesanan marketplace.
+        // Selisih itu memang ada di akun hold, tapi sudah ditutup baris reklas $gap di
+        // MarketplaceEngineService, jadi bukan saldo siluman. Yang dicari di sini hanya
+        // selisih yang TIDAK terjelaskan oleh biaya admin.
         $rows = DB::table('customer_payments as cp')
             ->join('sales_orders as so', 'so.id', '=', 'cp.sales_order_id')
             ->join('accounts as cpa', 'cpa.id', '=', 'cp.cash_account_id')
@@ -54,7 +62,22 @@ class FixMarketplaceHoldPhantom extends Command
             })
             ->where('cp.status', 'posted')
             ->where('cpa.name', 'like', '%Ditahan%')
-            ->whereRaw('ABS(so.grand_total - si.grand_total) > 0.01')
+            ->where(function ($w) {
+                // Dua pola SAH & bukan gap: DP bersih (selisih 0, pesanan sebelum aturan DP
+                // kotor) dan DP kotor (selisih = biaya admin, ditutup reklas $gap engine).
+                $w->where(function ($q) {
+                    $q->whereRaw('ABS(so.grand_total - si.grand_total) > 0.01')
+                      ->whereRaw('ABS(so.grand_total - si.grand_total - COALESCE(si.marketplace_fee, 0)) > 0.01');
+                })
+                // ...kecuali bila settlement-nya memang belum pernah jalan: apa pun polanya,
+                // saldo DP masih utuh di hold & wajib dilepas (cabang "belum settle" di bawah).
+                ->orWhereNotExists(function ($q) {
+                    $q->select(DB::raw(1))->from('journals as jx')
+                      ->whereColumn('jx.reference_id', 'si.id')
+                      ->where('jx.reference_type', 'sales_invoice_settlement')
+                      ->where('jx.status', '!=', 'void');
+                });
+            })
             ->select('si.id as invoice_id', 'so.order_number')
             ->distinct()
             ->get();
@@ -97,6 +120,16 @@ class FixMarketplaceHoldPhantom extends Command
             $dpDebit = (float) DB::table('journal_lines as jl')->join('journals as j', 'j.id', '=', 'jl.journal_id')
                 ->where('j.status', '!=', 'void')->where('jl.account_id', $holdAcctId)
                 ->where('j.reference_type', 'customer_payment')->whereIn('j.reference_id', $paymentIds ?: [0])
+                ->sum('jl.debit');
+
+            // Penyesuaian DP bersih→kotor (marketplace:dp-ke-kotor) juga MENDEBIT akun hold
+            // untuk order ini, dengan reference_id = SO (bukan payment). Tanpa menghitungnya,
+            // dpDebit tertinggal sebesar biaya admin sementara settlement melepas nilai kotor
+            // → residual jadi minus palsu & order ini "dikoreksi" padahal holdnya sudah bersih.
+            $dpDebit += (float) DB::table('journal_lines as jl')->join('journals as j', 'j.id', '=', 'jl.journal_id')
+                ->where('j.status', '!=', 'void')->where('jl.account_id', $holdAcctId)
+                ->where('j.reference_type', MarketplaceDpKeKotor::REF_TYPE)
+                ->where('j.reference_id', $invoice->sales_order_id)
                 ->sum('jl.debit');
             $released = (float) DB::table('journal_lines as jl')->join('journals as j', 'j.id', '=', 'jl.journal_id')
                 ->where('j.status', '!=', 'void')->where('jl.account_id', $holdAcctId)

@@ -75,11 +75,36 @@
                         <div class="font-black text-blue-600 text-base">{{ $return->return_number }}</div>
                     </div>
                     <div>
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Jenis Kasus</div>
+                        <div class="font-bold text-gray-800">
+                            {{ $return->returnTypeLabel() }}
+                        </div>
+                    </div>
+                    @if($return->external_return_number)
+                    <div>
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">No. Retur Marketplace</div>
+                        <div class="font-bold text-gray-800">{{ $return->external_return_number }}</div>
+                    </div>
+                    @endif
+                    @if($return->skipsReversal())
+                    <div class="col-span-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">
+                        <strong>Tidak ada pembalikan.</strong>
+                        Seluruh barang berkondisi "Tidak Kembali" — dananya diganti marketplace, jadi omzet &amp; HPP tetap diakui
+                        dan stok tidak dikembalikan. Dokumen ini murni catatan kasus.
+                    </div>
+                    @endif
+                    @if($return->notes)
+                    <div class="col-span-3">
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Catatan Penanganan</div>
+                        <div class="text-sm text-gray-700 whitespace-pre-line">{{ $return->notes }}</div>
+                    </div>
+                    @endif
+                    <div>
                         <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Tanggal Retur</div>
                         <div class="font-bold text-gray-800">{{ $return->return_date->format('d/m/Y') }}</div>
                     </div>
                     <div>
-                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Jenis Retur</div>
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Sumber Dokumen</div>
                         <div class="font-bold text-gray-800">
                             @if($return->invoice_id)
                                 <span class="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-lg">
