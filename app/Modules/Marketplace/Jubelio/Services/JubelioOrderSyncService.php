@@ -961,13 +961,38 @@ class JubelioOrderSyncService
         $payment->save();
     }
 
-    /** PO produksi auto-preorder draft → cancel (mirror SalesOrderController). */
+    /**
+     * OP auto-preorder milik SO yang di-void → batalkan (mirror SalesOrderController).
+     *
+     * Dulu hanya status 'draft' yang dibatalkan, padahal OP preorder LAHIR 'confirmed' —
+     * akibatnya pesanan yang dibatalkan pembeli (sering hanya 1 menit setelah masuk) tetap
+     * diproduksi dan barangnya jadi kelebihan stok. ProductionOrderService::cancel() menolak
+     * OP yang sudah mulai dikerjakan / terlibat penggabungan; yang gagal cukup dicatat —
+     * void SO tidak boleh batal karena produksinya sudah jalan.
+     */
     private function cancelAutoPreorderProductions(SalesOrder $so): void
     {
-        \App\Modules\Production\Models\ProductionOrder::where('sales_order_id', $so->id)
+        $pos = \App\Modules\Production\Models\ProductionOrder::where('sales_order_id', $so->id)
             ->where('created_via', 'auto_preorder')
-            ->where('status', 'draft')
-            ->update(['status' => 'cancelled']);
+            ->whereNotIn('status', ['cancelled', 'finalized'])
+            ->get();
+
+        foreach ($pos as $po) {
+            try {
+                app(\App\Modules\Production\Services\ProductionOrderService::class)->cancel($po->id);
+                $po->refresh()->forceFill([
+                    'notes' => trim(($po->notes ?? '') . "\n[Auto-cancel: SO {$so->order_number} dibatalkan di Jubelio]"),
+                ])->save();
+            } catch (\Throwable $e) {
+                Log::warning('OP auto_preorder tidak bisa dibatalkan saat SO Jubelio di-void', [
+                    'production_order_id' => $po->id,
+                    'order_number'        => $po->order_number,
+                    'status'              => $po->status,
+                    'sales_order_id'      => $so->id,
+                    'message'             => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     // ───────────────────────────── Tahap A: Sales Order (reservasi stok) ─────────────────────────────
