@@ -69,6 +69,38 @@ class JubelioFulfillmentBucketingTest extends TestCase
         $this->assertSame('JX123', $row['tracking_no']);
     }
 
+    /**
+     * Faktur marketplace kini terbit saat PENGIRIMAN, jadi `invoice_posted` menyala sejak
+     * Surat Jalan dibuat. Ia tak boleh lagi dibaca sebagai "pesanan selesai" — kalau dibaca
+     * begitu, setiap pesanan yang baru diproses langsung lompat ke "Selesai" dan tab "Telah
+     * Diproses" kosong melompong walau paketnya belum ke mana-mana.
+     */
+    public function test_faktur_terbit_saat_pengiriman_tidak_membuat_pesanan_selesai(): void
+    {
+        $so = $this->marketplaceSo([
+            'awb_requested' => true, 'tracking_no' => 'JX9', 'sj_created' => true,
+            'invoice_posted' => true, 'last_status' => 'processed',
+            'resi_printed_at' => now(),
+        ]);
+
+        $svc = app(FulfillmentReadinessService::class);
+        $this->assertNotNull($svc->bucket('telah_diproses')->firstWhere('id', $so->id));
+        $this->assertNull($svc->bucket('selesai')->firstWhere('id', $so->id));
+    }
+
+    public function test_pesanan_selesai_di_jubelio_masuk_tab_selesai(): void
+    {
+        $so = $this->marketplaceSo([
+            'awb_requested' => true, 'tracking_no' => 'JX9', 'sj_created' => true,
+            'invoice_posted' => true, 'last_status' => 'completed',
+            'wms_completed_at' => now(),
+        ]);
+
+        $svc = app(FulfillmentReadinessService::class);
+        $this->assertNotNull($svc->bucket('selesai')->firstWhere('id', $so->id));
+        $this->assertNull($svc->bucket('telah_diproses')->firstWhere('id', $so->id));
+    }
+
     public function test_processed_order_printed_today_stays_in_telah_diproses(): void
     {
         // Kita proses sendiri (awb_requested) + resi dicetak HARI INI → tetap di Telah Diproses,

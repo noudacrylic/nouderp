@@ -103,7 +103,11 @@ class JubelioOrderSyncService
         $inFlight = JubelioOrderLink::query()
             ->whereNotNull('jubelio_salesorder_id')
             ->where('awb_requested', true)
-            ->where('invoice_posted', false)
+            // Dulu disaring `invoice_posted = false` sebagai arti "belum tuntas". Sejak faktur
+            // terbit saat PENGIRIMAN, flag itu menyala di semua order yang sudah diproses,
+            // sehingga pass ini tak lagi menemukan apa pun dan status mereka tak pernah naik
+            // ke 'shipped' — pesanan mandek di "Telah Diproses". Status terminal di bawah
+            // sudah cukup jadi saringannya.
             // NULL-safe: `NULL NOT IN (...)` = NULL mengeksklusi baris ber-last_status kosong (lihat reconcileActiveOrders).
             ->where(fn ($q) => $q->whereNull('last_status')->orWhereNotIn('last_status', ['shipped', 'completed', 'canceled']))
             ->pluck('jubelio_salesorder_id');
@@ -652,8 +656,10 @@ class JubelioOrderSyncService
         // menetapkan statusnya). Di SQL `NULL NOT IN (...)` = NULL → baris ter-eksklusi diam-diam,
         // sehingga pesanan yang dibatalkan channel SEBELUM last_status terisi lolos selamanya dari
         // rekonsiliasi (SO/reservasi menggantung di "Dipesan"). NULL bukan status terminal → ikut sertakan.
+        // Saringan cukup pada status terminal. `invoice_posted = false` tidak lagi berarti
+        // "belum tuntas" sejak faktur terbit saat pengiriman — memakainya membuat pesanan
+        // yang sudah dikirim tapi belum selesai lolos dari rekonsiliasi pembatalan.
         $links = JubelioOrderLink::whereNotNull('sales_order_id')
-            ->where('invoice_posted', false)
             ->where(fn ($q) => $q->whereNull('last_status')->orWhereNotIn('last_status', ['canceled', 'completed']))
             ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
             ->get();

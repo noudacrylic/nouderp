@@ -418,8 +418,8 @@ class FulfillmentReadinessService
         // SO toko biasa (non-marketplace) SEPERTI biasa, DITAMBAH SO marketplace yang punya
         // link Jubelio (dibuat oleh sinkron pesanan) agar bisa diproses via rantai WMS.
         //
-        // Riwayat marketplace yang sudah tuntas dibuang di SQL, bukan di PHP. Pesanan dengan
-        // faktur diposting & tuntas di WMS > 3 hari lalu PASTI jatuh ke bucket 'selesai' lalu
+        // Riwayat marketplace yang sudah tuntas dibuang di SQL, bukan di PHP. Pesanan yang
+        // SELESAI di Jubelio & tuntas di WMS > 3 hari lalu PASTI jatuh ke bucket 'selesai' lalu
         // ditandai archived — dan setiap konsumen soRows() membuang baris archived. Tanpa
         // saringan ini seluruh riwayat (ribuan SO beserta customer/items/deliveries/invoices)
         // dihidrasi hanya untuk langsung dibuang, sampai menembus memory_limit PHP.
@@ -431,7 +431,11 @@ class FulfillmentReadinessService
         $archiveCutoff = now()->subDays(3);
         $linkedSoIds = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::whereNotNull('sales_order_id')
             ->where(function ($q) use ($archiveCutoff) {
-                $q->where('invoice_posted', false)
+                // Patokannya status pesanan, BUKAN `invoice_posted`: faktur kini terbit saat
+                // pengiriman, jadi menyaring dengan flag itu membuang pesanan yang masih
+                // menunggu resi atau masih di jalan — hilang dari "Telah Diproses"/"Dikirim".
+                $q->whereNull('last_status')
+                  ->orWhere('last_status', '!=', 'completed')
                   ->orWhereNull('wms_completed_at')
                   ->orWhere('wms_completed_at', '>=', $archiveCutoff)
                   ->orWhere('last_status', 'returned')
@@ -546,7 +550,11 @@ class FulfillmentReadinessService
 
         // Bucket (urut, mutually exclusive)
         if ($link) {
-            //  completed (invoice_posted)                  → Selesai
+            //  pesanan SELESAI di Jubelio (last_status 'completed') → Selesai.
+            //     JANGAN pakai `invoice_posted`: sejak faktur terbit saat PENGIRIMAN, flag itu
+            //     menyala begitu Surat Jalan dibuat, jadi memakainya melempar setiap pesanan
+            //     yang baru diproses langsung ke "Selesai" — "Telah Diproses" & "Dikirim"
+            //     ikut kosong. Selesai = marketplace sudah menutup pesanannya.
             //  last_status 'shipped' (benar-benar diserahkan ke kurir per Jubelio) → Dikirim.
             //     Berlaku baik untuk order yang kita proses sendiri (awb_requested) maupun
             //     yang diproses langsung di Jubelio — pemicu Dikirim = serah ke jasa kirim,
@@ -564,7 +572,7 @@ class FulfillmentReadinessService
                 $bucket = 'retur';
             } elseif ($isReturn) {
                 $bucket = 'selesai';
-            } elseif ($link->invoice_posted) {
+            } elseif ($link->last_status === 'completed') {
                 $bucket = 'selesai';
             } elseif ($link->last_status === 'shipped') {
                 $bucket = 'dikirim';
