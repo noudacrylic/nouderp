@@ -29,9 +29,21 @@
         {{-- Payment Status Badge --}}
         @if($invoice->status !== 'draft')
         <div class="mb-3">
-            @if($invoice->remaining_amount <= 0)
+            {{-- Satu sumber label dengan daftar faktur: SalesInvoice::paymentState(). --}}
+            @php
+                // Bentuk BLOK, bukan @php(...) — bentuk pendeknya membuat Blade berhenti
+                // mengompilasi @if/@endif sesudahnya (direktifnya tertinggal jadi teks mentah
+                // dan halaman gagal parse).
+                $st = $invoice->paymentState();
+            @endphp
+            @if($st['key'] === 'lunas')
                 <div class="bg-green-50 text-green-700 p-3 rounded-lg text-center font-bold border border-green-200 text-sm">
                     ✅ LUNAS
+                </div>
+            @elseif($st['key'] === 'belum_cair')
+                <div class="bg-sky-50 text-sky-700 p-3 rounded-lg text-center font-bold border border-sky-200 text-sm">
+                    ⏸ BELUM CAIR — Ditahan marketplace: Rp {{ number_format($invoice->remaining_amount, 0) }}
+                    <div class="font-normal text-[11px] mt-1">Pembeli sudah membayar. Dana cair saat pesanan selesai.</div>
                 </div>
             @else
                 <div class="bg-red-50 text-red-700 p-3 rounded-lg text-center font-bold border border-red-200 text-sm">

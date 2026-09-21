@@ -1,3 +1,11 @@
+{{--
+    ⚠️ BERKAS INI TIDAK DIPAKAI. Tidak ada satu pun @include yang menunjuk ke sini —
+    saringan yang benar-benar tampil ada inline di `invoices/index.blade.php`
+    (variabel $statusOptions). Pernah memakan korban: opsi "Belum Cair" ditambahkan
+    di sini, tesnya hijau, dan di layar tidak muncul apa-apa.
+
+    Kalau menambah saringan, ubah index.blade.php — bukan berkas ini.
+--}}
 <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
     <div class="md:col-span-1">
         <label class="block text-[10px] uppercase font-bold text-gray-400 mb-1">Cari</label>

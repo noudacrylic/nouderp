@@ -24,6 +24,10 @@
                 $statusOptions = [
                     'draft'            => 'Draf',
                     'belum_lunas'      => 'Belum Lunas',
+                    // Marketplace: pembeli sudah bayar, dananya masih ditahan sampai pesanan
+                    // selesai. Dipisah dari "Belum Lunas" supaya daftar tagihan tidak terisi
+                    // ratusan pesanan yang tak perlu ditagih siapa pun.
+                    'belum_cair'       => 'Belum Cair (marketplace)',
                     'selesai'          => 'Lunas',
                     'returned_partial' => 'Retur Sebagian',
                     'returned_full'    => 'Retur',
