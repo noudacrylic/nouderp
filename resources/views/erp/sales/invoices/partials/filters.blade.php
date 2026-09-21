@@ -19,6 +19,7 @@
             <option value="">Semua Status</option>
             <option value="draft">Draf</option>
             <option value="belum_lunas">Belum Lunas</option>
+            <option value="belum_cair">Belum Cair (marketplace)</option>
             <option value="selesai">Selesai</option>
             <option value="void">Void</option>
         </select>

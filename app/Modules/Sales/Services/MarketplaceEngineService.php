@@ -2,6 +2,7 @@
 
 namespace App\Modules\Sales\Services;
 
+use App\Enums\AccountCodeEnum;
 use App\Models\MarketplaceConfig;
 use App\Modules\Sales\Models\SalesAdvance;
 use App\Core\Journal\Journal;
@@ -134,6 +135,33 @@ class MarketplaceEngineService
             }
 
             $lines = [];
+
+            // PELUNASAN FAKTUR — hanya untuk faktur gaya baru, yang piutangnya sengaja
+            // dibiarkan terbuka saat pengiriman (lihat InvoicePostingService::applyAdvance).
+            // Di sinilah pesanan benar-benar tuntas: uang muka pembeli menutup tagihannya,
+            // dan fakturnya baru berubah dari "Belum Cair" menjadi "Lunas".
+            $arApply = $invoice->fee_at_settlement ? $this->uangMukaTerpakai($invoice) : 0.0;
+            if ($arApply > 0) {
+                $arAccountId = (int) DB::table('accounts')->where('code', AccountCodeEnum::AR_RECEIVABLE)->value('id');
+                if (!$arAccountId || !$advanceAccountId) {
+                    Log::warning('MarketplaceEngine: akun piutang/uang muka tak ditemukan — pelunasan faktur dilewati', [
+                        'invoice' => $invoice->id,
+                    ]);
+                    $arApply = 0.0;
+                } else {
+                    $lines[] = new JournalLineDTO(
+                        account_id: $advanceAccountId,
+                        debit: $arApply, credit: 0,
+                        description: 'Pelunasan faktur dari uang muka marketplace'
+                    );
+                    $lines[] = new JournalLineDTO(
+                        account_id: $arAccountId,
+                        debit: 0, credit: $arApply,
+                        description: 'Piutang lunas - ' . $invoice->invoice_number
+                    );
+                }
+            }
+
             // Dr Wallet marketplace (dana bersih yang benar-benar diterima)
             $lines[] = new JournalLineDTO(
                 account_id: (int) $config->account_wallet_id,
@@ -181,8 +209,41 @@ class MarketplaceEngineService
             if ($invoice->fee_at_settlement) {
                 $isi['marketplace_fee'] = $feeBaru;
             }
+            if ($arApply > 0) {
+                $isi['advance_applied'] = round((float) $invoice->advance_applied + $arApply, 2);
+            }
             $invoice->update($isi);
         });
+    }
+
+    /**
+     * Berapa uang muka yang boleh dipakai menutup faktur ini.
+     *
+     * Rumusnya sengaja sama persis dengan InvoicePostingService::applyAdvance — dibatasi oleh
+     * DP yang benar-benar diposting untuk SO-nya, dikurangi yang sudah terpakai faktur lain,
+     * dan tidak melebihi sisa tagihan faktur ini. Pengiriman bertahap menghasilkan beberapa
+     * faktur atas satu DP, jadi pembatas itu bukan formalitas.
+     */
+    private function uangMukaTerpakai($invoice): float
+    {
+        if (!$invoice->sales_order_id) {
+            return 0.0;
+        }
+
+        $posted = (float) SalesAdvance::where('sales_order_id', $invoice->sales_order_id)
+            ->where('status', 'posted')
+            ->sum(DB::raw('amount + credit_used'));
+
+        $used = (float) \App\Models\SalesInvoice::where('sales_order_id', $invoice->sales_order_id)
+            ->where('status', 'posted')
+            ->where('id', '!=', $invoice->id)
+            ->sum('advance_applied');
+
+        $sisaTagihan = round((float) $invoice->grand_total
+            - (float) ($invoice->paid_amount ?? 0)
+            - (float) ($invoice->advance_applied ?? 0), 2);
+
+        return round(max(0, min($sisaTagihan, $posted - $used)), 2);
     }
 
     /**

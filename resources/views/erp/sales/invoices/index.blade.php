@@ -82,6 +82,9 @@
                     // Toleransi Rp1: sisa < 1 rupiah = debu rekonsiliasi (mis. selisih pecahan
                     // DP marketplace vs grand_total faktur) → dianggap LUNAS, jangan nyangkut.
                     $isPaid = $remaining < 1;
+                    // Dana marketplace yang belum cair BUKAN tagihan: pembelinya sudah bayar.
+                    // Jangan diberi lencana umur, jangan ditawari tombol penagihan.
+                    $isBelumCair = !$isPaid && (bool) $invoice->fee_at_settlement;
 
                     $hasWarranty = !empty($invoice->has_warranty);
 
@@ -104,12 +107,11 @@
                     } elseif ($isFullyReturned) {
                         $stCls = 'bg-rose-100 text-rose-700';
                         $stLabel = 'Retur';
-                    } elseif ($isPaid) {
-                        $stCls = 'bg-green-100 text-green-700';
-                        $stLabel = 'Lunas';
                     } else {
-                        $stCls = 'bg-orange-100 text-orange-700';
-                        $stLabel = 'Belum Lunas';
+                        // Satu sumber label pembayaran (Lunas / Belum Cair / Belum Lunas).
+                        $st = $invoice->paymentState();
+                        $stCls = $st['cls'];
+                        $stLabel = $st['label'];
                     }
                 @endphp
                 <tr class="border-b hover:bg-blue-50 cursor-pointer" data-href="{{ $rowHref }}">
@@ -122,13 +124,13 @@
                     </td>
                     <td class="px-3 py-2 whitespace-nowrap">
                         {{ $invoice->invoice_date->format('d M Y') }}
-                        @include('erp._partials.age-badge', ['date' => $invoice->invoice_date, 'show' => !$isPaid && !$isVoid])
+                        @include('erp._partials.age-badge', ['date' => $invoice->invoice_date, 'show' => !$isPaid && !$isVoid && !$isBelumCair])
                     </td>
                     <td class="px-3 py-2">{{ $invoice->customer->name ?? '-' }}</td>
                     <td class="px-3 py-2 text-right">{{ number_format($invoice->grand_total, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-center whitespace-nowrap">
                         <span class="px-2 py-0.5 rounded text-xs uppercase {{ $stCls }}">{{ $stLabel }}</span>
-                        @if(!$isPaid && !$isVoid && !$isDraft && !$isFullyReturned)
+                        @if(!$isPaid && !$isVoid && !$isDraft && !$isFullyReturned && !$isBelumCair)
                             <div class="text-xs text-red-600 font-semibold mt-0.5">{{ number_format($remaining, 0, ',', '.') }}</div>
                         @endif
                         @if($isPartiallyReturned)

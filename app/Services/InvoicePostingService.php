@@ -433,6 +433,24 @@ class InvoicePostingService
             return;
         }
 
+        // FAKTUR MARKETPLACE GAYA BARU: piutang SENGAJA dibiarkan terbuka.
+        //
+        // Faktur ini terbit saat PENGIRIMAN, dan pada saat itu marketplace belum menyerahkan
+        // apa pun — uang pembeli masih ditahan di Saldo Ditahan. Memakai uang muka di sini
+        // membuat faktur langsung berstatus LUNAS padahal belum sesen pun cair, sehingga
+        // tidak ada satu pun laporan yang bisa menjawab "berapa dana yang masih ditahan
+        // marketplace". Lebih buruk lagi saat retur: tidak ada piutang untuk dihapus, jadi
+        // pembatalan penjualan tak punya lawan yang wajar.
+        //
+        // Pelunasannya dibuat saat pesanan SELESAI, sekalian dengan pencairan saldo ditahan —
+        // lihat MarketplaceEngineService::handle(). Di daftar faktur statusnya tampil sebagai
+        // "BELUM CAIR", bukan "Belum Lunas": pembelinya sudah membayar.
+        if ($invoice->fee_at_settlement) {
+            $invoice->advance_applied = 0;
+            $invoice->save();
+            return;
+        }
+
         // 1. Hitung TOTAL Saldo Uang Muka yang pernah DIPOSTING untuk SO ini
         $totalAdvancePosted = \App\Modules\Sales\Models\SalesAdvance::where('sales_order_id', $invoice->sales_order_id)
             ->where('status', 'posted')

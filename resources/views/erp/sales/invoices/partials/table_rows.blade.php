@@ -2,6 +2,8 @@
     @php
         $remaining = round($invoice->grand_total - ($invoice->advance_applied ?? 0) - ($invoice->paid_amount ?? 0), 2);
         $isPaid    = $remaining <= 0.01;
+        // Dana marketplace yang belum cair bukan tagihan — pembelinya sudah membayar.
+        $isBelumCair = !$isPaid && (bool) $invoice->fee_at_settlement;
     @endphp
     <tr class="hover:bg-blue-50/30 transition-colors cursor-pointer group"
         onclick="window.location='/erp/sales/invoices/{{ $invoice->id }}'">
@@ -11,7 +13,7 @@
         </td>
         <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">
             {{ $invoice->invoice_date->format('d M Y') }}
-            @include('erp._partials.age-badge', ['date' => $invoice->invoice_date, 'show' => !$isPaid])
+            @include('erp._partials.age-badge', ['date' => $invoice->invoice_date, 'show' => !$isPaid && !$isBelumCair])
         </td>
         <td class="px-6 py-4">
             <div class="text-sm font-semibold text-gray-800">{{ $invoice->customer->name ?? '-' }}</div>
@@ -37,6 +39,15 @@
                 @elseif($isPaid)
                     <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-green-100 text-green-700 border border-green-200">
                         ✓ Selesai
+                    </span>
+
+                @elseif($isBelumCair)
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-sky-100 text-sky-700 border border-sky-200"
+                          title="Pembeli sudah bayar — dananya masih ditahan marketplace sampai pesanan selesai">
+                        ⏸ Belum Cair
+                    </span>
+                    <span class="text-[9px] text-gray-400 font-medium">
+                        Ditahan Rp {{ number_format($remaining, 0, ',', '.') }}
                     </span>
 
                 @else

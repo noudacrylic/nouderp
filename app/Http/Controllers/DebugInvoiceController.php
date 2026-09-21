@@ -86,6 +86,9 @@ class DebugInvoiceController extends Controller
             // dibukukan sebesar grand_total SO yang beda pecahan dengan grand_total faktur) →
             // dianggap LUNAS supaya tidak nyangkut selamanya.
             $query->where('status', 'posted')
+                // Dana marketplace yang belum cair bukan tagihan yang menua — dikeluarkan
+                // dari umur faktur, kalau tidak laporan ini kehilangan artinya.
+                ->where(fn ($q) => $q->whereNull('fee_at_settlement')->orWhere('fee_at_settlement', false))
                 ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1');
 
             if ($request->age === 'lt_1w') {
@@ -102,7 +105,15 @@ class DebugInvoiceController extends Controller
         if ($request->status) {
             match ($request->status) {
                 'draft'            => $query->where('status', 'draft'),
+                // "Belum Lunas" = benar-benar belum dibayar. Faktur marketplace yang dananya
+                // masih ditahan dikeluarkan dari sini — pembelinya sudah membayar, dan
+                // mencampurnya membuat daftar tagihan berisi ratusan pesanan yang tak perlu
+                // ditagih siapa pun. Mereka punya filternya sendiri: "Belum Cair".
                 'belum_lunas'      => $query->where('status', 'posted')
+                                            ->where(fn ($q) => $q->whereNull('fee_at_settlement')->orWhere('fee_at_settlement', false))
+                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1'),
+                'belum_cair'       => $query->where('status', 'posted')
+                                            ->where('fee_at_settlement', true)
                                             ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1'),
                 'selesai'          => $query->where('status', 'posted')
                                             ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) < 1'),

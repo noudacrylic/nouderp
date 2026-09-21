@@ -146,6 +146,41 @@ class SalesInvoice extends Model
             ->first();
     }
 
+    /**
+     * Status PEMBAYARAN faktur untuk ditampilkan — satu sumber untuk semua layar.
+     *
+     * Kenapa ada "BELUM CAIR" dan bukan cukup "Belum Lunas": faktur marketplace gaya baru
+     * terbit saat pengiriman dengan piutang terbuka, padahal pembelinya SUDAH membayar —
+     * uangnya hanya masih ditahan marketplace sampai pesanan tuntas. Menyebutnya "Belum
+     * Lunas" membuat orang mengejar tagihan yang tidak perlu ditagih, dan mencampurnya ke
+     * umur piutang membuat laporan itu kehilangan arti.
+     *
+     * "Cair" di sini berhenti di dompet marketplace. Penarikan dompet → bank urusan Kas Bank,
+     * bukan status faktur.
+     *
+     * @return array{key:string,label:string,cls:string}
+     */
+    public function paymentState(): array
+    {
+        // Toleransi Rp1: sisa di bawah 1 rupiah = debu rekonsiliasi (mis. DP marketplace
+        // dibukukan sebesar grand_total SO yang beda pecahan dengan grand_total faktur).
+        if ($this->remaining_amount < 1) {
+            return ['key' => 'lunas', 'label' => 'Lunas', 'cls' => 'bg-green-100 text-green-700'];
+        }
+
+        if ($this->fee_at_settlement) {
+            return ['key' => 'belum_cair', 'label' => 'Belum Cair', 'cls' => 'bg-sky-100 text-sky-700'];
+        }
+
+        return ['key' => 'belum_lunas', 'label' => 'Belum Lunas', 'cls' => 'bg-orange-100 text-orange-700'];
+    }
+
+    /** Dana pembeli masih ditahan marketplace — bukan tagihan yang perlu dikejar. */
+    public function isBelumCair(): bool
+    {
+        return $this->paymentState()['key'] === 'belum_cair';
+    }
+
     public function getStatusLabelAttribute()
     {
         $status = $this->status;
