@@ -1001,6 +1001,13 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::get('/payment/midtrans/{trx}/status', [\App\Modules\Payment\Controllers\MidtransAdminController::class, 'pollStatus'])
         ->whereNumber('trx')->name('midtrans.admin.status');
 
+    // KREDIT PELANGGAN — saldo yang diberikan tanpa uang bergerak (tukar barang, koreksi,
+    // kasus lama yang fakturnya tak ada di ERP). Saldonya dipakai saat membayar faktur.
+    Route::get ('/kredit-pelanggan',            [\App\Modules\Sales\Controllers\CustomerCreditController::class, 'index'])->name('kredit.index');
+    Route::get ('/kredit-pelanggan/create',     [\App\Modules\Sales\Controllers\CustomerCreditController::class, 'create'])->name('kredit.create');
+    Route::post('/kredit-pelanggan',            [\App\Modules\Sales\Controllers\CustomerCreditController::class, 'store'])->name('kredit.store');
+    Route::post('/kredit-pelanggan/{id}/void',  [\App\Modules\Sales\Controllers\CustomerCreditController::class, 'void'])->whereNumber('id')->name('kredit.void');
+
     // RETUR UANG
     Route::get('/returns', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'index'])->name('returns.index');
     Route::get('/returns/create', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'create'])->name('returns.create');

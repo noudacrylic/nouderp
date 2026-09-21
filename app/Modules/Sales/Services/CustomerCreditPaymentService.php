@@ -52,6 +52,15 @@ class CustomerCreditPaymentService
 
             app(JournalPostingService::class)->post($journal);
 
+            // Potong kolam saldo — tanpa ini saldo pelanggan tak pernah berkurang walau
+            // fakturnya sudah dibayar, dan kredit yang sama bisa dipakai berkali-kali.
+            \App\Models\CustomerOverpayment::create([
+                'customer_id' => $invoice->customer_id,
+                'amount'      => -1 * round((float) $amount, 2),
+                'reference'   => $invoice->invoice_number,
+                'note'        => 'Pembayaran faktur ' . $invoice->invoice_number . ' dengan kredit pelanggan',
+            ]);
+
             // 3. SIMPAN PAYMENT
             // Note: Depending on your CustomerPayment structure, you might need to adjust these fields.
             return CustomerPayment::create([
@@ -101,12 +110,21 @@ class CustomerCreditPaymentService
         });
     }
 
+    /**
+     * Saldo kredit pelanggan.
+     *
+     * Dulu dihitung dari baris jurnal akun 2106 yang disaring `customer_id` — kolom yang TIDAK
+     * PERNAH ADA di `journal_lines` (lihat JournalPostingService). Query-nya melempar
+     * "Unknown column", jadi setiap pemanggil ikut gagal: kotak saldo di form Retur balas 500,
+     * dan pembayaran dengan kredit tak pernah bisa jalan.
+     *
+     * Saldo per pelanggan memang tidak bisa dibaca dari jurnal. Buku besar pembantunya adalah
+     * kolam `customer_overpayments` — dan kolam itulah yang sudah dipotong CustomerPaymentService
+     * saat faktur dibayar, jadi sekarang satu sumber untuk semua pembaca.
+     */
     public function getCustomerCreditBalance($customerId)
     {
-        return JournalLine::where('account_id', $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY))
-            ->where('customer_id', $customerId)
-            ->selectRaw('SUM(credit - debit) as balance')
-            ->value('balance') ?? 0;
+        return app(CustomerCreditService::class)->balanceFor($customerId ? (int) $customerId : null);
     }
 
     private function getAccountId($code)

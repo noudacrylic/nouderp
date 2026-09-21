@@ -104,6 +104,7 @@ class NumberGeneratorService
             'SI', 'INV' => ['table' => 'sales_invoices',    'column' => 'invoice_number',   'length' => 5],
             'ADV'       => ['table' => 'sales_advances',    'column' => 'advance_number',   'length' => 5],
             'SR'        => ['table' => 'sales_returns',     'column' => 'return_number',    'length' => 5],
+            'KP'        => ['table' => 'customer_credits',  'column' => 'credit_number',    'length' => 5],
             'GR'        => ['table' => 'warranty_orders',  'column' => 'warranty_number',  'length' => 5],
             'BOM'       => ['table' => 'boms',              'column' => 'bom_number',       'length' => 5],
             'PO', 'OP'  => ['table' => 'production_orders',             'column' => 'order_number',    'length' => 5],

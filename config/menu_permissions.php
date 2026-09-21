@@ -74,6 +74,7 @@ return [
             // EnsureMenuAccess menolak SEMUA user non-admin (mis. QRIS Kasir gagal terbuka).
             'sales.payment'     => ['label' => 'Payment',     'url' => '/erp/sales/payment',        'route_patterns' => ['sales.payment.*', 'sales.payments.*', 'sales.midtrans.admin.*']],
             'sales.returns'     => ['label' => 'Retur',       'url' => '/erp/sales/returns',        'route_patterns' => ['sales.returns.*']],
+            'sales.kredit'      => ['label' => 'Kredit Pelanggan', 'url' => '/erp/sales/kredit-pelanggan', 'route_patterns' => ['sales.kredit.*']],
             'sales.warranty'    => ['label' => 'Garansi',     'url' => '/erp/sales/warranty',       'route_patterns' => ['sales.warranty.*']],
             /*
              * Cek Ongkir pindah ke rail CRM (tab "Ongkir") — ongkir hampir selalu
