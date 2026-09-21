@@ -186,6 +186,43 @@ if (!function_exists('module_landing_url')) {
     }
 }
 
+if (!function_exists('is_safe_redirect_target')) {
+    /**
+     * Apakah URL layak dipakai sebagai tujuan redirect setelah login?
+     *
+     * Tolak URL milik host lain (open redirect), halaman login/logout sendiri
+     * (bikin lingkaran), serta endpoint yang bukan halaman: API/webhook,
+     * partial AJAX, unduhan file, dan aset. Tanpa saringan ini `intended`
+     * bisa berisi URL yang tersimpan saat sesi mati — hasilnya user berhasil
+     * login tapi mendarat di JSON, 405, atau "Page Expired".
+     */
+    function is_safe_redirect_target(?string $url): bool
+    {
+        if (!$url) return false;
+
+        $parts = parse_url($url);
+        if ($parts === false) return false;
+
+        // Host harus sama dengan host aplikasi (atau URL relatif).
+        if (!empty($parts['host']) && strcasecmp($parts['host'], request()->getHost()) !== 0) {
+            return false;
+        }
+
+        $path = trim($parts['path'] ?? '/', '/');
+
+        foreach ([
+            'login', 'logout',
+            'api', 'api/*',
+            '*/webhook', '*/webhook/*', 'telegram/*', 'midtrans/*', 'iclock/*',
+            '*.json', '*.js', '*.css', '*.png', '*.jpg', '*.svg', '*.ico',
+        ] as $blocked) {
+            if (\Illuminate\Support\Str::is($blocked, $path)) return false;
+        }
+
+        return true;
+    }
+}
+
 if (!function_exists('user_landing_url')) {
     /**
      * URL landing setelah login / fallback. Dashboard utk super_admin/admin;

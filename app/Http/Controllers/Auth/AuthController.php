@@ -55,7 +55,36 @@ class AuthController extends Controller
         $user = Auth::user();
         $user->forceFill(['last_login_at' => now()])->save();
 
-        return redirect()->intended(user_landing_url());
+        return redirect()->to($this->targetAfterLogin());
+    }
+
+    /**
+     * Ke mana user diantar setelah berhasil masuk.
+     *
+     * `url.intended` dipakai hanya kalau isinya memang halaman yang wajar
+     * (lihat is_safe_redirect_target) DAN cocok dengan hak akses user. Kalau
+     * tidak, pakai landing default. Tanpa penyaringan ini `intended` yang basi
+     * — mis. tersimpan saat sesi mati, atau menunjuk halaman ERP padahal yang
+     * masuk akun karyawan — membuat login yang sebenarnya berhasil berakhir di
+     * halaman "Page Expired" atau layar tanpa akses.
+     */
+    private function targetAfterLogin(): string
+    {
+        $intended = session()->pull('url.intended');
+        $landing  = user_landing_url();
+
+        if (!is_string($intended) || !is_safe_redirect_target($intended)) {
+            return $landing;
+        }
+
+        // Akun PWA (karyawan / CS chat-saja) tidak punya pintu ERP: jangan
+        // dilempar ke /erp/... walau itu halaman terakhir yang ia buka.
+        $path = '/' . ltrim(parse_url($intended, PHP_URL_PATH) ?: '/', '/');
+        if (str_starts_with($path, '/erp') && !str_starts_with($landing, url('/erp'))) {
+            return $landing;
+        }
+
+        return $intended;
     }
 
     public function logout(Request $request)

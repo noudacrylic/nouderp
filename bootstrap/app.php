@@ -55,11 +55,38 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Sesi/CSRF kedaluwarsa (419): jangan tampilkan halaman buntu "Page Expired".
-        // Kembalikan user ke form dengan input terisi + pesan jelas agar tinggal Simpan lagi.
-        $exceptions->render(function (\Illuminate\Session\TokenMismatchException $e, \Illuminate\Http\Request $request) {
+        //
+        // CATATAN PENTING: sejak Laravel 11 `prepareException()` mengubah
+        // TokenMismatchException jadi HttpException(419) SEBELUM render callback
+        // dijalankan, jadi closure yang di-type-hint TokenMismatchException tidak
+        // pernah kepanggil. Karena itu kita tangkap HttpException status 419.
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpException $e, \Illuminate\Http\Request $request) {
+            if ($e->getStatusCode() !== 419) {
+                return null; // biar ditangani Laravel seperti biasa
+            }
+
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'Sesi kedaluwarsa. Muat ulang halaman lalu coba lagi.'], 419);
             }
+
+            $previous = url()->previous();
+
+            // Belum login (sesi benar-benar hilang) → jangan lempar balik ke form
+            // yang tokennya sudah mati, itu bikin lingkaran "login → page expired".
+            // Antar ke halaman login, dan simpan halaman asal supaya setelah
+            // berhasil masuk user kembali ke tempat dia tadi.
+            if (! auth()->check()) {
+                if ($previous && is_safe_redirect_target($previous)) {
+                    session()->put('url.intended', $previous);
+                }
+
+                return redirect()->route('login')
+                    ->withInput($request->only('username'))
+                    ->withErrors(['session' => 'Sesi Anda sudah berakhir. Silakan masuk lagi.']);
+            }
+
+            // Masih login, cuma tokennya basi → kembalikan ke form dengan input
+            // terisi supaya tinggal klik Simpan lagi.
             return redirect()->back()
                 ->withInput($request->except(['_token', 'password', 'password_confirmation']))
                 ->withErrors(['session' => 'Sesi Anda kedaluwarsa (halaman terbuka terlalu lama). Silakan periksa data lalu klik Simpan lagi.']);
