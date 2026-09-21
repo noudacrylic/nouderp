@@ -251,6 +251,40 @@ class SalesReturnRefundTargetTest extends TestCase
         $this->retur($inv, ['refund' => 150000]);
     }
 
+    /**
+     * Dua keadaan "barang tidak kembali" yang jurnalnya berlawanan.
+     *
+     * Sebelum kondisi `hilang` ada, keadaan kedua tidak bisa diungkapkan sama sekali: CS
+     * terpaksa memakai `tidak_kembali`, sehingga omzet yang sebenarnya batal tetap tercatat
+     * sebagai penjualan dan modalnya mengendap di HPP.
+     */
+    public function test_paket_hilang_klaim_menang_tidak_membalik_apa_pun(): void
+    {
+        $inv = $this->faktur(advanceApplied: 100000, fee: 15850);
+
+        $return = $this->retur($inv, [], condition: 'tidak_kembali');
+
+        // Penjualannya sah & tuntas — tak ada jurnal sama sekali untuk retur ini.
+        $this->assertSame(0, Journal::where('reference_type', 'sales_return')->where('reference_id', $return->id)->count());
+        $this->assertEqualsWithDelta(0, (float) $return->fresh()->refund_amount, 0.01);
+    }
+
+    public function test_paket_hilang_dana_dikembalikan_jadi_kerugian_retur(): void
+    {
+        $inv = $this->faktur(advanceApplied: 100000, fee: 15850);
+        $kerugianId = Account::where('code', '6105')->value('id');
+        $hppId      = Account::where('code', '5001')->value('id');
+
+        $per = $this->jurnal($this->retur($inv, [], condition: 'hilang'));
+
+        // Penjualannya batal → nilai jual dibalik & uangnya dikembalikan.
+        $this->assertEqualsWithDelta(100000, $per[$this->returId]['d'] ?? 0, 0.01);
+        $this->assertEqualsWithDelta(84150, $per[$this->walletId]['c'] ?? 0, 0.01);
+        // Modal barangnya bukan lagi HPP sebuah penjualan, melainkan kerugian.
+        $this->assertEqualsWithDelta(40000, $per[$kerugianId]['d'] ?? 0, 0.01);
+        $this->assertEqualsWithDelta(40000, $per[$hppId]['c'] ?? 0, 0.01);
+    }
+
     public function test_form_retur_terbuka_dan_payload_faktur_membawa_keadaan_dana(): void
     {
         $this->faktur(advanceApplied: 0);

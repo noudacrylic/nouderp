@@ -253,7 +253,7 @@ class SalesReturnService
         }
         $out = [];
         foreach ($raw as $pid => $cond) {
-            if (in_array($cond, ['good', 'repair', 'damaged'], true)) {
+            if (in_array($cond, ['good', 'repair', 'damaged', 'hilang'], true)) {
                 $out[(int) $pid] = $cond;
             }
         }
@@ -714,6 +714,10 @@ class SalesReturnService
             'good' => AccountCodeEnum::INVENTORY,
             'repair' => AccountCodeEnum::INVENTORY_REPAIR,
             'damaged' => AccountCodeEnum::SALES_LOSS,
+            // Barang tak kembali & dananya dikembalikan: penjualannya batal, jadi modalnya
+            // bukan lagi HPP sebuah penjualan melainkan kerugian. Tidak ada barang yang masuk
+            // gudang — getCogsReversalLines hanya memasukkan `good` & `repair` ke persediaan.
+            'hilang' => AccountCodeEnum::SALES_LOSS,
             // tidak_kembali tak pernah sampai sini (dilewati di getCogsReversalLines).
             default => AccountCodeEnum::INVENTORY,
         };
@@ -724,7 +728,7 @@ class SalesReturnService
         return match ($condition) {
             'good' => 'Persediaan',
             'repair' => 'Persediaan Perbaikan',
-            'damaged' => 'Beban Kerugian Retur',
+            'damaged', 'hilang' => 'Beban Kerugian Retur',
             default => 'Persediaan',
         };
     }

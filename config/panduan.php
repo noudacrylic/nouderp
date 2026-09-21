@@ -88,6 +88,41 @@ return [
                     'Produk diarsipkan tidak muncul di pencarian transaksi.',
                 ],
             ],
+            [
+                'title' => 'Retur: Barang Kembali & Pengembalian Dana',
+                'intro' => 'Satu layar untuk semua retur. Yang perlu Anda tentukan cuma dua: KONDISI barangnya, dan KE MANA uangnya. Jenis returnya (Marketplace atau Biasa) disimpulkan sistem dari keadaan dana fakturnya — Anda tidak perlu tahu pesanan itu sudah cair atau belum.',
+                'steps' => [
+                    'Pastikan barangnya sudah datang dan sudah DIPERIKSA. Jangan buat retur dari foto atau dari janji pembeli.',
+                    'Buka Sales → Retur → + Tambah. Pilih pelanggan, lalu pilih fakturnya.',
+                    'Isi Jenis Retur (Paket Hilang / Gagal Kirim / Barang Tidak Sesuai / dst). Tanpa ini retur tidak bisa diselesaikan.',
+                    'Isi qty yang diretur per baris. Boleh sebagian, dan boleh diretur lagi lain waktu untuk sisanya.',
+                    'Pilih KONDISI tiap baris: Utuh (masuk stok lagi) · Perbaikan (masuk Gudang Perbaikan) · Tidak Dapat Diperbaiki (jadi kerugian) · Tidak Kembali.',
+                    'Di panel "Penanganan Dana": periksa tujuan dana yang sudah terisi, dan nilai pengembaliannya.',
+                    'Klik POST Retur. Pratinjau jurnal di sebelah kanan menunjukkan persis apa yang akan dicatat.',
+                ],
+                'tips' => [
+                    'DUA "Tidak Kembali" yang berbeda. "Tidak Kembali (dana diganti)" = paket hilang tapi marketplace tetap membayar kita — penjualannya sah, tidak ada yang dibatalkan. "Tidak Kembali (dana dikembalikan)" = uangnya balik ke pembeli — penjualannya batal dan modal barangnya jadi kerugian. Salah pilih membuat omzet bulan ini salah.',
+                    'Nilai pengembalian sudah terisi dana BERSIH yang kita terima, bukan harga jualnya. Biaya admin marketplace sudah dipotong dan tidak dikembalikan platform, jadi itulah angka yang wajar ditawarkan ke pembeli. Boleh diubah kalau hasil negosiasinya lain.',
+                    'Pembeli mau TUKAR barang, bukan minta uang? Pilih tujuan dana "Jadi Kredit Pelanggan", dan isi "Kredit Atas Nama" dengan nama pembelinya — bukan nama akun marketplace. Kreditnya otomatis terpakai saat dia membeli lagi.',
+                    'Pesanan sudah dibayar tapi barangnya BELUM dikirim? Itu bukan retur — batalkan lewat Pemrosesan Pesanan → Pembatalan.',
+                    'Kalau sistem menolak dengan pesan soal biaya admin, artinya nilai pengembalian yang Anda isi terlalu kecil dan selisihnya tidak bisa dijelaskan. Naikkan nilainya, atau catat potongannya lewat dokumen tersendiri.',
+                ],
+            ],
+            [
+                'title' => 'Memberi Kredit Pelanggan (tanpa uang keluar)',
+                'intro' => 'Untuk kasus di mana pelanggan berhak membeli lagi tapi tidak ada uang yang dikembalikan — misalnya menukar ukuran atas pembelian lama yang fakturnya bahkan tidak ada di ERP.',
+                'steps' => [
+                    'Kalau pembelinya belum terdaftar, buat dulu pelanggannya di Sales → Customer (nama + nomor WA).',
+                    'Barang yang masuk kembali dicatat lewat Inventory → Penyesuaian Stok, pada harga pokoknya, dengan akun lawan 6105 Beban Kerugian Retur.',
+                    'Buka Sales → Kredit Pelanggan → + Kredit Baru.',
+                    'Pilih pelanggan, isi nominal (dana bersih yang dulu kita terima), akun lawan 6105, dan tulis alasannya selengkap mungkin.',
+                    'Simpan. Saldonya langsung terlihat di master Customer dan otomatis terpakai saat pelanggan itu membayar faktur berikutnya.',
+                ],
+                'tips' => [
+                    'Selama saldonya belum terpakai, dokumen kredit masih bisa di-void. Setelah terpakai membayar faktur, tidak bisa — void dulu pembayarannya.',
+                    'Untuk retur yang fakturnya ADA di ERP, jangan pakai layar ini. Pakai Sales → Retur dan pilih tujuan dana "Jadi Kredit Pelanggan" — supaya stok, omzet, dan kreditnya tercatat sekaligus dalam satu dokumen.',
+                ],
+            ],
         ],
     ],
 

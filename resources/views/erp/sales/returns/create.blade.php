@@ -408,7 +408,9 @@
                                                                 <option value="good">🟢 Utuh</option>
                                                                 <option value="repair">🟡 Perbaikan</option>
                                                                 <option value="damaged">🔴 Rusak</option>
-                                                                <option value="tidak_kembali">⚪ Tidak Kembali</option>
+                                                                <option value="hilang">⚫ Tidak Kembali (dana dikembalikan)</option>
+                                                                <option value="hilang">⚫ Tidak Kembali (dana dikembalikan)</option>
+                                                        <option value="tidak_kembali">⚪ Tidak Kembali (dana diganti)</option>
                                                             </select>
                                                         </div>
                                                     </template>
@@ -527,14 +529,14 @@
                                         <template x-if="journalPreview.revenue">
                                             <span class="font-bold" :class="journalPreview.revenue.debitClass" x-text="journalPreview.revenue.debitLabel"></span>
                                         </template>
-                                        <span class="text-gray-900 font-black" x-text="formatNumber(summary.net)"></span>
+                                        <span class="text-gray-900 font-black" x-text="formatNumber(journalPreview.revenue?.amount ?? 0)"></span>
                                     </div>
-                                    <div class="flex justify-between pl-4">
-                                        <template x-if="journalPreview.revenue">
-                                            <span class="text-gray-500 italic" x-text="journalPreview.revenue.creditLabel"></span>
-                                        </template>
-                                        <span class="text-gray-700 font-black" x-text="formatNumber(summary.net)"></span>
-                                    </div>
+                                    <template x-for="c in journalPreview.credits" :key="c.label">
+                                        <div class="flex justify-between pl-4">
+                                            <span class="text-gray-500 italic" x-text="c.label"></span>
+                                            <span class="text-gray-700 font-black" x-text="formatNumber(c.amount)"></span>
+                                        </div>
+                                    </template>
                                 </div>
 
                                 {{-- Stock / Condition Impact Ledger --}}
@@ -784,6 +786,7 @@ function returForm(initialData = null) {
         },
         journalPreview: {
             revenue: null,
+            credits: [],
             conditions: [],
         },
 
@@ -896,7 +899,7 @@ function returForm(initialData = null) {
                     damaged: 0,
                 },
             };
-            this.journalPreview = { revenue: null, conditions: [] };
+            this.journalPreview = { revenue: null, credits: [], conditions: [] };
             this.returnId = null; // Reset draft reference if customer changes
 
             if (!id) return;
@@ -953,7 +956,7 @@ function returForm(initialData = null) {
                     damaged: 0,
                 },
             };
-            this.journalPreview = { revenue: null, conditions: [] };
+            this.journalPreview = { revenue: null, credits: [], conditions: [] };
             this.docQuery = '';
 
             try {
@@ -986,7 +989,7 @@ function returForm(initialData = null) {
                     damaged: 0,
                 },
             };
-            this.journalPreview = { revenue: null, conditions: [] };
+            this.journalPreview = { revenue: null, credits: [], conditions: [] };
 
             if (!this.selectedDoc) return;
 
@@ -1201,6 +1204,9 @@ function returForm(initialData = null) {
                 good: 0,
                 repair: 0,
                 damaged: 0,
+                // Barang tak kembali & dananya dikembalikan: modalnya jadi kerugian, sama
+                // seperti `damaged`. Bedanya cuma fakta fisiknya — barangnya tak pernah datang.
+                hilang: 0,
                 tidak_kembali: 0,
             };
 
@@ -1243,6 +1249,7 @@ function returForm(initialData = null) {
                     good: Math.round(conditionTotals.good * 100) / 100,
                     repair: Math.round(conditionTotals.repair * 100) / 100,
                     damaged: Math.round(conditionTotals.damaged * 100) / 100,
+                    hilang: Math.round(conditionTotals.hilang * 100) / 100,
                 },
             };
 
@@ -1272,6 +1279,13 @@ function returForm(initialData = null) {
                     debitClass: 'text-red-600',
                     tone: 'red',
                 },
+                hilang: {
+                    label: 'Beban Kerugian Retur',
+                    debitLabel: 'Dr. 6105 Beban Kerugian Retur (barang tak kembali)',
+                    creditLabel: 'Cr. 5001 HPP',
+                    debitClass: 'text-red-600',
+                    tone: 'red',
+                },
             };
 
             return meta[condition] || meta.good;
@@ -1280,22 +1294,38 @@ function returForm(initialData = null) {
         buildJournalPreview() {
             const preview = {
                 revenue: null,
+                credits: [],
                 conditions: [],
             };
 
-            // Hanya bagian yang membalik penjualan yang muncul sbg baris pembalik.
+            // Sisi UANG. Satu debit (nilai jual yang dibatalkan) dan beberapa kredit, persis
+            // urutan SalesReturnService::hitungUang(): tagihan dihapus dulu, sisanya baru
+            // dikembalikan, dan selisihnya membalik biaya admin.
             if (this.summary.reversed > 0) {
+                const d = this.dana;
+
                 preview.revenue = {
                     debitLabel: this.returnType === 'so'
                         ? 'Dr. 2105 Uang Muka Penjualan'
-                        : 'Dr. 4001 Penjualan',
-                    creditLabel: `Cr. ${this.getReturnAccountName()}`,
+                        : 'Dr. 4004 Retur Penjualan',
                     debitClass: this.returnType === 'so' ? 'text-indigo-600' : 'text-blue-600',
                     amount: this.summary.reversed,
                 };
+
+                if (this.returnType === 'so') {
+                    preview.credits.push({ label: `Cr. ${this.getReturnAccountName()}`, amount: this.summary.reversed });
+                } else {
+                    if (d.ar > 0)   preview.credits.push({ label: 'Cr. 1120 Piutang (tagihan dihapus)', amount: d.ar });
+                    if (this.nilaiRefund > 0) preview.credits.push({ label: `Cr. ${this.labelTujuan()}`, amount: this.nilaiRefund });
+                    const fee = Math.round((d.cash - this.nilaiRefund) * 100) / 100;
+                    if (fee > 0) preview.credits.push({ label: 'Cr. 5101 Beban Admin (dibalik)', amount: fee });
+                    if (d.hold > 0 || (d.jenis === 'marketplace' && d.ar > 0)) {
+                        preview.credits.push({ label: 'Dr. 2105 Uang Muka / Cr. Saldo Ditahan', amount: this.summary.reversed });
+                    }
+                }
             }
 
-            ['good', 'repair', 'damaged'].forEach(condition => {
+            ['good', 'repair', 'damaged', 'hilang'].forEach(condition => {
                 const amount = this.summary.conditionTotals?.[condition] ?? 0;
                 if (amount > 0) {
                     const meta = this.getConditionMeta(condition);
@@ -1408,6 +1438,16 @@ function returForm(initialData = null) {
                     : (tersedia[0] || '');
             }
             this.isiUlangRefund();
+        },
+
+        /** Nama akun tujuan dana, untuk pratinjau jurnal. */
+        labelTujuan() {
+            return {
+                hold:   'Saldo Ditahan Marketplace',
+                wallet: 'Saldo Penjualan Marketplace',
+                bank:   'Kas/Bank',
+                credit: '2106 Kredit Pelanggan',
+            }[this.refundTarget] || '2106 Kredit Pelanggan';
         },
 
         getReturnAccountName() {

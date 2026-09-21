@@ -67,11 +67,21 @@ class SalesReturn extends Model
      *
      *   utuh          : barang kembali utuh    → masuk persediaan;        dana dikembalikan
      *   perbaikan     : barang kembali rusak   → Gudang Perbaikan;        dana dikembalikan
-     *   rusak         : barang & dana sama-sama hilang → Beban Kerugian Retur
-     *   tidak_kembali : barang hilang TAPI DANANYA DIGANTI marketplace → tidak membalik apa pun
+     *   rusak         : barang kembali tapi tak terpakai → Beban Kerugian Retur
+     *   hilang        : barang TIDAK kembali & dana DIKEMBALIKAN → Beban Kerugian Retur
+     *   tidak_kembali : barang TIDAK kembali TAPI DANANYA DIGANTI → tidak membalik apa pun
      *
-     * `tidak_kembali` satu-satunya yang tidak membalik penjualan: uangnya memang kita terima,
-     * jadi omzet & HPP tetap sah seperti penjualan normal dan barangnya tidak pernah kembali.
+     * DUA KEADAAN "barang tidak kembali" yang gampang tertukar, padahal jurnalnya berlawanan:
+     *
+     *   - `tidak_kembali` — paket hilang, klaim MENANG, uangnya tetap kita terima. Penjualannya
+     *     sah dan tuntas, jadi omzet & HPP dibiarkan persis seperti penjualan normal. Inilah
+     *     satu-satunya kondisi yang tidak membalik apa pun.
+     *   - `hilang` — paket hilang, tapi dananya dikembalikan ke pembeli (klaim kalah, atau kita
+     *     memilih mengganti). Penjualannya batal, jadi modal barangnya bukan lagi HPP sebuah
+     *     penjualan melainkan KERUGIAN: direklas ke 6105.
+     *
+     * Sebelum ada `hilang`, keadaan kedua tidak bisa diungkapkan sama sekali — CS terpaksa
+     * memakai `tidak_kembali` dan omzet yang batal tetap tercatat sebagai penjualan.
      * Dipasang PER BARIS supaya satu pesanan bisa sebagian diganti & sebagian tidak.
      */
     public const CONDITION_NO_RETURN = 'tidak_kembali';
@@ -80,6 +90,7 @@ class SalesReturn extends Model
         'good'                   => 'Utuh',
         'repair'                 => 'Perbaikan',
         'damaged'                => 'Tidak Dapat Diperbaiki',
+        'hilang'                 => 'Tidak Kembali (dana dikembalikan)',
         self::CONDITION_NO_RETURN => 'Tidak Kembali (dana diganti)',
     ];
 

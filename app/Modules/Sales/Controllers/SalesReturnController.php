@@ -287,10 +287,10 @@ class SalesReturnController extends Controller
             'items'             => 'required|array|min:1',
             'items.*.invoice_item_id' => 'required|integer',
             'items.*.qty'       => 'required|numeric|min:0',
-            'items.*.condition' => 'required|in:good,damaged,repair,tidak_kembali',
+            'items.*.condition' => 'required|in:good,damaged,repair,hilang,tidak_kembali',
             // Bundle: kondisi per komponen { "<product_id>": "good|repair|damaged" }.
             'items.*.component_conditions'   => 'nullable|array',
-            'items.*.component_conditions.*' => 'in:good,damaged,repair,tidak_kembali',
+            'items.*.component_conditions.*' => 'in:good,damaged,repair,hilang,tidak_kembali',
             'return_type'            => 'nullable|in:' . implode(',', array_keys(SalesReturn::RETURN_TYPES)),
             'external_return_number' => 'nullable|string|max:60',
             'notes'                  => 'nullable|string|max:5000',
