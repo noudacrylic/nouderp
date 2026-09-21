@@ -254,7 +254,12 @@ class SalesReturnService
             }
         }
 
-        $debitAccount = $isSO ? AccountCodeEnum::SALES_ADVANCE : AccountCodeEnum::SALES_REVENUE;
+        // Retur atas FAKTUR membatalkan penjualan → kontra-pendapatan 4004, bukan mendebit
+        // 4001 langsung. Mendebit 4001 membuat omzet menyusut diam-diam: laporan tak bisa
+        // memisahkan "jual berapa" dari "diretur berapa", padahal rasio itu yang dipantau.
+        // Laba tidak berubah — 4004 sama-sama bertipe revenue & tampil sebagai deduksi.
+        // Retur atas SO (belum ada faktur) tetap membalik Uang Muka: belum ada omzet diakui.
+        $debitAccount = $isSO ? AccountCodeEnum::SALES_ADVANCE : AccountCodeEnum::SALES_RETURN;
 
         return [
             new JournalLineDTO(

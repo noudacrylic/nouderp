@@ -6,6 +6,9 @@ class AccountCodeEnum
 {
     const SALES_REVENUE = '4001';
     const SALES_DISCOUNT = '4003';
+    // Kontra-pendapatan: nilai JUAL yang dibatalkan retur. Beda urusan dengan 6105
+    // Beban Kerugian Retur, yang menampung nilai MODAL barang yang tak kembali/rusak.
+    const SALES_RETURN = '4004';
     const INVENTORY = '1130';
     const INVENTORY_REPAIR = '1131';
     const WARRANTY_STOCK = '1132'; // Beban Stok Garansi (expense)
