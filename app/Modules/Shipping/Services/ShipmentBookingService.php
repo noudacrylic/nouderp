@@ -251,6 +251,11 @@ class ShipmentBookingService
         if (!$customer || empty($customer->postal_code)) {
             return $this->fail($delivery, 'Alamat tujuan customer belum punya kode pos (wajib untuk Jubelio Shipment).');
         }
+        // Jubelio menolak tanpa alamat jalan (VAL_ERR "/destination must have
+        // required property 'address'") — tangkap di sini agar pesannya jelas.
+        if (trim((string) $customer->shipping_address) === '') {
+            return $this->fail($delivery, "Alamat jalan penerima \"{$customer->name}\" kosong. Lengkapi alamat customer lalu terbitkan resi lagi.");
+        }
 
         $destPhone = $customer?->nomorPengiriman();
         if (empty($destPhone)) {
