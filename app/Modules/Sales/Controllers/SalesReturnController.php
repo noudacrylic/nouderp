@@ -57,7 +57,19 @@ class SalesReturnController extends Controller
     public function create()
     {
         $customers = Customer::orderBy('name')->get(['id', 'name']);
-        return view('erp.sales.returns.create', compact('customers'));
+        return view('erp.sales.returns.create', [
+            'customers'    => $customers,
+            'cashAccounts' => $this->cashAccounts(),
+        ]);
+    }
+
+    /** Akun kas/bank yang boleh jadi sumber pengembalian dana tunai. */
+    private function cashAccounts()
+    {
+        return Account::where('is_cash_account', true)
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
     }
 
     public function edit($id)
@@ -69,7 +81,11 @@ class SalesReturnController extends Controller
         }
 
         $customers = Customer::orderBy('name')->get(['id', 'name']);
-        return view('erp.sales.returns.create', compact('customers', 'return'));
+        return view('erp.sales.returns.create', [
+            'customers'    => $customers,
+            'return'       => $return,
+            'cashAccounts' => $this->cashAccounts(),
+        ]);
     }
 
     /**
@@ -195,12 +211,22 @@ class SalesReturnController extends Controller
             ->map(function ($inv) {
                 $deliveryItems = $inv->delivery?->items ?? collect();
 
+                $svc = app(SalesReturnService::class);
+
                 return [
                     'id'             => $inv->id,
                     'number'         => $inv->invoice_number,
                     'date'           => $inv->invoice_date ? \Carbon\Carbon::parse($inv->invoice_date)->format('d/m/Y') : '-',
                     'grand_total'    => (float) $inv->grand_total,
                     'status'         => $inv->status_label,
+                    // Keadaan dana faktur — dipakai form untuk menyimpulkan jenis retur &
+                    // mengisi bawaan tujuan dana + nilai pengembalian. Server tetap yang
+                    // berwenang: SalesReturnService::hitungUang() menghitung ulang saat posting.
+                    'jenis'          => $svc->jenisRetur($inv),
+                    'tujuan_bawaan'  => $svc->tujuanDanaBawaan($inv),
+                    'sisa_tagihan'   => round(max(0, (float) $inv->remaining_amount), 2),
+                    'fee'            => round((float) ($inv->marketplace_fee ?? 0), 2),
+                    'is_marketplace' => (bool) $inv->customer?->is_marketplace,
                     'items'          => $inv->items->map(function ($item) use ($deliveryItems) {
                         $cogsTotal = (float) $item->cogs_total;
 

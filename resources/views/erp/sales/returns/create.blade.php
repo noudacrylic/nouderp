@@ -86,13 +86,21 @@
                             </div>
                         </div>
 
-                        {{-- Sumber Dokumen (faktur vs SO) — BUKAN jenis kasus retur, itu di Section 1 bawah. --}}
-                        <div class="col-span-1">
+                        {{-- Sumber dokumen TIDAK lagi ditanyakan.
+
+                             Dulu CS memilih "Dari Faktur" atau "Dari Sales Order", dan pilihan
+                             itu diam-diam mengubah jurnal (membalik Penjualan vs Uang Muka) —
+                             keputusan akuntansi yang disamarkan jadi pertanyaan pemilihan
+                             dokumen. Sejak faktur terbit saat pengiriman, SEMUA barang yang
+                             pernah keluar pasti punya faktur, jadi pilihan itu tak punya alasan
+                             hidup lagi: pesanan yang belum dikirim bukan urusan retur, itu
+                             pembatalan. Penanda ini hanya muncul saat membuka retur LAMA yang
+                             terlanjur dibuat atas SO, supaya dokumennya tetap bisa dibaca. --}}
+                        <div class="col-span-1" x-show="returnType === 'so'" x-cloak>
                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Sumber Dokumen</label>
-                            <select x-model="returnType" @change="onReturnTypeChange()" class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                                <option value="invoice">🛍️ Dari Faktur</option>
-                                <option value="so">📋 Dari Sales Order</option>
-                            </select>
+                            <div class="w-full border border-amber-200 bg-amber-50 rounded-xl px-3.5 py-2.5 text-sm text-amber-700">
+                                📋 Dari Sales Order <span class="text-[11px]">(dokumen lama)</span>
+                            </div>
                         </div>
 
                         {{-- Document Selector Search --}}
@@ -210,6 +218,83 @@
                             <textarea name="notes" x-model="caseNotes" rows="3"
                                       placeholder="Riwayat banding, video packing yang dikirim, tanggapan marketplace…"
                                       class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                        </div>
+                    </div>
+
+                    {{-- ═══ PENANGANAN DANA ═══
+                         Jenisnya DISIMPULKAN dari keadaan dana faktur, bukan ditanyakan: CS
+                         belum tentu tahu pesanan marketplace itu sudah tuntas atau belum, dan
+                         salah menebaknya membuat saldo ditahan jadi minus. Angka di sini hanya
+                         pratinjau — SalesReturnService::hitungUang() menghitung ulang saat
+                         posting dan dialah yang berwenang. --}}
+                    <div class="mt-5 pt-5 border-t border-gray-100" x-show="selectedDoc && returnType === 'invoice'" x-cloak>
+                        <div class="flex items-center gap-2 mb-3">
+                            <h4 class="font-bold text-gray-700 text-sm">Penanganan Dana</h4>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase"
+                                  :class="dana.jenis === 'marketplace' ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600'"
+                                  x-text="dana.jenis === 'marketplace' ? 'Retur Marketplace' : 'Retur Biasa'"></span>
+                        </div>
+
+                        <p class="text-[11px] text-gray-500 mb-4" x-text="dana.penjelasan"></p>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Tujuan Dana</label>
+                                <select name="refund_target" x-model="refundTarget" @change="isiUlangRefund()"
+                                        class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <template x-for="(label, key) in tujuanTersedia" :key="key">
+                                        <option :value="key" x-text="label"></option>
+                                    </template>
+                                </select>
+                            </div>
+
+                            <div x-show="dana.cash > 0" x-cloak>
+                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Nilai Dikembalikan</label>
+                                <input type="text" name="refund_amount" x-model="refundAmount"
+                                       class="rupiah-input w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <p class="text-[11px] text-gray-400 mt-1" x-show="dana.feeMax > 0"
+                                   x-text="'Bawaannya dana bersih yang kita terima. Biaya admin ' + formatNumber(dana.feeMax) + ' sudah hangus dan tidak dikembalikan platform — selisihnya ditanggung pembeli.'"></p>
+                            </div>
+
+                            <div x-show="refundTarget === 'bank'" x-cloak>
+                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Dari Akun Kas/Bank</label>
+                                <select name="refund_account_id" x-model="refundAccountId"
+                                        class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">— pilih akun —</option>
+                                    @foreach($cashAccounts as $acc)
+                                        <option value="{{ $acc->id }}">{{ $acc->code }} — {{ $acc->name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div x-show="refundTarget === 'credit'" x-cloak>
+                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Kredit Atas Nama</label>
+                                <select name="refund_customer_id" x-model="refundCustomerId"
+                                        class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">— pelanggan di faktur —</option>
+                                    @foreach($customers as $cust)
+                                        <option value="{{ $cust->id }}">{{ $cust->name }}</option>
+                                    @endforeach
+                                </select>
+                                <p class="text-[11px] text-gray-400 mt-1">
+                                    Pembeli marketplace yang menukar barang adalah orang, sementara pelanggan di faktur adalah akun channel-nya.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 bg-gray-50 rounded-xl p-3 text-xs space-y-1" x-show="dana.amount > 0" x-cloak>
+                            <div class="flex justify-between" x-show="dana.ar > 0">
+                                <span class="text-gray-500">Tagihan dihapus</span>
+                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(dana.ar)"></span></span>
+                            </div>
+                            <div class="flex justify-between" x-show="dana.cash > 0">
+                                <span class="text-gray-500">Uang dikembalikan</span>
+                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(nilaiRefund)"></span></span>
+                            </div>
+                            <div class="flex justify-between" x-show="(dana.cash - nilaiRefund) > 0">
+                                <span class="text-gray-500">Biaya admin dibalik</span>
+                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(dana.cash - nilaiRefund)"></span></span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -629,6 +714,14 @@ function returForm(initialData = null) {
         externalReturnNo: initialData?.external_return_number || '',
         caseNotes: initialData?.notes || '',
         customerBalance: initialData?.customer?.credit_balance || 0,
+
+        // Penanganan dana. Nilainya hanya PRATINJAU: SalesReturnService::hitungUang()
+        // menghitung ulang saat posting dan dialah yang berwenang. Yang dikirim ke server
+        // cuma keputusannya (tujuan, nominal, penerima), bukan hasil hitungannya.
+        refundTarget: initialData?.refund_target || '',
+        refundAmount: initialData?.refund_amount ? String(initialData.refund_amount) : '',
+        refundAccountId: initialData?.refund_account_id || '',
+        refundCustomerId: initialData?.refund_customer_id || '',
         isMarketplace: initialData?.customer?.is_marketplace || false,
         marketplaceHoldName: initialData?.customer?.marketplace_hold_name || '',
 
@@ -696,7 +789,8 @@ function returForm(initialData = null) {
 
         async init() {
             // Watch for changes to recalculate
-            this.$watch('items', () => this.calculateSummary(), { deep: true });
+            // Qty berubah -> nilai retur berubah -> nominal pengembalian bawaannya ikut.
+            this.$watch('items', () => { this.calculateSummary(); this.isiUlangRefund(); }, { deep: true });
 
             if (this.returnId && initialData) {
                 // We are in EDIT mode (from Draft)
@@ -834,6 +928,12 @@ function returForm(initialData = null) {
             this.customerName = this.customerQuery;
         },
 
+        /**
+         * Sisa dari masa ketika CS boleh berpindah antara "Dari Faktur" dan "Dari Sales
+         * Order". Pemilihnya sudah dibuang, tapi fungsinya dibiarkan hidup karena ia satu-
+         * satunya jalan memuat ulang daftar dokumen saat sumbernya berganti — dipakai lagi
+         * kalau suatu saat retur atas SO perlu dibuka kembali.
+         */
         async onReturnTypeChange() {
             if (!this.customerId) return;
 
@@ -894,6 +994,7 @@ function returForm(initialData = null) {
             this.items = this.selectedDoc.items.map(item => this.buildItem(item));
 
             this.calculateSummary(); // 🔥 TRIGGER INITIAL CALCULATION
+            this.selarasDana();      // tujuan dana mengikuti keadaan dana faktur
         },
 
         // ── Qty Validation ──────────────────────────────
@@ -1246,6 +1347,67 @@ function returForm(initialData = null) {
 
         getCustomerName() {
             return this.customerName;
+        },
+
+        /**
+         * Pembagian uang retur — cerminan SalesReturnService::hitungUang().
+         *
+         * Urutannya yang membuatnya benar: hapus tagihan dulu sebesar piutang yang masih
+         * terbuka, sisanya barulah uang yang sudah kita terima dan perlu dikembalikan.
+         */
+        get dana() {
+            const doc    = this.selectedDoc || {};
+            const amount = Number(this.summary.reversed || 0);
+            const sisa   = Number(doc.sisa_tagihan || 0);
+            const ar     = Math.min(amount, sisa);
+            const cash   = Math.max(0, Math.round((amount - ar) * 100) / 100);
+            const grand  = Number(doc.grand_total || 0);
+            const feeMax = grand > 0 ? Math.round(Number(doc.fee || 0) * amount / grand) : 0;
+            const jenis  = doc.jenis || 'biasa';
+
+            const penjelasan = jenis === 'marketplace'
+                ? 'Dana pembeli masih ditahan marketplace. Membatalkan penjualan berarti menghapus tagihannya, dan titipan pembeli dilepas balik — tidak ada uang yang keluar dari kas kita.'
+                : (cash > 0
+                    ? 'Dananya sudah kita terima, jadi bagian ini memang harus dikembalikan ke suatu tempat. Pilih ke mana.'
+                    : 'Fakturnya belum pernah dibayar, jadi yang dibatalkan hanyalah tagihannya — tidak ada uang yang bergerak.');
+
+            return { amount, ar, cash, feeMax, jenis, penjelasan, refundDefault: Math.max(0, cash - feeMax) };
+        },
+
+        /** Tujuan dana yang masuk akal untuk dokumen ini — sisanya disembunyikan. */
+        get tujuanTersedia() {
+            const doc = this.selectedDoc || {};
+            const out = {};
+            if (this.dana.jenis === 'marketplace') {
+                out.hold = 'Saldo Ditahan Marketplace (dana belum cair)';
+                return out;
+            }
+            if (doc.is_marketplace) out.wallet = 'Saldo Penjualan Marketplace (dipotong dari dompet)';
+            out.credit = 'Jadi Kredit Pelanggan (tidak ada uang keluar)';
+            out.bank   = 'Transfer dari Kas/Bank';
+            return out;
+        },
+
+        get nilaiRefund() {
+            const v = parseFloat(String(this.refundAmount).replace(/\./g, '').replace(',', '.'));
+            return isNaN(v) ? 0 : v;
+        },
+
+        /** Kembalikan nominal ke bawaan: dana BERSIH yang kita terima. */
+        isiUlangRefund() {
+            this.refundAmount = this.dana.refundDefault > 0 ? this.formatNumber(this.dana.refundDefault) : '';
+        },
+
+        /** Dipanggil saat dokumen berganti — tujuan mengikuti keadaan dana fakturnya. */
+        selarasDana() {
+            const doc = this.selectedDoc || {};
+            const tersedia = Object.keys(this.tujuanTersedia);
+            if (!this.refundTarget || !tersedia.includes(this.refundTarget)) {
+                this.refundTarget = doc.tujuan_bawaan && tersedia.includes(doc.tujuan_bawaan)
+                    ? doc.tujuan_bawaan
+                    : (tersedia[0] || '');
+            }
+            this.isiUlangRefund();
         },
 
         getReturnAccountName() {

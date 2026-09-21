@@ -251,6 +251,26 @@ class SalesReturnRefundTargetTest extends TestCase
         $this->retur($inv, ['refund' => 150000]);
     }
 
+    public function test_form_retur_terbuka_dan_payload_faktur_membawa_keadaan_dana(): void
+    {
+        $this->faktur(advanceApplied: 0);
+        $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]));
+
+        // Pilihan "Dari Sales Order" tak lagi ditawarkan untuk dokumen baru — dulu ia diam-diam
+        // mengubah jurnal, keputusan akuntansi yang disamarkan jadi pertanyaan pemilihan dokumen.
+        $html = $this->get(route('sales.returns.create'))->assertOk()->getContent();
+        $this->assertStringContainsString('Penanganan Dana', $html);
+        $this->assertStringNotContainsString('<option value="so">', $html);
+
+        // Form menyimpulkan jenis retur dari payload ini — tanpa field-nya ia cuma menebak.
+        $payload = $this->getJson(route('sales.ajax.returns.invoices', ['customer_id' => $this->customerId]))
+            ->assertOk()->json();
+
+        $this->assertSame('marketplace', $payload[0]['jenis']);
+        $this->assertSame('hold', $payload[0]['tujuan_bawaan']);
+        $this->assertEqualsWithDelta(100000, $payload[0]['sisa_tagihan'], 0.01);
+    }
+
     public function test_retur_pelanggan_biasa_yang_belum_bayar_hanya_menghapus_tagihan(): void
     {
         $toko = Customer::create(['code' => 'CUST-TOKO', 'name' => 'Toko Sebelah', 'is_active' => true]);
