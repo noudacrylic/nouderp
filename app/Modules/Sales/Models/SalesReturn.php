@@ -19,7 +19,26 @@ class SalesReturn extends Model
         'stage',
         'return_type',
         'external_return_number',
-        'notes'
+        'notes',
+        // Ke mana uang dikembalikan & berapa — lihat SalesReturnService::hitungUang().
+        'refund_target',
+        'refund_account_id',
+        'refund_customer_id',
+        'refund_amount',
+        'fee_reversed',
+    ];
+
+    /**
+     * Ke mana uang retur dikembalikan.
+     *
+     * Bukan sekadar pilihan akun: tiap tujuan mencerminkan keadaan dana yang berbeda, dan
+     * salah memilihnya membuat akun saldo ditahan atau dompet marketplace jadi minus.
+     */
+    public const REFUND_TARGETS = [
+        'hold'   => 'Saldo Ditahan Marketplace (dana belum cair)',
+        'wallet' => 'Saldo Penjualan Marketplace (dipotong dari dompet)',
+        'bank'   => 'Transfer dari Kas/Bank',
+        'credit' => 'Jadi Kredit Pelanggan (tidak ada uang keluar)',
     ];
 
     /** Tahap penanganan retur — terpisah dari `status` yang mengurus akuntansi. */

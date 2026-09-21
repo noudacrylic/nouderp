@@ -268,6 +268,11 @@ class SalesReturnController extends Controller
             'return_type'            => 'nullable|in:' . implode(',', array_keys(SalesReturn::RETURN_TYPES)),
             'external_return_number' => 'nullable|string|max:60',
             'notes'                  => 'nullable|string|max:5000',
+            // Tujuan dana: dibiarkan kosong = sistem yang memilih dari keadaan dana faktur.
+            'refund_target'      => 'nullable|in:' . implode(',', array_keys(SalesReturn::REFUND_TARGETS)),
+            'refund_account_id'  => 'nullable|exists:accounts,id',
+            'refund_customer_id' => 'nullable|exists:customers,id',
+            'refund_amount'      => 'nullable|string',
         ]);
 
         // Retur hanya boleh diselesaikan setelah kasusnya didefinisikan — tahap "Retur Baru"
@@ -294,6 +299,11 @@ class SalesReturnController extends Controller
             return_type:            $request->return_type ?: null,
             external_return_number: trim((string) $request->external_return_number) ?: null,
             notes:                  trim((string) $request->notes) ?: null,
+            refund_target:      $request->refund_target ?: null,
+            refund_account_id:  $request->refund_account_id ? (int) $request->refund_account_id : null,
+            refund_customer_id: $request->refund_customer_id ? (int) $request->refund_customer_id : null,
+            // Nominal rupiah datang berformat Indonesia — jangan pernah di-cast langsung.
+            refund_amount:      $request->filled('refund_amount') ? (float) clean_number($request->refund_amount) : null,
         );
 
         try {

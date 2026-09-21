@@ -174,9 +174,11 @@ class SalesReturnService
             // barangnya memang tidak pernah kembali — tidak ada yang perlu dibalik untuk baris
             // itu. Kalau semua barisnya `tidak_kembali`, jurnalnya kosong sama sekali dan
             // dokumen retur murni jadi catatan kasus.
+            $isSO = (bool) $dto->sales_order_id;
+
             $journalLines = [];
             if ($totals['reversed'] > 0) {
-                $journalLines = array_merge($journalLines, $this->getRevenueReversalLines($doc, $totals['reversed'], (bool) $dto->sales_order_id));
+                $journalLines = array_merge($journalLines, $this->getRevenueReversalLines($dto, $doc, $totals['reversed'], $isSO));
             }
             $journalLines = array_merge($journalLines, $this->getCogsReversalLines($dto, $doc, $return->id));
 
@@ -194,13 +196,29 @@ class SalesReturnService
                 ));
             }
 
-            if ($totals['reversed'] > 0 && !$doc->customer->is_marketplace) {
-                CustomerOverpayment::create([
-                    'customer_id' => $dto->customer_id,
-                    'amount'      => $totals['reversed'],
-                    'reference'   => $return->return_number,
-                    'note'        => 'Sales Return',
-                ]);
+            // Kolam saldo kredit hanya bertambah bila uangnya memang DIJADIKAN kredit —
+            // bukan setiap kali pelanggan biasa meretur. Retur yang uangnya ditransfer balik
+            // atau dipotong dari dompet marketplace tidak menciptakan hak beli apa pun, dan
+            // menambahkannya ke kolam berarti pelanggan dibayar dua kali.
+            if (!$isSO && $totals['reversed'] > 0) {
+                $uang = $this->hitungUang($doc, $totals['reversed'], $dto->refund_target, $dto->refund_amount);
+
+                $return->forceFill([
+                    'refund_target'      => $uang['target'],
+                    'refund_account_id'  => $dto->refund_account_id,
+                    'refund_customer_id' => $dto->refund_customer_id,
+                    'refund_amount'      => $uang['refund'],
+                    'fee_reversed'       => $uang['fee'],
+                ])->save();
+
+                if ($uang['target'] === 'credit' && $uang['refund'] > 0) {
+                    CustomerOverpayment::create([
+                        'customer_id' => $dto->refund_customer_id ?: $dto->customer_id,
+                        'amount'      => $uang['refund'],
+                        'reference'   => $return->return_number,
+                        'note'        => 'Retur ' . $return->return_number,
+                    ]);
+                }
             }
 
             return $return;
@@ -242,40 +260,214 @@ class SalesReturnService
         return $out ?: null;
     }
 
-    private function getRevenueReversalLines($doc, $amount, $isSO)
+    /**
+     * Jenis penanganan retur — ditentukan dari KEADAAN DANA, bukan dari channel.
+     *
+     * Orang menyebutnya "retur marketplace" dan "retur biasa", dan itu benar untuk sebagian
+     * besar kasus. Tapi pembeda sesungguhnya bukan channel-nya: faktur marketplace yang
+     * pesanannya SUDAH selesai berperilaku persis seperti penjualan toko — dananya sudah cair,
+     * jadi pengembaliannya harus keluar dari dompet/bank, bukan dari saldo yang sudah kosong.
+     * Karena itu jenisnya disimpulkan sistem, bukan ditanyakan ke CS yang belum tentu tahu
+     * pesanan itu sudah tuntas atau belum.
+     *
+     * @return 'marketplace'|'biasa'
+     */
+    public function jenisRetur($doc): string
     {
-        $customer = $doc->customer;
-        $creditAccountId = $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY);
-
-        if ($customer->is_marketplace) {
-            $config = \App\Models\MarketplaceConfig::where('customer_id', $customer->id)->first();
-            if ($config && $config->account_receivable_hold_id) {
-                $creditAccountId = $config->account_receivable_hold_id;
-            }
+        if (!$doc instanceof SalesInvoice) {
+            return 'biasa';
         }
 
-        // Retur atas FAKTUR membatalkan penjualan → kontra-pendapatan 4004, bukan mendebit
-        // 4001 langsung. Mendebit 4001 membuat omzet menyusut diam-diam: laporan tak bisa
-        // memisahkan "jual berapa" dari "diretur berapa", padahal rasio itu yang dipantau.
-        // Laba tidak berubah — 4004 sama-sama bertipe revenue & tampil sebagai deduksi.
-        // Retur atas SO (belum ada faktur) tetap membalik Uang Muka: belum ada omzet diakui.
-        $debitAccount = $isSO ? AccountCodeEnum::SALES_ADVANCE : AccountCodeEnum::SALES_RETURN;
+        return ($doc->customer?->is_marketplace && $doc->fee_at_settlement && $doc->remaining_amount >= 1)
+            ? 'marketplace'
+            : 'biasa';
+    }
 
-        return [
-            new JournalLineDTO(
-                account_id: $this->getAccountId($debitAccount),
-                debit: (float) $amount,
-                credit: 0,
-                description: $isSO ? 'Sales Return Reversal - Advance' : 'Sales Return Reversal - Revenue'
-            ),
-            new JournalLineDTO(
-                account_id: $creditAccountId,
-                debit: 0,
-                credit: (float) $amount,
-                customer_id: $doc->customer_id,
-                description: $customer->is_marketplace ? 'Marketplace Hold / Receivable Hold' : 'Customer Overpayment'
-            ),
+    /** Tujuan dana bawaan untuk sebuah dokumen — dipakai form & sebagai fallback posting. */
+    public function tujuanDanaBawaan($doc): string
+    {
+        if ($this->jenisRetur($doc) === 'marketplace') {
+            return 'hold';
+        }
+
+        return $doc->customer?->is_marketplace ? 'wallet' : 'credit';
+    }
+
+    /**
+     * Pembagian uang sebuah retur.
+     *
+     * Satu aturan untuk semua kasus, dan urutannya yang membuatnya benar:
+     *
+     *  1. HAPUS TAGIHAN DULU sebesar piutang faktur yang masih terbuka. Selama faktur belum
+     *     dibayar, membatalkan penjualan berarti menghapus tagihan — tidak ada uang bergerak.
+     *  2. SISANYA adalah uang yang SUDAH kita terima, dan hanya bagian inilah yang benar-benar
+     *     perlu dikembalikan ke suatu tempat.
+     *  3. Untuk retur marketplace yang dananya masih ditahan, uang pembeli dilepas balik dari
+     *     Saldo Ditahan ke Uang Muka — itu pasangan jurnal tersendiri, di luar dua langkah di
+     *     atas, karena yang bergerak adalah titipan pembeli, bukan pendapatan kita.
+     *
+     * NILAI REFUND adalah hasil negosiasi, bukan turunan harga. Pada retur setelah pesanan
+     * selesai, biaya admin marketplace sudah hangus dan tidak dikembalikan platform; yang
+     * wajar dikembalikan adalah dana bersih yang kita terima. Selisih antara nilai jual yang
+     * dibatalkan dan uang yang benar-benar keluar MEMBALIK beban admin — karena beban itu
+     * akhirnya ditanggung pembeli, bukan kita. Pembalikan dibatasi sebesar fee yang memang
+     * pernah dibebankan untuk porsi yang diretur; lebih dari itu bukan urusan biaya admin dan
+     * ditolak, supaya selisih yang tak terjelaskan tidak diam-diam menumpang di sana.
+     *
+     * @return array{ar:float, cash:float, refund:float, fee:float, hold:float, target:string}
+     */
+    public function hitungUang($doc, float $amount, ?string $target = null, ?float $refundDiminta = null): array
+    {
+        $target = $target ?: $this->tujuanDanaBawaan($doc);
+        $isInvoice = $doc instanceof SalesInvoice;
+
+        // 1. Piutang yang masih terbuka pada faktur ini.
+        $arOpen = $isInvoice ? max(0, (float) $doc->remaining_amount) : 0.0;
+        $ar     = round(min($amount, $arOpen), 2);
+
+        // 2. Sisanya = uang yang sudah kita terima.
+        $cash = round($amount - $ar, 2);
+
+        // 3. Titipan pembeli yang masih ditahan marketplace, dilepas balik.
+        $hold = $target === 'hold' ? round(min($amount, $this->sisaDitahan($doc)), 2) : 0.0;
+
+        // Fee yang pernah dibebankan untuk porsi yang diretur ini.
+        $feeMax = 0.0;
+        if ($isInvoice && $cash > 0 && (float) $doc->grand_total > 0) {
+            $feeMax = round((float) ($doc->marketplace_fee ?? 0) * ($amount / (float) $doc->grand_total), 2);
+        }
+
+        // Bawaan: kembalikan dana BERSIH yang kita terima (fee-nya ditanggung pembeli).
+        $refund = $refundDiminta !== null ? round($refundDiminta, 2) : round(max(0, $cash - $feeMax), 2);
+        if ($refund < 0) {
+            throw new Exception('Nilai pengembalian tidak boleh negatif.');
+        }
+        if ($refund > $cash + 0.005) {
+            throw new Exception(
+                'Nilai pengembalian ' . rupiah($refund) . ' melebihi dana yang pernah kita terima atas bagian ini (' . rupiah($cash) . ').'
+            );
+        }
+
+        $fee = round($cash - $refund, 2);
+        if ($fee > $feeMax + 0.005) {
+            throw new Exception(
+                'Selisih ' . rupiah($fee) . ' lebih besar daripada biaya admin yang pernah dibebankan untuk bagian ini (' . rupiah($feeMax) . '). '
+                . 'Naikkan nilai pengembalian, atau catat selisihnya lewat dokumen tersendiri.'
+            );
+        }
+
+        return compact('ar', 'cash', 'refund', 'fee', 'hold', 'target');
+    }
+
+    /** Saldo titipan pembeli yang masih tertahan untuk dokumen ini. */
+    private function sisaDitahan($doc): float
+    {
+        $soId = $doc->sales_order_id ?? ($doc instanceof \App\Modules\Sales\Models\SalesOrder ? $doc->id : null);
+        if (!$soId) {
+            return 0.0;
+        }
+
+        $config = \App\Models\MarketplaceConfig::where('customer_id', $doc->customer_id)->first();
+        $holdId = $config?->account_receivable_hold_id;
+        if (!$holdId) {
+            return 0.0;
+        }
+
+        $deposit = (float) \App\Modules\Sales\Models\SalesAdvance::where('sales_order_id', $soId)
+            ->where('status', 'posted')
+            ->where('bank_account_id', $holdId)
+            ->sum('amount');
+
+        // Retur sebelumnya sudah melepas sebagian — jangan melepasnya dua kali.
+        $terpakai = (float) DB::table('journal_lines as jl')
+            ->join('journals as j', 'j.id', '=', 'jl.journal_id')
+            ->where('j.status', '!=', 'void')
+            ->where('j.reference_type', 'sales_return')
+            ->where('jl.account_id', $holdId)
+            ->whereIn('j.reference_id', SalesReturn::where('status', 'posted')
+                ->where(fn ($w) => $w->where('invoice_id', $doc->id ?? 0)
+                    ->orWhere('sales_order_id', $soId))
+                ->pluck('id'))
+            ->selectRaw('SUM(jl.credit) - SUM(jl.debit) v')->value('v');
+
+        return round(max(0, $deposit - $terpakai), 2);
+    }
+
+    /** Akun tujuan pengembalian dana. */
+    private function akunTujuan($doc, string $target, ?int $refundAccountId): int
+    {
+        $config = \App\Models\MarketplaceConfig::where('customer_id', $doc->customer_id)->first();
+
+        return match ($target) {
+            'hold'   => (int) ($config?->account_receivable_hold_id ?: $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY)),
+            'wallet' => (int) ($config?->account_wallet_id ?: $this->getAccountId(AccountCodeEnum::CASH)),
+            'bank'   => (int) ($refundAccountId ?: throw new Exception('Pilih akun kas/bank untuk pengembalian dana.')),
+            default  => (int) $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY),
+        };
+    }
+
+    /**
+     * Baris jurnal sisi UANG sebuah retur. Sisi barang (HPP/persediaan) terpisah di
+     * getCogsReversalLines().
+     */
+    private function getRevenueReversalLines($dto, $doc, $amount, $isSO)
+    {
+        // Retur atas SO (belum ada faktur) — jalur lama, dipertahankan agar 32 dokumen lama
+        // tetap bisa dibuka & di-void. Belum ada omzet yang diakui, jadi yang dibalik adalah
+        // Uang Muka, bukan penjualan.
+        if ($isSO) {
+            $config = $doc->customer->is_marketplace
+                ? \App\Models\MarketplaceConfig::where('customer_id', $doc->customer_id)->first()
+                : null;
+            $creditId = $config?->account_receivable_hold_id ?: $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY);
+
+            return [
+                new JournalLineDTO($this->getAccountId(AccountCodeEnum::SALES_ADVANCE), (float) $amount, 0, 'Sales Return Reversal - Advance'),
+                new JournalLineDTO((int) $creditId, 0, (float) $amount, 'Pengembalian titipan pembeli', $doc->customer_id),
+            ];
+        }
+
+        $uang = $this->hitungUang($doc, (float) $amount, $dto->refund_target, $dto->refund_amount);
+
+        // Nilai JUAL yang dibatalkan → kontra-pendapatan 4004, bukan mendebit 4001 langsung.
+        // Mendebit 4001 membuat omzet menyusut diam-diam: laporan tak bisa memisahkan
+        // "jual berapa" dari "diretur berapa". Laba tidak berubah — 4004 sama-sama revenue.
+        $lines = [
+            new JournalLineDTO($this->getAccountId(AccountCodeEnum::SALES_RETURN), (float) $amount, 0, 'Retur penjualan - ' . $doc->invoice_number),
         ];
+
+        if ($uang['ar'] > 0) {
+            $lines[] = new JournalLineDTO(
+                $this->getAccountId(AccountCodeEnum::AR_RECEIVABLE), 0, $uang['ar'],
+                'Tagihan dihapus - ' . $doc->invoice_number, $doc->customer_id
+            );
+        }
+
+        if ($uang['refund'] > 0) {
+            $lines[] = new JournalLineDTO(
+                $this->akunTujuan($doc, $uang['target'], $dto->refund_account_id), 0, $uang['refund'],
+                'Pengembalian dana (' . (SalesReturn::REFUND_TARGETS[$uang['target']] ?? $uang['target']) . ')',
+                $dto->refund_customer_id ?: $doc->customer_id
+            );
+        }
+
+        if ($uang['fee'] > 0) {
+            // Biaya admin yang TIDAK jadi kita tanggung: pembeli hanya menerima dana bersih.
+            $config = \App\Models\MarketplaceConfig::where('customer_id', $doc->customer_id)->first();
+            $lines[] = new JournalLineDTO(
+                (int) ($config?->account_fee_id ?: $this->getAccountId(AccountCodeEnum::SALES_LOSS)), 0, $uang['fee'],
+                'Biaya admin tidak dikembalikan ke pembeli'
+            );
+        }
+
+        // Titipan pembeli yang masih ditahan marketplace dilepas balik — pasangan tersendiri.
+        if ($uang['hold'] > 0) {
+            $config = \App\Models\MarketplaceConfig::where('customer_id', $doc->customer_id)->first();
+            $lines[] = new JournalLineDTO($this->getAccountId(AccountCodeEnum::SALES_ADVANCE), $uang['hold'], 0, 'Titipan pembeli dikembalikan');
+            $lines[] = new JournalLineDTO((int) $config->account_receivable_hold_id, 0, $uang['hold'], 'Pelepasan saldo ditahan untuk retur', $doc->customer_id);
+        }
+
+        return $lines;
     }
 
     private function getCogsReversalLines($dto, $doc, $returnId)

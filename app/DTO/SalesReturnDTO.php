@@ -22,5 +22,13 @@ class SalesReturnDTO
         public ?string $external_return_number = null,
         /** Catatan bebas penanganan: riwayat banding, video packing yang dikirim, dll. */
         public ?string $notes = null,
+        /** Tujuan dana: hold | wallet | bank | credit. NULL = biarkan sistem yang memilih. */
+        public ?string $refund_target = null,
+        /** Akun kas/bank, wajib bila tujuannya `bank`. */
+        public ?int $refund_account_id = null,
+        /** Kredit boleh diarahkan ke pelanggan LAIN (pembeli asli, bukan akun marketplace). */
+        public ?int $refund_customer_id = null,
+        /** Nilai yang BENAR-BENAR dikembalikan — hasil negosiasi. NULL = pakai bawaan. */
+        public ?float $refund_amount = null,
     ) {}
 }

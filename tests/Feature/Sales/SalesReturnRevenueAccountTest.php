@@ -47,6 +47,7 @@ class SalesReturnRevenueAccountTest extends TestCase
         );
 
         $this->akun('4001', 'Penjualan Produk', 'revenue', 'credit');
+        $this->akun('1120', 'Piutang Usaha', 'asset', 'debit');
         $this->akun('2106', 'Kelebihan Bayar Customer', 'liability', 'credit');
         $this->akun('5001', 'Harga Pokok Penjualan', 'expense', 'debit');
         $this->akun('6105', 'Beban Kerugian Retur', 'expense', 'debit');
@@ -98,8 +99,11 @@ class SalesReturnRevenueAccountTest extends TestCase
         $this->assertEqualsWithDelta(100000, $perKode['4004']['d'] ?? 0, 0.01);
         $this->assertArrayNotHasKey('4001', $perKode, 'Retur tidak boleh lagi mendebit 4001 Penjualan Produk.');
 
-        // Uangnya jadi kredit pelanggan (pelanggan biasa, bukan marketplace).
-        $this->assertEqualsWithDelta(100000, $perKode['2106']['c'] ?? 0, 0.01);
+        // Fakturnya belum pernah dibayar, jadi yang dibatalkan adalah TAGIHANNYA — tidak ada
+        // uang yang bergerak, dan tidak ada kredit pelanggan yang lahir. Lihat
+        // SalesReturnRefundTargetTest untuk tujuan dana saat uangnya memang sudah diterima.
+        $this->assertEqualsWithDelta(100000, $perKode['1120']['c'] ?? 0, 0.01);
+        $this->assertArrayNotHasKey('2106', $perKode);
 
         // Nilai MODAL pindah ke 6105 — akun yang berbeda, urusan yang berbeda.
         $this->assertEqualsWithDelta(40000, $perKode['6105']['d'] ?? 0, 0.01);
