@@ -57,7 +57,13 @@
                                 <span class="block text-xs">Diarsipkan</span>
                             @endunless
                         </td>
-                        <td class="px-3 py-2 align-top">{{ $cabang->fullAddress() ?: '—' }}</td>
+                        <td class="px-3 py-2 align-top">
+                            @if ($cabang->punyaAlamatSendiri())
+                                {{ $cabang->fullAddress() }}
+                            @else
+                                <span class="text-gray-500">ikut pusat</span>
+                            @endif
+                        </td>
                         <td class="px-3 py-2 align-top">
                             {{ $cabang->pic_name ?: '—' }}
                             <span class="block text-xs text-gray-500">

@@ -13,8 +13,8 @@ use Tests\TestCase;
  *
  * Yang dijaga di sini bukan "formnya bisa dipakai", melainkan dua hal yang
  * kalau jebol merusak data sungguhan: cabang tidak boleh berpindah pelanggan
- * lewat tebak-tebakan angka di URL, dan alamat cabang yang kosong tidak boleh
- * diam-diam berubah jadi alamat pusat.
+ * lewat tebak-tebakan angka di URL, dan alamat pusat yang dipinjam cabang
+ * beralamat kosong tidak boleh tersalin ke baris cabangnya.
  */
 class CustomerBranchTest extends TestCase
 {
@@ -85,7 +85,12 @@ class CustomerBranchTest extends TestCase
         $this->assertSame($pemilik->id, $cabang->fresh()->customer_id);
     }
 
-    public function test_alamat_cabang_yang_kosong_tidak_jatuh_ke_alamat_induk(): void
+    /**
+     * Cabang beralamat kosong MENGIRIM ke alamat pusat (lihat TujuanCabangDokumenTest),
+     * tapi alamat pusat itu tidak pernah ditulis ke baris cabangnya — begitu alamat
+     * pusat diubah, cabang ikut berubah, dan begitu cabang diberi alamat, ia berdiri sendiri.
+     */
+    public function test_alamat_cabang_yang_kosong_tidak_tersalin_ke_baris_cabang(): void
     {
         $customer = $this->pelanggan();
         $customer->update(['address' => 'Jl. Pusat No. 1, Jakarta']);
@@ -93,6 +98,7 @@ class CustomerBranchTest extends TestCase
         $cabang = $customer->branches()->create(['name' => 'Cabang Baru']);
 
         $this->assertSame('', $cabang->fullAddress());
+        $this->assertFalse($cabang->punyaAlamatSendiri());
     }
 
     public function test_arsip_menyembunyikan_cabang_dari_yang_aktif_tanpa_menghapusnya(): void

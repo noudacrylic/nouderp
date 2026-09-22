@@ -54,12 +54,14 @@ trait PunyaTujuanKirim
     /** Cabang tujuan, atau induk yang dituangkan jadi cabang bayangan. */
     public function tujuan(): ?CustomerBranch
     {
+        // Cabang yang alamatnya belum diisi mengirim ke alamat pusat (keputusan 22 Sep
+        // 2026) — lihat CustomerBranch::denganAlamatPusat().
         if ($this->customer_branch_id && $this->customerBranch) {
-            return $this->customerBranch;
+            return $this->customerBranch->denganAlamatPusat();
         }
 
         if ($warisan = $this->cabangWarisan()) {
-            return $warisan;
+            return $warisan->denganAlamatPusat();
         }
 
         return $this->pelangganTujuan()?->sebagaiCabang();

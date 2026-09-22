@@ -170,4 +170,68 @@ class TujuanCabangDokumenTest extends TestCase
 
         $this->assertStringContainsString('Jl. Penagihan No. 7', $so->alamatTujuan());
     }
+
+    /**
+     * Cabang yang alamatnya belum diisi mengirim ke alamat PUSAT (keputusan 22 Sep 2026).
+     * Nama & nomor tetap milik cabang — nota atas nama cabang, kurir menelepon orang cabang.
+     * Dulu resinya ditolak "alamat jalan kosong" padahal di layar tertulis "ikut pusat".
+     */
+    public function test_cabang_tanpa_alamat_memakai_alamat_pusat_tetapi_nama_cabang(): void
+    {
+        $customer = $this->pelanggan();
+        $customer->update(['jubelio_area_id' => '3374010001', 'latitude' => -6.2, 'longitude' => 106.8]);
+        // Titik lokasi saja belum dihitung alamat: kurir reguler butuh jalan & kode pos.
+        $cabang = $customer->branches()->create([
+            'name' => 'PT Sumber Jaya - Cabang Unnes', 'recipient_phone' => '628444444444',
+            'latitude' => -7.04, 'longitude' => 110.39, 'is_active' => true,
+        ]);
+
+        $tujuan = $this->pesanan($customer->fresh(), $cabang->id)->tujuan();
+
+        $this->assertSame('PT Sumber Jaya - Cabang Unnes', $tujuan->name);
+        $this->assertSame('Jl. Pusat No. 1', $tujuan->shipping_address);
+        $this->assertSame('10110', $tujuan->postal_code);
+        $this->assertSame('3374010001', $tujuan->jubelio_area_id);
+        // Satu kesatuan: koordinat ikut pusat, bukan koordinat cabang + jalan pusat.
+        $this->assertEqualsWithDelta(-6.2, (float) $tujuan->latitude, 0.0001);
+        $this->assertSame('628444444444', $tujuan->nomorPengiriman());
+
+        // Baris cabangnya sendiri tidak ikut terisi alamat pusat.
+        $this->assertNull($cabang->fresh()->shipping_address);
+    }
+
+    /** Alamat cabang yang terisi sebagian TIDAK ditambal dari pusat — tidak ada alamat campuran. */
+    public function test_cabang_beralamat_sebagian_tidak_dicampur_alamat_pusat(): void
+    {
+        $customer = $this->pelanggan();
+        $cabang = $customer->branches()->create([
+            'name' => 'Cabang Setengah', 'city' => 'Bandung', 'is_active' => true,
+        ]);
+
+        $tujuan = $this->pesanan($customer, $cabang->id)->tujuan();
+
+        $this->assertSame('Bandung', $tujuan->city);
+        $this->assertNull($tujuan->shipping_address);
+        $this->assertNull($tujuan->postal_code);
+    }
+
+    public function test_cabang_dengan_alamat_pinjaman_pusat_tidak_bisa_disimpan(): void
+    {
+        $customer = $this->pelanggan();
+        $cabang = $customer->branches()->create(['name' => 'Cabang Kosong', 'is_active' => true]);
+
+        $this->expectException(\LogicException::class);
+        $this->pesanan($customer, $cabang->id)->tujuan()->save();
+    }
+
+    public function test_panel_alamat_cabang_kosong_menampilkan_alamat_pusat(): void
+    {
+        $customer = $this->pelanggan();
+        $cabang = $customer->branches()->create(['name' => 'Cabang Kosong', 'is_active' => true]);
+
+        $tujuan = \App\Models\CustomerBranch::tujuanUntuk($customer->id, $cabang->id);
+
+        $this->assertSame($cabang->id, $tujuan->id);
+        $this->assertSame('Jl. Pusat No. 1, Jakarta, DKI Jakarta, 10110', $tujuan->fullAddress());
+    }
 }
