@@ -80,6 +80,10 @@ class InvoicePostingService
             $invoice->status = \App\Enums\InvoiceStatusEnum::POSTED;
             $invoice->save();
 
+            // 🔥 9a. BIAYA PESANAN (tukang pasang luar, jasa antar, dll) yang sudah dibayar
+            //        untuk SO ini dipindah dari 1204 ke bebannya — ikut bulan faktur.
+            app(\App\Modules\Sales\Services\SalesOrderCostService::class)->recognizeForInvoice($invoice);
+
             // 🔥 9b. SETTLE SELISIH ONGKIR BITESHIP (Fase 5) — kalau SO punya booking Biteship.
             if ($invoice->sales_order_id) {
                 $so = \App\Modules\Sales\Models\SalesOrder::find($invoice->sales_order_id);

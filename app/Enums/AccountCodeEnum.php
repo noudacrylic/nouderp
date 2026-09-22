@@ -25,6 +25,11 @@ class AccountCodeEnum
     const SHIPPING_DEPOSIT = '1203'; // Titipan Pengiriman (ongkir dibayar customer lewat kita)
     const SERVICE_REVENUE = '4010'; // Pendapatan Jasa (jasa perbaikan garansi)
 
+    // Biaya Pesanan (tukang pasang luar, jasa antar, dll) — diparkir di 1204 sampai
+    // pesanannya difakturkan, lalu dipindah ke akun bebannya (bawaan 5008).
+    const ORDER_COST_DEFERRED = '1204';
+    const ORDER_COST_COGS = '5008'; // HPP Jasa Pihak Ketiga
+
     const AP_PAYABLE = '2101'; // Hutang Usaha (dibentuk faktur pembelian)
 
     /**

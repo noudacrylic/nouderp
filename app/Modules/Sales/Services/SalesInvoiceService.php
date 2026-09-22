@@ -687,6 +687,9 @@ class SalesInvoiceService
                 }
             }
 
+            // 3b. Biaya pesanan yang diakui di faktur ini kembali ditangguhkan (1204).
+            app(\App\Modules\Sales\Services\SalesOrderCostService::class)->reverseForInvoice($invoice);
+
             // 4. Reset advance_applied (uang muka kembali ke saldo SO)
             $invoice->advance_applied = 0;
 

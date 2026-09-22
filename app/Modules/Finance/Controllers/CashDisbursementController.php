@@ -66,7 +66,26 @@ class CashDisbursementController extends Controller
     public function create(Request $request)
     {
         $type = $request->get('type', 'general');
-        return view('erp.finance.cash-disbursements.create', $this->formData($type));
+        $data = $this->formData($type);
+
+        // Dari tombol "Catat Biaya" di halaman SO: satu baris siap isi, sudah tertaut ke
+        // pesanannya dan memakai akun HPP Jasa bawaan.
+        $data['prefillLines'] = [];
+        if ($type === 'general' && ($soId = $request->integer('sales_order_id'))) {
+            $so = \App\Modules\Sales\Models\SalesOrder::with('customer')
+                ->where('status', 'confirmed')->find($soId);
+            if ($so) {
+                $data['prefillLines'][] = [
+                    'account_id'     => app(\App\Modules\Sales\Services\SalesOrderCostService::class)->defaultCostAccountId(),
+                    'amount'         => '',
+                    'description'    => '',
+                    'sales_order_id' => $so->id,
+                    'sales_order_label' => $this->orderLabel($so),
+                ];
+            }
+        }
+
+        return view('erp.finance.cash-disbursements.create', $data);
     }
 
     public function store(Request $request)
@@ -89,13 +108,13 @@ class CashDisbursementController extends Controller
 
     public function show($id)
     {
-        $cd = CashDisbursement::with(['cashAccount', 'customer', 'lines.account', 'lines.salesInvoice'])->findOrFail($id);
+        $cd = CashDisbursement::with(['cashAccount', 'customer', 'lines.account', 'lines.salesInvoice', 'lines.salesOrder', 'lines.costInvoice'])->findOrFail($id);
         return view('erp.finance.cash-disbursements.show', compact('cd'));
     }
 
     public function edit($id)
     {
-        $cd = CashDisbursement::with('lines')->findOrFail($id);
+        $cd = CashDisbursement::with('lines.salesOrder.customer')->findOrFail($id);
         if (!$cd->isDraft()) {
             return redirect()->route('finance.cash-bank.disbursements.show', $cd->id)
                 ->with('error', 'Hanya draft yang bisa diedit.');
@@ -163,6 +182,37 @@ class CashDisbursementController extends Controller
     {
         $cd = CashDisbursement::with(['cashAccount', 'customer', 'lines.account', 'lines.salesInvoice'])->findOrFail($id);
         return view('erp.finance.cash-disbursements.print', compact('cd'));
+    }
+
+    /**
+     * AJAX: pesanan confirmed untuk kolom "Pesanan" di Pengeluaran Umum (biaya pesanan).
+     * Dicari lewat nomor SO atau nama pelanggan — SO jumlahnya ribuan, jadi tidak dimuat semua.
+     */
+    public function orderSearch(Request $request)
+    {
+        $term = trim((string) $request->get('q', ''));
+
+        $rows = \App\Modules\Sales\Models\SalesOrder::with('customer')
+            ->where('status', 'confirmed')
+            ->when($term !== '', function ($q) use ($term) {
+                $q->where(function ($w) use ($term) {
+                    $w->where('order_number', 'like', "%{$term}%")
+                      ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$term}%"));
+                });
+            })
+            ->orderByDesc('order_date')->orderByDesc('id')
+            ->limit(20)
+            ->get();
+
+        return response()->json($rows->map(fn ($so) => [
+            'id'    => $so->id,
+            'label' => $this->orderLabel($so),
+        ]));
+    }
+
+    protected function orderLabel(\App\Modules\Sales\Models\SalesOrder $so): string
+    {
+        return $so->order_number . ' — ' . ($so->customer->name ?? '-');
     }
 
     /**
@@ -478,8 +528,9 @@ class CashDisbursementController extends Controller
 
         $titipanAccount = Account::where('code', '1203')->first();
         $overpayAccount = Account::where('code', \App\Enums\AccountCodeEnum::CUSTOMER_OVERPAY)->first();
+        $orderCostAccountId = app(\App\Modules\Sales\Services\SalesOrderCostService::class)->defaultCostAccountId();
 
-        return compact('type', 'cashAccounts', 'expenseAccounts', 'customers', 'titipanAccount', 'overpayAccount');
+        return compact('type', 'cashAccounts', 'expenseAccounts', 'customers', 'titipanAccount', 'overpayAccount', 'orderCostAccountId');
     }
 
     protected function validateData(Request $request): array
@@ -498,6 +549,7 @@ class CashDisbursementController extends Controller
             'lines.*.description'            => 'nullable|string|max:255',
             'lines.*.sales_invoice_id'       => 'nullable|exists:sales_invoices,id',
             'lines.*.customer_overpayment_id'=> 'nullable|exists:customer_overpayments,id',
+            'lines.*.sales_order_id'         => 'nullable|exists:sales_orders,id',
         ]);
     }
 

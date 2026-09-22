@@ -21,8 +21,12 @@
             'description' => $l->description,
             'sales_invoice_id' => $l->sales_invoice_id,
             'customer_overpayment_id' => $l->customer_overpayment_id,
+            'sales_order_id' => $l->sales_order_id,
+            'sales_order_label' => $l->salesOrder
+                ? $l->salesOrder->order_number . ' — ' . ($l->salesOrder->customer->name ?? '-')
+                : '',
         ])->all()
-        : (old('lines') ?: []);
+        : (old('lines') ?: ($prefillLines ?? []));
 
     // Label akun: hutang ditandai supaya tidak tertukar dengan beban.
     $accLabel = fn($a) => $a->code . ' — ' . $a->name . ($a->type === 'liability' ? ' [Hutang]' : '');
@@ -128,6 +132,10 @@
                 <tr>
                     <th class="px-2 py-2 text-left" style="min-width:220px">Akun (Debit)</th>
                     <th class="px-2 py-2 text-left">Keterangan</th>
+                    <th class="px-2 py-2 text-left general-only" style="min-width:200px"
+                        title="Isi bila biaya ini untuk satu pesanan (tukang pasang luar, jasa antar, dll). Biaya ditahan di 1204 lalu jadi HPP saat pesanannya difakturkan.">
+                        Pesanan <span class="font-normal text-gray-400">(opsional)</span>
+                    </th>
                     <th class="px-2 py-2 text-right" style="width:160px">Nominal</th>
                     <th style="width:30px"></th>
                 </tr>
@@ -135,7 +143,7 @@
             <tbody id="linesBody"></tbody>
             <tfoot class="border-t font-semibold">
                 <tr>
-                    <td colspan="2" class="px-2 py-2 text-right">Total</td>
+                    <td colspan="2" class="px-2 py-2 text-right" id="totalLabelCell">Total</td>
                     <td class="px-2 py-2 text-right" id="grandTotal">0</td>
                     <td></td>
                 </tr>
@@ -193,6 +201,15 @@
             Konfigurasi akun di <a href="{{ route('settings.freight.edit') }}" class="text-blue-600 underline">Pengaturan &gt; Pengaturan Ongkir</a>.
         </div>
     </div>
+
+    <div id="orderCostHint" class="hidden text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
+        Baris yang diisi <b>Pesanan</b> dicatat sebagai <b>Biaya Pesanan</b>: uangnya ditahan dulu di
+        <b>1204 Biaya Pesanan Ditangguhkan</b>, lalu pindah ke akun di kolom Akun (bawaan 5008 HPP Jasa Pihak Ketiga)
+        saat faktur pesanan itu di-post — jadi HPP-nya jatuh di bulan yang sama dengan penjualannya.
+        Pesanan yang sudah difakturkan langsung dibebankan saat pengeluaran di-post.
+    </div>
+
+    <datalist id="salesOrderList"></datalist>
 
     <datalist id="expenseAccountList">
         @foreach($expenseAccounts as $acc)
@@ -271,6 +288,12 @@ function renderGeneralRow(line){
         <td class="px-2 py-1">
             <input type="text" name="lines[][description]" value="${esc(line.description)}" class="border rounded px-2 py-1 w-full">
         </td>
+        <td class="px-2 py-1">
+            <input type="text" list="salesOrderList" value="${esc(line.sales_order_label)}"
+                   class="border rounded px-2 py-1 w-full so-search" placeholder="No SO / pelanggan…" autocomplete="off">
+            <input type="hidden" name="lines[][sales_order_id]" value="${esc(line.sales_order_id)}" class="so-id">
+            <input type="hidden" name="lines[][sales_order_label]" value="${esc(line.sales_order_label)}" class="so-label">
+        </td>
         <td class="px-2 py-1 text-right">
             <input type="text" inputmode="numeric" name="lines[][amount]" value="${line.amount||''}"
                    class="border rounded px-2 py-1 w-full text-right amount-input rupiah-input" required>
@@ -292,6 +315,7 @@ function renderLockedRow(line, lockedAcc){
         <td class="px-2 py-1">
             <input type="text" name="lines[][description]" value="${esc(line.description)}" class="border rounded px-2 py-1 w-full">
         </td>
+        <td class="general-only"></td>
         <td class="px-2 py-1 text-right">
             <input type="text" inputmode="numeric" name="lines[][amount]" value="${line.amount||''}"
                    class="border rounded px-2 py-1 w-full text-right amount-input rupiah-input" required>
@@ -314,10 +338,12 @@ function addLineRow(line = {}){
     bindGenericRow(tr);
     fixGenericNames();
     recalcGeneric();
+    tr.querySelectorAll('.general-only').forEach(el => el.classList.toggle('hidden', t !== 'general'));
+    refreshOrderHint();
 }
 
 function bindGenericRow(tr){
-    tr.querySelector('.btn-remove')?.addEventListener('click', () => { tr.remove(); fixGenericNames(); recalcGeneric(); });
+    tr.querySelector('.btn-remove')?.addEventListener('click', () => { tr.remove(); fixGenericNames(); recalcGeneric(); refreshOrderHint(); });
     tr.querySelector('.amount-input')?.addEventListener('input', recalcGeneric);
     const search = tr.querySelector('.account-search');
     const idInput = tr.querySelector('.account-id');
@@ -329,6 +355,66 @@ function bindGenericRow(tr){
         search.addEventListener('input', sync);
         search.addEventListener('change', sync);
     }
+    bindOrderField(tr);
+}
+
+// ============================================================
+// KOLOM PESANAN (biaya pesanan) — SO dicari lewat AJAX, jumlahnya ribuan
+// ============================================================
+const orderByLabel = {};
+const orderList = document.getElementById('salesOrderList');
+const orderCostAccountId = {!! json_encode($orderCostAccountId ?? null) !!};
+let orderSearchTimer = null;
+
+async function searchOrders(q){
+    try {
+        const res = await fetch(`{{ route('finance.cash-bank.disbursements.order-search') }}?q=${encodeURIComponent(q)}`);
+        const rows = await res.json();
+        orderList.innerHTML = '';
+        rows.forEach(r => {
+            orderByLabel[r.label] = r;
+            const opt = document.createElement('option');
+            opt.value = r.label;
+            orderList.appendChild(opt);
+        });
+    } catch(e) { /* pencarian gagal: kolom tetap bisa dikosongkan */ }
+}
+
+function bindOrderField(tr){
+    const search = tr.querySelector('.so-search');
+    if (!search) return;
+    const idInput = tr.querySelector('.so-id');
+    const labelInput = tr.querySelector('.so-label');
+    if (idInput.value && search.value) orderByLabel[search.value] = { id: idInput.value, label: search.value };
+
+    const sync = () => {
+        const so = orderByLabel[search.value];
+        idInput.value = so ? so.id : '';
+        labelInput.value = so ? so.label : '';
+        // Biaya pesanan paling sering HPP jasa — isi akunnya bila masih kosong.
+        const accId = tr.querySelector('.account-id');
+        if (so && accId && !accId.value && orderCostAccountId && expenseById[String(orderCostAccountId)]) {
+            accId.value = orderCostAccountId;
+            tr.querySelector('.account-search').value = expenseById[String(orderCostAccountId)].label;
+        }
+        refreshOrderHint();
+    };
+    search.addEventListener('input', () => {
+        sync();
+        clearTimeout(orderSearchTimer);
+        orderSearchTimer = setTimeout(() => searchOrders(search.value.trim()), 250);
+    });
+    search.addEventListener('change', sync);
+    search.addEventListener('focus', () => { if (!orderList.children.length) searchOrders(''); });
+    search.addEventListener('blur', () => {
+        // Teks bebas yang tidak cocok dengan SO mana pun → kosongkan, jangan diam-diam tak tertaut.
+        if (!orderByLabel[search.value]) { search.value = ''; sync(); }
+    });
+}
+
+function refreshOrderHint(){
+    const any = Array.from(linesBody.querySelectorAll('.so-id')).some(i => i.value);
+    document.getElementById('orderCostHint').classList.toggle('hidden', !any || typeEl.value !== 'general');
 }
 
 function fixGenericNames(){
@@ -631,6 +717,10 @@ function refreshLayoutForType(){
 
     genericSection.classList.toggle('hidden', t === 'freight');
     freightSection.classList.toggle('hidden', t !== 'freight');
+
+    // Kolom Pesanan hanya untuk Pengeluaran Umum.
+    document.querySelectorAll('#linesTable .general-only').forEach(el => el.classList.toggle('hidden', t !== 'general'));
+    document.getElementById('totalLabelCell').colSpan = t === 'general' ? 3 : 2;
 
     if (t === 'freight' && !freightLoaded) loadFreightInvoices('');
 }

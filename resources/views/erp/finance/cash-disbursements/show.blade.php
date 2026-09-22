@@ -137,8 +137,32 @@
             <tbody>
                 @foreach($cd->lines as $l)
                     <tr class="border-b">
-                        <td class="px-3 py-2">{{ $l->account->code ?? '' }} — {{ $l->account->name ?? '' }}</td>
-                        <td class="px-3 py-2">{{ $l->description }}</td>
+                        <td class="px-3 py-2">
+                            @if($l->salesOrder && $cd->isPosted() && !$l->costInvoice)
+                                {{-- Biaya pesanan yang belum difakturkan: yang benar-benar didebit 1204,
+                                     akun pilihan baru terisi saat faktur SO di-post. --}}
+                                1204 — Biaya Pesanan Ditangguhkan
+                                <div class="text-xs text-gray-500">pindah ke {{ $l->account->code ?? '' }} — {{ $l->account->name ?? '' }} saat faktur di-post</div>
+                            @else
+                                {{ $l->account->code ?? '' }} — {{ $l->account->name ?? '' }}
+                            @endif
+                        </td>
+                        <td class="px-3 py-2">
+                            {{ $l->description }}
+                            @if($l->salesOrder)
+                                {{-- Biaya pesanan: status menentukan di akun mana uangnya sekarang berada. --}}
+                                <div class="text-xs mt-0.5">
+                                    Biaya pesanan
+                                    <a href="{{ route('sales.orders.show', $l->sales_order_id) }}" class="text-blue-600 hover:underline">{{ $l->salesOrder->order_number }}</a>
+                                    @if($l->costInvoice)
+                                        · <span class="text-green-700">diakui sbg beban di
+                                            <a href="{{ route('sales.invoices.show', $l->cost_invoice_id) }}" class="hover:underline">{{ $l->costInvoice->invoice_number }}</a></span>
+                                    @elseif($cd->isPosted())
+                                        · <span class="text-amber-700">ditahan di 1204, menunggu faktur</span>
+                                    @endif
+                                </div>
+                            @endif
+                        </td>
                         <td class="px-3 py-2 text-right">{{ number_format($l->amount, 0, ',', '.') }}</td>
                     </tr>
                 @endforeach

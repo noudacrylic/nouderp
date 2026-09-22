@@ -1061,6 +1061,13 @@ class SalesOrderController extends Controller
             return back()->with('error', "SO tidak bisa di-void: masih ada Retur {$activeReturn->return_number} aktif. Void retur tersebut terlebih dahulu.");
         }
 
+        // Biaya pesanan yang sudah dibayar akan menggantung di 1204 selamanya kalau SO-nya batal.
+        $activeCost = app(\App\Modules\Sales\Services\SalesOrderCostService::class)->linesForOrder($so->id)->first();
+        if ($activeCost) {
+            $cdNum = $activeCost->disbursement->number ?? '#' . $activeCost->cash_disbursement_id;
+            return back()->with('error', "SO tidak bisa di-void: masih ada Biaya Pesanan di Pengeluaran {$cdNum}. Void/hapus pengeluaran tersebut atau lepaskan tautan SO-nya terlebih dahulu.");
+        }
+
         // Release stock reservations
         \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)
             ->update(['status' => 'cancelled']);

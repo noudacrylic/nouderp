@@ -25,6 +25,7 @@ Route::prefix('erp/finance/cash-bank')->name('finance.cash-bank.')->group(functi
         Route::post('/', [CashDisbursementController::class, 'store'])->name('store');
         Route::post('/quick-store', [CashDisbursementController::class, 'quickStore'])->name('quick-store');
         Route::get('/freight-invoices', [CashDisbursementController::class, 'freightInvoices'])->name('freight-invoices');
+        Route::get('/order-search', [CashDisbursementController::class, 'orderSearch'])->name('order-search');
         Route::post('/freight-import', [CashDisbursementController::class, 'freightImport'])->name('freight-import');
         Route::get('/freight-import-template', [CashDisbursementController::class, 'freightImportTemplate'])->name('freight-import-template');
         // Biaya API Biteship (upload Excel bulanan dari export "Transaksi API").

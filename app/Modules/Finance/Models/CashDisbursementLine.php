@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use App\Core\Accounting\Account;
 use App\Models\SalesInvoice;
 use App\Models\CustomerOverpayment;
+use App\Modules\Sales\Models\SalesOrder;
 
 class CashDisbursementLine extends Model
 {
@@ -14,6 +15,7 @@ class CashDisbursementLine extends Model
         'account_id',
         'sales_invoice_id',
         'customer_overpayment_id',
+        'sales_order_id',
         'amount',
         'description',
     ];
@@ -40,5 +42,17 @@ class CashDisbursementLine extends Model
     public function customerOverpayment()
     {
         return $this->belongsTo(CustomerOverpayment::class);
+    }
+
+    /** Pesanan yang menanggung biaya ini (lihat SalesOrderCostService). */
+    public function salesOrder()
+    {
+        return $this->belongsTo(SalesOrder::class);
+    }
+
+    /** Faktur tempat biaya pesanan ini diakui sebagai beban. Kosong = masih ditangguhkan. */
+    public function costInvoice()
+    {
+        return $this->belongsTo(SalesInvoice::class, 'cost_invoice_id');
     }
 }

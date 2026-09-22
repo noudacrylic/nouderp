@@ -13,7 +13,7 @@ return [
     'operating_revenue_prefix' => '40',
 
     // Beban Pokok Penjualan (HPP) — dipakai menghitung Laba Kotor.
-    'cogs_codes' => ['5001', '5005', '5006', '5007'],
+    'cogs_codes' => ['5001', '5005', '5006', '5007', '5008'],
 
     // Beban yang diperlakukan sebagai PENGURANG Pendapatan (contra-revenue),
     // bukan Beban Operasional — mis. potongan/fee admin marketplace. Ditampilkan

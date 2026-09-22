@@ -13,6 +13,7 @@ use App\Models\CustomerOverpayment;
 use App\Models\FreightSetting;
 use App\Models\SalesInvoice;
 use App\Enums\AccountCodeEnum;
+use App\Modules\Sales\Services\SalesOrderCostService;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use DomainException;
@@ -22,8 +23,17 @@ class CashDisbursementService
     use NumberGeneratorTrait;
 
     public function __construct(
-        protected PeriodService $periodService
+        protected PeriodService $periodService,
+        protected SalesOrderCostService $orderCosts,
     ) {}
+
+    /** Tautan biaya pesanan hanya berlaku di Pengeluaran Umum; tipe lain punya akun terkunci. */
+    protected function orderIdOf(array $data, array $line): ?int
+    {
+        return ($data['type'] ?? '') === 'general' && !empty($line['sales_order_id'])
+            ? (int) $line['sales_order_id']
+            : null;
+    }
 
     public function createDraft(array $data): CashDisbursement
     {
@@ -50,6 +60,7 @@ class CashDisbursementService
                     'account_id'              => $line['account_id'],
                     'sales_invoice_id'        => $line['sales_invoice_id'] ?? null,
                     'customer_overpayment_id' => $line['customer_overpayment_id'] ?? null,
+                    'sales_order_id'          => $this->orderIdOf($data, $line),
                     'amount'                  => $line['amount'],
                     'description'             => $line['description'] ?? null,
                 ]);
@@ -83,6 +94,7 @@ class CashDisbursementService
                     'account_id'              => $line['account_id'],
                     'sales_invoice_id'        => $line['sales_invoice_id'] ?? null,
                     'customer_overpayment_id' => $line['customer_overpayment_id'] ?? null,
+                    'sales_order_id'          => $this->orderIdOf($data, $line),
                     'amount'                  => $line['amount'],
                     'description'             => $line['description'] ?? null,
                 ]);
@@ -136,14 +148,26 @@ class CashDisbursementService
             if ($cd->type === 'freight') {
                 $this->postFreightLines($journal, $cd);
             } else {
-                // Lines: Dr akun pilihan tiap line
-                foreach ($cd->lines as $line) {
+                // Lines: Dr akun pilihan tiap line — KECUALI biaya pesanan, yang diparkir di
+                // 1204 sampai pesanannya difakturkan (SalesOrderCostService). SO dicek ulang
+                // di sini: draft bisa disimpan saat SO masih confirmed lalu SO-nya di-void.
+                $deferredId = null;
+                foreach ($cd->lines as $i => $line) {
+                    $accountId   = $line->account_id;
+                    $description = $line->description;
+                    if ($line->sales_order_id) {
+                        $so = $this->orderCosts->assertOrderAcceptsCost(
+                            (int) $line->sales_order_id, (int) $line->account_id, 'Baris ' . ($i + 1)
+                        );
+                        $accountId   = $deferredId ??= $this->orderCosts->deferredAccountId();
+                        $description = trim(($line->description ?: 'Biaya pesanan') . ' — ' . $so->order_number);
+                    }
                     JournalLine::create([
                         'journal_id'      => $journal->id,
-                        'account_id'      => $line->account_id,
+                        'account_id'      => $accountId,
                         'debit'           => $line->amount,
                         'credit'          => 0,
-                        'description'     => $line->description,
+                        'description'     => $description,
                         'reference_type'  => 'cash_disbursement',
                         'reference_id'    => $cd->id,
                         'reference_number'=> $cd->number,
@@ -184,6 +208,9 @@ class CashDisbursementService
             $cd->posted_at = now();
             $cd->save();
 
+            // Pesanan yang sudah difakturkan: biayanya langsung pindah ke beban.
+            $this->orderCosts->afterDisbursementPosted($cd);
+
             return $cd;
         });
     }
@@ -199,6 +226,9 @@ class CashDisbursementService
             if ($cd->type === 'customer_refund') {
                 CustomerOverpayment::where('reference', $cd->number)->delete();
             }
+
+            // Biaya pesanan yang sudah dipindah ke beban ikut dibatalkan pemindahannya.
+            $this->orderCosts->reverseForDisbursement($cd);
 
             if ($cd->journal_id) {
                 $journal = Journal::find($cd->journal_id);
@@ -335,6 +365,9 @@ class CashDisbursementService
             $amount = (float) ($line['amount'] ?? 0);
             if ($amount <= 0) throw new DomainException("Baris " . ($i + 1) . ": nominal harus > 0.");
             if (empty($line['account_id'])) throw new DomainException("Baris " . ($i + 1) . ": akun wajib dipilih.");
+            if ($soId = $this->orderIdOf($data, $line)) {
+                $this->orderCosts->assertOrderAcceptsCost($soId, (int) $line['account_id'], 'Baris ' . ($i + 1));
+            }
         }
 
         // Type-specific validation
