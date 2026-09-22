@@ -16,6 +16,13 @@ use Illuminate\Support\Facades\DB;
 
 class SalesReturnController extends Controller
 {
+    /**
+     * Batas baris daftar dokumen (faktur/SO) per permintaan. Tiap baris membawa item + surat
+     * jalan + komponen bundle; pelanggan marketplace punya ribuan faktur (Shopee 7.685 per
+     * 22/9/26 → 198 MB, 31 dtk, tembus memory_limit 128M). Dokumen lama dicari lewat `?q=`.
+     */
+    private const DOC_LIST_LIMIT = 50;
+
     public function index(Request $request)
     {
         $search = trim((string) $request->get('search', ''));
@@ -102,6 +109,7 @@ class SalesReturnController extends Controller
     {
         $customerId = $request->get('customer_id');
         $onlyId     = $request->get('id');
+        $search     = trim((string) $request->get('q', ''));
 
         $orders = \App\Modules\Sales\Models\SalesOrder::query()
             ->with(['items.product', 'deliveries.items']) // Eager load SJ items for COGS calculation
@@ -117,9 +125,12 @@ class SalesReturnController extends Controller
                 // 3. Menghindari double retur (hanya retur yang sudah POSTED yang memblokir;
                 //    draft tidak diblokir agar SO-nya tetap muncul saat draft retur diedit —
                 //    selaras dengan getInvoices()).
-                ->whereDoesntHave('returns', fn ($r) => $r->where('status', 'posted'));
+                ->whereDoesntHave('returns', fn ($r) => $r->where('status', 'posted'))
+                ->when($search, fn ($q) => $q->where('order_number', 'like', '%' . $search . '%'))
+                ->limit(self::DOC_LIST_LIMIT);
             })
             ->latest('order_date')
+            ->latest('id')
             ->get()
             ->map(function ($so) {
                 return [
@@ -194,19 +205,24 @@ class SalesReturnController extends Controller
      * API: Get posted/partial invoices belonging to a customer.
      *
      * `?id=` → satu faktur saja, tanpa saringan kelayakan. Alasannya sama dgn getSalesOrders().
+     * Tanpa `?id=`: paling banyak DOC_LIST_LIMIT faktur terbaru, disaring `?q=` (nomor faktur).
      */
     public function getInvoices(Request $request)
     {
         $customerId = $request->get('customer_id');
         $onlyId     = $request->get('id');
+        $search     = trim((string) $request->get('q', ''));
 
-        $invoices = SalesInvoice::with(['items.product', 'delivery.items'])
+        $invoices = SalesInvoice::with(['customer', 'items.product', 'delivery.items'])
             ->where('customer_id', $customerId)
             ->when($onlyId, fn ($q) => $q->whereKey($onlyId))
             ->unless($onlyId, fn ($q) => $q
                 ->whereIn('status', ['posted', 'partial'])
-                ->whereDoesntHave('returns', fn ($r) => $r->where('status', 'posted')))
+                ->whereDoesntHave('returns', fn ($r) => $r->where('status', 'posted'))
+                ->when($search, fn ($q) => $q->where('invoice_number', 'like', '%' . $search . '%'))
+                ->limit(self::DOC_LIST_LIMIT))
             ->latest('invoice_date')
+            ->latest('id')
             ->get()
             ->map(function ($inv) {
                 $deliveryItems = $inv->delivery?->items ?? collect();

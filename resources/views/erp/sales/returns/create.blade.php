@@ -104,12 +104,12 @@
                         </div>
 
                         {{-- Document Selector Search --}}
-                        <div class="col-span-1 relative" x-show="documents.length > 0" x-transition @click.outside="showDocDropdown = false">
+                        <div class="col-span-1 relative" x-show="documents.length > 0 || docQuery" x-transition @click.outside="showDocDropdown = false">
                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5" x-text="returnType === 'invoice' ? 'Faktur *' : 'Sales Order *'"></label>
                             
                             <input type="text"
                                 x-model="docQuery"
-                                @input="showDocDropdown = true; ensureDocumentsLoaded()"
+                                @input="showDocDropdown = true; searchDocuments()"
                                 @focus="showDocDropdown = true; ensureDocumentsLoaded()"
                                 placeholder="Cari nomor document..."
                                 autocomplete="off"
@@ -129,14 +129,17 @@
                                         </div>
                                     </div>
                                 </template>
-                                <div x-show="filteredDocs.length === 0" class="px-4 py-3 text-sm text-gray-500 text-center italic">
-                                    Tidak ditemukan
+                                <div x-show="filteredDocs.length === 0" class="px-4 py-3 text-sm text-gray-500 text-center italic"
+                                    x-text="searchingDocs ? 'Mencari…' : 'Tidak ditemukan'">
+                                </div>
+                                <div x-show="!docQuery && documents.length >= 50" class="px-4 py-2 text-[11px] text-gray-400 text-center bg-gray-50">
+                                    Menampilkan 50 terbaru — ketik nomor untuk mencari yang lebih lama
                                 </div>
                             </div>
                         </div>
 
                         {{-- No documents message --}}
-                        <div class="col-span-3" x-show="customerId && documents.length === 0 && !loadingDocs" x-transition>
+                        <div class="col-span-3" x-show="customerId && documents.length === 0 && !loadingDocs && !docQuery" x-transition>
                             <div class="text-center py-4 bg-amber-50 rounded-xl border border-amber-100">
                                 <span class="text-amber-500 font-semibold text-sm" x-text="returnType === 'invoice' ? '⚠️ Tidak ada faktur posted/partial untuk pelanggan ini.' : '⚠️ Tidak ada Sales Order aktif untuk pelanggan ini.'"></span>
                             </div>
@@ -732,6 +735,10 @@ function returForm(initialData = null) {
         // Daftar penuh dokumen pelanggan sudah ditarik? Di mode edit sengaja belum —
         // hanya satu dokumen yang dimuat agar halaman langsung terbuka.
         fullDocsLoaded: false,
+        // Server hanya mengirim 50 dokumen terbaru; yang lebih lama dicari lewat `?q=`.
+        searchingDocs: false,
+        docSearchTimer: null,
+        docSearchSeq: 0,
         loadingBalance: false,
         showConfirm: false,
 
@@ -878,6 +885,38 @@ function returForm(initialData = null) {
             } finally {
                 this.loadingDocs = false;
             }
+        },
+
+        /**
+         * Cari dokumen di server sesuai ketikan (jeda 300 ms). Daftar dari server dibatasi
+         * 50 terbaru — pelanggan marketplace punya ribuan faktur dan memuat semuanya dulu
+         * membuat server kehabisan memori (Shopee: 198 MB, 31 dtk).
+         */
+        searchDocuments() {
+            if (!this.customerId) return;
+            clearTimeout(this.docSearchTimer);
+            this.docSearchTimer = setTimeout(async () => {
+                const seq = ++this.docSearchSeq;
+                this.searchingDocs = true;
+                try {
+                    const base = this.returnType === 'invoice'
+                        ? `{{ route('sales.ajax.returns.invoices') }}`
+                        : `{{ route('sales.ajax.returns.orders') }}`;
+                    const res  = await fetch(`${base}?customer_id=${this.customerId}&q=${encodeURIComponent(this.docQuery.trim())}`);
+                    const list = await res.json();
+                    if (seq !== this.docSearchSeq) return; // sudah ada ketikan yang lebih baru
+
+                    const dipakai = this.documents.find(d => d.id == this.selectedDocId);
+                    if (dipakai && !list.some(d => d.id == dipakai.id)) list.unshift(dipakai);
+
+                    this.documents = list;
+                    this.fullDocsLoaded = true;
+                } catch (e) {
+                    console.error('Gagal mencari dokumen:', e);
+                } finally {
+                    if (seq === this.docSearchSeq) this.searchingDocs = false;
+                }
+            }, 300);
         },
 
         // ── Customer Changed ──────────────────────────────
