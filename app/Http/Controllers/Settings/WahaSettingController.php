@@ -6,17 +6,26 @@ use App\Models\CrmSetting;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Providers\WahaProvider;
 use App\Modules\CRM\Support\CrmRuntimeConfig;
+use App\Modules\CRM\Support\PeranWaha;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
 
 /**
- * Settings → Integrasi → WhatsApp Notifikasi (WAHA self-host).
+ * Settings → Integrasi → WhatsApp Self-Host (WAHA).
  *
  * Layar terpisah dari CRM WhatsApp (api.co.id) DENGAN SENGAJA: keduanya vendor
  * berbeda, jatuh sendiri-sendiri, dan dipegang orang pada saat berbeda pula.
  * Menggabungkannya dulu membuat "chat pelanggan bermasalah" dan "notifikasi
  * pesanan berhenti" tampak seperti satu kerusakan yang sama.
+ *
+ * DUA NOMOR, SATU CONTAINER. Sambungannya (alamat + API key) dibagi bersama
+ * karena memang satu container; yang berdiri sendiri adalah SESI per peran —
+ * nomor utama tempat pelanggan chat, dan nomor notifikasi yang mengirim kabar
+ * pesanan. Setiap tombol di layar ini menyebut perannya, dan tidak ada satu
+ * pun yang punya nilai bawaan: "Putuskan" tanpa nama nomor adalah cara
+ * termudah memutus nomor utama toko karena mengira sedang mengganti nomor
+ * notifikasi.
  *
  * Yang TIDAK ikut pindah ke sini: saklar jangan-kirim & daftar putih penerima.
  * Keduanya pengaman GLOBAL — WAHA mematuhi config yang sama persis
@@ -61,29 +70,63 @@ class WahaSettingController extends Controller
          * pemeriksaan terakhir yang sudah disimpan WahaHealthService; yang
          * terbaru diambil lewat tombol.
          */
+        $panel = [];
+
+        foreach (PeranWaha::SEMUA as $peran) {
+            $sesi = $waha->sesi($peran);
+
+            $panel[$peran] = [
+                'peran'      => $peran,
+                'label'      => PeranWaha::label($peran),
+                'penjelasan' => PeranWaha::penjelasan($peran),
+                'nama_sesi'  => $waha->namaSesi($peran),
+                'tertaut'    => $waha->pernahTertaut($peran),
+                'status'     => (string) ($sesi['last_status'] ?? ''),
+                'diperiksa'  => ($sesi['last_checked_at'] ?? null) ? Carbon::parse($sesi['last_checked_at']) : null,
+            ];
+        }
+
         return view('erp.settings.waha.edit', [
-            'waha'      => $waha,
-            'driver'    => (string) config('crm.notifikasi.driver', 'resmi'),
-            'dryRun'    => $chat->isDryRun(),
+            'waha'        => $waha,
+            'panel'       => $panel,
+            'driver'      => (string) config('crm.notifikasi.driver', 'resmi'),
+            'dryRun'      => $chat->isDryRun(),
             'daftarPutih' => (array) config('crm.allowed_recipients', []),
-            'terakhir'  => [
-                'status' => (string) ($waha->config['last_status'] ?? ''),
-                'waktu'  => ($waha->config['last_checked_at'] ?? null)
-                    ? Carbon::parse($waha->config['last_checked_at'])
-                    : null,
-            ],
+            // Panel QR mana yang terbuka. Nilainya nama peran, bukan sekadar
+            // '1': dua panel QR yang terbuka bersamaan membuat orang memindai
+            // kode milik nomor yang salah.
+            'qrPeran'     => PeranWaha::sah(request('qr')) ? (string) request('qr') : null,
         ]);
     }
 
     public function update(Request $request)
     {
         $data = $request->validate([
-            'waha_enabled'      => 'nullable|boolean',
-            'waha_api_key'      => 'nullable|string|max:255',
-            'waha_base_url'     => 'nullable|url|max:255',
-            'waha_session'      => 'nullable|string|max:64',
-            'notifikasi_driver' => 'nullable|in:resmi,waha',
+            'waha_enabled'            => 'nullable|boolean',
+            'waha_api_key'            => 'nullable|string|max:255',
+            'waha_base_url'           => 'nullable|url|max:255',
+            'waha_session_utama'      => 'nullable|string|max:64',
+            'waha_session_notifikasi' => 'nullable|string|max:64',
+            'notifikasi_driver'       => 'nullable|in:resmi,waha',
         ]);
+
+        $sesiUtama      = trim((string) ($data['waha_session_utama'] ?? '')) ?: PeranWaha::bawaanSesi(PeranWaha::UTAMA);
+        $sesiNotifikasi = trim((string) ($data['waha_session_notifikasi'] ?? '')) ?: PeranWaha::bawaanSesi(PeranWaha::NOTIFIKASI);
+
+        /*
+         * Dua peran yang menunjuk sesi yang sama berarti satu nomor memikul
+         * kedua peran — dan itu membatalkan seluruh alasan keduanya dipisah:
+         * risiko blokir yang lahir dari mengirim duluan akan ditanggung oleh
+         * nomor yang jadi identitas toko. Ditolak di sini, bukan sekadar
+         * diperingatkan, karena akibatnya tidak bisa dibatalkan.
+         */
+        if ($sesiUtama === $sesiNotifikasi) {
+            return back()
+                ->withInput()
+                ->with('error', 'Nama sesi nomor utama dan nomor notifikasi tidak boleh sama ("'
+                    . $sesiUtama . '"). Keduanya harus nomor yang berbeda — itulah yang membuat '
+                    . 'nomor utama tidak ikut menanggung risiko blokir.');
+        }
 
         $waha = CrmSetting::for('waha');
 
@@ -98,11 +141,13 @@ class WahaSettingController extends Controller
         }
 
         $waha->config = array_merge((array) $waha->config, [
-            'session'           => trim((string) ($data['waha_session'] ?? '')) ?: 'notifikasi',
             'notifikasi_driver' => $data['notifikasi_driver'] ?? 'resmi',
         ]);
 
         $waha->save();
+
+        $waha->simpanSesi(PeranWaha::UTAMA, ['session' => $sesiUtama]);
+        $waha->simpanSesi(PeranWaha::NOTIFIKASI, ['session' => $sesiNotifikasi]);
 
         $this->bersihkanJejakLama();
 
@@ -121,29 +166,31 @@ class WahaSettingController extends Controller
     }
 
     /**
-     * Uji sesi WAHA. Bukan sekadar "kredensial benar": yang dijawab adalah
-     * apakah nomornya masih TERTAUT. Sesi bisa putus tanpa gejala apa pun
-     * (HP mati, WhatsApp mengeluarkan perangkat tertaut), dan sejak itu tak
-     * satu pun notifikasi berangkat.
+     * Uji sesi satu nomor. Bukan sekadar "kredensial benar": yang dijawab
+     * adalah apakah nomornya masih TERTAUT. Sesi bisa putus tanpa gejala apa
+     * pun (HP mati, WhatsApp mengeluarkan perangkat tertaut), dan sejak itu
+     * tak satu pun pesan berangkat.
      */
-    public function uji()
+    public function uji(string $peran)
     {
-        $waha = CrmSetting::for('waha');
+        $waha = $this->siap($peran);
 
-        if (! $waha->isConfigured()) {
-            return back()->with('error', 'Isi API Key WAHA dan centang "Aktifkan WAHA" dulu, lalu simpan.');
+        if (! $waha instanceof CrmSetting) {
+            return $waha;
         }
 
-        $status = (new WahaProvider($waha))->statusJalur();
+        $adapter = new WahaProvider($waha, $peran);
+        $status  = $adapter->statusJalur();
 
-        $this->catatStatus($waha, $status);
+        $waha->catatStatusSesi($peran, $status);
 
         if ($status['siap']) {
-            return back()->with('success', 'Sesi WAHA tertaut dan siap mengirim (status WORKING).');
+            return back()->with('success', PeranWaha::label($peran) . ' tertaut lewat sesi "'
+                . $adapter->sesi() . '" (status WORKING).');
         }
 
-        return back()->with('error', 'Sesi WAHA belum siap — status ' . $status['status']
-            . ($status['keterangan'] ? ': ' . $status['keterangan'] : '') . ' ' . $this->saran($status['status']));
+        return back()->with('error', PeranWaha::label($peran) . ' belum siap — status ' . $status['status']
+            . ($status['keterangan'] ? ': ' . $status['keterangan'] : '') . ' ' . $this->saran($status['status'], $peran));
     }
 
     /**
@@ -151,23 +198,23 @@ class WahaSettingController extends Controller
      * di sini — pemasangan nomor pertama kali kalau tidak selalu berakhir 404
      * dengan galat yang tak menjelaskan apa-apa.
      */
-    public function tautkan()
+    public function tautkan(string $peran)
     {
-        $waha = CrmSetting::for('waha');
+        $waha = $this->siap($peran);
 
-        if (! $waha->isConfigured()) {
-            return back()->with('error', 'Isi API Key WAHA dan centang "Aktifkan WAHA" dulu, lalu simpan.');
+        if (! $waha instanceof CrmSetting) {
+            return $waha;
         }
 
-        $res = (new WahaProvider($waha))->pastikanSesiHidup();
+        $res = (new WahaProvider($waha, $peran))->pastikanSesiHidup();
 
         if (! $res['success']) {
-            return back()->with('error', 'Sesi tidak bisa dihidupkan: ' . $res['error']);
+            return back()->with('error', 'Sesi ' . PeranWaha::label($peran) . ' tidak bisa dihidupkan: ' . $res['error']);
         }
 
-        return redirect()->route('settings.waha.edit', ['qr' => 1])
-            ->with('success', 'Sesi dihidupkan. QR muncul di bawah — pindai dari HP pemegang nomor '
-                . '(WhatsApp → Perangkat Tertaut → Tautkan Perangkat).');
+        return redirect()->route('settings.waha.edit', ['qr' => $peran])
+            ->with('success', 'Sesi dihidupkan. QR muncul di bawah — pindai dari HP pemegang '
+                . PeranWaha::label($peran) . ' (WhatsApp → Perangkat Tertaut → Tautkan Perangkat).');
     }
 
     /**
@@ -175,27 +222,27 @@ class WahaSettingController extends Controller
      * nomor WhatsApp tanpa menyentuh server.
      *
      * Merusak dengan sengaja: sejak tombol ini ditekan sampai QR baru dipindai,
-     * tidak ada notifikasi yang berangkat lewat WAHA (ditahan di antrean).
+     * nomor itu tidak melayani apa pun.
      */
-    public function putuskan()
+    public function putuskan(string $peran)
     {
-        $waha = CrmSetting::for('waha');
+        $waha = $this->siap($peran);
 
-        if (! $waha->isConfigured()) {
-            return back()->with('error', 'Isi API Key WAHA dan centang "Aktifkan WAHA" dulu, lalu simpan.');
+        if (! $waha instanceof CrmSetting) {
+            return $waha;
         }
 
-        $res = (new WahaProvider($waha))->putuskanSesi();
+        $res = (new WahaProvider($waha, $peran))->putuskanSesi();
 
         if (! $res['success']) {
-            return back()->with('error', 'Gagal memutuskan sesi: ' . $res['error']);
+            return back()->with('error', 'Gagal memutuskan ' . PeranWaha::label($peran) . ': ' . $res['error']);
         }
 
-        $this->catatStatus($waha, ['siap' => false, 'status' => 'SCAN_QR_CODE']);
+        $waha->catatStatusSesi($peran, ['siap' => false, 'status' => 'SCAN_QR_CODE']);
 
-        return redirect()->route('settings.waha.edit', ['qr' => 1])
-            ->with('success', 'Nomor lama diputus. Pindai QR di bawah dengan HP nomor yang baru — '
-                . 'selama belum dipindai, notifikasi ditahan di antrean.');
+        return redirect()->route('settings.waha.edit', ['qr' => $peran])
+            ->with('success', 'Nomor lama diputus dari ' . PeranWaha::label($peran)
+                . '. Pindai QR di bawah dengan HP nomor yang baru.');
     }
 
     /**
@@ -205,15 +252,13 @@ class WahaSettingController extends Controller
      * disajikan ulang browser membuat orang memindai kode kedaluwarsa
      * berkali-kali lalu menyimpulkan fiturnya rusak.
      */
-    public function qr()
+    public function qr(string $peran)
     {
         $waha = CrmSetting::for('waha');
 
-        if (! $waha->isConfigured()) {
-            abort(404);
-        }
+        abort_unless(PeranWaha::sah($peran) && $waha->isConfigured(), 404);
 
-        $png = (new WahaProvider($waha))->qr();
+        $png = (new WahaProvider($waha, $peran))->qr();
 
         // 404, bukan 500: sesi yang sudah WORKING memang tidak punya QR, dan
         // itu keadaan normal — <img> yang gagal dimuat sudah jawaban yang benar.
@@ -230,17 +275,17 @@ class WahaSettingController extends Controller
      * saat QR sedang ditampilkan, supaya layarnya tahu sendiri kapan sesi
      * berubah jadi WORKING dan berhenti menyuruh orang memindai.
      */
-    public function status()
+    public function status(string $peran)
     {
         $waha = CrmSetting::for('waha');
 
-        if (! $waha->isConfigured()) {
+        if (! PeranWaha::sah($peran) || ! $waha->isConfigured()) {
             return response()->json(['siap' => false, 'status' => 'BELUM_DIATUR']);
         }
 
-        $status = (new WahaProvider($waha))->statusJalur();
+        $status = (new WahaProvider($waha, $peran))->statusJalur();
 
-        $this->catatStatus($waha, $status);
+        $waha->catatStatusSesi($peran, $status);
 
         return response()->json([
             'siap'   => (bool) $status['siap'],
@@ -249,19 +294,22 @@ class WahaSettingController extends Controller
     }
 
     /**
-     * Simpan hasil pemeriksaan supaya layar (dan kartu Integrasi) bisa
-     * menampilkannya tanpa menelepon WAHA sendiri — layar tidak boleh
-     * menggantung menunggu timeout, justru saat WAHA-nya sedang mati.
-     * Bentuk kuncinya sama persis dengan yang ditulis WahaHealthService.
+     * Penjaga bersama tiga aksi: peran harus dikenal DAN kredensialnya terisi.
+     * Mengembalikan baris pengaturan bila lolos, atau jawaban redirect bila
+     * tidak — memanggil WAHA tanpa kunci hanya menghasilkan galat 401 yang
+     * dibaca orang sebagai "sesinya putus".
      */
-    private function catatStatus(CrmSetting $waha, array $status): void
+    private function siap(string $peran)
     {
-        $waha->config = array_merge((array) $waha->config, [
-            'last_status'     => (string) $status['status'],
-            'last_checked_at' => now()->toIso8601String(),
-        ]);
+        abort_unless(PeranWaha::sah($peran), 404);
 
-        $waha->save();
+        $waha = CrmSetting::for('waha');
+
+        if (! $waha->isConfigured()) {
+            return back()->with('error', 'Isi API Key WAHA dan centang "Aktifkan WAHA" dulu, lalu simpan.');
+        }
+
+        return $waha;
     }
 
     /**
@@ -290,7 +338,7 @@ class WahaSettingController extends Controller
      * "Scan ulang QR" pada kasus kunci yang ditolak mengirim orang mencari HP
      * dan memindai QR, padahal yang salah cuma satu kolom di layar ini.
      */
-    private function saran(string $status): string
+    private function saran(string $status, string $peran): string
     {
         $waha = CrmSetting::for('waha');
 
@@ -305,13 +353,13 @@ class WahaSettingController extends Controller
             'KUNCI_DITOLAK'  => 'WAHA menolak API Key-nya. Ambil dari env container (WAHA_API_KEY, versi lama: WHATSAPP_API_KEY). '
                                 . 'Bila nilainya diawali "sha512:", itu hash — yang harus diisi di sini nilai polosnya, bukan hash-nya.',
             'SESI_TIDAK_ADA' => 'Kunci & alamatnya SUDAH benar — yang tidak ada cuma sesi bernama "'
-                                . (new WahaProvider($waha))->sesi()
-                                . '". Tekan "Tautkan Nomor" di bawah untuk membuat & menghidupkannya, atau samakan namanya '
+                                . $waha->namaSesi($peran)
+                                . '". Tekan "Tautkan Nomor" di panel ini untuk membuat & menghidupkannya, atau samakan namanya '
                                 . 'dengan sesi yang sudah berstatus WORKING di dasbor WAHA.',
             'TAK_TERJANGKAU' => 'ERP tidak bisa menjangkau WAHA di ' . $waha->effectiveBaseUrl()
                                 . '. Pastikan container hidup, dan bila menguji dari laptop, terowongan SSH ke port 3000 terbuka.',
-            'SCAN_QR_CODE'   => 'Sesi menunggu dipindai. Tekan "Tautkan Nomor" di bawah, lalu pindai QR-nya dari HP pemegang nomor.',
-            'STOPPED', 'FAILED' => 'Sesi berhenti. Tekan "Tautkan Nomor" di bawah — sesinya dinyalakan dulu, QR baru terbit setelah itu.',
+            'SCAN_QR_CODE'   => 'Sesi menunggu dipindai. Tekan "Tautkan Nomor" di panel ini, lalu pindai QR-nya dari HP pemegang nomor.',
+            'STOPPED', 'FAILED' => 'Sesi berhenti. Tekan "Tautkan Nomor" di panel ini — sesinya dinyalakan dulu, QR baru terbit setelah itu.',
             default          => 'Periksa keadaan sesi di WAHA.',
         };
     }

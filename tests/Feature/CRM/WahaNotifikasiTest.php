@@ -34,7 +34,7 @@ class WahaNotifikasiTest extends TestCase
             'is_enabled' => true,
             'api_key'    => 'kunci-uji',
             'base_url'   => 'http://127.0.0.1:3000',
-            'config'     => ['session' => 'notifikasi'],
+            'config'     => ['sesi' => ['notifikasi' => ['session' => 'notifikasi']]],
         ]);
     }
 

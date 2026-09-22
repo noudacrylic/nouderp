@@ -4,6 +4,7 @@ namespace App\Modules\CRM\Providers;
 
 use App\Models\CrmSetting;
 use App\Modules\CRM\Contracts\NotificationProvider;
+use App\Modules\CRM\Support\PeranWaha;
 use App\Modules\CRM\Support\PhoneNumber;
 use App\Modules\CRM\Support\TemplateResmi;
 use Illuminate\Support\Facades\Http;
@@ -37,9 +38,22 @@ class WahaProvider implements NotificationProvider
 {
     private CrmSetting $setting;
 
-    public function __construct(?CrmSetting $setting = null)
+    /**
+     * Peran menentukan SESI MANA — yaitu nomor WhatsApp mana — yang dipegang
+     * instance ini. Satu container WAHA, beberapa nomor; adapter yang tidak
+     * tahu perannya akan mengirim dari nomor yang kebetulan tersimpan
+     * terakhir, dan di jalur ini "nomor yang salah" berarti pelanggan menerima
+     * kabar dari nomor yang tidak dikenalnya.
+     *
+     * Bawaannya NOTIFIKASI supaya app(WahaProvider::class) — jalan yang
+     * dipakai NotificationManager — tetap berarti persis seperti sebelumnya.
+     */
+    private string $peran;
+
+    public function __construct(?CrmSetting $setting = null, string $peran = PeranWaha::NOTIFIKASI)
     {
         $this->setting = $setting ?: CrmSetting::for('waha');
+        $this->peran   = PeranWaha::sah($peran) ? $peran : PeranWaha::NOTIFIKASI;
     }
 
     public function key(): string
@@ -47,20 +61,41 @@ class WahaProvider implements NotificationProvider
         return 'waha';
     }
 
+    public function peran(): string
+    {
+        return $this->peran;
+    }
+
     public function isReady(): bool
     {
         return $this->setting->isConfigured();
     }
 
-    /** Nama sesi WAHA yang dipakai mengirim (nomor aktif). */
+    /** Nama sesi WAHA yang dipegang instance ini. */
     public function sesi(): string
     {
-        return (string) (($this->setting->config['session'] ?? null)
-            ?: config('crm.notifikasi.waha.session', 'notifikasi'));
+        return $this->setting->namaSesi($this->peran);
     }
 
     public function kirimNotifikasi(array $payload): array
     {
+        /*
+         * Nomor utama TIDAK BOLEH mengirim notifikasi, dan penjagaannya ada di
+         * sini — di adapter — bukan di pemanggil. Seluruh alasan kedua nomor
+         * dipisah adalah supaya yang menanggung risiko blokir bukan identitas
+         * toko; satu salah kabel di lapisan atas sudah cukup membatalkannya,
+         * dan kesalahan seperti itu tidak menimbulkan gejala apa pun sampai
+         * nomor utamanya keburu diblokir.
+         *
+         * Ditandai GAGAL, bukan ditahan: ini kesalahan pemasangan kabel yang
+         * tidak akan pulih sendiri, dan barisnya harus terlihat di antrean
+         * lengkap dengan alasannya.
+         */
+        if ($this->peran !== PeranWaha::NOTIFIKASI) {
+            return $this->gagal('Sesi "' . $this->sesi() . '" berperan ' . $this->peran
+                . ' — notifikasi hanya boleh berangkat dari nomor notifikasi.');
+        }
+
         if (! $this->isReady()) {
             // Belum dikonfigurasi = keadaan sementara juga (tinggal diisi di
             // layar Pengaturan), jadi ditahan — bukan dihanguskan.
@@ -209,7 +244,7 @@ class WahaProvider implements NotificationProvider
                 // Pengaturan) adalah PNG mentah.
                 'Accept'    => 'image/png',
             ])
-                ->timeout((int) config('crm.notifikasi.waha.timeout', 20))
+                ->timeout((int) config('crm.waha.timeout', 20))
                 ->get($this->setting->effectiveBaseUrl() . '/api/' . rawurlencode($this->sesi()) . '/auth/qr', ['format' => 'image']);
         } catch (\Throwable $e) {
             Log::warning('[CRM] QR WAHA tidak terambil', ['error' => $e->getMessage()]);
@@ -308,7 +343,7 @@ class WahaProvider implements NotificationProvider
         try {
             $req = Http::withHeaders(['X-Api-Key' => (string) $this->setting->api_key])
                 ->acceptJson()
-                ->timeout((int) config('crm.notifikasi.waha.timeout', 20));
+                ->timeout((int) config('crm.waha.timeout', 20));
 
             $url = $this->setting->effectiveBaseUrl() . $path;
             $res = $method === 'get' ? $req->get($url) : $req->post($url, $body);

@@ -42,7 +42,8 @@ class PengaturanWahaTest extends TestCase
             'waha_enabled'  => '1',
             'waha_api_key'  => 'kunci-waha',
             'waha_base_url' => 'http://127.0.0.1:3000',
-            'waha_session'  => 'notifikasi',
+            'waha_session_utama'      => 'utama',
+            'waha_session_notifikasi' => 'notifikasi',
         ], $ubah);
     }
 
@@ -52,7 +53,7 @@ class PengaturanWahaTest extends TestCase
         $waha->forceFill([
             'is_enabled' => true,
             'api_key'    => 'kunci-waha',
-            'config'     => array_merge(['session' => 'notifikasi'], $config),
+            'config'     => array_merge(['sesi' => ['notifikasi' => ['session' => 'notifikasi']]], $config),
         ])->save();
 
         return $waha;
@@ -64,7 +65,7 @@ class PengaturanWahaTest extends TestCase
         // menggantung sampai timeout — layar ini akan ikut menggantung persis
         // ketika dibuka untuk mencari tahu kenapa notifikasi berhenti.
         // preventStrayRequests() yang menjaganya.
-        $this->siapkanWaha(['last_status' => 'WORKING']);
+        $this->siapkanWaha(['sesi' => ['notifikasi' => ['session' => 'notifikasi', 'last_status' => 'WORKING']]]);
 
         $this->actingAs($this->admin())
             ->get(route('settings.waha.edit'))
@@ -82,9 +83,9 @@ class PengaturanWahaTest extends TestCase
         $this->siapkanWaha();
 
         $this->actingAs($this->admin())
-            ->get(route('settings.waha.edit', ['qr' => 1]))
+            ->get(route('settings.waha.edit', ['qr' => 'notifikasi']))
             ->assertOk()
-            ->assertSee(route('settings.waha.qr'))
+            ->assertSee(route('settings.waha.qr', ['peran' => 'notifikasi']))
             ->assertSee('Menunggu dipindai', false);
     }
 
@@ -105,7 +106,8 @@ class PengaturanWahaTest extends TestCase
 
         $this->assertTrue($waha->is_enabled);
         $this->assertSame('kunci-waha', $waha->api_key);
-        $this->assertSame('notifikasi', $waha->config['session']);
+        $this->assertSame('notifikasi', $waha->namaSesi('notifikasi'));
+        $this->assertSame('utama', $waha->namaSesi('utama'));
 
         // Baris chat resmi tidak ikut tersentuh kuncinya.
         $this->assertSame('kunci-resmi', CrmSetting::for('apicoid')->api_key);
@@ -182,7 +184,7 @@ class PengaturanWahaTest extends TestCase
         Http::fake(['*/api/sessions/*' => Http::response(['status' => 'SCAN_QR_CODE'])]);
 
         $this->actingAs($this->admin())
-            ->post(route('settings.waha.uji'))
+            ->post(route('settings.waha.uji', ['peran' => 'notifikasi']))
             ->assertSessionHas('error', fn ($p) => str_contains($p, 'SCAN_QR_CODE'));
     }
 
@@ -199,7 +201,7 @@ class PengaturanWahaTest extends TestCase
         Http::fake(['*/api/sessions/*' => Http::response(['message' => 'Unauthorized'], 401)]);
 
         $this->actingAs($this->admin())
-            ->post(route('settings.waha.uji'))
+            ->post(route('settings.waha.uji', ['peran' => 'notifikasi']))
             ->assertSessionHas('error', function ($p) {
                 return str_contains($p, 'KUNCI_DITOLAK')
                     && str_contains($p, 'API Key')
@@ -220,7 +222,7 @@ class PengaturanWahaTest extends TestCase
         Http::fake(['*/api/sessions/*' => Http::response(['message' => 'Session not found'], 404)]);
 
         $this->actingAs($this->admin())
-            ->post(route('settings.waha.uji'))
+            ->post(route('settings.waha.uji', ['peran' => 'notifikasi']))
             ->assertSessionHas('error', function ($p) {
                 return str_contains($p, 'SESI_TIDAK_ADA')
                     && str_contains($p, 'notifikasi')
@@ -231,7 +233,7 @@ class PengaturanWahaTest extends TestCase
     public function test_uji_sesi_menolak_saat_belum_dikonfigurasi(): void
     {
         $this->actingAs($this->admin())
-            ->post(route('settings.waha.uji'))
+            ->post(route('settings.waha.uji', ['peran' => 'notifikasi']))
             ->assertSessionHas('error', fn ($p) => str_contains($p, 'API Key WAHA'));
     }
 
@@ -252,8 +254,8 @@ class PengaturanWahaTest extends TestCase
         ]);
 
         $this->actingAs($this->admin())
-            ->post(route('settings.waha.tautkan'))
-            ->assertRedirect(route('settings.waha.edit', ['qr' => 1]));
+            ->post(route('settings.waha.tautkan', ['peran' => 'notifikasi']))
+            ->assertRedirect(route('settings.waha.edit', ['qr' => 'notifikasi']));
 
         Http::assertSent(fn ($r) => str_ends_with($r->url(), '/api/sessions')
             && $r->method() === 'POST'
@@ -272,7 +274,7 @@ class PengaturanWahaTest extends TestCase
         Http::fake(['*/api/sessions/notifikasi' => Http::response(['status' => 'WORKING'])]);
 
         $this->actingAs($this->admin())
-            ->post(route('settings.waha.tautkan'))
+            ->post(route('settings.waha.tautkan', ['peran' => 'notifikasi']))
             ->assertRedirect();
 
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/start'));
@@ -290,8 +292,8 @@ class PengaturanWahaTest extends TestCase
         ]);
 
         $this->actingAs($this->admin())
-            ->post(route('settings.waha.putuskan'))
-            ->assertRedirect(route('settings.waha.edit', ['qr' => 1]));
+            ->post(route('settings.waha.putuskan', ['peran' => 'notifikasi']))
+            ->assertRedirect(route('settings.waha.edit', ['qr' => 'notifikasi']));
 
         Http::assertSent(fn ($r) => str_contains($r->url(), '/logout'));
         Http::assertSent(fn ($r) => str_contains($r->url(), '/start'));
@@ -309,7 +311,7 @@ class PengaturanWahaTest extends TestCase
         Http::fake(['*/auth/qr*' => Http::response('PNG-PALSU', 200, ['Content-Type' => 'image/png'])]);
 
         $this->actingAs($this->admin())
-            ->get(route('settings.waha.qr'))
+            ->get(route('settings.waha.qr', ['peran' => 'notifikasi']))
             ->assertOk()
             ->assertHeader('Content-Type', 'image/png')
             ->assertHeader('Cache-Control', 'must-revalidate, no-cache, no-store, private');
@@ -326,7 +328,7 @@ class PengaturanWahaTest extends TestCase
         Http::fake(['*/auth/qr*' => Http::response('', 422)]);
 
         $this->actingAs($this->admin())
-            ->get(route('settings.waha.qr'))
+            ->get(route('settings.waha.qr', ['peran' => 'notifikasi']))
             ->assertNotFound();
     }
 
@@ -340,8 +342,8 @@ class PengaturanWahaTest extends TestCase
 
         $user = User::factory()->create(['role' => 'user', 'is_active' => true]);
 
-        $this->actingAs($user)->get(route('settings.waha.qr'))->assertForbidden();
-        $this->actingAs($user)->post(route('settings.waha.putuskan'))->assertForbidden();
+        $this->actingAs($user)->get(route('settings.waha.qr', ['peran' => 'notifikasi']))->assertForbidden();
+        $this->actingAs($user)->post(route('settings.waha.putuskan', ['peran' => 'notifikasi']))->assertForbidden();
     }
 
     /** Panel QR menanyakan status tiap beberapa detik supaya tahu kapan berhenti. */
@@ -352,12 +354,12 @@ class PengaturanWahaTest extends TestCase
         Http::fake(['*/api/sessions/*' => Http::response(['status' => 'WORKING'])]);
 
         $this->actingAs($this->admin())
-            ->getJson(route('settings.waha.status'))
+            ->getJson(route('settings.waha.status', ['peran' => 'notifikasi']))
             ->assertOk()
             ->assertJson(['siap' => true, 'status' => 'WORKING']);
 
         // Dicatat supaya kartu Integrasi & pita di layar bisa membacanya tanpa
         // menelepon WAHA sendiri.
-        $this->assertSame('WORKING', CrmSetting::for('waha')->config['last_status']);
+        $this->assertSame('WORKING', CrmSetting::for('waha')->sesi('notifikasi')['last_status']);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Modules\CRM\Support\PeranWaha;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
@@ -51,7 +52,7 @@ class CrmSetting extends Model
     private function bawaanBaseUrl(): string
     {
         if ($this->provider === 'waha') {
-            return (string) config('crm.notifikasi.waha.base_url', self::DEFAULT_BASE_URL['waha']);
+            return (string) config('crm.waha.base_url', self::DEFAULT_BASE_URL['waha']);
         }
 
         return (string) (self::DEFAULT_BASE_URL[$this->provider] ?? '');
@@ -89,6 +90,77 @@ class CrmSetting extends Model
         $this->save();
 
         return $this->config['webhook_url_token'];
+    }
+
+    /* ------------------------------------------------- sesi WAHA per peran */
+
+    /**
+     * Satu container WAHA melayani beberapa nomor. Yang dibagi bersama adalah
+     * SAMBUNGANNYA (alamat + API key, kolom di baris ini); yang berdiri
+     * sendiri per peran adalah nama sesi beserta jejak pemeriksaannya.
+     *
+     * Kredensialnya SENGAJA tidak diduplikasi per peran. Kunci yang sama
+     * disalin ke dua tempat akan menyimpang cepat atau lambat, lalu satu peran
+     * berhenti bekerja dengan galat "kunci ditolak" yang tak masuk akal karena
+     * peran sebelahnya jelas-jelas jalan.
+     *
+     * @return array{session?:string, last_status?:string, last_checked_at?:string, alerted_at?:?string, pernah_tertaut?:bool}
+     */
+    public function sesi(string $peran): array
+    {
+        return (array) data_get($this->config, 'sesi.' . $peran, []);
+    }
+
+    /** Nama sesi di WAHA untuk peran ini (isian layar menang atas bawaan config). */
+    public function namaSesi(string $peran): string
+    {
+        return (string) (($this->sesi($peran)['session'] ?? null) ?: PeranWaha::bawaanSesi($peran));
+    }
+
+    /** Tambal sebagian isi sesi satu peran; kunci yang tak disebut dibiarkan. */
+    public function simpanSesi(string $peran, array $nilai): void
+    {
+        $config = (array) $this->config;
+        $sesi   = is_array($config['sesi'] ?? null) ? $config['sesi'] : [];
+
+        $sesi[$peran]    = array_merge($this->sesi($peran), $nilai);
+        $config['sesi']  = $sesi;
+        $this->config    = $config;
+
+        $this->save();
+    }
+
+    /**
+     * Catat hasil pemeriksaan sesi. SATU-SATUNYA penulis bentuk ini — dulu
+     * layar Pengaturan dan pemeriksa berkala menuliskannya sendiri-sendiri
+     * dengan komentar "bentuk kuncinya sama persis", yang berarti dua tempat
+     * harus diingat bersamaan setiap kali bentuknya berubah.
+     *
+     * 'pernah_tertaut' hanya pernah bergerak SATU arah. Ia bukan cerminan
+     * keadaan sekarang melainkan jawaban atas "nomor ini sudah pernah dipasang
+     * atau belum" — dan itulah yang memutuskan apakah diamnya sesi layak
+     * diperingatkan. Sesi yang memang belum pernah dipakai tidak boleh
+     * membunyikan alarm, karena alarm yang berbunyi tanpa bisa ditindaklanjuti
+     * akan berhenti dipercaya justru saat ia betulan perlu.
+     */
+    public function catatStatusSesi(string $peran, array $status): void
+    {
+        $nilai = [
+            'last_status'     => (string) ($status['status'] ?? ''),
+            'last_checked_at' => now()->toIso8601String(),
+        ];
+
+        if (($status['siap'] ?? false) === true) {
+            $nilai['pernah_tertaut'] = true;
+        }
+
+        $this->simpanSesi($peran, $nilai);
+    }
+
+    /** Nomor peran ini sudah pernah benar-benar tertaut? */
+    public function pernahTertaut(string $peran): bool
+    {
+        return (bool) ($this->sesi($peran)['pernah_tertaut'] ?? false);
     }
 
     public function isConfigured(): bool

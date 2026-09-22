@@ -80,24 +80,41 @@ return [
          | sering berhenti dibaca, persis saat ia paling perlu dibaca.
          */
         'peringatan_jeda_menit' => (int) env('CRM_NOTIF_PERINGATAN_JEDA_MENIT', 60),
+    ],
 
-        'waha' => [
-            /*
-             | ⚠️ WAJIB 127.0.0.1. API key WAHA = kunci penuh sebuah akun
-             | WhatsApp, dan instance WAHA terbuka rutin dipindai bot. ERP &
-             | WAHA satu server — tidak ada alasan alamat ini keluar localhost,
-             | dan JANGAN disambungkan ke Cloudflare Tunnel.
-             */
-            'base_url' => env('CRM_WAHA_BASE_URL', 'http://127.0.0.1:3000'),
+    /*
+     |--------------------------------------------------------------------------
+     | WAHA (WhatsApp self-host)
+     |--------------------------------------------------------------------------
+     |
+     | Berdiri di TINGKAT ATAS, bukan di bawah 'notifikasi'. Satu container
+     | WAHA kini melayani lebih dari satu peran — nomor utama (chat pelanggan)
+     | dan nomor notifikasi — jadi menaruh alamat & kuncinya di bawah salah
+     | satu peran akan membuat peran yang lain tampak menumpang milik tetangga.
+     */
+    'waha' => [
 
-            /*
-             | Nama sesi pengirim. Dua sesi dijalankan: nomor aktif + nomor
-             | cadangan yang sudah dipanaskan — itu yang membuat "tinggal ganti
-             | kalau kena blokir" jadi nyata, bukan sekadar rencana.
-             */
-            'session' => env('CRM_WAHA_SESSION', 'notifikasi'),
+        /*
+         | ⚠️ WAJIB 127.0.0.1. API key WAHA = kunci penuh sebuah akun
+         | WhatsApp, dan instance WAHA terbuka rutin dipindai bot. ERP &
+         | WAHA satu server — tidak ada alasan alamat ini keluar localhost,
+         | dan JANGAN disambungkan ke Cloudflare Tunnel.
+         */
+        'base_url' => env('CRM_WAHA_BASE_URL', 'http://127.0.0.1:3000'),
 
-            'timeout' => (int) env('CRM_WAHA_TIMEOUT', 20),
+        'timeout' => (int) env('CRM_WAHA_TIMEOUT', 20),
+
+        /*
+         | Nama sesi WAHA per PERAN. Nilai di layar Pengaturan menang; ini
+         | cuma bawaan supaya pemasangan pertama tidak perlu mengetik apa pun.
+         |
+         | Nomor keduanya WAJIB berbeda: nomor notifikasi yang mengirim duluan
+         | adalah jalur yang paling mungkin diblokir, sedangkan nomor utama
+         | adalah identitas toko yang tak tergantikan.
+         */
+        'sesi' => [
+            'utama'      => env('CRM_WAHA_SESSION_UTAMA', 'utama'),
+            'notifikasi' => env('CRM_WAHA_SESSION', 'notifikasi'),
         ],
     ],
 

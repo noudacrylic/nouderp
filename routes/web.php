@@ -287,17 +287,24 @@ Route::prefix('erp')->group(function () {
         Route::post('/crm/aktifkan-webhook', [\App\Http\Controllers\Settings\CrmSettingController::class, 'aktifkanWebhook'])->name('settings.crm.aktifkan-webhook');
         Route::post('/crm/token-baru',       [\App\Http\Controllers\Settings\CrmSettingController::class, 'regenerateToken'])->name('settings.crm.token-baru');
 
-        // Integrasi — WhatsApp Notifikasi (WAHA self-host). Layar terpisah dari
-        // CRM api.co.id: vendor berbeda, kunci berbeda, jatuh sendiri-sendiri.
+        // Integrasi — WhatsApp self-host (WAHA). Layar terpisah dari CRM
+        // api.co.id: vendor berbeda, kunci berbeda, jatuh sendiri-sendiri.
         // QR & pemutusan sesi dikunci ke admin di dalam controller — menautkan
         // nomor = memberi WAHA kendali penuh atas sebuah akun WhatsApp.
-        Route::get ('/waha',           [\App\Http\Controllers\Settings\WahaSettingController::class, 'edit'])->name('settings.waha.edit');
-        Route::post('/waha',           [\App\Http\Controllers\Settings\WahaSettingController::class, 'update'])->name('settings.waha.update');
-        Route::post('/waha/uji',       [\App\Http\Controllers\Settings\WahaSettingController::class, 'uji'])->name('settings.waha.uji');
-        Route::post('/waha/tautkan',   [\App\Http\Controllers\Settings\WahaSettingController::class, 'tautkan'])->name('settings.waha.tautkan');
-        Route::post('/waha/putuskan',  [\App\Http\Controllers\Settings\WahaSettingController::class, 'putuskan'])->name('settings.waha.putuskan');
-        Route::get ('/waha/qr',        [\App\Http\Controllers\Settings\WahaSettingController::class, 'qr'])->name('settings.waha.qr');
-        Route::get ('/waha/status',    [\App\Http\Controllers\Settings\WahaSettingController::class, 'status'])->name('settings.waha.status');
+        //
+        // {peran} WAJIB ada dan tidak boleh punya nilai bawaan: satu container
+        // memegang dua nomor, dan "Putuskan" yang tidak menyebut nomor mana
+        // adalah cara termudah memutus nomor utama toko karena mengira sedang
+        // mengganti nomor notifikasi.
+        $peranWaha = implode('|', \App\Modules\CRM\Support\PeranWaha::SEMUA);
+
+        Route::get ('/waha',                 [\App\Http\Controllers\Settings\WahaSettingController::class, 'edit'])->name('settings.waha.edit');
+        Route::post('/waha',                 [\App\Http\Controllers\Settings\WahaSettingController::class, 'update'])->name('settings.waha.update');
+        Route::post('/waha/{peran}/uji',      [\App\Http\Controllers\Settings\WahaSettingController::class, 'uji'])->where('peran', $peranWaha)->name('settings.waha.uji');
+        Route::post('/waha/{peran}/tautkan',  [\App\Http\Controllers\Settings\WahaSettingController::class, 'tautkan'])->where('peran', $peranWaha)->name('settings.waha.tautkan');
+        Route::post('/waha/{peran}/putuskan', [\App\Http\Controllers\Settings\WahaSettingController::class, 'putuskan'])->where('peran', $peranWaha)->name('settings.waha.putuskan');
+        Route::get ('/waha/{peran}/qr',       [\App\Http\Controllers\Settings\WahaSettingController::class, 'qr'])->where('peran', $peranWaha)->name('settings.waha.qr');
+        Route::get ('/waha/{peran}/status',   [\App\Http\Controllers\Settings\WahaSettingController::class, 'status'])->where('peran', $peranWaha)->name('settings.waha.status');
 
         Route::get('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'edit'])->name('settings.midtrans.edit');
         Route::post('/midtrans', [\App\Http\Controllers\Settings\MidtransSettingController::class, 'update'])->name('settings.midtrans.update');

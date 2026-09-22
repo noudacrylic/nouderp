@@ -135,9 +135,9 @@ class IntegrationsController extends Controller
                 'url'         => route('settings.crm.edit'),
             ],
             [
-                'name'        => 'WhatsApp Notifikasi (WAHA)',
+                'name'        => 'WhatsApp Self-Host (WAHA)',
                 'category'    => 'Notifikasi',
-                'description' => 'Jalur self-host untuk notifikasi pesanan — gratis, tak resmi. Tautkan/ganti nomor lewat QR langsung dari ERP.',
+                'description' => 'Jalur self-host untuk nomor utama & nomor notifikasi — gratis, tak resmi. Tautkan/ganti nomor lewat QR langsung dari ERP.',
                 'icon'        => '📲',
                 'active'      => $waha->isConfigured(),
                 /*
@@ -145,9 +145,17 @@ class IntegrationsController extends Controller
                  * WAHA. Halaman Integrasi memuat belasan kartu sekaligus; satu
                  * panggilan ke container yang mati sudah cukup membuat seluruh
                  * halaman menggantung sampai timeout.
+                 *
+                 * Kedua nomor disebut terpisah: satu container memang satu
+                 * kartu, tapi nomornya putus sendiri-sendiri — kartu yang
+                 * memajang satu status saja akan menyatakan "WORKING" padahal
+                 * separuhnya mati.
                  */
                 'mode'        => $waha->isConfigured()
-                    ? (($waha->config['last_status'] ?? null) ?: 'Belum diperiksa')
+                    ? collect(\App\Modules\CRM\Support\PeranWaha::SEMUA)
+                        ->filter(fn ($peran) => $waha->pernahTertaut($peran))
+                        ->map(fn ($peran) => ucfirst($peran) . ' ' . (($waha->sesi($peran)['last_status'] ?? null) ?: '?'))
+                        ->join(' · ') ?: 'Belum ditautkan'
                     : 'Belum aktif',
                 'url'         => route('settings.waha.edit'),
             ],

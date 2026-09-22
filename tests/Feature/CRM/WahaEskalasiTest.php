@@ -161,7 +161,7 @@ class WahaEskalasiTest extends TestCase
             'is_enabled' => true,
             'api_key'    => 'kunci-uji',
             'base_url'   => 'http://127.0.0.1:3000',
-            'config'     => ['session' => 'notifikasi'],
+            'config'     => ['sesi' => ['notifikasi' => ['session' => 'notifikasi']]],
         ]);
 
         TelegramSetting::create(['bot_token' => 'token-uji', 'admin_chat_id' => '111', 'is_active' => true]);
@@ -228,7 +228,7 @@ class WahaEskalasiTest extends TestCase
     {
         $this->siapkanWaha();
 
-        CrmSetting::for('waha')->update(['config' => ['session' => 'notifikasi', 'last_status' => 'STOPPED']]);
+        CrmSetting::for('waha')->simpanSesi('notifikasi', ['last_status' => 'STOPPED']);
 
         Http::fake([
             '*/api/sessions/notifikasi' => Http::response(['status' => 'WORKING']),
@@ -244,7 +244,7 @@ class WahaEskalasiTest extends TestCase
     {
         $this->siapkanWaha();
 
-        CrmSetting::for('waha')->update(['config' => ['session' => 'notifikasi', 'last_status' => 'WORKING']]);
+        CrmSetting::for('waha')->simpanSesi('notifikasi', ['last_status' => 'WORKING']);
 
         Http::fake([
             '*/api/sessions/notifikasi' => Http::response(['status' => 'WORKING']),
@@ -291,11 +291,10 @@ class WahaEskalasiTest extends TestCase
     {
         $this->siapkanWaha();
 
-        CrmSetting::for('waha')->update(['config' => [
-            'session'         => 'notifikasi',
+        CrmSetting::for('waha')->simpanSesi('notifikasi', [
             'last_status'     => 'SCAN_QR_CODE',
             'last_checked_at' => now()->toIso8601String(),
-        ]]);
+        ]);
 
         Http::fake();
 
