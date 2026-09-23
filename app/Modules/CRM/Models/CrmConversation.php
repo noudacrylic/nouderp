@@ -38,6 +38,25 @@ class CrmConversation extends Model
     public const NAMA_WHATSAPP = 'whatsapp';
     public const NAMA_MANUAL   = 'manual';
 
+    /** Kanal jalur resmi (api.co.id → Meta). Percakapan yang bisa dibalas dari ERP. */
+    public const KANAL_RESMI = 'whatsapp';
+
+    /**
+     * Kanal CERMIN: chat nomor utama yang mengalir lewat WAHA.
+     *
+     * Dipisah dari kanal resmi, bukan digabung, dan itu yang paling menentukan
+     * di seluruh Tahap 6. Unique index `crm_conversations` sudah
+     * (channel + contact_key + business_number_id), jadi memberi kanal sendiri
+     * langsung memisahkan thread cermin dari thread berbayar TANPA migrasi —
+     * dan yang lebih penting, tanpa kemungkinan cermin baca-saja mengacaukan
+     * jendela 24 jam milik thread yang justru dipakai membalas.
+     *
+     * Konsekuensinya satu pelanggan bisa punya dua thread. Itu memang harga
+     * yang dipilih: riwayat terpecah bisa dibaca, sedangkan balasan yang
+     * mendarat di jalur yang salah tidak bisa ditarik kembali.
+     */
+    public const KANAL_CERMIN = 'whatsapp_waha';
+
     protected $fillable = [
         'channel', 'contact_key', 'display_name', 'name_source', 'name_checked_at',
         'provider_customer_id', 'business_number_id',
@@ -89,7 +108,12 @@ class CrmConversation extends Model
         ?string $businessNumberId = null,
         array $attributes = []
     ): self {
-        $key = $channel === 'whatsapp'
+        // Semua kanal WhatsApp (resmi maupun cermin WAHA) berisi NOMOR, jadi
+        // semuanya dinormalkan. Diperiksa lewat awalan, bukan daftar nilai,
+        // supaya kanal WhatsApp berikutnya tidak diam-diam jatuh ke cabang
+        // username di bawah — yang menyimpan '0899…' apa adanya lalu
+        // melahirkan thread kedua untuk orang yang sama.
+        $key = str_starts_with($channel, 'whatsapp')
             ? (PhoneNumber::normalize($contact) ?? $contact)
             : ltrim(trim($contact), '@');
 
@@ -115,6 +139,20 @@ class CrmConversation extends Model
             ['channel' => $channel, 'contact_key' => $key, 'business_number_id' => $businessNumberId],
             $attributes
         );
+    }
+
+    /**
+     * Percakapan ini CERMIN baca-saja dari nomor utama (WAHA)?
+     *
+     * Satu-satunya sumber kebenarannya adalah kanal. Penjaganya ditegakkan di
+     * CrmReplyService, bukan hanya dengan menyembunyikan kotak ketik: thread
+     * cermin tidak punya nomor bisnis di jalur resmi, jadi balasan yang lolos
+     * ke sana akan berangkat dari nomor yang SALAH — pelanggan menerima jawaban
+     * dari nomor asing atas chat yang tak pernah ia kirim ke situ.
+     */
+    public function cermin(): bool
+    {
+        return $this->channel === self::KANAL_CERMIN;
     }
 
     /**

@@ -32,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'telegram/webhook/*',
             'crm/webhook',
             'crm/webhook/*',   // varian bertoken (lihat VerifyCrmWebhookSignature)
+            'crm/waha/webhook/*',   // cermin WAHA (lihat VerifyWahaWebhook)
         ]);
 
         // Auto-record URL halaman index (dengan filter query string) ke session,
@@ -46,6 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'midtrans.signature' => \App\Modules\Payment\Http\Middleware\VerifyMidtransSignature::class,
             'jubelio.signature'  => \App\Modules\Marketplace\Jubelio\Http\Middleware\VerifyJubelioSignature::class,
             'crm.signature'      => \App\Modules\CRM\Http\Middleware\VerifyCrmWebhookSignature::class,
+            'waha.webhook'       => \App\Modules\CRM\Http\Middleware\VerifyWahaWebhook::class,
             'karyawan'           => \App\Http\Middleware\EnsureKaryawan::class,
             'crm.pwa'            => \App\Http\Middleware\EnsureCrmPwa::class,
             'storefront.api'     => \App\Http\Middleware\StorefrontApiKey::class,

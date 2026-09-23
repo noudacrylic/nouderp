@@ -189,7 +189,7 @@ class IncomingWebhookService
         // Pencocokan ke master pelanggan. Gagal cocok BUKAN kesalahan — justru
         // itu definisi lead: percakapan yang belum punya dokumen apa pun.
         if (! $percakapan->customer_id && $kanal === 'whatsapp') {
-            if ($customer = $this->cariPelanggan($percakapan->contact_key)) {
+            if ($customer = $this->cocokkanPelanggan($percakapan->contact_key)) {
                 $ubah['customer_id'] = $customer->id;
             }
         }
@@ -208,8 +208,14 @@ class IncomingWebhookService
      * '+62 899…'), jadi membandingkan apa adanya pasti meleset. Ekornya
      * dibandingkan setelah dinormalkan, bukan lewat LIKE mentah, supaya
      * '628998844666' tidak keliru dianggap sama dengan '62899884466'.
+     *
+     * PUBLIK karena cermin WAHA (WahaCerminService) meminjamnya. Aturan
+     * pencocokan ini sudah dibayar mahal sekali — ekor 9 digit, pembersih
+     * pemisah di SQL, jatuh ke nomor cabang lalu nomor notifikasi tambahan —
+     * dan salinan keduanya pasti menyimpang, lalu satu kanal diam-diam
+     * berhenti mengenali pelanggan lama.
      */
-    private function cariPelanggan(string $contactKey): ?Customer
+    public function cocokkanPelanggan(string $contactKey): ?Customer
     {
         $ekor = substr($contactKey, -9);
 

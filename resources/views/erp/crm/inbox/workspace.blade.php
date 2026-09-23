@@ -64,6 +64,29 @@
         </div>
     @endif
 
+    {{-- Sesi NOMOR UTAMA putus. Dipisah dari pita notifikasi di atas karena
+         akibatnya berbeda dan tindakannya berbeda: yang berhenti di sini
+         bukan pengiriman melainkan PEREKAMAN. Chat pelanggan tetap masuk ke
+         HP, cuma tidak lagi sampai ke layar ini — dan diamnya daftar chat
+         terbaca persis seperti hari yang sepi, yang membuat kerusakan ini
+         bisa berumur berhari-hari tanpa ada yang curiga. --}}
+    @if(($wahaStatusUtama ?? null) && ! $wahaStatusUtama['siap'])
+        <div class="shrink-0 mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <b>Nomor utama terputus &mdash; chat baru tidak terekam.</b>
+            Sesi berstatus <span class="font-mono">{{ $wahaStatusUtama['status'] }}</span>
+            @if($wahaStatusUtama['diperiksa'])
+                (diperiksa {{ $wahaStatusUtama['diperiksa']->diffForHumans() }}).
+            @else
+                .
+            @endif
+            <div class="mt-1 text-xs">
+                Pelanggan tetap bisa mengirim dan CS tetap bisa membalas dari HP &mdash; yang berhenti
+                hanyalah cerminnya ke layar ini, dan pesan selama putus <b>tidak tersusul</b> sesudah
+                tersambung. QR untuk menyambung ulang sudah dikirim ke Telegram.
+            </div>
+        </div>
+    @endif
+
     {{-- Pendengar papan klip mode WhatsApp Web. Dipasang di LUAR grid
          supaya toast-nya tidak ikut terpotong kolom yang overflow-hidden. --}}
     @if($modeWa)

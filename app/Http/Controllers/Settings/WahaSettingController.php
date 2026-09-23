@@ -87,6 +87,13 @@ class WahaSettingController extends Controller
         }
 
         return view('erp.settings.waha.edit', [
+            /*
+             * Alamat cermin (Tahap 6). Tokennya dibuat saat pertama kali layar
+             * ini dibuka — di sinilah satu-satunya tempat orang bisa
+             * menyalinnya, jadi menundanya sampai "nanti kalau dipakai" cuma
+             * berarti tombol Pasang yang gagal tanpa sebab yang terlihat.
+             */
+            'webhookUrl'  => route('crm.waha.webhook', $waha->webhookToken()),
             'waha'        => $waha,
             'panel'       => $panel,
             'driver'      => (string) config('crm.notifikasi.driver', 'resmi'),
@@ -191,6 +198,39 @@ class WahaSettingController extends Controller
 
         return back()->with('error', PeranWaha::label($peran) . ' belum siap — status ' . $status['status']
             . ($status['keterangan'] ? ': ' . $status['keterangan'] : '') . ' ' . $this->saran($status['status'], $peran));
+    }
+
+    /**
+     * Daftarkan alamat cermin pada sesi peran ini.
+     *
+     * Hanya peran UTAMA yang punya cermin: yang dicermin adalah chat
+     * pelanggan, dan nomor notifikasi tidak menerima chat — ia menerima
+     * balasan atas notifikasi, yang sudah punya jawaban otomatisnya sendiri.
+     * Memasangnya di sana hanya akan mengisi inbox dengan thread yang tak
+     * seorang pun ditugasi membacanya.
+     */
+    public function pasangWebhook(string $peran)
+    {
+        if ($peran !== PeranWaha::UTAMA) {
+            return back()->with('error', 'Cermin chat hanya untuk nomor utama.');
+        }
+
+        $waha = $this->siap($peran);
+
+        if (! $waha instanceof CrmSetting) {
+            return $waha;
+        }
+
+        $url   = route('crm.waha.webhook', $waha->webhookToken());
+        $hasil = (new WahaProvider($waha, $peran))->pasangWebhook($url);
+
+        if (! $hasil['success']) {
+            return back()->with('error', 'Gagal memasang cermin: ' . $hasil['error']);
+        }
+
+        return back()->with('success', 'Cermin terpasang pada sesi nomor utama. '
+            . 'WAHA me-restart sesinya beberapa detik — nomornya TIDAK perlu dipindai ulang. '
+            . 'Kirim satu pesan uji dari HP lain untuk memastikannya muncul di Inbox.');
     }
 
     /**

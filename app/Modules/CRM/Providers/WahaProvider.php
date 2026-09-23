@@ -311,6 +311,50 @@ class WahaProvider implements NotificationProvider
     }
 
     /**
+     * Daftarkan alamat webhook cermin pada sesi ini.
+     *
+     * ⚠️ WAHA me-RESTART sesi saat konfigurasinya diperbarui. Nomornya TIDAK
+     * perlu dipindai ulang (kredensialnya tersimpan di volume), tapi ada jeda
+     * beberapa detik saat sesi tidak WORKING — karena itu ini tombol yang
+     * ditekan sadar, bukan sesuatu yang dijalankan diam-diam tiap pemeriksaan
+     * berkala.
+     *
+     * Webhook lain pada sesi yang sama DIPERTAHANKAN; yang dicocokkan
+     * alamatnya, bukan urutannya. Menimpa seluruh daftar berarti tiap kali
+     * tombol ini ditekan, integrasi lain yang menumpang sesi yang sama mati
+     * tanpa ada yang menyadarinya.
+     *
+     * @param  string[]  $events
+     * @return array{success:bool, error:?string}
+     */
+    public function pasangWebhook(string $url, array $events = ['message.any']): array
+    {
+        $nama = $this->sesi();
+        $ada  = $this->request('get', '/api/sessions/' . rawurlencode($nama));
+
+        if (! $ada['success']) {
+            return ['success' => false, 'error' => (string) $ada['error']];
+        }
+
+        $config   = (array) (data_get($ada['data'], 'config') ?: []);
+        $webhooks = array_values(array_filter(
+            (array) ($config['webhooks'] ?? []),
+            fn ($w) => rtrim((string) data_get($w, 'url', ''), '/') !== rtrim($url, '/')
+        ));
+
+        $webhooks[]          = ['url' => $url, 'events' => array_values($events)];
+        $config['webhooks']  = $webhooks;
+
+        $simpan = $this->request('put', '/api/sessions/' . rawurlencode($nama), [
+            'config' => $config,
+        ]);
+
+        return $simpan['success']
+            ? ['success' => true, 'error' => null]
+            : ['success' => false, 'error' => (string) $simpan['error']];
+    }
+
+    /**
      * Putuskan nomor yang sedang tertaut, lalu hidupkan sesinya lagi supaya
      * QR baru terbit. Ini jalur "ganti nomor WhatsApp": tanpa logout, WAHA
      * tetap memegang sesi lama dan QR tidak pernah muncul.
@@ -346,7 +390,16 @@ class WahaProvider implements NotificationProvider
                 ->timeout((int) config('crm.waha.timeout', 20));
 
             $url = $this->setting->effectiveBaseUrl() . $path;
-            $res = $method === 'get' ? $req->get($url) : $req->post($url, $body);
+
+            // 'put' dipakai memperbarui konfigurasi sesi (pasangWebhook).
+            // Ditulis sebagai match, bukan rantai ternary, supaya verb yang
+            // belum didukung meledak di sini alih-alih diam-diam dikirim
+            // sebagai POST ke endpoint yang tidak mengharapkannya.
+            $res = match ($method) {
+                'get' => $req->get($url),
+                'put' => $req->put($url, $body),
+                'post' => $req->post($url, $body),
+            };
         } catch (\Throwable $e) {
             Log::warning('[CRM] WAHA tidak terjangkau', ['path' => $path, 'error' => $e->getMessage()]);
 

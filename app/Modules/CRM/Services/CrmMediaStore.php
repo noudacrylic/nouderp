@@ -23,6 +23,28 @@ use Illuminate\Support\Str;
  */
 class CrmMediaStore
 {
+    /**
+     * Header tambahan menurut ASAL berkasnya.
+     *
+     * Media cermin WAHA dilayani container-nya sendiri di 127.0.0.1, dan
+     * seluruh API WAHA berada di belakang `X-Api-Key`. Tanpa header ini
+     * lampiran dari nomor utama selalu gagal dengan "HTTP 401" yang terbaca
+     * seperti berkasnya hilang, padahal cuma tak diberi kunci. Kuncinya
+     * dikirim HANYA ke alamat WAHA sendiri — dibocorkan ke URL Meta atau URL
+     * vendor, ia jadi kunci penuh akun WhatsApp yang berkeliaran.
+     */
+    private function headerSumber(string $url): array
+    {
+        $waha = \App\Models\CrmSetting::for('waha');
+        $base = rtrim((string) $waha->effectiveBaseUrl(), '/');
+
+        if ($base === '' || blank($waha->api_key) || ! str_starts_with($url, $base . '/')) {
+            return [];
+        }
+
+        return ['X-Api-Key' => $waha->api_key];
+    }
+
     /** @return bool true bila berkas berhasil tersimpan. */
     public function unduh(CrmAttachment $lampiran): bool
     {
@@ -47,7 +69,10 @@ class CrmMediaStore
         $temp  = tempnam(sys_get_temp_dir(), 'crm-media-');
 
         try {
-            $res = Http::timeout(60)->sink($temp)->get($url);
+            $res = Http::timeout(60)
+                ->withHeaders($this->headerSumber($url))
+                ->sink($temp)
+                ->get($url);
 
             if ($res->failed()) {
                 return $this->gagal($lampiran, 'Unduhan ditolak sumber: HTTP ' . $res->status(), $temp);

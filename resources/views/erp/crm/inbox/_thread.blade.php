@@ -1,7 +1,15 @@
 {{-- Kolom TENGAH: percakapan + kotak balasan. Dipisah jadi partial supaya
      kolom kiri & rail kanan tidak ikut disusun ulang tiap kali thread dibuka. --}}
 @php
-    $terbuka = $terpilih->windowIsOpen();
+    /*
+     * Thread CERMIN (chat nomor utama lewat WAHA) baca-saja: ERP mencatatnya,
+     * balasannya tetap diketik dari HP. Jendela 24 jam sengaja dipaksa TUTUP
+     * di sini, bukan sekadar disembunyikan kotak ketiknya — penanda yang sama
+     * juga mematikan tombol "Balas" (kutip) di menu gelembung, dan dua
+     * penanda terpisah untuk satu keadaan pasti menyimpang.
+     */
+    $cermin  = $terpilih->cermin();
+    $terbuka = ! $cermin && $terpilih->windowIsOpen();
     // Ambangnya dibaca dari servicenya, bukan diketik ulang: angka yang
     // berbeda sedikit saja berarti tombolnya muncul di layar lalu ditolak
     // saat ditekan.
@@ -276,7 +284,23 @@
          @kirim-balasan="kirim($event.detail.form)">
             <div x-show="galat" x-cloak x-text="galat"
                  class="mb-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700"></div>
-            @if($terbuka)
+            @if($cermin)
+                {{-- Tak ada kotak ketik sama sekali, dan itu memang pesannya:
+                     yang salah bukan waktunya melainkan jalurnya. Keterangannya
+                     menyebut apa yang HARUS dilakukan (balas dari HP), bukan
+                     cuma apa yang tidak bisa — kotak yang menerangkan
+                     kebuntuan lalu berhenti adalah yang membuat orang kembali
+                     ke HP tanpa mencatat apa pun. --}}
+                <div class="rounded border border-sky-300 bg-sky-50 px-3 py-3 text-sm text-sky-900">
+                    <b>Cermin baca-saja.</b> Ini chat yang masuk ke nomor utama
+                    (WhatsApp Self-Host). ERP merekamnya supaya riwayatnya
+                    tersimpan dan bisa dicari &mdash; balasannya tetap diketik
+                    dari HP seperti biasa.
+                    <div class="mt-1 text-[11px] text-sky-800">
+                        Balasan yang Anda kirim dari HP ikut muncul di sini sendiri.
+                    </div>
+                </div>
+            @elseif($terbuka)
                 {{-- Peringatan dini. Jendela yang tinggal sebentar tidak
                      kelihatan dari kotak ketik yang bekerja normal — dan yang
                      paling sering menutupnya bukan pelanggan yang pergi,

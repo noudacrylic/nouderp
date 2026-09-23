@@ -89,6 +89,15 @@ Route::post('/crm/webhook/{token}', [\App\Modules\CRM\Controllers\CrmWebhookCont
     ->middleware('crm.signature')
     ->name('crm.webhook.token');
 
+// -- Cermin chat nomor utama lewat WAHA (NO auth/CSRF, server-to-server) --
+// Dipanggil container WAHA di server yang SAMA lewat 127.0.0.1 — tidak pernah
+// menyeberangi internet. Penjaganya token acak di path, ditambah HMAC-SHA512
+// bila `hmac.key` dipasang di sesi WAHA; lihat VerifyWahaWebhook.
+// Endpoint ini hanya MENULIS cermin baca-saja: tak ada jalur balik ke pelanggan.
+Route::post('/crm/waha/webhook/{token}', [\App\Modules\CRM\Controllers\WahaWebhookController::class, 'handle'])
+    ->middleware('waha.webhook')
+    ->name('crm.waha.webhook');
+
 // -- Lampiran KELUAR untuk diambil Meta (tanpa login, wajib bertanda tangan) --
 // Vendor hanya menerima `media_url`; berkas yang kita kirim harus bisa diambil
 // sendiri oleh Meta. Penjaganya tanda tangan berumur pendek + rute ini menolak
@@ -301,6 +310,7 @@ Route::prefix('erp')->group(function () {
         Route::get ('/waha',                 [\App\Http\Controllers\Settings\WahaSettingController::class, 'edit'])->name('settings.waha.edit');
         Route::post('/waha',                 [\App\Http\Controllers\Settings\WahaSettingController::class, 'update'])->name('settings.waha.update');
         Route::post('/waha/{peran}/uji',      [\App\Http\Controllers\Settings\WahaSettingController::class, 'uji'])->where('peran', $peranWaha)->name('settings.waha.uji');
+        Route::post('/waha/{peran}/cermin',   [\App\Http\Controllers\Settings\WahaSettingController::class, 'pasangWebhook'])->where('peran', $peranWaha)->name('settings.waha.cermin');
         Route::post('/waha/{peran}/tautkan',  [\App\Http\Controllers\Settings\WahaSettingController::class, 'tautkan'])->where('peran', $peranWaha)->name('settings.waha.tautkan');
         Route::post('/waha/{peran}/putuskan', [\App\Http\Controllers\Settings\WahaSettingController::class, 'putuskan'])->where('peran', $peranWaha)->name('settings.waha.putuskan');
         Route::get ('/waha/{peran}/qr',       [\App\Http\Controllers\Settings\WahaSettingController::class, 'qr'])->where('peran', $peranWaha)->name('settings.waha.qr');

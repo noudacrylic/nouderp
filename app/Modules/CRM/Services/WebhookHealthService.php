@@ -2,6 +2,7 @@
 
 namespace App\Modules\CRM\Services;
 
+use App\Modules\CRM\Controllers\WahaWebhookController;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmWebhookEvent;
 
@@ -53,7 +54,21 @@ class WebhookHealthService
             return null;
         }
 
-        $kabar = CrmWebhookEvent::orderByDesc('id')->first(['id', 'created_at'])?->created_at;
+        /*
+         * Baris cermin WAHA DIKECUALIKAN, dan ini bukan kerapian.
+         *
+         * Yang dibuktikan fungsi ini adalah "jalur resmi masih mengabari kita".
+         * Cermin WAHA menulis ke tabel yang sama, tapi hidupnya sama sekali
+         * tidak bergantung pada jalur resmi — jadi satu chat masuk lewat WAHA
+         * akan menyatakan jalur resmi sehat padahal ia sedang mati total, dan
+         * pita peringatannya tidak akan pernah menyala lagi.
+         */
+        $kabar = CrmWebhookEvent::query()
+            ->where(fn ($q) => $q
+                ->whereNull('event_type')
+                ->orWhere('event_type', 'not like', WahaWebhookController::PREFIX . '%'))
+            ->orderByDesc('id')
+            ->first(['id', 'created_at'])?->created_at;
 
         // Ada kabar SETELAH kiriman terakhir = jalurnya hidup. Status yang tidak
         // beranjak setelah itu urusan lain (HP pelanggan mati, misalnya), bukan

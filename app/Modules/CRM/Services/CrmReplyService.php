@@ -173,6 +173,13 @@ class CrmReplyService
         ?int $userId = null,
         bool $waktunyaSudahDiputuskan = false
     ): array {
+        // Diperiksa TERPISAH: pancingan sengaja melewati pastikanJendela()
+        // (justru jendela yang mau ditutup itulah alasannya ada), jadi
+        // penjaga cermin di sana tidak ikut terpanggil dari sini.
+        if ($tolak = $this->pastikanBukanCermin($percakapan)) {
+            return $tolak;
+        }
+
         /*
          * Jendela yang masih lapang DITOLAK, dan itu bukan kehati-hatian
          * berlebihan: pancingan yang datang saat percakapan masih hangat
@@ -658,6 +665,10 @@ class CrmReplyService
      */
     private function pastikanJendela(CrmConversation $percakapan, string $tolakan): ?array
     {
+        if ($tolak = $this->pastikanBukanCermin($percakapan)) {
+            return $tolak;
+        }
+
         if ($percakapan->windowHampirTutup(self::AMBANG_TANYA_MENIT)) {
             $this->selaraskanJendela($percakapan);
         }
@@ -745,6 +756,31 @@ class CrmReplyService
             'unread_count'     => 0,
             'queue_state'      => CrmConversation::QUEUE_PELANGGAN,
         ])->save();
+    }
+
+    /**
+     * Thread CERMIN tidak bisa dikirimi apa pun dari ERP.
+     *
+     * Ditegakkan di sini, bukan cuma dengan menyembunyikan kotak ketik di
+     * layar. Percakapan cermin lahir dari chat yang masuk ke NOMOR UTAMA lewat
+     * WAHA, sedangkan segala yang berangkat dari service ini berangkat lewat
+     * jalur resmi — dari nomor yang berbeda. Balasan yang lolos akan mendarat
+     * di HP pelanggan sebagai pesan dari nomor asing, menanggapi percakapan
+     * yang tak pernah ia kirim ke situ, dan itu tidak bisa ditarik kembali.
+     *
+     * Jalur teruskan ikut tertutup dua arah: sebagai sumber ia tak berbahaya,
+     * tapi sebagai TUJUAN ia persis kebocoran yang sama.
+     */
+    private function pastikanBukanCermin(CrmConversation $percakapan): ?array
+    {
+        if (! $percakapan->cermin()) {
+            return null;
+        }
+
+        return $this->gagal(
+            'Percakapan ini cermin baca-saja dari nomor utama (WhatsApp Self-Host). '
+            . 'Balasannya dikirim dari HP; ERP baru mencatatnya.'
+        );
     }
 
     private function gagal(string $pesan): array

@@ -176,6 +176,41 @@
                     </form>
                 </div>
 
+                {{-- ------------------------------------------- cermin chat (Tahap 6) --}}
+                {{-- Hanya nomor utama: yang dicermin adalah chat pelanggan, dan
+                     nomor notifikasi tidak menerima chat. --}}
+                @if($peran === \App\Modules\CRM\Support\PeranWaha::UTAMA)
+                    <div class="mt-4 pt-4 border-t border-gray-200">
+                        <div class="text-sm font-semibold text-gray-800">Cermin chat ke Inbox ERP</div>
+                        <p class="mt-1 text-xs text-gray-600">
+                            Chat yang masuk ke nomor ini direkam ke Inbox sebagai percakapan
+                            <b>baca-saja</b> &mdash; balasannya tetap diketik dari HP, dan balasan itu
+                            ikut terekam sendiri. Alamat di bawah dipasang ke sesi WAHA; ia hanya
+                            bisa dipanggil dari server yang sama.
+                        </p>
+
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                            <input type="text" readonly value="{{ $webhookUrl }}"
+                                   onclick="this.select()"
+                                   class="flex-1 min-w-0 rounded border-gray-300 bg-gray-50 text-xs font-mono px-2 py-1.5">
+                            <form method="POST" action="{{ route('settings.waha.cermin', ['peran' => $peran]) }}"
+                                  onsubmit="return confirm('Pasang cermin ke sesi {{ $p['nama_sesi'] }}? WAHA me-restart sesinya beberapa detik. Nomornya TIDAK perlu dipindai ulang.')">
+                                @csrf
+                                <button type="submit"
+                                        class="px-3 py-1.5 border border-sky-300 text-sky-700 hover:bg-sky-50 rounded text-sm font-semibold">
+                                    Pasang Cermin
+                                </button>
+                            </form>
+                        </div>
+
+                        <p class="mt-1 text-[11px] text-gray-500">
+                            Memasang cermin membuat WAHA me-restart sesi ini beberapa detik &mdash;
+                            nomornya tidak perlu dipindai ulang. Pesan yang masuk selagi cermin
+                            belum terpasang <b>tidak tersusul</b> ke Inbox.
+                        </p>
+                    </div>
+                @endif
+
                 @if($qrPeran === $peran)
                     {{-- QR berputar tiap ±20 detik; gambarnya disegarkan sendiri, dan
                          status di-polling supaya panel tahu kapan berhenti menyuruh

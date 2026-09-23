@@ -204,6 +204,15 @@ class CrmInboxController extends Controller
              */
             'wahaStatus' => app(WahaHealthService::class)->statusTersimpan(),
             /*
+             * Sesi NOMOR UTAMA, dipisah dari sesi notifikasi karena akibat
+             * putusnya berbeda dan orang yang harus bertindak juga berbeda.
+             * Notifikasi mati = antrean tertahan lalu naik ke jalur berbayar,
+             * tak ada yang hilang. Nomor utama mati = chat pelanggan masih
+             * masuk ke HP tapi BERHENTI tercermin ke sini — dan diamnya
+             * layar ini terbaca persis seperti hari sepi.
+             */
+            'wahaStatusUtama' => app(WahaHealthService::class)->statusTersimpan(\App\Modules\CRM\Support\PeranWaha::UTAMA),
+            /*
              * Gudang asal untuk panel ongkir di rail. Hanya yang aktif — gudang
              * mati tetap muncul di daftar cuma untuk ditolak saat dicek.
              */
