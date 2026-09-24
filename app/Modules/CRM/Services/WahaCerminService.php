@@ -80,7 +80,20 @@ class WahaCerminService
             return;
         }
 
-        $this->rekam((array) ($amplop['payload'] ?? []));
+        $payload = (array) ($amplop['payload'] ?? []);
+
+        // "Kirim ke diri sendiri" di HP nomor utama bukan chat pelanggan.
+        // Sejak chat dibaca dari `_data.key.remoteJid`, ia tak lagi tersaring
+        // oleh `to` yang kosong — tanpa penjaga ini ia jadi thread bernomor
+        // kita sendiri.
+        $saya = PhoneNumber::normalize(strstr(self::teks(data_get($amplop, 'me.id')), '@', true) ?: '');
+        $chat = $this->chatId($payload);
+
+        if ($saya && $chat && PhoneNumber::normalize(strstr($chat, '@', true) ?: '') === $saya) {
+            return;
+        }
+
+        $this->rekam($payload);
     }
 
     /**
@@ -170,6 +183,28 @@ class WahaCerminService
      */
     private function chatId(array $payload): ?string
     {
+        /*
+         * NOWEB: `_data.key.remoteJid` adalah id CHAT-nya, apa pun arah
+         * pesannya. Dua bentuk payload webhook-nya tidak cocok dengan tebakan
+         * from/to di bawah (DIVERIFIKASI di server 24 Sep 2026, 40 dari 40
+         * pesan pelanggan hari itu terbuang diam-diam):
+         *   • chat beralamat LID (`addressingMode: lid`) — `from` berisi
+         *     '…@lid', nomor aslinya hanya ada di `remoteJidAlt`;
+         *   • pesan dari HP kita — `to` KOSONG, chatnya justru di `from`.
+         * '@lid' tetap tidak pernah dipakai sebagai nomor; tanpa
+         * `remoteJidAlt` pesannya tetap dilewati seperti sebelumnya.
+         */
+        $kunci = (array) data_get($payload, '_data.key', []);
+        $jid   = self::teks($kunci['remoteJid'] ?? null);
+
+        if (str_ends_with($jid, '@lid')) {
+            $jid = self::teks($kunci['remoteJidAlt'] ?? null);
+        }
+
+        if ($jid !== '') {
+            return $this->saring($jid);
+        }
+
         $id = (bool) ($payload['fromMe'] ?? false)
             ? self::teks($payload['to'] ?? null)
             : self::teks($payload['from'] ?? null);

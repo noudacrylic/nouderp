@@ -275,6 +275,77 @@ class CerminWahaTest extends TestCase
     }
 
     /**
+     * Chat beralamat LID: `from` berisi '@lid', nomor aslinya di
+     * `_data.key.remoteJidAlt`. Pesan dari HP kita datang dengan `to` KOSONG.
+     *
+     * DIVERIFIKASI di server 24 Sep 2026: seluruh 40 pesan perorangan hari
+     * itu berbentuk begini, dan semuanya dibuang diam-diam oleh saringan.
+     */
+    public function test_chat_lid_dipetakan_ke_nomor_asli_lewat_remote_jid_alt(): void
+    {
+        $kunci = fn (bool $dariKita, string $idKunci) => ['key' => [
+            'remoteJid'      => '145092712345072@lid',
+            'remoteJidAlt'   => '628123456789@s.whatsapp.net',
+            'fromMe'         => $dariKita,
+            'id'             => $idKunci,
+            'participant'    => null,
+            'addressingMode' => 'lid',
+        ]];
+
+        $this->kirim($this->payload(pesan: [
+            'id'    => 'false_145092712345072@lid_3AMASUK',
+            'from'  => '145092712345072@lid',
+            'to'    => null,
+            '_data' => $kunci(false, '3AMASUK'),
+        ]))->assertOk();
+
+        $this->kirim($this->payload(pesan: [
+            'id'     => 'true_145092712345072@lid_3AKELUAR',
+            'fromMe' => true,
+            'from'   => '145092712345072@lid',
+            'to'     => null,
+            'body'   => 'Ada kak.',
+            '_data'  => $kunci(true, '3AKELUAR'),
+        ]))->assertOk();
+
+        $this->assertSame('628123456789', CrmConversation::sole()->contact_key);
+        $this->assertSame(
+            [CrmMessage::MASUK, CrmMessage::KELUAR],
+            CrmMessage::orderBy('id')->pluck('direction')->all()
+        );
+    }
+
+    /** "Kirim ke diri sendiri" di HP nomor utama bukan thread pelanggan. */
+    public function test_chat_ke_nomor_sendiri_diabaikan(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'     => 'true_628998844666@c.us_3ASENDIRI',
+            'fromMe' => true,
+            'from'   => '628998844666@c.us',
+            'to'     => null,
+            '_data'  => ['key' => ['remoteJid' => '628998844666@s.whatsapp.net', 'fromMe' => true]],
+        ]))->assertOk();
+
+        $this->assertSame(0, CrmConversation::count());
+    }
+
+    /** Status berkunci NOWEB: remoteJidAlt berisi nomor pengirim, tetap ditolak. */
+    public function test_status_dengan_kunci_noweb_tetap_diabaikan(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'    => 'false_status@broadcast_3ASTATUS',
+            'from'  => 'status@broadcast',
+            '_data' => ['key' => [
+                'remoteJid'    => 'status@broadcast',
+                'remoteJidAlt' => '628123456789@s.whatsapp.net',
+                'participant'  => '145092712345072@lid',
+            ]],
+        ]))->assertOk();
+
+        $this->assertSame(0, CrmMessage::count());
+    }
+
+    /**
      * Grup, status, dan newsletter TIDAK dicermin. Nomor utama ada di grup
      * internal, dan tanpa saringan ini isinya tumpah ke layar yang dibuka
      * seluruh tim CS.
