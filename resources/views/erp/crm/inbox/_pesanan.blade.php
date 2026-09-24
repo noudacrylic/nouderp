@@ -43,7 +43,7 @@
          — dan menjawabnya tidak boleh menuntut pindah menu. --}}
     <div x-show="mode === 'daftar'" class="space-y-2">
 
-        <template x-for="p in pesanan" :key="p.id">
+        <template x-for="p in pesananTampil" :key="p.id">
             <div class="rounded-lg border px-2 py-1.5"
                  :class="p.draft ? 'border-amber-300 bg-amber-50/60'
                                  : (p.selesai ? 'border-gray-200 opacity-70' : 'border-emerald-300 bg-emerald-50/50')">
@@ -123,6 +123,22 @@
                 Chat ini belum tertaut pelanggan. Pesanan pertama akan menautkannya.
             @endif
         </p>
+
+        {{-- Dikatakan terus terang saat semuanya sudah selesai: daftar kosong
+             tanpa keterangan terbaca seperti pelanggan yang belum pernah
+             memesan, padahal justru sebaliknya. --}}
+        <p x-show="pesanan.length && !pesananTampil.length" x-cloak class="text-xs text-gray-500 px-1">
+            Tidak ada pesanan yang sedang berjalan.
+        </p>
+
+        <button type="button" x-show="pesananSelesai.length" x-cloak
+                @click="tampilSelesai = ! tampilSelesai"
+                class="w-full text-[11px] text-gray-600 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+            <span x-show="!tampilSelesai">
+                Tampilkan <span x-text="pesananSelesai.length"></span> pesanan selesai
+            </span>
+            <span x-show="tampilSelesai" x-cloak>Sembunyikan pesanan selesai</span>
+        </button>
 
         {{-- Galat ikut ditampilkan di tampilan daftar: tombol Rincian dipakai
              dari sini, dan kegagalannya tak boleh cuma terlihat di layar susun. --}}
@@ -620,6 +636,22 @@
             // berubah di luar layar ini (dibayar, masuk produksi, dikirim), jadi
             // salinan yang dibekukan di draft akan cepat berbohong.
             pesanan: @json($pesananTerkait ?? []),
+
+            /*
+             * Pesanan SELESAI disembunyikan.
+             *
+             * Panel ini menjawab satu pertanyaan: "pesanan saya sampai mana".
+             * Pelanggan langganan menumpuk pesanan selesai, dan yang selesai
+             * mendorong yang sedang berjalan keluar dari pandangan — satu-satunya
+             * yang benar-benar perlu ditindaklanjuti justru harus dicari dengan
+             * menggulir. Tetap bisa dibuka karena riwayat dipakai untuk
+             * pertanyaan "dulu saya pesan yang mana ya".
+             */
+            tampilSelesai: false,
+
+            get pesananBerjalan() { return this.pesanan.filter(p => ! p.selesai); },
+            get pesananSelesai()  { return this.pesanan.filter(p =>   p.selesai); },
+            get pesananTampil()   { return this.tampilSelesai ? this.pesanan : this.pesananBerjalan; },
 
             // Keranjang yang masih terisi berarti pekerjaan yang belum selesai;
             // membuka tab langsung ke daftar akan membuatnya terlihat hilang.

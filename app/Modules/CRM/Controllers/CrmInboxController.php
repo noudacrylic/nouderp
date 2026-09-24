@@ -1599,7 +1599,15 @@ class CrmInboxController extends Controller
             ->where('customer_id', $conversation->customer_id)
             ->whereNotIn('status', ['void', 'cancelled'])
             ->latest('id')
-            ->limit(10)
+            /*
+             * Batasnya dinaikkan sejak pesanan SELESAI disembunyikan di panel.
+             * "Selesai" disimpulkan OrderProgressService, bukan kolom basis
+             * data, jadi ia tidak bisa disaring di SQL — kalau batasnya tetap
+             * 10, pelanggan langganan dengan 10 pesanan selesai terbaru akan
+             * menyembunyikan pesanan BERJALAN yang lebih lama, dan panelnya
+             * tampak kosong justru saat ada yang perlu ditindaklanjuti.
+             */
+            ->limit(25)
             ->with('items.product:id,name,sku')
             ->get()
             ->map(function (SalesOrder $so) use ($progress) {
