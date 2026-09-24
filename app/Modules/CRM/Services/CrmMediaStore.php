@@ -26,7 +26,7 @@ class CrmMediaStore
     /**
      * Header tambahan menurut ASAL berkasnya.
      *
-     * Media cermin WAHA dilayani container-nya sendiri di 127.0.0.1, dan
+     * Media cermin WAHA dilayani container-nya sendiri di loopback, dan
      * seluruh API WAHA berada di belakang `X-Api-Key`. Tanpa header ini
      * lampiran dari nomor utama selalu gagal dengan "HTTP 401" yang terbaca
      * seperti berkasnya hilang, padahal cuma tak diberi kunci. Kuncinya
@@ -38,11 +38,55 @@ class CrmMediaStore
         $waha = \App\Models\CrmSetting::for('waha');
         $base = rtrim((string) $waha->effectiveBaseUrl(), '/');
 
-        if ($base === '' || blank($waha->api_key) || ! str_starts_with($url, $base . '/')) {
+        if ($base === '' || blank($waha->api_key) || ! $this->alamatWaha($url, $base)) {
             return [];
         }
 
         return ['X-Api-Key' => $waha->api_key];
+    }
+
+    /**
+     * Apakah URL ini benar-benar alamat WAHA kita sendiri?
+     *
+     * Dibandingkan per BAGIAN, bukan sebagai awalan teks. WAHA merangkai URL
+     * media dari alamat publiknya sendiri, dan itu tidak harus sama persis
+     * dengan yang diketik di Pengaturan: di server 24 Sep 2026 ERP menyimpan
+     * `http://127.0.0.1:3000` sementara WAHA mengirim
+     * `http://localhost:3000/api/files/...`. Cocok-awalan teks menolaknya,
+     * kunci tak ikut, dan SEMUA lampiran cermin gagal "HTTP 401" — terbaca
+     * seperti berkasnya hilang padahal cuma tak diberi kunci.
+     *
+     * Yang disamakan hanya alias loopback, karena `localhost` dan `127.0.0.1`
+     * memang satu mesin yang sama. Skema dan port tetap wajib sama persis:
+     * kunci ini setara akses penuh akun WhatsApp, jadi ia tidak boleh
+     * menyeberang ke host lain, ke port lain, apalagi turun dari https ke
+     * http. Bila base_url punya jalur (mis. di belakang proxy `/waha`), URL
+     * wajib berada DI DALAM jalur itu.
+     */
+    private function alamatWaha(string $url, string $base): bool
+    {
+        $u = parse_url($url);
+        $b = parse_url($base);
+
+        if (! is_array($u) || ! is_array($b) || ! isset($u['host'], $b['host'])) {
+            return false;
+        }
+
+        $skema = fn (array $p) => strtolower((string) ($p['scheme'] ?? ''));
+        $port  = fn (array $p) => (int) ($p['port'] ?? ($skema($p) === 'https' ? 443 : 80));
+        $host  = function (array $p) {
+            $h = strtolower(trim((string) $p['host'], '[]'));
+
+            return in_array($h, ['localhost', '127.0.0.1', '::1'], true) ? 'loopback' : $h;
+        };
+
+        if ($skema($u) !== $skema($b) || $host($u) !== $host($b) || $port($u) !== $port($b)) {
+            return false;
+        }
+
+        $jalur = rtrim((string) ($b['path'] ?? ''), '/');
+
+        return $jalur === '' || str_starts_with((string) ($u['path'] ?? ''), $jalur . '/');
     }
 
     /** @return bool true bila berkas berhasil tersimpan. */

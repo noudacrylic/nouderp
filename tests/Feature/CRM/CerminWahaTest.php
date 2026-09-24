@@ -4,6 +4,7 @@ namespace Tests\Feature\CRM;
 
 use App\Models\CrmSetting;
 use App\Models\Customer;
+use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmWebhookEvent;
@@ -12,6 +13,7 @@ use App\Modules\CRM\Services\WebhookHealthService;
 use App\Modules\CRM\Support\CrmRuntimeConfig;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -456,5 +458,73 @@ class CerminWahaTest extends TestCase
 
         $this->assertFalse($hasil['success']);
         $this->assertStringContainsString('cermin baca-saja', strtolower((string) $hasil['error']));
+    }
+
+    /**
+     * Kunci WAHA tetap ikut walau host URL-nya 'localhost' dan base_url kita
+     * '127.0.0.1'.
+     *
+     * DIVERIFIKASI di server 24 Sep 2026: WAHA merangkai alamat media dari
+     * alamat publiknya sendiri, bukan dari yang diketik di Pengaturan —
+     * hasilnya `http://localhost:3000/api/files/...` sementara ERP menyimpan
+     * `http://127.0.0.1:3000`. Pencocokan awalan teks menolaknya, kunci tak
+     * ikut, dan SEMUA lampiran cermin gagal "HTTP 401" yang di layar terbaca
+     * seperti berkasnya hilang.
+     */
+    public function test_kunci_waha_ikut_walau_host_loopback_ditulis_berbeda(): void
+    {
+        Storage::fake('local');
+
+        $this->kirim($this->payload(pesan: [
+            'hasMedia' => true,
+            'media'    => [
+                'url'      => 'http://localhost:3000/api/files/utama/abc.jpeg',
+                'mimetype' => 'image/jpeg',
+                'filename' => 'desain.jpeg',
+            ],
+        ]))->assertOk();
+
+        Http::fake(['localhost:3000/*' => Http::response('gambar-palsu', 200, ['Content-Type' => 'image/jpeg'])]);
+
+        $this->artisan('crm:unduh-lampiran')->assertSuccessful();
+
+        Http::assertSent(fn ($request) => $request->hasHeader('X-Api-Key', 'kunci-waha'));
+
+        $lampiran = CrmAttachment::sole()->fresh();
+
+        $this->assertNotNull($lampiran->downloaded_at);
+        $this->assertNull($lampiran->download_error);
+    }
+
+    /**
+     * Kunci itu setara akses penuh akun WhatsApp, jadi ia tidak pernah ikut ke
+     * alamat selain WAHA kita sendiri — termasuk host lain, port lain, dan
+     * URL media milik Meta.
+     *
+     * @dataProvider alamatBukanWaha
+     */
+    public function test_kunci_waha_tidak_pernah_bocor_ke_alamat_lain(string $url, string $pola): void
+    {
+        Storage::fake('local');
+
+        $this->kirim($this->payload(pesan: [
+            'hasMedia' => true,
+            'media'    => ['url' => $url, 'mimetype' => 'image/jpeg', 'filename' => 'desain.jpeg'],
+        ]))->assertOk();
+
+        Http::fake([$pola => Http::response('gambar-palsu', 200, ['Content-Type' => 'image/jpeg'])]);
+
+        $this->artisan('crm:unduh-lampiran')->assertSuccessful();
+
+        Http::assertSent(fn ($request) => ! $request->hasHeader('X-Api-Key'));
+    }
+
+    public static function alamatBukanWaha(): array
+    {
+        return [
+            'host lain'      => ['http://waha.contoh.test:3000/api/files/abc.jpeg', 'waha.contoh.test:3000/*'],
+            'port lain'      => ['http://127.0.0.1:9999/api/files/abc.jpeg', '127.0.0.1:9999/*'],
+            'media vendor'   => ['https://lookaside.fbcdn.net/abc.jpeg', 'lookaside.fbcdn.net/*'],
+        ];
     }
 }
