@@ -1386,10 +1386,31 @@ class CrmInboxController extends Controller
             return response()->json(['sama' => true, 'sidik' => $sidik]);
         }
 
+        /*
+         * Daftar ini dipakai DUA aplikasi, dan HTML pengganti harus tahu ia
+         * untuk yang mana.
+         *
+         * Tanpa `aplikasi=cs`, baris hasil penyegaran di PWA akan menunjuk
+         * `/erp/crm/{id}` — satu ketukan melempar CS keluar dari aplikasinya ke
+         * layar tiga kolom yang tidak muat di HP, dan untuk akun chat-saja
+         * halaman itu malah ditolak.
+         *
+         * `tumbuhOtomatis` juga WAJIB ikut: ia yang menggambar penanda ujung
+         * daftar. Tanpanya, penggulir-otomatis mati diam-diam sesudah
+         * penyegaran pertama — daftar berhenti memanjang dan satu-satunya jalan
+         * tersisa tombol "Muat lagi".
+         */
+        $pwa = $request->input('aplikasi') === 'cs';
+
+        $html = view('erp.crm.inbox._daftar', $data + [
+            'tumbuhOtomatis' => true,
+            'rutaChat'       => $pwa ? 'cs.thread' : 'crm.inbox.show',
+        ] + ($pwa ? ['gayaWadah' => 'bg-white'] : []))->render();
+
         return response()->json([
             'sama'  => false,
             'sidik' => $sidik,
-            'html'  => view('erp.crm.inbox._daftar', $data)->render(),
+            'html'  => $html,
         ]);
     }
 

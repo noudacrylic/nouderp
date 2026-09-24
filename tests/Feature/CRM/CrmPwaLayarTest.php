@@ -194,4 +194,57 @@ class CrmPwaLayarTest extends TestCase
             ->assertOk()
             ->assertDontSee('href="' . route('cs.chat') . '"', false);
     }
+
+    /**
+     * Daftar chat PWA ikut menyegarkan diri.
+     *
+     * Sebelumnya skrip penyegar hanya ada di workspace ERP, jadi daftar di HP
+     * tidak pernah bergerak sendiri: pesan yang sudah masuk baru terlihat
+     * setelah CS membuka chat lain lalu kembali — satu-satunya cara halaman
+     * itu tergambar ulang.
+     */
+    public function test_daftar_chat_pwa_memasang_penyegar(): void
+    {
+        $this->actingAs($this->cs());
+
+        $this->get('/cs')->assertOk()
+            ->assertSee('cs-daftar', false)
+            ->assertSee(route('crm.inbox.daftar-segar'), false);
+    }
+
+    /**
+     * HTML hasil penyegaran untuk PWA menunjuk layar PWA, bukan Inbox desktop.
+     *
+     * Dirender tanpa penanda aplikasi, tiap baris hasil penyegaran akan
+     * menunjuk /erp/crm/{id}: satu ketukan melempar CS keluar dari aplikasinya,
+     * dan untuk akun chat-saja halaman itu malah ditolak.
+     */
+    public function test_penyegar_pwa_menunjuk_layar_pwa(): void
+    {
+        $pengguna = $this->cs();
+        $p = $this->percakapan(['owner_user_id' => $pengguna->id]);
+
+        $html = $this->actingAs($pengguna)
+            ->getJson(route('crm.inbox.daftar-segar', ['aplikasi' => 'cs']))
+            ->assertOk()
+            ->json('html');
+
+        $this->assertStringContainsString('href="' . route('cs.thread', $p->id) . '?', $html);
+        $this->assertStringNotContainsString('href="' . route('crm.inbox.show', $p->id) . '?', $html);
+    }
+
+    /** Penyegar desktop tetap menunjuk Inbox desktop. */
+    public function test_penyegar_desktop_tetap_menunjuk_inbox(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $p = $this->percakapan();
+
+        $html = $this->actingAs($admin)
+            ->getJson(route('crm.inbox.daftar-segar'))
+            ->assertOk()
+            ->json('html');
+
+        $this->assertStringContainsString('href="' . route('crm.inbox.show', $p->id) . '?', $html);
+        $this->assertStringNotContainsString('href="' . route('cs.thread', $p->id) . '?', $html);
+    }
 }
