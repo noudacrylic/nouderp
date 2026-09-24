@@ -239,6 +239,8 @@ Route::prefix('erp')->group(function () {
         Route::post('/{conversation}/nama', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'nama'])->name('inbox.nama');
         // Susun SO draft langsung dari layar chat (tab "Pesanan" di rail kanan).
         Route::post('/{conversation}/buat-so', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'buatSo'])->name('inbox.buat-so');
+        // Penawaran dari keranjang yang sama — beda urutan dagang, bukan beda alat.
+        Route::post('/{conversation}/buat-penawaran', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'buatPenawaran'])->name('inbox.buat-penawaran');
         // Simpan keranjang setengah jadi (alamat, ongkir, produk) supaya tidak
         // hilang saat halaman dimuat ulang atau chat lain dibuka.
         Route::post('/{conversation}/draft-pesanan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanDraftPesanan'])->name('inbox.draft-pesanan');

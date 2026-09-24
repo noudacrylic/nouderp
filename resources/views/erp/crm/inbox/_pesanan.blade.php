@@ -116,7 +116,7 @@
             </div>
         </template>
 
-        <p x-show="!pesanan.length" x-cloak class="text-xs text-gray-500 px-1">
+        <p x-show="!pesanan.length && !penawaran.length" x-cloak class="text-xs text-gray-500 px-1">
             @if($terpilih?->customer_id)
                 Belum ada pesanan berjalan untuk pelanggan ini.
             @else
@@ -127,7 +127,7 @@
         {{-- Dikatakan terus terang saat semuanya sudah selesai: daftar kosong
              tanpa keterangan terbaca seperti pelanggan yang belum pernah
              memesan, padahal justru sebaliknya. --}}
-        <p x-show="pesanan.length && !pesananTampil.length" x-cloak class="text-xs text-gray-500 px-1">
+        <p x-show="pesanan.length && !pesananTampil.length && !penawaran.length" x-cloak class="text-xs text-gray-500 px-1">
             Tidak ada pesanan yang sedang berjalan.
         </p>
 
@@ -139,6 +139,43 @@
             </span>
             <span x-show="tampilSelesai" x-cloak>Sembunyikan pesanan selesai</span>
         </button>
+
+        {{-- ------------------------------------------------------ PENAWARAN --}}
+        {{-- Ditaruh SESUDAH pesanan: yang sudah jadi pesanan lebih mendesak
+             daripada yang masih ditawarkan. Begitu penawaran dikonversi, kartunya
+             lenyap dari sini dan SO-nya muncul di atas — tanpa duplikasi, karena
+             server memang tidak mengirim penawaran yang sudah punya SO. --}}
+        <template x-for="q in penawaran" :key="'q' + q.id">
+            <div class="rounded-lg border border-sky-300 bg-sky-50/50 px-2 py-1.5">
+                <div class="flex items-baseline justify-between gap-2">
+                    <a :href="q.url" class="text-xs font-semibold truncate underline" x-text="q.nomor"></a>
+                    <span class="shrink-0 text-xs font-bold" x-text="rupiah(q.total)"></span>
+                </div>
+                <div class="flex items-baseline justify-between gap-2 mt-0.5">
+                    <span class="text-[11px] font-semibold text-sky-700">Penawaran</span>
+                    <span class="text-[11px] text-gray-500 shrink-0" x-text="q.tanggal"></span>
+                </div>
+
+                <template x-for="it in q.items" :key="it.nama + it.qty">
+                    <div class="mt-1 text-[11px] text-gray-600 flex items-baseline justify-between gap-2">
+                        <span class="truncate" x-text="it.nama"></span>
+                        <span class="shrink-0 text-gray-500">×<span x-text="it.qty"></span></span>
+                    </div>
+                </template>
+                <div x-show="q.sisa_item" class="text-[11px] text-gray-400 mt-0.5">
+                    +<span x-text="q.sisa_item"></span> barang lain
+                </div>
+
+                <div class="mt-1.5 flex items-center justify-end">
+                    {{-- Konversi ke SO, cetak, dan perihal semuanya ada di
+                         halaman Penawaran. Panel chat tidak menduplikasinya. --}}
+                    <a :href="q.url"
+                       class="text-[11px] font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                        Buka Penawaran
+                    </a>
+                </div>
+            </div>
+        </template>
 
         {{-- Galat ikut ditampilkan di tampilan daftar: tombol Rincian dipakai
              dari sini, dan kegagalannya tak boleh cuma terlihat di layar susun. --}}
@@ -594,6 +631,18 @@
             <span x-show="sibuk" x-cloak>Menyimpan…</span>
         </button>
 
+        {{-- Penawaran dibuat dari keranjang yang SAMA; yang berbeda cuma urutan
+             dagangnya — dikirim untuk disetujui dulu, baru jadi pesanan.
+             Tombolnya sengaja garis, bukan penuh: dua tombol solid sederajat
+             membuat orang berhenti untuk memilih di langkah yang paling sering
+             dilewati, padahal pesanan langsung jauh lebih sering. --}}
+        <button type="button" @click="buat('penawaran')" :disabled="sibuk"
+                class="w-full py-1.5 rounded-lg border border-emerald-600 text-emerald-700 hover:bg-emerald-50
+                       text-xs font-semibold disabled:opacity-60">
+            <span x-show="!sibuk">Buat Penawaran</span>
+            <span x-show="sibuk" x-cloak>Menyimpan…</span>
+        </button>
+
         <div x-show="galat" x-cloak x-text="galat"
              class="rounded border border-red-300 bg-red-50 px-2 py-1.5 text-xs text-red-700"></div>
     </div>
@@ -636,6 +685,10 @@
             // berubah di luar layar ini (dibayar, masuk produksi, dikirim), jadi
             // salinan yang dibekukan di draft akan cepat berbohong.
             pesanan: @json($pesananTerkait ?? []),
+
+            // Penawaran yang belum jadi pesanan. Yang sudah dikonversi tidak
+            // ikut dikirim server — SO hasilnya sudah mewakili kesepakatan itu.
+            penawaran: @json($penawaranTerkait ?? []),
 
             /*
              * Pesanan SELESAI disembunyikan.
@@ -1049,13 +1102,26 @@
                     const r = await fetch('{{ $terpilih ? route('crm.inbox.pesanan', $terpilih) : '' }}',
                         { headers: { 'Accept': 'application/json' } });
 
-                    if (r.ok) this.pesanan = (await r.json()).pesanan ?? [];
+                    if (r.ok) {
+                        const d = await r.json();
+
+                        this.pesanan   = d.pesanan ?? [];
+                        this.penawaran = d.penawaran ?? [];
+                    }
                 } catch (e) { /* daftar lama tetap tampil */ }
             },
 
             /* ---------------------------------------------------------- buat */
 
-            async buat() {
+            /**
+             * @param jenis 'so' (bawaan) atau 'penawaran'
+             *
+             * Satu fungsi untuk dua tujuan karena SELURUH pemeriksaan sebelum
+             * kirim berlaku sama: keranjang kosong, ongkir basi, alamat. Dipecah
+             * dua, salah satunya pasti ketinggalan saat pemeriksaan baru
+             * ditambahkan — dan yang ketinggalan justru jalur yang jarang diuji.
+             */
+            async buat(jenis = 'so') {
                 if (this.sibuk) return;
 
                 if (!this.baris.length) { this.galat = 'Tambahkan produk dulu.'; return; }
@@ -1123,7 +1189,11 @@
                 }
 
                 try {
-                    const r = await fetch('{{ $terpilih ? route('crm.inbox.buat-so', $terpilih) : '' }}', {
+                    const alamatKirim = jenis === 'penawaran'
+                        ? '{{ $terpilih ? route('crm.inbox.buat-penawaran', $terpilih) : '' }}'
+                        : '{{ $terpilih ? route('crm.inbox.buat-so', $terpilih) : '' }}';
+
+                    const r = await fetch(alamatKirim, {
                         method: 'POST',
                         body: JSON.stringify(muatan),
                         headers: {
@@ -1136,7 +1206,8 @@
 
                     if (!r.ok || !d.success) {
                         const rinci = d.errors ? Object.values(d.errors).flat().join(' ') : '';
-                        this.galat = d.error || rinci || d.message || 'Gagal membuat SO.';
+                        this.galat = d.error || rinci || d.message
+                            || (jenis === 'penawaran' ? 'Gagal membuat penawaran.' : 'Gagal membuat SO.');
                         return;
                     }
 
@@ -1179,7 +1250,9 @@
                     await this.muatPesanan();
                     this.mode = 'daftar';
                 } catch (e) {
-                    this.galat = 'Jaringan bermasalah — SO belum tersimpan.';
+                    this.galat = jenis === 'penawaran'
+                        ? 'Jaringan bermasalah — penawaran belum tersimpan.'
+                        : 'Jaringan bermasalah — SO belum tersimpan.';
                 } finally {
                     this.sibuk = false;
                 }

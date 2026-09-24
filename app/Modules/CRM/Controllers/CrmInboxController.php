@@ -10,6 +10,7 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmAttachment;
+use App\Models\SalesQuotation;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmLabel;
 use App\Modules\CRM\Models\CrmMarketplaceLink;
@@ -29,6 +30,7 @@ use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
 use App\Modules\Marketplace\Jubelio\Services\JubelioStockSyncService;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Services\PromotionService;
+use App\Modules\Sales\Services\QuotationDraftService;
 use App\Modules\Sales\Services\SalesOrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -285,6 +287,7 @@ class CrmInboxController extends Controller
             'gudang'         => Warehouse::where('is_active', 1)->orderBy('name')->get(['id', 'name']),
             'gudangTerpilih' => Warehouse::defaultId(),
             'pesananTerkait' => $terpilih ? $this->ringkasPesanan($terpilih) : [],
+            'penawaranTerkait' => $terpilih ? $this->ringkasPenawaran($terpilih) : [],
             'modeWa'   => $modeWa,
             /*
              * Gelembung tidak DIMUAT sama sekali di mode WhatsApp Web, bukan
@@ -1572,7 +1575,58 @@ class CrmInboxController extends Controller
     /** Daftar pesanan pelanggan ini — dipanggil ulang setelah SO baru dibuat. */
     public function daftarPesanan(CrmConversation $conversation)
     {
-        return response()->json(['pesanan' => $this->ringkasPesanan($conversation)]);
+        return response()->json([
+            'pesanan'   => $this->ringkasPesanan($conversation),
+            'penawaran' => $this->ringkasPenawaran($conversation),
+        ]);
+    }
+
+    /**
+     * Penawaran pelanggan ini yang BELUM jadi pesanan.
+     *
+     * Yang sudah dikonversi sengaja tidak ikut: SO hasil konversinya sudah
+     * muncul di daftar pesanan, dan menampilkan keduanya membuat satu
+     * kesepakatan terbaca seperti dua — operator lalu menagih dua kali, atau
+     * membuka penawaran mati untuk menjawab pertanyaan tentang pesanan yang
+     * hidup.
+     *
+     * Yang dibatalkan juga dibuang. Sisanya (draft, terkirim, kedaluwarsa)
+     * tetap tampil: selama belum dikonversi dan belum dibatalkan, ia masih
+     * pekerjaan yang menggantung.
+     */
+    private function ringkasPenawaran(CrmConversation $conversation): array
+    {
+        if (! $conversation->customer_id) {
+            return [];
+        }
+
+        return SalesQuotation::query()
+            ->where('customer_id', $conversation->customer_id)
+            ->whereNull('sales_order_id')
+            ->whereRaw("LOWER(COALESCE(status, '')) NOT IN (?, ?)", ['converted', 'cancelled'])
+            ->latest('id')
+            ->limit(10)
+            ->with('items.product:id,name,sku')
+            ->get()
+            ->map(fn (SalesQuotation $q) => [
+                'id'    => $q->id,
+                'nomor' => $q->quotation_number,
+                'items' => $q->items->take(3)->map(fn ($i) => [
+                    'nama'  => $i->description ?: ($i->product?->name ?? 'Produk'),
+                    'sku'   => $i->product?->sku,
+                    'qty'   => rtrim(rtrim(number_format((float) $i->qty, 2, ',', '.'), '0'), ','),
+                    'total' => (float) $i->subtotal,
+                ])->values()->all(),
+                'sisa_item' => max(0, $q->items->count() - 3),
+                'tanggal'   => optional($q->quotation_date)->format('d M Y'),
+                'total'     => (float) $q->grand_total,
+                'status'    => ucfirst((string) ($q->status ?: 'draft')),
+                // Halaman Penawaran = tempat perihal, kalimat pembuka, cetak,
+                // dan tombol Konversi berada. Panel chat sengaja tidak
+                // menduplikasi satu pun dari itu.
+                'url'       => route('sales.quotations.edit', $q->id),
+            ])
+            ->all();
     }
 
     /**
@@ -1714,9 +1768,59 @@ class CrmInboxController extends Controller
      * sini: aturan diskon nominal-per-unit, pembulatan rupiah, dan ongkir
      * net-vs-gross harus sama persis dengan SO yang dibuat lewat form biasa.
      */
-    public function buatSo(Request $request, CrmConversation $conversation, SalesOrderService $salesOrder)
+    /**
+     * Aturan isian keranjang dari layar chat.
+     *
+     * Dipakai DUA jalur — "Buat Pesanan" dan "Buat Penawaran" — karena
+     * keranjangnya memang satu dan sama. Disalin dua kali, yang satu pasti
+     * ketinggalan saat ada medan baru, dan bedanya cuma terlihat sebagai
+     * "penawaran kehilangan ongkir" jauh di kemudian hari.
+     */
+    /**
+     * Penawaran DRAFT dari keranjang chat — kembaran buatSo().
+     *
+     * Bedanya dengan pesanan bukan teknis melainkan urutan dagang: penawaran
+     * dikirim untuk disetujui dulu, dan baru jadi SO setelah pelanggan
+     * mengiyakan. Karena itu ia TIDAK menyentuh stok, tidak punya DP, dan tidak
+     * membawa kesepakatan (batas DP, keep stok, tempo) — semuanya lahir nanti
+     * bersama SO hasil konversi.
+     */
+    public function buatPenawaran(Request $request, CrmConversation $conversation, QuotationDraftService $penawaran)
     {
-        $data = $request->validate([
+        $data = $request->validate($this->aturanKeranjang());
+
+        try {
+            $customerId = $this->pelangganUntukSo($conversation, $data);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        if (($data['delivery_method'] ?? 'kurir') !== 'ambil_toko') {
+            $this->simpanAlamatPelanggan($customerId, $conversation, $data);
+        }
+
+        try {
+            $quotation = $penawaran->createDraftFromData($data + ['customer_id' => $customerId]);
+        } catch (\Throwable $e) {
+            Log::warning('[CRM] gagal membuat penawaran dari chat', [
+                'conversation' => $conversation->id,
+                'error'        => $e->getMessage(),
+            ]);
+
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'nomor'   => $quotation->quotation_number,
+            'total'   => (float) $quotation->grand_total,
+            'url'     => route('sales.quotations.edit', $quotation->id),
+        ]);
+    }
+
+    private function aturanKeranjang(): array
+    {
+        return [
             // Salah satu wajib: pelanggan lama, atau nama untuk pelanggan baru.
             'customer_id'   => 'nullable|integer|exists:customers,id',
             'customer_name' => 'nullable|string|max:255',
@@ -1767,7 +1871,12 @@ class CrmInboxController extends Controller
             'shipping_area.kiriminaja_area_id' => 'nullable|string|max:100',
             'shipping_area.latitude'           => 'nullable|numeric|between:-90,90',
             'shipping_area.longitude'          => 'nullable|numeric|between:-180,180',
-        ]);
+        ];
+    }
+
+    public function buatSo(Request $request, CrmConversation $conversation, SalesOrderService $salesOrder)
+    {
+        $data = $request->validate($this->aturanKeranjang());
 
         try {
             $customerId = $this->pelangganUntukSo($conversation, $data);
