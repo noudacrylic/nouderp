@@ -42,8 +42,23 @@ use Carbon\Carbon;
  */
 class WahaCerminService
 {
-    /** Akhiran chat perorangan. Grup (@g.us), status, dan newsletter diabaikan. */
-    private const CHAT_ORANG = '@c.us';
+    /**
+     * Akhiran chat PERORANGAN — daftar putih, bukan daftar hitam.
+     *
+     * Dua bentuk, dan keduanya wajib: '@c.us' adalah bentuk yang dipakai WAHA
+     * di payload webhook, sedangkan '@s.whatsapp.net' adalah bentuk asli
+     * NOWEB yang muncul di endpoint /chats (DIVERIFIKASI di server 24 Sep
+     * 2026: 643 dari 656 chat berakhiran @s.whatsapp.net). Menebak salah satu
+     * saja berarti seluruh pesan dibuang DIAM-DIAM — tanpa galat, tanpa baris
+     * gagal, tanpa gejala apa pun selain inbox yang terlihat seperti hari sepi.
+     *
+     * Ditulis sebagai daftar putih supaya bentuk yang belum dikenal ikut
+     * DITOLAK, bukan diterima: '@g.us' (grup), 'status@broadcast',
+     * '@newsletter', dan '@lid' semuanya bukan chat pelanggan, dan '@lid'
+     * khususnya bukan nomor telepon sama sekali — ia akan melahirkan
+     * percakapan bernomor palsu kalau lolos.
+     */
+    private const AKHIRAN_ORANG = ['@c.us', '@s.whatsapp.net'];
 
     /**
      * @param  array  $amplop  badan webhook WAHA apa adanya
@@ -117,11 +132,11 @@ class WahaCerminService
      * Nomor lawan bicara: `to` bila pesannya dari kita, `from` bila dari
      * pelanggan. Null untuk grup, status, dan newsletter.
      *
-     * ⚠️ Penyaring `@c.us` ini bukan kerapian melainkan penjaga: nomor utama
-     * ada di grup pelanggan dan grup internal, dan tanpa saringan ini setiap
-     * obrolan grup ikut tumpah ke inbox sebagai "percakapan" yang mustahil
-     * dilayani — sekaligus membocorkan isi grup internal ke layar yang dibuka
-     * seluruh tim CS.
+     * ⚠️ Penyaringnya bukan kerapian melainkan penjaga: nomor utama ada di
+     * grup pelanggan dan grup internal, dan tanpa saringan ini setiap obrolan
+     * grup ikut tumpah ke inbox sebagai "percakapan" yang mustahil dilayani —
+     * sekaligus membocorkan isi grup internal ke layar yang dibuka seluruh
+     * tim CS.
      */
     private function chatId(array $payload): ?string
     {
@@ -129,7 +144,13 @@ class WahaCerminService
             ? (string) ($payload['to'] ?? '')
             : (string) ($payload['from'] ?? '');
 
-        return str_ends_with($id, self::CHAT_ORANG) ? $id : null;
+        foreach (self::AKHIRAN_ORANG as $akhiran) {
+            if (str_ends_with($id, $akhiran)) {
+                return $id;
+            }
+        }
+
+        return null;
     }
 
     /** Thread cermin milik nomor ini — dibuat bila belum ada. */

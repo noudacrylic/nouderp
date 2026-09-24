@@ -255,6 +255,26 @@ class CerminWahaTest extends TestCase
     }
 
     /**
+     * Bentuk id NOWEB ('@s.whatsapp.net') diterima sama seperti '@c.us'.
+     *
+     * DIVERIFIKASI di server 24 Sep 2026: endpoint /chats mengembalikan 643
+     * dari 656 chat dengan akhiran @s.whatsapp.net. Menerima satu bentuk saja
+     * berarti pesan dibuang DIAM-DIAM — inbox terlihat seperti hari sepi, dan
+     * tak ada satu pun baris gagal yang bisa dicari.
+     */
+    public function test_bentuk_id_noweb_juga_diterima(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'   => 'false_628123456789@s.whatsapp.net_3EB0NOWEB',
+            'from' => '628123456789@s.whatsapp.net',
+            'to'   => '628998844666@s.whatsapp.net',
+        ]))->assertOk();
+
+        $this->assertSame('628123456789', CrmConversation::sole()->contact_key);
+        $this->assertSame(1, CrmMessage::count());
+    }
+
+    /**
      * Grup, status, dan newsletter TIDAK dicermin. Nomor utama ada di grup
      * internal, dan tanpa saringan ini isinya tumpah ke layar yang dibuka
      * seluruh tim CS.
@@ -269,6 +289,13 @@ class CerminWahaTest extends TestCase
         $this->kirim($this->payload(pesan: [
             'id'   => 'false_status_YY',
             'from' => 'status@broadcast',
+        ]))->assertOk();
+
+        // '@lid' bukan nomor telepon sama sekali — kalau lolos, ia melahirkan
+        // percakapan bernomor palsu yang tak pernah bisa dihubungi.
+        $this->kirim($this->payload(pesan: [
+            'id'   => 'false_lid_ZZ',
+            'from' => '197412345678901@lid',
         ]))->assertOk();
 
         $this->assertSame(0, CrmConversation::count());
