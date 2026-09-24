@@ -176,14 +176,33 @@
 
                 <div class="relative z-10 pointer-events-none px-3 py-2">
                     <div class="flex items-start justify-between gap-2">
+                        {{-- Nomor TIDAK diulang di bawah nama. Ia sudah jadi judul
+                             baris saat kontaknya belum bernama, dan mengulangnya
+                             pada kontak yang sudah bernama memakan satu baris utuh
+                             untuk keterangan yang tak pernah dibaca — padahal baris
+                             itu jauh lebih berguna untuk cuplikan chat terakhir,
+                             satu-satunya petunjuk isi tanpa membuka threadnya. --}}
                         <div class="min-w-0">
-                            <div class="font-medium truncate">{{ $namaTampil }}</div>
-                            <div class="text-xs text-gray-500 truncate">
-                                {{ $p->contact_key }}
+                            <div class="flex items-center gap-1 min-w-0">
+                                <span class="font-medium truncate">{{ $namaTampil }}</span>
                                 @unless($p->customer_id)
-                                    <span class="ml-1 px-1 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 uppercase"
+                                    <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 uppercase"
                                           title="Belum tertaut pelanggan mana pun di ERP">Lead</span>
                                 @endunless
+                            </div>
+                            <div class="text-xs text-gray-500 truncate">
+                                @if($p->pesanTerakhir)
+                                    {{-- Siapa yang bicara terakhir menentukan apakah
+                                         bola ada di kita; tanpa penanda ini cuplikan
+                                         balasan sendiri terbaca seperti pertanyaan
+                                         pelanggan yang belum dijawab. --}}
+                                    @if($p->pesanTerakhir->direction === \App\Modules\CRM\Models\CrmMessage::KELUAR)
+                                        <span class="text-gray-400">Kami:</span>
+                                    @endif
+                                    {{ $p->pesanTerakhir->ringkas(60) }}
+                                @else
+                                    <span class="text-gray-400">Belum ada pesan</span>
+                                @endif
                             </div>
                         </div>
                         {{-- Ruang kanan disisakan buat tombol titik tiga supaya jam

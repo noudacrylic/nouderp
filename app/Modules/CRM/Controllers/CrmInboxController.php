@@ -208,7 +208,13 @@ class CrmInboxController extends Controller
         $muat = max(1, min((int) $request->input('muat', 1), self::MUAT_MAKS));
 
         $percakapan = $this->saringPercakapan($request, $dasar)
-            ->with(['customer:id,name', 'owner:id,name'])
+            /*
+             * `pesanTerakhir.attachments` ikut dimuat karena cuplikan dokumen
+             * menyebut nama berkasnya (CrmMessage::ringkas). Tanpa itu satu
+             * baris dokumen = satu kueri tambahan, dan daftar ini disegarkan
+             * tiap 8 detik.
+             */
+            ->with(['customer:id,name', 'owner:id,name', 'pesanTerakhir.attachments'])
             ->paginate(per_page_size() * $muat, ['*'], 'page', 1)
             ->withQueryString();
 
@@ -1413,6 +1419,9 @@ class CrmInboxController extends Controller
             $p->customer?->name,
             $p->owner?->name,
             $p->windowIsOpen() ? 1 : 0,
+            // Cuplikan ikut disidik lewat id pesan terakhirnya: pesan baru di
+            // chat yang tanggalnya kebetulan sama tetap mengubah tampilan baris.
+            $p->pesanTerakhir?->id,
         ]))->implode("
 ");
 

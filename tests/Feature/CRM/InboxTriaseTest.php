@@ -1067,4 +1067,66 @@ class InboxTriaseTest extends TestCase
         // Tanpa chat terpilih, tak satu baris pun boleh memakainya.
         $this->get('/erp/crm')->assertOk()->assertDontSee('<div data-baris-aktif', false);
     }
+
+    /* ----------------------------------------------- isi baris daftar chat */
+
+    /**
+     * Baris chat: nama SAJA (nomor tidak diulang) + cuplikan chat terakhir.
+     *
+     * Nomor sudah jadi judul baris saat kontaknya belum bernama; mengulangnya
+     * di bawah nama memakan satu baris utuh untuk keterangan yang tak pernah
+     * dibaca. Baris itu jauh lebih berguna untuk cuplikan pesan terakhir —
+     * satu-satunya petunjuk isi tanpa membuka threadnya.
+     */
+    public function test_baris_menampilkan_nama_dan_cuplikan_bukan_nomor(): void
+    {
+        $this->actingAs($this->admin());
+
+        $p = CrmConversation::findOrCreateFor('6281999000111');
+        $p->forceFill(['display_name' => 'Diana Akrilik'])->save();
+
+        $p->messages()->create([
+            'direction'    => CrmMessage::MASUK,
+            'message_type' => 'text',
+            'content'      => 'Kak yang A3 harganya berapa',
+            'sent_at'      => now(),
+        ]);
+
+        $this->get('/erp/crm')->assertOk()
+            ->assertSee('Diana Akrilik')
+            ->assertSee('Kak yang A3 harganya berapa')
+            ->assertDontSee('6281999000111');
+    }
+
+    /**
+     * Cuplikan menyebut kalau yang terakhir bicara adalah KITA.
+     *
+     * Tanpa penanda itu, balasan sendiri terbaca seperti pertanyaan pelanggan
+     * yang belum dijawab — dan daftar chat justru dipakai untuk memutuskan
+     * siapa yang masih menunggu.
+     */
+    public function test_cuplikan_menandai_pesan_dari_kita(): void
+    {
+        $this->actingAs($this->admin());
+
+        $p = CrmConversation::findOrCreateFor('6281999000222');
+
+        $p->messages()->create([
+            'direction'    => CrmMessage::MASUK,
+            'message_type' => 'text',
+            'content'      => 'halo kak',
+            'sent_at'      => now()->subMinute(),
+        ]);
+        $p->messages()->create([
+            'direction'    => CrmMessage::KELUAR,
+            'message_type' => 'text',
+            'content'      => 'Ada kak, siap kirim',
+            'sent_at'      => now(),
+        ]);
+
+        $this->get('/erp/crm')->assertOk()
+            ->assertSee('Kami:')
+            ->assertSee('Ada kak, siap kirim')
+            ->assertDontSee('halo kak');
+    }
 }

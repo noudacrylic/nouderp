@@ -8,6 +8,7 @@ use App\Modules\CRM\Support\PhoneNumber;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Satu percakapan dengan satu kontak, pada satu kanal, lewat satu nomor bisnis.
@@ -80,6 +81,25 @@ class CrmConversation extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(CrmMessage::class, 'conversation_id');
+    }
+
+    /**
+     * Pesan paling akhir — untuk cuplikan satu baris di daftar chat.
+     *
+     * Relasi tersendiri, bukan `messages()->latest()->first()` di dalam
+     * perulangan: daftar boleh memanjang sampai ratusan baris dan disegarkan
+     * tiap 8 detik, jadi satu kueri per baris akan berlipat jadi ribuan kueri
+     * semenit. `latestOfMany` menyelesaikannya dengan satu kueri untuk seluruh
+     * halaman.
+     *
+     * Diurut `sent_at` DAN `id`: riwayat impor membawa banyak pesan berdetik
+     * sama, dan tanpa pemecah seri cuplikannya bisa menampilkan pesan yang
+     * BUKAN yang terakhir terlihat di HP.
+     */
+    public function pesanTerakhir(): HasOne
+    {
+        return $this->hasOne(CrmMessage::class, 'conversation_id')
+            ->latestOfMany(['sent_at', 'id']);
     }
 
     /** Notifikasi pesanan yang pernah dikirim lewat percakapan ini. */
