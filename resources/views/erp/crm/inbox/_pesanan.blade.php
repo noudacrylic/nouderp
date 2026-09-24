@@ -674,40 +674,40 @@
         <div x-show="galat" x-cloak x-text="galat"
              class="rounded border border-red-300 bg-red-50 px-2 py-1.5 text-xs text-red-700"></div>
     </div>
-</div>
 
-{{-- Jendela pratinjau penawaran.
+    {{-- Jendela pratinjau penawaran.
 
-     Ditumpangkan ke <body>: rail kanan selebar ~380px dan menggulir di dalam
-     wadah overflow-hidden, jadi jendela yang tinggal di dalamnya akan
-     terpotong dan tak terbaca. --}}
-<template x-teleport="body">
-    <div x-show="pratinjau" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
-         @keydown.escape.window="pratinjau = null">
-        <div class="absolute inset-0 bg-black/50" @click="pratinjau = null"></div>
+         Ditumpangkan ke <body>: rail kanan selebar ~380px dan menggulir di dalam
+         wadah overflow-hidden, jadi jendela yang tinggal di dalamnya akan
+         terpotong dan tak terbaca. --}}
+    <template x-teleport="body">
+        <div x-show="pratinjau" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+             @keydown.escape.window="pratinjau = null">
+            <div class="absolute inset-0 bg-black/50" @click="pratinjau = null"></div>
 
-        <div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden">
-            <div class="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200">
-                <span class="text-sm font-semibold truncate" x-text="'Pratinjau ' + (pratinjau?.nomor ?? '')"></span>
+            <div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden">
+                <div class="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200">
+                    <span class="text-sm font-semibold truncate" x-text="'Pratinjau ' + (pratinjau?.nomor ?? '')"></span>
 
-                <div class="flex items-center gap-2 shrink-0">
-                    <a :href="pratinjau?.pdf"
-                       class="text-xs font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
-                        Unduh PDF
-                    </a>
-                    <button type="button" @click="pratinjau = null"
-                            class="text-xs text-gray-500 hover:text-gray-800 px-2 py-1">Tutup</button>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <a :href="pratinjau?.pdf"
+                           class="text-xs font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                            Unduh PDF
+                        </a>
+                        <button type="button" @click="pratinjau = null"
+                                class="text-xs text-gray-500 hover:text-gray-800 px-2 py-1">Tutup</button>
+                    </div>
                 </div>
-            </div>
 
-            {{-- Halaman cetak dimuat apa adanya. Yang terlihat di sini SAMA
-                 dengan yang jadi PDF — dua penggambar berbeda akan membuat
-                 pratinjau berbohong justru saat dipakai memeriksa. --}}
-            <iframe x-show="pratinjau" :src="pratinjau?.pratinjau ?? 'about:blank'"
-                    class="flex-1 w-full border-0" title="Pratinjau penawaran"></iframe>
+                {{-- Halaman cetak dimuat apa adanya. Yang terlihat di sini SAMA
+                     dengan yang jadi PDF — dua penggambar berbeda akan membuat
+                     pratinjau berbohong justru saat dipakai memeriksa. --}}
+                <iframe x-show="pratinjau" :src="pratinjau?.pratinjau ?? 'about:blank'"
+                        class="flex-1 w-full border-0" title="Pratinjau penawaran"></iframe>
+            </div>
         </div>
-    </div>
-</template>
+    </template>
+</div>
 
 <script>
     function pesananCrm() {
