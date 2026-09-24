@@ -311,6 +311,54 @@ class WahaProvider implements NotificationProvider
     }
 
     /**
+     * Daftar chat yang dipegang sesi ini.
+     *
+     * ⚠️ `limit` WAJIB disebut besar. Bawaan WAHA memotong di 200 dan
+     * memotongnya DIAM-DIAM — tak ada penanda "masih ada lagi" di jawabannya
+     * (DIVERIFIKASI di server 24 Sep 2026: limit=200 mengembalikan tepat 200
+     * dari 656 chat yang sebenarnya ada).
+     *
+     * Yang kembali cuma `id` dan `conversationTimestamp`; tidak ada nama, tidak
+     * ada jumlah belum dibaca.
+     *
+     * @return array{success:bool, chat:array, error:?string}
+     */
+    public function daftarChat(int $limit = 5000): array
+    {
+        $res = $this->request('get', '/api/' . rawurlencode($this->sesi()) . '/chats?limit=' . $limit);
+
+        return $res['success']
+            ? ['success' => true, 'chat' => (array) $res['data'], 'error' => null]
+            : ['success' => false, 'chat' => [], 'error' => (string) $res['error']];
+    }
+
+    /**
+     * Riwayat pesan satu chat.
+     *
+     * `$media = true` menyuruh WAHA MENGUNDUH medianya lebih dulu dari server
+     * WhatsApp supaya `media.url` terisi — itulah satu-satunya cara media lama
+     * bisa diambil, dan itu pula sebabnya panggilan ini punya timeout
+     * sendiri yang jauh lebih longgar. Timeout biasa (20 detik, dipakai kirim
+     * & cek status) akan memutus chat bermedia banyak di tengah jalan, dan
+     * gejalanya "sebagian chat kosong tanpa sebab".
+     *
+     * @return array{success:bool, pesan:array, error:?string}
+     */
+    public function riwayatChat(string $chatId, int $limit = 500, bool $media = false, int $timeout = 180): array
+    {
+        $path = '/api/' . rawurlencode($this->sesi())
+            . '/chats/' . rawurlencode($chatId)
+            . '/messages?limit=' . $limit
+            . '&downloadMedia=' . ($media ? 'true' : 'false');
+
+        $res = $this->request('get', $path, [], $timeout);
+
+        return $res['success']
+            ? ['success' => true, 'pesan' => (array) $res['data'], 'error' => null]
+            : ['success' => false, 'pesan' => [], 'error' => (string) $res['error']];
+    }
+
+    /**
      * Daftarkan alamat webhook cermin pada sesi ini.
      *
      * ⚠️ WAHA me-RESTART sesi saat konfigurasinya diperbarui. Nomornya TIDAK
@@ -382,12 +430,12 @@ class WahaProvider implements NotificationProvider
      * penanganannya: WAHA menjawab-tapi-menolak (permanen) vs WAHA tak
      * menjawab sama sekali (sementara).
      */
-    private function request(string $method, string $path, array $body = []): array
+    private function request(string $method, string $path, array $body = [], ?int $timeout = null): array
     {
         try {
             $req = Http::withHeaders(['X-Api-Key' => (string) $this->setting->api_key])
                 ->acceptJson()
-                ->timeout((int) config('crm.waha.timeout', 20));
+                ->timeout($timeout ?? (int) config('crm.waha.timeout', 20));
 
             $url = $this->setting->effectiveBaseUrl() . $path;
 

@@ -80,17 +80,37 @@ class WahaCerminService
             return;
         }
 
-        $payload = (array) ($amplop['payload'] ?? []);
-        $chatId  = $this->chatId($payload);
+        $this->rekam((array) ($amplop['payload'] ?? []));
+    }
+
+    /**
+     * Rekam SATU pesan WAHA ke cermin. Null bila dilewati (bukan chat
+     * perorangan, nomor tak terbaca, atau sudah pernah direkam).
+     *
+     * Dipakai webhook DAN impor riwayat (crm:impor-cermin-waha) — sengaja satu
+     * jalur. Kalau impor menyusun barisnya sendiri, dua tempat harus diingat
+     * bersamaan setiap kali bentuk penyimpanan berubah, dan yang satu akan
+     * menyimpang diam-diam: hasilnya riwayat lama yang tampil beda dari pesan
+     * baru di thread yang sama.
+     *
+     * @param  ?string  $chatIdPaksa  id chat dari pemanggil. Endpoint riwayat
+     *                  WAHA tidak selalu membawa `from`/`to` yang lengkap,
+     *                  sedangkan pengimpor SUDAH tahu chat mana yang sedang
+     *                  ditarik — menebaknya ulang dari payload hanya menambah
+     *                  satu cara gagal yang tidak perlu ada.
+     */
+    public function rekam(array $payload, ?string $chatIdPaksa = null): ?CrmMessage
+    {
+        $chatId = $chatIdPaksa !== null ? $this->saring($chatIdPaksa) : $this->chatId($payload);
 
         if (! $chatId) {
-            return;
+            return null;
         }
 
         $nomor = PhoneNumber::normalize(strstr($chatId, '@', true) ?: '');
 
         if (! $nomor) {
-            return;
+            return null;
         }
 
         $dariKita = (bool) ($payload['fromMe'] ?? false);
@@ -100,15 +120,25 @@ class WahaCerminService
         $pesan      = $this->simpanPesan($percakapan, $payload, $dariKita, $waktu);
 
         if (! $pesan) {
-            return;   // kembar, sudah ditolak basis data
+            return null;   // kembar, sudah ditolak basis data
         }
 
         $this->simpanLampiran($pesan, $payload);
 
-        // Satu-satunya kolom percakapan yang boleh bergerak — lihat catatan
-        // kelas. Daftar inbox mengurutkan dengan COALESCE(last_message_at,
-        // created_at), jadi tanpa ini thread cermin membeku di dasar daftar.
-        $percakapan->forceFill(['last_message_at' => $waktu])->save();
+        /*
+         * Satu-satunya kolom percakapan yang boleh bergerak — lihat catatan
+         * kelas. Daftar inbox mengurutkan dengan COALESCE(last_message_at,
+         * created_at), jadi tanpa ini thread cermin membeku di dasar daftar.
+         *
+         * Hanya MAJU. Impor riwayat menyusuri pesan lama, dan tanpa penjaga
+         * ini setiap chat yang diimpor akan terlempar ke dasar daftar dengan
+         * tanggal pesan tertuanya — padahal ia baru saja aktif kemarin.
+         */
+        if (! $percakapan->last_message_at || $waktu->gt($percakapan->last_message_at)) {
+            $percakapan->forceFill(['last_message_at' => $waktu])->save();
+        }
+
+        return $pesan;
     }
 
     /**
@@ -144,13 +174,30 @@ class WahaCerminService
             ? (string) ($payload['to'] ?? '')
             : (string) ($payload['from'] ?? '');
 
+        return $this->saring($id);
+    }
+
+    /** Id chat bila ia chat perorangan; null untuk grup, status, newsletter, @lid. */
+    private function saring(string $id): ?string
+    {
+        return self::perorangan($id) ? $id : null;
+    }
+
+    /**
+     * Chat perorangan? Publik & statis karena pengimpor riwayat
+     * (crm:impor-cermin-waha) menyaring daftar chatnya SEBELUM menarik pesan —
+     * menyalin daftar akhirannya ke sana berarti dua tempat harus diingat
+     * bersamaan, dan yang satu pasti tertinggal saat bentuk id berubah lagi.
+     */
+    public static function perorangan(string $id): bool
+    {
         foreach (self::AKHIRAN_ORANG as $akhiran) {
             if (str_ends_with($id, $akhiran)) {
-                return $id;
+                return true;
             }
         }
 
-        return null;
+        return false;
     }
 
     /** Thread cermin milik nomor ini — dibuat bila belum ada. */
