@@ -212,6 +212,10 @@ Route::prefix('erp')->group(function () {
         // Lampiran disajikan controller (disk privat), bukan lewat /storage.
         Route::get('/lampiran/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lampiran'])->name('inbox.lampiran');
 
+        // Penyegar kolom kiri. WAJIB di atas '/{conversation}': wildcard itu
+        // akan menelannya sebagai id percakapan dan membalas 404 yang sunyi.
+        Route::get('/daftar-segar', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'daftarSegar'])->name('inbox.daftar-segar');
+
         Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'show'])->name('inbox.show');
         Route::post('/{conversation}/balas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'balas'])->name('inbox.balas');
         // Pancingan: template bertombol yang membuka lagi jendela 24 jam yang

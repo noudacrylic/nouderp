@@ -156,18 +156,22 @@ class CerminWahaTest extends TestCase
     }
 
     /**
-     * INTI Tahap 6. Cermin tidak menaikkan unread, tidak memindahkan antrean,
-     * dan yang paling menentukan: tidak membuka jendela 24 jam. Jendela itu
-     * milik jalur berbayar; menuliskannya di sini berarti menyalakan kotak
-     * ketik yang pasti ditolak saat dipakai.
+     * INTI Tahap 6. Cermin tidak memindahkan antrean, dan yang paling
+     * menentukan: tidak membuka jendela 24 jam. Jendela itu milik jalur
+     * berbayar; menuliskannya di sini berarti menyalakan kotak ketik yang
+     * pasti ditolak saat dipakai.
+     *
+     * `unread_count` SENGAJA dikecualikan dari daftar ini sejak lencana
+     * belum-dibaca dinyalakan — lihat test_pesan_masuk_live_menaikkan_belum_dibaca.
+     * Tanpa penanda apa pun, chat yang baru masuk tak bisa dibedakan dari
+     * ratusan thread lama di daftar.
      */
-    public function test_cermin_tidak_menyentuh_unread_antrean_maupun_jendela(): void
+    public function test_cermin_tidak_menyentuh_antrean_maupun_jendela(): void
     {
         $this->kirim($this->payload())->assertOk();
 
         $percakapan = CrmConversation::sole();
 
-        $this->assertSame(0, $percakapan->unread_count);
         $this->assertNull($percakapan->window_expires_at);
         $this->assertFalse($percakapan->windowIsOpen());
         // Bukan 'menunggu_kita': itu bawaan kolomnya, dan membiarkannya
@@ -688,5 +692,59 @@ class CerminWahaTest extends TestCase
                 'ackName' => $nama,
             ],
         ];
+    }
+
+    /* -------------------------------------------------------- belum dibaca */
+
+    /** Pesan masuk LIVE menyalakan lencana belum-dibaca. */
+    public function test_pesan_masuk_live_menaikkan_belum_dibaca(): void
+    {
+        $this->kirim($this->payload())->assertOk();
+
+        $this->assertSame(1, CrmConversation::sole()->unread_count);
+
+        $this->kirim($this->payload(pesan: ['id' => 'false_628123456789@c.us_3EBDUA']))->assertOk();
+
+        $this->assertSame(2, CrmConversation::sole()->fresh()->unread_count);
+    }
+
+    /**
+     * Balasan CS dari HP MENGOSONGKAN lencananya.
+     *
+     * Pekerjaannya memang sudah dikerjakan, cuma tidak di layar ini. Lencana
+     * yang tetap menyala sesudah dijawab adalah cara tercepat membuat orang
+     * berhenti mempercayainya.
+     */
+    public function test_balasan_dari_hp_mengosongkan_belum_dibaca(): void
+    {
+        $this->kirim($this->payload())->assertOk();
+
+        $this->kirim($this->payload(pesan: [
+            'id'     => 'true_628123456789@c.us_3EBBALAS',
+            'fromMe' => true,
+            'from'   => '628998844666@c.us',
+            'to'     => '628123456789@c.us',
+            'body'   => 'Ada kak.',
+        ]))->assertOk();
+
+        $this->assertSame(0, CrmConversation::sole()->fresh()->unread_count);
+    }
+
+    /**
+     * Impor riwayat TIDAK menyalakan lencana.
+     *
+     * Ia menyusuri ribuan pesan lama lewat jalur rekam() yang sama; tanpa
+     * pemisah ini, sekali impor menandai ratusan thread sebagai pekerjaan baru
+     * yang sebenarnya sudah dijawab berbulan-bulan lalu.
+     */
+    public function test_impor_riwayat_tidak_menaikkan_belum_dibaca(): void
+    {
+        $payload = $this->payload()['payload'];
+
+        app(\App\Modules\CRM\Services\WahaCerminService::class)
+            ->rekam($payload, '628123456789@c.us');
+
+        $this->assertSame(1, CrmMessage::count());
+        $this->assertSame(0, CrmConversation::sole()->unread_count);
     }
 }

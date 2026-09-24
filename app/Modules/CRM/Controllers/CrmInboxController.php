@@ -158,14 +158,21 @@ class CrmInboxController extends Controller
      * dua kali dengan aturan yang sedikit beda, membuka satu thread akan
      * mengubah isi daftar di sebelahnya tanpa sebab yang terlihat.
      */
-    private function ruangKerja(Request $request, ?CrmConversation $terpilih = null, bool $modeWa = false): array
+    /**
+     * Bahan kolom KIRI saja — daftar percakapan berikut penghitung chipnya.
+     *
+     * Dipisah dari ruangKerja() karena dipanggil dua kali dengan ongkos yang
+     * sangat berbeda: sekali saat halaman dibuka, lalu berulang setiap
+     * beberapa detik oleh penyegar daftar. Yang berat di ruangKerja() —
+     * gelembung thread, ringkasan pesanan, daftar gudang — tidak boleh ikut
+     * terbawa ke jalur yang jalan terus-menerus.
+     *
+     * Saringannya sendiri tetap tinggal di dasarPercakapan() & saringPercakapan(),
+     * jadi daftar yang disegarkan mustahil menyimpang dari daftar yang
+     * digambar saat halaman dimuat.
+     */
+    private function dataDaftar(Request $request, ?CrmConversation $terpilih = null): array
     {
-        /*
-         * Saringannya sendiri hidup di dasarPercakapan() & saringPercakapan() —
-         * dipisah supaya tombol Ekspor memakai saringan yang sama persis dengan
-         * daftar yang sedang dilihat orang. Yang tinggal di sini hanya dua
-         * penanda yang ikut dibaca layar.
-         */
         $pengguna       = $request->user();
         $lihatSemua     = (bool) $pengguna?->isSuperAdmin();
         $dibatasiKeSaya = ! $lihatSemua && ! ($request->filled('pemilik') || $request->filled('search')) && $pengguna;
@@ -178,15 +185,38 @@ class CrmInboxController extends Controller
             ->withQueryString();
 
         return [
-            'percakapan' => $percakapan,
-            'jumlah'     => $this->jumlahPerLabel($dasar),
-            'labelOpsi'  => CrmLabel::terpakai(),
-            'jumlahSemua'      => (clone $dasar())->count(),
-            'jumlahBelumDibaca'=> (clone $dasar())->where('unread_count', '>', 0)->count(),
-            'lihatSemua'       => $lihatSemua,
-            'pemilikOpsi' => User::assignable()->orderBy('name')->get(['id', 'name']),
+            'percakapan'        => $percakapan,
+            'jumlah'            => $this->jumlahPerLabel($dasar),
+            'labelOpsi'         => CrmLabel::terpakai(),
+            'jumlahSemua'       => (clone $dasar())->count(),
+            'jumlahBelumDibaca' => (clone $dasar())->where('unread_count', '>', 0)->count(),
+            'lihatSemua'        => $lihatSemua,
+            'pemilikOpsi'       => User::assignable()->orderBy('name')->get(['id', 'name']),
+            'dibatasiKeSaya'    => $dibatasiKeSaya,
+            /*
+             * Jumlah yang BELUM dipegang siapa pun ditampilkan ke semua orang.
+             * Tanpa angka ini, chat pelanggan baru (yang memang lahir tanpa
+             * pemilik) tidak muncul di daftar bawaan agen dan bisa menganggur
+             * berjam-jam tanpa ada yang tahu ia ada.
+             */
+            'belumDioper' => CrmConversation::query()
+                ->where('status', CrmConversation::STATUS_AKTIF)
+                ->whereNull('owner_user_id')
+                ->count(),
+            'terpilih' => $terpilih,
+        ];
+    }
+
+    private function ruangKerja(Request $request, ?CrmConversation $terpilih = null, bool $modeWa = false): array
+    {
+        /*
+         * Saringannya sendiri hidup di dasarPercakapan() & saringPercakapan() —
+         * dipisah supaya tombol Ekspor memakai saringan yang sama persis dengan
+         * daftar yang sedang dilihat orang. Yang tinggal di sini hanya dua
+         * penanda yang ikut dibaca layar.
+         */
+        return $this->dataDaftar($request, $terpilih) + [
             'dryRun'     => app(ChatManager::class)->isDryRun(),
-            'dibatasiKeSaya' => $dibatasiKeSaya,
             /*
              * Mode aman memang tidak memancing kabar balik apa pun, jadi
              * pemeriksanya dilewati — kalau tidak, pita peringatan menyala
@@ -219,17 +249,6 @@ class CrmInboxController extends Controller
             'gudang'         => Warehouse::where('is_active', 1)->orderBy('name')->get(['id', 'name']),
             'gudangTerpilih' => Warehouse::defaultId(),
             'pesananTerkait' => $terpilih ? $this->ringkasPesanan($terpilih) : [],
-            /*
-             * Jumlah yang BELUM dipegang siapa pun ditampilkan ke semua orang.
-             * Tanpa angka ini, chat pelanggan baru (yang memang lahir tanpa
-             * pemilik) tidak muncul di daftar bawaan agen dan bisa menganggur
-             * berjam-jam tanpa ada yang tahu ia ada.
-             */
-            'belumDioper' => CrmConversation::query()
-                ->where('status', CrmConversation::STATUS_AKTIF)
-                ->whereNull('owner_user_id')
-                ->count(),
-            'terpilih' => $terpilih,
             'modeWa'   => $modeWa,
             /*
              * Gelembung tidak DIMUAT sama sekali di mode WhatsApp Web, bukan
@@ -1300,6 +1319,33 @@ class CrmInboxController extends Controller
             'window_open' => $conversation->windowIsOpen(),
             'centang' => $this->centangTerakhir($conversation),
         ]);
+    }
+
+    /**
+     * Kolom kiri yang sudah digambar ulang — dipanggil berkala oleh workspace.
+     *
+     * Thread yang sedang terbuka sudah menarik pesannya sendiri, tapi DAFTAR-nya
+     * tidak pernah bergerak: chat lain yang baru masuk, urutan yang berubah,
+     * dan lencana belum-dibaca semuanya menunggu orang menekan muat ulang. Di
+     * layar yang dipakai seperti aplikasi chat, diamnya daftar terbaca persis
+     * seperti tidak ada pesan yang datang.
+     *
+     * Dibandingkan lewat SIDIK JARI, bukan dikirim mentah tiap kali: kolom ini
+     * jauh lebih besar dari satu gelembung, dan sebagian besar putaran tidak
+     * membawa perubahan apa pun. Yang berubah cuma beberapa kali sehari.
+     */
+    public function daftarSegar(Request $request)
+    {
+        $terpilih = ($id = (int) $request->input('terpilih')) > 0
+            ? CrmConversation::find($id)
+            : null;
+
+        $html  = view('erp.crm.inbox._daftar', $this->dataDaftar($request, $terpilih))->render();
+        $sidik = sha1($html);
+
+        return response()->json($sidik === (string) $request->input('sidik')
+            ? ['sama' => true,  'sidik' => $sidik]
+            : ['sama' => false, 'sidik' => $sidik, 'html' => $html]);
     }
 
     /**

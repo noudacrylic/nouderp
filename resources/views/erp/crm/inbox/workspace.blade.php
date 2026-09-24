@@ -121,7 +121,7 @@
     @else
     <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
 
-        <div class="lg:col-span-3 min-h-0">
+        <div class="lg:col-span-3 min-h-0" id="crm-daftar">
             @include('erp.crm.inbox._daftar')
         </div>
 
@@ -149,4 +149,97 @@
          oleh kolom yang overflow-hidden. --}}
     @include('erp.crm.inbox._mulai_chat')
 </div>
+
+
+
+{{-- Penyegar kolom kiri.
+     Thread yang terbuka sudah menarik pesannya sendiri, tapi daftarnya tidak:
+     chat LAIN yang baru masuk, urutan yang berubah, dan lencana belum-dibaca
+     semuanya menunggu orang menekan muat ulang. --}}
+<script>
+    (function () {
+        const wadah = document.getElementById('crm-daftar');
+
+        if (!wadah) return;
+
+        /* Jeda disamakan dengan polling thread (8 detik) supaya keduanya
+           terasa satu irama, dan supaya beban puncaknya tetap satu permintaan
+           ringan per beberapa detik per admin yang sedang membuka layar ini. */
+        const JEDA  = 8000;
+        let   sidik   = '';
+        let   sibuk   = false;
+        let   pertama = true;
+
+        /*
+         * JANGAN menukar isi daftar saat orang sedang mengetik di dalamnya.
+         * Kotak pencarian hidup di kolom ini; menukar HTML-nya di tengah
+         * ketikan menghapus huruf yang baru diketik berikut posisi kursornya,
+         * dan yang terlihat oleh orangnya adalah layar yang "menolak diketik".
+         */
+        function sedangDipakai() {
+            const f = document.activeElement;
+
+            return !!f && wadah.contains(f) && (
+                f.tagName === 'INPUT' || f.tagName === 'SELECT' || f.tagName === 'TEXTAREA'
+            );
+        }
+
+        async function segarkan() {
+            if (document.hidden || sibuk || sedangDipakai()) return;
+
+            sibuk = true;
+
+            try {
+                const q = new URLSearchParams(window.location.search);
+                q.set('sidik', sidik);
+                @if($terpilih)
+                    q.set('terpilih', '{{ $terpilih->id }}');
+                @endif
+
+                const r = await fetch('{{ route('crm.inbox.daftar-segar') }}?' + q.toString(),
+                    { headers: { 'Accept': 'application/json' } });
+
+                if (!r.ok) return;
+
+                const d = await r.json();
+
+                sidik = d.sidik || sidik;
+
+                /*
+                 * Putaran pertama hanya MEREKAM sidik jarinya. Tanpa ini,
+                 * daftar yang baru saja digambar server ditukar dengan salinan
+                 * yang isinya sama persis — menutup menu titik-tiga yang
+                 * kebetulan sedang terbuka tanpa sebab yang terlihat.
+                 */
+                if (pertama) {
+                    pertama = false;
+
+                    return;
+                }
+
+                if (d.sama || !d.html) return;
+
+                /* Gulir dipulihkan supaya daftar tidak melompat ke atas di
+                   bawah tangan orang yang sedang menelusurinya. */
+                const lama = wadah.querySelector('.overflow-y-auto');
+                const posisi = lama ? lama.scrollTop : 0;
+
+                wadah.innerHTML = d.html;
+
+                const baru = wadah.querySelector('.overflow-y-auto');
+
+                if (baru) baru.scrollTop = posisi;
+            } catch (e) {
+                /* Jaringan putus sesaat: diam saja, coba lagi siklus berikutnya. */
+            } finally {
+                sibuk = false;
+            }
+        }
+
+        /* Sidik jari awal diambil dari putaran pertama, jadi pemuatan halaman
+           tidak pernah langsung menukar daftar yang baru saja digambar. */
+        setInterval(segarkan, JEDA);
+    })();
+</script>
+
 @endsection

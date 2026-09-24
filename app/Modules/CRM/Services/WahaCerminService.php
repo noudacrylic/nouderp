@@ -107,7 +107,7 @@ class WahaCerminService
             return;
         }
 
-        $this->rekam($payload);
+        $this->rekam($payload, null, hidup: true);
     }
 
     /**
@@ -125,8 +125,14 @@ class WahaCerminService
      *                  sedangkan pengimpor SUDAH tahu chat mana yang sedang
      *                  ditarik — menebaknya ulang dari payload hanya menambah
      *                  satu cara gagal yang tidak perlu ada.
+     *
+     * @param  bool  $hidup  benar bila pesan ini baru saja tiba lewat webhook.
+     *                Impor riwayat memakai jalur yang sama, dan HANYA penanda
+     *                ini yang memisahkan "pesan baru masuk" dari "pesan lama
+     *                sedang disalin" — tanpa itu impor menandai ratusan thread
+     *                sebagai belum dibaca, padahal sudah dijawab berbulan lalu.
      */
-    public function rekam(array $payload, ?string $chatIdPaksa = null): ?CrmMessage
+    public function rekam(array $payload, ?string $chatIdPaksa = null, bool $hidup = false): ?CrmMessage
     {
         $chatId = $chatIdPaksa !== null ? $this->saring($chatIdPaksa) : $this->chatId($payload);
 
@@ -161,8 +167,29 @@ class WahaCerminService
          * ini setiap chat yang diimpor akan terlempar ke dasar daftar dengan
          * tanggal pesan tertuanya — padahal ia baru saja aktif kemarin.
          */
+        $ubah = [];
+
         if (! $percakapan->last_message_at || $waktu->gt($percakapan->last_message_at)) {
-            $percakapan->forceFill(['last_message_at' => $waktu])->save();
+            $ubah['last_message_at'] = $waktu;
+        }
+
+        /*
+         * Lencana "belum dibaca". Cermin memang tidak menyentuh antrean triase
+         * — tapi tanpa penanda apa pun, chat yang baru masuk tidak bisa
+         * dibedakan dari 500 thread lama di daftar, dan CS baru tahu ada yang
+         * menulis setelah membuka satu per satu.
+         *
+         * Balasan CS dari HP MENGOSONGKANNYA: pekerjaannya memang sudah
+         * dikerjakan, cuma tidak di layar ini. Lencana yang tetap menyala
+         * sesudah dijawab adalah cara tercepat membuat orang berhenti
+         * mempercayainya.
+         */
+        if ($hidup) {
+            $ubah['unread_count'] = $dariKita ? 0 : $percakapan->unread_count + 1;
+        }
+
+        if ($ubah) {
+            $percakapan->forceFill($ubah)->save();
         }
 
         return $pesan;
