@@ -166,7 +166,11 @@
             {{-- Barisnya BUKAN <a> lagi: tombol titik tiga tak boleh bersarang di
                  dalam tautan. Tautannya dibentangkan jadi lapisan tak terlihat dan
                  isinya dibuat tembus-klik — tampilan sama, tapi tombolnya sah. --}}
-            <div class="relative hover:bg-emerald-50 {{ $aktif ? 'bg-emerald-50 border-l-4 border-emerald-600' : '' }}">
+            {{-- `data-baris-aktif` bukan hiasan: kelas warnanya dipakai juga oleh
+                 chip filter yang sedang menyala, dan chip itu berdiri lebih dulu
+                 di DOM — mencari baris aktif lewat kelas akan menemukan chip. --}}
+            <div {{ $aktif ? 'data-baris-aktif' : '' }}
+                 class="relative hover:bg-emerald-50 {{ $aktif ? 'bg-emerald-50 border-l-4 border-emerald-600' : '' }}">
                 <a href="{{ route($rutaChat, array_merge([$p->id], $kueriBaris)) }}" class="absolute inset-0 z-0"
                    aria-label="Buka chat {{ $namaTampil }}"></a>
 

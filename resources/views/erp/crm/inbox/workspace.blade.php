@@ -332,7 +332,7 @@
            dan layar yang membuka chat tanpa menunjukkan barisnya terasa seperti
            salah klik. */
         function keBarisAktif() {
-            wadah.querySelector('.border-emerald-600')
+            wadah.querySelector('[data-baris-aktif]')
                 ?.scrollIntoView({ block: 'center' });
         }
 

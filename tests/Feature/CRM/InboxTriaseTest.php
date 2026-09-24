@@ -1046,4 +1046,25 @@ class InboxTriaseTest extends TestCase
 
         $this->assertStringContainsString($ekor, $html);
     }
+
+    /**
+     * Baris chat yang sedang dibuka punya penandanya SENDIRI.
+     *
+     * Kelas warnanya dipakai juga oleh chip filter yang sedang menyala, dan
+     * chip itu berdiri lebih dulu di DOM — mencari baris aktif lewat kelas
+     * menemukan chip, lalu daftar digulir ke atas dan chat yang baru dibuka
+     * hilang dari pandangan. Itu bug yang sudah dibayar sekali.
+     */
+    public function test_baris_chat_aktif_punya_penanda_sendiri(): void
+    {
+        $this->actingAs($this->admin());
+        $p = $this->percakapan();
+
+        // Dicocokkan ke MARKUP barisnya, bukan ke katanya: skrip penyegar
+        // memuat '[data-baris-aktif]' di dalam querySelector dan akan cocok palsu.
+        $this->get('/erp/crm/' . $p->id)->assertOk()->assertSee('<div data-baris-aktif', false);
+
+        // Tanpa chat terpilih, tak satu baris pun boleh memakainya.
+        $this->get('/erp/crm')->assertOk()->assertDontSee('<div data-baris-aktif', false);
+    }
 }
