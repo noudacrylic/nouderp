@@ -171,8 +171,8 @@ class WahaCerminService
     private function chatId(array $payload): ?string
     {
         $id = (bool) ($payload['fromMe'] ?? false)
-            ? (string) ($payload['to'] ?? '')
-            : (string) ($payload['from'] ?? '');
+            ? self::teks($payload['to'] ?? null)
+            : self::teks($payload['from'] ?? null);
 
         return $this->saring($id);
     }
@@ -232,7 +232,7 @@ class WahaCerminService
          * untuk menyapa — lihat catatan di model: "Halo Kak Toko Berkah Jaya"
          * terbaca seperti salah sasaran.
          */
-        $nama = $dariKita ? null : trim((string) ($payload['notifyName'] ?? data_get($payload, '_data.notifyName') ?? ''));
+        $nama = $dariKita ? null : self::teks($payload['notifyName'] ?? data_get($payload, '_data.notifyName'));
 
         if ($nama && ! $percakapan->display_name) {
             $ubah['display_name'] = $nama;
@@ -273,7 +273,7 @@ class WahaCerminService
      */
     private function simpanPesan(CrmConversation $percakapan, array $payload, bool $dariKita, Carbon $waktu): ?CrmMessage
     {
-        $id = trim((string) ($payload['id'] ?? ''));
+        $id = self::teks($payload['id'] ?? null);
 
         if ($id === '') {
             return null;   // tanpa id tak ada penangkal kembar; lebih baik lewat.
@@ -333,8 +333,13 @@ class WahaCerminService
         }
 
         $media = (array) ($payload['media'] ?? []);
-        $url   = trim((string) ($media['url'] ?? ''));
-        $galat = trim((string) ($media['error'] ?? ''));
+        $url   = self::teks($media['url'] ?? null);
+        // ⚠️ `media.error` datang sebagai OBJEK di payload sungguhan, bukan
+        // string (dibuktikan 24 Sep 2026: impor mati dengan "Array to string
+        // conversion" di baris ini). Isinya tetap dipertahankan sebagai JSON —
+        // alasan kegagalan unduh itu justru yang dicari orang saat menelusuri
+        // lampiran yang tak muncul.
+        $galat = self::teks($media['error'] ?? null, true);
 
         /*
          * Barisnya tetap DIBUAT walau tak ada URL. Pelanggan memang mengirim
@@ -348,15 +353,15 @@ class WahaCerminService
             'download_error' => $url !== '' ? null : ($galat !== ''
                 ? 'WAHA gagal mengambil media ini: ' . $galat
                 : 'Media tidak disertakan WAHA — pastikan pengunduhan media menyala di container.'),
-            'original_name'  => ($nama = trim((string) ($media['filename'] ?? ''))) !== '' ? $nama : null,
-            'mime'           => ($mime = trim((string) ($media['mimetype'] ?? ''))) !== '' ? $mime : null,
+            'original_name'  => ($nama = self::teks($media['filename'] ?? null)) !== '' ? $nama : null,
+            'mime'           => ($mime = self::teks($media['mimetype'] ?? null)) !== '' ? $mime : null,
         ]);
     }
 
     /** Jenis pesan untuk gelembung; disimpulkan dari mime bila WAHA tak menyebutnya. */
     private function jenis(array $payload): string
     {
-        $jenis = trim((string) ($payload['type'] ?? data_get($payload, '_data.type') ?? ''));
+        $jenis = self::teks($payload['type'] ?? data_get($payload, '_data.type'));
 
         if ($jenis !== '') {
             return $jenis;
@@ -366,7 +371,7 @@ class WahaCerminService
             return 'text';
         }
 
-        $mime = (string) data_get($payload, 'media.mimetype', '');
+        $mime = self::teks(data_get($payload, 'media.mimetype'));
 
         return match (true) {
             str_starts_with($mime, 'image/') => 'image',
@@ -378,9 +383,48 @@ class WahaCerminService
 
     private function isi(array $payload): ?string
     {
-        $isi = trim((string) ($payload['body'] ?? data_get($payload, '_data.caption') ?? ''));
+        $isi = self::teks($payload['body'] ?? data_get($payload, '_data.caption'));
 
         return $isi !== '' ? $isi : null;
+    }
+
+    /**
+     * Baca satu nilai payload sebagai teks, APA PUN bentuknya.
+     *
+     * Ada karena payload WAHA sungguhan membawa OBJEK di tempat yang
+     * dokumentasinya menyebut string — `media.error` terbukti begitu, dan
+     * impor riwayat mati total di tengah jalan karenanya ("Array to string
+     * conversion"). Satu field bentuknya tak terduga tidak boleh menjatuhkan
+     * seluruh impor 500 chat; itu kegagalan yang tidak sebanding dengan
+     * sebabnya.
+     *
+     * Objek yang membungkus satu nilai (bentuk yang dipakai WAHA untuk id)
+     * dibuka lewat kunci yang dikenal. Sisanya dikembalikan kosong — KECUALI
+     * bila $json, dipakai untuk pesan galat: di situ isinya justru yang dicari
+     * orang saat menelusuri lampiran yang tak muncul, jadi lebih baik JSON
+     * yang berantakan daripada keterangan yang hilang.
+     */
+    public static function teks(mixed $nilai, bool $json = false): string
+    {
+        if (is_string($nilai)) {
+            return trim($nilai);
+        }
+
+        if (is_int($nilai) || is_float($nilai)) {
+            return (string) $nilai;
+        }
+
+        if (is_array($nilai)) {
+            foreach (['_serialized', 'id', 'message', 'text', 'body'] as $kunci) {
+                if (isset($nilai[$kunci]) && is_scalar($nilai[$kunci])) {
+                    return trim((string) $nilai[$kunci]);
+                }
+            }
+
+            return $json ? mb_substr((string) json_encode($nilai), 0, 500) : '';
+        }
+
+        return '';
     }
 
     /**

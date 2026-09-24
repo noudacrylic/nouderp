@@ -212,6 +212,55 @@ class ImporCerminWahaTest extends TestCase
         $this->assertSame(1, CrmConversation::count());
     }
 
+    /**
+     * Payload sungguhan membawa OBJEK di tempat yang dokumentasinya menyebut
+     * string. Dibuktikan 24 Sep 2026: impor 10 chat pertama mati total dengan
+     * "Array to string conversion" karena `media.error` ternyata objek.
+     *
+     * Satu field berbentuk tak terduga tidak boleh menjatuhkan impor 500 chat.
+     * Keterangan galatnya tetap disimpan — justru itu yang dicari orang saat
+     * menelusuri lampiran yang tak muncul.
+     */
+    public function test_payload_berbentuk_objek_tidak_menjatuhkan_impor(): void
+    {
+        $this->wahaPalsu(
+            [['id' => '628123456789@s.whatsapp.net', 'conversationTimestamp' => 1758700000]],
+            ['628123456789@s.whatsapp.net' => [[
+                'id'        => ['_serialized' => 'false_628123@s.whatsapp.net_3EB0X', 'id' => '3EB0X'],
+                'timestamp' => 1758700000,
+                'fromMe'    => false,
+                'body'      => 'ini desainnya',
+                'hasMedia'  => true,
+                'media'     => [
+                    'url'      => null,
+                    'mimetype' => 'image/jpeg',
+                    'filename' => null,
+                    'error'    => ['code' => 'MEDIA_EXPIRED', 'message' => 'media not available'],
+                ],
+            ]]]
+        );
+
+        $this->artisan('crm:impor-cermin-waha', ['--media' => true])->assertSuccessful();
+
+        $pesan = CrmMessage::sole();
+
+        // Objek pembungkus id dibuka lewat kunci yang dikenal, bukan diabaikan.
+        $this->assertSame('waha:false_628123@s.whatsapp.net_3EB0X', $pesan->provider_message_id);
+        $this->assertSame('ini desainnya', $pesan->content);
+        $this->assertSame('image', $pesan->message_type);
+
+        $lampiran = $pesan->attachments()->sole();
+
+        $this->assertNull($lampiran->source_url);
+
+        // Yang diambil adalah `message` yang terbaca manusia, bukan JSON
+        // mentahnya: keterangan ini muncul di gelembung, dan CS yang membacanya
+        // butuh "media not available", bukan struktur objek. Kode galatnya
+        // tidak hilang — payload utuh tersimpan di kolom `raw`.
+        $this->assertStringContainsString('media not available', (string) $lampiran->download_error);
+        $this->assertSame('MEDIA_EXPIRED', data_get($pesan->raw, 'media.error.code'));
+    }
+
     public function test_saringan_sejak_membuang_chat_lama(): void
     {
         // Stempel waktunya RELATIF terhadap sekarang, bukan angka tetap.

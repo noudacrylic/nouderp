@@ -136,7 +136,10 @@ class CrmImporCerminWaha extends Command
 
         $chat = collect($res['chat'])
             ->map(fn ($c) => [
-                'id'    => (string) data_get($c, 'id', ''),
+                // Dibaca lewat penolong yang sama dengan service: id chat pun
+                // bisa datang sebagai objek pembungkus, dan `(string)` atasnya
+                // menjatuhkan seluruh impor sebelum satu chat pun ditarik.
+                'id'    => WahaCerminService::teks(data_get($c, 'id')),
                 'waktu' => $this->detik(data_get($c, 'conversationTimestamp')),
             ])
             ->filter(fn ($c) => $c['id'] !== '')
