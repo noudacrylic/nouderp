@@ -16,12 +16,27 @@
     $kueriKini = request()->getQueryString();
     $basisAksi = route('crm.inbox.index') . '/%s/%s' . ($kueriKini ? '?' . $kueriKini : '');
 
+    /* Tautan tiap baris MEMBAWA keadaan daftar (penyaring + berapa banyak yang
+       sudah dimuat). Tanpa ini, membuka chat yang ditemukan setelah menggulir
+       jauh akan mengembalikan daftar ke 20 baris teratas — tempat chat itu
+       justru tidak ada, dan orangnya harus menggulir ulang dari awal. */
+    $kueriBaris = collect(request()->query())
+        ->except(['page', 'sidik', 'terpilih'])
+        ->merge(['muat' => $muat])
+        ->reject(fn ($v) => $v === null || $v === '')
+        ->all();
+
     /* Dipakai dua aplikasi: kolom kiri ERP desktop dan layar daftar chat di PWA
        CRM (`/cs`). Yang berbeda cuma KE MANA satu baris membawa — endpoint,
        penyaring, dan aksi titik-tiganya sama persis, jadi daftarnya tidak boleh
        ditulis dua kali. Aksi POST tetap menuju `/erp/crm/*`: semuanya menutup
        dengan back(), yang mengembalikan orang ke layar asalnya sendiri. */
     $rutaChat   = $rutaChat   ?? 'crm.inbox.show';
+    /* Penggulir otomatis hanya dipasang layar yang ikut memuat skripnya
+       (workspace ERP). PWA /cs memakai partial yang sama tanpa skrip itu —
+       di sana "Muat lagi" tetap jalan karena ia tautan sungguhan, bukan
+       tombol yang menunggu JavaScript. */
+    $tumbuhOtomatis = $tumbuhOtomatis ?? false;
     $gayaWadah  = $gayaWadah  ?? 'bg-white border border-gray-200 rounded-lg';
 @endphp
 
@@ -152,7 +167,7 @@
                  dalam tautan. Tautannya dibentangkan jadi lapisan tak terlihat dan
                  isinya dibuat tembus-klik — tampilan sama, tapi tombolnya sah. --}}
             <div class="relative hover:bg-emerald-50 {{ $aktif ? 'bg-emerald-50 border-l-4 border-emerald-600' : '' }}">
-                <a href="{{ route($rutaChat, $p->id) }}" class="absolute inset-0 z-0"
+                <a href="{{ route($rutaChat, array_merge([$p->id], $kueriBaris)) }}" class="absolute inset-0 z-0"
                    aria-label="Buka chat {{ $namaTampil }}"></a>
 
                 <div class="relative z-10 pointer-events-none px-3 py-2">
@@ -202,9 +217,32 @@
         @empty
             <p class="px-3 py-6 text-center text-sm text-gray-500">Belum ada percakapan.</p>
         @endforelse
+
+        {{-- Penanda ujung daftar. Harus tinggal DI DALAM wadah yang menggulir:
+             kaki di bawah sana selalu terlihat, jadi memakainya sebagai pemicu
+             akan memuat semua halaman sekaligus begitu layar dibuka. --}}
+        @if($adaLagi && $tumbuhOtomatis)
+            <div data-daftar-ujung class="px-3 py-3 text-center text-[11px] text-gray-400">
+                Memuat chat berikutnya…
+            </div>
+        @endif
     </div>
 
-    <div class="shrink-0 px-3 py-2 border-t border-gray-200 bg-gray-50 text-xs">{{ $percakapan->links() }}</div>
+    {{-- Tombol manual tetap ada di samping pemuatan otomatis: penggulir otomatis
+         mati kalau IntersectionObserver tak tersedia, dan daftar yang buntu tanpa
+         jalan keluar jauh lebih buruk daripada satu tombol yang jarang dipakai. --}}
+    <div class="shrink-0 px-3 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-500
+                flex items-center justify-between gap-2"
+         data-daftar-kaki data-muat="{{ $muat }}" data-ada-lagi="{{ $adaLagi ? 1 : 0 }}">
+        <span>{{ $percakapan->count() }} dari {{ $percakapan->total() }} chat</span>
+        @if($adaLagi)
+            <a href="{{ request()->fullUrlWithQuery(['muat' => $muat + 1, 'page' => null]) }}"
+               data-muat-lagi
+               class="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50">
+                Muat lagi
+            </a>
+        @endif
+    </div>
 
     {{-- --------------------------------------------------- menu & popup aksi --}}
     {{-- Ditumpangkan ke <body>: daftar percakapan menggulir di dalam wadah

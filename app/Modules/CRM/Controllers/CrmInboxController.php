@@ -47,6 +47,15 @@ use Illuminate\Validation\Rule;
 class CrmInboxController extends Controller
 {
     /**
+     * Batas atas pertumbuhan daftar chat (dikali per_page_size()).
+     *
+     * Ada supaya `?muat=999999` dari URL yang diketik tangan tidak menarik
+     * seluruh tabel percakapan ke satu permintaan — daftar ini disegarkan tiap
+     * 8 detik, jadi satu kueri raksasa akan diulang terus-menerus.
+     */
+    private const MUAT_MAKS = 50;
+
+    /**
      * Relasi yang WAJIB ikut termuat setiap kali gelembung digambar.
      *
      * Dikumpulkan jadi satu tetapan karena gelembungnya disusun dari TIGA
@@ -179,13 +188,34 @@ class CrmInboxController extends Controller
 
         $dasar = $this->dasarPercakapan($request);
 
+        /*
+         * SENGAJA MENYIMPANG dari pola paginasi index ERP.
+         *
+         * Daftar chat tidak dipecah jadi halaman melainkan MEMANJANG: yang
+         * dikirim selalu dari baris pertama, cuma batasnya yang tumbuh. Dua
+         * alasan, keduanya terbukti dipakai orang:
+         *   • chat dicari dengan menggulir, bukan dengan mengingat nomor
+         *     halaman — "halaman 5" tak berarti apa-apa di daftar yang
+         *     urutannya berubah tiap ada pesan masuk;
+         *   • urutan bergeser terus. Pada paginasi biasa, satu pesan baru
+         *     mendorong satu baris dari halaman 1 ke halaman 2, dan baris itu
+         *     LOMPAT melewati mata orang yang sedang membaca halaman 2.
+         *
+         * Konsekuensinya penyegar daftar wajib ikut membawa `muat`, kalau
+         * tidak setiap putaran akan memangkas daftar kembali jadi 20 baris di
+         * bawah tangan orang yang baru saja menggulir jauh.
+         */
+        $muat = max(1, min((int) $request->input('muat', 1), self::MUAT_MAKS));
+
         $percakapan = $this->saringPercakapan($request, $dasar)
             ->with(['customer:id,name', 'owner:id,name'])
-            ->paginate(per_page_size())
+            ->paginate(per_page_size() * $muat, ['*'], 'page', 1)
             ->withQueryString();
 
         return [
             'percakapan'        => $percakapan,
+            'muat'              => $muat,
+            'adaLagi'           => $percakapan->total() > $percakapan->count(),
             'jumlah'            => $this->jumlahPerLabel($dasar),
             'labelOpsi'         => CrmLabel::terpakai(),
             'jumlahSemua'       => (clone $dasar())->count(),

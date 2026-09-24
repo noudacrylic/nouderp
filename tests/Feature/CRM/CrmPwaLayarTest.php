@@ -128,8 +128,10 @@ class CrmPwaLayarTest extends TestCase
             ->assertSee('628998844666')
             // Menunjuk ke dirinya sendiri, BUKAN ke /erp/crm/{id} — kalau salah,
             // satu ketukan melempar CS keluar dari aplikasi ke layar desktop.
-            ->assertSee('href="' . route('cs.thread', $p->id) . '"', false)
-            ->assertDontSee('href="' . route('crm.inbox.show', $p->id) . '"', false);
+            // Kueri daftar (?muat=...) ikut di tautan baris, jadi yang
+            // dipastikan alamat DASARnya — bukan tandingan huruf per huruf.
+            ->assertSee('href="' . route('cs.thread', $p->id) . '?', false)
+            ->assertDontSee('href="' . route('crm.inbox.show', $p->id) . '?', false);
     }
 
     public function test_layar_percakapan_terbuka_dengan_tombol_kembali_dan_strip_alat(): void
@@ -176,8 +178,8 @@ class CrmPwaLayarTest extends TestCase
         $this->actingAs($admin)
             ->get('/erp/crm')
             ->assertOk()
-            ->assertSee('href="' . route('crm.inbox.show', $p->id) . '"', false)
-            ->assertDontSee('href="' . route('cs.thread', $p->id) . '"', false);
+            ->assertSee('href="' . route('crm.inbox.show', $p->id) . '?', false)
+            ->assertDontSee('href="' . route('cs.thread', $p->id) . '?', false);
     }
 
     public function test_thread_desktop_tidak_memakai_tombol_kembali_pwa(): void

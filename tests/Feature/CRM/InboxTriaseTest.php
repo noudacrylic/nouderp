@@ -965,4 +965,85 @@ class InboxTriaseTest extends TestCase
     {
         $this->get(route('crm.inbox.daftar-segar'))->assertRedirect();
     }
+
+    /* ------------------------------------------------- daftar yang memanjang */
+
+    /** @return string[] nomor kontak, urut dari yang paling baru */
+    private function banyakPercakapan(int $jumlah): array
+    {
+        $nomor = [];
+
+        for ($i = 0; $i < $jumlah; $i++) {
+            $n = '62812' . str_pad((string) $i, 7, '0', STR_PAD_LEFT);
+            $p = CrmConversation::findOrCreateFor($n);
+
+            // Urutan daftar = COALESCE(last_message_at, created_at) DESC.
+            $p->forceFill(['last_message_at' => now()->subMinutes($i)])->save();
+
+            $nomor[] = $n;
+        }
+
+        return $nomor;
+    }
+
+    /**
+     * Daftar chat MEMANJANG, tidak dipecah jadi halaman.
+     *
+     * Paginasi salah di sini karena urutannya bergeser tiap ada pesan masuk:
+     * satu pesan baru mendorong satu baris melewati batas halaman, lewat begitu
+     * saja dari mata orang yang sedang membaca halaman berikutnya.
+     */
+    public function test_daftar_chat_memanjang_bukan_berhalaman(): void
+    {
+        $this->actingAs($this->admin());
+
+        $per    = per_page_size();
+        $nomor  = $this->banyakPercakapan($per + 5);
+        $ekor   = $nomor[$per + 4];   // paling lama, di luar muatan pertama
+
+        $this->get('/erp/crm')->assertOk()
+            ->assertSee($nomor[0])
+            ->assertDontSee($ekor)
+            // Penanda di kaki daftar, bukan teks tombolnya: kata "Muat lagi"
+            // juga muncul di komentar skrip penyegar dan akan cocok palsu.
+            ->assertSee('data-ada-lagi="1"', false);
+
+        // Muatan kedua memuat ULANG dari baris pertama, bukan melompat.
+        $this->get('/erp/crm?muat=2')->assertOk()
+            ->assertSee($nomor[0])
+            ->assertSee($ekor)
+            ->assertSee('data-ada-lagi="0"', false);
+    }
+
+    /**
+     * Tautan tiap baris membawa keadaan daftarnya.
+     *
+     * Tanpa ini, membuka chat yang ditemukan setelah menggulir jauh melempar
+     * daftar kembali ke baris teratas — tempat chat itu justru tidak ada.
+     */
+    public function test_tautan_baris_membawa_keadaan_daftar(): void
+    {
+        $this->actingAs($this->admin());
+        $this->banyakPercakapan(3);
+
+        $this->get('/erp/crm?muat=3&antrean=dingin')->assertOk()
+            ->assertSee('muat=3', false)
+            ->assertSee('antrean=dingin', false);
+    }
+
+    /** Penyegar berkala menghormati berapa banyak yang sudah dimuat. */
+    public function test_penyegar_daftar_tidak_memangkas_yang_sudah_dimuat(): void
+    {
+        $this->actingAs($this->admin());
+
+        $per   = per_page_size();
+        $nomor = $this->banyakPercakapan($per + 5);
+        $ekor  = $nomor[$per + 4];
+
+        $html = $this->getJson(route('crm.inbox.daftar-segar', ['muat' => 2]))
+            ->assertOk()
+            ->json('html');
+
+        $this->assertStringContainsString($ekor, $html);
+    }
 }
