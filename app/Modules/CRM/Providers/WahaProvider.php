@@ -375,7 +375,13 @@ class WahaProvider implements NotificationProvider
      * @param  string[]  $events
      * @return array{success:bool, error:?string}
      */
-    public function pasangWebhook(string $url, array $events = ['message.any']): array
+    /**
+     * `message.ack` ikut dari awal: tanpa langganan itu centang membeku di
+     * keadaan saat pesan direkam, dan "sampai" tidak pernah berubah jadi
+     * "dibaca". Mengubah daftar ini menuntut tombol "Pasang Cermin" ditekan
+     * ulang — WAHA menyimpan langganannya di konfigurasi SESI, bukan di ERP.
+     */
+    public function pasangWebhook(string $url, array $events = ['message.any', 'message.ack']): array
     {
         $nama = $this->sesi();
         $ada  = $this->request('get', '/api/sessions/' . rawurlencode($nama));

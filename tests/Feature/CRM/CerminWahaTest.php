@@ -527,4 +527,166 @@ class CerminWahaTest extends TestCase
             'media vendor'   => ['https://lookaside.fbcdn.net/abc.jpeg', 'lookaside.fbcdn.net/*'],
         ];
     }
+
+    /* ------------------------------------------------------------- centang */
+
+    /** Pesan kita dari HP langsung membawa centangnya sendiri di `message.any`. */
+    public function test_centang_terisi_dari_ack_saat_merekam(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'      => 'true_628123456789@c.us_3EBKELUAR',
+            'fromMe'  => true,
+            'from'    => '628998844666@c.us',
+            'to'      => '628123456789@c.us',
+            'body'    => 'Ada kak.',
+            'ack'     => 2,
+            'ackName' => 'DEVICE',
+        ]))->assertOk();
+
+        $pesan = CrmMessage::sole();
+
+        $this->assertSame('delivered', $pesan->status);
+        $this->assertSame('sampai', $pesan->centang());
+    }
+
+    /**
+     * Pesan MASUK tidak pernah diberi status.
+     *
+     * `ack` pada pesan masuk adalah tanda baca KITA, bukan kabar tentang
+     * pelanggan — dan `centang()` memang mengabaikan pesan masuk. Menulisnya
+     * hanya menaruh data yang tak seorang pun bisa menafsirkan.
+     */
+    public function test_ack_pesan_masuk_tidak_menulis_status(): void
+    {
+        $this->kirim($this->payload(pesan: ['ack' => 3, 'ackName' => 'READ']))->assertOk();
+
+        $this->assertNull(CrmMessage::sole()->status);
+    }
+
+    /** Peristiwa `message.ack` menaikkan centang pesan yang sudah direkam. */
+    public function test_peristiwa_ack_menaikkan_centang(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'      => 'true_628123456789@c.us_3EBKELUAR',
+            'fromMe'  => true,
+            'from'    => '628998844666@c.us',
+            'to'      => '628123456789@c.us',
+            'ack'     => 1,
+            'ackName' => 'SERVER',
+        ]))->assertOk();
+
+        $this->assertSame('terkirim', CrmMessage::sole()->status);
+
+        $this->kirim($this->ack('true_628123456789@c.us_3EBKELUAR', 3, 'READ'))->assertOk();
+
+        $this->assertSame('read', CrmMessage::sole()->fresh()->status);
+        $this->assertSame('dibaca', CrmMessage::sole()->fresh()->centang());
+        $this->assertSame(1, CrmMessage::count(), 'ack tidak boleh melahirkan baris pesan');
+    }
+
+    /**
+     * Ack yang datang terlambat TIDAK menurunkan centang.
+     *
+     * WAHA tidak menjamin urutan webhook. Ditulis apa adanya, centang biru
+     * akan berubah kembali jadi abu-abu — di layar itu terbaca seperti
+     * pelanggan membatalkan bacaannya, kejadian yang tidak ada di WhatsApp.
+     */
+    public function test_ack_terlambat_tidak_menurunkan_centang(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'      => 'true_628123456789@c.us_3EBKELUAR',
+            'fromMe'  => true,
+            'from'    => '628998844666@c.us',
+            'to'      => '628123456789@c.us',
+            'ack'     => 3,
+            'ackName' => 'READ',
+        ]))->assertOk();
+
+        $this->kirim($this->ack('true_628123456789@c.us_3EBKELUAR', 2, 'DEVICE'))->assertOk();
+
+        $this->assertSame('read', CrmMessage::sole()->fresh()->status);
+    }
+
+    /** Ack atas pesan yang tak pernah direkam (mis. grup) didiamkan. */
+    public function test_ack_pesan_asing_tidak_menimbulkan_galat(): void
+    {
+        $this->kirim($this->ack('true_62800@g.us_3EBASING', 3, 'READ'))->assertOk();
+
+        $this->assertSame(0, CrmMessage::count());
+    }
+
+    /** Perintah backfill mengisi centang dari `raw`, tanpa memanggil WAHA. */
+    public function test_perintah_mengisi_centang_dari_raw(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'      => 'true_628123456789@c.us_3EBKELUAR',
+            'fromMe'  => true,
+            'from'    => '628998844666@c.us',
+            'to'      => '628123456789@c.us',
+            'ack'     => 3,
+            'ackName' => 'READ',
+        ]))->assertOk();
+
+        // Keadaan sebelum perbaikan ini: direkam tanpa status.
+        CrmMessage::sole()->forceFill(['status' => null])->save();
+
+        $this->artisan('crm:isi-centang-cermin', ['--dry-run' => true])->assertSuccessful();
+        $this->assertNull(CrmMessage::sole()->fresh()->status, 'uji coba tidak boleh menulis');
+
+        $this->artisan('crm:isi-centang-cermin')->assertSuccessful();
+        $this->assertSame('read', CrmMessage::sole()->fresh()->status);
+    }
+
+    /**
+     * Langganan `message.ack` ikut dipasang tombol "Pasang Cermin".
+     *
+     * Tanpa itu centang membeku di keadaan saat pesan direkam: "sampai" tidak
+     * pernah berubah jadi "dibaca", dan tak ada galat apa pun yang menandainya.
+     */
+    public function test_pasang_cermin_melanggan_peristiwa_ack(): void
+    {
+        Http::fake([
+            '127.0.0.1:3000/api/sessions/utama' => Http::sequence()
+                ->push(['name' => 'utama', 'config' => ['webhooks' => []]], 200)
+                ->push(['name' => 'utama'], 200),
+        ]);
+
+        $hasil = (new \App\Modules\CRM\Providers\WahaProvider(
+            CrmSetting::for('waha'),
+            \App\Modules\CRM\Support\PeranWaha::UTAMA
+        ))->pasangWebhook('https://erp.contoh.test/crm/waha/webhook/' . self::TOKEN);
+
+        $this->assertTrue($hasil['success']);
+
+        Http::assertSent(function ($request) {
+            if ($request->method() !== 'PUT') {
+                return false;
+            }
+
+            $events = data_get($request->data(), 'config.webhooks.0.events', []);
+
+            return in_array('message.any', $events, true)
+                && in_array('message.ack', $events, true);
+        });
+    }
+
+    /** Amplop `message.ack` apa adanya dari WAHA. */
+    private function ack(string $idPesan, int $ack, string $nama): array
+    {
+        return [
+            'id'        => 'evt_' . uniqid(),
+            'timestamp' => 1758700000000,
+            'event'     => 'message.ack',
+            'session'   => 'utama',
+            'me'        => ['id' => '628998844666@c.us'],
+            'engine'    => 'NOWEB',
+            'payload'   => [
+                'id'      => $idPesan,
+                'from'    => '628123456789@c.us',
+                'fromMe'  => true,
+                'ack'     => $ack,
+                'ackName' => $nama,
+            ],
+        ];
+    }
 }

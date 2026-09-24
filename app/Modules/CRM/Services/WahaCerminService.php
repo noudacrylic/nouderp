@@ -72,6 +72,20 @@ class WahaCerminService
         // menerima keduanya tidak berisiko karena idempotensinya ada di
         // `provider_message_id` yang unik — satu pesan yang datang lewat dua
         // peristiwa tetap jadi satu baris.
+        /*
+         * Centang. Peristiwa terpisah, dan sengaja ditangani SEBELUM saringan
+         * pesan di bawah: `message.ack` tidak membawa isi pesan sama sekali,
+         * jadi kalau ia sampai lolos ke rekam() ia akan melahirkan baris
+         * kosong tanpa teks di tengah thread.
+         */
+        if ($event === 'message.ack') {
+            if ($this->sesiUtama((string) ($amplop['session'] ?? ''))) {
+                $this->perbaruiAck((array) ($amplop['payload'] ?? []));
+            }
+
+            return;
+        }
+
         if (! in_array($event, ['message', 'message.any'], true)) {
             return;
         }
@@ -152,6 +166,95 @@ class WahaCerminService
         }
 
         return $pesan;
+    }
+
+    /**
+     * Perbarui centang satu pesan dari peristiwa `message.ack`.
+     *
+     * Hanya NAIK. WAHA tidak menjamin urutan kiriman webhook, dan ack yang
+     * datang terlambat akan menurunkan centang biru kembali jadi abu-abu kalau
+     * ditulis apa adanya — di layar itu terbaca seperti pelanggan "membatalkan"
+     * bacaannya, kejadian yang tidak ada di WhatsApp.
+     */
+    public function perbaruiAck(array $payload): void
+    {
+        $id     = self::teks($payload['id'] ?? null);
+        $status = self::statusDariAck($payload);
+
+        if ($id === '' || $status === null) {
+            return;
+        }
+
+        $pesan = CrmMessage::where('provider_message_id', 'waha:' . $id)->first();
+
+        // Pesan yang belum pernah direkam (mis. ack menyusul chat grup yang
+        // memang kita buang) bukan kesalahan — diamkan.
+        if (! $pesan || $pesan->direction !== CrmMessage::KELUAR) {
+            return;
+        }
+
+        if (self::peringkatCentang($status) <= self::peringkatCentang((string) $pesan->status)) {
+            return;
+        }
+
+        $pesan->forceFill(['status' => $status])->save();
+    }
+
+    /**
+     * Tingkat ack WAHA → kosakata `status` yang sudah dipakai jalur resmi,
+     * supaya `CrmMessage::centang()` tidak perlu tahu pesan ini datang dari
+     * jalur yang mana.
+     *
+     * `ackName` didahulukan karena ia yang terbaca manusia; angkanya dipakai
+     * sebagai cadangan kalau WAHA suatu saat mengirim salah satunya saja.
+     * PENDING sengaja menghasilkan null: "sudah masuk antrean HP" bukan kabar
+     * yang pantas digambar sebagai centang.
+     */
+    public static function statusDariAck(array $payload): ?string
+    {
+        $nama = strtoupper(self::teks($payload['ackName'] ?? null));
+
+        if ($nama === '') {
+            $angka = $payload['ack'] ?? null;
+
+            if (! is_numeric($angka)) {
+                return null;
+            }
+
+            $nama = match ((int) $angka) {
+                -1      => 'ERROR',
+                0       => 'PENDING',
+                1       => 'SERVER',
+                2       => 'DEVICE',
+                3       => 'READ',
+                4       => 'PLAYED',
+                default => '',
+            };
+        }
+
+        return match ($nama) {
+            'SERVER'         => 'terkirim',
+            'DEVICE'         => 'delivered',
+            'READ', 'PLAYED' => 'read',
+            'ERROR'          => 'failed',
+            default          => null,
+        };
+    }
+
+    /**
+     * Urutan maju centang. 'failed' ditaruh paling atas supaya kabar buruk
+     * tidak pernah tertimbun ack lama yang menyusul — pesan yang gagal berangkat
+     * harus tetap terlihat gagal.
+     */
+    private static function peringkatCentang(string $status): int
+    {
+        return match ($status) {
+            'terkirim'  => 1,
+            'delivered' => 2,
+            'read'      => 3,
+            'failed'    => 4,
+            default     => 0,
+        };
     }
 
     /**
@@ -335,13 +438,13 @@ class WahaCerminService
                 'source'              => $dariKita ? CrmMessage::SOURCE_WHATSAPP_APP : null,
                 'provider_message_id' => $id,
                 /*
-                 * `status` dibiarkan kosong untuk pesan kita sendiri. Centang
-                 * di gelembung dibaca dari kolom ini, dan menuliskan
-                 * 'terkirim' berarti mengaku tahu sesuatu yang belum
-                 * dikabarkan siapa pun — peristiwa `message.ack` WAHA belum
-                 * kita langgan di tahap ini.
+                 * Centang diambil dari `ack` yang SUDAH ikut di payload
+                 * `message.any` — tidak perlu menunggu peristiwa terpisah.
+                 * Hanya untuk pesan kita sendiri: `centang()` memang
+                 * mengabaikan pesan masuk, dan `ack` pada pesan masuk adalah
+                 * tanda baca KITA, bukan kabar yang berguna di layar.
                  */
-                'status'              => null,
+                'status'              => $dariKita ? self::statusDariAck($payload) : null,
                 'sent_at'             => $waktu,
                 'raw'                 => $payload,
             ]);
