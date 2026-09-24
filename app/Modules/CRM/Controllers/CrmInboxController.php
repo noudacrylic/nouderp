@@ -1340,12 +1340,62 @@ class CrmInboxController extends Controller
             ? CrmConversation::find($id)
             : null;
 
-        $html  = view('erp.crm.inbox._daftar', $this->dataDaftar($request, $terpilih))->render();
-        $sidik = sha1($html);
+        $data  = $this->dataDaftar($request, $terpilih);
+        $sidik = $this->sidikDaftar($data);
 
-        return response()->json($sidik === (string) $request->input('sidik')
-            ? ['sama' => true,  'sidik' => $sidik]
-            : ['sama' => false, 'sidik' => $sidik, 'html' => $html]);
+        if ($sidik === (string) $request->input('sidik')) {
+            return response()->json(['sama' => true, 'sidik' => $sidik]);
+        }
+
+        return response()->json([
+            'sama'  => false,
+            'sidik' => $sidik,
+            'html'  => view('erp.crm.inbox._daftar', $data)->render(),
+        ]);
+    }
+
+    /**
+     * Sidik jari daftar — dihitung dari DATA, bukan dari HTML hasil render.
+     *
+     * Menyidik HTML-nya terdengar lebih sederhana dan memang sempat dipakai,
+     * tapi kolom ini memuat waktu relatif ("2 menit yang lalu") yang berubah
+     * tiap detik: sidiknya lalu tidak pernah sama dua kali, dan daftar ditukar
+     * di setiap putaran — persis beban yang hendak dihindari, ditambah menu
+     * titik-tiga yang tertutup sendiri tiap 8 detik.
+     *
+     * Yang dimasukkan hanya yang benar-benar mengubah tampilan satu baris.
+     * `windowIsOpen()` ikut sebagai HASILnya (bukan tanggal kedaluwarsanya)
+     * supaya label "jendela tutup" yang menyala karena waktu lewat tetap
+     * terkejar.
+     */
+    private function sidikDaftar(array $data): string
+    {
+        $baris = $data['percakapan']->getCollection()->map(fn ($p) => implode('|', [
+            $p->id,
+            $p->last_message_at?->getTimestamp(),
+            $p->unread_count,
+            $p->queue_state,
+            $p->status,
+            $p->owner_user_id,
+            $p->customer_id,
+            $p->display_name,
+            $p->name_source,
+            $p->customer?->name,
+            $p->owner?->name,
+            $p->windowIsOpen() ? 1 : 0,
+        ]))->implode("
+");
+
+        return sha1(implode('#', [
+            $baris,
+            $data['percakapan']->currentPage(),
+            $data['percakapan']->total(),
+            $data['jumlahSemua'],
+            $data['jumlahBelumDibaca'],
+            $data['belumDioper'],
+            json_encode($data['jumlah']),
+            $data['terpilih']?->id,
+        ]));
     }
 
     /**

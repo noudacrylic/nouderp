@@ -916,4 +916,53 @@ class InboxTriaseTest extends TestCase
         // Tanpa tanda tangan: 403, bukan berkasnya.
         $this->get(url('/crm/media/' . $lampiran->id))->assertForbidden();
     }
+
+    /* ---------------------------------------------------- penyegar daftar */
+
+    /**
+     * Kolom kiri disegarkan lewat SIDIK JARI, bukan dikirim mentah tiap
+     * putaran.
+     *
+     * Ia jalan terus-menerus selama layar terbuka, dan hampir semua putaran
+     * tidak membawa perubahan apa pun — mengirim ulang seluruh kolom di setiap
+     * putaran berarti membayar ongkos terbesar untuk kabar "tidak ada apa-apa".
+     */
+    public function test_penyegar_daftar_diam_saat_tak_ada_perubahan(): void
+    {
+        $this->actingAs($this->admin());
+        $this->percakapan();
+
+        $pertama = $this->getJson(route('crm.inbox.daftar-segar'))->assertOk();
+
+        $pertama->assertJson(['sama' => false]);
+        $this->assertNotEmpty($pertama->json('html'));
+
+        $sidik = $pertama->json('sidik');
+
+        $this->getJson(route('crm.inbox.daftar-segar', ['sidik' => $sidik]))
+            ->assertOk()
+            ->assertJson(['sama' => true, 'sidik' => $sidik])
+            ->assertJsonMissing(['html']);
+    }
+
+    /** Percakapan baru mengubah sidik jarinya — itulah yang memicu tukar isi. */
+    public function test_penyegar_daftar_berubah_saat_ada_chat_baru(): void
+    {
+        $this->actingAs($this->admin());
+        $this->percakapan();
+
+        $sidik = $this->getJson(route('crm.inbox.daftar-segar'))->json('sidik');
+
+        CrmConversation::findOrCreateFor('628111222333');
+
+        $this->getJson(route('crm.inbox.daftar-segar', ['sidik' => $sidik]))
+            ->assertOk()
+            ->assertJson(['sama' => false]);
+    }
+
+    /** Tanpa login, penyegar tidak membocorkan daftar percakapan. */
+    public function test_penyegar_daftar_menolak_tamu(): void
+    {
+        $this->get(route('crm.inbox.daftar-segar'))->assertRedirect();
+    }
 }
