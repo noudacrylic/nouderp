@@ -249,8 +249,41 @@ class PenawaranDariChatTest extends TestCase
             ->assertOk()
             ->json('penawaran.0');
 
-        $this->assertSame(route('sales.quotations.print', $q->id), $kartu['pratinjau']);
+        // `pratinjau=1` wajib ikut: itu yang menyembunyikan toolbar halaman
+        // cetak (tombol "Keluar" di dalamnya akan menavigasi DI DALAM bingkai)
+        // dan mengunci lebarnya di A4 alih-alih mengalir mengikuti layar HP.
+        $this->assertSame(
+            route('sales.quotations.print', [$q->id, 'pratinjau' => 1]),
+            $kartu['pratinjau']
+        );
+        $this->assertStringContainsString('pratinjau=1', $kartu['pratinjau']);
         $this->assertSame(route('sales.quotations.pdf', $q->id), $kartu['pdf']);
         $this->assertNotSame($kartu['pratinjau'], $kartu['pdf']);
+    }
+
+    /**
+     * Halaman cetak mengenali mode pratinjau.
+     *
+     * Tanpa penanda di <body>, aturan layar sempit halaman itu mengubah kertas
+     * jadi selebar layar — enak dibaca, tapi berhenti mewakili hasil cetak
+     * justru saat dipakai memeriksa sebelum dikirim ke pelanggan.
+     */
+    public function test_halaman_cetak_mengenali_mode_pratinjau(): void
+    {
+        $this->kirim($this->percakapan(), $this->muatan())->assertOk();
+
+        $id = SalesQuotation::sole()->id;
+
+        $this->actingAs($this->admin())
+            ->get(route('sales.quotations.print', [$id, 'pratinjau' => 1]))
+            ->assertOk()
+            ->assertSee('<body class="pratinjau">', false);
+
+        // Dibuka biasa, penandanya TIDAK boleh ikut — toolbar & tata letak
+        // layar sempitnya masih dipakai orang yang membuka halaman itu sendiri.
+        $this->actingAs($this->admin())
+            ->get(route('sales.quotations.print', $id))
+            ->assertOk()
+            ->assertDontSee('<body class="pratinjau">', false);
     }
 }

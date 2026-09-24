@@ -225,6 +225,32 @@
             .toolbar button, .toolbar a { flex: 1; }
         }
 
+        /* ------------------------------------------------ mode pratinjau
+           Dipakai saat halaman ini dimuat di dalam bingkai (panel chat).
+
+           Yang dikembalikan adalah UKURAN ASLI A4. Aturan layar sempit di atas
+           mengubah .paper jadi selebar layar supaya enak dibaca di HP — benar
+           untuk orang yang MEMBACA, salah untuk orang yang MEMERIKSA: yang
+           perlu dilihat justru bagaimana halamannya nanti tercetak, termasuk
+           di mana barisnya terpotong. Bingkainya yang diperkecil oleh
+           pemanggil, bukan isinya yang dirombak.
+
+           Toolbar ikut disembunyikan: tombol Keluar di dalamnya menavigasi ke
+           daftar Penawaran DI DALAM bingkai, meninggalkan jendela pratinjau
+           yang isinya halaman lain sama sekali. */
+        body.pratinjau .thumb-bar,
+        body.pratinjau .toolbar { display: none !important; }
+        body.pratinjau .shell {
+            grid-template-columns: 1fr !important;
+            height: auto !important;
+            min-height: 0 !important;
+        }
+        body.pratinjau .canvas { padding: 12px !important; padding-bottom: 12px !important; }
+        body.pratinjau .paper {
+            width: 210mm !important;
+            min-height: 297mm !important;
+        }
+
         @media print {
             html, body { height: auto; background: #fff; }
             .shell { display: block; height: auto; overflow: visible; }
@@ -306,7 +332,7 @@
         }
     </style>
 </head>
-<body>
+<body class="{{ ($pratinjauMode ?? request()->boolean('pratinjau')) ? 'pratinjau' : '' }}">
 
 @php
     // Format tanggal Indonesia (independen dari Carbon locale).

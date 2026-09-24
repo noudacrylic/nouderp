@@ -181,7 +181,7 @@
                          diperiksa sekali lagi sebelum dikirim ke pelanggan, dan
                          memaksa unduh untuk memeriksanya meninggalkan tumpukan
                          berkas yang tak pernah dipakai di folder Unduhan. --}}
-                    <button type="button" @click="pratinjau = q"
+                    <button type="button" @click="bukaPratinjau(q)"
                             class="text-[11px] font-semibold text-sky-700 border border-sky-300 rounded px-2 py-1 hover:bg-sky-50">
                         Pratinjau
                     </button>
@@ -682,7 +682,8 @@
          terpotong dan tak terbaca. --}}
     <template x-teleport="body">
         <div x-show="pratinjau" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
-             @keydown.escape.window="pratinjau = null">
+             @keydown.escape.window="pratinjau = null"
+             @resize.window="ukurPratinjau()">
             <div class="absolute inset-0 bg-black/50" @click="pratinjau = null"></div>
 
             <div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden">
@@ -701,9 +702,25 @@
 
                 {{-- Halaman cetak dimuat apa adanya. Yang terlihat di sini SAMA
                      dengan yang jadi PDF — dua penggambar berbeda akan membuat
-                     pratinjau berbohong justru saat dipakai memeriksa. --}}
-                <iframe x-show="pratinjau" :src="pratinjau?.pratinjau ?? 'about:blank'"
-                        class="flex-1 w-full border-0" title="Pratinjau penawaran"></iframe>
+                     pratinjau berbohong justru saat dipakai memeriksa.
+
+                     Bingkainya dibiarkan selebar A4 lalu DIPERKECIL dengan
+                     transform, bukan disuruh mengalir mengikuti lebar layar.
+                     Di HP, halaman yang mengalir memang lebih enak dibaca tapi
+                     menyesatkan: yang diperiksa sebelum dikirim justru letak
+                     baris dan di mana halamannya terpotong. Tulisan jadi kecil,
+                     dan itu memang yang diminta. --}}
+                {{-- overflow-hidden, BUKAN auto: transform tidak mengubah ukuran
+                     kotak tata letak, jadi bingkai yang dibiarkan auto akan
+                     memunculkan penggulir mendatar untuk 818px yang sebenarnya
+                     sudah muat setelah diperkecil. Gulir vertikalnya ditangani
+                     halaman di dalam bingkai itu sendiri. --}}
+                <div class="flex-1 overflow-hidden bg-gray-200" x-ref="bingkaiPratinjau">
+                    <iframe x-show="pratinjau" :src="pratinjau?.pratinjau ?? 'about:blank'"
+                            class="border-0 origin-top-left"
+                            :style="`width:${LEBAR_A4}px; height:${tinggiPratinjau}px; transform:scale(${skalaPratinjau});`"
+                            title="Pratinjau penawaran"></iframe>
+                </div>
             </div>
         </div>
     </template>
@@ -755,6 +772,14 @@
             // judul jendelanya menyebut nomornya, dan itu satu-satunya cara
             // memastikan yang terbuka memang penawaran yang dimaksud.
             pratinjau: null,
+
+            /* Lebar kertas A4 pada 96dpi (210mm) + padding .canvas. Angka tetap:
+               yang boleh berubah cuma skalanya, karena begitu lebarnya ikut
+               berubah, isi halaman ikut mengalir dan pratinjaunya berhenti
+               mewakili hasil cetak. */
+            LEBAR_A4: 818,
+            skalaPratinjau: 1,
+            tinggiPratinjau: 800,
 
             /*
              * Pesanan SELESAI disembunyikan.
@@ -1362,6 +1387,36 @@
                 } finally {
                     this.sibukRincian = null;
                 }
+            },
+
+            bukaPratinjau(q) {
+                this.pratinjau = q;
+
+                // Diukur SESUDAH jendelanya tergambar: sebelum itu bingkainya
+                // belum punya lebar, dan skalanya jadi 0.
+                this.$nextTick(() => this.ukurPratinjau());
+            },
+
+            /**
+             * Perkecil bingkai A4 supaya muat di jendela, JANGAN pernah
+             * diperbesar.
+             *
+             * Membesarkannya di layar lebar membuat tulisan kabur tanpa
+             * menambah apa pun yang bisa diperiksa — yang ditampilkan ini
+             * halaman, bukan gambar.
+             */
+            ukurPratinjau() {
+                const bingkai = this.$refs.bingkaiPratinjau;
+
+                if (!bingkai) return;
+
+                const lebar = bingkai.clientWidth;
+                const tinggi = bingkai.clientHeight;
+
+                this.skalaPratinjau = Math.min(1, lebar / this.LEBAR_A4) || 1;
+                // Tinggi iframe dibagi skala supaya SESUDAH diperkecil ia tetap
+                // menutup tinggi bingkai; kalau tidak, ada pita kosong di bawah.
+                this.tinggiPratinjau = Math.round(tinggi / this.skalaPratinjau);
             },
 
             sisipKeChat(p) {

@@ -1629,7 +1629,9 @@ class CrmInboxController extends Controller
                 // dikirim dengan Content-Disposition attachment, jadi menaruhnya
                 // di bingkai pratinjau memicu unduhan alih-alih menampilkan apa
                 // pun. Halaman cetak isinya persis sama dan sudah HTML.
-                'pratinjau' => route('sales.quotations.print', $q->id),
+                // `pratinjau=1` menyembunyikan toolbar halaman cetak dan
+                // mengunci lebarnya di A4 — lihat body.pratinjau di view itu.
+                'pratinjau' => route('sales.quotations.print', [$q->id, 'pratinjau' => 1]),
                 'pdf'       => route('sales.quotations.pdf', $q->id),
             ])
             ->all();
