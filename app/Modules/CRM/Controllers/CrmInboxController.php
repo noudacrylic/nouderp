@@ -1625,6 +1625,12 @@ class CrmInboxController extends Controller
                 // dan tombol Konversi berada. Panel chat sengaja tidak
                 // menduplikasi satu pun dari itu.
                 'url'       => route('sales.quotations.edit', $q->id),
+                // Pratinjau memakai halaman CETAK, bukan PDF: berkas PDF
+                // dikirim dengan Content-Disposition attachment, jadi menaruhnya
+                // di bingkai pratinjau memicu unduhan alih-alih menampilkan apa
+                // pun. Halaman cetak isinya persis sama dan sudah HTML.
+                'pratinjau' => route('sales.quotations.print', $q->id),
+                'pdf'       => route('sales.quotations.pdf', $q->id),
             ])
             ->all();
     }

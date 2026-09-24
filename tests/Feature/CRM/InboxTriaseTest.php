@@ -1129,4 +1129,25 @@ class InboxTriaseTest extends TestCase
             ->assertSee('Ada kak, siap kirim')
             ->assertDontSee('halo kak');
     }
+
+    /* ------------------------------------------------- panel di thread cermin */
+
+    /**
+     * Thread cermin menyembunyikan tombol yang bekerja lewat kotak ketik.
+     *
+     * "Rincian + Link Bayar" dan "Status" menaruh teksnya ke kotak ketik lewat
+     * sebuah peristiwa — dan kotak ketik itu memang tidak dirender di thread
+     * baca-saja. Dibiarkan, tombolnya diam tanpa galat apa pun: terlihat
+     * berfungsi padahal tidak terjadi apa-apa.
+     */
+    public function test_thread_cermin_menyembunyikan_tombol_yang_butuh_kotak_ketik(): void
+    {
+        $this->actingAs($this->admin());
+
+        $biasa  = $this->percakapan();
+        $cermin = CrmConversation::findOrCreateFor('6281999000333', CrmConversation::KANAL_CERMIN);
+
+        $this->get('/erp/crm/' . $biasa->id)->assertOk()->assertSee('Rincian + Link Bayar');
+        $this->get('/erp/crm/' . $cermin->id)->assertOk()->assertDontSee('Rincian + Link Bayar');
+    }
 }

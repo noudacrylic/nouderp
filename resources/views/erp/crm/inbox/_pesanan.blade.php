@@ -15,6 +15,12 @@
      Ongkir tidak diketik di sini — ia datang dari tab Ongkir, dan kalau isi
      keranjang berubah setelahnya, segmen Ongkir menandai dirinya basi. --}}
 @php
+    /* Thread cermin (nomor utama lewat WAHA) BACA-SAJA: kotak ketiknya tidak
+       dirender sama sekali. Tombol yang bekerja dengan cara menaruh teks ke
+       kotak itu karenanya diam tanpa galat — terlihat berfungsi padahal tidak
+       terjadi apa-apa. Tombolnya disembunyikan, bukan dibiarkan menipu. */
+    $cerminBacaSaja = (bool) $terpilih?->cermin();
+
     $draftPesanan = (array) ($terpilih?->order_draft['pesanan'] ?? []);
 
     // Wilayah tujuan hasil tab Ongkir (kecamatan/kota + id area kurir) — alamat
@@ -93,10 +99,12 @@
                     <div class="flex items-center gap-2">
                         {{-- Menyalin ke kotak ketik, bukan mengirim: menjawab
                              "sudah sampai mana" hampir selalu perlu pengantar. --}}
-                        <button type="button" @click="sisipKeChat(p)"
-                                class="text-[11px] text-emerald-700 underline hover:no-underline">
-                            Status
-                        </button>
+                        @unless($cerminBacaSaja)
+                            <button type="button" @click="sisipKeChat(p)"
+                                    class="text-[11px] text-emerald-700 underline hover:no-underline">
+                                Status
+                            </button>
+                        @endunless
                         {{-- Pintu ke halaman SO, tempat SEMUA perubahan
                              dikerjakan — item, ongkir, kesepakatan, posting.
                              Satu tab (bukan tab baru): keranjang & alamat sudah
@@ -106,11 +114,13 @@
                            class="text-[11px] font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
                             Buka SO
                         </a>
-                        <button type="button" @click="kirimRincian(p)" :disabled="sibukRincian === p.id"
-                                class="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-2 py-1 disabled:opacity-60">
-                            <span x-show="sibukRincian !== p.id">Rincian + Link Bayar</span>
-                            <span x-show="sibukRincian === p.id" x-cloak>Menyiapkan…</span>
-                        </button>
+                        @unless($cerminBacaSaja)
+                            <button type="button" @click="kirimRincian(p)" :disabled="sibukRincian === p.id"
+                                    class="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-2 py-1 disabled:opacity-60">
+                                <span x-show="sibukRincian !== p.id">Rincian + Link Bayar</span>
+                                <span x-show="sibukRincian === p.id" x-cloak>Menyiapkan…</span>
+                            </button>
+                        @endunless
                     </div>
                 </div>
             </div>
@@ -166,12 +176,30 @@
                     +<span x-text="q.sisa_item"></span> barang lain
                 </div>
 
-                <div class="mt-1.5 flex items-center justify-end">
+                <div class="mt-1.5 flex flex-wrap items-center justify-end gap-1">
+                    {{-- Pratinjau dulu, baru unduh. Penawaran hampir selalu
+                         diperiksa sekali lagi sebelum dikirim ke pelanggan, dan
+                         memaksa unduh untuk memeriksanya meninggalkan tumpukan
+                         berkas yang tak pernah dipakai di folder Unduhan. --}}
+                    <button type="button" @click="pratinjau = q"
+                            class="text-[11px] font-semibold text-sky-700 border border-sky-300 rounded px-2 py-1 hover:bg-sky-50">
+                        Pratinjau
+                    </button>
+
+                    {{-- Tautan polos, TANPA target _blank: responnya
+                         Content-Disposition attachment, jadi browser mengunduh
+                         tanpa memindahkan halaman. Aturan yang sama dengan
+                         seluruh tombol PDF di ERP. --}}
+                    <a :href="q.pdf"
+                       class="text-[11px] font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                        PDF
+                    </a>
+
                     {{-- Konversi ke SO, cetak, dan perihal semuanya ada di
                          halaman Penawaran. Panel chat tidak menduplikasinya. --}}
                     <a :href="q.url"
                        class="text-[11px] font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
-                        Buka Penawaran
+                        Buka
                     </a>
                 </div>
             </div>
@@ -648,6 +676,39 @@
     </div>
 </div>
 
+{{-- Jendela pratinjau penawaran.
+
+     Ditumpangkan ke <body>: rail kanan selebar ~380px dan menggulir di dalam
+     wadah overflow-hidden, jadi jendela yang tinggal di dalamnya akan
+     terpotong dan tak terbaca. --}}
+<template x-teleport="body">
+    <div x-show="pratinjau" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="pratinjau = null">
+        <div class="absolute inset-0 bg-black/50" @click="pratinjau = null"></div>
+
+        <div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden">
+            <div class="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200">
+                <span class="text-sm font-semibold truncate" x-text="'Pratinjau ' + (pratinjau?.nomor ?? '')"></span>
+
+                <div class="flex items-center gap-2 shrink-0">
+                    <a :href="pratinjau?.pdf"
+                       class="text-xs font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                        Unduh PDF
+                    </a>
+                    <button type="button" @click="pratinjau = null"
+                            class="text-xs text-gray-500 hover:text-gray-800 px-2 py-1">Tutup</button>
+                </div>
+            </div>
+
+            {{-- Halaman cetak dimuat apa adanya. Yang terlihat di sini SAMA
+                 dengan yang jadi PDF — dua penggambar berbeda akan membuat
+                 pratinjau berbohong justru saat dipakai memeriksa. --}}
+            <iframe x-show="pratinjau" :src="pratinjau?.pratinjau ?? 'about:blank'"
+                    class="flex-1 w-full border-0" title="Pratinjau penawaran"></iframe>
+        </div>
+    </div>
+</template>
+
 <script>
     function pesananCrm() {
         // Keranjang tersimpan di percakapan — ini sudah jadi bagian SO, jadi ia
@@ -689,6 +750,11 @@
             // Penawaran yang belum jadi pesanan. Yang sudah dikonversi tidak
             // ikut dikirim server — SO hasilnya sudah mewakili kesepakatan itu.
             penawaran: @json($penawaranTerkait ?? []),
+
+            // Penawaran yang sedang dipratinjau (objek kartu, bukan cuma id) —
+            // judul jendelanya menyebut nomornya, dan itu satu-satunya cara
+            // memastikan yang terbuka memang penawaran yang dimaksud.
+            pratinjau: null,
 
             /*
              * Pesanan SELESAI disembunyikan.

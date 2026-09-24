@@ -226,4 +226,31 @@ class PenawaranDariChatTest extends TestCase
             ->assertOk()
             ->json('penawaran'));
     }
+
+    /**
+     * Kartu penawaran membawa alamat PRATINJAU dan PDF-nya sendiri.
+     *
+     * Pratinjau menunjuk halaman CETAK, bukan berkas PDF: PDF dikirim dengan
+     * Content-Disposition attachment, jadi menaruhnya di bingkai pratinjau
+     * memicu unduhan alih-alih menampilkan apa pun — bingkai kosong yang tak
+     * memberi petunjuk apa yang salah.
+     */
+    public function test_kartu_penawaran_membawa_alamat_pratinjau_dan_pdf(): void
+    {
+        $p = $this->percakapan();
+
+        $this->kirim($p, $this->muatan())->assertOk();
+
+        $q = SalesQuotation::sole();
+        $p->forceFill(['customer_id' => $q->customer_id])->save();
+
+        $kartu = $this->actingAs($this->admin())
+            ->getJson('/erp/crm/' . $p->id . '/pesanan')
+            ->assertOk()
+            ->json('penawaran.0');
+
+        $this->assertSame(route('sales.quotations.print', $q->id), $kartu['pratinjau']);
+        $this->assertSame(route('sales.quotations.pdf', $q->id), $kartu['pdf']);
+        $this->assertNotSame($kartu['pratinjau'], $kartu['pdf']);
+    }
 }
