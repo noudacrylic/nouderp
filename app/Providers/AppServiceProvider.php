@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use App\Modules\CRM\Support\BelumDibaca;
 use Illuminate\Support\Facades\View;
 use App\Modules\Production\Models\Department;
 use App\Modules\SDM\Models\FingerprintLog;
@@ -61,6 +62,16 @@ class AppServiceProvider extends ServiceProvider
                     ->orderBy('name')
                     ->get()
             );
+
+            /*
+             * Lencana chat belum dibaca di menu CRM. Satu COUNT beriindeks per
+             * halaman — dan hanya dihitung kalau menunya memang tampil, supaya
+             * akun yang tak punya akses CRM tidak membayar kueri untuk sesuatu
+             * yang tak pernah ia lihat.
+             */
+            $view->with('crmBelumDibaca', should_show_menu_group('crm')
+                ? BelumDibaca::untuk(auth()->user())
+                : 0);
         });
 
         FingerprintLog::observe(FingerprintLogObserver::class);

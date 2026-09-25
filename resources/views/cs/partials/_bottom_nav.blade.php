@@ -19,6 +19,18 @@
        tidak ada sama sekali. */
     $belumDibaca = $navBelumDibaca
         ?? \App\Models\ErpNotification::milik((int) auth()->id())->belumDibaca()->count();
+
+    /* Chat yang menunggu dibaca. Penghitungnya SATU dengan lencana menu CRM di
+       sidebar ERP (BelumDibaca) — dua penghitung terpisah untuk pertanyaan yang
+       sama pasti menyimpang, dan yang menyimpang di sini adalah angka yang
+       dipakai CS memutuskan perlu membuka aplikasinya atau tidak. */
+    $chatBelumDibaca = \App\Modules\CRM\Support\BelumDibaca::untuk(auth()->user());
+
+    /* Lencana ditempelkan ke ITEMNYA, bukan dicabangkan di dalam perulangan
+       lewat nama ikon. Sebelumnya cuma lonceng yang punya lencana sehingga
+       `$item['icon'] === 'bell'` cukup; begitu ada yang kedua, cabang semacam
+       itu tumbuh satu per lencana dan cepat salah pasang. */
+    $lencana = ['chat' => $chatBelumDibaca, 'bell' => $belumDibaca];
 @endphp
 
 <nav class="bottom-nav shrink-0 bg-white border-t border-slate-200 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
@@ -30,9 +42,15 @@
                       {{ $active ? 'text-teal-700' : 'text-slate-400' }}">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons[$item['icon']] !!}</svg>
                 {{ $item['label'] }}
-                @if ($item['icon'] === 'bell' && $belumDibaca > 0)
-                    <span class="absolute top-1.5 right-[calc(50%-1.6rem)] min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                        {{ $belumDibaca > 99 ? '99+' : $belumDibaca }}
+                @php $jumlah = $lencana[$item['icon']] ?? 0; @endphp
+                @if ($jumlah > 0)
+                    {{-- `data-lencana` dipasang supaya tes bisa menunjuk
+                         lencana YANG MANA. Dua lencana di bilah ini memakai
+                         markup yang sama persis, jadi memeriksa kelasnya saja
+                         hijau walau yang tergambar lonceng — bukan chat. --}}
+                    <span data-lencana="{{ $item['icon'] }}"
+                          class="absolute top-1.5 right-[calc(50%-1.6rem)] min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        {{ $jumlah > 99 ? '99+' : $jumlah }}
                     </span>
                 @endif
             </a>

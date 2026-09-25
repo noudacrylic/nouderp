@@ -167,6 +167,35 @@
             background: rgba(234, 179, 8, 0.14);
         }
 
+        /* Lencana chat belum dibaca di menu CRM.
+
+           Merah dan menempel di pojok ikon, meniru lencana aplikasi pesan yang
+           sudah dikenal semua orang — ini satu-satunya angka di sidebar yang
+           berarti "ada orang menunggu dijawab", dan ia harus terbaca dari sudut
+           mata tanpa dicari. Ukurannya dipatok supaya "3" dan "99+" sama-sama
+           muat tanpa menggeser ikonnya. */
+        .crm-lencana {
+            position: absolute;
+            top: -3px;
+            right: -4px;
+            min-width: 17px;
+            height: 17px;
+            padding: 0 4px;
+            border-radius: 9px;
+            background: #dc2626;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 17px;
+            text-align: center;
+            font-family: system-ui, sans-serif;
+            /* Cincin sewarna sidebar (#0d3d2a, lihat `.sidebar`): tanpa ini
+               lencana bersinggungan langsung dengan latar ikon yang menyala
+               saat menunya aktif, dan batasnya hilang justru di keadaan itu. */
+            box-shadow: 0 0 0 2px #0d3d2a;
+            pointer-events: none;
+        }
+
         .sidebar.collapsed .menu-icon { width: 34px; height: 34px; }
         .sidebar.collapsed .menu-single .menu-icon { width: 34px; height: 34px; }
         .sidebar.collapsed .menu-icon svg { width: 22px; height: 22px; }
@@ -953,8 +982,20 @@
 
                 {{-- ================= CRM ================= --}}
                 @if(should_show_menu_group('crm'))
-                <a href="{{ module_landing_url('crm') }}" class="menu-single {{ request()->is('erp/crm', 'erp/crm/*') ? 'active' : '' }}" data-tip="CRM">
-                    <span class="menu-icon" style="font-size:20px;display:flex;align-items:center;justify-content:center;">💬</span><span class="menu-label">&nbsp;CRM</span>
+                <a href="{{ module_landing_url('crm') }}" class="menu-single {{ request()->is('erp/crm', 'erp/crm/*') ? 'active' : '' }}" data-tip="CRM" style="position:relative;">
+                    <span class="menu-icon" style="font-size:20px;display:flex;align-items:center;justify-content:center;position:relative;">
+                        💬
+                        @if(($crmBelumDibaca ?? 0) > 0)
+                            {{-- Menempel pada IKON, bukan pada label: sidebar
+                                 paling sering dipakai dalam keadaan menyempit
+                                 (ikon saja), dan lencana yang menempel pada
+                                 tulisan "CRM" ikut hilang bersamanya — persis
+                                 saat ia paling dibutuhkan, karena di keadaan
+                                 itu tak ada petunjuk lain sama sekali. --}}
+                            <span class="crm-lencana">{{ $crmBelumDibaca > 99 ? '99+' : $crmBelumDibaca }}</span>
+                        @endif
+                    </span>
+                    <span class="menu-label">&nbsp;CRM</span>
                 </a>
                 @endif
 
