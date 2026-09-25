@@ -233,6 +233,49 @@ class CrmPwaLayarTest extends TestCase
         $this->assertStringNotContainsString('href="' . route('crm.inbox.show', $p->id) . '?', $html);
     }
 
+    /**
+     * Tombol penyaring PWA ("Semua" / "Milik Saya" / label) bermuara ke `/cs`,
+     * bukan ke endpoint penyegar dan bukan ke Inbox desktop.
+     *
+     * Dilaporkan 25 Sep 2026: menekan "Milik Saya" di PWA membuka halaman teks
+     * mentah. Sebabnya sama dengan di desktop — tautan dirangkai dari
+     * `request()->fullUrlWithQuery()`, dan di dalam render penyegar "request
+     * saat ini" adalah endpoint JSON itu sendiri.
+     *
+     * Diuji TERPISAH dari versi desktopnya walau sebabnya satu, karena
+     * alamat tujuannya beda: kalau PWA diam-diam jatuh ke Inbox desktop,
+     * akun chat-saja malah ditolak halaman itu — kegagalan yang sama sekali
+     * tidak terlihat dari tes desktop yang hijau.
+     */
+    public function test_penyaring_pwa_bermuara_ke_layar_pwa(): void
+    {
+        $pengguna = $this->cs();
+        $this->percakapan(['owner_user_id' => $pengguna->id]);
+
+        $html = $this->actingAs($pengguna)
+            ->getJson(route('crm.inbox.daftar-segar', ['aplikasi' => 'cs']))
+            ->assertOk()
+            ->json('html');
+
+        $this->assertStringNotContainsString(
+            'daftar-segar?',
+            $html,
+            'tautan penyaring PWA masih bermuara ke endpoint JSON penyegar'
+        );
+
+        // "Milik Saya" — yang dilaporkan rusak.
+        $this->assertStringContainsString(
+            'href="' . route('cs.chat') . '?pemilik=' . $pengguna->id . '"',
+            $html
+        );
+
+        $this->assertStringNotContainsString(
+            'href="' . route('crm.inbox.index') . '?',
+            $html,
+            'penyaring PWA jangan melempar CS ke Inbox desktop'
+        );
+    }
+
     /** Penyegar desktop tetap menunjuk Inbox desktop. */
     public function test_penyegar_desktop_tetap_menunjuk_inbox(): void
     {
