@@ -122,7 +122,17 @@
     <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
 
         <div class="lg:col-span-3 min-h-0" id="crm-daftar">
-            @include('erp.crm.inbox._daftar', ['tumbuhOtomatis' => true])
+            @include('erp.crm.inbox._daftar', [
+                'tumbuhOtomatis' => true,
+                /* Chip penyaring bermuara ke layar ini — thread yang sedang
+                   terbuka ikut dipertahankan. Diserahkan dari sini, bukan
+                   ditebak partialnya dari request: saat penyegar otomatis
+                   merender ulang kolom kiri, "request saat ini" adalah
+                   endpoint JSON daftar-segar. */
+                'basisFilter'    => isset($terpilih) && $terpilih
+                    ? route('crm.inbox.show', $terpilih)
+                    : route('crm.inbox.index'),
+            ])
         </div>
 
         <div class="lg:col-span-6 min-h-0">

@@ -13,8 +13,37 @@
     /* Aksi titik-tiga menuju URL yang MEMBAWA penyaring saat ini: sebagian aksi
        melempar balik ke daftar, dan tanpa kueri ini filter yang sedang dipakai
        ikut hilang. Dua '%s' diisi di sisi Alpine (id percakapan, lalu aksinya). */
-    $kueriKini = request()->getQueryString();
+    /* Penyaring yang sedang aktif, TANPA parameter milik penyegar otomatis.
+       `sidik`/`terpilih`/`aplikasi` cuma dipakai endpoint daftar-segar; ikut
+       terbawa ke tautan layar, ia membuat alamat yang dibagikan orang
+       mengandung sidik jari data yang sudah basi sejak detik berikutnya. */
+    $kueriBersih = collect(request()->query())
+        ->except(['sidik', 'terpilih', 'aplikasi', 'page'])
+        ->reject(fn ($v) => $v === null || $v === '');
+
+    $kueriKini = $kueriBersih->isEmpty() ? '' : http_build_query($kueriBersih->all());
     $basisAksi = route('crm.inbox.index') . '/%s/%s' . ($kueriKini ? '?' . $kueriKini : '');
+
+    /* ALAMAT LAYAR tempat chip penyaring bermuara.
+     *
+     * WAJIB diserahkan dari luar, TIDAK BOLEH dari request()->fullUrlWithQuery().
+     * Kolom ini dirender ulang oleh penyegar otomatis di /erp/crm/daftar-segar,
+     * yang mengembalikan JSON — dan di sana "request saat ini" adalah endpoint
+     * itu. Chipnya jadi menunjuk ke JSON, dan begitu daftar menyegarkan diri
+     * sekali saja, SETIAP tautan di kolom ini membuka halaman teks mentah.
+     * Gejalanya menipu karena muncul belakangan: saat halaman baru dimuat
+     * semuanya benar.
+     */
+    $basisFilter = $basisFilter ?? url()->current();
+
+    /* Satu perangkai untuk semua chip: ganti sebagian parameter, buang yang
+       kosong, sisanya dipertahankan. Ditulis sekali supaya chip berikutnya
+       tidak lahir dengan lagi-lagi memanggil fullUrlWithQuery(). */
+    $tautanSaring = function (array $ganti) use ($basisFilter, $kueriBersih) {
+        $q = $kueriBersih->merge($ganti)->reject(fn ($v) => $v === null || $v === '')->all();
+
+        return $basisFilter . ($q ? '?' . http_build_query($q) : '');
+    };
 
     /* Tautan tiap baris MEMBAWA keadaan daftar (penyaring + berapa banyak yang
        sudah dimuat). Tanpa ini, membuka chat yang ditemukan setelah menggulir
@@ -54,11 +83,11 @@
 
     {{-- ---------------------------------------------------- 1. chat siapa --}}
     <div class="grid grid-cols-3 gap-1 text-xs">
-        <a href="{{ request()->fullUrlWithQuery(['pemilik' => 'semua', 'page' => null]) }}"
+        <a href="{{ $tautanSaring(['pemilik' => 'semua']) }}"
            class="text-center truncate {{ $semuaOrang ? $tabAktif : $tabDiam }}"
            title="Semua chat, milik siapa pun">Semua</a>
 
-        <a href="{{ request()->fullUrlWithQuery(['pemilik' => $akuId, 'page' => null]) }}"
+        <a href="{{ $tautanSaring(['pemilik' => $akuId]) }}"
            class="text-center truncate {{ $milikSaya || $dibatasiKeSaya ? $tabAktif : $tabDiam }}"
            title="Chat yang saya pegang">Milik Saya</a>
 
@@ -82,7 +111,7 @@
                 </select>
             </form>
         @else
-            <a href="{{ request()->fullUrlWithQuery(['pemilik' => 'belum', 'page' => null]) }}"
+            <a href="{{ $tautanSaring(['pemilik' => 'belum']) }}"
                class="text-center truncate {{ $pemilikKini === 'belum' ? $tabAktif : $tabDiam }}"
                title="Chat yang belum dipegang siapa pun">Belum dioper {{ $belumDioper }}</a>
         @endif
@@ -98,7 +127,7 @@
                placeholder="Cari nama, nomor, atau nomor pesanan…"
                class="border rounded px-2 py-1.5 text-sm w-full">
         @if(request('search'))
-            <a href="{{ request()->fullUrlWithQuery(['search' => null, 'page' => null]) }}"
+            <a href="{{ $tautanSaring(['search' => null]) }}"
                class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100"
                title="Hapus pencarian">✕</a>
         @endif
@@ -126,20 +155,20 @@
         $chip             = 'px-1.5 py-0.5 rounded border text-[11px] leading-4';
     @endphp
     <div class="flex flex-wrap gap-1">
-        <a href="{{ request()->fullUrlWithQuery(['antrean' => null, 'belum_dibaca' => null, 'page' => null]) }}"
+        <a href="{{ $tautanSaring(['antrean' => null, 'belum_dibaca' => null]) }}"
            class="{{ $chip }} {{ $semuaAktif ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
             Semua <span class="{{ $semuaAktif ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlahSemua }}</span>
         </a>
 
         {{-- "Belum dibaca" berdiri di sebelah "Semua", bukan di tengah label:
              ini bukan keadaan chat, melainkan pekerjaan yang belum disentuh. --}}
-        <a href="{{ request()->fullUrlWithQuery(['belum_dibaca' => 1, 'antrean' => null, 'page' => null]) }}"
+        <a href="{{ $tautanSaring(['belum_dibaca' => 1, 'antrean' => null]) }}"
            class="{{ $chip }} {{ $belumDibacaAktif ? 'border-red-600 bg-red-600 text-white' : ($jumlahBelumDibaca > 0 ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100' : 'border-gray-300 bg-white hover:bg-gray-50') }}">
             Belum dibaca <span class="{{ $belumDibacaAktif ? 'text-red-100' : '' }}">{{ $jumlahBelumDibaca }}</span>
         </a>
 
         @foreach($labelOpsi as $l)
-            <a href="{{ request()->fullUrlWithQuery(['antrean' => $l->kode, 'belum_dibaca' => null, 'page' => null]) }}"
+            <a href="{{ $tautanSaring(['antrean' => $l->kode, 'belum_dibaca' => null]) }}"
                class="{{ $chip }} {{ $antreanAktif === $l->kode ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
                 {{ $l->nama }}
                 <span class="{{ $antreanAktif === $l->kode ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlah[$l->kode] ?? 0 }}</span>
@@ -149,7 +178,7 @@
         {{-- Arsip jadi chip, bukan dropdown sendiri: ia dipakai sesekali dan
              tidak pantas menempati satu baris penuh selamanya. --}}
         @php $diArsip = request('status') === 'arsip'; @endphp
-        <a href="{{ request()->fullUrlWithQuery(['status' => $diArsip ? null : 'arsip', 'page' => null]) }}"
+        <a href="{{ $tautanSaring(['status' => $diArsip ? null : 'arsip']) }}"
            class="{{ $chip }} {{ $diArsip ? 'border-gray-700 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50' }}">
             Arsip
         </a>
@@ -259,7 +288,7 @@
          data-daftar-kaki data-muat="{{ $muat }}" data-ada-lagi="{{ $adaLagi ? 1 : 0 }}">
         <span>{{ $percakapan->count() }} dari {{ $percakapan->total() }} chat</span>
         @if($adaLagi)
-            <a href="{{ request()->fullUrlWithQuery(['muat' => $muat + 1, 'page' => null]) }}"
+            <a href="{{ $tautanSaring(['muat' => $muat + 1]) }}"
                data-muat-lagi
                class="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50">
                 Muat lagi

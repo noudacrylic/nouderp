@@ -16,6 +16,10 @@
             'rutaChat'       => 'cs.thread',
             'gayaWadah'      => 'bg-white',
             'tumbuhOtomatis' => true,
+            /* Chip penyaring tetap di dalam PWA. Tanpa ini satu ketukan pada
+               label melempar CS ke Inbox desktop — dan untuk akun chat-saja,
+               halaman itu malah ditolak. */
+            'basisFilter'    => route('cs.chat'),
         ])
     </div>
 

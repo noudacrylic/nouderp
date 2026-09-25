@@ -22,13 +22,17 @@ class CrmConversation extends Model
     /** Antrean berbasis "bola di siapa", bukan sekadar "sudah/belum dikerjakan". */
     public const QUEUE_KITA      = 'menunggu_kita';      // paling menonjol di layar
     public const QUEUE_PELANGGAN = 'menunggu_pelanggan';
-    public const QUEUE_DESAIN    = 'menunggu_desain';
     public const QUEUE_DINGIN    = 'dingin';
 
+    /*
+     * 'menunggu_desain' DIBUANG 25 Sep 2026 — satu-satunya antrean yang tak
+     * pernah dipasang kode mana pun, jadi ia cuma menambah satu chip yang
+     * selamanya berangka nol. Lihat migrasi
+     * 2026_09_25_100000_hapus_label_menunggu_desain.
+     */
     public const QUEUE_LABELS = [
         self::QUEUE_KITA      => 'Menunggu Kita',
         self::QUEUE_PELANGGAN => 'Menunggu Pelanggan',
-        self::QUEUE_DESAIN    => 'Menunggu Desain',
         self::QUEUE_DINGIN    => 'Dingin',
     ];
 
@@ -162,13 +166,17 @@ class CrmConversation extends Model
     }
 
     /**
-     * Percakapan ini CERMIN baca-saja dari nomor utama (WAHA)?
+     * Percakapan ini hidup lewat NOMOR UTAMA (WAHA), bukan jalur resmi?
      *
-     * Satu-satunya sumber kebenarannya adalah kanal. Penjaganya ditegakkan di
-     * CrmReplyService, bukan hanya dengan menyembunyikan kotak ketik: thread
-     * cermin tidak punya nomor bisnis di jalur resmi, jadi balasan yang lolos
-     * ke sana akan berangkat dari nomor yang SALAH — pelanggan menerima jawaban
-     * dari nomor asing atas chat yang tak pernah ia kirim ke situ.
+     * Satu-satunya sumber kebenarannya adalah kanal, dan itulah yang dipakai
+     * ChatManager memilih jalur kirim. Sejak Tahap 7 thread ini BISA dibalas
+     * dari ERP — namanya tetap "cermin" karena asal-usulnya begitu, tapi
+     * "baca-saja" sudah tidak berlaku.
+     *
+     * Yang tidak berubah: balasannya WAJIB berangkat lewat jalur yang sama
+     * dengan tempat pelanggan menulis. Lewat jalur yang salah, ia mendarat
+     * sebagai pesan dari nomor asing atas percakapan yang tak pernah ia kirim
+     * ke situ — dan itu tidak bisa ditarik kembali.
      */
     public function cermin(): bool
     {

@@ -193,10 +193,10 @@ class InboxTriaseTest extends TestCase
             ->assertSessionHasErrors('queue_state');
 
         $this->actingAs($this->admin())
-            ->post(route('crm.inbox.antrean', $p->id), ['queue_state' => CrmConversation::QUEUE_DESAIN])
+            ->post(route('crm.inbox.antrean', $p->id), ['queue_state' => CrmConversation::QUEUE_DINGIN])
             ->assertSessionHas('success');
 
-        $this->assertSame(CrmConversation::QUEUE_DESAIN, $p->fresh()->queue_state);
+        $this->assertSame(CrmConversation::QUEUE_DINGIN, $p->fresh()->queue_state);
     }
 
     public function test_arsip_adalah_saklar_bolak_balik(): void
@@ -1045,6 +1045,52 @@ class InboxTriaseTest extends TestCase
             ->json('html');
 
         $this->assertStringContainsString($ekor, $html);
+    }
+
+    /**
+     * Chip penyaring hasil PENYEGARAN tidak boleh menunjuk endpoint penyegar.
+     *
+     * Bug nyata 25 Sep 2026: kolom kiri dirender ulang oleh
+     * `/erp/crm/daftar-segar`, yang mengembalikan JSON. Tautan chip dirangkai
+     * dari `request()->fullUrlWithQuery()`, jadi di dalam render itu "request
+     * saat ini" adalah endpoint JSON — dan begitu daftar menyegarkan diri
+     * sekali saja, SETIAP tautan di kolom kiri membuka halaman teks mentah.
+     *
+     * Gejalanya menipu karena muncul belakangan: halaman yang baru dimuat
+     * semuanya benar, rusaknya baru delapan detik kemudian. Karena itu yang
+     * diuji HTML dari endpoint penyegar, bukan dari halaman biasa — halaman
+     * biasa lolos bahkan saat bugnya ada.
+     */
+    public function test_chip_penyaring_hasil_penyegaran_menunjuk_layar_bukan_endpoint_json(): void
+    {
+        $this->actingAs($this->admin());
+        $this->percakapan();
+
+        $html = $this->getJson(route('crm.inbox.daftar-segar'))->assertOk()->json('html');
+
+        $this->assertStringNotContainsString(
+            'daftar-segar?',
+            $html,
+            'tautan penyaring masih bermuara ke endpoint JSON penyegar'
+        );
+        $this->assertStringContainsString('antrean=menunggu_kita', $html, 'chipnya tetap ada');
+    }
+
+    /**
+     * Penyaring hasil penyegaran mempertahankan chat yang sedang terbuka.
+     *
+     * Kalau chip bermuara ke daftar polos, mengganti label akan menutup thread
+     * yang sedang dibaca — dan itu terjadi di tengah orang mengetik balasan.
+     */
+    public function test_chip_penyaring_mempertahankan_chat_yang_sedang_dibuka(): void
+    {
+        $this->actingAs($this->admin());
+        $p = $this->percakapan();
+
+        $html = $this->getJson(route('crm.inbox.daftar-segar', ['terpilih' => $p->id]))
+            ->assertOk()->json('html');
+
+        $this->assertStringContainsString(route('crm.inbox.show', $p) . '?', $html);
     }
 
     /**

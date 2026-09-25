@@ -59,7 +59,7 @@ class LabelDanSaringanTest extends TestCase
     public function test_label_bawaan_terpasang_dari_migrasi(): void
     {
         $this->assertSame(
-            ['menunggu_kita', 'menunggu_pelanggan', 'menunggu_desain', 'dingin'],
+            ['menunggu_kita', 'menunggu_pelanggan', 'dingin'],
             CrmLabel::terpakai()->pluck('kode')->all()
         );
     }

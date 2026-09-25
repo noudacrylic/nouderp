@@ -1422,9 +1422,22 @@ class CrmInboxController extends Controller
          */
         $pwa = $request->input('aplikasi') === 'cs';
 
+        /*
+         * `basisFilter` WAJIB ikut, dan ini yang paling mudah terlewat.
+         *
+         * Tautan chip penyaring dirangkai dari alamat LAYAR. Kalau tidak
+         * diserahkan, partialnya jatuh ke url()->current() — yang di sini
+         * adalah endpoint JSON ini sendiri. Akibatnya muncul BELAKANGAN dan
+         * karena itu menipu: halaman yang baru dimuat semuanya benar, lalu
+         * sesudah penyegaran pertama setiap chip di kolom kiri membuka
+         * halaman teks mentah berisi JSON.
+         */
         $html = view('erp.crm.inbox._daftar', $data + [
             'tumbuhOtomatis' => true,
             'rutaChat'       => $pwa ? 'cs.thread' : 'crm.inbox.show',
+            'basisFilter'    => $pwa
+                ? route('cs.chat')
+                : ($terpilih ? route('crm.inbox.show', $terpilih) : route('crm.inbox.index')),
         ] + ($pwa ? ['gayaWadah' => 'bg-white'] : []))->render();
 
         return response()->json([
