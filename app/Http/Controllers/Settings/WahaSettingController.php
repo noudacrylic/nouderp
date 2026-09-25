@@ -115,6 +115,7 @@ class WahaSettingController extends Controller
             'waha_session_utama'      => 'nullable|string|max:64',
             'waha_session_notifikasi' => 'nullable|string|max:64',
             'notifikasi_driver'       => 'nullable|in:resmi,waha',
+            'tandai_dibaca'           => 'nullable|boolean',
         ]);
 
         $sesiUtama      = trim((string) ($data['waha_session_utama'] ?? '')) ?: PeranWaha::bawaanSesi(PeranWaha::UTAMA);
@@ -149,6 +150,9 @@ class WahaSettingController extends Controller
 
         $waha->config = array_merge((array) $waha->config, [
             'notifikasi_driver' => $data['notifikasi_driver'] ?? 'resmi',
+            // Centang biru ke pelanggan. Disimpan apa adanya dari centang di
+            // layar; yang menekan tombolnya nanti tetap manusia.
+            'tandai_dibaca'     => (bool) ($data['tandai_dibaca'] ?? false),
         ]);
 
         $waha->save();

@@ -228,6 +228,33 @@ class WahaCerminService
     }
 
     /**
+     * Baris pesan KELUAR milik kita yang menunjuk pesan WAHA yang sama, walau
+     * bentuk idnya berbeda.
+     *
+     * Dicocokkan lewat potongan terakhir setelah '_' — itulah bagian yang
+     * tetap sama di kedua bentuk ('3EB0…'). Dibatasi ke arah KELUAR dan ke
+     * baris yang idnya belum berbentuk panjang, supaya pencarian ini tidak
+     * pernah menyerempet pesan masuk milik orang lain.
+     */
+    private function barisKitaSendiri(string $idPanjang): ?CrmMessage
+    {
+        $potongan = substr($idPanjang, (int) strrpos($idPanjang, '_') + 1);
+
+        // Potongan yang terlalu pendek bukan sidik yang bisa dipercaya —
+        // lebih baik gelembung kembar daripada menimpa pesan yang salah.
+        if (strlen($potongan) < 8) {
+            return null;
+        }
+
+        return CrmMessage::where('direction', CrmMessage::KELUAR)
+            ->where(fn ($q) => $q
+                ->where('provider_message_id', 'waha:' . $potongan)
+                ->orWhere('provider_message_id', 'like', '%\_' . $potongan))
+            ->latest('id')
+            ->first();
+    }
+
+    /**
      * Tingkat ack WAHA → kosakata `status` yang sudah dipakai jalur resmi,
      * supaya `CrmMessage::centang()` tidak perlu tahu pesan ini datang dari
      * jalur yang mana.
@@ -450,6 +477,29 @@ class WahaCerminService
             return null;
         }
 
+        /*
+         * GEMA PESAN YANG KITA KIRIM SENDIRI (sejak Tahap 7).
+         *
+         * Balasan yang berangkat dari ERP kembali lagi ke sini sebagai
+         * `fromMe`, dan barisnya sudah ada. Yang TIDAK bisa diandalkan adalah
+         * idnya berbentuk sama: jawaban /api/sendText memberi id pendek
+         * ('3EB0...'), sedangkan webhook membawa bentuk panjang
+         * ('true_628…@c.us_3EB0…'). Kalau hanya dicocokkan persis, setiap
+         * balasan muncul DUA KALI di thread — dan tak ada galat apa pun yang
+         * menunjukkan kenapa.
+         *
+         * Pelajaran 24 Sep berlaku di sini: jangan percaya bentuk field
+         * payload WAHA. Yang dicocokkan potongan terakhirnya, dan begitu
+         * ketemu, id baris kita DIKANONIKALKAN ke bentuk webhook — supaya
+         * `message.ack` yang menyusul (yang juga memakai bentuk panjang)
+         * menemukan barisnya dan centangnya bisa bergerak.
+         */
+        if ($dariKita && ($kembar = $this->barisKitaSendiri($id))) {
+            $kembar->forceFill(['provider_message_id' => $id])->save();
+
+            return null;
+        }
+
         try {
             return CrmMessage::create([
                 'conversation_id'     => $percakapan->id,
@@ -457,10 +507,11 @@ class WahaCerminService
                 'message_type'        => $this->jenis($payload),
                 'content'             => $this->isi($payload),
                 /*
-                 * Kiriman kita di cermin SELALU berasal dari HP — ERP belum
-                 * bisa mengirim ke kanal ini sama sekali. Menandainya
-                 * WHATSAPP_APP membuat laporan "kebocoran balas dari HP" tetap
-                 * jujur alih-alih menghitungnya sebagai balasan ERP.
+                 * Yang sampai di sini SELALU ketikan dari HP: sejak Tahap 7
+                 * ERP memang bisa mengirim ke kanal ini, tapi kiriman ERP
+                 * sudah punya barisnya sendiri dan diserap sebagai gema di
+                 * atas. Menandainya WHATSAPP_APP karenanya tetap jujur —
+                 * laporan "kebocoran balas dari HP" menghitung yang benar.
                  */
                 'source'              => $dariKita ? CrmMessage::SOURCE_WHATSAPP_APP : null,
                 'provider_message_id' => $id,

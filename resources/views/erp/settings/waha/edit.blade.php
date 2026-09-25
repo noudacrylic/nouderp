@@ -102,6 +102,24 @@
                             pelanggan tidak ikut pindah karena pilihan ini.
                         </p>
                     </div>
+
+                    <div class="md:col-span-2">
+                        <label class="inline-flex items-start gap-2 text-sm font-semibold text-gray-700">
+                            <input type="checkbox" name="tandai_dibaca" value="1"
+                                   {{ old('tandai_dibaca', (bool) ($waha->config['tandai_dibaca'] ?? false)) ? 'checked' : '' }}
+                                   class="rounded border-gray-300 mt-0.5">
+                            <span>Izinkan tombol &ldquo;Tandai dibaca di HP&rdquo;</span>
+                        </label>
+                        <p class="text-xs text-gray-400 mt-1">
+                            Membersihkan notifikasi chat yang menumpuk di HP CS. <b>Pelanggan akan melihat
+                            centang biru</b>, jadi ini tidak pernah otomatis &mdash; centang ini hanya
+                            memunculkan tombolnya di layar chat, yang menekannya tetap admin.
+                            <br>
+                            Tanpa centang biru sama sekali: matikan &ldquo;laporan telah dibaca&rdquo; di
+                            setelan privasi nomor utama &mdash; tapi centang lalu hilang dua arah, dan ERP
+                            ikut kehilangan tingkat &lsquo;dibaca&rsquo; pada pesan yang kita kirim.
+                        </p>
+                    </div>
                 </div>
             </div>
 

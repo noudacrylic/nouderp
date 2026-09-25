@@ -3,6 +3,7 @@
 namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\ChatManager;
+use App\Modules\CRM\Providers\WahaChatProvider;
 use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
@@ -173,11 +174,21 @@ class CrmReplyService
         ?int $userId = null,
         bool $waktunyaSudahDiputuskan = false
     ): array {
-        // Diperiksa TERPISAH: pancingan sengaja melewati pastikanJendela()
-        // (justru jendela yang mau ditutup itulah alasannya ada), jadi
-        // penjaga cermin di sana tidak ikut terpanggil dari sini.
-        if ($tolak = $this->pastikanBukanCermin($percakapan)) {
-            return $tolak;
+        /*
+         * Pancingan TIDAK berlaku di jalur self-host, dan penolakannya di sini
+         * karena pancingan sengaja melewati pastikanJendela() — justru jendela
+         * yang mau ditutup itulah alasannya ada.
+         *
+         * Seluruh gunanya adalah memancing pelanggan menekan tombol supaya
+         * jendela 24 jam terbuka lagi tanpa biaya. Di jalur yang tak mengenal
+         * jendela, yang tersisa cuma mengganggu orang tanpa satu pun alasan
+         * yang membuat fiturnya ada.
+         */
+        if ($percakapan->tanpaJendela()) {
+            return $this->gagal(
+                'Percakapan ini lewat jalur self-host, yang tidak mengenal jendela 24 jam — '
+                . 'tidak ada yang perlu dipancing. Balas biasa saja.'
+            );
         }
 
         /*
@@ -220,7 +231,7 @@ class CrmReplyService
             (string) config('crm.store_hours_text', 'jam kerja')
         );
 
-        $hasil = $this->chat->provider()->sendInteraktif([
+        $hasil = $this->chat->untuk($percakapan)->sendInteraktif([
             'to'              => $percakapan->contact_key,
             'text'            => $teks,
             'buttons'         => [['id' => 'lanjut_diskusi', 'title' => TemplateResmi::TOMBOL_PANCINGAN]],
@@ -255,7 +266,7 @@ class CrmReplyService
         $nama     = TemplateResmi::TEMPLATE_PANCINGAN;
         $variabel = [$percakapan->sapaan(), (string) config('crm.store_hours_text', 'jam kerja')];
 
-        $hasil = $this->chat->provider()->sendTemplate([
+        $hasil = $this->chat->untuk($percakapan)->sendTemplate([
             'to'       => $percakapan->contact_key,
             'template' => $nama,
             'language' => 'id',
@@ -321,7 +332,7 @@ class CrmReplyService
 
     private function kirimTeks(CrmConversation $percakapan, string $teks, ?int $userId, ?string $replyTo): array
     {
-        $hasil = $this->chat->provider()->sendText([
+        $hasil = $this->chat->untuk($percakapan)->sendText([
             'to'              => $percakapan->contact_key,
             'text'            => $teks,
             'reply_to'        => $replyTo,
@@ -360,7 +371,7 @@ class CrmReplyService
         ?int $userId,
         ?string $replyTo
     ): array {
-        $provider = $this->chat->provider();
+        $provider = $this->chat->untuk($percakapan);
         $terakhir = null;
 
         foreach ($berkas as $i => $file) {
@@ -448,7 +459,7 @@ class CrmReplyService
             return $this->gagal('Foto produk tidak bisa diambil dari etalase. Kirim tautannya saja, atau tempel fotonya manual.');
         }
 
-        $hasil = $this->chat->provider()->sendMedia([
+        $hasil = $this->chat->untuk($percakapan)->sendMedia([
             'to'              => $percakapan->contact_key,
             'type'            => 'image',
             'media'           => $this->tautanSementara($lampiran),
@@ -547,7 +558,7 @@ class CrmReplyService
 
     private function teruskanTeks(CrmMessage $sumber, CrmConversation $tujuan, string $teks, ?int $userId): array
     {
-        $hasil = $this->chat->provider()->sendText([
+        $hasil = $this->chat->untuk($tujuan)->sendText([
             'to'              => $tujuan->contact_key,
             'text'            => $teks,
             'channel'         => $tujuan->channel,
@@ -575,7 +586,7 @@ class CrmReplyService
         array $lampiran,
         ?int $userId
     ): array {
-        $provider = $this->chat->provider();
+        $provider = $this->chat->untuk($tujuan);
         $terakhir = null;
 
         foreach ($lampiran as $i => $asal) {
@@ -665,8 +676,20 @@ class CrmReplyService
      */
     private function pastikanJendela(CrmConversation $percakapan, string $tolakan): ?array
     {
-        if ($tolak = $this->pastikanBukanCermin($percakapan)) {
-            return $tolak;
+        /*
+         * Jalur self-host TIDAK punya jendela, jadi tidak ada yang perlu
+         * dijaga — dan ini bukan pengecualian yang dilonggarkan melainkan
+         * kenyataan yang berbeda. Jendela 24 jam adalah aturan penagihan Meta
+         * atas Cloud API; WhatsApp sendiri tak mengenalnya, dan CS yang
+         * mengetik dari HP memang bisa membalas chat setahun lalu.
+         *
+         * Diperiksa di sini, bukan cuma mengandalkan windowStatus() provider
+         * yang selalu menjawab terbuka: catatan LOKAL window_expires_at milik
+         * thread cermin tidak pernah diisi, jadi tanpa cabang ini setiap
+         * balasan ditolak sebelum provider sempat ditanya.
+         */
+        if ($percakapan->tanpaJendela()) {
+            return null;
         }
 
         if ($percakapan->windowHampirTutup(self::AMBANG_TANYA_MENIT)) {
@@ -687,7 +710,7 @@ class CrmReplyService
      */
     private function selaraskanJendela(CrmConversation $percakapan): void
     {
-        $status = $this->chat->provider()->windowStatus($percakapan->contact_key);
+        $status = $this->chat->untuk($percakapan)->windowStatus($percakapan->contact_key);
 
         if (! ($status['success'] ?? false)) {
             return;   // vendor tak terjangkau — catatan lokal tetap dipakai
@@ -759,28 +782,42 @@ class CrmReplyService
     }
 
     /**
-     * Thread CERMIN tidak bisa dikirimi apa pun dari ERP.
+     * Tandai chat sudah dibaca di HP CS, lewat jalur self-host.
      *
-     * Ditegakkan di sini, bukan cuma dengan menyembunyikan kotak ketik di
-     * layar. Percakapan cermin lahir dari chat yang masuk ke NOMOR UTAMA lewat
-     * WAHA, sedangkan segala yang berangkat dari service ini berangkat lewat
-     * jalur resmi — dari nomor yang berbeda. Balasan yang lolos akan mendarat
-     * di HP pelanggan sebagai pesan dari nomor asing, menanggapi percakapan
-     * yang tak pernah ia kirim ke situ, dan itu tidak bisa ditarik kembali.
+     * TIDAK otomatis, dan itu keputusan yang diambil sadar: sendSeen
+     * memunculkan CENTANG BIRU di HP pelanggan, jadi chat yang cuma diintip di
+     * ERP akan terbaca sebagai "sudah dilihat". "Dibaca tapi didiamkan" terasa
+     * lebih buruk bagi pelanggan daripada "belum dibaca" — maka yang memicunya
+     * manusia yang memang sudah menangani chatnya.
      *
-     * Jalur teruskan ikut tertutup dua arah: sebagai sumber ia tak berbahaya,
-     * tapi sebagai TUJUAN ia persis kebocoran yang sama.
+     * Hanya sah di thread cermin: jalur resmi mencabut nomornya dari aplikasi
+     * WhatsApp, jadi di sana tidak ada notifikasi HP yang perlu dibersihkan.
+     *
+     * @return array{success:bool, error:?string}
      */
-    private function pastikanBukanCermin(CrmConversation $percakapan): ?array
+    public function tandaiDibaca(CrmConversation $percakapan): array
     {
         if (! $percakapan->cermin()) {
-            return null;
+            return ['success' => false, 'error' => 'Percakapan ini bukan jalur self-host — tak ada notifikasi HP yang perlu dibersihkan.'];
         }
 
-        return $this->gagal(
-            'Percakapan ini cermin baca-saja dari nomor utama (WhatsApp Self-Host). '
-            . 'Balasannya dikirim dari HP; ERP baru mencatatnya.'
-        );
+        if (! (bool) config('crm.waha.tandai_dibaca', false)) {
+            return ['success' => false, 'error' => 'Fitur "tandai dibaca di HP" sedang dimatikan di Pengaturan.'];
+        }
+
+        if ($this->chat->isDryRun()) {
+            // Saklar jangan-kirim berlaku di sini juga: centang biru sampai ke
+            // pelanggan persis seperti pesan, cuma tanpa kata-kata.
+            return ['success' => false, 'error' => 'Saklar "jangan kirim" sedang menyala.'];
+        }
+
+        $provider = $this->chat->untuk($percakapan);
+
+        if (! $provider instanceof WahaChatProvider) {
+            return ['success' => false, 'error' => 'Jalur self-host tidak aktif untuk percakapan ini.'];
+        }
+
+        return $provider->tandaiDibaca((string) $percakapan->contact_key);
     }
 
     private function gagal(string $pesan): array

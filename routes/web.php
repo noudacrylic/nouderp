@@ -221,6 +221,9 @@ Route::prefix('erp')->group(function () {
         // Pancingan: template bertombol yang membuka lagi jendela 24 jam yang
         // habis di tengah pembahasan (hari libur, di luar jam kerja).
         Route::post('/{conversation}/pancingan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pancingan'])->name('inbox.pancingan');
+        // Tandai chat sudah dibaca di HP CS (WAHA sendSeen). Manual, tak pernah
+        // otomatis: ia memunculkan centang biru di HP pelanggan.
+        Route::post('/{conversation}/tandai-dibaca', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tandaiDibaca'])->name('inbox.tandai-dibaca');
         // Kirim foto produk (etalase) sebagai gambar berikut caption — pratinjau
         // tautan WhatsApp tidak bisa diandalkan, lihat kirimFotoProduk().
         Route::post('/{conversation}/kirim-foto', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'kirimFotoProduk'])->name('inbox.kirim-foto');

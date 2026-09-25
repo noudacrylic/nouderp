@@ -15,12 +15,6 @@
      Ongkir tidak diketik di sini — ia datang dari tab Ongkir, dan kalau isi
      keranjang berubah setelahnya, segmen Ongkir menandai dirinya basi. --}}
 @php
-    /* Thread cermin (nomor utama lewat WAHA) BACA-SAJA: kotak ketiknya tidak
-       dirender sama sekali. Tombol yang bekerja dengan cara menaruh teks ke
-       kotak itu karenanya diam tanpa galat — terlihat berfungsi padahal tidak
-       terjadi apa-apa. Tombolnya disembunyikan, bukan dibiarkan menipu. */
-    $cerminBacaSaja = (bool) $terpilih?->cermin();
-
     $draftPesanan = (array) ($terpilih?->order_draft['pesanan'] ?? []);
 
     // Wilayah tujuan hasil tab Ongkir (kecamatan/kota + id area kurir) — alamat
@@ -99,12 +93,10 @@
                     <div class="flex items-center gap-2">
                         {{-- Menyalin ke kotak ketik, bukan mengirim: menjawab
                              "sudah sampai mana" hampir selalu perlu pengantar. --}}
-                        @unless($cerminBacaSaja)
                             <button type="button" @click="sisipKeChat(p)"
                                     class="text-[11px] text-emerald-700 underline hover:no-underline">
                                 Status
                             </button>
-                        @endunless
                         {{-- Pintu ke halaman SO, tempat SEMUA perubahan
                              dikerjakan — item, ongkir, kesepakatan, posting.
                              Satu tab (bukan tab baru): keranjang & alamat sudah
@@ -114,13 +106,11 @@
                            class="text-[11px] font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
                             Buka SO
                         </a>
-                        @unless($cerminBacaSaja)
                             <button type="button" @click="kirimRincian(p)" :disabled="sibukRincian === p.id"
                                     class="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-2 py-1 disabled:opacity-60">
                                 <span x-show="sibukRincian !== p.id">Rincian + Link Bayar</span>
                                 <span x-show="sibukRincian === p.id" x-cloak>Menyiapkan…</span>
                             </button>
-                        @endunless
                     </div>
                 </div>
             </div>

@@ -176,6 +176,25 @@ class CrmConversation extends Model
     }
 
     /**
+     * Percakapan ini bebas dari jendela 24 jam?
+     *
+     * Dipisahkan dari cermin() meski hari ini jawabannya sama persis, dan
+     * pemisahan itu bukan hiasan: keduanya menjawab pertanyaan yang berbeda.
+     * cermin() = "lewat jalur mana thread ini hidup"; yang ini = "apakah
+     * aturan penagihan Meta berlaku padanya". Jendela 24 jam milik Cloud API,
+     * bukan milik WhatsApp — perangkat tertaut boleh mengirim kapan saja.
+     *
+     * Bedanya akan terasa di Tahap 8: kalau jalur resmi dipensiunkan, yang
+     * berubah jawabannya yang ini, sedangkan "thread ini dari nomor utama"
+     * tetap benar. Menyatukannya sekarang berarti mencari ulang setiap
+     * pemakaian dan menebak mana yang dimaksud yang mana.
+     */
+    public function tanpaJendela(): bool
+    {
+        return $this->cermin();
+    }
+
+    /**
      * Nama yang dipakai di layar untuk percakapan ini.
      *
      * Urutannya sengaja: nama pelanggan ERP (paling bermakna) → nama profil

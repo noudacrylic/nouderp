@@ -36,6 +36,7 @@ class CrmRuntimeConfig
         'attachment_retention_days' => 'int',
         'notifikasi_driver'         => 'string',
         'notifikasi_aktif'          => 'peta',
+        'tandai_dibaca'             => 'bool',
     ];
 
     /**
@@ -46,6 +47,7 @@ class CrmRuntimeConfig
     public const ALIAS = [
         'notifikasi_driver' => 'notifikasi.driver',
         'notifikasi_aktif'  => 'notifikasi.aktif',
+        'tandai_dibaca'     => 'waha.tandai_dibaca',
     ];
 
     private static bool $applied = false;

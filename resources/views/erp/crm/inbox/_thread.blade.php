@@ -2,14 +2,20 @@
      kolom kiri & rail kanan tidak ikut disusun ulang tiap kali thread dibuka. --}}
 @php
     /*
-     * Thread CERMIN (chat nomor utama lewat WAHA) baca-saja: ERP mencatatnya,
-     * balasannya tetap diketik dari HP. Jendela 24 jam sengaja dipaksa TUTUP
-     * di sini, bukan sekadar disembunyikan kotak ketiknya — penanda yang sama
-     * juga mematikan tombol "Balas" (kutip) di menu gelembung, dan dua
-     * penanda terpisah untuk satu keadaan pasti menyimpang.
+     * Thread nomor UTAMA (lewat WAHA) sejak Tahap 7 bisa dibalas dari ERP.
+     *
+     * Jendelanya dipaksa TERBUKA, dan itu bukan kelonggaran melainkan
+     * kenyataan: jendela 24 jam aturan penagihan Meta atas Cloud API, dan
+     * jalur ini bukan Cloud API. Penanda yang sama juga menyalakan tombol
+     * "Balas" (kutip) di menu gelembung — dua penanda terpisah untuk satu
+     * keadaan pasti menyimpang.
      */
     $cermin  = $terpilih->cermin();
-    $terbuka = ! $cermin && $terpilih->windowIsOpen();
+    $terbuka = $cermin || $terpilih->windowIsOpen();
+
+    /* Tombol "tandai dibaca di HP" cuma masuk akal di jalur self-host, dan
+       hanya kalau saklarnya dinyalakan — ia memunculkan centang biru. */
+    $bisaTandaiDibaca = $cermin && (bool) config('crm.waha.tandai_dibaca', false);
     // Ambangnya dibaca dari servicenya, bukan diketik ulang: angka yang
     // berbeda sedikit saja berarti tombolnya muncul di layar lalu ditolak
     // saat ditekan.
@@ -285,22 +291,33 @@
             <div x-show="galat" x-cloak x-text="galat"
                  class="mb-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700"></div>
             @if($cermin)
-                {{-- Tak ada kotak ketik sama sekali, dan itu memang pesannya:
-                     yang salah bukan waktunya melainkan jalurnya. Keterangannya
-                     menyebut apa yang HARUS dilakukan (balas dari HP), bukan
-                     cuma apa yang tidak bisa — kotak yang menerangkan
-                     kebuntuan lalu berhenti adalah yang membuat orang kembali
-                     ke HP tanpa mencatat apa pun. --}}
-                <div class="rounded border border-sky-300 bg-sky-50 px-3 py-3 text-sm text-sky-900">
-                    <b>Cermin baca-saja.</b> Ini chat yang masuk ke nomor utama
-                    (WhatsApp Self-Host). ERP merekamnya supaya riwayatnya
-                    tersimpan dan bisa dicari &mdash; balasannya tetap diketik
-                    dari HP seperti biasa.
-                    <div class="mt-1 text-[11px] text-sky-800">
-                        Balasan yang Anda kirim dari HP ikut muncul di sini sendiri.
-                    </div>
+                {{-- Keterangan jalur, BUKAN penghalang. Yang perlu diketahui
+                     admin cuma satu hal yang tak terlihat dari kotak ketik:
+                     pesan ini berangkat dari nomor utama, nomor yang sama yang
+                     dipegang HP CS — jadi ketikan dari HP dan dari sini
+                     bercampur di satu chat yang sama di HP pelanggan. --}}
+                <div class="mb-2 flex flex-wrap items-center gap-2 rounded border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+                    <span>
+                        Balasan berangkat dari <b>nomor utama</b> (WhatsApp Self-Host).
+                        Tanpa jendela 24 jam &mdash; dan ketikan dari HP CS tetap ikut tercatat di sini.
+                    </span>
+                    @if($bisaTandaiDibaca)
+                        {{-- Manual, tak pernah otomatis: menekannya memunculkan
+                             centang biru di HP pelanggan, jadi yang memutuskan
+                             harus orang yang memang sudah menangani chatnya —
+                             bukan kebetulan membukanya. --}}
+                        <form method="POST" action="{{ route('crm.inbox.tandai-dibaca', $terpilih) }}" class="ml-auto">
+                            @csrf
+                            <button type="submit"
+                                    title="Hilangkan notifikasi chat ini di HP CS. Pelanggan akan melihat centang biru."
+                                    class="px-2.5 py-1 rounded border border-sky-600 text-sky-800 hover:bg-sky-100">
+                                Tandai dibaca di HP
+                            </button>
+                        </form>
+                    @endif
                 </div>
-            @elseif($terbuka)
+            @endif
+            @if($terbuka)
                 {{-- Peringatan dini. Jendela yang tinggal sebentar tidak
                      kelihatan dari kotak ketik yang bekerja normal — dan yang
                      paling sering menutupnya bukan pelanggan yang pergi,

@@ -6,6 +6,7 @@ use App\Models\CrmSetting;
 use App\Modules\CRM\Contracts\NotificationProvider;
 use App\Modules\CRM\Support\PeranWaha;
 use App\Modules\CRM\Support\PhoneNumber;
+use App\Modules\CRM\Support\WahaClient;
 use App\Modules\CRM\Support\TemplateResmi;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -38,6 +39,8 @@ class WahaProvider implements NotificationProvider
 {
     private CrmSetting $setting;
 
+    private WahaClient $klien;
+
     /**
      * Peran menentukan SESI MANA — yaitu nomor WhatsApp mana — yang dipegang
      * instance ini. Satu container WAHA, beberapa nomor; adapter yang tidak
@@ -54,6 +57,7 @@ class WahaProvider implements NotificationProvider
     {
         $this->setting = $setting ?: CrmSetting::for('waha');
         $this->peran   = PeranWaha::sah($peran) ? $peran : PeranWaha::NOTIFIKASI;
+        $this->klien   = new WahaClient($this->setting);
     }
 
     public function key(): string
@@ -180,45 +184,7 @@ class WahaProvider implements NotificationProvider
             return ['siap' => false, 'status' => 'BELUM_DIATUR', 'keterangan' => 'Jalur WAHA belum dikonfigurasi.'];
         }
 
-        $res = $this->request('get', '/api/sessions/' . rawurlencode($this->sesi()));
-
-        if (! $res['success']) {
-            /*
-             * Ditolak (401/403) BEDA dari tak terjangkau, dan membedakannya
-             * menentukan apa yang harus dikerjakan orang berikutnya: kunci yang
-             * salah diperbaiki di layar Pengaturan, sedangkan sesi yang putus
-             * menuntut scan QR memakai HP. Menyatukan keduanya jadi satu pesan
-             * "scan ulang QR" mengirim orang ke pekerjaan yang keliru.
-             */
-            /*
-             * Tiga sebab yang tampak sama di layar tapi menuntut tindakan
-             * berbeda sama sekali:
-             *  401/403 = kunci salah         -> perbaiki satu kolom di Pengaturan
-             *  404     = nama sesi tak ada   -> samakan namanya dengan dasbor
-             *  sisanya = WAHA tak menjawab   -> periksa container/terowongan
-             * Menyatukannya membuat orang memeriksa jaringan yang sehat, atau
-             * memindai QR untuk sesi yang sebenarnya sedang WORKING.
-             */
-            $status = match (true) {
-                in_array($res['kode'] ?? 0, [401, 403], true) => 'KUNCI_DITOLAK',
-                ($res['kode'] ?? 0) === 404                   => 'SESI_TIDAK_ADA',
-                default                                       => 'TAK_TERJANGKAU',
-            };
-
-            return [
-                'siap'       => false,
-                'status'     => $status,
-                'keterangan' => (string) $res['error'],
-            ];
-        }
-
-        $status = strtoupper((string) (data_get($res['data'], 'status') ?: 'TIDAK_DIKETAHUI'));
-
-        return [
-            'siap'       => $status === 'WORKING',
-            'status'     => $status,
-            'keterangan' => $status === 'WORKING' ? null : 'Sesi belum siap mengirim.',
-        ];
+        return $this->klien->statusSesi($this->sesi());
     }
 
     /**
@@ -430,57 +396,14 @@ class WahaProvider implements NotificationProvider
     }
 
     /**
-     * @return array{success:bool, data:array, terjangkau:bool, kode:int, error:?string}
+     * Diteruskan ke WahaClient — penafsiran jawaban WAHA duduk di sana supaya
+     * adapter chat (Tahap 7) memakai pembacaan yang sama persis.
      *
-     * 'terjangkau' memisahkan dua kegagalan yang tampak mirip tapi berbeda
-     * penanganannya: WAHA menjawab-tapi-menolak (permanen) vs WAHA tak
-     * menjawab sama sekali (sementara).
+     * @return array{success:bool, data:array, terjangkau:bool, kode:int, error:?string}
      */
     private function request(string $method, string $path, array $body = [], ?int $timeout = null): array
     {
-        try {
-            $req = Http::withHeaders(['X-Api-Key' => (string) $this->setting->api_key])
-                ->acceptJson()
-                ->timeout($timeout ?? (int) config('crm.waha.timeout', 20));
-
-            $url = $this->setting->effectiveBaseUrl() . $path;
-
-            // 'put' dipakai memperbarui konfigurasi sesi (pasangWebhook).
-            // Ditulis sebagai match, bukan rantai ternary, supaya verb yang
-            // belum didukung meledak di sini alih-alih diam-diam dikirim
-            // sebagai POST ke endpoint yang tidak mengharapkannya.
-            $res = match ($method) {
-                'get' => $req->get($url),
-                'put' => $req->put($url, $body),
-                'post' => $req->post($url, $body),
-            };
-        } catch (\Throwable $e) {
-            Log::warning('[CRM] WAHA tidak terjangkau', ['path' => $path, 'error' => $e->getMessage()]);
-
-            return ['success' => false, 'data' => [], 'terjangkau' => false, 'kode' => 0, 'error' => $e->getMessage()];
-        }
-
-        $json = (array) ($res->json() ?? []);
-
-        if ($res->failed()) {
-            $error = data_get($json, 'message') ?? data_get($json, 'error') ?? 'HTTP ' . $res->status();
-
-            Log::warning('[CRM] WAHA menolak permintaan', [
-                'path'    => $path,
-                'status'  => $res->status(),
-                'jawaban' => mb_substr($res->body(), 0, 1000),
-            ]);
-
-            /*
-             * 5xx & 429 = WAHA hidup tapi sedang tak sanggup (engine baru
-             * bangun, antrean penuh). Itu sementara — ditahan, bukan hangus.
-             */
-            $sementara = $res->status() >= 500 || $res->status() === 429;
-
-            return ['success' => false, 'data' => $json, 'terjangkau' => ! $sementara, 'kode' => $res->status(), 'error' => (string) $error];
-        }
-
-        return ['success' => true, 'data' => $json, 'terjangkau' => true, 'kode' => $res->status(), 'error' => null];
+        return $this->klien->request($method, $path, $body, $timeout);
     }
 
     private function gagal(string $pesan): array

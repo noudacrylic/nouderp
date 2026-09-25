@@ -116,6 +116,26 @@ return [
             'utama'      => env('CRM_WAHA_SESSION_UTAMA', 'utama'),
             'notifikasi' => env('CRM_WAHA_SESSION', 'notifikasi'),
         ],
+
+        /*
+         | "Tandai dibaca di HP" (sendSeen). Bawaannya MATI.
+         |
+         | Gunanya nyata: chat yang sudah ditangani di ERP tetap tampak belum
+         | dibaca di HP CS, jadi notifikasinya menumpuk di sana. Harganya juga
+         | nyata: sendSeen memunculkan CENTANG BIRU di HP pelanggan.
+         |
+         | Karena itu ia tidak pernah otomatis — bahkan saat saklar ini
+         | menyala, yang memicunya tetap tombol yang ditekan manusia. Chat yang
+         | cuma diintip di ERP jangan sampai terbaca sebagai "sudah dilihat";
+         | "dibaca tapi didiamkan" terasa lebih buruk bagi pelanggan daripada
+         | "belum dibaca".
+         |
+         | Tuas di luar kode yang mencapai tujuan sama TANPA centang biru:
+         | matikan "laporan telah dibaca" di setelan privasi nomor utama.
+         | Harganya, centang biru hilang dua arah — ERP pun kehilangan
+         | tingkat 'dibaca' pada pesan yang KITA kirim.
+         */
+        'tandai_dibaca' => (bool) env('CRM_WAHA_TANDAI_DIBACA', false),
     ],
 
     /*

@@ -1076,6 +1076,26 @@ class CrmInboxController extends Controller
     }
 
     /**
+     * Tandai chat ini sudah dibaca di HP CS.
+     *
+     * Dipisah jadi tombolnya sendiri, tidak ditumpangkan ke aksi "buka thread",
+     * karena akibatnya sampai ke PELANGGAN: centang biru. Chat yang cuma
+     * dilirik di ERP tidak boleh terbaca sebagai "sudah dilihat" — "dibaca tapi
+     * didiamkan" terasa lebih buruk daripada "belum dibaca".
+     */
+    public function tandaiDibaca(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
+    {
+        $hasil = $balasan->tandaiDibaca($conversation);
+
+        return back()->with(
+            $hasil['success'] ? 'success' : 'error',
+            $hasil['success']
+                ? 'Chat ' . $conversation->namaTampil() . ' ditandai sudah dibaca — notifikasinya hilang dari HP CS.'
+                : $hasil['error']
+        );
+    }
+
+    /**
      * Kirim FOTO produk berikut captionnya — bukan sekadar tautannya.
      *
      * WhatsApp tidak selalu memunculkan pratinjau untuk tautan yang dikirim;

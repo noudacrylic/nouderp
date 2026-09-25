@@ -433,35 +433,46 @@ class CerminWahaTest extends TestCase
     }
 
     /**
-     * Penjaga baca-saja ada di service, bukan cuma di tampilan. Kotak ketik
-     * yang disembunyikan hanya menahan orang yang melihat layarnya; yang
-     * ditolak di sini adalah pesannya, sebelum satu huruf pun berangkat.
+     * SEJAK TAHAP 7 thread nomor utama BISA dibalas dari ERP — kebalikan dari
+     * Tahap 6, dan pembalikan itu disengaja.
+     *
+     * Yang diuji di sini bukan sekadar "tidak ditolak", melainkan bahwa
+     * jendela 24 jam TIDAK ikut menghalangi. Jendela sengaja ditutup rapat:
+     * kalau penjaganya masih berlaku di jalur ini, balasan ditolak — padahal
+     * jendela itu aturan penagihan Meta atas Cloud API, dan jalur ini bukan
+     * Cloud API. CS yang mengetik dari HP memang bisa membalas chat setahun
+     * lalu; ERP tidak boleh lebih penakut dari HP.
      */
-    public function test_thread_cermin_menolak_dibalas_dari_erp(): void
+    public function test_thread_cermin_bisa_dibalas_dan_tidak_terikat_jendela(): void
     {
         $this->kirim($this->payload())->assertOk();
 
         $percakapan = CrmConversation::sole();
 
-        // Jendela sengaja dibuka supaya yang menolak BENAR-BENAR penjaga
-        // cermin, bukan jendela 24 jam yang kebetulan tertutup.
-        $percakapan->forceFill(['window_expires_at' => now()->addHours(5)])->save();
+        $percakapan->forceFill(['window_expires_at' => now()->subDays(30)])->save();
 
-        $hasil = app(CrmReplyService::class)->balas($percakapan, 'coba balas dari ERP');
+        $hasil = app(CrmReplyService::class)->balas($percakapan, 'balasan dari ERP');
 
-        $this->assertFalse($hasil['success']);
-        $this->assertStringContainsString('cermin baca-saja', strtolower((string) $hasil['error']));
-        $this->assertSame(1, CrmMessage::count(), 'tidak ada baris keluar yang tertulis');
+        $this->assertTrue($hasil['success'], (string) ($hasil['error'] ?? ''));
+        $this->assertSame(2, CrmMessage::count(), 'baris keluarnya tertulis di thread');
     }
 
-    public function test_thread_cermin_menolak_pancingan(): void
+    /**
+     * Pancingan TETAP ditolak, dan alasannya berubah total dari Tahap 6.
+     *
+     * Dulu: thread ini tidak boleh dikirimi apa pun. Sekarang: seluruh guna
+     * pancingan adalah membuka lagi jendela 24 jam yang mau habis, dan jalur
+     * ini tidak punya jendela. Yang tersisa cuma mengganggu orang tanpa satu
+     * pun alasan yang membuat fiturnya ada.
+     */
+    public function test_thread_cermin_menolak_pancingan_karena_tak_punya_jendela(): void
     {
         $this->kirim($this->payload())->assertOk();
 
         $hasil = app(CrmReplyService::class)->kirimPancingan(CrmConversation::sole(), null, true);
 
         $this->assertFalse($hasil['success']);
-        $this->assertStringContainsString('cermin baca-saja', strtolower((string) $hasil['error']));
+        $this->assertStringContainsString('jendela 24 jam', strtolower((string) $hasil['error']));
     }
 
     /**
