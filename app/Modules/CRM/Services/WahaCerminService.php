@@ -214,6 +214,29 @@ class WahaCerminService
 
         $pesan = CrmMessage::where('provider_message_id', 'waha:' . $id)->first();
 
+        /*
+         * BENTUK ID TIDAK SAMA DI KEDUA UJUNG — dan itu yang membuat centang
+         * pesan kiriman ERP membeku di satu (dilaporkan 25 Sep 2026: di HP
+         * sudah centang dua, di ERP masih satu).
+         *
+         * Jawaban /api/sendText memberi id PENDEK ('3EB0…'), sedangkan
+         * `message.ack` mengabarkan bentuk PANJANG
+         * ('true_628…@c.us_3EB0…'). Pencarian cocok-persis karenanya tak
+         * pernah menemukan barisnya, dan tak ada galat apa pun yang muncul —
+         * ack-nya cuma didiamkan seperti ack chat grup yang memang dibuang.
+         *
+         * Dicocokkan potongan terakhirnya, lalu idnya DIKANONIKALKAN ke bentuk
+         * panjang supaya ack berikutnya (sampai → dibaca) cocok persis tanpa
+         * perlu menebak lagi.
+         */
+        if (! $pesan) {
+            $pesan = $this->barisKitaSendiri('waha:' . $id);
+
+            if ($pesan) {
+                $pesan->forceFill(['provider_message_id' => 'waha:' . $id])->save();
+            }
+        }
+
         // Pesan yang belum pernah direkam (mis. ack menyusul chat grup yang
         // memang kita buang) bukan kesalahan — diamkan.
         if (! $pesan || $pesan->direction !== CrmMessage::KELUAR) {

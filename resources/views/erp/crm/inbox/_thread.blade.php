@@ -290,32 +290,26 @@
          @kirim-balasan="kirim($event.detail.form)">
             <div x-show="galat" x-cloak x-text="galat"
                  class="mb-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700"></div>
-            @if($cermin)
-                {{-- Keterangan jalur, BUKAN penghalang. Yang perlu diketahui
-                     admin cuma satu hal yang tak terlihat dari kotak ketik:
-                     pesan ini berangkat dari nomor utama, nomor yang sama yang
-                     dipegang HP CS — jadi ketikan dari HP dan dari sini
-                     bercampur di satu chat yang sama di HP pelanggan. --}}
-                <div class="mb-2 flex flex-wrap items-center gap-2 rounded border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900">
-                    <span>
-                        Balasan berangkat dari <b>nomor utama</b> (WhatsApp Self-Host).
-                        Tanpa jendela 24 jam &mdash; dan ketikan dari HP CS tetap ikut tercatat di sini.
-                    </span>
-                    @if($bisaTandaiDibaca)
-                        {{-- Manual, tak pernah otomatis: menekannya memunculkan
-                             centang biru di HP pelanggan, jadi yang memutuskan
-                             harus orang yang memang sudah menangani chatnya —
-                             bukan kebetulan membukanya. --}}
-                        <form method="POST" action="{{ route('crm.inbox.tandai-dibaca', $terpilih) }}" class="ml-auto">
-                            @csrf
-                            <button type="submit"
-                                    title="Hilangkan notifikasi chat ini di HP CS. Pelanggan akan melihat centang biru."
-                                    class="px-2.5 py-1 rounded border border-sky-600 text-sky-800 hover:bg-sky-100">
-                                Tandai dibaca di HP
-                            </button>
-                        </form>
-                    @endif
-                </div>
+            {{-- Keterangan "balasan berangkat dari nomor utama" SENGAJA TIDAK ADA.
+                 Ia menerangkan hal yang sudah jelas dari isi thread (gelembung
+                 ketikan HP CS ikut tampil di sini, bertanda "dari HP"), dan
+                 pita permanen yang tak pernah berubah berhenti dibaca dalam
+                 sehari sambil terus memakan tinggi yang seharusnya jadi
+                 percakapan. Yang tersisa cuma tombol, dan hanya kalau ada
+                 gunanya ditekan. --}}
+            @if($bisaTandaiDibaca)
+                {{-- Manual, tak pernah otomatis: menekannya memunculkan centang
+                     biru di HP pelanggan, jadi yang memutuskan harus orang yang
+                     memang sudah menangani chatnya — bukan kebetulan
+                     membukanya. --}}
+                <form method="POST" action="{{ route('crm.inbox.tandai-dibaca', $terpilih) }}" class="mb-2 flex justify-end">
+                    @csrf
+                    <button type="submit"
+                            title="Hilangkan notifikasi chat ini di HP CS. Pelanggan akan melihat centang biru."
+                            class="px-2.5 py-1 rounded border border-sky-600 text-sky-800 hover:bg-sky-100 text-xs">
+                        Tandai dibaca di HP
+                    </button>
+                </form>
             @endif
             @if($terbuka)
                 {{-- Peringatan dini. Jendela yang tinggal sebentar tidak

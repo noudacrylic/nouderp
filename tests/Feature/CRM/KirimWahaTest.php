@@ -289,6 +289,93 @@ class KirimWahaTest extends TestCase
         $this->assertTrue($status['is_open']);
     }
 
+    /* ------------------------------------------------------------ centang */
+
+    /**
+     * Id disimpan dalam bentuk PANJANG kalau WAHA menyediakannya.
+     *
+     * NOWEB menjawab kirim dengan objek id, bukan string — dan di dalamnya ada
+     * `_serialized` (bentuk panjang) di samping `id` (bentuk pendek).
+     * `message.ack` yang menyusul memakai bentuk panjang; kalau yang kita
+     * simpan yang pendek, ack tak pernah menemukan barisnya.
+     */
+    public function test_id_kirim_memakai_bentuk_panjang_bila_waha_menyediakannya(): void
+    {
+        $this->wahaSehat(['id' => [
+            'fromMe'      => true,
+            'remote'      => '6281234000111@c.us',
+            'id'          => '3EB0PENDEK',
+            '_serialized' => 'true_6281234000111@c.us_3EB0PENDEK',
+        ]]);
+
+        app(CrmReplyService::class)->balas($this->cermin(), 'tes bentuk id');
+
+        $this->assertSame(
+            'waha:true_6281234000111@c.us_3EB0PENDEK',
+            CrmMessage::where('direction', CrmMessage::KELUAR)->value('provider_message_id')
+        );
+    }
+
+    /**
+     * CENTANG HARUS BERGERAK walau bentuk id di kedua ujung berbeda.
+     *
+     * Dilaporkan 25 Sep 2026: di HP pelanggan sudah centang dua, di ERP masih
+     * satu. Sebabnya jawaban kirim memberi id pendek sedangkan `message.ack`
+     * mengabarkan yang panjang — pencarian cocok-persis meleset, dan ack-nya
+     * didiamkan tanpa galat apa pun, persis seperti ack chat grup yang memang
+     * dibuang.
+     *
+     * Jawaban kirim di sini SENGAJA cuma berisi id pendek: itu keadaan yang
+     * sudah terlanjur ada di basis data server.
+     */
+    public function test_centang_bergerak_walau_bentuk_id_kirim_dan_ack_berbeda(): void
+    {
+        $this->wahaSehat(['id' => '3EB0PENDEK']);
+
+        app(CrmReplyService::class)->balas($this->cermin(), 'tes centang');
+
+        $pesan = CrmMessage::where('direction', CrmMessage::KELUAR)->sole();
+        $this->assertSame('waha:3EB0PENDEK', $pesan->provider_message_id);
+
+        app(\App\Modules\CRM\Services\WahaCerminService::class)->perbaruiAck([
+            'id'      => 'true_6281234000111@c.us_3EB0PENDEK',
+            'ackName' => 'READ',
+            'ack'     => 3,
+        ]);
+
+        $pesan->refresh();
+
+        $this->assertSame('read', $pesan->status, 'centang tidak bergerak');
+        $this->assertSame(
+            'waha:true_6281234000111@c.us_3EB0PENDEK',
+            $pesan->provider_message_id,
+            'id dikanonikalkan supaya ack berikutnya cocok persis'
+        );
+    }
+
+    /**
+     * Ack untuk pesan yang BUKAN milik kita tidak boleh menyerempet baris lain.
+     *
+     * Pencocokan potongan-terakhir itu longgar secara sengaja; tanpa batas
+     * arah KELUAR, sebuah ack bisa menimpa status pesan MASUK milik orang
+     * lain yang kebetulan berakhiran sama.
+     */
+    public function test_ack_asing_tidak_menyerempet_baris_mana_pun(): void
+    {
+        $this->wahaSehat(['id' => '3EB0PENDEK']);
+        app(CrmReplyService::class)->balas($this->cermin(), 'tes');
+
+        app(\App\Modules\CRM\Services\WahaCerminService::class)->perbaruiAck([
+            'id'      => 'true_6281234000111@c.us_3EB0LAINSEKALI',
+            'ackName' => 'READ',
+        ]);
+
+        $this->assertSame(
+            'waha:3EB0PENDEK',
+            CrmMessage::where('direction', CrmMessage::KELUAR)->value('provider_message_id')
+        );
+    }
+
     /* ------------------------------------------------- gema pesan sendiri */
 
     /**

@@ -4,6 +4,7 @@ namespace App\Modules\CRM\Providers;
 
 use App\Models\CrmSetting;
 use App\Modules\CRM\Contracts\ChatProvider;
+use App\Modules\CRM\Services\WahaCerminService;
 use App\Modules\CRM\Support\PeranWaha;
 use App\Modules\CRM\Support\PhoneNumber;
 use App\Modules\CRM\Support\WahaClient;
@@ -403,9 +404,28 @@ class WahaChatProvider implements ChatProvider
             return $this->gagal((string) $res['error']);
         }
 
-        $id = data_get($res['data'], 'id')
-            ?? data_get($res['data'], '_data.id.id')
-            ?? data_get($res['data'], 'key.id');
+        /*
+         * BENTUK PANJANG DIDAHULUKAN, dan urutan ini yang menentukan apakah
+         * centang bisa bergerak.
+         *
+         * `message.ack` yang menyusul kemudian mengabarkan id bentuk panjang
+         * ('true_628…@c.us_3EB0…'). Kalau yang kita simpan bentuk pendeknya,
+         * ack itu tak pernah menemukan barisnya — centang membeku di satu
+         * walau di HP pelanggan sudah dua, tanpa satu pun galat yang muncul.
+         *
+         * Dibaca lewat WahaCerminService::teks() karena `id` bisa datang
+         * sebagai OBJEK ({fromMe, remote, id, _serialized}), bukan string —
+         * pelajaran 24 Sep: jangan percaya bentuk field payload WAHA.
+         */
+        $id = '';
+
+        foreach (['id._serialized', '_data.id._serialized', 'id', 'key.id', '_data.id.id'] as $jalan) {
+            $id = WahaCerminService::teks(data_get($res['data'], $jalan));
+
+            if ($id !== '') {
+                break;
+            }
+        }
 
         /*
          * Id disimpan dengan awalan 'waha:' — sama seperti yang dipasang
@@ -417,7 +437,7 @@ class WahaChatProvider implements ChatProvider
          */
         return [
             'success'     => true,
-            'message_id'  => $id ? 'waha:' . (is_scalar($id) ? (string) $id : '') : null,
+            'message_id'  => $id !== '' ? 'waha:' . $id : null,
             'customer_id' => null,
             'raw'         => (array) $res['data'],
             'error'       => null,
