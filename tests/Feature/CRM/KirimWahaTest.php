@@ -376,6 +376,40 @@ class KirimWahaTest extends TestCase
         );
     }
 
+    /**
+     * Ack DIJANGKARKAN ke percakapannya — tidak boleh menyeberang.
+     *
+     * Pencocokan potongan-id itu longgar dengan sengaja. Tanpa jangkar
+     * `conversation_id` ia punya dua akibat, dan keduanya buruk:
+     *  - SALAH: potongan yang sama bisa muncul di chat orang lain, dan yang
+     *    tertimpa centangnya adalah pesan ke orang yang salah;
+     *  - LAMBAT: `LIKE '%…'` berawalan jokar tak bisa memakai indeks, jadi
+     *    setiap ack memindai seluruh `crm_messages`. `message.ack` datang
+     *    untuk SEMUA chat dan kebanyakan tak punya barisnya di sini, jadi
+     *    justru jalur gagal itulah yang paling sering ditempuh — cukup untuk
+     *    membuat webhook menumpuk sampai pesan masuk telat sampai ke layar.
+     */
+    public function test_ack_tidak_menyeberang_ke_percakapan_lain(): void
+    {
+        $this->wahaSehat(['id' => '3EB0SAMAPERSIS']);
+
+        // Baris kita ada di percakapan A.
+        app(CrmReplyService::class)->balas($this->cermin('6281234000111'), 'punya A');
+
+        $pesan = CrmMessage::where('direction', CrmMessage::KELUAR)->sole();
+
+        // Ack datang membawa nomor percakapan B, walau potongan idnya sama.
+        app(\App\Modules\CRM\Services\WahaCerminService::class)->perbaruiAck([
+            'id'      => 'true_6289990001122@c.us_3EB0SAMAPERSIS',
+            'ackName' => 'READ',
+        ]);
+
+        $pesan->refresh();
+
+        $this->assertSame('waha:3EB0SAMAPERSIS', $pesan->provider_message_id, 'id tidak boleh dikanonikalkan lintas chat');
+        $this->assertNotSame('read', $pesan->status);
+    }
+
     /* ------------------------------------------------- gema pesan sendiri */
 
     /**

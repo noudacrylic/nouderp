@@ -134,6 +134,36 @@ class LencanaBelumDibacaTest extends TestCase
             ->assertDontSee('class="crm-lencana"', false);
     }
 
+    /* --------------------------------------------- penanda di baris daftar */
+
+    /**
+     * Baris yang belum dibaca tampak BERBEDA, tidak cuma punya angka kecil.
+     *
+     * Di daftar sepanjang ratusan baris, satu titik pucat di pojok hilang
+     * begitu saja — yang dicari mata saat menggulir cepat adalah baris yang
+     * berbeda, bukan angka yang harus ditemukan lebih dulu.
+     */
+    public function test_baris_belum_dibaca_punya_penanda_sendiri(): void
+    {
+        $admin = $this->admin();
+        $this->chat(3);
+
+        $html = $this->actingAs($admin)->get('/erp/crm')->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-belum-dibaca', $html);
+        $this->assertStringContainsString('font-bold text-gray-900', $html, 'nama chat dicetak tebal');
+    }
+
+    /** Chat yang sudah dibaca tidak boleh ikut ditandai. */
+    public function test_baris_sudah_dibaca_tidak_ditandai(): void
+    {
+        $admin = $this->admin();
+        $this->chat(0);
+
+        $this->actingAs($admin)->get('/erp/crm')->assertOk()
+            ->assertDontSee('data-belum-dibaca', false);
+    }
+
     /* ------------------------------------------------------------ PWA `/cs` */
 
     /**

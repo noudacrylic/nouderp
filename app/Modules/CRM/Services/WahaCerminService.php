@@ -230,7 +230,7 @@ class WahaCerminService
          * perlu menebak lagi.
          */
         if (! $pesan) {
-            $pesan = $this->barisKitaSendiri('waha:' . $id);
+            $pesan = $this->barisKitaSendiri('waha:' . $id, $this->percakapanDariId($id));
 
             if ($pesan) {
                 $pesan->forceFill(['provider_message_id' => 'waha:' . $id])->save();
@@ -259,8 +259,29 @@ class WahaCerminService
      * baris yang idnya belum berbentuk panjang, supaya pencarian ini tidak
      * pernah menyerempet pesan masuk milik orang lain.
      */
-    private function barisKitaSendiri(string $idPanjang): ?CrmMessage
+    private function barisKitaSendiri(string $idPanjang, ?int $percakapanId): ?CrmMessage
     {
+        /*
+         * WAJIB DIJANGKARKAN KE SATU PERCAKAPAN, dan ini bukan sekadar
+         * kerapian melainkan dua hal sekaligus.
+         *
+         * KECEPATAN. `LIKE '%…'` berawalan jokar tidak bisa memakai indeks:
+         * tanpa jangkar ia memindai SELURUH `crm_messages` — puluhan ribu baris
+         * setelah riwayat diimpor. `message.ack` datang untuk setiap tanda
+         * terima di semua chat, dan kebanyakan tidak punya barisnya di sini,
+         * jadi justru jalur gagal inilah yang paling sering ditempuh. Sekali
+         * pindaian penuh per ack sudah cukup membuat webhook menumpuk sampai
+         * pesan masuk terlambat sampai ke layar. Dengan `conversation_id`
+         * di depan, yang dipindai tinggal puluhan baris milik chat itu.
+         *
+         * KEBENARAN. Potongan id tanpa jangkar bisa cocok dengan pesan di
+         * percakapan LAIN yang kebetulan berakhiran sama — dan yang tertimpa
+         * status centangnya adalah pesan ke orang yang salah.
+         */
+        if (! $percakapanId) {
+            return null;
+        }
+
         $potongan = substr($idPanjang, (int) strrpos($idPanjang, '_') + 1);
 
         // Potongan yang terlalu pendek bukan sidik yang bisa dipercaya —
@@ -269,12 +290,39 @@ class WahaCerminService
             return null;
         }
 
-        return CrmMessage::where('direction', CrmMessage::KELUAR)
+        return CrmMessage::where('conversation_id', $percakapanId)
+            ->where('direction', CrmMessage::KELUAR)
             ->where(fn ($q) => $q
                 ->where('provider_message_id', 'waha:' . $potongan)
                 ->orWhere('provider_message_id', 'like', '%\_' . $potongan))
             ->latest('id')
             ->first();
+    }
+
+    /**
+     * Percakapan cermin yang dituju sebuah id pesan WAHA bentuk panjang.
+     *
+     * Bentuknya `true_628xxx@c.us_3EB0…` — nomor lawan bicara ada di tengah,
+     * jadi idnya sendiri sudah cukup untuk menemukan threadnya tanpa menebak
+     * dari field `from`/`to` yang artinya berbalik tergantung siapa pengirim.
+     */
+    private function percakapanDariId(string $idPanjang): ?int
+    {
+        $bagian = explode('_', $idPanjang);
+
+        if (count($bagian) < 3) {
+            return null;   // bentuk pendek: tak ada nomor di dalamnya
+        }
+
+        $nomor = PhoneNumber::normalize(strstr($bagian[1], '@', true) ?: $bagian[1]);
+
+        if (! $nomor) {
+            return null;
+        }
+
+        return CrmConversation::where('channel', CrmConversation::KANAL_CERMIN)
+            ->where('contact_key', $nomor)
+            ->value('id');
     }
 
     /**
@@ -517,7 +565,7 @@ class WahaCerminService
          * `message.ack` yang menyusul (yang juga memakai bentuk panjang)
          * menemukan barisnya dan centangnya bisa bergerak.
          */
-        if ($dariKita && ($kembar = $this->barisKitaSendiri($id))) {
+        if ($dariKita && ($kembar = $this->barisKitaSendiri($id, $percakapan->id))) {
             $kembar->forceFill(['provider_message_id' => $id])->save();
 
             return null;

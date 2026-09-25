@@ -191,6 +191,14 @@
             @php
                 $aktif   = $terpilih && $terpilih->id === $p->id;
                 $namaTampil = $p->customer->name ?? $p->display_name ?? $p->contact_key;
+
+                /* Belum dibaca ditandai di EMPAT tempat sekaligus — nama, cuplikan,
+                   jam, dan lencana — meniru cara aplikasi pesan menandainya.
+                   Sebelumnya cuma lencana kecil pucat di pojok, dan di daftar
+                   sepanjang 500 baris satu titik sekecil itu hilang begitu saja:
+                   yang dicari mata saat menggulir cepat adalah baris yang
+                   BERBEDA, bukan angka yang harus ditemukan dulu. */
+                $belum = (int) $p->unread_count > 0;
             @endphp
             {{-- Barisnya BUKAN <a> lagi: tombol titik tiga tak boleh bersarang di
                  dalam tautan. Tautannya dibentangkan jadi lapisan tak terlihat dan
@@ -198,8 +206,13 @@
             {{-- `data-baris-aktif` bukan hiasan: kelas warnanya dipakai juga oleh
                  chip filter yang sedang menyala, dan chip itu berdiri lebih dulu
                  di DOM — mencari baris aktif lewat kelas akan menemukan chip. --}}
+            {{-- Baris aktif menang atas penanda belum-dibaca: chat yang sedang
+                 dibuka memang sedang dibaca, dan dua latar berwarna bertumpuk
+                 membuat keduanya sama-sama tak terbaca. --}}
             <div {{ $aktif ? 'data-baris-aktif' : '' }}
-                 class="relative hover:bg-emerald-50 {{ $aktif ? 'bg-emerald-50 border-l-4 border-emerald-600' : '' }}">
+                 class="relative hover:bg-emerald-50
+                        {{ $aktif ? 'bg-emerald-50 border-l-4 border-emerald-600'
+                                  : ($belum ? 'bg-emerald-50/40 border-l-4 border-emerald-500' : '') }}">
                 <a href="{{ route($rutaChat, array_merge([$p->id], $kueriBaris)) }}" class="absolute inset-0 z-0"
                    aria-label="Buka chat {{ $namaTampil }}"></a>
 
@@ -213,13 +226,13 @@
                              satu-satunya petunjuk isi tanpa membuka threadnya. --}}
                         <div class="min-w-0">
                             <div class="flex items-center gap-1 min-w-0">
-                                <span class="font-medium truncate">{{ $namaTampil }}</span>
+                                <span class="truncate {{ $belum ? 'font-bold text-gray-900' : 'font-medium' }}">{{ $namaTampil }}</span>
                                 @unless($p->customer_id)
                                     <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 uppercase"
                                           title="Belum tertaut pelanggan mana pun di ERP">Lead</span>
                                 @endunless
                             </div>
-                            <div class="text-xs text-gray-500 truncate">
+                            <div class="text-xs truncate {{ $belum ? 'text-gray-800 font-semibold' : 'text-gray-500' }}">
                                 @if($p->pesanTerakhir)
                                     {{-- Siapa yang bicara terakhir menentukan apakah
                                          bola ada di kita; tanpa penanda ini cuplikan
@@ -237,9 +250,14 @@
                         {{-- Ruang kanan disisakan buat tombol titik tiga supaya jam
                              kirim tidak tertimpa olehnya di kolom sesempit ini. --}}
                         <div class="text-right shrink-0 pr-5">
-                            <div class="text-[11px] text-gray-400">{{ $p->last_message_at?->diffForHumans() ?? '—' }}</div>
-                            @if($p->unread_count > 0)
-                                <span class="inline-block mt-1 px-1.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">{{ $p->unread_count }}</span>
+                            <div class="text-[11px] {{ $belum ? 'text-emerald-700 font-semibold' : 'text-gray-400' }}">{{ $p->last_message_at?->diffForHumans() ?? '—' }}</div>
+                            @if($belum)
+                                {{-- Padat berisi, bukan pucat: lencana ini satu-satunya
+                                     yang menyebut BERAPA, dan angkanya yang membedakan
+                                     "satu sapaan" dari "sudah menunggu lima pesan". --}}
+                                <span data-belum-dibaca
+                                      class="inline-flex items-center justify-center mt-1 min-w-[20px] h-5 px-1.5 rounded-full
+                                             text-[11px] font-bold bg-emerald-600 text-white shadow-sm">{{ $p->unread_count > 99 ? '99+' : $p->unread_count }}</span>
                             @endif
                         </div>
                     </div>
