@@ -3,6 +3,7 @@
 namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\Controllers\WahaWebhookController;
+use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmWebhookEvent;
 
@@ -44,10 +45,28 @@ class WebhookHealthService
      */
     public function sepi(): ?array
     {
+        /*
+         * KIRIMAN LEWAT WAHA TIDAK DIHITUNG — dan tanpa ini seluruh pita
+         * berubah jadi alarm palsu yang menyala terus.
+         *
+         * Cara baca fungsi ini bertumpu pada satu hal: setiap pesan keluar
+         * memancing kabar balik lewat jalur yang sama. Kabar balik WAHA sudah
+         * dikecualikan di bawah (alasannya di sana), jadi kalau kirimannya
+         * TIDAK ikut dikecualikan, sisi timbangannya jadi pincang: satu
+         * balasan lewat nomor utama membuktikan "ada yang dikirim", tak ada
+         * kabar resmi yang menyusul, lalu jalur resmi divonis mati padahal ia
+         * cuma sedang tidak dipakai.
+         *
+         * Sejak Tahap 7 hampir semua balasan berangkat lewat WAHA, jadi tanpa
+         * pengecualian ini pitanya praktis menyala selamanya — dan pita yang
+         * selalu menyala sama saja dengan tidak ada pita, justru pada
+         * kerusakan yang satu-satunya gejalanya adalah pita ini.
+         */
         $kirim = CrmMessage::keluar()
             ->whereIn('status', self::KELUAR_SUNGGUHAN)
+            ->whereHas('conversation', fn ($q) => $q->where('channel', '!=', CrmConversation::KANAL_CERMIN))
             ->orderByDesc('id')
-            ->first(['id', 'status', 'sent_at']);
+            ->first(['id', 'status', 'sent_at', 'conversation_id']);
 
         // Belum pernah mengirim apa pun: tidak ada yang bisa disimpulkan.
         if (! $kirim?->sent_at || $kirim->sent_at->gt(now()->subMinutes(self::TENGGANG_MENIT))) {

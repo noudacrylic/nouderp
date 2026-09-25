@@ -404,6 +404,41 @@ class CerminWahaTest extends TestCase
     /* ------------------------------------------------------- efek ke sekitar */
 
     /**
+     * BALASAN lewat WAHA tidak boleh MEMVONIS jalur resmi mati.
+     *
+     * Sisi sebaliknya dari tes di bawah, dan sama pentingnya. Timbangannya
+     * harus seimbang: kabar balik WAHA dikecualikan, jadi kirimannya pun
+     * wajib dikecualikan. Kalau tidak, satu balasan lewat nomor utama
+     * membuktikan "ada yang dikirim", tak ada kabar resmi yang menyusul, lalu
+     * jalur resmi divonis mati padahal ia cuma sedang tidak dipakai.
+     *
+     * Sejak Tahap 7 hampir semua balasan berangkat lewat WAHA, jadi tanpa
+     * pengecualian ini pitanya menyala selamanya — dan pita yang selalu
+     * menyala sama saja dengan tidak ada pita, justru pada kerusakan yang
+     * satu-satunya gejalanya adalah pita itu.
+     */
+    public function test_balasan_lewat_waha_tidak_memvonis_jalur_resmi_mati(): void
+    {
+        $this->kirim($this->payload())->assertOk();
+
+        $cermin = CrmConversation::sole();
+
+        CrmMessage::create([
+            'conversation_id' => $cermin->id,
+            'direction'       => CrmMessage::KELUAR,
+            'message_type'    => 'text',
+            'content'         => 'balasan dari ERP lewat nomor utama',
+            'status'          => 'terkirim',
+            'sent_at'         => now()->subHour(),
+        ]);
+
+        $this->assertNull(
+            app(WebhookHealthService::class)->sepi(),
+            'balasan lewat WAHA bukan bukti jalur resmi patah'
+        );
+    }
+
+    /**
      * Baris cermin tidak boleh dihitung sebagai bukti jalur RESMI masih hidup.
      * Kalau ikut dihitung, satu chat WAHA akan menyatakan webhook resmi sehat
      * padahal ia mati total — dan pitanya tidak pernah menyala lagi.
