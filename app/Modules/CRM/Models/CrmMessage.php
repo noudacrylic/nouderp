@@ -68,7 +68,30 @@ class CrmMessage extends Model
      */
     public function idKutipan(): ?string
     {
-        return $this->wam_id;
+        return $this->wam_id ?? $this->idWaha();
+    }
+
+    /**
+     * Id kutipan jalur SELF-HOST (WAHA), kalau pesan ini lahir dari sana.
+     *
+     * Pengecualian yang sah atas aturan di atas, dan bedanya bukan selera:
+     * wamid ada karena Meta yang memilikinya. Jalur self-host bukan Meta — di
+     * sana id yang dikenal WhatsApp untuk mengutip justru id WAHA itu sendiri,
+     * dan mengirimkannya BEKERJA. Tanpa cabang ini, `wam_id` yang selamanya
+     * null membuat tombol "Balas" tak pernah muncul di thread nomor utama,
+     * walau mengutip di situ sepenuhnya bisa.
+     *
+     * Dikenali dari awalan `waha:` — penanda yang sudah dipasang cermin maupun
+     * jalur kirim. Awalan itu pula yang membuat cabang ini TIDAK bisa salah
+     * menyerempet jalur resmi: id vendor api.co.id tak pernah berawalan itu,
+     * jadi kegagalan senyap yang dibayar 7 Sep tidak bisa terulang lewat sini.
+     * Awalannya dibawa apa adanya; yang mengupasnya adapter WAHA saat mengirim.
+     */
+    private function idWaha(): ?string
+    {
+        $id = (string) $this->provider_message_id;
+
+        return str_starts_with($id, 'waha:') ? $id : null;
     }
 
     /**
@@ -133,7 +156,7 @@ class CrmMessage extends Model
 
     public function bisaDikutip(): bool
     {
-        return $this->wam_id !== null;
+        return $this->idKutipan() !== null;
     }
 
     /**

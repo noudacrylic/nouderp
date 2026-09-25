@@ -167,6 +167,90 @@ class KirimWahaTest extends TestCase
         Http::assertSent(fn ($req) => ($req['reply_to'] ?? null) === 'PESAN_ASAL');
     }
 
+    /* ------------------------------------------------------------ kutipan */
+
+    /**
+     * Pesan di thread nomor utama BOLEH dikutip.
+     *
+     * Dulu tidak, dan sebabnya `bisaDikutip()` bertumpu pada `wam_id` — id
+     * milik META, yang di jalur self-host selamanya null. Akibatnya tombol
+     * "Balas" tak pernah muncul di thread nomor utama walau mengutip di situ
+     * sepenuhnya bisa: yang dikenal WhatsApp untuk mengutip justru id WAHA
+     * itu sendiri.
+     */
+    public function test_pesan_jalur_self_host_bisa_dikutip(): void
+    {
+        $percakapan = $this->cermin();
+
+        $masuk = CrmMessage::create([
+            'conversation_id'     => $percakapan->id,
+            'direction'           => CrmMessage::MASUK,
+            'message_type'        => 'text',
+            'content'             => 'bentuk. spt ini',
+            'provider_message_id' => 'waha:false_6281234000111@c.us_3EB0MASUK',
+            'sent_at'             => now(),
+        ]);
+
+        $this->assertTrue($masuk->bisaDikutip());
+        $this->assertSame('waha:false_6281234000111@c.us_3EB0MASUK', $masuk->idKutipan());
+    }
+
+    /**
+     * Jalur RESMI tidak ikut melonggar.
+     *
+     * Id vendor api.co.id pernah dikirim sebagai penanda balasan dan DITERIMA
+     * API tanpa keluhan — lalu kutipannya diabaikan diam-diam: rapi di ERP,
+     * polos di HP pelanggan, tanpa satu pun gejala. Cabang self-host dikenali
+     * dari awalan `waha:` justru supaya kegagalan itu tak bisa terulang.
+     */
+    public function test_pesan_jalur_resmi_tanpa_wamid_tetap_tidak_bisa_dikutip(): void
+    {
+        $percakapan = $this->resmi();
+
+        $pesan = CrmMessage::create([
+            'conversation_id'     => $percakapan->id,
+            'direction'           => CrmMessage::MASUK,
+            'message_type'        => 'text',
+            'content'             => 'halo',
+            'provider_message_id' => 'cmtp_abc123',   // id vendor, bukan wamid
+            'sent_at'             => now(),
+        ]);
+
+        $this->assertFalse($pesan->bisaDikutip());
+        $this->assertNull($pesan->idKutipan());
+    }
+
+    /**
+     * Kutipan berjalan utuh: id dikirim ke WAHA tanpa awalan, lalu gelembungnya
+     * tetap bisa menemukan pesan yang dikutip saat digambar ulang.
+     */
+    public function test_kutipan_self_host_berangkat_dan_tetap_tergambar(): void
+    {
+        $this->wahaSehat(['id' => 'true_6281234000111@c.us_3EB0BALASAN']);
+
+        $percakapan = $this->cermin();
+
+        $asal = CrmMessage::create([
+            'conversation_id'     => $percakapan->id,
+            'direction'           => CrmMessage::MASUK,
+            'message_type'        => 'text',
+            'content'             => 'biar pas 1.5jt',
+            'provider_message_id' => 'waha:false_6281234000111@c.us_3EB0ASAL',
+            'sent_at'             => now(),
+        ]);
+
+        $hasil = app(CrmReplyService::class)
+            ->balas($percakapan, 'baik kak', null, $asal->idKutipan());
+
+        $this->assertTrue($hasil['success'], (string) ($hasil['error'] ?? ''));
+
+        // Awalan dikupas sebelum berangkat — WAHA tak mengenal 'waha:'.
+        Http::assertSent(fn ($req) => ($req['reply_to'] ?? null) === 'false_6281234000111@c.us_3EB0ASAL');
+
+        // Dan gelembungnya tetap menemukan pesan yang dikutip.
+        $this->assertSame($asal->id, $hasil['message']->pesanDikutip()?->id);
+    }
+
     /* ------------------------------------------------------- sesi mati */
 
     /**
