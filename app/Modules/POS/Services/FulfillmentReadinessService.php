@@ -369,6 +369,12 @@ class FulfillmentReadinessService
         if ($search !== '') {
             $qSo->where(fn ($w) => $w
                 ->where('so.order_number', 'like', $like)
+                // Nomor FAKTUR ikut dicari. Di daftar riwayat, yang dipegang orang
+                // sering bukan nomor SO melainkan nomor faktur — itu yang tercetak
+                // di nota, yang dikirim ke pembeli, dan yang muncul di rekening koran.
+                ->orWhereExists(fn ($f) => $f->from('sales_invoices as sif')
+                    ->whereColumn('sif.sales_order_id', 'so.id')
+                    ->where('sif.invoice_number', 'like', $like))
                 ->orWhereExists(fn ($c) => $c->from('customers')->whereColumn('customers.id', 'so.customer_id')->where('name', 'like', $like))
                 ->orWhereExists(fn ($i) => $i->from('sales_order_items as soi')
                     ->whereColumn('soi.sales_order_id', 'so.id')
@@ -473,13 +479,16 @@ class FulfillmentReadinessService
                     'kind'           => 'kasir',
                     'id'             => $inv->id,
                     'number'         => $inv->invoice_number,
+                    'invoice_number' => $inv->invoice_number,
                     'customer'       => $inv->customer->name ?? 'Umum',
                     'date'           => $inv->invoice_date,
-                    'total'          => (float) $inv->grand_total,
+                    'grand_total'    => (float) $inv->grand_total,
                     'bucket'         => 'selesai',
                     'archived'       => false,
                     'is_marketplace' => false,
+                    'channel'        => null,
                     'courier'        => null,
+                    'delivery_display' => 'Kasir / Toko',
                 ]]);
         }
 
@@ -499,15 +508,31 @@ class FulfillmentReadinessService
                     'status'         => $w->status,
                     'status_label'   => $w->status_label,
                     'delivery'       => $w->delivery,
+                    'grand_total'    => 0.0,
                     'is_marketplace' => false,
+                    'channel'        => null,
                     'courier'        => null,
+                    'delivery_display' => 'Garansi',
                 ]]);
         }
 
         $peta = ['so' => $soRows, 'kasir' => $kasirRows, 'garansi' => $garansiRows];
 
         return $index
-            ->map(fn ($r) => $peta[$r->sumber]->get($r->id))
+            ->map(function ($r) use ($peta) {
+                $row = $peta[$r->sumber]->get($r->id);
+
+                if (! $row) {
+                    return null;
+                }
+
+                /* Tanggal yang ditampilkan adalah tanggal SELESAI, bukan tanggal
+                   pesanan. Di tab ini pertanyaannya "kapan ini kelar", dan
+                   tanggal pesanan untuk marketplace bisa sebulan lebih awal. */
+                $row['selesai_at'] = $r->selesai_at;
+
+                return $row;
+            })
             ->filter()
             ->values();
     }

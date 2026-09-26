@@ -237,6 +237,26 @@ class FulfillmentSelesaiTest extends TestCase
         $this->assertContains($toko->order_number, $this->nomorDiTabSelesai(['channel' => 'non']));
     }
 
+    /**
+     * Nomor FAKTUR ikut dicari, bukan cuma nomor SO.
+     *
+     * Yang dipegang orang saat menelusuri riwayat sering nomor nota — itu yang
+     * tercetak, yang dikirim ke pembeli, dan yang muncul di rekening koran.
+     */
+    public function test_pencarian_menemukan_pesanan_lewat_nomor_faktur(): void
+    {
+        $so = $this->pesanan([
+            'delivery_method' => 'ambil_toko',
+            'pickup_status'   => 'picked_up',
+            'picked_up_at'    => now()->subDays(30),
+        ]);
+
+        $faktur = SalesInvoice::where('sales_order_id', $so->id)->firstOrFail();
+
+        $this->assertSame([$so->order_number], $this->nomorDiTabSelesai([], $faktur->invoice_number));
+        $this->assertSame([$so->order_number], $this->nomorDiTabSelesai([], $so->order_number));
+    }
+
     public function test_layar_selesai_terbuka_dan_memuat_barisnya(): void
     {
         $so = $this->pesanan(['delivery_method' => 'ambil_toko', 'pickup_status' => 'picked_up', 'picked_up_at' => now()->subDays(30)]);
