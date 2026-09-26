@@ -199,6 +199,17 @@
                    yang dicari mata saat menggulir cepat adalah baris yang
                    BERBEDA, bukan angka yang harus ditemukan dulu. */
                 $belum = (int) $p->unread_count > 0;
+
+                /* Satu berkas data untuk SEMUA pintu masuk aksi cepat di baris ini
+                   (titik tiga, chip label, chip pemilik). Ditulis sekali karena
+                   tiga salinan yang hampir sama pasti menyimpang, dan yang
+                   menyimpang diam-diam adalah popup yang terbuka dengan label
+                   atau pemilik terpilih yang keliru. */
+                $dataChat = [
+                    'id' => $p->id, 'nama' => $namaTampil, 'label' => $p->queue_state, 'pemilik' => $p->owner_user_id,
+                    'namaKontak' => $p->display_name, 'namaManual' => $p->name_source === \App\Modules\CRM\Models\CrmConversation::NAMA_MANUAL,
+                    'pelanggan' => $p->customer?->name,
+                ];
             @endphp
             {{-- Barisnya BUKAN <a> lagi: tombol titik tiga tak boleh bersarang di
                  dalam tautan. Tautannya dibentangkan jadi lapisan tak terlihat dan
@@ -261,26 +272,44 @@
                             @endif
                         </div>
                     </div>
+                    {{-- Dua chip ini BUKAN hiasan: keduanya tombol yang membuka
+                         dropdown di tempat — label dan pemilik diganti langsung
+                         dari barisnya, dua klik, tanpa meninggalkan daftar. Dua
+                         aksi yang dipakai puluhan kali sehari tidak boleh
+                         bersembunyi di balik titik tiga, apalagi ketika
+                         targetnya sudah tercetak di baris itu juga.
+                         `pointer-events-auto` dipasang per tombol, bukan pada
+                         wadahnya: wadah yang bisa diklik akan memakan ruang
+                         kosong di sebelah chip, padahal di situ orang menekan
+                         untuk membuka chatnya. --}}
                     <div class="mt-1 flex flex-wrap items-center gap-1">
-                        <span class="px-1.5 py-0.5 rounded text-[10px] {{ \App\Modules\CRM\Models\CrmLabel::kelas($p->queue_state) }}">
+                        <button type="button" @click.prevent.stop="bukaChip($event, @js($dataChat), 'label')"
+                                class="pointer-events-auto px-1.5 py-0.5 rounded text-[10px] hover:ring-1 hover:ring-gray-400
+                                       {{ \App\Modules\CRM\Models\CrmLabel::kelas($p->queue_state) }}"
+                                title="Ganti label">
                             {{ \App\Modules\CRM\Models\CrmLabel::nama($p->queue_state) }}
-                        </span>
-                        @if($p->owner)
-                            <span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600">{{ $p->owner->name }}</span>
-                        @endif
-                        @unless($p->windowIsOpen())
+                        </button>
+                        <button type="button" @click.prevent.stop="bukaChip($event, @js($dataChat), 'oper')"
+                                class="pointer-events-auto px-1.5 py-0.5 rounded text-[10px] hover:ring-1 hover:ring-gray-400
+                                       {{ $p->owner ? 'bg-gray-100 text-gray-600' : 'border border-dashed border-gray-300 text-gray-400' }}"
+                                title="Oper chat ke agen lain">
+                            {{ $p->owner->name ?? 'oper…' }}
+                        </button>
+                        {{-- Lencana jendela hanya sah untuk jalur BERBAYAR (Cloud
+                             API). Di thread nomor utama lewat WAHA tak ada jendela
+                             24 jam sama sekali, jadi menampilkannya di sana membuat
+                             hampir setiap baris memakai lencana peringatan yang
+                             tidak menghalangi apa pun — persis alarm palsu yang
+                             sudah dibereskan di pita "pesan masuk tidak sampai". --}}
+                        @if(! $p->tanpaJendela() && ! $p->windowIsOpen())
                             <span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500"
                                   title="Hanya template berbayar yang bisa dikirim">jendela tutup</span>
-                        @endunless
+                        @endif
                     </div>
                 </div>
 
                 <button type="button"
-                        @click.prevent.stop="buka($event, @js([
-                            'id' => $p->id, 'nama' => $namaTampil, 'label' => $p->queue_state, 'pemilik' => $p->owner_user_id,
-                            'namaKontak' => $p->display_name, 'namaManual' => $p->name_source === \App\Modules\CRM\Models\CrmConversation::NAMA_MANUAL,
-                            'pelanggan' => $p->customer?->name,
-                        ]))"
+                        @click.prevent.stop="buka($event, @js($dataChat))"
                         class="absolute top-1.5 right-1 z-20 w-6 h-6 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 leading-none"
                         title="Aksi cepat">⋮</button>
             </div>
@@ -333,11 +362,65 @@
                 <button type="button" @click="popup = 'nama'; menu = false; $nextTick(() => $refs.inputNama?.select())"
                         class="w-full text-left px-3 py-2 hover:bg-gray-50">Nama kontak…</button>
 
-                <button type="button" @click="popup = 'label'; menu = false"
+                {{-- Dua aksi ini membuka dropdown yang SAMA dengan chip di baris.
+                     Posisinya sudah terisi saat menu ini dibuka, jadi dropdownnya
+                     muncul di tempat yang sama — dan tidak ada dua layar berbeda
+                     untuk satu pekerjaan yang sama. --}}
+                <button type="button" @click.stop="chip = 'label'; menu = false"
                         class="w-full text-left px-3 py-2 hover:bg-gray-50">Label…</button>
 
-                <button type="button" @click="popup = 'oper'; menu = false"
+                <button type="button" @click.stop="chip = 'oper'; menu = false"
                         class="w-full text-left px-3 py-2 hover:bg-gray-50">Oper chat…</button>
+            </div>
+
+            {{-- dropdown label / oper: BERLABUH ke chip yang diklik --}}
+            {{-- Tiap pilihan adalah tombol kirim form-nya sendiri, bukan <select>
+                 + tombol Simpan. Itu yang membedakannya dari popup lama: memilih
+                 SUDAH berarti menyimpan, jadi ganti label selesai dalam dua klik
+                 tanpa pernah meninggalkan daftar. --}}
+            <div x-show="chip" x-cloak @click.outside="chip = null" @keydown.escape.window="chip = null"
+                 :style="`top:${posisi.y}px; left:${posisi.x}px`"
+                 class="fixed z-50 w-48 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
+
+                <div class="px-3 py-1 text-[11px] text-gray-400 truncate" x-text="chat.nama"></div>
+
+                <template x-if="chip === 'label'">
+                    <div>
+                        @foreach(\App\Modules\CRM\Models\CrmLabel::terpakai() as $l)
+                            <form :action="aksi('antrean')" method="POST">
+                                @csrf
+                                <input type="hidden" name="queue_state" value="{{ $l->kode }}">
+                                <button class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center gap-2">
+                                    <span class="w-3 text-emerald-600" x-text="chat.label === @js($l->kode) ? '✓' : ''"></span>
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] {{ \App\Modules\CRM\Models\CrmLabel::kelas($l->kode) }}">{{ $l->nama }}</span>
+                                </button>
+                            </form>
+                        @endforeach
+                    </div>
+                </template>
+
+                <template x-if="chip === 'oper'">
+                    <div>
+                        <form :action="aksi('oper')" method="POST">
+                            @csrf
+                            <input type="hidden" name="owner_user_id" value="">
+                            <button class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center gap-2 text-gray-500">
+                                <span class="w-3 text-emerald-600" x-text="! chat.pemilik ? '✓' : ''"></span>
+                                <span>— belum dioper —</span>
+                            </button>
+                        </form>
+                        @foreach($pemilikOpsi as $u)
+                            <form :action="aksi('oper')" method="POST">
+                                @csrf
+                                <input type="hidden" name="owner_user_id" value="{{ $u->id }}">
+                                <button class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center gap-2">
+                                    <span class="w-3 text-emerald-600" x-text="chat.pemilik === {{ $u->id }} ? '✓' : ''"></span>
+                                    <span class="truncate">{{ $u->name }}</span>
+                                </button>
+                            </form>
+                        @endforeach
+                    </div>
+                </template>
             </div>
 
             {{-- popup ganti label / oper chat --}}
@@ -346,8 +429,9 @@
 
                 <div class="relative bg-white rounded-lg shadow-xl w-full max-w-sm p-4"
                      @keydown.escape.window="popup = null">
-                    <div class="text-sm font-semibold"
-                         x-text="{ nama: 'Nama kontak', label: 'Ganti label', oper: 'Oper chat' }[popup]"></div>
+                    {{-- Modal ini tinggal melayani satu hal: nama kontak. Label dan
+                         oper chat sudah pindah ke dropdown berlabuh di barisnya. --}}
+                    <div class="text-sm font-semibold">Nama kontak</div>
                     <div class="text-xs text-gray-500 mb-3" x-text="chat.nama"></div>
 
                     {{-- Nama kontak: untuk mengenali lead yang belum beli. Tidak
@@ -383,34 +467,6 @@
                         </form>
                     </div>
 
-                    <form x-show="popup === 'label'" :action="aksi('antrean')" method="POST">
-                        @csrf
-                        <select name="queue_state" class="border rounded px-2 py-1.5 text-sm w-full">
-                            @foreach(\App\Modules\CRM\Models\CrmLabel::terpakai() as $l)
-                                <option value="{{ $l->kode }}" :selected="chat.label === @js($l->kode)">{{ $l->nama }}</option>
-                            @endforeach
-                        </select>
-                        <div class="mt-4 flex justify-end gap-2">
-                            <button type="button" @click="popup = null"
-                                    class="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50">Batal</button>
-                            <button class="px-3 py-1.5 rounded border border-emerald-600 text-emerald-700 text-sm hover:bg-emerald-50">Ubah</button>
-                        </div>
-                    </form>
-
-                    <form x-show="popup === 'oper'" :action="aksi('oper')" method="POST">
-                        @csrf
-                        <select name="owner_user_id" class="border rounded px-2 py-1.5 text-sm w-full">
-                            <option value="" :selected="! chat.pemilik">— belum dioper —</option>
-                            @foreach($pemilikOpsi as $u)
-                                <option value="{{ $u->id }}" :selected="chat.pemilik === {{ $u->id }}">{{ $u->name }}</option>
-                            @endforeach
-                        </select>
-                        <div class="mt-4 flex justify-end gap-2">
-                            <button type="button" @click="popup = null"
-                                    class="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50">Batal</button>
-                            <button class="px-3 py-1.5 rounded border border-emerald-600 text-emerald-700 text-sm hover:bg-emerald-50">Oper</button>
-                        </div>
-                    </form>
                 </div>
             </div>
         </div>
@@ -423,19 +479,37 @@ function menuChatDaftar(basis, terbukaId) {
         basis, terbukaId,
         menu: false,
         popup: null,
+        chip: null,          // 'label' | 'oper' — dropdown berlabuh di chip baris
         chat: { id: null, nama: '', label: null, pemilik: null, namaKontak: null, namaManual: false, pelanggan: null },
         posisi: { x: 0, y: 0 },
 
         buka(e, data) {
             this.chat = data;
-            const r = e.currentTarget.getBoundingClientRect();
-            // Menu dirapatkan ke tepi kanan tombol, dan dibalik ke atas kalau
-            // sisa ruang di bawah tak cukup — baris terbawah daftar paling sering.
-            this.posisi = {
+            this.posisi = this.letak(e.currentTarget);
+            this.menu = true;
+            this.chip = null;
+        },
+
+        /* Dropdown chip memakai PENEMPAT yang sama dengan menu titik tiga, dan
+           itu disengaja: dua rumus posisi untuk dua menu seukuran sama pasti
+           berbeda nasibnya di baris terbawah daftar — yang satu terbalik ke
+           atas, yang satu tenggelam di bawah layar. */
+        bukaChip(e, data, jenis) {
+            this.chat = data;
+            this.posisi = this.letak(e.currentTarget);
+            this.menu = false;
+            this.chip = jenis;
+        },
+
+        /* Dirapatkan ke tepi kanan pemicunya, dan dibalik ke atas kalau sisa
+           ruang di bawah tak cukup — baris terbawah daftar paling sering. */
+        letak(el) {
+            const r = el.getBoundingClientRect();
+
+            return {
                 x: Math.max(8, Math.min(r.right - 192, window.innerWidth - 200)),
                 y: r.bottom + 180 > window.innerHeight ? Math.max(8, r.top - 172) : r.bottom + 4,
             };
-            this.menu = true;
         },
 
         aksi(sufiks) {
