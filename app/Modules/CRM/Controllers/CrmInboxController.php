@@ -241,6 +241,23 @@ class CrmInboxController extends Controller
                 ->where('status', CrmConversation::STATUS_AKTIF)
                 ->whereNull('owner_user_id')
                 ->count(),
+            /*
+             * Berapa chat SAYA yang masih menunggu dijawab.
+             *
+             * Sengaja TIDAK ikut penyaring yang sedang aktif, sama seperti
+             * `belumDioper`: tab ini sebuah tujuan, bukan gambaran daftar yang
+             * sedang dilihat. Agen yang sedang membuka "Semua" justru butuh
+             * tahu ada berapa miliknya yang menumpuk — angka yang ikut
+             * tersaring akan selalu menunjukkan 0 tepat saat ia sedang melihat
+             * ke tempat lain, dan itu kebalikan dari gunanya.
+             */
+            'belumDibacaSaya' => $pengguna
+                ? CrmConversation::query()
+                    ->where('status', CrmConversation::STATUS_AKTIF)
+                    ->where('owner_user_id', $pengguna->id)
+                    ->where('unread_count', '>', 0)
+                    ->count()
+                : 0,
             'terpilih' => $terpilih,
         ];
     }
@@ -1489,6 +1506,7 @@ class CrmInboxController extends Controller
             $data['jumlahSemua'],
             $data['jumlahBelumDibaca'],
             $data['belumDioper'],
+            $data['belumDibacaSaya'],
             json_encode($data['jumlah']),
             $data['terpilih']?->id,
         ]));

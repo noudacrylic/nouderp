@@ -67,6 +67,10 @@
        tombol yang menunggu JavaScript. */
     $tumbuhOtomatis = $tumbuhOtomatis ?? false;
     $gayaWadah  = $gayaWadah  ?? 'bg-white border border-gray-200 rounded-lg';
+
+    /* Dihitung di dataDaftar(); bawaan 0 supaya layar mana pun yang memakai
+       partial ini tanpa penghitungnya tetap tergambar, bukan meledak. */
+    $belumDibacaSaya = $belumDibacaSaya ?? 0;
 @endphp
 
 <div class="flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }}"
@@ -87,9 +91,22 @@
            class="text-center truncate {{ $semuaOrang ? $tabAktif : $tabDiam }}"
            title="Semua chat, milik siapa pun">Semua</a>
 
+        {{-- Angka belum-dibaca menempel di tab ini, bukan cuma di chip "Belum
+             dibaca" di bawahnya: chip itu menghitung daftar yang SEDANG
+             disaring, jadi selama agen melihat antrean orang lain ia diam di
+             0 — persis saat chat sendiri menumpuk tanpa ada yang memberitahu. --}}
+        @php $milikSayaAktif = $milikSaya || $dibatasiKeSaya; @endphp
         <a href="{{ $tautanSaring(['pemilik' => $akuId]) }}"
-           class="text-center truncate {{ $milikSaya || $dibatasiKeSaya ? $tabAktif : $tabDiam }}"
-           title="Chat yang saya pegang">Milik Saya</a>
+           class="flex items-center justify-center gap-1 {{ $milikSayaAktif ? $tabAktif : $tabDiam }}"
+           title="Chat yang saya pegang{{ $belumDibacaSaya > 0 ? ' — ' . $belumDibacaSaya . ' belum dibaca' : '' }}">
+            <span class="truncate">Milik Saya</span>
+            @if($belumDibacaSaya > 0)
+                <span data-lencana-milik-saya
+                      class="shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full
+                             text-[10px] font-bold leading-none
+                             {{ $milikSayaAktif ? 'bg-white text-emerald-700' : 'bg-red-600 text-white' }}">{{ $belumDibacaSaya > 99 ? '99+' : $belumDibacaSaya }}</span>
+            @endif
+        </a>
 
         @if($lihatSemua ?? false)
             {{-- Dropdown agen lain hanya untuk super admin: bagi agen biasa,
@@ -260,7 +277,7 @@
                         </div>
                         {{-- Ruang kanan disisakan buat tombol titik tiga supaya jam
                              kirim tidak tertimpa olehnya di kolom sesempit ini. --}}
-                        <div class="text-right shrink-0 pr-5">
+                        <div class="text-right shrink-0 pr-7">
                             <div class="text-[11px] {{ $belum ? 'text-emerald-700 font-semibold' : 'text-gray-400' }}">{{ $p->last_message_at?->diffForHumans() ?? '—' }}</div>
                             @if($belum)
                                 {{-- Padat berisi, bukan pucat: lencana ini satu-satunya
@@ -308,9 +325,13 @@
                     </div>
                 </div>
 
+                {{-- 28px, bukan 24px, dan isinya dipusatkan: di HP tombol ini
+                     ditekan dengan jempol, dan sasaran sekecil ikonnya sendiri
+                     lebih sering membuka chatnya daripada menunya. --}}
                 <button type="button"
                         @click.prevent.stop="buka($event, @js($dataChat))"
-                        class="absolute top-1.5 right-1 z-20 w-6 h-6 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 leading-none"
+                        class="absolute top-1 right-0.5 z-20 w-7 h-7 flex items-center justify-center rounded
+                               text-gray-400 hover:text-gray-700 hover:bg-gray-200 leading-none"
                         title="Aksi cepat">⋮</button>
             </div>
         @empty
@@ -344,15 +365,35 @@
     </div>
 
     {{-- --------------------------------------------------- menu & popup aksi --}}
+    {{-- Baris menu dalam mode lembar dibuat setinggi jempol lewat CSS biasa,
+         bukan kelas Tailwind bersyarat: berkas CSS ERP dibangun di muka, jadi
+         kelas yang hanya lahir dari ekspresi Alpine tidak ikut terkompilasi dan
+         di desktop diam-diam tidak berefek apa pun. --}}
+    <style>
+        [data-lembar="1"] button,
+        [data-lembar="1"] a { padding-top: .7rem; padding-bottom: .7rem; }
+        [data-lembar="1"] { font-size: .9375rem; }
+    </style>
+
     {{-- Ditumpangkan ke <body>: daftar percakapan menggulir di dalam wadah
          overflow-hidden, jadi menu yang tinggal di dalamnya akan terpotong. --}}
     <template x-teleport="body">
         <div>
+            {{-- Di layar sempit (HP/PWA) kedua menu di bawah ini BUKAN kotak
+                 melayang lagi melainkan lembar yang menempel di tepi bawah.
+                 Kotak selebar 192px yang dilabuhkan ke barisnya selalu kalah di
+                 HP: kalau tidak separuhnya keluar layar, ia menutupi persis
+                 baris yang sedang dilihat, dan targetnya terlalu kecil untuk
+                 jempol. Lembar bawah tidak bisa meleset ke mana pun. --}}
+            <div x-show="lembar && (menu || chip)" x-cloak
+                 @click="menu = false; chip = null"
+                 class="fixed inset-0 z-40 bg-black/40"></div>
+
             {{-- menu titik tiga --}}
-            <div id="crmMenuBaris"
+            <div id="crmMenuBaris" :data-lembar="lembar ? '1' : '0'"
                  x-show="menu" x-cloak @click.outside="menu = false" @keydown.escape.window="menu = false"
-                 :style="`top:${posisi.y}px; left:${posisi.x}px`"
-                 class="fixed z-50 w-48 bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
+                 :style="gaya()" :class="lembar ? 'w-full' : 'w-48'"
+                 class="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
 
                 <form :action="aksi('belum-dibaca')" method="POST">
                     @csrf
@@ -383,10 +424,10 @@
                  chip. Kalau ia dihitung dari posisi chipnya, dropdown yang
                  dibuka dekat tepi bawah akan memendek jadi dua baris alih-alih
                  naik ke atas, dan koreksi rapikan() tak pernah kebagian kerja. --}}
-            <div id="crmDropdownChip"
+            <div id="crmDropdownChip" :data-lembar="lembar ? '1' : '0'"
                  x-show="chip" x-cloak @click.outside="chip = null" @keydown.escape.window="chip = null"
-                 :style="`top:${posisi.y}px; left:${posisi.x}px`"
-                 class="fixed z-50 w-48 max-h-[70vh] overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
+                 :style="gaya()" :class="lembar ? 'w-full' : 'w-48'"
+                 class="fixed z-50 max-h-[70vh] overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
 
                 <div class="px-3 py-1 text-[11px] text-gray-400 truncate" x-text="chat.nama"></div>
 
@@ -486,11 +527,27 @@ function menuChatDaftar(basis, terbukaId) {
         menu: false,
         popup: null,
         chip: null,          // 'label' | 'oper' — dropdown berlabuh di chip baris
+        lembar: false,       // layar sempit (HP/PWA) → menu jadi lembar bawah
         chat: { id: null, nama: '', label: null, pemilik: null, namaKontak: null, namaManual: false, pelanggan: null },
         posisi: { x: 0, y: 0 },
 
+        /* Ambang 640px, bukan deteksi "ini PWA": yang menentukan bisa-tidaknya
+           menu ditekan adalah lebar layar saat itu, dan jendela ERP yang
+           disempitkan di laptop punya persoalan yang sama persis. */
+        sempit() {
+            return window.innerWidth < 640;
+        },
+
+        gaya() {
+            return this.lembar
+                ? 'left:0; right:0; bottom:0; top:auto; max-height:70vh; overflow-y:auto;'
+                    + ' border-radius:1rem 1rem 0 0; padding-bottom:env(safe-area-inset-bottom, 0px);'
+                : `top:${this.posisi.y}px; left:${this.posisi.x}px`;
+        },
+
         buka(e, data) {
             this.chat = data;
+            this.lembar = this.sempit();
             this.posisi = this.letak(e.currentTarget);
             this.menu = true;
             this.chip = null;
@@ -503,6 +560,7 @@ function menuChatDaftar(basis, terbukaId) {
            melar ke luar kolom dan tertimpa sidebar, tinggal separuh terbaca. */
         bukaChip(e, data, jenis) {
             this.chat = data;
+            this.lembar = this.sempit();
             this.posisi = this.letak(e.currentTarget, 'kiri');
             this.menu = false;
             this.chip = jenis;
@@ -538,6 +596,10 @@ function menuChatDaftar(basis, terbukaId) {
          * terbawah di luar layar — persis pilihan yang sedang dicari orangnya.
          */
         rapikan(id) {
+            if (this.lembar) {
+                return;     // lembar bawah tidak punya posisi tegak untuk dikoreksi
+            }
+
             this.$nextTick(() => {
                 const el = document.getElementById(id);
 

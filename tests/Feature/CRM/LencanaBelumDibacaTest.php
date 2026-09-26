@@ -31,6 +31,12 @@ class LencanaBelumDibacaTest extends TestCase
         return User::factory()->create(['role' => 'user', 'is_active' => true]);
     }
 
+    /** Agen yang boleh MEMBUKA inbox — peran 'user' ditolak di /erp/crm. */
+    private function agenInbox(): User
+    {
+        return User::factory()->create(['role' => 'admin', 'is_active' => true]);
+    }
+
     private function chat(int $belum, ?int $pemilik = null, string $status = CrmConversation::STATUS_AKTIF): CrmConversation
     {
         static $urut = 0;
@@ -162,6 +168,72 @@ class LencanaBelumDibacaTest extends TestCase
 
         $this->actingAs($admin)->get('/erp/crm')->assertOk()
             ->assertDontSee('data-belum-dibaca', false);
+    }
+
+    /* ------------------------------------------------- lencana tab Milik Saya */
+
+    /**
+     * Tab "Milik Saya" membawa angkanya sendiri.
+     *
+     * Chip "Belum dibaca" di bawahnya menghitung daftar yang SEDANG disaring,
+     * jadi selama agen melihat antrean orang lain ia diam di 0 — persis saat
+     * chat sendiri menumpuk tanpa ada yang memberitahu.
+     */
+    public function test_tab_milik_saya_menampilkan_jumlah_belum_dibaca(): void
+    {
+        $agen = $this->agenInbox();
+
+        $this->chat(3, $agen->id);
+        $this->chat(1, $agen->id);
+        $this->chat(0, $agen->id);
+
+        $this->actingAs($agen)->get('/erp/crm')->assertOk()
+            ->assertSee('data-lencana-milik-saya', false)
+            // CHAT, bukan pesan: dua chat menunggu walau isinya empat pesan.
+            ->assertSeeInOrder(['data-lencana-milik-saya', '>2<'], false);
+    }
+
+    /** Angkanya milik SAYA, bukan seluruh inbox — walau yang melihat super admin. */
+    public function test_tab_milik_saya_tidak_menghitung_chat_agen_lain(): void
+    {
+        $admin = $this->admin();
+        $lain  = $this->agen();
+
+        $this->chat(4, $lain->id);
+        $this->chat(2, null);
+
+        $this->actingAs($admin)->get('/erp/crm')->assertOk()
+            ->assertDontSee('data-lencana-milik-saya', false);
+    }
+
+    /**
+     * Angkanya TIDAK ikut penyaring yang sedang aktif.
+     *
+     * Tab ini sebuah tujuan, bukan gambaran daftar yang sedang dilihat: angka
+     * yang ikut tersaring akan selalu 0 tepat saat orangnya sedang melihat ke
+     * tempat lain, dan itu kebalikan dari gunanya.
+     */
+    public function test_lencana_milik_saya_bertahan_saat_daftar_disaring_ke_agen_lain(): void
+    {
+        $admin = $this->admin();
+        $lain  = $this->agen();
+
+        $this->chat(5, $admin->id);
+        $this->chat(1, $lain->id);
+
+        $this->actingAs($admin)->get('/erp/crm?pemilik=' . $lain->id)->assertOk()
+            ->assertSee('data-lencana-milik-saya', false);
+    }
+
+    /** Nol berarti tidak ada lencana sama sekali, bukan lencana bertuliskan "0". */
+    public function test_tanpa_chat_sendiri_lencana_tab_tidak_digambar(): void
+    {
+        $agen = $this->agenInbox();
+
+        $this->chat(0, $agen->id);
+
+        $this->actingAs($agen)->get('/erp/crm')->assertOk()
+            ->assertDontSee('data-lencana-milik-saya', false);
     }
 
     /* ------------------------------------------------------------ PWA `/cs` */
