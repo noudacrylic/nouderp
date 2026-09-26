@@ -146,6 +146,47 @@ class ReturDuaTahapTest extends TestCase
         $this->assertSame(1, app(FulfillmentReadinessService::class)->returCounts()['baru']);
     }
 
+    /**
+     * Terbaru di atas, dan itu berlaku LINTAS SUMBER.
+     *
+     * Dua sumber mengalir ke daftar ini — dokumen retur dan pesanan yang ditandai
+     * diretur tanpa dokumen. Menyambungnya begitu saja menaruh seluruh baris
+     * tanpa-dokumen di bawah apa pun tanggalnya, jadi retur yang masuk pagi ini
+     * terkubur di belakang puluhan kasus dua bulan lalu.
+     */
+    public function test_daftar_terurut_dari_yang_terbaru_lintas_sumber(): void
+    {
+        $lama = $this->retur($this->pesanan(), 'baru');
+        $lama->forceFill(['created_at' => now()->subDays(30)])->save();
+
+        $baru = $this->retur($this->pesanan(), 'baru');
+        $baru->forceFill(['created_at' => now()->subDay()])->save();
+
+        // Pesanan tanpa dokumen, tanggalnya di ANTARA keduanya.
+        $so = $this->pesanan(marketplace: true);
+        $so->forceFill(['order_date' => now()->subDays(10)->toDateString()])->save();
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 6002,
+            'jubelio_salesorder_no' => 'TP-6002',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'returned',
+        ]);
+
+        $urut = app(FulfillmentReadinessService::class)
+            ->returRows('baru')
+            ->map(fn ($r) => $r['retur_number'] ?? $r['number'])
+            ->all();
+
+        $this->assertSame(
+            [$baru->return_number, $so->order_number, $lama->return_number],
+            $urut,
+            'baris tanpa dokumen harus duduk sesuai tanggalnya, bukan dibuang ke bawah'
+        );
+    }
+
     /* ------------------------------------------------------- pindah tahap */
 
     public function test_tombol_memindahkan_retur_ke_banding_dan_kembali(): void

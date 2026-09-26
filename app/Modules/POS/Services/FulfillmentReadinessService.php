@@ -610,7 +610,18 @@ class FulfillmentReadinessService
             $rows = $rows->concat($this->barisDireturTanpaDokumen($search));
         }
 
-        return $rows->values();
+        /*
+         * Terbaru di atas, dan diurutkan SESUDAH digabung.
+         *
+         * Dua sumber mengalir ke daftar ini, masing-masing sudah terurut sendiri.
+         * Menyambungnya begitu saja menaruh seluruh baris tanpa-dokumen di bawah
+         * apa pun tanggalnya — retur yang masuk pagi ini terkubur di belakang
+         * puluhan kasus dua bulan lalu, persis di tab yang gunanya melihat yang
+         * baru datang.
+         */
+        return $rows
+            ->sortByDesc(fn (array $r) => [(string) ($r['urut'] ?? ''), $r['retur_id'] ?? 0])
+            ->values();
     }
 
     /** Jumlah per tahap untuk lencana sub-tab. */
@@ -683,6 +694,12 @@ class FulfillmentReadinessService
             $row['retur_total']   = (float) $r->grand_total;
             $row['retur_notes']   = $r->notes;
 
+            /* Kunci urut = kapan KASUSNYA masuk, bukan kapan pesanannya dibuat.
+               `created_at` dipakai lebih dulu karena `return_date` cuma tanggal:
+               puluhan retur yang ditarik dalam satu putaran cron bertanggal sama
+               persis, dan urutan di dalamnya jadi acak. */
+            $row['urut'] = (string) ($r->created_at ?? $r->return_date ?? '');
+
             return $row;
         });
     }
@@ -728,6 +745,10 @@ class FulfillmentReadinessService
             $row['retur_number'] = null;
             $row['retur_status'] = null;
             $row['retur_stage']  = 'baru';
+
+            /* Belum ada dokumen retur, jadi tak ada tanggal kasus — yang paling
+               dekat adalah tanggal pesanannya sendiri. */
+            $row['urut'] = (string) ($row['date_sort'] ?? '');
 
             return $row;
         });
