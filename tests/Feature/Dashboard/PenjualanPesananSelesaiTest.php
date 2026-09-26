@@ -226,13 +226,29 @@ class PenjualanPesananSelesaiTest extends TestCase
         $this->assertSame([(int) $akhir->format('j') => 120000.0], $deret);
     }
 
-    public function test_ambil_toko_dihitung_pada_tanggal_fakturnya(): void
+    public function test_ambil_toko_dihitung_saat_barangnya_diambil(): void
     {
-        $tgl = now()->startOfMonth()->addDays(5);
+        $terbit  = now()->startOfMonth()->addDays(5);
+        $diambil = now()->startOfMonth()->addDays(8);
 
-        $this->pesanan($tgl->toDateString(), 70000, ['delivery_method' => 'ambil_toko']);
+        $this->pesanan($terbit->toDateString(), 70000, [
+            'delivery_method' => 'ambil_toko',
+            'pickup_status'   => 'picked_up',
+            'picked_up_at'    => $diambil,
+        ]);
 
-        $this->assertSame([(int) $tgl->format('j') => 70000.0], $this->deret());
+        $this->assertSame([(int) $diambil->format('j') => 70000.0], $this->deret());
+    }
+
+    /** Fakturnya sudah terbit, tapi barangnya masih menunggu di rak. */
+    public function test_ambil_toko_yang_belum_diambil_belum_dihitung(): void
+    {
+        $this->pesanan(now()->startOfMonth()->addDays(5)->toDateString(), 70000, [
+            'delivery_method' => 'ambil_toko',
+            'pickup_status'   => 'pending',
+        ]);
+
+        $this->assertSame([], $this->deret());
     }
 
     /** Kasir: faktur tanpa SO. Barangnya diserahkan saat itu juga. */

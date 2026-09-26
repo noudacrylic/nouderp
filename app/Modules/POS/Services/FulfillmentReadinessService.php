@@ -7,6 +7,7 @@ use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesReturn;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Klasifikasi Sales Order + Garansi (non-marketplace) ke 3 bucket pemrosesan:
@@ -278,6 +279,237 @@ class FulfillmentReadinessService
         $page->setCollection($this->rowsFor($page->getCollection()));
 
         return $page;
+    }
+
+    /**
+     * Tab "Selesai": SELURUH pesanan yang sudah tuntas, dengan paginasi SQL.
+     *
+     * SENGAJA tidak lewat soRows() + bucket(), dan sengaja TANPA arsip 3 hari.
+     * Mesin bucket menghidrasi seluruh baris ke memori, jadi ia hanya sanggup
+     * memegang antrean kerja — bukan riwayat ribuan pesanan. Itu yang dulu
+     * memaksa tab ini mengarsip apa pun yang selesai lebih dari tiga hari lalu,
+     * dan akibatnya tab "Selesai" nyaris selalu kosong padahal transaksinya
+     * sudah ribuan. Di sini pengambilannya per halaman, lalu status tiap baris
+     * dihitung untuk halaman itu saja.
+     *
+     * EMPAT jalan sebuah pesanan dinyatakan selesai — semuanya dijawab di SQL
+     * supaya bisa dipaginasi & diurut:
+     *
+     *   1. Marketplace  → ditandai selesai oleh marketplace (`last_status =
+     *      completed`), tanggalnya `mp_completed_at`;
+     *   2. Ambil di toko → benar-benar SUDAH DIAMBIL (`pickup_status =
+     *      picked_up`), bukan sekadar fakturnya sudah terbit;
+     *   3. Kasir POS    → faktur tanpa Sales Order. Barangnya diserahkan saat
+     *      itu juga, jadi ia lahir langsung dalam keadaan selesai. Dulu
+     *      transaksi kasir tidak pernah muncul di layar ini sama sekali;
+     *   4. Kurir        → semua paketnya sudah SAMPAI (`delivered_at`), yang
+     *      ditandai sendiri oleh webhook Jubelio Shipment saat statusnya
+     *      'delivered'.
+     *
+     * Garansi yang sudah dikirim balik ikut, seperti sebelumnya.
+     *
+     * @param array{channel?:string,from?:string,to?:string} $filters
+     */
+    public function selesaiPaginated(?string $search, array $filters, int $perPage)
+    {
+        $search  = trim((string) $search);
+        $like    = '%' . $search . '%';
+        $channel = $filters['channel'] ?? null;
+        $from    = trim((string) ($filters['from'] ?? ''));
+        $to      = trim((string) ($filters['to'] ?? ''));
+
+        /*
+         * Keduanya subquery ber-GROUP BY, bukan join langsung: satu SO bisa
+         * punya beberapa tautan Jubelio maupun beberapa surat jalan (kirim
+         * bertahap), dan join lugas akan MENGGANDAKAN barisnya di daftar.
+         */
+        $mp = DB::table('jubelio_order_links')
+            ->selectRaw("sales_order_id,
+                         MAX(CASE WHEN last_status = 'completed' THEN 1 ELSE 0 END) as tuntas,
+                         MAX(COALESCE(mp_completed_at, wms_completed_at)) as tuntas_at")
+            ->whereNotNull('sales_order_id')
+            ->groupBy('sales_order_id');
+
+        $sd = DB::table('sales_deliveries')
+            ->selectRaw('sales_order_id,
+                         COUNT(*) as jml,
+                         SUM(CASE WHEN delivered_at IS NULL THEN 1 ELSE 0 END) as belum_sampai,
+                         MAX(delivered_at) as sampai_at')
+            ->where('status', 'posted')
+            ->where('delivery_method', '<>', 'ambil_toko')
+            ->whereNotNull('sales_order_id')
+            ->groupBy('sales_order_id');
+
+        $tuntas = "CASE
+            WHEN mp.sales_order_id IS NOT NULL THEN mp.tuntas
+            WHEN so.delivery_method = 'ambil_toko' THEN (so.pickup_status = 'picked_up')
+            ELSE (sd.jml > 0 AND sd.belum_sampai = 0)
+        END";
+
+        $tanggal = "CASE
+            WHEN mp.sales_order_id IS NOT NULL THEN COALESCE(mp.tuntas_at, so.order_date)
+            WHEN so.delivery_method = 'ambil_toko' THEN COALESCE(so.picked_up_at, so.order_date)
+            ELSE COALESCE(sd.sampai_at, so.order_date)
+        END";
+
+        // ── 1/2/4. Sales Order yang sudah tuntas ──
+        $qSo = DB::table('sales_orders as so')
+            ->leftJoinSub($mp, 'mp', 'mp.sales_order_id', '=', 'so.id')
+            ->leftJoinSub($sd, 'sd', 'sd.sales_order_id', '=', 'so.id')
+            ->whereNotIn('so.status', ['void', 'cancelled'])
+            ->whereRaw("($tuntas) = 1")
+            ->selectRaw("'so' as sumber, so.id as id, ($tanggal) as selesai_at");
+
+        if ($channel === 'marketplace') {
+            $qSo->whereExists(fn ($c) => $c->from('customers')->whereColumn('customers.id', 'so.customer_id')->where('is_marketplace', true));
+        } elseif ($channel === 'non') {
+            $qSo->whereExists(fn ($c) => $c->from('customers')->whereColumn('customers.id', 'so.customer_id')->where('is_marketplace', false));
+        }
+
+        if ($search !== '') {
+            $qSo->where(fn ($w) => $w
+                ->where('so.order_number', 'like', $like)
+                ->orWhereExists(fn ($c) => $c->from('customers')->whereColumn('customers.id', 'so.customer_id')->where('name', 'like', $like))
+                ->orWhereExists(fn ($i) => $i->from('sales_order_items as soi')
+                    ->whereColumn('soi.sales_order_id', 'so.id')
+                    ->where(fn ($x) => $x
+                        ->where('soi.description', 'like', $like)
+                        ->orWhereExists(fn ($p) => $p->from('products')
+                            ->whereColumn('products.id', 'soi.product_id')
+                            ->where(fn ($y) => $y->where('products.name', 'like', $like)->orWhere('products.sku', 'like', $like))))));
+        }
+
+        if ($from !== '') {
+            $qSo->whereRaw("DATE($tanggal) >= ?", [$from]);
+        }
+        if ($to !== '') {
+            $qSo->whereRaw("DATE($tanggal) <= ?", [$to]);
+        }
+
+        $union = $qSo;
+
+        // ── 3. Kasir POS: faktur posted TANPA Sales Order ──
+        // Marketplace tak pernah lewat kasir, jadi ia hilang begitu daftar disaring ke channel itu.
+        if ($channel !== 'marketplace') {
+            $qKasir = DB::table('sales_invoices as si')
+                ->where('si.status', 'posted')
+                ->whereNull('si.sales_order_id')
+                ->selectRaw("'kasir' as sumber, si.id as id, si.invoice_date as selesai_at");
+
+            if ($search !== '') {
+                $qKasir->where(fn ($w) => $w
+                    ->where('si.invoice_number', 'like', $like)
+                    ->orWhereExists(fn ($c) => $c->from('customers')->whereColumn('customers.id', 'si.customer_id')->where('name', 'like', $like)));
+            }
+            if ($from !== '') {
+                $qKasir->whereDate('si.invoice_date', '>=', $from);
+            }
+            if ($to !== '') {
+                $qKasir->whereDate('si.invoice_date', '<=', $to);
+            }
+
+            $union = $union->unionAll($qKasir);
+
+            // ── Garansi yang sudah dikirim balik ──
+            $qGaransi = DB::table('warranty_orders as w')
+                ->where('w.status', 'shipped')
+                ->selectRaw("'garansi' as sumber, w.id as id, w.updated_at as selesai_at");
+
+            if ($search !== '') {
+                $qGaransi->where(fn ($x) => $x
+                    ->where('w.warranty_number', 'like', $like)
+                    ->orWhereExists(fn ($c) => $c->from('customers')->whereColumn('customers.id', 'w.customer_id')->where('name', 'like', $like)));
+            }
+            if ($from !== '') {
+                $qGaransi->whereDate('w.updated_at', '>=', $from);
+            }
+            if ($to !== '') {
+                $qGaransi->whereDate('w.updated_at', '<=', $to);
+            }
+
+            $union = $union->unionAll($qGaransi);
+        }
+
+        $page = DB::query()->fromSub($union, 'x')
+            ->orderByDesc('selesai_at')
+            ->orderByDesc('id')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        $page->setCollection($this->barisSelesai(collect($page->items())));
+
+        return $page;
+    }
+
+    /**
+     * Ubah baris indeks (sumber + id + selesai_at) satu halaman jadi baris kartu,
+     * TANPA melepas urutannya: yang menentukan urutan adalah SQL, bukan urutan
+     * pengambilan per sumber.
+     */
+    private function barisSelesai(Collection $index): Collection
+    {
+        $per = $index->groupBy('sumber')->map(fn ($g) => $g->pluck('id')->all());
+
+        $soRows = collect();
+        if ($ids = $per->get('so')) {
+            $orders = SalesOrder::query()->with([
+                'customer:id,name,is_marketplace,phone,recipient_phone,address,shipping_address,district,city,province,postal_code,biteship_area_id,kiriminaja_area_id,jubelio_area_id,latitude,longitude',
+                'customerBranch',
+                'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock,made_to_order',
+                'deliveries' => fn ($d) => $d->where('status', '!=', 'void'),
+                'deliveries.items',
+                'invoices'   => fn ($i) => $i->where('status', '!=', 'void'),
+            ])->whereIn('id', $ids)->get();
+
+            $soRows = $this->rowsFor($orders)->keyBy('id');
+        }
+
+        $kasirRows = collect();
+        if ($ids = $per->get('kasir')) {
+            $kasirRows = \App\Models\SalesInvoice::with('customer:id,name')
+                ->whereIn('id', $ids)
+                ->get()
+                ->mapWithKeys(fn ($inv) => [$inv->id => [
+                    'kind'           => 'kasir',
+                    'id'             => $inv->id,
+                    'number'         => $inv->invoice_number,
+                    'customer'       => $inv->customer->name ?? 'Umum',
+                    'date'           => $inv->invoice_date,
+                    'total'          => (float) $inv->grand_total,
+                    'bucket'         => 'selesai',
+                    'archived'       => false,
+                    'is_marketplace' => false,
+                    'courier'        => null,
+                ]]);
+        }
+
+        $garansiRows = collect();
+        if ($ids = $per->get('garansi')) {
+            $garansiRows = WarrantyOrder::with(['customer:id,name', 'delivery'])
+                ->whereIn('id', $ids)
+                ->get()
+                ->mapWithKeys(fn (WarrantyOrder $w) => [$w->id => [
+                    'kind'           => 'garansi',
+                    'id'             => $w->id,
+                    'number'         => $w->warranty_number,
+                    'customer'       => $w->customer->name ?? '-',
+                    'date'           => $w->warranty_date,
+                    'bucket'         => 'selesai',
+                    'archived'       => false,
+                    'status'         => $w->status,
+                    'status_label'   => $w->status_label,
+                    'delivery'       => $w->delivery,
+                    'is_marketplace' => false,
+                    'courier'        => null,
+                ]]);
+        }
+
+        $peta = ['so' => $soRows, 'kasir' => $kasirRows, 'garansi' => $garansiRows];
+
+        return $index
+            ->map(fn ($r) => $peta[$r->sumber]->get($r->id))
+            ->filter()
+            ->values();
     }
 
     /**
@@ -605,7 +837,15 @@ class FulfillmentReadinessService
             // Ambil di toko lompat langsung ke Selesai: barangnya diserahkan ke pembeli
             // saat diproses, tidak ada paket yang perlu ditunggu.
             if ($so->isPickup()) {
-                $bucket = 'selesai';
+                /*
+                 * Ambil di toko selesai saat barangnya BENAR-BENAR diambil,
+                 * bukan saat fakturnya terbit. Di jalur normal keduanya terjadi
+                 * pada detik yang sama (tombol "Proses" menandai picked_up
+                 * sekaligus memposting faktur), tapi pesanan yang difakturkan
+                 * lewat jalur lain akan mengaku selesai padahal barangnya masih
+                 * menunggu di rak — dan tidak ada yang tahu ia masih menunggu.
+                 */
+                $bucket = $so->pickup_status === 'picked_up' ? 'selesai' : 'telah_diproses';
             } elseif (!$this->shipmentHandedOver($so)) {
                 $bucket = 'telah_diproses';
             } else {

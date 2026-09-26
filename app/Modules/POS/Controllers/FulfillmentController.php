@@ -307,13 +307,23 @@ class FulfillmentController extends Controller
         return back()->with('success', $link->resi_printed_at ? 'Ditandai sudah dicetak.' : 'Tanda cetak resi dibatalkan.');
     }
 
-    /** Tab Selesai: pesanan yang sudah tuntas (marketplace: faktur terbit/transaksi selesai; non-marketplace: resi sudah/tak perlu di-generate). */
+    /**
+     * Tab Selesai: SELURUH pesanan yang sudah tuntas, dipaginasi di SQL.
+     *
+     * Bukan lagi lewat bucket() — riwayatnya ribuan baris, dan mesin bucket
+     * menghidrasi semuanya ke memori sekaligus. Itu yang dulu memaksa tab ini
+     * mengarsip apa pun yang selesai > 3 hari lalu, sehingga ia nyaris selalu
+     * kosong. Lihat FulfillmentReadinessService::selesaiPaginated().
+     */
     public function selesai(Request $request, FulfillmentReadinessService $svc)
     {
         return view('erp.pos.fulfillment.selesai', [
-            'rows'     => $svc->bucket('selesai', $request->q, $request->only(['channel', 'courier'])),
-            'counts'   => $svc->counts(),
-            'couriers' => $svc->courierOptions('selesai'),
+            'rows'   => $svc->selesaiPaginated(
+                $request->q,
+                $request->only(['channel', 'from', 'to']),
+                per_page_size()
+            ),
+            'counts' => $svc->counts(),
         ]);
     }
 

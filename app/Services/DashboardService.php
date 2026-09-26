@@ -75,9 +75,12 @@ class DashboardService
      *                  lama yang belum sempat terisi, dan ia bukan tanggal yang
      *                  sama: itu saat KITA selesai memproses (barang keluar
      *                  gudang), kerap berhari-hari lebih awal;
-     *   ambil toko   → tanggal faktur. Barangnya diserahkan saat diproses,
-     *                  tidak ada paket yang perlu ditunggu;
-     *   kasir (faktur tanpa SO) → tanggal faktur, alasan yang sama;
+     *   ambil toko   → saat barangnya BENAR-BENAR diambil (`picked_up_at`).
+     *                  Di jalur normal itu terjadi berbarengan dengan fakturnya,
+     *                  tapi pesanan yang difakturkan lewat jalur lain akan
+     *                  mengaku terjual padahal barangnya masih di rak;
+     *   kasir (faktur tanpa SO) → tanggal faktur. Barangnya diserahkan saat itu
+     *                  juga, tidak ada yang perlu ditunggu;
      *   kurir        → saat surat jalannya ditandai SAMPAI (`delivered_at`).
      *
      * NULL = pesanannya belum selesai, dan faktur itu memang belum boleh
@@ -86,8 +89,8 @@ class DashboardService
     private const TANGGAL_SELESAI = "CASE
         WHEN mp.sales_order_id IS NOT NULL
              THEN CASE WHEN mp.tuntas = 1 THEN COALESCE(mp.tuntas_at, si.invoice_date) END
-        WHEN si.sales_order_id IS NULL OR so.delivery_method = 'ambil_toko'
-             THEN si.invoice_date
+        WHEN si.sales_order_id IS NULL THEN si.invoice_date
+        WHEN so.delivery_method = 'ambil_toko' THEN so.picked_up_at
         ELSE sd.sampai_at
     END";
 
