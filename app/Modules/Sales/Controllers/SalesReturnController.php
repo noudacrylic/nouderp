@@ -28,19 +28,14 @@ class SalesReturnController extends Controller
         $search = trim((string) $request->get('search', ''));
         $status = $request->get('status');
 
-        // Tahap penanganan (tab). Default "diproses" — di situlah retur menunggu tindakan.
-        $stage = $request->get('stage', 'diproses');
-        if (!array_key_exists($stage, SalesReturn::STAGES)) {
-            $stage = 'diproses';
-        }
-
-        $stageCounts = SalesReturn::selectRaw('stage, count(*) as total')
-            ->groupBy('stage')
-            ->pluck('total', 'stage');
-
+        /*
+         * TANPA tab tahap. Halaman ini riwayat, bukan antrean kerja: pekerjaannya
+         * sendiri — mengisi kasus, membanding, menyelesaikan — pindah seluruhnya ke
+         * Pemrosesan Pesanan > Retur supaya CS tidak perlu tahu dokumen retur itu
+         * tinggal di modul mana.
+         */
         $returns = SalesReturn::with(['customer', 'invoice', 'salesOrder'])
             ->withCount(['items as repair_items_count' => fn($q) => $q->where('condition', 'repair')])
-            ->where('stage', $stage)
             ->when($status !== null && $status !== '', fn($q) => $q->where('status', $status))
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
@@ -58,7 +53,7 @@ class SalesReturnController extends Controller
             ->paginate(per_page_size())
             ->withQueryString();
 
-        return view('erp.sales.returns.index', compact('returns', 'stage', 'stageCounts'));
+        return view('erp.sales.returns.index', compact('returns'));
     }
 
     public function create()

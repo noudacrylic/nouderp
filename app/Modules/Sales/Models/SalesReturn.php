@@ -41,13 +41,28 @@ class SalesReturn extends Model
         'credit' => 'Jadi Kredit Pelanggan (tidak ada uang keluar)',
     ];
 
-    /** Tahap penanganan retur — terpisah dari `status` yang mengurus akuntansi. */
+    /**
+     * Tahap penanganan retur — terpisah dari `status` yang mengurus akuntansi.
+     *
+     * DUA tahap yang menuntut pekerjaan, bukan tiga. Tahap lama `diproses` dihapus
+     * karena ia tak pernah menjawab pertanyaan apa pun: "baru" dan "diproses"
+     * sama-sama berarti retur yang belum selesai, dan memisahkannya cuma memaksa
+     * CS menebak sedang di kotak mana sebuah kasus duduk. Yang benar-benar beda
+     * nasibnya adalah retur yang sedang DISENGKETAKAN ke marketplace — itu yang
+     * kini punya tempat sendiri.
+     *
+     * `selesai` & `batal` bukan tab: keduanya keadaan akhir. Retur yang selesai
+     * pindah ke tab "Selesai" di Pemrosesan Pesanan bersama pesanannya.
+     */
     public const STAGES = [
-        'baru'     => 'Retur Baru',
-        'diproses' => 'Retur Diproses',
-        'selesai'  => 'Retur Selesai',
-        'batal'    => 'Batal',
+        'baru'    => 'Retur Baru',
+        'banding' => 'Banding',
+        'selesai' => 'Retur Selesai',
+        'batal'   => 'Batal',
     ];
+
+    /** Tahap yang masih menuntut pekerjaan — dua tab di Pemrosesan Pesanan. */
+    public const STAGES_AKTIF = ['baru', 'banding'];
 
     /**
      * Jenis kasus retur. NULL = belum didefinisikan → retur menunggu di tahap "baru".

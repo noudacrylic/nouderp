@@ -327,14 +327,52 @@ class FulfillmentController extends Controller
         ]);
     }
 
-    /** Tab Retur: pesanan marketplace yang diretur pembeli — cek barang lalu post draft retur. */
+    /**
+     * Tab Retur: SELURUH retur yang belum diselesaikan, dua sub-tab.
+     *
+     *   Retur Baru  retur yang baru masuk & belum diputuskan nasibnya
+     *   Banding     retur yang sedang disengketakan ke marketplace
+     *
+     * Di sinilah retur dikerjakan, apa pun kanalnya — itu sebabnya sumbernya
+     * DOKUMEN retur dan bukan lagi pesanan bertautan Jubelio.
+     */
     public function retur(Request $request, FulfillmentReadinessService $svc)
     {
+        $tahap = in_array($request->tahap, \App\Modules\Sales\Models\SalesReturn::STAGES_AKTIF, true)
+            ? $request->tahap
+            : 'baru';
+
         return view('erp.pos.fulfillment.retur', [
-            'rows'     => $svc->bucket('retur', $request->q, $request->only(['channel', 'courier'])),
-            'counts'   => $svc->counts(),
-            'couriers' => $svc->courierOptions('retur'),
+            'tahap'       => $tahap,
+            'rows'        => $svc->returRows($tahap, $request->q),
+            'returCounts' => $svc->returCounts(),
+            'counts'      => $svc->counts(),
         ]);
+    }
+
+    /**
+     * Pindahkan retur ke tahap Banding, atau tarik kembali ke Retur Baru.
+     *
+     * Hanya tahap yang berpindah — tidak ada jurnal, tidak ada stok. Yang
+     * membukukan apa pun cuma "Selesaikan Retur" (post) di form returnya.
+     */
+    public function returTahap(Request $request, int $retur)
+    {
+        $data = $request->validate([
+            'tahap' => 'required|in:baru,banding',
+        ]);
+
+        $return = \App\Modules\Sales\Models\SalesReturn::findOrFail($retur);
+
+        if ($return->status !== 'draft') {
+            return back()->with('error', 'Retur yang sudah diselesaikan tidak bisa dipindahkan lagi.');
+        }
+
+        $return->update(['stage' => $data['tahap']]);
+
+        return back()->with('success', $data['tahap'] === 'banding'
+            ? "Retur {$return->return_number} dipindahkan ke Banding."
+            : "Retur {$return->return_number} dikembalikan ke Retur Baru.");
     }
 
     /** Tarik manual retur dari Jubelio (selain cron): buat draft retur untuk pesanan yang diretur. */

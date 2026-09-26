@@ -624,13 +624,33 @@
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
-                            POST RETUR
+                            SELESAIKAN RETUR
                         </button>
                     </div>
 
-                    <a href="{{ route('sales.returns.index') }}"
+                    {{-- Pemindah tahap duduk DI SINI, bersebelahan dengan tombol yang
+                         menyelesaikan: saat CS selesai membaca kasusnya, dua jalan
+                         keluarnya harus terlihat bersamaan — diselesaikan sekarang,
+                         atau disengketakan dulu ke marketplace. --}}
+                    @isset($return)
+                        @if($return->status === 'draft')
+                            <form method="POST" action="{{ route('pos.fulfillment.retur-tahap', $return->id) }}">
+                                @csrf
+                                <input type="hidden" name="tahap" value="{{ $return->stage === 'banding' ? 'baru' : 'banding' }}">
+                                <button type="submit"
+                                        class="w-full py-3 rounded-xl font-bold text-sm border transition-all
+                                               {{ $return->stage === 'banding'
+                                                    ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                                                    : 'border-amber-400 text-amber-700 hover:bg-amber-50' }}">
+                                    {{ $return->stage === 'banding' ? '← Kembalikan ke Retur Baru' : '⚖ Ajukan Banding' }}
+                                </button>
+                            </form>
+                        @endif
+                    @endisset
+
+                    <a href="{{ route('pos.fulfillment.retur') }}"
                        class="w-full py-3 rounded-xl font-semibold text-sm text-gray-400 hover:text-gray-600 transition-all flex items-center justify-center">
-                        Batal & Kembali
+                        Batal &amp; Kembali
                     </a>
                 </div>
 

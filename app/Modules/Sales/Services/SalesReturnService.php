@@ -26,22 +26,17 @@ class SalesReturnService
     /**
      * Save return as draft (no accounting impact)
      *
-     * $stage default `diproses` = barang sudah tiba & tinggal dicek. Tapi tahap `baru` MENANG
-     * atas argumen ini bila jenis retur belum diisi: "Retur Baru" menurut definisinya adalah
-     * retur yang belum ketahuan kasusnya apa (paket hilang / gagal kirim / dst). Selama
-     * `return_type` kosong, retur menunggu di tab "Baru" untuk didefinisikan admin — termasuk
-     * retur yang ditarik otomatis dari Jubelio, yang datang tanpa keterangan jenis.
+     * Retur baru SELALU lahir di tahap `baru`, dari mana pun asalnya — tarikan Jubelio
+     * maupun buatan tangan. Tahap `banding` tidak pernah jadi tempat lahir: ia hanya
+     * dimasuki lewat tombol, saat seseorang memutuskan kasusnya disengketakan.
      */
-    public function saveDraft(SalesReturnDTO $dto, string $stage = 'diproses'): SalesReturn
+    public function saveDraft(SalesReturnDTO $dto, string $stage = 'baru'): SalesReturn
     {
         return DB::transaction(function () use ($dto, $stage) {
             $doc = $this->getDoc($dto);
             $totals = $this->calculateTotals($dto, $doc);
 
-            $stage = array_key_exists($stage, SalesReturn::STAGES) ? $stage : 'diproses';
-            if (empty($dto->return_type)) {
-                $stage = 'baru';
-            }
+            $stage = in_array($stage, SalesReturn::STAGES_AKTIF, true) ? $stage : 'baru';
 
             $return = SalesReturn::create([
                 'return_number'  => NumberGeneratorService::generate('SR'),
@@ -91,15 +86,19 @@ class SalesReturnService
             $doc = $this->getDoc($dto);
             $totals = $this->calculateTotals($dto, $doc);
 
-            // Mengisi jenis retur = mendefinisikan kasusnya → retur naik dari "baru" ke
-            // "diproses". Tahap yang sudah lebih jauh tidak ditarik mundur.
+            /*
+             * Tahap TIDAK bergerak sendiri saat data diisi. Dulu mengisi jenis retur
+             * diam-diam memindahkan kasusnya ke tahap berikutnya, dan CS kehilangan
+             * jejak barang yang baru saja ia ketik. Sekarang yang memindahkan kasus
+             * hanya dua tombol yang memang berbunyi begitu: "Ajukan Banding" dan
+             * "Selesaikan Retur".
+             */
             $return->update([
                 'return_date' => $dto->date,
                 'grand_total' => $totals['net'],
                 'return_type'            => $dto->return_type,
                 'external_return_number' => $dto->external_return_number,
                 'notes'                  => $dto->notes,
-                'stage' => (!empty($dto->return_type) && $return->stage === 'baru') ? 'diproses' : $return->stage,
             ]);
 
             $return->items()->delete();

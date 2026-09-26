@@ -6,31 +6,16 @@
     <a href="{{ route('sales.returns.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Buat Retur</a>
 </div>
 
-<div class="flex gap-1 mb-3 border-b text-sm">
-    @foreach(\App\Modules\Sales\Models\SalesReturn::STAGES as $key => $label)
-        @php $aktif = $stage === $key; @endphp
-        <a href="{{ route('sales.returns.index', ['stage' => $key]) }}"
-           class="px-3 py-2 -mb-px border-b-2 {{ $aktif ? 'border-blue-600 text-blue-700 font-medium' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
-            {{ $label }}
-            <span class="ml-1 text-xs {{ $aktif ? 'text-blue-600' : 'text-gray-400' }}">{{ $stageCounts[$key] ?? 0 }}</span>
-        </a>
-    @endforeach
-</div>
-
-@php
-    $stageHint = [
-        'baru'     => 'Kasusnya belum ditentukan. Buka tiap retur, isi Jenis Retur & Nomor Retur Marketplace — setelah itu retur pindah sendiri ke "Retur Diproses".',
-        'diproses' => 'Tahap penanganan: catat banding/tanggapan marketplace, lalu periksa barang yang benar-benar kembali dan isi kondisinya per baris sebelum diselesaikan.',
-        'selesai'  => 'Sudah diposting. Paket hilang dengan klaim menang tercatat di sini tanpa jurnal pembalik.',
-        'batal'    => 'Retur yang di-void.',
-    ][$stage] ?? null;
-@endphp
-@if($stageHint)
-    <p class="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-3">{{ $stageHint }}</p>
-@endif
+{{-- Tanpa tab tahap lagi. Halaman ini RIWAYAT: semua retur, untuk dicari, dilihat,
+     dan dicetak. Pekerjaannya sendiri — mengisi kasus, membanding, menyelesaikan —
+     pindah seluruhnya ke Pemrosesan Pesanan › Retur supaya CS tidak perlu tahu
+     dokumen retur itu tinggal di modul mana. --}}
+<p class="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-3">
+    Riwayat seluruh retur. Untuk <b>mengerjakan</b> retur (isi kasus, banding, selesaikan),
+    buka <a href="{{ route('pos.fulfillment.retur') }}" class="text-blue-700 font-semibold hover:underline">Pemrosesan Pesanan &rsaquo; Retur</a>.
+</p>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
-    <input type="hidden" name="stage" value="{{ $stage }}">
     @include('erp.purchasing._partials.search-input', [
         'name' => 'search',
         'placeholder' => 'Cari nomor retur (ERP/marketplace), faktur, atau pelanggan...',

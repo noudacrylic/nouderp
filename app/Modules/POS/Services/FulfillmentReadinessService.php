@@ -572,6 +572,168 @@ class FulfillmentReadinessService
     }
 
     /**
+     * Tab "Retur": retur yang BELUM diselesaikan, dikelompokkan per tahap.
+     *
+     * Sumbernya DOKUMEN RETUR, bukan pesanan — itu yang membuat layar ini seragam
+     * untuk semua kanal. Tab lama menyaring pesanan lewat tautan Jubelio, jadi
+     * retur dari pembeli toko/web tidak akan pernah muncul di sini sama sekali,
+     * dan CS harus pindah ke modul Sales untuk mengerjakannya.
+     *
+     * Satu pengecualian yang sengaja dipertahankan: pesanan yang ditandai diretur
+     * oleh marketplace TAPI dokumennya belum terbentuk (di data ini ada 29) tetap
+     * ikut tampil di tahap "baru". Kalau tidak, mereka lenyap dari semua layar —
+     * pekerjaan yang tidak punya tempat adalah pekerjaan yang tidak dikerjakan.
+     *
+     * @return Collection<int, array>
+     */
+    public function returRows(string $tahap, ?string $search = null): Collection
+    {
+        $tahap  = in_array($tahap, SalesReturn::STAGES_AKTIF, true) ? $tahap : 'baru';
+        $search = trim((string) $search);
+
+        $returns = SalesReturn::query()
+            ->where('status', 'draft')
+            ->where('stage', $tahap)
+            ->with(['customer:id,name', 'salesOrder', 'invoice:id,invoice_number'])
+            ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('return_number', 'like', "%{$search}%")
+                ->orWhere('external_return_number', 'like', "%{$search}%")
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$search}%"))
+                ->orWhereHas('salesOrder', fn ($s) => $s->where('order_number', 'like', "%{$search}%"))
+                ->orWhereHas('invoice', fn ($i) => $i->where('invoice_number', 'like', "%{$search}%"))))
+            ->latest('id')
+            ->get();
+
+        $rows = $this->barisDariRetur($returns);
+
+        if ($tahap === 'baru') {
+            $rows = $rows->concat($this->barisDireturTanpaDokumen($search));
+        }
+
+        return $rows->values();
+    }
+
+    /** Jumlah per tahap untuk lencana sub-tab. */
+    public function returCounts(): array
+    {
+        $per = SalesReturn::query()
+            ->where('status', 'draft')
+            ->whereIn('stage', SalesReturn::STAGES_AKTIF)
+            ->selectRaw('stage, COUNT(*) as t')
+            ->groupBy('stage')
+            ->pluck('t', 'stage');
+
+        return [
+            'baru'    => (int) ($per['baru'] ?? 0) + $this->idDireturTanpaDokumen()->count(),
+            'banding' => (int) ($per['banding'] ?? 0),
+        ];
+    }
+
+    /**
+     * Baris kartu untuk dokumen retur. Yang punya Sales Order memakai kartu SO yang
+     * sama dengan tab lain (rincian barang, resi, kurir semuanya sudah terbentuk di
+     * sana); yang tidak — retur atas faktur lepas — memakai baris ringkas sendiri.
+     */
+    private function barisDariRetur(Collection $returns): Collection
+    {
+        $soIds  = $returns->pluck('sales_order_id')->filter()->unique()->values()->all();
+        $soRows = collect();
+
+        if ($soIds) {
+            $orders = SalesOrder::query()->with([
+                'customer:id,name,is_marketplace,phone,recipient_phone,address,shipping_address,district,city,province,postal_code,biteship_area_id,kiriminaja_area_id,jubelio_area_id,latitude,longitude',
+                'customerBranch',
+                'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock,made_to_order',
+                'deliveries' => fn ($d) => $d->where('status', '!=', 'void'),
+                'deliveries.items',
+                'invoices'   => fn ($i) => $i->where('status', '!=', 'void'),
+            ])->whereIn('id', $soIds)->get();
+
+            $soRows = $this->rowsFor($orders)->keyBy('id');
+        }
+
+        return $returns->map(function (SalesReturn $r) use ($soRows) {
+            $row = $r->sales_order_id ? $soRows->get($r->sales_order_id) : null;
+
+            $row ??= [
+                'kind'           => 'retur_lepas',
+                'id'             => $r->sales_order_id ?? 0,
+                'number'         => $r->invoice->invoice_number ?? $r->return_number,
+                'customer'       => $r->customer->name ?? '-',
+                'date'           => $r->return_date,
+                'grand_total'    => (float) $r->grand_total,
+                'is_marketplace' => false,
+                'channel'        => null,
+                'phone'          => null,
+                'tracking_no'    => null,
+                'shipper'        => null,
+                'j_link'         => null,
+            ];
+
+            /* Data returnya ditempelkan SESUDAH baris SO dibangun: baris itu memang
+               sudah memuat retur miliknya sendiri, tapi yang dipilihnya belum tentu
+               dokumen yang sedang kita tampilkan — satu pesanan bisa punya dua nota
+               retur (barang dikembalikan bertahap). */
+            $row['retur_id']      = $r->id;
+            $row['retur_number']  = $r->return_number;
+            $row['retur_status']  = $r->status;
+            $row['retur_stage']   = $r->stage;
+            $row['retur_type']    = $r->return_type;
+            $row['retur_external']= $r->external_return_number;
+            $row['retur_total']   = (float) $r->grand_total;
+            $row['retur_notes']   = $r->notes;
+
+            return $row;
+        });
+    }
+
+    /** id SO yang ditandai diretur marketplace tapi dokumen returnya belum ada. */
+    private function idDireturTanpaDokumen(): Collection
+    {
+        return \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::query()
+            ->whereNotNull('sales_order_id')
+            ->where(fn ($q) => $q->where('last_status', 'returned')->orWhere('return_created', true))
+            ->whereNotExists(fn ($q) => $q->from('sales_returns')
+                ->whereColumn('sales_returns.sales_order_id', 'jubelio_order_links.sales_order_id'))
+            ->pluck('sales_order_id')
+            ->unique()
+            ->values();
+    }
+
+    private function barisDireturTanpaDokumen(string $search): Collection
+    {
+        $ids = $this->idDireturTanpaDokumen();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $orders = SalesOrder::query()->with([
+            'customer:id,name,is_marketplace,phone,recipient_phone,address,shipping_address,district,city,province,postal_code,biteship_area_id,kiriminaja_area_id,jubelio_area_id,latitude,longitude',
+            'customerBranch',
+            'items', 'items.product:id,name,sku,sale_type,lead_time_days,weight_gram,length_cm,width_cm,height_cm,preorder_stock,made_to_order',
+            'deliveries' => fn ($d) => $d->where('status', '!=', 'void'),
+            'deliveries.items',
+            'invoices'   => fn ($i) => $i->where('status', '!=', 'void'),
+        ])
+            ->whereIn('id', $ids->all())
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('order_number', 'like', "%{$search}%")
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$search}%"))))
+            ->get();
+
+        return $this->rowsFor($orders)->map(function (array $row) {
+            $row['retur_id']     = null;
+            $row['retur_number'] = null;
+            $row['retur_status'] = null;
+            $row['retur_stage']  = 'baru';
+
+            return $row;
+        });
+    }
+
+    /**
      * Klasifikasi sekumpulan SO yang SUDAH ter-load jadi baris kartu (dipakai tab "Semua").
      * Relasi pendukung (produksi, link Jubelio, retur) diambil sekali untuk semua baris.
      */
