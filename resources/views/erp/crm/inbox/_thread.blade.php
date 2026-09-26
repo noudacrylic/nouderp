@@ -784,6 +784,20 @@
                                 });
 
                                 /*
+                                 * Kembali lewat tombol ← peramban menghidupkan
+                                 * halaman ini dari bfcache: init() TIDAK jalan
+                                 * lagi, dan di sebagian peramban HP
+                                 * visibilitychange pun tidak ikut menyala — jam
+                                 * yang tadi dimatikan tinggal diam selamanya.
+                                 */
+                                window.addEventListener('pageshow', (e) => {
+                                    if (! e.persisted || document.hidden) return;
+
+                                    this.tarik();
+                                    this.mulaiJam();
+                                });
+
+                                /*
                                  * Klik gelembung ditangani SATU pendengar di wadah
                                  * penggulir, bukan atribut per gelembung. Gelembung
                                  * baru datang dari insertAdjacentHTML (kirim &

@@ -88,10 +88,66 @@
             pasangPengamat();
         }
 
-        async function ambil(muat, sidikKirim) {
-            const r = await fetch(alamat(muat, sidikKirim), { headers: { 'Accept': 'application/json' } });
+        /*
+         * Tiap permintaan dibatasi waktu, dan yang tertunggak bisa dibatalkan.
+         *
+         * Tanpa ini penyegar di HP mati total, bukan cuma melambat: layar yang
+         * padam memutus radio di tengah fetch, janjinya TIDAK pernah selesai
+         * maupun gagal, dan `sibuk` tinggal menyala selamanya — tiap siklus
+         * berikutnya pulang di baris pertama. Gejalanya persis yang dikeluhkan:
+         * daftar chat di HP ketinggalan dari laptop dan baru ikut bergerak
+         * setelah halamannya ditinggal lalu dibuka lagi.
+         *
+         * `no-store` menutup celah kedua: jawaban JSON yang tersangkut di cache
+         * HTTP membuat daftar "tersegarkan" dengan isi yang itu-itu juga.
+         */
+        let permintaan = null;
 
-            return r.ok ? r.json() : null;
+        async function ambil(muat, sidikKirim) {
+            permintaan = new AbortController();
+
+            const batas = setTimeout(() => permintaan?.abort(), 15000);
+
+            try {
+                const r = await fetch(alamat(muat, sidikKirim), {
+                    headers: { 'Accept': 'application/json' },
+                    signal: permintaan.signal,
+                    cache: 'no-store',
+                });
+
+                return r.ok ? r.json() : null;
+            } finally {
+                clearTimeout(batas);
+                permintaan = null;
+            }
+        }
+
+        /* Dipanggil tiap kali layar kembali terlihat: apa pun yang masih
+           menggantung dari sesi sebelumnya dibuang, lalu jamnya berdetak lagi
+           dari nol dengan satu tarikan SEGERA — pesan yang masuk selama layar
+           mati tidak boleh menunggu satu siklus penuh. */
+        function bangun() {
+            if (document.hidden) return;
+
+            permintaan?.abort();
+            permintaan = null;
+            sibuk = false;
+
+            segarkan();
+            mulaiJam();
+        }
+
+        let jam = null;
+
+        function mulaiJam() {
+            if (jam) return;                    // jangan sampai dua jam berdetak bersamaan
+
+            jam = setInterval(segarkan, JEDA);
+        }
+
+        function hentikanJam() {
+            clearInterval(jam);
+            jam = null;
         }
 
         /* --------------------------------------------------------- memanjang */
@@ -199,6 +255,25 @@
 
         pasangPengamat();
         keBarisAktif();
-        setInterval(segarkan, JEDA);
+        mulaiJam();
+
+        /*
+         * Tiga pintu masuk, karena HP menutup halaman ini dengan tiga cara yang
+         * berbeda dan tak satu pun cukup sendirian:
+         *   visibilitychange — pindah aplikasi / layar padam (yang paling sering);
+         *   pageshow persisted — kembali lewat tombol ← dari halaman chat, di
+         *     mana halaman dihidupkan lagi dari bfcache TANPA skrip ini dijalankan
+         *     ulang, jadi jam yang sudah mati tidak akan pernah berdetak sendiri;
+         *   focus — jendela peramban di laptop yang ditinggal ke jendela lain.
+         */
+        document.addEventListener('visibilitychange', () => {
+            document.hidden ? hentikanJam() : bangun();
+        });
+
+        window.addEventListener('pageshow', (e) => {
+            if (e.persisted) bangun();
+        });
+
+        window.addEventListener('focus', bangun);
     })();
 </script>
