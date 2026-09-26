@@ -347,7 +347,7 @@ class WebhookMasukTest extends TestCase
 
     /* ------------------------------------------------------------- pesan keluar */
 
-    public function test_balasan_dari_hp_tercatat_sebagai_kebocoran_dan_memindahkan_bola(): void
+    public function test_balasan_dari_hp_tercatat_sebagai_kebocoran_tanpa_menyentuh_label(): void
     {
         $this->kirim($this->payloadMasuk('m-9', 'halo'), 'k-9')->assertOk();
 
@@ -367,7 +367,10 @@ class WebhookMasukTest extends TestCase
         $this->assertTrue($keluar->dibalasDariHp());
 
         $percakapan = CrmConversation::first();
-        $this->assertSame(CrmConversation::QUEUE_PELANGGAN, $percakapan->queue_state);
+
+        // Label tidak digeser pesan keluar; yang menandai sudah dijawab adalah
+        // unread yang kembali nol.
+        $this->assertSame(CrmConversation::QUEUE_KITA, $percakapan->queue_state);
         $this->assertSame(0, $percakapan->unread_count);
     }
 

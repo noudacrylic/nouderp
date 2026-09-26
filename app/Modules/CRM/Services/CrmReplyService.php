@@ -116,11 +116,9 @@ class CrmReplyService
 
         $this->catatTemplate($percakapan, $template, $variabel, $bunyiTemplate, $hasil, $userId);
 
-        /*
-         * Bola ada di PELANGGAN: kita sudah menyapa, sekarang menunggu ia
-         * membalas — dan balasannya itulah yang membuka jendela 24 jam.
-         */
-        $this->geserBola($percakapan);
+        /* Kita sudah menyapa; sekarang menunggu ia membalas — dan balasannya
+           itulah yang membuka jendela 24 jam. */
+        $this->catatKeluar($percakapan);
 
         return ['success' => true, 'conversation' => $percakapan, 'error' => null];
     }
@@ -255,7 +253,7 @@ class CrmReplyService
             'raw' => ['tombol' => [TemplateResmi::TOMBOL_PANCINGAN]] + (array) $pesan->raw,
         ])->save();
 
-        $this->geserBola($percakapan);
+        $this->catatKeluar($percakapan);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -279,7 +277,7 @@ class CrmReplyService
 
         $pesan = $this->catatTemplate($percakapan, $nama, $variabel, TemplateResmi::body($nama), $hasil, $userId);
 
-        $this->geserBola($percakapan);
+        $this->catatKeluar($percakapan);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -346,7 +344,7 @@ class CrmReplyService
 
         $pesan = $this->catat($percakapan, 'text', $teks, $hasil, $userId, $replyTo);
 
-        $this->geserBola($percakapan);
+        $this->catatKeluar($percakapan);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -417,7 +415,7 @@ class CrmReplyService
             $terakhir = $pesan;
         }
 
-        $this->geserBola($percakapan);
+        $this->catatKeluar($percakapan);
 
         return ['success' => true, 'message' => $terakhir, 'error' => null];
     }
@@ -481,7 +479,7 @@ class CrmReplyService
             'raw'                 => $hasil['raw'] ?? [],
         ])->save();
 
-        $this->geserBola($percakapan);
+        $this->catatKeluar($percakapan);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -571,7 +569,7 @@ class CrmReplyService
 
         $pesan = $this->catat($tujuan, 'text', $teks, $hasil, $userId, null, $sumber->id);
 
-        $this->geserBola($tujuan);
+        $this->catatKeluar($tujuan);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -633,7 +631,7 @@ class CrmReplyService
             $terakhir = $pesan;
         }
 
-        $this->geserBola($tujuan);
+        $this->catatKeluar($tujuan);
 
         return ['success' => true, 'message' => $terakhir, 'error' => null];
     }
@@ -766,18 +764,22 @@ class CrmReplyService
     }
 
     /**
-     * Bola pindah ke pelanggan begitu kita menjawab. Tanpa ini, percakapan
-     * yang sudah dibalas tetap menumpuk di "Menunggu Kita" dan antreannya
-     * berhenti dipercaya — itu satu-satunya hal yang membuat layar ini
-     * berguna dibanding membuka WhatsApp di HP.
+     * Percakapan dicatat baru saja kita jawab: naik ke puncak daftar, dan
+     * penanda belum-dibacanya dibersihkan.
+     *
+     * Dulu bernama geserBola dan ikut memindahkan `queue_state` ke "Menunggu
+     * Pelanggan". Itu dicabut: sejak label bisa diganti sendiri lewat layar
+     * Label, kolom itu berhenti jadi antrean otomatis dan jadi KATEGORI yang
+     * diketik manusia (Desain, Tanya Harga, Cetak). Label yang lenyap tiap
+     * kali ada yang membalas tidak akan pernah dipakai siapa pun. Tugas
+     * "menandai ada pekerjaan" dipegang unread_count.
      */
-    private function geserBola(CrmConversation $percakapan): void
+    private function catatKeluar(CrmConversation $percakapan): void
     {
         $percakapan->forceFill([
             'last_outbound_at' => now(),
             'last_message_at'  => now(),
             'unread_count'     => 0,
-            'queue_state'      => CrmConversation::QUEUE_PELANGGAN,
         ])->save();
     }
 

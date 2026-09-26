@@ -275,9 +275,9 @@ class BalasTeruskanTest extends TestCase
         $this->assertSame(CrmMessage::KELUAR, $baru->direction);
         $this->assertSame($pesan->id, $baru->forwarded_from_message_id);
 
-        // Bola pindah ke pelanggan tujuan — kalau tidak, chat yang barusan kita
-        // kirimi tetap menumpuk di "Menunggu Kita".
-        $this->assertSame(CrmConversation::QUEUE_PELANGGAN, $tujuan->fresh()->queue_state);
+        // Label tujuan TIDAK ikut berubah. Label diketik CS sendiri (Desain,
+        // Tanya Harga, Cetak); yang menandai ada pekerjaan adalah unread.
+        $this->assertSame(CrmConversation::QUEUE_KITA, $tujuan->fresh()->queue_state);
     }
 
     public function test_meneruskan_ditolak_bila_jendela_tujuan_tertutup(): void

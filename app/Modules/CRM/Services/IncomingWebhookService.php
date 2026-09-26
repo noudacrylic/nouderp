@@ -57,12 +57,14 @@ class IncomingWebhookService
          * API tiap kali) supaya daftar percakapan bisa menandai thread tanpa
          * satu panggilan API per baris.
          */
+        /*
+         * `queue_state` SENGAJA tidak disentuh — lihat catatan di pesanKeluar().
+         */
         $percakapan->forceFill([
             'last_inbound_at'   => $waktu,
             'last_message_at'   => $waktu,
             'window_expires_at' => $waktu->copy()->addHours(24),
             'unread_count'      => $percakapan->unread_count + 1,
-            'queue_state'       => CrmConversation::QUEUE_KITA,
             'status'            => CrmConversation::STATUS_AKTIF,
         ])->save();
 
@@ -86,15 +88,24 @@ class IncomingWebhookService
         }
 
         /*
-         * Bola berpindah ke pelanggan, DAN unread dinolkan — termasuk ketika
-         * admin membalas dari HP. Kalau tidak, percakapan yang sudah dijawab
-         * tetap menumpuk di "Menunggu Kita" dan antreannya berhenti dipercaya.
+         * Unread dinolkan — termasuk ketika admin membalas dari HP.
+         *
+         * `queue_state` TIDAK ikut digeser, dan itu perubahan yang disengaja.
+         * Kolom ini lahir sebagai antrean otomatis "bola di siapa", tapi sejak
+         * label bisa diganti sendiri lewat layar Label ia jadi KATEGORI yang
+         * diketik manusia: Desain, Tanya Harga, Cetak. Menggesernya tiap ada
+         * pesan berarti label yang baru saja dipasang CS lenyap begitu
+         * pelanggan membalas — dan label yang tidak bertahan semalam tidak
+         * akan pernah dipakai siapa pun.
+         *
+         * Yang menggantikan tugasnya menandai "ada pekerjaan": unread_count,
+         * yang dibaca chip "Belum dibaca", lencana tab "Milik Saya", lencana
+         * sidebar, dan penanda baris di daftar.
          */
         $percakapan->forceFill([
             'last_outbound_at' => $waktu,
             'last_message_at'  => $waktu,
             'unread_count'     => 0,
-            'queue_state'      => CrmConversation::QUEUE_PELANGGAN,
         ])->save();
     }
 

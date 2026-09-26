@@ -67,7 +67,9 @@ class ChatBaruTest extends TestCase
         // sama akan punya thread kedua begitu ia membalas.
         $percakapan = CrmConversation::firstOrFail();
         $this->assertSame('628557774446', $percakapan->contact_key);
-        $this->assertSame(CrmConversation::QUEUE_PELANGGAN, $percakapan->queue_state);
+        // Percakapan baru lahir dengan label bawaan, dan sesudah itu labelnya
+        // cuma berubah kalau ada yang menggantinya sendiri.
+        $this->assertSame(CrmConversation::QUEUE_KITA, $percakapan->queue_state);
 
         $pesan = CrmMessage::firstOrFail();
         $this->assertSame('template', $pesan->message_type);

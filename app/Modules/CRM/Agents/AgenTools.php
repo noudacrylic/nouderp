@@ -172,9 +172,15 @@ class AgenTools
          * Di mode uji percakapannya tidak ada, dan itu bukan galat: yang sedang
          * dinilai adalah KEPUTUSAN melempar, bukan efek sampingnya.
          */
+        /*
+         * Yang menandai "ini butuh manusia" adalah unread, BUKAN label.
+         * Label percakapan diketik CS sendiri (Desain, Tanya Harga, Cetak);
+         * agen yang menimpanya saat melempar akan menghapus kategori yang
+         * baru saja dipasang orangnya — dan agen yang merusak catatan orang
+         * lain adalah agen yang dimatikan.
+         */
         if ($percakapan) {
             $percakapan->forceFill([
-                'queue_state'  => CrmConversation::QUEUE_KITA,
                 'unread_count' => $percakapan->unread_count + 1,
             ])->save();
         }

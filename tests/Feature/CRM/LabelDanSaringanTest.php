@@ -7,8 +7,10 @@ use App\Models\User;
 use App\Modules\CRM\ChatManager;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmLabel;
+use App\Modules\CRM\Services\IncomingWebhookService;
 use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -52,6 +54,48 @@ class LabelDanSaringanTest extends TestCase
         ])->save();
 
         return $p;
+    }
+
+    /* ------------------------------------------------ label bertahan */
+
+    /**
+     * Label yang dipasang CS BERTAHAN walau pelanggan mengirim pesan baru.
+     *
+     * Dulu tiap pesan masuk menimpanya jadi "menunggu_kita" dan tiap pesan
+     * keluar jadi "menunggu_pelanggan" — sisa dari zaman kolom ini masih
+     * antrean otomatis "bola di siapa". Sejak label bisa diganti sendiri lewat
+     * layar Label, ia jadi KATEGORI yang diketik manusia (Desain, Tanya Harga,
+     * Cetak), dan kategori yang lenyap begitu pelanggan membalas tidak akan
+     * pernah dipakai siapa pun.
+     */
+    public function test_label_pilihan_cs_bertahan_saat_pesan_baru_masuk(): void
+    {
+        CrmLabel::create(['kode' => 'desain', 'nama' => 'Desain', 'warna' => 'red', 'urutan' => 9, 'aktif' => true]);
+
+        $chat = $this->chat('628111000222', ['queue_state' => 'desain']);
+
+        app(IncomingWebhookService::class)->tangani([
+            'event_type' => 'message.received',
+            'event_id'   => (string) Str::uuid(),
+            'timestamp'  => now()->toIso8601String(),
+            /* Tanpa `phone_number_id`: dengan nomor bisnis yang berbeda,
+               findOrCreateFor melahirkan thread KEDUA dan tesnya jadi hijau
+               palsu — label chat pertama memang tak tersentuh, karena bukan
+               dia yang menerima pesannya. */
+            'data' => [
+                'phone_number' => '628111000222',
+                'message_id'   => 'lbl-1',
+                'message_type' => 'text',
+                'content'      => 'kak, desainnya jadi kapan?',
+            ],
+        ]);
+
+        $chat->refresh();
+
+        $this->assertSame('desain', $chat->queue_state);
+
+        // Yang menandai ada pekerjaan baru: unread, bukan label.
+        $this->assertSame(1, $chat->unread_count);
     }
 
     /* ------------------------------------------------------------ master label */

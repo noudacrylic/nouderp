@@ -104,7 +104,7 @@ class InboxTriaseTest extends TestCase
 
     /* ------------------------------------------------------------------- balasan */
 
-    public function test_balasan_tercatat_sebagai_pesan_erp_dan_memindahkan_bola(): void
+    public function test_balasan_tercatat_sebagai_pesan_erp_tanpa_menyentuh_label(): void
     {
         $p     = $this->percakapan();
         $admin = $this->admin();
@@ -121,7 +121,12 @@ class InboxTriaseTest extends TestCase
         $this->assertFalse($pesan->dibalasDariHp());
 
         $p->refresh();
-        $this->assertSame(CrmConversation::QUEUE_PELANGGAN, $p->queue_state);
+
+        /* Label BERTAHAN. Dulu balasan menggesernya ke "Menunggu Pelanggan",
+           dan sejak label jadi kategori yang diketik CS (Desain, Tanya Harga,
+           Cetak) itu berarti kategori yang baru dipasang lenyap begitu ada
+           yang membalas. Yang menandai sudah dijawab: unread jadi 0. */
+        $this->assertSame(CrmConversation::QUEUE_KITA, $p->queue_state);
         $this->assertSame(0, $p->unread_count);
     }
 
