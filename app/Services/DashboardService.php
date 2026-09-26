@@ -83,12 +83,17 @@ class DashboardService
      *                  juga, tidak ada yang perlu ditunggu;
      *   kurir        → saat surat jalannya ditandai SAMPAI (`delivered_at`).
      *
+     * Pesanan yang SEDANG DIRETUR tidak dihitung selama nota returnya masih
+     * draft: uangnya belum tentu jadi milik kita, dan di layar Pemrosesan
+     * Pesanan ia memang masih duduk di tab Retur, bukan Selesai.
+     *
      * NULL = pesanannya belum selesai, dan faktur itu memang belum boleh
      * masuk hitungan sama sekali — bukan masuk dengan tanggal seadanya.
      */
     private const TANGGAL_SELESAI = "CASE
         WHEN mp.sales_order_id IS NOT NULL
-             THEN CASE WHEN mp.tuntas = 1 THEN COALESCE(mp.tuntas_at, si.invoice_date) END
+             THEN CASE WHEN mp.tuntas = 1 AND COALESCE(rt.retur_draft, 0) = 0
+                       THEN COALESCE(mp.tuntas_at, si.invoice_date) END
         WHEN si.sales_order_id IS NULL THEN si.invoice_date
         WHEN so.delivery_method = 'ambil_toko' THEN so.picked_up_at
         ELSE sd.sampai_at
@@ -149,9 +154,18 @@ class DashboardService
             ->whereNotNull('sales_order_id')
             ->groupBy('sales_order_id');
 
+        /* Nota retur yang masih DRAFT = urusannya belum kelar. Selama ia
+           menggantung, penjualannya belum boleh dihitung — sama persis dengan
+           tab "Selesai" di Pemrosesan Pesanan, yang menaruhnya di tab Retur. */
+        $rt = DB::table('sales_returns')
+            ->selectRaw("sales_order_id, MAX(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as retur_draft")
+            ->whereNotNull('sales_order_id')
+            ->groupBy('sales_order_id');
+
         return $q
             ->leftJoin('sales_orders as so', 'so.id', '=', 'si.sales_order_id')
             ->leftJoinSub($mp, 'mp', 'mp.sales_order_id', '=', 'si.sales_order_id')
+            ->leftJoinSub($rt, 'rt', 'rt.sales_order_id', '=', 'si.sales_order_id')
             ->leftJoinSub($sd, 'sd', 'sd.sales_order_id', '=', 'si.sales_order_id');
     }
 

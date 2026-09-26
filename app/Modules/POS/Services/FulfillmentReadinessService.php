@@ -323,10 +323,19 @@ class FulfillmentReadinessService
          * punya beberapa tautan Jubelio maupun beberapa surat jalan (kirim
          * bertahap), dan join lugas akan MENGGANDAKAN barisnya di daftar.
          */
+        /*
+         * `diretur` memeriksa DUA penanda, dan yang kedua bukan kelebihan.
+         * `return_created` menyala begitu draft retur dibuat, sementara
+         * `last_status` baru berubah jadi 'returned' setelah cron menariknya
+         * dari channel. Di sela keduanya ada pesanan yang statusnya masih
+         * 'completed' padahal returnya sudah dikerjakan orang — di data ini
+         * ada 12 — dan tanpa penanda kedua mereka muncul di tab Selesai DAN
+         * tab Retur sekaligus. Rumusnya disamakan persis dengan buildSoRow().
+         */
         $mp = DB::table('jubelio_order_links')
             ->selectRaw("sales_order_id,
                          MAX(CASE WHEN last_status = 'completed' THEN 1 ELSE 0 END) as tuntas,
-                         MAX(CASE WHEN last_status = 'returned' THEN 1 ELSE 0 END) as diretur,
+                         MAX(CASE WHEN last_status = 'returned' OR return_created = 1 THEN 1 ELSE 0 END) as diretur,
                          MAX(COALESCE(mp_completed_at, wms_completed_at)) as tuntas_at")
             ->whereNotNull('sales_order_id')
             ->groupBy('sales_order_id');
@@ -336,7 +345,9 @@ class FulfillmentReadinessService
            Retur yang masih draft tetap tinggal di tab Retur; ia belum selesai, dan
            menampilkannya di dua tempat sekaligus membuat orang mengerjakannya dua kali. */
         $rt = DB::table('sales_returns')
-            ->selectRaw("sales_order_id, MAX(CASE WHEN status = 'posted' THEN 1 ELSE 0 END) as retur_posted")
+            ->selectRaw("sales_order_id,
+                         MAX(CASE WHEN status = 'posted' THEN 1 ELSE 0 END) as retur_posted,
+                         MAX(CASE WHEN status = 'draft'  THEN 1 ELSE 0 END) as retur_draft")
             ->whereNotNull('sales_order_id')
             ->groupBy('sales_order_id');
 
@@ -352,7 +363,18 @@ class FulfillmentReadinessService
 
         $tuntas = "CASE
             WHEN mp.sales_order_id IS NOT NULL
-                 THEN (mp.tuntas = 1 OR (mp.diretur = 1 AND COALESCE(rt.retur_posted, 0) = 1))
+                 THEN CASE
+                     -- Sedang diretur: selesai HANYA kalau returnya sudah di-post
+                     -- DAN tidak ada draft retur yang masih menggantung. Satu
+                     -- pesanan bisa punya dua nota retur (barang dikembalikan
+                     -- bertahap); selama satu di antaranya masih draft, urusannya
+                     -- belum kelar — ia tinggal di tab Retur, dan tidak boleh ikut
+                     -- dihitung sebagai uang masuk.
+                     WHEN mp.diretur = 1
+                          THEN CASE WHEN COALESCE(rt.retur_draft, 0) = 1 THEN 0
+                                    ELSE COALESCE(rt.retur_posted, 0) END
+                     ELSE mp.tuntas
+                 END
             WHEN so.delivery_method = 'ambil_toko' THEN (so.pickup_status = 'picked_up')
             ELSE (sd.jml > 0 AND sd.belum_sampai = 0)
         END";

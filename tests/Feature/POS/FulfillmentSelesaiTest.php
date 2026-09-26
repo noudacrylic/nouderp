@@ -265,6 +265,59 @@ class FulfillmentSelesaiTest extends TestCase
         $this->assertNotContains($so->order_number, $this->nomorDiTabSelesai());
     }
 
+    /**
+     * Pesanan yang MASIH DIRETUR tidak boleh ikut Selesai walau statusnya di
+     * marketplace sudah 'completed'.
+     *
+     * `return_created` menyala begitu draft retur dibuat, sementara
+     * `last_status` baru berubah jadi 'returned' setelah cron menariknya dari
+     * channel. Di sela keduanya, pesanan yang returnya sudah dikerjakan orang
+     * masih berstatus 'completed' — dan tanpa penanda kedua ia muncul di tab
+     * Selesai DAN tab Retur sekaligus.
+     */
+    public function test_pesanan_masih_diretur_tidak_ikut_selesai_walau_status_completed(): void
+    {
+        $so = $this->pesanan([], marketplace: true);
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 5006,
+            'jubelio_salesorder_no' => 'TP-5006',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'completed',
+            'return_created'        => true,
+            'mp_completed_at'       => now()->subDays(10),
+        ]);
+
+        $this->retur($so, 'draft');
+
+        $this->assertNotContains($so->order_number, $this->nomorDiTabSelesai());
+    }
+
+    /**
+     * Retur bertahap: satu nota sudah di-post, satu lagi masih draft. Selama
+     * yang draft menggantung, urusannya belum kelar.
+     */
+    public function test_satu_draft_retur_yang_menggantung_menahan_pesanan_dari_selesai(): void
+    {
+        $so = $this->pesanan([], marketplace: true);
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 5007,
+            'jubelio_salesorder_no' => 'TP-5007',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'returned',
+        ]);
+
+        $this->retur($so, 'posted');
+        $this->retur($so, 'draft');
+
+        $this->assertNotContains($so->order_number, $this->nomorDiTabSelesai());
+    }
+
     private function retur(SalesOrder $so, string $status): void
     {
         \Illuminate\Support\Facades\DB::table('sales_returns')->insert([
