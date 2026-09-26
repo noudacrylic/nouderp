@@ -84,7 +84,10 @@
         <a id="audit-penjualan" href="{{ route('dashboard.audit', ['metric' => 'penjualan', 'period' => 'monthly']) }}"
            class="group rounded-lg border border-gray-100 border-l-4 border-l-emerald-500 bg-emerald-50/30 p-3 transition hover:shadow-md hover:border-l-emerald-600">
             <div class="text-xs text-gray-500 flex items-center justify-between">
-                <span>Penjualan <span class="text-gray-400">(Faktur terbentuk)</span></span>
+                {{-- BUKAN "faktur terbentuk" lagi: pesanan marketplace difakturkan
+                     di muka, jadi tanggal faktur berhenti menjawab "bulan ini kita
+                     menjual berapa". --}}
+                <span>Penjualan <span class="text-gray-400">(Pesanan selesai)</span></span>
                 <span class="text-[10px] text-emerald-500 opacity-0 group-hover:opacity-100">rincian →</span>
             </div>
             <div class="text-xl font-bold text-emerald-700" id="stat-penjualan">{{ $rp($sales['totalPenjualan']) }}</div>

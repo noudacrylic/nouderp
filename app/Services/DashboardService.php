@@ -58,7 +58,83 @@ class DashboardService
     }
 
     /**
-     * Deret penjualan untuk grafik: Potensi Penjualan (SO) + Penjualan (Invoice posted).
+     * KAPAN sebuah faktur dihitung sebagai penjualan: saat PESANANNYA SELESAI.
+     *
+     * Bukan lagi tanggal fakturnya. Sejak pesanan marketplace difakturkan di
+     * muka (faktur terbit begitu pesanannya masuk, sebelum sebutir barang pun
+     * dikirim), tanggal faktur berhenti menjawab pertanyaan "bulan ini kita
+     * menjual berapa" — satu hari ramai di Shopee melonjakkan grafik untuk
+     * barang yang baru dikirim minggu depan, dan bisa jadi dibatalkan.
+     *
+     * Tanggal selesainya dibaca dari sumber yang sama dengan tab "Selesai" di
+     * Pemrosesan Pesanan, supaya dua layar itu tidak pernah bercerita berbeda:
+     *
+     *   marketplace  → tuntas di Jubelio (`last_status = completed`), pakai
+     *                  `wms_completed_at`; kalau kosong, tanggal fakturnya;
+     *   ambil toko   → tanggal faktur. Barangnya diserahkan saat diproses,
+     *                  tidak ada paket yang perlu ditunggu;
+     *   kasir (faktur tanpa SO) → tanggal faktur, alasan yang sama;
+     *   kurir        → saat surat jalannya ditandai SAMPAI (`delivered_at`).
+     *
+     * NULL = pesanannya belum selesai, dan faktur itu memang belum boleh
+     * masuk hitungan sama sekali — bukan masuk dengan tanggal seadanya.
+     */
+    private const TANGGAL_SELESAI = "CASE
+        WHEN mp.sales_order_id IS NOT NULL
+             THEN CASE WHEN mp.tuntas = 1 THEN COALESCE(mp.tuntas_at, si.invoice_date) END
+        WHEN si.sales_order_id IS NULL OR so.delivery_method = 'ambil_toko'
+             THEN si.invoice_date
+        ELSE sd.sampai_at
+    END";
+
+    /**
+     * Faktur posted yang PESANANNYA SUDAH SELESAI dalam rentang, siap dijumlah
+     * atau didaftar. Kolom `si.*`, `so.*` tersedia; tanggal selesainya dipanggil
+     * lewat ekspresiSelesai().
+     *
+     * Dipakai bersama grafik dashboard & halaman audit rincian — satu sumber,
+     * supaya daftar yang terbuka saat angkanya diklik pasti berjumlah sama.
+     */
+    public function fakturPesananSelesai(Carbon $start, Carbon $end): \Illuminate\Database\Query\Builder
+    {
+        /*
+         * Keduanya subquery ber-GROUP BY, bukan join langsung: satu SO bisa
+         * punya lebih dari satu baris tautan Jubelio maupun beberapa surat
+         * jalan (kirim bertahap), dan join lugas akan MENGGANDAKAN fakturnya —
+         * omzet yang naik dua kali lipat tanpa satu pun dokumen tambahan.
+         */
+        $mp = DB::table('jubelio_order_links')
+            ->selectRaw("sales_order_id,
+                         MAX(CASE WHEN last_status = 'completed' THEN 1 ELSE 0 END) as tuntas,
+                         MAX(wms_completed_at) as tuntas_at")
+            ->whereNotNull('sales_order_id')
+            ->groupBy('sales_order_id');
+
+        $sd = DB::table('sales_deliveries')
+            ->selectRaw('sales_order_id, MAX(delivered_at) as sampai_at')
+            ->where('status', '<>', 'void')
+            ->whereNotNull('delivered_at')
+            ->whereNotNull('sales_order_id')
+            ->groupBy('sales_order_id');
+
+        return DB::table('sales_invoices as si')
+            ->leftJoin('sales_orders as so', 'so.id', '=', 'si.sales_order_id')
+            ->leftJoinSub($mp, 'mp', 'mp.sales_order_id', '=', 'si.sales_order_id')
+            ->leftJoinSub($sd, 'sd', 'sd.sales_order_id', '=', 'si.sales_order_id')
+            ->where('si.status', 'posted')
+            // whereBetween atas ekspresinya sekaligus membuang yang NULL —
+            // pesanan yang belum selesai tidak ikut, tanpa syarat tambahan.
+            ->whereBetween(DB::raw('DATE(' . self::TANGGAL_SELESAI . ')'), [$start->toDateString(), $end->toDateString()]);
+    }
+
+    /** Ekspresi SQL tanggal selesai, untuk dipakai di SELECT/GROUP BY pemanggil. */
+    public function ekspresiSelesai(): string
+    {
+        return self::TANGGAL_SELESAI;
+    }
+
+    /**
+     * Deret penjualan untuk grafik: Potensi Penjualan (SO) + Penjualan (pesanan selesai).
      * @param string $period weekly|monthly|yearly|custom
      * @param string|null $startDate tanggal awal (Y-m-d) untuk period=custom
      * @param string|null $endDate   tanggal akhir (Y-m-d) untuk period=custom
@@ -80,7 +156,12 @@ class DashboardService
         $soQ  = SalesOrder::whereNotIn('status', ['void', 'cancelled'])
             ->where('paid_amount', '>', 0.01)
             ->whereBetween('order_date', [$start->toDateString(), $end->toDateString()]);
-        $invQ = SalesInvoice::where('status', 'posted')->whereBetween('invoice_date', [$start->toDateString(), $end->toDateString()]);
+
+        // Penjualan: faktur posted, DITEMPATKAN pada tanggal pesanannya selesai —
+        // lihat TANGGAL_SELESAI.
+        $invQ  = $this->fakturPesananSelesai($start, $end);
+        $expr  = $this->ekspresiSelesai();
+        $nilai = 'SUM(si.subtotal - COALESCE(si.global_discount_amount, 0)) as t';
 
         $labels = [];
         $potensi = [];
@@ -91,7 +172,7 @@ class DashboardService
 
         if ($mode === 'day') {
             $soMap  = (clone $soQ)->selectRaw('DATE(order_date) as d, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t')->groupBy('d')->pluck('t', 'd');
-            $invMap = (clone $invQ)->selectRaw('DATE(invoice_date) as d, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t')->groupBy('d')->pluck('t', 'd');
+            $invMap = (clone $invQ)->selectRaw("DATE($expr) as d, $nilai")->groupBy('d')->pluck('t', 'd');
             $fmt = $period === 'monthly' ? 'j' : 'd/m';
             for ($d = $start->copy(); $d->lte($end); $d->addDay()) {
                 $key = $d->toDateString();
@@ -101,7 +182,7 @@ class DashboardService
             }
         } else { // month — pakai kunci Y-m agar aman lintas tahun
             $soMap  = (clone $soQ)->selectRaw("DATE_FORMAT(order_date, '%Y-%m') as ym, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t")->groupBy('ym')->pluck('t', 'ym');
-            $invMap = (clone $invQ)->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') as ym, SUM(subtotal - COALESCE(global_discount_amount, 0)) as t")->groupBy('ym')->pluck('t', 'ym');
+            $invMap = (clone $invQ)->selectRaw("DATE_FORMAT($expr, '%Y-%m') as ym, $nilai")->groupBy('ym')->pluck('t', 'ym');
             $crossYear = $start->year !== $end->year;
             for ($m = $start->copy()->startOfMonth(); $m->lte($end); $m->addMonth()) {
                 $key = $m->format('Y-m');

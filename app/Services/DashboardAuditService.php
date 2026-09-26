@@ -95,19 +95,28 @@ class DashboardAuditService
     {
         [$start, $end] = $this->dashboard->resolveRange($p['period'] ?? 'monthly', $p['start'] ?? null, $p['end'] ?? null);
 
-        $rows = SalesInvoice::query()
-            ->where('status', 'posted')
-            ->whereBetween('invoice_date', [$start->toDateString(), $end->toDateString()])
-            ->leftJoin('customers as c', 'c.id', '=', 'sales_invoices.customer_id')
-            ->orderByDesc('invoice_date')      // terbaru di atas
-            ->orderByDesc('sales_invoices.id')
-            ->get(['sales_invoices.id', 'sales_invoices.invoice_number', 'sales_invoices.invoice_date', 'sales_invoices.subtotal', 'sales_invoices.global_discount_amount', 'c.name as customer_name'])
+        /*
+         * Dasarnya query yang SAMA dengan grafik (DashboardService), termasuk
+         * tanggal selesainya. Menyalin ulang aturannya di sini adalah cara
+         * tercepat membuat daftar yang terbuka saat angka kartu diklik
+         * berjumlah lain — dan yang dipercaya orang adalah yang bisa dihitung
+         * ulang dengan mata.
+         */
+        $expr = $this->dashboard->ekspresiSelesai();
+
+        $rows = $this->dashboard->fakturPesananSelesai($start, $end)
+            ->leftJoin('customers as c', 'c.id', '=', 'si.customer_id')
+            ->selectRaw("si.id, si.invoice_number, DATE($expr) as selesai_at,
+                         si.subtotal, si.global_discount_amount, c.name as customer_name")
+            ->orderByDesc(DB::raw("DATE($expr)"))      // terbaru di atas
+            ->orderByDesc('si.id')
+            ->get()
             ->map(fn ($r) => [
                 'url'      => route('sales.invoices.show', $r->id),
                 'number'   => $r->invoice_number,
-                'date'     => $r->invoice_date,
+                'date'     => $r->selesai_at,
                 'customer' => $r->customer_name ?: '—',
-                'status'   => 'posted',
+                'status'   => 'selesai',
                 // Selaras chart & Laba Rugi: penjualan bruto (subtotal − diskon), bukan grand total.
                 'amount'   => (float) $r->subtotal - (float) $r->global_discount_amount,
             ])->all();
@@ -115,10 +124,10 @@ class DashboardAuditService
         return [
             'type'       => 'documents',
             'title'      => 'Rincian Penjualan',
-            'subtitle'   => 'Faktur Penjualan (posted) pada rentang terpilih',
+            'subtitle'   => 'Faktur Penjualan (posted) yang PESANANNYA sudah selesai, ditempatkan pada tanggal selesainya',
             'rangeLabel' => $this->rangeLabel($start, $end),
             'total'      => round(array_sum(array_column($rows, 'amount'))),
-            'columns'    => ['No. Faktur', 'Tanggal', 'Pelanggan', 'Status', 'Total'],
+            'columns'    => ['No. Faktur', 'Tgl Selesai', 'Pelanggan', 'Status', 'Total'],
             'rows'       => $rows,
         ];
     }
