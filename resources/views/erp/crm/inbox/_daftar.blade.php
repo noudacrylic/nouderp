@@ -349,7 +349,8 @@
     <template x-teleport="body">
         <div>
             {{-- menu titik tiga --}}
-            <div x-show="menu" x-cloak @click.outside="menu = false" @keydown.escape.window="menu = false"
+            <div id="crmMenuBaris"
+                 x-show="menu" x-cloak @click.outside="menu = false" @keydown.escape.window="menu = false"
                  :style="`top:${posisi.y}px; left:${posisi.x}px`"
                  class="fixed z-50 w-48 bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
 
@@ -378,9 +379,14 @@
                  + tombol Simpan. Itu yang membedakannya dari popup lama: memilih
                  SUDAH berarti menyimpan, jadi ganti label selesai dalam dua klik
                  tanpa pernah meninggalkan daftar. --}}
-            <div x-show="chip" x-cloak @click.outside="chip = null" @keydown.escape.window="chip = null"
+            {{-- Batas tingginya 70vh — angka TETAP, bukan sisa ruang di bawah
+                 chip. Kalau ia dihitung dari posisi chipnya, dropdown yang
+                 dibuka dekat tepi bawah akan memendek jadi dua baris alih-alih
+                 naik ke atas, dan koreksi rapikan() tak pernah kebagian kerja. --}}
+            <div id="crmDropdownChip"
+                 x-show="chip" x-cloak @click.outside="chip = null" @keydown.escape.window="chip = null"
                  :style="`top:${posisi.y}px; left:${posisi.x}px`"
-                 class="fixed z-50 w-48 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
+                 class="fixed z-50 w-48 max-h-[70vh] overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm py-1">
 
                 <div class="px-3 py-1 text-[11px] text-gray-400 truncate" x-text="chat.nama"></div>
 
@@ -488,28 +494,63 @@ function menuChatDaftar(basis, terbukaId) {
             this.posisi = this.letak(e.currentTarget);
             this.menu = true;
             this.chip = null;
+            this.rapikan('crmMenuBaris');
         },
 
-        /* Dropdown chip memakai PENEMPAT yang sama dengan menu titik tiga, dan
-           itu disengaja: dua rumus posisi untuk dua menu seukuran sama pasti
-           berbeda nasibnya di baris terbawah daftar — yang satu terbalik ke
-           atas, yang satu tenggelam di bawah layar. */
+        /* Chip dirapatkan ke tepi KIRI pemicunya, tombol titik tiga ke tepi
+           kanan — dan bedanya bukan selera. Chip duduk di ujung kiri kolom:
+           merapatkannya ke kanan seperti menu titik tiga membuat dropdownnya
+           melar ke luar kolom dan tertimpa sidebar, tinggal separuh terbaca. */
         bukaChip(e, data, jenis) {
             this.chat = data;
-            this.posisi = this.letak(e.currentTarget);
+            this.posisi = this.letak(e.currentTarget, 'kiri');
             this.menu = false;
             this.chip = jenis;
+            this.rapikan('crmDropdownChip');
         },
 
-        /* Dirapatkan ke tepi kanan pemicunya, dan dibalik ke atas kalau sisa
-           ruang di bawah tak cukup — baris terbawah daftar paling sering. */
-        letak(el) {
-            const r = el.getBoundingClientRect();
+        /*
+         * Penempat bersama untuk menu titik tiga dan dropdown chip.
+         *
+         * Batas kirinya BUKAN tepi layar melainkan tepi kolom ini ($el): di
+         * desktop, delapan piksel dari tepi layar itu berada di bawah sidebar,
+         * jadi menu yang "sudah masuk layar" tetap tak terbaca. Di PWA kolomnya
+         * selebar layar, jadi rumus yang sama tetap benar tanpa cabang.
+         */
+        letak(el, rata = 'kanan') {
+            const r     = el.getBoundingClientRect();
+            const kolom = this.$el.getBoundingClientRect();
+            const lebar = 192;                                  // w-48
+            const kiri  = Math.max(8, kolom.left);
+            const kanan = Math.max(kiri, Math.min(kolom.right, window.innerWidth - 8) - lebar);
 
             return {
-                x: Math.max(8, Math.min(r.right - 192, window.innerWidth - 200)),
+                x: Math.max(kiri, Math.min(rata === 'kiri' ? r.left : r.right - lebar, kanan)),
                 y: r.bottom + 180 > window.innerHeight ? Math.max(8, r.top - 172) : r.bottom + 4,
             };
+        },
+
+        /*
+         * Koreksi tegak SESUDAH menunya tergambar.
+         *
+         * Tingginya tak bisa ditebak di muka: daftar label bisa tiga baris bisa
+         * belasan, dan tebakan 172px yang meleset menenggelamkan pilihan
+         * terbawah di luar layar — persis pilihan yang sedang dicari orangnya.
+         */
+        rapikan(id) {
+            this.$nextTick(() => {
+                const el = document.getElementById(id);
+
+                if (! el) {
+                    return;
+                }
+
+                const tinggi = el.offsetHeight;
+
+                if (this.posisi.y + tinggi > window.innerHeight - 8) {
+                    this.posisi.y = Math.max(8, window.innerHeight - tinggi - 8);
+                }
+            });
         },
 
         aksi(sufiks) {
