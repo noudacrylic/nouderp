@@ -217,6 +217,37 @@ class FulfillmentSelesaiTest extends TestCase
 
     /* ------------------------------------------------- retur */
 
+    /*
+     * DUA JENIS RETUR, dan keduanya berperilaku berbeda di tab ini — bukan
+     * karena selera melainkan karena urutan kejadiannya:
+     *
+     *   non-marketplace  retur terjadi SESUDAH transaksinya selesai (barang
+     *                    sudah sampai, pembeli baru mengembalikan). Pesanannya
+     *                    memang sudah selesai, jadi ia TETAP tampil — lencana
+     *                    returnya yang memberi tahu uangnya berkurang;
+     *   marketplace      retur terjadi SEBELUM pembeli menekan "selesaikan
+     *                    pesanan", jadi transaksinya belum pernah selesai. Ia
+     *                    baru muncul di sini setelah nota returnya di-post.
+     */
+
+    /** Retur non-marketplace terjadi sesudah selesai → pesanannya tetap tampil. */
+    public function test_retur_non_marketplace_tidak_mengeluarkan_pesanan_dari_selesai(): void
+    {
+        $draft  = $this->pesanan();
+        $posted = $this->pesanan();
+
+        $this->suratJalan($draft, now()->subDays(20));
+        $this->suratJalan($posted, now()->subDays(20));
+
+        $this->retur($draft, 'draft');
+        $this->retur($posted, 'posted');
+
+        $tampil = $this->nomorDiTabSelesai();
+
+        $this->assertContains($draft->order_number, $tampil);
+        $this->assertContains($posted->order_number, $tampil);
+    }
+
     /**
      * Retur yang SUDAH di-post = urusannya tuntas → pesanannya pindah ke Selesai,
      * dengan penanda retur menempel di nomornya. Tab ini dibaca untuk pertanyaan
