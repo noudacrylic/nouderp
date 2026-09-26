@@ -434,10 +434,15 @@ class FulfillmentReadinessService
                 // Patokannya status pesanan, BUKAN `invoice_posted`: faktur kini terbit saat
                 // pengiriman, jadi menyaring dengan flag itu membuang pesanan yang masih
                 // menunggu resi atau masih di jalan — hilang dari "Telah Diproses"/"Dikirim".
+                // Patokan tanggalnya WAJIB sama dengan buildSoRow(): mp_completed_at
+                // (marketplace menyatakan selesai) dulu, wms_completed_at (kita selesai
+                // memproses) cuma cadangan. Saringan yang memakai patokan lebih tua dari
+                // penghitung arsipnya akan membuang baris yang seharusnya masih tampil —
+                // dan gejalanya tab "Selesai" yang selalu nyaris kosong.
                 $q->whereNull('last_status')
                   ->orWhere('last_status', '!=', 'completed')
-                  ->orWhereNull('wms_completed_at')
-                  ->orWhere('wms_completed_at', '>=', $archiveCutoff)
+                  ->orWhereRaw('COALESCE(mp_completed_at, wms_completed_at) IS NULL')
+                  ->orWhereRaw('COALESCE(mp_completed_at, wms_completed_at) >= ?', [$archiveCutoff])
                   ->orWhere('last_status', 'returned')
                   ->orWhere('return_created', true);
             })
@@ -632,8 +637,19 @@ class FulfillmentReadinessService
             $invDate = $postedInvoice
                 ? \Carbon\Carbon::parse($postedInvoice->invoice_date ?? $postedInvoice->created_at)
                 : null;
+            /*
+             * `mp_completed_at` DULU, baru `wms_completed_at`.
+             *
+             * Keduanya bukan tanggal yang sama: yang kedua menyala saat KITA
+             * selesai memproses pesanan (picking → faktur → resi terbit), yang
+             * pertama saat MARKETPLACE menyatakannya selesai — kerap seminggu
+             * lebih lambat. Dengan patokan lama, pesanan yang kita proses awal
+             * bulan lalu baru dituntaskan pembeli hari ini sudah TERARSIP pada
+             * detik ia masuk tab Selesai, jadi tab itu selalu nyaris kosong
+             * sementara "Dikirim" menumpuk ratusan.
+             */
             $completedAt = $link
-                ? ($link->wms_completed_at ?? $invDate)
+                ? ($link->mp_completed_at ?? $link->wms_completed_at ?? $invDate)
                 : ($this->shippedAt($so) ?? $invDate);
             $archived = $completedAt !== null && $completedAt->lt(now()->subDays(3));
         }
