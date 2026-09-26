@@ -70,7 +70,11 @@ class DashboardService
      * Pemrosesan Pesanan, supaya dua layar itu tidak pernah bercerita berbeda:
      *
      *   marketplace  → tuntas di Jubelio (`last_status = completed`), pakai
-     *                  `wms_completed_at`; kalau kosong, tanggal fakturnya;
+     *                  `mp_completed_at` — tanggal MARKETPLACE menyatakannya
+     *                  selesai. `wms_completed_at` hanya cadangan untuk baris
+     *                  lama yang belum sempat terisi, dan ia bukan tanggal yang
+     *                  sama: itu saat KITA selesai memproses (barang keluar
+     *                  gudang), kerap berhari-hari lebih awal;
      *   ambil toko   → tanggal faktur. Barangnya diserahkan saat diproses,
      *                  tidak ada paket yang perlu ditunggu;
      *   kasir (faktur tanpa SO) → tanggal faktur, alasan yang sama;
@@ -106,7 +110,7 @@ class DashboardService
         $mp = DB::table('jubelio_order_links')
             ->selectRaw("sales_order_id,
                          MAX(CASE WHEN last_status = 'completed' THEN 1 ELSE 0 END) as tuntas,
-                         MAX(wms_completed_at) as tuntas_at")
+                         MAX(COALESCE(mp_completed_at, wms_completed_at)) as tuntas_at")
             ->whereNotNull('sales_order_id')
             ->groupBy('sales_order_id');
 

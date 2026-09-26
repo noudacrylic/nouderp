@@ -223,6 +223,68 @@ class JubelioOrderSyncService
     }
 
     /**
+     * Isi `mp_completed_at` untuk pesanan yang SUDAH tuntas sebelum kolomnya ada.
+     *
+     * Perlu perintah sendiri karena sinkron rutin SENGAJA melewati pesanan yang
+     * statusnya sudah terminal ('completed'/'canceled') — kalau tidak, tiap
+     * putaran menarik ulang seluruh riwayat. Akibatnya pesanan lama tidak akan
+     * pernah kebagian tanggal selesainya, dan grafik Penjualan jatuh balik ke
+     * cadangannya (tanggal barang keluar gudang) untuk selamanya.
+     *
+     * Aman diulang: hanya menyentuh baris yang kolomnya masih kosong. Yang
+     * detailnya tak menyebut `received_date` diisi dari `wms_completed_at`
+     * supaya tetap punya tanggal yang stabil, bukan dibiarkan menggantung.
+     *
+     * @return array{scanned:int,updated:int,fallback:int,skipped:int,errors:int}
+     */
+    public function backfillTanggalSelesai(): array
+    {
+        $stats = ['scanned' => 0, 'updated' => 0, 'fallback' => 0, 'skipped' => 0, 'errors' => 0];
+
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        $links = JubelioOrderLink::query()
+            ->where('last_status', 'completed')
+            ->whereNull('mp_completed_at')
+            ->whereNotNull('jubelio_salesorder_id')
+            ->get();
+
+        foreach ($links as $link) {
+            $stats['scanned']++;
+
+            $resp = $this->client->getOrder((int) $link->jubelio_salesorder_id);
+
+            if (!$resp['success']) {
+                $stats['errors']++;
+                Log::warning('Backfill tanggal selesai: getOrder gagal', [
+                    'link'  => $link->id,
+                    'jbl'   => $link->jubelio_salesorder_id,
+                    'error' => $resp['error'] ?? null,
+                ]);
+                continue;
+            }
+
+            $tanggal = $this->tanggalSelesaiMarketplace((array) ($resp['data'] ?? []));
+
+            if ($tanggal) {
+                $stats['updated']++;
+            } elseif ($link->wms_completed_at) {
+                $tanggal = $link->wms_completed_at;
+                $stats['fallback']++;
+            } else {
+                $stats['skipped']++;
+                continue;
+            }
+
+            $link->forceFill(['mp_completed_at' => $tanggal])->save();
+        }
+
+        return $stats;
+    }
+
+    /**
      * Proses 1 pesanan Jubelio berdasarkan ID: ambil detail lalu jalankan tahap
      * yang sesuai status. Idempotent.
      */
@@ -399,6 +461,21 @@ class JubelioOrderSyncService
         }
 
         $link->last_status = $this->statusLabel($detail);
+
+        /*
+         * Tanggal marketplace menyatakan pesanan SELESAI — dicatat sekali,
+         * saat pertama kali terlihat, lalu tidak pernah digeser lagi.
+         *
+         * BUKAN `wms_completed_at`: kolom itu menyala saat KITA selesai
+         * memproses pesanan (picking → faktur → resi), alias kira-kira barang
+         * keluar gudang. Pesanan yang baru diterima pembeli sepuluh hari
+         * kemudian sudah punya `wms_completed_at` yang lama menyala, dan
+         * grafik penjualan yang memakainya menaruh omzet di minggu yang salah.
+         */
+        if ($link->last_status === 'completed' && empty($link->mp_completed_at)) {
+            $link->mp_completed_at = $this->tanggalSelesaiMarketplace($detail) ?? now();
+        }
+
         $link->save();
 
         // Push stok SEKETIKA bila SJ BARU terbentuk run ini (stok komponen sudah keluar):
@@ -1894,6 +1971,35 @@ class JubelioOrderSyncService
     {
         return !empty($d['marked_as_complete']) || !empty($d['received_date'])
             || strtoupper((string) ($d['wms_status'] ?? '')) === 'COMPLETED';
+    }
+
+    /**
+     * KAPAN pesanan itu selesai menurut marketplace.
+     *
+     * `received_date` = tanggal pesanan diterima pembeli menurut channel; itulah
+     * yang dicari. Kalau detailnya tak menyebutkannya (pesanan yang ditandai
+     * selesai manual, atau channel yang tidak mengirim tanggalnya), pemanggil
+     * memakai `now()` — saat kita PERTAMA KALI melihatnya selesai. Meleset
+     * paling jauh sebesar jeda cron, dan itu jauh lebih dekat daripada tanggal
+     * faktur yang untuk marketplace terbit di muka.
+     *
+     * Jubelio mengirim waktu UTC (akhiran "Z"), jadi dikonversi ke zona app
+     * dulu — tanpa itu pesanan yang selesai 17:00–23:59 WIB tercatat mundur
+     * satu hari, dan di grafik harian satu hari itu terlihat.
+     */
+    private function tanggalSelesaiMarketplace(array $d): ?\Carbon\Carbon
+    {
+        $raw = $d['received_date'] ?? $d['completed_date'] ?? $d['complete_date'] ?? null;
+
+        if (empty($raw)) {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($raw)->timezone(config('app.timezone'));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

@@ -47,6 +47,9 @@ class JubelioOrderLink extends Model
         'j_faktur_url',
         'wms_last_error',
         'wms_completed_at',
+        // Kapan MARKETPLACE menyatakan pesanannya selesai (bukan kapan kita
+        // selesai memprosesnya — itu wms_completed_at).
+        'mp_completed_at',
         'resi_printed_at',
     ];
 
@@ -69,6 +72,7 @@ class JubelioOrderLink extends Model
         'snap_order_date'     => 'date',
         'mp_due_date'         => 'datetime',
         'wms_completed_at'    => 'datetime',
+        'mp_completed_at'     => 'datetime',
         'resi_printed_at'     => 'datetime',
     ];
 

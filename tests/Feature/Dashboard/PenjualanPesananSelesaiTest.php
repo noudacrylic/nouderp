@@ -130,6 +130,34 @@ class PenjualanPesananSelesaiTest extends TestCase
     }
 
     /**
+     * `mp_completed_at` MENANG atas `wms_completed_at`, dan bedanya bukan soal
+     * ketelitian: `wms_completed_at` menyala saat KITA selesai memproses
+     * pesanan (barang keluar gudang), kerap berhari-hari sebelum pembeli
+     * menerimanya. Grafik yang memakainya menaruh omzet di minggu yang salah.
+     */
+    public function test_tanggal_selesai_marketplace_menang_atas_tanggal_proses_gudang(): void
+    {
+        $terbit  = now()->startOfMonth()->addDays(1);
+        $keluar  = now()->startOfMonth()->addDays(4);   // kita selesai memproses
+        $diterima = now()->startOfMonth()->addDays(11); // marketplace menyatakan selesai
+
+        $so = $this->pesanan($terbit->toDateString(), 300000, [], marketplace: true);
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 903,
+            'jubelio_salesorder_no' => 'TP-903',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'completed',
+            'wms_completed_at'      => $keluar,
+            'mp_completed_at'       => $diterima,
+        ]);
+
+        $this->assertSame([(int) $diterima->format('j') => 300000.0], $this->deret());
+    }
+
+    /**
      * Pesanan marketplace yang BELUM tuntas tidak masuk hitungan sama sekali —
      * bukan masuk dengan tanggal seadanya. Uang yang belum tentu jadi milik kita
      * lebih berbahaya di grafik daripada tidak ada angkanya.
