@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Dashboard;
 
+use App\Core\Accounting\Account;
+use App\Core\Period\AccountingPeriod;
 use App\Core\Inventory\Warehouse;
 use App\Models\Customer;
 use App\Models\SalesInvoice;
@@ -11,6 +13,7 @@ use App\Modules\Sales\Models\SalesOrder;
 use App\Services\DashboardAuditService;
 use App\Services\DashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -265,6 +268,83 @@ class PenjualanPesananSelesaiTest extends TestCase
         ]);
 
         $this->assertSame([], $this->deret());
+    }
+
+    /* --------------------------------------------------- fee admin marketplace */
+
+    /**
+     * Fee admin MENGIKUTI penjualannya, bukan tanggal jurnalnya.
+     *
+     * Fee faktur marketplace dibukukan pada tanggal FAKTUR — yang untuk
+     * marketplace adalah tanggal pesanannya masuk. Selama penjualannya berdiri
+     * di tanggal pesanan SELESAI, keduanya ada di sumbu waktu yang berbeda, dan
+     * hari yang fee-nya besar tapi belum ada pesanan selesai menggambar batang
+     * MINUS: omzet negatif untuk hari kita berjualan seperti biasa.
+     */
+    public function test_fee_marketplace_ikut_pindah_ke_tanggal_selesai(): void
+    {
+        $terbit = now()->startOfMonth()->addDays(2);
+        $tuntas = now()->startOfMonth()->addDays(9);
+
+        $so  = $this->pesanan($terbit->toDateString(), 200000, [], marketplace: true);
+        $inv = SalesInvoice::where('sales_order_id', $so->id)->firstOrFail();
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 904,
+            'jubelio_salesorder_no' => 'TP-904',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'completed',
+            'mp_completed_at'       => $tuntas,
+        ]);
+
+        // Jurnal fee-nya bertanggal FAKTUR, seperti di sistem sungguhan.
+        $this->jurnalFee($inv->id, $terbit->toDateString(), 30000);
+
+        $deret = $this->deret();
+
+        // Tidak ada hari minus, dan fee-nya terpotong di hari pesanan selesai.
+        $this->assertSame([], array_filter($deret, fn ($v) => $v < 0));
+        $this->assertSame(170000.0, $deret[(int) $tuntas->format('j')] ?? null);
+    }
+
+    /** Jurnal beban fee admin marketplace (akun contra-revenue) atas satu faktur. */
+    private function jurnalFee(int $invoiceId, string $tanggal, float $nilai): void
+    {
+        $akun = Account::firstOrCreate(['code' => '5002'], [
+            'name'           => 'Beban Admin Marketplace',
+            'type'           => 'expense',
+            'normal_balance' => 'debit',
+            'is_active'      => true,
+        ]);
+
+        $periode = AccountingPeriod::firstOrCreate(
+            ['year' => (int) now()->year, 'month' => (int) now()->month],
+            ['start_date' => now()->startOfMonth()->toDateString(),
+             'end_date'   => now()->endOfMonth()->toDateString(), 'status' => 'open']
+        );
+
+        $jurnalId = DB::table('journals')->insertGetId([
+            'journal_number'  => 'JV-' . uniqid(),
+            'date'            => $tanggal,
+            'period_id'       => $periode->id,
+            'reference_type'  => 'sales_invoice',
+            'reference_id'    => $invoiceId,
+            'status'          => 'posted',
+            'posted_at'       => now(),
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
+
+        DB::table('journal_lines')->insert([
+            'journal_id' => $jurnalId,
+            'account_id' => $akun->id,
+            'debit'      => $nilai,
+            'credit'     => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     /* ------------------------------------------------------------- drill-down */

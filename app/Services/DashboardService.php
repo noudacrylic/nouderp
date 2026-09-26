@@ -101,6 +101,31 @@ class DashboardService
      */
     public function fakturPesananSelesai(Carbon $start, Carbon $end): \Illuminate\Database\Query\Builder
     {
+        return $this->sambungkanSelesai(DB::table('sales_invoices as si'))
+            ->where('si.status', 'posted')
+            // whereBetween atas ekspresinya sekaligus membuang yang NULL —
+            // pesanan yang belum selesai tidak ikut, tanpa syarat tambahan.
+            ->whereBetween(DB::raw('DATE(' . self::TANGGAL_SELESAI . ')'), [$start->toDateString(), $end->toDateString()]);
+    }
+
+    /** Ekspresi SQL tanggal selesai, untuk dipakai di SELECT/GROUP BY pemanggil. */
+    public function ekspresiSelesai(): string
+    {
+        return self::TANGGAL_SELESAI;
+    }
+
+    /**
+     * Pasang join yang membuat TANGGAL_SELESAI bisa dihitung, pada query apa pun
+     * yang sudah punya alias `si` (sales_invoices).
+     *
+     * Dipisah karena dua pemakai berbeda membutuhkannya: deret penjualannya
+     * sendiri DAN pengurang fee marketplace. Kalau keduanya menyusun joinnya
+     * sendiri-sendiri, cukup satu yang menyimpang untuk membuat fee mendarat di
+     * hari yang bukan hari penjualannya — dan yang terlihat di layar adalah
+     * batang minus.
+     */
+    private function sambungkanSelesai(\Illuminate\Database\Query\Builder $q): \Illuminate\Database\Query\Builder
+    {
         /*
          * Keduanya subquery ber-GROUP BY, bukan join langsung: satu SO bisa
          * punya lebih dari satu baris tautan Jubelio maupun beberapa surat
@@ -121,20 +146,10 @@ class DashboardService
             ->whereNotNull('sales_order_id')
             ->groupBy('sales_order_id');
 
-        return DB::table('sales_invoices as si')
+        return $q
             ->leftJoin('sales_orders as so', 'so.id', '=', 'si.sales_order_id')
             ->leftJoinSub($mp, 'mp', 'mp.sales_order_id', '=', 'si.sales_order_id')
-            ->leftJoinSub($sd, 'sd', 'sd.sales_order_id', '=', 'si.sales_order_id')
-            ->where('si.status', 'posted')
-            // whereBetween atas ekspresinya sekaligus membuang yang NULL —
-            // pesanan yang belum selesai tidak ikut, tanpa syarat tambahan.
-            ->whereBetween(DB::raw('DATE(' . self::TANGGAL_SELESAI . ')'), [$start->toDateString(), $end->toDateString()]);
-    }
-
-    /** Ekspresi SQL tanggal selesai, untuk dipakai di SELECT/GROUP BY pemanggil. */
-    public function ekspresiSelesai(): string
-    {
-        return self::TANGGAL_SELESAI;
+            ->leftJoinSub($sd, 'sd', 'sd.sales_order_id', '=', 'si.sales_order_id');
     }
 
     /**
@@ -212,6 +227,23 @@ class DashboardService
      * Total fee admin marketplace (contra-revenue, kode di config/income_statement.php)
      * per bucket waktu — dipakai mengurangi deret Penjualan grafik agar selaras Laba Rugi.
      * Key: 'Y-m-d' saat $mode='day', 'Y-m' saat 'month'. Nilai = SUM(debit - credit).
+     *
+     * FEE MENGIKUTI PENJUALANNYA, bukan tanggal jurnalnya.
+     *
+     * Fee faktur marketplace dibukukan pada tanggal FAKTUR — yang untuk
+     * marketplace adalah tanggal pesanannya masuk. Sejak penjualannya sendiri
+     * pindah ke tanggal pesanan SELESAI, dua-duanya berdiri di sumbu waktu yang
+     * berbeda, dan hasilnya terlihat jelas di layar: hari yang fee-nya besar
+     * tapi belum ada pesanan yang selesai menggambar batang MINUS — omzet
+     * negatif untuk hari kita berjualan seperti biasa.
+     *
+     * Jadi fee yang menempel pada satu faktur dipindahkan ke tanggal selesai
+     * faktur itu. Fee yang fakturnya belum selesai ikut menunggu bersama
+     * penjualannya — keduanya masuk di hari yang sama atau tidak sama sekali.
+     *
+     * Jurnal contra-revenue yang BUKAN milik satu faktur (mis. penyesuaian
+     * rekonsiliasi settlement per periode) tetap di tanggal jurnalnya: ia
+     * memang milik periode itu, bukan milik satu penjualan.
      */
     private function contraRevenueByBucket(Carbon $start, Carbon $end, string $mode): \Illuminate\Support\Collection
     {
@@ -220,17 +252,37 @@ class DashboardService
             return collect();
         }
 
-        $expr = $mode === 'day' ? 'DATE(j.date)' : "DATE_FORMAT(j.date, '%Y-%m')";
-
-        return DB::table('journal_lines as jl')
+        $dasar = fn () => DB::table('journal_lines as jl')
             ->join('journals as j', 'j.id', '=', 'jl.journal_id')
             ->join('accounts as a', 'a.id', '=', 'jl.account_id')
             ->where('j.status', 'posted')
-            ->whereIn('a.code', $codes)
-            ->whereBetween(DB::raw('DATE(j.date)'), [$start->toDateString(), $end->toDateString()])
-            ->selectRaw("$expr as k, SUM(jl.debit - jl.credit) as t")
+            ->whereIn('a.code', $codes);
+
+        $kunci = fn (string $e) => $mode === 'day' ? "DATE($e)" : "DATE_FORMAT($e, '%Y-%m')";
+
+        // 1. Fee milik satu faktur → ikut TANGGAL SELESAI faktur itu.
+        $selesai = self::TANGGAL_SELESAI;
+
+        $perFaktur = $this->sambungkanSelesai(
+            $dasar()
+                ->join('sales_invoices as si', 'si.id', '=', 'j.reference_id')
+                ->where('j.reference_type', 'sales_invoice')
+        )
+            ->whereBetween(DB::raw("DATE($selesai)"), [$start->toDateString(), $end->toDateString()])
+            ->selectRaw($kunci($selesai) . ' as k, SUM(jl.debit - jl.credit) as t')
             ->groupBy('k')
             ->pluck('t', 'k');
+
+        // 2. Sisanya → tetap di tanggal jurnalnya.
+        $lain = $dasar()
+            ->where(fn ($q) => $q->whereNull('j.reference_type')->orWhere('j.reference_type', '<>', 'sales_invoice'))
+            ->whereBetween(DB::raw('DATE(j.date)'), [$start->toDateString(), $end->toDateString()])
+            ->selectRaw($kunci('j.date') . ' as k, SUM(jl.debit - jl.credit) as t')
+            ->groupBy('k')
+            ->pluck('t', 'k');
+
+        return $perFaktur->mapWithKeys(fn ($t, $k) => [$k => (float) $t + (float) ($lain[$k] ?? 0)])
+            ->union($lain->map(fn ($t) => (float) $t));
     }
 
     /**
