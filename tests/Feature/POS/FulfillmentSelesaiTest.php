@@ -215,6 +215,70 @@ class FulfillmentSelesaiTest extends TestCase
         ]);
     }
 
+    /* ------------------------------------------------- retur */
+
+    /**
+     * Retur yang SUDAH di-post = urusannya tuntas → pesanannya pindah ke Selesai,
+     * dengan penanda retur menempel di nomornya. Tab ini dibaca untuk pertanyaan
+     * uang, dan "ada retur atau tidak" adalah separuh dari pertanyaan itu.
+     */
+    public function test_pesanan_diretur_yang_returnya_sudah_dipost_masuk_selesai(): void
+    {
+        $so = $this->pesanan([], marketplace: true);
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 5004,
+            'jubelio_salesorder_no' => 'TP-5004',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'returned',
+        ]);
+
+        $this->retur($so, 'posted');
+
+        $baris = app(FulfillmentReadinessService::class)
+            ->selesaiPaginated($so->order_number, [], 50)
+            ->getCollection()
+            ->first();
+
+        $this->assertNotNull($baris);
+        $this->assertSame('posted', $baris['retur_status']);
+    }
+
+    /** Retur yang masih draft belum selesai — ia tinggal di tab Retur, bukan di sini. */
+    public function test_pesanan_diretur_dengan_draft_retur_belum_masuk_selesai(): void
+    {
+        $so = $this->pesanan([], marketplace: true);
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 5005,
+            'jubelio_salesorder_no' => 'TP-5005',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'returned',
+        ]);
+
+        $this->retur($so, 'draft');
+
+        $this->assertNotContains($so->order_number, $this->nomorDiTabSelesai());
+    }
+
+    private function retur(SalesOrder $so, string $status): void
+    {
+        \Illuminate\Support\Facades\DB::table('sales_returns')->insert([
+            'return_number'  => 'SR-' . uniqid(),
+            'customer_id'    => $so->customer_id,
+            'sales_order_id' => $so->id,
+            'return_date'    => now()->toDateString(),
+            'grand_total'    => 100000,
+            'status'         => $status,
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+    }
+
     /* ------------------------------------------------- saringan & layar */
 
     public function test_saringan_channel_memisahkan_marketplace_dari_toko(): void

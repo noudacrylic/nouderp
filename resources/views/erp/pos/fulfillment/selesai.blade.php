@@ -19,7 +19,7 @@
 <form method="GET" class="mb-3 flex items-end gap-2 flex-wrap">
     <div>
         <label class="block text-xs text-gray-500 mb-1">Cari</label>
-        <input type="text" name="q" value="{{ request('q') }}" placeholder="No. SO / No. Faktur / pelanggan / produk / SKU…"
+        <input type="text" name="q" value="{{ request('q') }}" placeholder="No. Faktur / No. SO / pelanggan / produk / SKU…"
                class="border rounded px-3 py-1.5 text-sm w-80">
     </div>
     <div>
@@ -53,7 +53,7 @@
             <thead class="bg-gray-50 border-b border-gray-200">
                 <tr class="text-left text-[10px] font-black text-gray-400 uppercase">
                     <th class="px-3 py-2">Tgl Selesai</th>
-                    <th class="px-3 py-2">Nomor</th>
+                    <th class="px-3 py-2">No. Faktur / SO</th>
                     <th class="px-3 py-2">Pelanggan</th>
                     <th class="px-3 py-2">Channel</th>
                     <th class="px-3 py-2">Cara</th>
@@ -65,34 +65,54 @@
             <tbody class="divide-y divide-gray-100">
                 @forelse($rows as $row)
                     @php
-                        /* Tiga jenis baris hidup berdampingan di tab ini, dan ketiganya
-                           menuju dokumen yang berbeda: SO ke Sales Order-nya, kasir ke
-                           fakturnya, garansi ke nota garansinya. */
-                        $utama = match ($row['kind']) {
-                            'kasir'   => route('sales.invoices.show', $row['id']),
-                            'garansi' => route('sales.warranty.show', $row['id']),
-                            default   => route('sales.orders.show', $row['id']),
-                        };
+                        /* FAKTUR yang jadi nomor utama, bukan Sales Order.
+                           Tab ini dibaca untuk pertanyaan uang — berapa yang masuk,
+                           ada retur atau tidak — dan dokumen yang menjawab itu
+                           fakturnya. Nomor SO tetap tercetak & tetap bisa dibuka,
+                           tapi sebagai rujukan di bawahnya. */
                         $faktur = $row['kind'] === 'so' ? ($row['invoice'] ?? null) : null;
+
+                        $utama = match (true) {
+                            $row['kind'] === 'garansi' => route('sales.warranty.show', $row['id']),
+                            $row['kind'] === 'kasir'   => route('sales.invoices.show', $row['id']),
+                            (bool) $faktur             => route('sales.invoices.show', $faktur->id),
+                            default                    => route('sales.orders.show', $row['id']),
+                        };
+
+                        $nomorUtama = match (true) {
+                            $row['kind'] === 'so' && $faktur => $faktur->invoice_number,
+                            default                          => $row['number'],
+                        };
                     @endphp
                     <tr class="hover:bg-gray-50/60">
                         <td class="px-3 py-2 text-gray-500 whitespace-nowrap">
                             {{ $row['selesai_at'] ? \Carbon\Carbon::parse($row['selesai_at'])->format('d/m/Y') : '—' }}
                         </td>
                         <td class="px-3 py-2 whitespace-nowrap">
-                            <a href="{{ $utama }}" class="font-bold text-gray-800 hover:text-indigo-600">{{ $row['number'] }}</a>
+                            <a href="{{ $utama }}" class="font-bold text-gray-800 hover:text-indigo-600">{{ $nomorUtama }}</a>
                             @if($row['kind'] === 'kasir')
                                 <span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-100 text-emerald-700 align-middle">KASIR</span>
                             @elseif($row['kind'] === 'garansi')
                                 <span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-100 text-rose-700 align-middle">GARANSI</span>
                             @endif
-                            {{-- Nomor faktur berdiri sebagai barisnya sendiri, bukan cuma
-                                 dicari diam-diam: yang dipegang orang saat menelusuri
-                                 riwayat sering nomor nota, bukan nomor SO. --}}
-                            @if($faktur)
+                            {{-- Retur ditempel di nomornya, bukan disembunyikan di kolom
+                                 lain: "ada retur atau tidak" adalah salah satu dari dua
+                                 pertanyaan yang dibawa orang ke tab ini, dan jawabannya
+                                 harus terbaca di baris yang sama dengan uangnya. --}}
+                            @if(!empty($row['retur_id']))
+                                <a href="{{ route('sales.returns.show', $row['retur_id']) }}"
+                                   title="Retur {{ $row['retur_number'] }} ({{ $row['retur_status'] }})"
+                                   class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-black align-middle
+                                          {{ $row['retur_status'] === 'posted' ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-700' }}">
+                                    RETUR{{ $row['retur_status'] === 'draft' ? ' (draft)' : '' }}
+                                </a>
+                            @endif
+                            {{-- Nomor SO turun jadi rujukan: tetap tercetak, tetap bisa
+                                 dibuka, tapi bukan lagi yang dibaca pertama. --}}
+                            @if($row['kind'] === 'so' && $faktur)
                                 <div class="text-[11px] text-gray-400">
-                                    <a href="{{ route('sales.invoices.show', $faktur->id) }}"
-                                       class="hover:text-indigo-600">{{ $faktur->invoice_number }}</a>
+                                    <a href="{{ route('sales.orders.show', $row['id']) }}"
+                                       class="hover:text-indigo-600">{{ $row['number'] }}</a>
                                 </div>
                             @endif
                         </td>

@@ -326,7 +326,17 @@ class FulfillmentReadinessService
         $mp = DB::table('jubelio_order_links')
             ->selectRaw("sales_order_id,
                          MAX(CASE WHEN last_status = 'completed' THEN 1 ELSE 0 END) as tuntas,
+                         MAX(CASE WHEN last_status = 'returned' THEN 1 ELSE 0 END) as diretur,
                          MAX(COALESCE(mp_completed_at, wms_completed_at)) as tuntas_at")
+            ->whereNotNull('sales_order_id')
+            ->groupBy('sales_order_id');
+
+        /* Retur yang SUDAH di-post = urusannya tuntas, jadi pesanannya pindah dari
+           tab "Retur" ke "Selesai" — sama persis dengan yang dilakukan mesin bucket.
+           Retur yang masih draft tetap tinggal di tab Retur; ia belum selesai, dan
+           menampilkannya di dua tempat sekaligus membuat orang mengerjakannya dua kali. */
+        $rt = DB::table('sales_returns')
+            ->selectRaw("sales_order_id, MAX(CASE WHEN status = 'posted' THEN 1 ELSE 0 END) as retur_posted")
             ->whereNotNull('sales_order_id')
             ->groupBy('sales_order_id');
 
@@ -341,7 +351,8 @@ class FulfillmentReadinessService
             ->groupBy('sales_order_id');
 
         $tuntas = "CASE
-            WHEN mp.sales_order_id IS NOT NULL THEN mp.tuntas
+            WHEN mp.sales_order_id IS NOT NULL
+                 THEN (mp.tuntas = 1 OR (mp.diretur = 1 AND COALESCE(rt.retur_posted, 0) = 1))
             WHEN so.delivery_method = 'ambil_toko' THEN (so.pickup_status = 'picked_up')
             ELSE (sd.jml > 0 AND sd.belum_sampai = 0)
         END";
@@ -355,6 +366,7 @@ class FulfillmentReadinessService
         // ── 1/2/4. Sales Order yang sudah tuntas ──
         $qSo = DB::table('sales_orders as so')
             ->leftJoinSub($mp, 'mp', 'mp.sales_order_id', '=', 'so.id')
+            ->leftJoinSub($rt, 'rt', 'rt.sales_order_id', '=', 'so.id')
             ->leftJoinSub($sd, 'sd', 'sd.sales_order_id', '=', 'so.id')
             ->whereNotIn('so.status', ['void', 'cancelled'])
             ->whereRaw("($tuntas) = 1")
