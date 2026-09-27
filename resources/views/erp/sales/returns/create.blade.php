@@ -1,7 +1,7 @@
 ﻿@extends('layouts.erp')
 
 @section('content')
-<div class="w-full px-6 py-4" x-data="returForm({{ isset($return) ? $return->load('items', 'customer')->toJson() : 'null' }})" x-init="init()">
+<div class="w-full px-6 py-4" x-data="returForm({{ isset($return) ? $return->load('items', 'customer')->toJson() : 'null' }}, {{ json_encode($prefill ?? null) }})" x-init="init()">
 
     {{-- PAGE HEADER --}}
     <div class="flex justify-between items-center mb-6">
@@ -202,6 +202,13 @@
                                     <option value="{{ $key }}">{{ $label }}</option>
                                 @endforeach
                             </select>
+
+                            {{-- Apa yang dituntut tiap jenis, dikatakan di tempat memilihnya.
+                                 Ketiganya berbeda pada dua hal saja: barangnya kembali atau
+                                 tidak, dan uangnya jadi milik kita atau tidak. --}}
+                            <p class="text-[11px] mt-1.5 leading-relaxed"
+                               :class="caseType === 'paket_hilang' ? 'text-green-600' : 'text-gray-500'"
+                               x-show="caseType" x-cloak x-text="penjelasanJenis()"></p>
                         </div>
 
                         <div>
@@ -564,6 +571,59 @@
                                     Menunggu input data...
                                 </div>
                             </div>
+
+                            {{-- ═══ JURNAL DANA DITULIS TANGAN ═══
+                                 Retur yang diajukan konsumen hasilnya bermacam-macam — ganti
+                                 penuh, sebagian, atau tak sama sekali — dan tak semuanya bisa
+                                 disimpulkan dari kondisi barang. Blok BARANG di atas sengaja
+                                 tidak ikut bisa diubah: ia cerminan pergerakan stok yang
+                                 benar-benar terjadi. --}}
+                            <div class="mt-3" x-show="summary.net > 0" x-cloak>
+                                <label class="flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" x-model="jurnalManual" @change="toggleJurnalManual()"
+                                           class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                    <span class="text-[11px] font-bold text-gray-600">✏️ Tulis sendiri jurnal dananya</span>
+                                </label>
+
+                                <div x-show="jurnalManual" x-transition class="mt-2 border border-indigo-200 bg-indigo-50/40 rounded-xl p-3">
+                                    <p class="text-[10px] text-gray-500 mb-2 leading-relaxed">
+                                        Menggantikan blok dana di atas. Jurnal <b>barang</b> tetap dihitung sistem dari
+                                        kondisi tiap baris, supaya buku besar dan kartu stok tidak bercerita beda.
+                                    </p>
+
+                                    <template x-for="(b, i) in jurnalRows" :key="i">
+                                        <div class="flex items-center gap-1.5 mb-1.5">
+                                            <select :name="`journal[${i}][account_id]`" x-model="b.account_id"
+                                                    class="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] bg-white">
+                                                <option value="">— pilih akun —</option>
+                                                @foreach(($akunJurnal ?? []) as $a)
+                                                    <option value="{{ $a->id }}">{{ $a->code }} · {{ $a->name }}</option>
+                                                @endforeach
+                                            </select>
+                                            <input type="text" :name="`journal[${i}][debit]`" x-model="b.debit"
+                                                   @input="b.credit = ''" placeholder="Debit" inputmode="numeric"
+                                                   class="rupiah-input w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] text-right bg-white">
+                                            <input type="text" :name="`journal[${i}][credit]`" x-model="b.credit"
+                                                   @input="b.debit = ''" placeholder="Kredit" inputmode="numeric"
+                                                   class="rupiah-input w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] text-right bg-white">
+                                            <button type="button" @click="jurnalRows.splice(i, 1)"
+                                                    class="text-gray-300 hover:text-red-500 px-1 text-sm font-bold" title="Hapus baris">×</button>
+                                        </div>
+                                    </template>
+
+                                    <div class="flex items-center justify-between mt-2">
+                                        <button type="button" @click="jurnalRows.push({account_id: '', debit: '', credit: ''})"
+                                                class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800">+ Tambah baris</button>
+
+                                        <div class="text-[10px] font-mono" :class="jurnalSeimbang() ? 'text-green-600' : 'text-red-600 font-bold'">
+                                            <span x-text="`D ${formatNumber(totalJurnal('debit'))} · K ${formatNumber(totalJurnal('credit'))}`"></span>
+                                            <span x-show="!jurnalSeimbang()"
+                                                  x-text="` · selisih ${formatNumber(Math.abs(totalJurnal('debit') - totalJurnal('credit')))}`"></span>
+                                            <span x-show="jurnalSeimbang()"> · seimbang ✓</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -718,16 +778,28 @@
 @push('scripts')
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script>
-function returForm(initialData = null) {
+/**
+ * @param initialData retur TERSIMPAN yang sedang diedit (mode edit)
+ * @param prefill     pelanggan + faktur yang sudah diketahui pemanggil (retur BARU dari
+ *                    kartu Pemrosesan Pesanan). Bukan dokumen tersimpan: returnId tetap
+ *                    null, jadi simpan tetap membuat retur baru, dan dokumennya masih
+ *                    boleh diganti seperti biasa.
+ */
+const PETA_AKUN = @json(($akunJurnal ?? collect())->pluck('id', 'code'));
+
+function returForm(initialData = null, prefill = null) {
+    // Mode edit menang: kalau retur tersimpan ada, isian di muka tak berlaku lagi.
+    if (initialData) prefill = null;
+
     return {
         // State
         returnId: initialData?.id || null,
         formStatus: 'posted',
-        customerId: initialData?.customer_id || null,
-        customerName: initialData?.customer?.name || '',
+        customerId: initialData?.customer_id || prefill?.customer_id || null,
+        customerName: initialData?.customer?.name || prefill?.customer?.name || '',
         returnType: initialData?.invoice_id ? 'invoice' : (initialData?.sales_order_id ? 'so' : 'invoice'),
         documents: [],
-        selectedDocId: initialData?.invoice_id || initialData?.sales_order_id || null,
+        selectedDocId: initialData?.invoice_id || initialData?.sales_order_id || prefill?.invoice_id || null,
         selectedDoc: null,
         items: [],
         returnDate: initialData?.return_date ? initialData.return_date.split('T')[0] : '{{ now()->format("Y-m-d") }}',
@@ -747,8 +819,20 @@ function returForm(initialData = null) {
         refundAmount: initialData?.refund_amount ? String(initialData.refund_amount) : '',
         refundAccountId: initialData?.refund_account_id || '',
         refundCustomerId: initialData?.refund_customer_id || '',
-        isMarketplace: initialData?.customer?.is_marketplace || false,
-        marketplaceHoldName: initialData?.customer?.marketplace_hold_name || '',
+        isMarketplace: initialData?.customer?.is_marketplace || prefill?.customer?.is_marketplace || false,
+        marketplaceHoldName: initialData?.customer?.marketplace_hold_name || prefill?.customer?.marketplace_hold_name || '',
+
+        /*
+         * Jurnal dana yang ditulis tangan. Mati secara bawaan: yang otomatis tetap jalur
+         * normalnya, dan ini cuma dinyalakan saat kasusnya memang tak bisa disimpulkan
+         * dari kondisi barang (retur yang diajukan konsumen dengan ganti sebagian).
+         */
+        jurnalManual: Array.isArray(initialData?.journal_override) && initialData.journal_override.length > 0,
+        jurnalRows: (initialData?.journal_override || []).map(b => ({
+            account_id: String(b.account_id ?? ''),
+            debit:  b.debit  > 0 ? String(b.debit)  : '',
+            credit: b.credit > 0 ? String(b.credit) : '',
+        })),
 
         // UI
         loadingDocs: false,
@@ -763,10 +847,10 @@ function returForm(initialData = null) {
         showConfirm: false,
 
         // Search UI State
-        customerQuery: initialData?.customer?.name || '',
+        customerQuery: initialData?.customer?.name || prefill?.customer?.name || '',
         customerResults: [],
         showCustomerDropdown: false,
-        docQuery: initialData?.invoice?.invoice_number || initialData?.sales_order?.order_number || '',
+        docQuery: initialData?.invoice?.invoice_number || initialData?.sales_order?.order_number || prefill?.invoice?.invoice_number || '',
         showDocDropdown: false,
 
         // Live Search Methods
@@ -869,6 +953,27 @@ function returForm(initialData = null) {
                     this.calculateSummary(); // 🔥 TRIGGER INITIAL CALCULATION
                 } catch (e) {
                     console.error('Error initializing edit form:', e);
+                } finally {
+                    this.loadingDocs = false;
+                }
+            } else if (prefill?.invoice_id) {
+                /*
+                 * Retur BARU yang pelanggan & fakturnya sudah diketahui. Sama seperti
+                 * mode edit, yang ditarik cuma SATU dokumen (`&id=`) — menarik seluruh
+                 * faktur pelanggan marketplace cuma untuk menemukan satu baris membuat
+                 * halaman menggantung lama. Daftar penuh baru dimuat kalau fakturnya
+                 * memang mau diganti (ensureDocumentsLoaded).
+                 */
+                this.loadingDocs = true;
+                try {
+                    const res = await fetch(`{{ route('sales.ajax.returns.invoices') }}?customer_id=${this.customerId}&id=${this.selectedDocId}`);
+                    this.documents = await res.json();
+
+                    // Baris barang ikut terisi, qty-nya tetap keputusan CS saat cek barang.
+                    this.onDocumentChange(this.selectedDocId);
+                    await this.refreshBalance();
+                } catch (e) {
+                    console.error('Error initializing prefilled form:', e);
                 } finally {
                     this.loadingDocs = false;
                 }
@@ -1105,6 +1210,21 @@ function returForm(initialData = null) {
          *
          * Baris yang kondisinya sudah dipisah manual TIDAK diutak-atik.
          */
+        /** Apa yang dituntut jenis kasus yang sedang dipilih. */
+        penjelasanJenis() {
+            return {
+                paket_hilang: 'Paket tidak kembali dan dananya penuh jadi milik kita — seluruh baris '
+                    + 'otomatis ditandai "Tidak Kembali (dana diganti)", jadi penjualannya tidak dibalik. '
+                    + 'Kalau klaimnya ternyata ditolak, ubah barisnya sendiri.',
+                gagal_kirim: 'Paket kembali TANPA penggantian uang — penjualannya batal seutuhnya. '
+                    + 'Cek kondisi barangnya saat paket datang; barang gagal kirim sering sudah rusak di '
+                    + 'jalan, dan kalau begitu kasusnya pantas dibawa ke Banding.',
+                diajukan_konsumen: 'Hasilnya bermacam-macam — barang bisa kembali utuh, rusak, atau hanya '
+                    + 'sebagian dananya yang dikembalikan. Tidak ada yang diisi otomatis: isi kondisi tiap '
+                    + 'baris dan nilai pengembaliannya sesuai keputusan kasusnya.',
+            }[this.caseType] || '';
+        },
+
         applyDefaultConditionFromCaseType() {
             const bawaan = { paket_hilang: 'tidak_kembali' }[this.caseType];
 
@@ -1350,6 +1470,45 @@ function returForm(initialData = null) {
             return meta[condition] || meta.good;
         },
 
+        /**
+         * Nyalakan jurnal manual dengan ISI hitungan sistem, bukan halaman kosong.
+         *
+         * Kasus yang butuh jurnal tangan hampir selalu cuma menggeser satu-dua angka dari
+         * hitungan bawaan. Memulai dari kosong memaksa orang menyusun ulang seluruh jurnal
+         * dari ingatan — dan di situlah akun salah mulai bermunculan.
+         */
+        toggleJurnalManual() {
+            if (!this.jurnalManual || this.jurnalRows.length > 0) return;
+
+            // Label preview membawa kode akunnya ("Dr. 4004 Retur Penjualan"), jadi
+            // pemetaannya lewat kode — bukan menebak dari namanya.
+            const kode = (label) => {
+                const m = String(label).match(/(\d{4})/);
+                return m && PETA_AKUN[m[1]] ? String(PETA_AKUN[m[1]]) : '';
+            };
+
+            const rows = [];
+            const p = this.journalPreview;
+            if (p.revenue) {
+                rows.push({ account_id: kode(p.revenue.debitLabel), debit: String(p.revenue.amount), credit: '' });
+            }
+            (p.credits || []).forEach(c => {
+                rows.push({ account_id: kode(c.label), debit: '', credit: String(c.amount) });
+            });
+
+            // Selalu sisakan satu baris kosong supaya jelas daftarnya masih bisa ditambah.
+            this.jurnalRows = rows.length ? rows : [{ account_id: '', debit: '', credit: '' }];
+        },
+
+        totalJurnal(sisi) {
+            return this.jurnalRows.reduce((t, b) => t + (parseFloat(String(b[sisi]).replace(/[^\d]/g, '')) || 0), 0);
+        },
+
+        jurnalSeimbang() {
+            const d = this.totalJurnal('debit'), k = this.totalJurnal('credit');
+            return d > 0 && Math.abs(d - k) < 0.005;
+        },
+
         buildJournalPreview() {
             const preview = {
                 revenue: null,
@@ -1404,6 +1563,8 @@ function returForm(initialData = null) {
             if (!this.customerId || !this.selectedDoc || !this.returnDate) return false;
             const hasItem = this.items.some(i => this.itemTotalQty(i) > 0);
             const hasError = this.items.some(i => i.qty_error);
+            // Jurnal timpang ditahan di sini, bukan dibiarkan memantul dari server.
+            if (this.jurnalManual && !this.jurnalSeimbang()) return false;
             return hasItem && !hasError && this.summary.net > 0;
         },
 

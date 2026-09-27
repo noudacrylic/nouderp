@@ -148,7 +148,9 @@
                         ↩ Buka &amp; Selesaikan Retur
                     </a>
                 @else
-                    <a href="{{ route('sales.returns.create') }}"
+                    {{-- Pelanggan & fakturnya sudah ada di kartu ini — form retur dibuka
+                         dalam keadaan terisi, bukan polos. --}}
+                    <a href="{{ route('sales.returns.create', array_filter(['sales_order_id' => $row['id'] ?: null])) }}"
                        class="ml-auto text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">+ Buat Retur</a>
                 @endif
             </div>

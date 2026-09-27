@@ -30,5 +30,11 @@ class SalesReturnDTO
         public ?int $refund_customer_id = null,
         /** Nilai yang BENAR-BENAR dikembalikan — hasil negosiasi. NULL = pakai bawaan. */
         public ?float $refund_amount = null,
+        /**
+         * Baris jurnal DANA yang diketik sendiri, menggantikan hitungan sistem.
+         * Bentuk tiap baris: ['account_id' => int, 'debit' => float, 'credit' => float, 'memo' => ?string].
+         * NULL/array kosong = pakai hitungan sistem. Jurnal BARANG tak pernah dari sini.
+         */
+        public ?array $journal_override = null,
     ) {}
 }

@@ -116,7 +116,12 @@ class SalesReturnCaseTypeTest extends TestCase
     {
         $this->assertSame('Paket Hilang', (new SalesReturn(['return_type' => 'paket_hilang']))->returnTypeLabel());
         $this->assertSame('—', (new SalesReturn())->returnTypeLabel());
-        $this->assertCount(6, SalesReturn::RETURN_TYPES);
+        // TIGA jenis saja: yang membedakan cuma barangnya kembali atau tidak, dan
+        // uangnya jadi milik kita atau tidak. Alasan rinci tempatnya di catatan.
+        $this->assertSame(
+            ['paket_hilang', 'gagal_kirim', 'diajukan_konsumen'],
+            array_keys(SalesReturn::RETURN_TYPES)
+        );
         $this->assertCount(5, SalesReturn::CONDITIONS);
         // Dua keadaan "barang tidak kembali" yang jurnalnya berlawanan, dan keduanya wajib
         // bisa diungkapkan: `tidak_kembali` (dana diganti, penjualan sah) vs `hilang` (dana

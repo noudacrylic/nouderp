@@ -26,6 +26,8 @@ class SalesReturn extends Model
         'refund_customer_id',
         'refund_amount',
         'fee_reversed',
+        // Baris jurnal DANA yang diketik sendiri; NULL = pakai hitungan sistem.
+        'journal_override',
     ];
 
     /**
@@ -64,17 +66,27 @@ class SalesReturn extends Model
     /** Tahap yang masih menuntut pekerjaan — dua tab di Pemrosesan Pesanan. */
     public const STAGES_AKTIF = ['baru', 'banding'];
 
-    /**
+    /*
      * Jenis kasus retur. NULL = belum didefinisikan → retur menunggu di tahap "baru".
-     * Jenis menentukan perlakuan barang & uang saat diselesaikan (lihat defaultCondition()).
+     *
+     * TIGA jenis, dibedakan oleh DUA pertanyaan yang benar-benar mengubah nasib kasus:
+     * barangnya kembali atau tidak, dan uangnya jadi milik kita atau tidak. Enam jenis
+     * lama ("Barang Tidak Sesuai", "Barang Rusak", "Ingin Mengembalikan seperti Semula",
+     * "Lainnya") tidak pernah menjawab keduanya — semuanya sama-sama berarti pembeli
+     * mengajukan retur, dan alasannya baru diketahui setelah paketnya dibuka. Alasan
+     * rinci tempatnya di Catatan Penanganan, bukan jadi cabang alur.
      */
     public const RETURN_TYPES = [
-        'paket_hilang'   => 'Paket Hilang',
-        'gagal_kirim'    => 'Gagal Kirim',
-        'kembali_semula' => 'Ingin Mengembalikan seperti Semula',
-        'tidak_sesuai'   => 'Barang Tidak Sesuai',
-        'rusak'          => 'Barang Rusak',
-        'lainnya'        => 'Lainnya',
+        // Paket tak pernah sampai & tak pernah kembali; marketplace mengganti penuh.
+        // Uangnya sah jadi milik kita → seluruh baris otomatis `tidak_kembali`.
+        'paket_hilang'       => 'Paket Hilang',
+        // Paket kembali ke kita TANPA penggantian uang: penjualannya batal seutuhnya.
+        // Barangnya sering sudah rusak di jalan — kondisinya WAJIB dicek saat paket
+        // datang, dan kalau rusak kasusnya pantas dibawa ke Banding.
+        'gagal_kirim'        => 'Gagal Kirim',
+        // Pembeli yang mengajukan. Hasilnya bermacam-macam — barang bisa utuh, rusak,
+        // atau hanya sebagian dana yang dikembalikan → tak ada yang boleh ditebak.
+        'diajukan_konsumen'  => 'Diajukan Konsumen',
     ];
 
     /**
@@ -110,8 +122,9 @@ class SalesReturn extends Model
     ];
 
     protected $casts = [
-        'return_date' => 'date',
-        'grand_total' => 'decimal:2',
+        'return_date'      => 'date',
+        'grand_total'      => 'decimal:2',
+        'journal_override' => 'array',
     ];
 
     /**

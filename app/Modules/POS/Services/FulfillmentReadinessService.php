@@ -710,8 +710,20 @@ class FulfillmentReadinessService
         return \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::query()
             ->whereNotNull('sales_order_id')
             ->where(fn ($q) => $q->where('last_status', 'returned')->orWhere('return_created', true))
+            /*
+             * Retur bisa menggantung pada DUA dokumen induk, dan hanya salah satunya
+             * yang terisi: retur atas faktur menyimpan invoice_id dengan sales_order_id
+             * NULL (lihat SalesReturnService::saveDraft) — padahal itulah jalur normal
+             * pesanan marketplace, karena fakturnya terbit saat pengiriman. Dulu yang
+             * dicek cuma sales_order_id, jadi pesanan yang draft returnya SUDAH ada
+             * tetap dianggap "belum ada dokumen": muncul dua kartu di tab Retur Baru
+             * dan dihitung dua kali di lencananya.
+             */
             ->whereNotExists(fn ($q) => $q->from('sales_returns')
                 ->whereColumn('sales_returns.sales_order_id', 'jubelio_order_links.sales_order_id'))
+            ->whereNotExists(fn ($q) => $q->from('sales_returns')
+                ->join('sales_invoices', 'sales_invoices.id', '=', 'sales_returns.invoice_id')
+                ->whereColumn('sales_invoices.sales_order_id', 'jubelio_order_links.sales_order_id'))
             ->pluck('sales_order_id')
             ->unique()
             ->values();

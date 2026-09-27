@@ -56,13 +56,109 @@ class SalesReturnController extends Controller
         return view('erp.sales.returns.index', compact('returns'));
     }
 
-    public function create()
+    /**
+     * Form retur baru. Bisa dibuka polos, atau SUDAH TERISI lewat `?sales_order_id=`
+     * / `?invoice_id=` — dipakai tombol "+ Buat Retur" di Pemrosesan Pesanan > Retur.
+     *
+     * Kartu di sana sudah memegang pelanggan dan fakturnya; menyuruh CS mengetik ulang
+     * keduanya di layar berikutnya cuma undangan salah pilih dokumen — pelanggan
+     * marketplace punya ribuan faktur yang nomornya mirip satu sama lain.
+     */
+    public function create(Request $request)
     {
         $customers = Customer::orderBy('name')->get(['id', 'name']);
+
         return view('erp.sales.returns.create', [
             'customers'    => $customers,
             'cashAccounts' => $this->cashAccounts(),
+            'prefill'      => $this->prefill($request),
+            'akunJurnal'   => $this->akunJurnal(),
         ]);
+    }
+
+    /**
+     * Pelanggan + faktur yang dipakai mengisi form retur di muka.
+     *
+     * Retur SELALU atas faktur — sejak faktur terbit saat pengiriman, barang yang pernah
+     * keluar pasti punya faktur. Karena itu `sales_order_id` pun diterjemahkan ke faktur
+     * terakhirnya yang tidak void; kalau pesanan itu belum berfaktur, tak ada yang bisa
+     * diretur dan form dibuka polos seperti biasa.
+     *
+     * @return array{customer_id:int, invoice_id:int, customer:array, invoice:array}|null
+     */
+    private function prefill(Request $request): ?array
+    {
+        $invoiceId = (int) $request->get('invoice_id');
+        $soId      = (int) $request->get('sales_order_id');
+
+        if (!$invoiceId && !$soId) {
+            return null;
+        }
+
+        $invoice = SalesInvoice::query()
+            // marketplace_hold_name itu accessor (menengok MarketplaceConfig), bukan kolom.
+            ->with('customer:id,name,is_marketplace')
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->when($invoiceId, fn ($q) => $q->where('id', $invoiceId))
+            ->when(!$invoiceId, fn ($q) => $q->where('sales_order_id', $soId))
+            ->latest('id')
+            ->first();
+
+        if (!$invoice || !$invoice->customer_id) {
+            return null;
+        }
+
+        return [
+            'customer_id' => $invoice->customer_id,
+            'invoice_id'  => $invoice->id,
+            'customer'    => [
+                'name'                  => $invoice->customer->name ?? '',
+                'is_marketplace'        => (bool) ($invoice->customer->is_marketplace ?? false),
+                'marketplace_hold_name' => $invoice->customer->marketplace_hold_name ?? '',
+            ],
+            'invoice'     => ['invoice_number' => $invoice->invoice_number],
+        ];
+    }
+
+    /**
+     * Baris jurnal dana yang diketik sendiri, dibersihkan dari baris kosong.
+     *
+     * NULL bila tak ada satu pun baris terisi — itulah tanda "pakai hitungan sistem".
+     * Tanpa pembedaan ini, form yang dibuka lalu disimpan apa adanya akan mengirim
+     * deretan baris kosong dan diam-diam mematikan jurnal otomatisnya.
+     *
+     * @return array<int,array{account_id:int,debit:float,credit:float,memo:?string}>|null
+     */
+    private function barisJurnal(Request $request): ?array
+    {
+        $baris = collect($request->input('journal', []))
+            ->map(fn ($r) => [
+                'account_id' => (int) ($r['account_id'] ?? 0),
+                'debit'      => (float) clean_number($r['debit'] ?? 0),
+                'credit'     => (float) clean_number($r['credit'] ?? 0),
+                'memo'       => trim((string) ($r['memo'] ?? '')) ?: null,
+            ])
+            ->filter(fn ($r) => $r['account_id'] > 0 && ($r['debit'] > 0 || $r['credit'] > 0))
+            ->values()
+            ->all();
+
+        return $baris ?: null;
+    }
+
+    /**
+     * Akun yang boleh dipakai saat jurnal dana retur ditulis tangan.
+     *
+     * Akun induk (control account) sengaja tidak ikut: menjurnal ke sana membuat saldo
+     * anaknya tak pernah berjumlah sama dengan induknya, dan laporan berhenti bisa
+     * ditelusuri. Selebihnya dibiarkan terbuka — yang menjaga kewarasan angkanya adalah
+     * syarat seimbang saat posting, bukan daftar akun yang dipersempit.
+     */
+    private function akunJurnal()
+    {
+        return Account::where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('is_control_account')->orWhere('is_control_account', false))
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
     }
 
     /** Akun kas/bank yang boleh jadi sumber pengembalian dana tunai. */
@@ -87,6 +183,7 @@ class SalesReturnController extends Controller
             'customers'    => $customers,
             'return'       => $return,
             'cashAccounts' => $this->cashAccounts(),
+            'akunJurnal'   => $this->akunJurnal(),
         ]);
     }
 
@@ -310,6 +407,13 @@ class SalesReturnController extends Controller
             'refund_account_id'  => 'nullable|exists:accounts,id',
             'refund_customer_id' => 'nullable|exists:customers,id',
             'refund_amount'      => 'nullable|string',
+            // Jurnal dana yang diketik sendiri. Hadir hanya bila penggunanya memang
+            // menyalakannya; keseimbangan & keabsahan akunnya diuji di service.
+            'journal'                => 'nullable|array|max:20',
+            'journal.*.account_id'   => 'nullable|exists:accounts,id',
+            'journal.*.debit'        => 'nullable|string',
+            'journal.*.credit'       => 'nullable|string',
+            'journal.*.memo'         => 'nullable|string|max:190',
         ]);
 
         // Retur hanya boleh diselesaikan setelah kasusnya didefinisikan — tahap "Retur Baru"
@@ -341,6 +445,8 @@ class SalesReturnController extends Controller
             refund_customer_id: $request->refund_customer_id ? (int) $request->refund_customer_id : null,
             // Nominal rupiah datang berformat Indonesia — jangan pernah di-cast langsung.
             refund_amount:      $request->filled('refund_amount') ? (float) clean_number($request->refund_amount) : null,
+            // Nominalnya juga berformat Indonesia — lewat clean_number, bukan cast.
+            journal_override:   $this->barisJurnal($request),
         );
 
         try {

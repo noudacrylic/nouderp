@@ -498,8 +498,13 @@ class JubelioOrderSyncService
     public function syncReturns(): array
     {
         $stats = ['created' => 0, 'skipped' => 0];
+
+        // Sapuan berbasis status pesanan tidak memanggil API sama sekali — datanya
+        // sudah ada di ERP — jadi dijalankan lebih dulu, bahkan saat Jubelio mati.
+        $dariStatus = $this->syncReturnsDariStatus();
+
         if (!$this->client->isReady()) {
-            return $stats;
+            return $dariStatus;
         }
 
         // WAJIB telusuri SEMUA halaman. Daftar ini terurut dari yang PALING LAMA dan
@@ -566,7 +571,10 @@ class JubelioOrderSyncService
             }
         }
 
-        return $stats;
+        return [
+            'created' => $stats['created'] + $dariStatus['created'],
+            'skipped' => $stats['skipped'] + $dariStatus['skipped'],
+        ];
     }
 
     /**
@@ -1630,6 +1638,28 @@ class JubelioOrderSyncService
 
     // ───────────────────────────── Retur draft ─────────────────────────────
 
+    /**
+     * Dokumen induk retur: FAKTUR bila ada — dan sejak faktur terbit saat pengiriman,
+     * pesanan yang barangnya sudah keluar pasti punya faktur.
+     *
+     * Penting untuk jurnalnya: retur atas FAKTUR membalik Penjualan & memindahkan HPP yang
+     * memang sudah dibukukan faktur. Retur atas SO membalik Uang Muka dan mengkredit HPP
+     * yang belum tentu pernah ada — itulah yang dulu membuat HPP jadi minus. Jalur SO tetap
+     * dipertahankan sebagai cadangan (pesanan lama / non-marketplace).
+     *
+     * @return array{0: \App\Models\SalesInvoice|SalesOrder, 1: \App\Models\SalesInvoice|null}
+     */
+    private function dokumenIndukRetur(SalesOrder $so): array
+    {
+        $invoice = \App\Models\SalesInvoice::with('items')
+            ->where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->latest('id')
+            ->first();
+
+        return [$invoice ?: $so, $invoice];
+    }
+
     /** @return bool true bila draft retur benar-benar dibuat. */
     private function createReturnDraft(JubelioOrderLink $link, array $rows): bool
     {
@@ -1638,20 +1668,7 @@ class JubelioOrderSyncService
             return false;
         }
 
-        // Retur DIIKATKAN KE FAKTUR bila ada — dan sejak faktur terbit saat pengiriman,
-        // pesanan yang barangnya sudah keluar pasti punya faktur.
-        //
-        // Penting untuk jurnalnya: retur atas FAKTUR membalik Penjualan & memindahkan HPP yang
-        // memang sudah dibukukan faktur. Retur atas SO membalik Uang Muka dan mengkredit HPP
-        // yang belum tentu pernah ada — itulah yang dulu membuat HPP jadi minus. Jalur SO tetap
-        // dipertahankan sebagai cadangan (pesanan lama / non-marketplace).
-        $invoice = \App\Models\SalesInvoice::with('items')
-            ->where('sales_order_id', $so->id)
-            ->whereNotIn('status', ['void', 'cancelled'])
-            ->latest('id')
-            ->first();
-
-        $doc = $invoice ?: $so;
+        [$doc, $invoice] = $this->dokumenIndukRetur($so);
 
         // Map tiap baris retur Jubelio (item_id, qty) ke baris dokumen ERP.
         $items = [];
@@ -1690,6 +1707,134 @@ class JubelioOrderSyncService
 
         $this->returnService->saveDraft($dto); // DRAFT — tidak di-post
         // Flag return_created di-set oleh pemanggil (klaim atomik) — lihat syncReturns.
+        return true;
+    }
+
+    /**
+     * Jalur CADANGAN: buat draft retur untuk pesanan yang status Jubelio-nya sudah
+     * 'returned' tapi barisnya tak pernah muncul di daftar retur WMS.
+     *
+     * Dua sumber menandai retur, dan keduanya tidak beririsan penuh:
+     *   - status pesanan (internal/channel/wms = RETURNED) → melempar pesanan ke tab Retur
+     *   - daftar /sales/returns/items/unprocessed/wms      → satu-satunya pembuat draft dulu
+     * Barang yang belum sampai gudang, atau retur yang sudah di-accept/reject di Jubelio,
+     * tidak ada di daftar kedua. Akibatnya puluhan pesanan menggantung permanen di tab
+     * Retur dengan cap "BELUM ADA DOKUMEN", dan berapa kali pun "Tarik Retur" diklik
+     * tak ada yang terbentuk (28 pesanan per 27 Sep 2026).
+     *
+     * Draft dibuat sepenuh isi dokumen induk — qty penuh, kondisi 'good' — persis seperti
+     * jalur WMS. Yang menentukan nasib barang tetap manusia saat cek barang; draft ini
+     * cuma memastikan ADA yang bisa dibuka & dikoreksi.
+     *
+     * @return array{created:int, skipped:int}
+     */
+    private function syncReturnsDariStatus(): array
+    {
+        $stats = ['created' => 0, 'skipped' => 0];
+
+        $links = JubelioOrderLink::query()
+            ->whereNotNull('sales_order_id')
+            ->where('last_status', 'returned')
+            ->where('return_created', false)
+            ->get();
+
+        foreach ($links as $link) {
+            // Dokumen bisa sudah dibuat manual oleh CS dari modul Retur — retur atas
+            // faktur menyimpan invoice_id dengan sales_order_id NULL, jadi keduanya dicek.
+            if ($this->sudahAdaRetur((int) $link->sales_order_id)) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            /*
+             * WAJIB berfaktur. Tanpa faktur, dokumen induknya jatuh ke SO — dan retur atas
+             * SO membalik Uang Muka serta mengkredit HPP yang belum tentu pernah dibukukan
+             * (itu yang dulu membuat HPP minus). Pesanan begini sisa era "faktur baru terbit
+             * saat pesanan selesai": yang berakhir retur tak pernah sampai selesai, jadi tak
+             * pernah difakturkan. Obatnya `marketplace:faktur-susulan`, BUKAN retur yang
+             * dipaksakan lewat jalur jurnal yang salah.
+             */
+            if (!\App\Models\SalesInvoice::where('sales_order_id', $link->sales_order_id)
+                    ->whereNotIn('status', ['void', 'cancelled'])->exists()) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            // Klaim atomik, sama seperti jalur WMS, agar cron & webhook tak dobel.
+            $claimed = JubelioOrderLink::where('id', $link->id)
+                ->where('return_created', false)
+                ->update(['return_created' => true]);
+            if (!$claimed) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            try {
+                $created = $this->createReturnDraftPenuh($link);
+                if ($created) {
+                    $stats['created']++;
+                    JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Retur pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
+                        'reference'             => $link->jubelio_salesorder_no,
+                        'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
+                        'message'               => 'Draft Retur Penjualan dibuat dari status pesanan (tak ada di daftar retur WMS) — qty penuh, perlu dikoreksi saat cek barang.',
+                    ]);
+                } else {
+                    JubelioOrderLink::where('id', $link->id)->update(['return_created' => false]);
+                    $stats['skipped']++;
+                }
+            } catch (\Throwable $e) {
+                JubelioOrderLink::where('id', $link->id)->update(['return_created' => false]);
+                $stats['skipped']++;
+                Log::error('Jubelio createReturnDraftPenuh error', ['sales_order_id' => $link->sales_order_id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return $stats;
+    }
+
+    /** Sudah ada dokumen retur untuk SO ini — lewat SO langsung maupun lewat fakturnya. */
+    private function sudahAdaRetur(int $salesOrderId): bool
+    {
+        return SalesReturn::where('sales_order_id', $salesOrderId)->exists()
+            || SalesReturn::whereIn('invoice_id', \App\Models\SalesInvoice::where('sales_order_id', $salesOrderId)->pluck('id'))->exists();
+    }
+
+    /** Draft retur sepenuh isi dokumen induk (qty penuh). @return bool true bila dibuat. */
+    private function createReturnDraftPenuh(JubelioOrderLink $link): bool
+    {
+        $so = SalesOrder::with('items')->find($link->sales_order_id);
+        if (!$so) {
+            return false;
+        }
+
+        [$doc, $invoice] = $this->dokumenIndukRetur($so);
+
+        $items = [];
+        foreach ($doc->items as $docItem) {
+            $qty = (float) $docItem->qty;
+            if (!$docItem->product_id || $qty <= 0) {
+                continue; // baris non-produk (ongkir/biaya) tak diretur
+            }
+            $items[] = [
+                'invoice_item_id' => $docItem->id, // getDoc() mencari by id baris dokumen induk
+                'qty'             => $qty,
+                'condition'       => 'good', // default; dikoreksi manual saat cek barang
+            ];
+        }
+
+        if (empty($items)) {
+            return false;
+        }
+
+        $dto = new SalesReturnDTO(
+            customer_id: $so->customer_id,
+            items: $items,
+            date: now()->toDateString(),
+            invoice_id: $invoice?->id,
+            sales_order_id: $invoice ? null : $so->id,
+        );
+
+        $this->returnService->saveDraft($dto); // DRAFT — tidak di-post
         return true;
     }
 

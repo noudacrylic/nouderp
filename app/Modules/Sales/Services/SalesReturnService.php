@@ -50,6 +50,9 @@ class SalesReturnService
                 'return_type'            => $dto->return_type,
                 'external_return_number' => $dto->external_return_number,
                 'notes'                  => $dto->notes,
+                // Draft boleh menyimpan jurnal yang belum seimbang; yang menuntut
+                // seimbang adalah posting (lihat barisJurnalManual).
+                'journal_override'       => $dto->journal_override ?: null,
             ]);
 
             foreach ($dto->items as $item) {
@@ -99,6 +102,9 @@ class SalesReturnService
                 'return_type'            => $dto->return_type,
                 'external_return_number' => $dto->external_return_number,
                 'notes'                  => $dto->notes,
+                // Draft boleh menyimpan jurnal yang belum seimbang; yang menuntut
+                // seimbang adalah posting (lihat barisJurnalManual).
+                'journal_override'       => $dto->journal_override ?: null,
             ]);
 
             $return->items()->delete();
@@ -175,8 +181,20 @@ class SalesReturnService
             // dokumen retur murni jadi catatan kasus.
             $isSO = (bool) $dto->sales_order_id;
 
+            /*
+             * Blok DANA boleh ditulis tangan. Retur yang diajukan konsumen hasilnya
+             * bermacam-macam — ganti penuh, sebagian, atau tak sama sekali — dan tak
+             * semuanya bisa disimpulkan dari kondisi barang. Kalau baris manual ada,
+             * ia MENGGANTI blok dana; yang tidak pernah bisa diganti adalah blok
+             * BARANG di bawah, karena itu cerminan pergerakan stok yang benar-benar
+             * terjadi dan mengetiknya sendiri membuat buku besar berbeda dari kartu stok.
+             */
+            $manual = $this->barisJurnalManual($dto->journal_override);
+
             $journalLines = [];
-            if ($totals['reversed'] > 0) {
+            if ($manual) {
+                $journalLines = $manual;
+            } elseif ($totals['reversed'] > 0) {
                 $journalLines = array_merge($journalLines, $this->getRevenueReversalLines($dto, $doc, $totals['reversed'], $isSO));
             }
             $journalLines = array_merge($journalLines, $this->getCogsReversalLines($dto, $doc, $return->id));
@@ -199,7 +217,16 @@ class SalesReturnService
             // bukan setiap kali pelanggan biasa meretur. Retur yang uangnya ditransfer balik
             // atau dipotong dari dompet marketplace tidak menciptakan hak beli apa pun, dan
             // menambahkannya ke kolam berarti pelanggan dibayar dua kali.
-            if (!$isSO && $totals['reversed'] > 0) {
+            if ($manual) {
+                $return->forceFill(['journal_override' => $dto->journal_override])->save();
+            }
+
+            /*
+             * Saat jurnal dananya ditulis tangan, angka penanganan dana sistem TIDAK ikut
+             * dihitung: yang berwenang sudah baris manual itu. Menuliskan keduanya membuat
+             * kolom refund_amount bercerita lain daripada jurnalnya sendiri.
+             */
+            if (!$isSO && !$manual && $totals['reversed'] > 0) {
                 $uang = $this->hitungUang($doc, $totals['reversed'], $dto->refund_target, $dto->refund_amount);
 
                 $return->forceFill([
@@ -409,6 +436,66 @@ class SalesReturnService
      * Baris jurnal sisi UANG sebuah retur. Sisi barang (HPP/persediaan) terpisah di
      * getCogsReversalLines().
      */
+    /**
+     * Ubah baris jurnal dana yang diketik sendiri jadi JournalLineDTO — atau tolak.
+     *
+     * Kebebasan mengetik jurnal cuma berguna kalau yang keluar tetap jurnal yang sah, dan
+     * data retur permanen setelah posting. Karena itu yang dijaga di sini bukan selera,
+     * melainkan syarat yang membuat sebuah jurnal bisa dibaca sama sekali: akunnya nyata
+     * dan aktif, tiap baris berdiri di SATU sisi, dan debit bertemu kredit.
+     *
+     * @param  array<int,array>|null $raw
+     * @return array<int,JournalLineDTO>  kosong bila tak ada baris manual
+     */
+    private function barisJurnalManual(?array $raw): array
+    {
+        $baris = collect($raw ?? [])
+            ->map(fn ($r) => [
+                'account_id' => (int) ($r['account_id'] ?? 0),
+                'debit'      => round((float) ($r['debit'] ?? 0), 2),
+                'credit'     => round((float) ($r['credit'] ?? 0), 2),
+                'memo'       => trim((string) ($r['memo'] ?? '')) ?: null,
+            ])
+            ->filter(fn ($r) => $r['account_id'] > 0 && ($r['debit'] > 0 || $r['credit'] > 0))
+            ->values();
+
+        if ($baris->isEmpty()) {
+            return [];
+        }
+
+        if ($baris->count() < 2) {
+            throw new Exception('Jurnal manual butuh minimal dua baris — satu debit dan satu kredit.');
+        }
+
+        foreach ($baris as $r) {
+            if ($r['debit'] > 0 && $r['credit'] > 0) {
+                throw new Exception('Satu baris jurnal hanya boleh berisi debit ATAU kredit, tidak keduanya.');
+            }
+            if ($r['debit'] < 0 || $r['credit'] < 0) {
+                throw new Exception('Nilai jurnal tidak boleh negatif — pindahkan ke sisi seberangnya.');
+            }
+        }
+
+        $akun = Account::whereIn('id', $baris->pluck('account_id')->unique())->where('is_active', true)->pluck('id');
+        $asing = $baris->pluck('account_id')->unique()->diff($akun);
+        if ($asing->isNotEmpty()) {
+            throw new Exception('Ada baris jurnal yang akunnya tidak dikenal atau sudah nonaktif.');
+        }
+
+        $debit  = round($baris->sum('debit'), 2);
+        $kredit = round($baris->sum('credit'), 2);
+        if (abs($debit - $kredit) > 0.005) {
+            throw new Exception(
+                'Jurnal belum seimbang: debit ' . rupiah($debit) . ' vs kredit ' . rupiah($kredit)
+                . '. Selisih ' . rupiah(abs($debit - $kredit)) . ' harus dihabiskan dulu.'
+            );
+        }
+
+        return $baris
+            ->map(fn ($r) => new JournalLineDTO($r['account_id'], $r['debit'], $r['credit'], $r['memo'] ?? 'Jurnal retur manual'))
+            ->all();
+    }
+
     private function getRevenueReversalLines($dto, $doc, $amount, $isSO)
     {
         // Retur atas SO (belum ada faktur) — jalur lama, dipertahankan agar 32 dokumen lama
