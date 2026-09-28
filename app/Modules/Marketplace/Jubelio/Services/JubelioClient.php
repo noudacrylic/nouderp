@@ -167,16 +167,23 @@ class JubelioClient
      * DIBAYAR (channel_status "Unpaid"/"Pending") agar tampil di "Belum Siap" — endpoint
      * ready-to-process hanya memuat yang sudah dibayar. Filter is_paid TIDAK didukung server
      * (ditolak 400), jadi penyaringan dilakukan di sisi pemanggil.
+     * Tanpa sortBy server mengurutkan dari yang TERLAMA (>10rb pesanan) → wajib terbaru dulu.
      */
     public function listAllOrders(int $page = 1, int $pageSize = 50): array
     {
-        return $this->get('/sales/orders/', ['page' => $page, 'pageSize' => $pageSize]);
+        return $this->get('/sales/orders/', [
+            'page' => $page, 'pageSize' => $pageSize,
+            'sortBy' => 'transaction_date', 'sortDirection' => 'DESC',
+        ]);
     }
 
-    /** Pesanan selesai/diterima customer. */
+    /** Pesanan selesai/diterima customer — yang terakhir BERUBAH dulu (baru saja selesai). */
     public function listCompleted(int $page = 1, int $pageSize = 50): array
     {
-        return $this->get('/sales/orders/completed/', ['page' => $page, 'pageSize' => $pageSize]);
+        return $this->get('/sales/orders/completed/', [
+            'page' => $page, 'pageSize' => $pageSize,
+            'sortBy' => 'last_modified', 'sortDirection' => 'DESC',
+        ]);
     }
 
     /** Pesanan yang PEMBELI minta batalkan (request cancel dari marketplace). */

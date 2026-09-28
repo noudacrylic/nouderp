@@ -56,9 +56,30 @@ class JubelioOrderSyncService
         protected SalesReturnService $returnService,
     ) {}
 
+    /**
+     * Pesanan yang sudah ditarik detailnya dalam SATU run cron (id → true). Pass-pass
+     * sync-orders saling tumpang-tindih (in-flight ⊂ rekonsiliasi, ready ∩ belum bayar) —
+     * tanpa ini ratusan pesanan di-fetch 2x per run. Direset di awal syncOrders().
+     */
+    private array $syncedThisRun = [];
+
+    /** Batas pesanan shipped/returned yang dicek-ulang per run (sisanya giliran run berikut). */
+    private const RECONCILE_ROTATE_BATCH = 120;
+
     private function setting(): JubelioSetting
     {
         return JubelioSetting::singleton();
+    }
+
+    /** syncOrderById, tapi sekali saja per run; panggilan ulang membaca link dari DB. */
+    private function syncOnce(int $jubelioSoId): ?JubelioOrderLink
+    {
+        if (isset($this->syncedThisRun[$jubelioSoId])) {
+            return JubelioOrderLink::where('jubelio_salesorder_id', $jubelioSoId)->first();
+        }
+        $this->syncedThisRun[$jubelioSoId] = true;
+
+        return $this->syncOrderById($jubelioSoId);
     }
 
     // ───────────────────────────── Entry points ─────────────────────────────
@@ -67,11 +88,12 @@ class JubelioOrderSyncService
     public function syncOrders(): array
     {
         $stats = ['processed' => 0, 'errors' => 0];
+        $this->syncedThisRun = [];
         if (!$this->client->isReady()) {
             return $stats;
         }
 
-        foreach (['ready' => 'listReadyToProcess', 'completed' => 'listCompleted'] as $list) {
+        foreach (['ready' => 'listReadyToProcess', 'completed' => 'listCompleted'] as $key => $list) {
             $page = 1;
             do {
                 $resp = $this->client->{$list}($page, 50);
@@ -79,13 +101,29 @@ class JubelioOrderSyncService
                     break;
                 }
                 $rows = $this->rows($resp['data']);
+
+                // Daftar completed = 8rb+ pesanan (urut terakhir berubah). Yang sudah tercatat
+                // selesai di ERP tak perlu di-fetch lagi; dulu (tanpa urutan) tiap run menarik
+                // ulang 2.000 pesanan TERLAMA satu per satu → run ±12 menit.
+                $done = [];
+                if ($key === 'completed') {
+                    $done = JubelioOrderLink::whereIn('jubelio_salesorder_id', array_map(fn ($r) => (int) ($r['salesorder_id'] ?? 0), $rows))
+                        ->whereIn('last_status', ['completed', 'canceled'])
+                        // ...kecuali yang masih menunggu auto-faktur Jubelio (dicoba ulang tiap run).
+                        ->whereNot(fn ($q) => $q->whereNotNull('sales_order_id')->where('sj_created', true)
+                            ->where('j_invoice_done', false)->where('created_at', '>=', self::JUBELIO_INVOICE_AUTOCREATE_SINCE))
+                        ->pluck('jubelio_salesorder_id')->flip()->all();
+                }
+
+                $fresh = 0;
                 foreach ($rows as $row) {
                     $id = (int) ($row['salesorder_id'] ?? 0);
-                    if ($id <= 0) {
+                    if ($id <= 0 || isset($done[$id])) {
                         continue;
                     }
+                    $fresh++;
                     try {
-                        $this->syncOrderById($id);
+                        $this->syncOnce($id);
                         $stats['processed']++;
                     } catch (\Throwable $e) {
                         $stats['errors']++;
@@ -93,7 +131,11 @@ class JubelioOrderSyncService
                     }
                 }
                 $page++;
-            } while (count($rows) >= 50 && $page <= 40); // batas aman
+                // completed: satu halaman penuh tanpa pesanan baru → sisanya lebih lama, berhenti.
+                if ($key === 'completed' && $fresh === 0) {
+                    break;
+                }
+            } while (count($rows) >= 50 && $page <= ($key === 'completed' ? 10 : 40)); // batas aman
         }
 
         // Pass tambahan: order yang SUDAH kita proses (awb_requested) tapi belum diserahkan
@@ -113,11 +155,31 @@ class JubelioOrderSyncService
             ->pluck('jubelio_salesorder_id');
         foreach ($inFlight as $jid) {
             try {
-                $this->syncOrderById((int) $jid);
+                $this->syncOnce((int) $jid);
                 $stats['processed']++;
             } catch (\Throwable $e) {
                 $stats['errors']++;
                 Log::error('Jubelio refresh in-flight error', ['salesorder_id' => $jid, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // Pass tambahan: pesanan selesai yang auto-faktur Jubelio-nya masih gagal. Dulu ikut
+        // tercoba ulang karena daftar completed ditarik dari yang terlama; kini daftar itu
+        // terbaru dulu & berhenti di halaman tanpa pesanan baru, jadi coba ulang secara eksplisit.
+        $pendingInvoice = JubelioOrderLink::query()
+            ->whereNotNull('sales_order_id')
+            ->where('last_status', 'completed')
+            ->where('sj_created', true)
+            ->where('j_invoice_done', false)
+            ->where('created_at', '>=', self::JUBELIO_INVOICE_AUTOCREATE_SINCE)
+            ->pluck('jubelio_salesorder_id');
+        foreach ($pendingInvoice as $jid) {
+            try {
+                $this->syncOnce((int) $jid);
+                $stats['processed']++;
+            } catch (\Throwable $e) {
+                $stats['errors']++;
+                Log::error('Jubelio retry auto-faktur error', ['salesorder_id' => $jid, 'error' => $e->getMessage()]);
             }
         }
 
@@ -705,7 +767,7 @@ class JubelioOrderSyncService
                     continue;
                 }
                 try {
-                    $link = $this->syncOrderById($id);
+                    $link = $this->syncOnce($id);
                     if ($link && !$link->sales_order_id) {
                         $stats['pending']++;
                     }
@@ -715,6 +777,11 @@ class JubelioOrderSyncService
                 }
             }
             $page++;
+            // Urut terbaru dulu (listAllOrders): pesanan > 7 hari tak mungkin masih menunggu bayar.
+            $oldest = end($rows)['transaction_date'] ?? null;
+            if ($oldest && strtotime($oldest) < now()->subDays(7)->getTimestamp()) {
+                break;
+            }
         } while (count($rows) >= 50 && $page <= 40); // batas aman
 
         return $stats;
@@ -744,14 +811,36 @@ class JubelioOrderSyncService
         // Saringan cukup pada status terminal. `invoice_posted = false` tidak lagi berarti
         // "belum tuntas" sejak faktur terbit saat pengiriman — memakainya membuat pesanan
         // yang sudah dikirim tapi belum selesai lolos dari rekonsiliasi pembatalan.
-        $links = JubelioOrderLink::whereNotNull('sales_order_id')
+        $base = JubelioOrderLink::whereNotNull('sales_order_id')
             ->where(fn ($q) => $q->whereNull('last_status')->orWhereNotIn('last_status', ['canceled', 'completed']))
-            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
+            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']));
+
+        // Belum dikirim (±40) → dicek TIAP run: pembatalan di sini harus cepat (auto-void).
+        // Sudah shipped/returned (±650, tiap fetch ±0,25 dtk) → bergiliran per id, satu putaran
+        // penuh ±6 run; selesainya sudah tertangkap daftar completed, di sini cuma jaring pengaman.
+        $rotating = ['shipped', 'returned'];
+        $links = (clone $base)
+            ->where(fn ($q) => $q->whereNull('last_status')->orWhereNotIn('last_status', $rotating))
             ->get();
+
+        $cursorKey = 'jubelio:reconcile-cursor';
+        $cursor = (int) \Illuminate\Support\Facades\Cache::get($cursorKey, 0);
+        $batch = (clone $base)->whereIn('last_status', $rotating)
+            ->where('id', '>', $cursor)->orderBy('id')->limit(self::RECONCILE_ROTATE_BATCH)->get();
+        if ($batch->count() < self::RECONCILE_ROTATE_BATCH) {
+            // Sampai ujung → putar balik dari awal.
+            $batch = $batch->concat((clone $base)->whereIn('last_status', $rotating)
+                ->where('id', '<=', $cursor)->orderBy('id')
+                ->limit(self::RECONCILE_ROTATE_BATCH - $batch->count())->get());
+        }
+        if ($batch->isNotEmpty()) {
+            \Illuminate\Support\Facades\Cache::forever($cursorKey, (int) $batch->last()->id);
+        }
+        $links = $links->concat($batch);
 
         foreach ($links as $link) {
             try {
-                $fresh = $this->syncOrderById((int) $link->jubelio_salesorder_id);
+                $fresh = $this->syncOnce((int) $link->jubelio_salesorder_id);
                 $stats['checked']++;
                 if ($fresh && $fresh->last_status === 'canceled') {
                     $stats['canceled']++;
