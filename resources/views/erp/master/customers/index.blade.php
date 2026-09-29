@@ -3,7 +3,13 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">Customer</h1>
-    <a href="{{ route('customers.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Customer</a>
+    <div class="flex items-center gap-2">
+        <a href="{{ route('customers.kembar') }}"
+           class="px-3 py-2 rounded text-sm border {{ $jumlahKembar ? 'border-amber-400 text-amber-700 bg-amber-50' : 'border-gray-300 text-gray-600' }}">
+            Pelanggan Kembar @if($jumlahKembar)<span class="ml-1 px-1.5 rounded-full bg-amber-500 text-white text-xs font-bold">{{ $jumlahKembar }}</span>@endif
+        </a>
+        <a href="{{ route('customers.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Customer</a>
+    </div>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">

@@ -633,7 +633,7 @@ class AiAccountantService
             'phone'     => trim((string) ($input['telepon'] ?? '')) ?: null,
             'address'   => trim((string) ($input['alamat'] ?? '')) ?: null,
             'is_active' => 1,
-        ]);
+        ])->penampung();   // kembar nomor + nama → pelanggan lama
 
         return "Pelanggan baru dibuat: id={$cust->id} | {$cust->name}. Lanjut buat SO dengan customer_id={$cust->id}.";
     }

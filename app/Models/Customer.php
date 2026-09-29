@@ -39,12 +39,15 @@ class Customer extends Model
         'account_admin_expense_id',
         'account_recon_plus_id',
         'account_recon_minus_id',
+        'merged_into_id',
+        'merged_at',
     ];
 
     protected $casts = [
         'wa_opt_in'    => 'boolean',
         'wa_opt_in_at' => 'datetime',
         'wa_opt_out_at' => 'datetime',
+        'merged_at'     => 'datetime',
     ];
 
     protected $appends = [
@@ -52,6 +55,58 @@ class Customer extends Model
         'credit_balance',
         'picker_label',
     ];
+
+    /**
+     * Pelanggan non-marketplace yang nomor HP-nya SAMA setelah dinormalkan.
+     *
+     * Nomor di master ditulis manusia dalam segala bentuk ('+62 812-5252-7212',
+     * '081252527212'). Pencarian `where('phone', $nomor)` apa adanya meleset, dan
+     * checkout web lalu membuat pelanggan kembar untuk orang yang sama. LIKE ekor
+     * 9 digit hanya penyaring kasar; kecocokan tepatnya diputuskan di PHP.
+     *
+     * Terurut dari id terkecil (pelanggan paling lama = yang riwayatnya terbanyak).
+     */
+    public static function denganNomor(?string $nomor): \Illuminate\Support\Collection
+    {
+        $kunci = \App\Modules\CRM\Support\PhoneNumber::normalize($nomor);
+
+        if (! $kunci) {
+            return collect();
+        }
+
+        $bersih = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', ''), '(', ''), ')', '')";
+
+        return static::query()
+            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
+            ->whereNull('merged_into_id')
+            ->whereRaw($bersih . ' LIKE ?', ['%' . substr($kunci, -9)])
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (self $c) => \App\Modules\CRM\Support\PhoneNumber::normalize($c->phone) === $kunci)
+            ->values();
+    }
+
+    public function mergedInto()
+    {
+        return $this->belongsTo(self::class, 'merged_into_id');
+    }
+
+    /**
+     * Pelanggan yang BENAR-BENAR dipakai: dirinya sendiri, atau penampungnya bila ia
+     * baru saja digabung (CustomerMergeService). Pembuat pelanggan WAJIB memakainya
+     * sesudah create — baris yang barusan dibuat bisa langsung diarsipkan karena
+     * kembar, dan dokumen baru tak boleh menempel pada baris arsip.
+     */
+    public function penampung(): self
+    {
+        $c = $this->fresh() ?? $this;
+
+        for ($i = 0; $c->merged_into_id && $i < 5; $i++) {
+            $c = static::find($c->merged_into_id) ?? $c;
+        }
+
+        return $c;
+    }
 
     /**
      * Hanya pelanggan yang belum diarsipkan. Dipakai SEMUA kotak cari pelanggan.

@@ -112,10 +112,9 @@ class CheckoutController extends Controller
             'pin'   => 'required|string|max:10',
         ]);
 
-        $customer = Customer::where('phone', trim($data['phone']))
-            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
-            ->whereNotNull('web_order_pin')
-            ->first();
+        // Nomor dicocokkan setelah dinormalkan: '0812…' = '+62 812-…' (Customer::denganNomor).
+        $customer = Customer::denganNomor($data['phone'])
+            ->first(fn (Customer $c) => filled($c->web_order_pin));
 
         if (! $customer || ! \Illuminate\Support\Facades\Hash::check($data['pin'], (string) $customer->web_order_pin)) {
             return response()->json(['message' => 'Nomor HP atau PIN salah.'], 401);
@@ -783,9 +782,16 @@ class CheckoutController extends Controller
     {
         $phone = trim((string) ($c['phone'] ?? ''));
 
-        $customer = Customer::where('phone', $phone)
-            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
-            ->first();
+        /*
+         * Dicocokkan setelah dinormalkan, bukan apa adanya. Dulu '081252527212' tak
+         * mengenali '+62 812-5252-7212' di master, dan pembeli lama dibuatkan
+         * pelanggan WEB-… baru — riwayatnya terbelah dua. Yang ber-PIN web
+         * didahulukan: itu akun yang dipakai pembeli ini di toko online.
+         */
+        $kandidat = Customer::denganNomor($phone);
+        $customer = $kandidat->first(fn (Customer $c) => filled($c->web_order_pin))
+            ?? $kandidat->first(fn (Customer $c) => $c->is_active)
+            ?? $kandidat->first();
 
         if (! $customer) {
             $customer = new Customer([
@@ -842,6 +848,10 @@ class CheckoutController extends Controller
          * diabaikan: ia tercatat sebagai keberatan (`wa_opt_out_at`), satu-satunya hal
          * yang benar-benar menghentikan notifikasi.
          */
+        // Bisa saja barusan digabung ke pelanggan lama (CustomerMergeObserver) —
+        // pesanan harus menempel pada penampungnya, bukan baris yang diarsipkan.
+        $customer = $customer->penampung();
+
         $customer->catatOptIn((bool) ($c['wa_opt_in'] ?? true), 'checkout_web');
 
         return $customer;
@@ -871,10 +881,9 @@ class CheckoutController extends Controller
             'pin'   => 'required|string|max:10',
         ]);
 
-        $customer = Customer::where('phone', trim($data['phone']))
-            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
-            ->whereNotNull('web_order_pin')
-            ->first();
+        // Nomor dicocokkan setelah dinormalkan: '0812…' = '+62 812-…' (Customer::denganNomor).
+        $customer = Customer::denganNomor($data['phone'])
+            ->first(fn (Customer $c) => filled($c->web_order_pin));
 
         if (! $customer || ! \Illuminate\Support\Facades\Hash::check($data['pin'], (string) $customer->web_order_pin)) {
             return response()->json(['message' => 'Nomor HP atau PIN salah.'], 401);

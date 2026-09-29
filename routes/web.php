@@ -514,6 +514,9 @@ Route::get('/erp/api/karyawan/by-department/{deptId}', [\App\Modules\SDM\Control
 Route::get('/erp/api/karyawan/except-department/{deptId}', [\App\Modules\SDM\Controllers\KaryawanController::class, 'searchExceptDepartment'])->name('api.karyawan.except-department');
 
 Route::prefix('erp/master')->group(function () {
+    // Pelanggan kembar — WAJIB di atas resource, kalau tidak 'kembar' tertangkap sebagai {customer}.
+    Route::get('customers/kembar', [CustomerController::class, 'kembar'])->name('customers.kembar');
+    Route::post('customers/kembar/gabung', [CustomerController::class, 'gabungKembar'])->name('customers.kembar.gabung');
     Route::resource('customers', CustomerController::class);
     Route::post('customers/{id}/archive', [CustomerController::class, 'archive'])->name('customers.archive');
     Route::post('customers/{id}/restore', [CustomerController::class, 'restore'])->name('customers.restore');

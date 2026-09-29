@@ -100,6 +100,8 @@ class AppServiceProvider extends ServiceProvider
 
         // Chat Lead langsung tertaut begitu nomornya disimpan di master pelanggan.
         \App\Models\Customer::observe(\App\Modules\CRM\Observers\CrmCustomerObserver::class);
+        // Nomor + nama sama dengan pelanggan lama → langsung digabung (CustomerMergeService).
+        \App\Models\Customer::observe(\App\Observers\CustomerMergeObserver::class);
 
         /*
          * Titipan "kabari kalau stoknya ada". Dua model, karena stok yang bisa

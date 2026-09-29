@@ -29,7 +29,10 @@ class CustomerController extends Controller
             $c->is_used = in_array((int) $c->id, $usedIds, true);
         }
 
-        return view('erp.master.customers.index', compact('customers'));
+        // Lencana tombol "Pelanggan Kembar": jumlah kelompok bernomor sama.
+        $jumlahKembar = app(\App\Services\CustomerMergeService::class)->kelompokKembar()->count();
+
+        return view('erp.master.customers.index', compact('customers', 'jumlahKembar'));
     }
 
     /** ID customer yang sudah dipakai di transaksi mana pun (penawaran/SO/faktur/retur/garansi/DP/lebih-bayar). */
@@ -52,6 +55,54 @@ class CustomerController extends Controller
         }
 
         return array_values(array_unique(array_map('intval', array_filter($merged, fn ($v) => $v !== null))));
+    }
+
+    /**
+     * Pelanggan kembar (nomor HP sama). Yang namanya juga sama digabung otomatis
+     * (observer + sapuan per jam); halaman ini tombol manualnya, sekaligus tempat
+     * admin memutuskan kelompok bernama beda — satu nomor dipakai dua orang itu nyata.
+     */
+    public function kembar(\App\Services\CustomerMergeService $merge)
+    {
+        $kelompok = $merge->kelompokKembar()->values();
+
+        // Jumlah pesanan per pelanggan — petunjuk mana yang riwayatnya lebih banyak.
+        $ids       = $kelompok->flatMap(fn ($k) => $k['anggota']->pluck('id'))->all();
+        $jumlahSo  = \DB::table('sales_orders')->whereIn('customer_id', $ids ?: [0])
+            ->selectRaw('customer_id, COUNT(*) n')->groupBy('customer_id')->pluck('n', 'customer_id');
+
+        return view('erp.master.customers.kembar', compact('kelompok', 'jumlahSo'));
+    }
+
+    /**
+     * Gabung manual: `semua_otomatis=1` menjalankan aturan otomatis untuk semua kelompok;
+     * selain itu `ke` (penampung) + `dari[]` (yang digabung) untuk satu kelompok.
+     */
+    public function gabungKembar(Request $request, \App\Services\CustomerMergeService $merge)
+    {
+        if ($request->boolean('semua_otomatis')) {
+            $n = count($merge->gabungOtomatis());
+
+            return back()->with('success', "{$n} pelanggan kembar digabung.");
+        }
+
+        $data = $request->validate([
+            'ke'     => 'required|integer|exists:customers,id',
+            'dari'   => 'required|array|min:1',
+            'dari.*' => 'integer|exists:customers,id',
+        ]);
+
+        $ke = Customer::findOrFail($data['ke']);
+
+        try {
+            foreach (array_diff($data['dari'], [$ke->id]) as $id) {
+                $merge->gabung(Customer::findOrFail($id), $ke->fresh());
+            }
+        } catch (\InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', "Digabung ke {$ke->code} — {$ke->name}.");
     }
 
     /** Arsipkan customer (nonaktif) — aman walau sudah dipakai transaksi. */
@@ -93,9 +144,17 @@ class CustomerController extends Controller
         $data['customer_type'] = $request->customer_type ?? 'regular';
         $data['is_active'] = true;
 
-        $customer = Customer::create($data);
+        $baru     = Customer::create($data);
+        // Nomor + nama sudah terdaftar → baris baru langsung digabung ke yang lama
+        // (CustomerMergeObserver); isian tambahannya ikut ke pelanggan lama itu.
+        $customer = $baru->penampung();
         $customer->catatKeberatan($request->boolean('wa_opt_out'));
         $this->simpanNomorNotifikasi($customer, $request);
+
+        if (! $customer->is($baru)) {
+            return redirect(list_url('customers.index'))->with('warning',
+                "Nomor & nama sudah terdaftar sebagai {$customer->code} — tidak dibuat pelanggan baru, data digabung ke sana.");
+        }
 
         return redirect(list_url('customers.index'));
     }
@@ -270,7 +329,7 @@ class CustomerController extends Controller
             'code'          => $code,
             'customer_type' => 'regular',
             'is_active'     => true,
-        ]);
+        ])->penampung();   // kembar nomor + nama → pakai pelanggan lama (CustomerMergeObserver)
 
         return response()->json([
             'id'      => $customer->id,

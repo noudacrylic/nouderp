@@ -136,3 +136,7 @@ Schedule::command('analisa:hangatkan')->everyFifteenMinutes()->name('analisa-han
 // mati, dan ikut terbawa dump DB harian: ukurannya naik 5,9 MB -> 31,8 MB dalam 5 hari.
 Schedule::call(fn () => DB::table('cache')->where('expiration', '<', now()->getTimestamp())->delete())
     ->hourly()->name('cache-prune-expired');
+
+// Pelanggan kembar (nomor HP + nama sama) digabung otomatis. Observer sudah menangani
+// yang baru disimpan; sapuan ini jaring pengaman bila observer gagal.
+Schedule::command('pelanggan:gabung-kembar')->hourly()->name('pelanggan-gabung-kembar')->withoutOverlapping(60);

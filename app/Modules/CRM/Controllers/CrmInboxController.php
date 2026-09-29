@@ -2062,7 +2062,7 @@ class CrmInboxController extends Controller
                 'phone'       => $conversation->contact_key,
                 'wa_opt_in'   => true,
                 'is_active'   => true,
-            ])->id;
+            ])->penampung()->id;   // kembar nomor + nama → pelanggan lama
         }
 
         // Percakapan ikut ditautkan: sekali pesan, chat berikutnya dari nomor itu
