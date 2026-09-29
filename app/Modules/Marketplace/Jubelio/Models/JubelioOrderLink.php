@@ -123,6 +123,27 @@ class JubelioOrderLink extends Model
             ->sum(DB::raw('i.qty * COALESCE(i.conversion_to_base, 1)'));
     }
 
+    /**
+     * Pembeli minta batal atau pesanan sudah batal di marketplace — packing TIDAK boleh
+     * melanjutkan. Keputusannya milik admin: terima/tolak di Seller Center lalu void di
+     * ERP. Permintaan yang ditolak hilang dari daftar Jubelio dan flag-nya dibersihkan
+     * sync (syncCancellationRequests), jadi kuncinya lepas sendiri.
+     */
+    public function sedangDibatalkan(): bool
+    {
+        return (bool) $this->cancel_requested || $this->last_status === 'canceled';
+    }
+
+    /** Label singkat untuk penanda di kartu. */
+    public function labelPembatalan(): ?string
+    {
+        return match (true) {
+            $this->last_status === 'canceled' => 'DIBATALKAN DI MARKETPLACE',
+            (bool) $this->cancel_requested    => 'PEMBELI MINTA BATAL',
+            default                           => null,
+        };
+    }
+
     /** Resi sudah didapat (rantai WMS tuntas). */
     public function isWmsComplete(): bool
     {

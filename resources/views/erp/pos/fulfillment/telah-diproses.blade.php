@@ -233,7 +233,7 @@
     const sjBase    = @json(route('sales.deliveries.print-bulk'));
     const mpResiBase = @json(route('pos.fulfillment.jubelio-resi-bulk'));
 
-    const checks = () => Array.from(document.querySelectorAll('.js-bulk-td'));
+    const checks = () => Array.from(document.querySelectorAll('.js-bulk-td:not(:disabled)'));
     const selected = () => checks().filter(c => c.checked);
 
     // Tombol berbasis Surat Jalan (Biteship/manual) tak berlaku utk marketplace → sembunyikan

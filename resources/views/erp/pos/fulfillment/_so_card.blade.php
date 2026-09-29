@@ -59,6 +59,12 @@
     // Boleh diproses: lunas atau pesanan tempo (bayar belakangan memang kesepakatannya).
     // Tempo/tidaknya ditetapkan admin di form SO — bukan keputusan bagian packing.
     $canProcess = !empty($r['is_lunas']) || !empty($r['is_tempo']);
+
+    // Pembeli minta batal / sudah batal di marketplace → packing BERHENTI, admin yang
+    // memutuskan. Penjaga pertama (penanda ini); penjaga kedua ada di server —
+    // JubelioFulfillmentService::process menolak memprosesnya lewat jalur mana pun.
+    $labelBatal = !empty($r['j_link']) && $r['j_link']->sedangDibatalkan() ? $r['j_link']->labelPembatalan() : null;
+    $isFailed   = $isFailed || $labelBatal;
 @endphp
 <div data-so-number="{{ $r['number'] }}"
      class="bg-white rounded-xl border shadow-md hover:shadow-lg transition-shadow p-4 {{ $isFailed ? 'border-red-300 border-l-4 border-l-red-500' : 'border-gray-300 border-l-4 border-l-emerald-500' }}">
@@ -69,7 +75,8 @@
          sini — hilang tertelan latar. --}}
     <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 rounded-t-xl border-b {{ $isFailed ? 'bg-red-600 border-red-700' : 'bg-emerald-600 border-emerald-700' }}">
         @if($mode === 'perlu_diproses')
-            <input type="checkbox" class="js-bulk-check w-4 h-4 accent-indigo-600 cursor-pointer"
+            <input type="checkbox" class="js-bulk-check w-4 h-4 accent-indigo-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                   @disabled($labelBatal)
                    value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
                    {{-- "Boleh diproses", bukan "lunas": pesanan tempo juga lolos, jadi
                         peringatan massal tak boleh memakai status lunas. --}}
@@ -85,7 +92,8 @@
                    title="Pilih untuk aksi massal">
         @elseif($mode === 'telah_diproses' && !empty($r['tracking_no']))
             {{-- Marketplace yang sudah ber-resi → aksi massal Cetak Resi gabungan (report Jubelio). --}}
-            <input type="checkbox" class="js-bulk-td w-4 h-4 accent-emerald-600 cursor-pointer"
+            <input type="checkbox" class="js-bulk-td w-4 h-4 accent-emerald-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                   @disabled($labelBatal)
                    value="{{ $r['id'] }}" data-number="{{ $r['number'] }}"
                    data-mp="1" data-so="{{ $r['id'] }}"
                    title="Pilih untuk cetak resi massal">
@@ -138,7 +146,11 @@
                 </span>
             @endif
         @endif
-        @if($isFailed)
+        @if($labelBatal)
+            <span data-penanda-batal
+                  class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-red-700 ring-2 ring-red-400 animate-pulse"
+                  title="Jangan diproses — konfirmasi ke admin">⛔ {{ $labelBatal }}</span>
+        @elseif($isFailed)
             <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-red-700 ring-1 ring-red-300" title="{{ $r['process_error'] ?? '' }}">⚠ GAGAL PROSES</span>
         @endif
         @if(in_array($mode, ['belum_siap', 'belum_bayar', 'belum_lunas', 'perlu_ukur'], true) && !empty($r['reason']))
@@ -207,7 +219,18 @@
         @endif
     </div>
 
-    @if($isFailed && !empty($r['process_error']))
+    @if($labelBatal)
+        <div class="-mx-4 px-4 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800 flex items-start gap-1.5">
+            <span class="shrink-0">⛔</span>
+            <span>
+                <span class="font-bold">{{ $labelBatal }} — JANGAN diproses / dikemas / dicetak resinya.</span>
+                Konfirmasi ke admin; admin yang memutuskan (terima/tolak di Seller Center) dan membatalkan pesanannya.
+                @if($r['j_link']->cancel_reason)
+                    <span class="block text-red-600 mt-0.5">Alasan pembeli: {{ $r['j_link']->cancel_reason }}</span>
+                @endif
+            </span>
+        </div>
+    @elseif($isFailed && !empty($r['process_error']))
         {{-- Alasan gagal proses (agar operator tahu apa yang harus diperbaiki sebelum proses ulang) --}}
         <div class="-mx-4 px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700 flex items-start gap-1.5">
             <span class="shrink-0">⚠</span>
@@ -308,12 +331,17 @@
                 <span class="text-[11px] px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-semibold">⏳ {{ $r['wms_stage_label'] }} — bisa lanjutkan</span>
             @endif
             <div class="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                @if($labelBatal)
+                    <span class="px-3 py-1.5 rounded text-xs font-bold text-red-700 bg-red-50 border border-red-300 cursor-not-allowed"
+                          title="Pesanan sedang dibatalkan — konfirmasi ke admin">⛔ Tunggu keputusan admin</span>
+                @else
                 <form action="{{ route('pos.fulfillment.proses', $r['id']) }}" method="POST"
                       onsubmit="return confirm('Jalankan proses Jubelio untuk {{ $r['number'] }}? (picking → faktur → resi otomatis)')">
                     @csrf
                     <button type="submit" name="print_after" value="0"
                             class="px-3 py-1.5 rounded text-xs font-bold text-white bg-purple-600 hover:bg-purple-700">🛒 Proses Pesanan</button>
                 </form>
+                @endif
             </div>
         </div>
         @if(!empty($r['wms_error']))
@@ -515,6 +543,9 @@
                       title="Nomor resi diterbitkan marketplace lalu ditarik otomatis oleh sistem — tidak perlu aksi manual.">
                     ⏳ Resi belum di-generate — tunggu beberapa saat, resi akan di-generate otomatis.
                 </span>
+            @elseif($labelBatal)
+                <span class="text-xs px-3 py-1.5 rounded bg-red-50 border border-red-300 text-red-700 font-bold cursor-not-allowed"
+                      title="Pesanan sedang dibatalkan — jangan dikirim, konfirmasi ke admin">⛔ Cetak Resi dikunci — tunggu admin</span>
             @else
                 <a href="{{ route('pos.fulfillment.jubelio-resi', $r['id']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 font-semibold">🏷️ Cetak Resi</a>

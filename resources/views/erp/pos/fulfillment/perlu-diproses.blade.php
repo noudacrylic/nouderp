@@ -163,7 +163,7 @@
     const selectAll = document.getElementById('bulkSelectAll');
     const printBase = @json(route('sales.orders.print-bulk'));
 
-    const checks = () => Array.from(document.querySelectorAll('.js-bulk-check'));
+    const checks = () => Array.from(document.querySelectorAll('.js-bulk-check:not(:disabled)'));
     const selected = () => checks().filter(c => c.checked);
 
     function refresh() {

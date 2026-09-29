@@ -35,6 +35,15 @@ class JubelioFulfillmentService
      */
     public function process(JubelioOrderLink $link): array
     {
+        // Penjaga kedua (yang pertama: penanda merah di kartu). Semua jalur Proses —
+        // satuan, massal, AJAX — bermuara di sini, jadi pesanan yang sedang dibatalkan
+        // tak bisa lolos lewat jalur mana pun. Dibaca segar: flag bisa berubah oleh
+        // sync sejak halaman dibuka.
+        $link->refresh();
+        if ($link->sedangDibatalkan()) {
+            return $this->result($link, false, $link->labelPembatalan() . ' — jangan diproses. Konfirmasi ke admin untuk pembatalan.');
+        }
+
         if (!$this->client->isReady()) {
             return $this->result($link, false, 'Integrasi Jubelio belum aktif/terkonfigurasi (Settings → Jubelio).');
         }
