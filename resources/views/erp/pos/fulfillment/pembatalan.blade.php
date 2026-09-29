@@ -24,7 +24,8 @@
     @forelse($rows as $row)
         @php
             $isVoid    = $row['state'] === 'void';
-            $isJblCancel = $row['state'] === 'jubelio_canceled';
+            $isJblCancel = in_array($row['state'], ['jubelio_canceled', 'terlanjur_retur'], true);
+            $isTerlanjurRetur = $row['state'] === 'terlanjur_retur';
             $borderColor = $isVoid ? 'border-l-gray-400' : 'border-l-red-500';
         @endphp
         <div class="bg-white rounded-xl border border-gray-300 border-l-4 {{ $borderColor }} shadow-md p-4">
@@ -36,6 +37,8 @@
                 <span class="js-copy text-sm font-bold text-gray-800 cursor-pointer hover:text-indigo-600" data-copy="{{ $copyNumber }}" title="Klik untuk salin nomor (tanpa prefix channel)">{{ $row['number'] }}</span>
                 @if($isVoid)
                     <span class="px-2 py-0.5 rounded text-[10px] font-black bg-gray-200 text-gray-700">✗ DIBATALKAN (VOID)</span>
+                @elseif($isTerlanjurRetur)
+                    <span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-700 ring-1 ring-orange-300" title="Dibatalkan di marketplace, terlanjur dibuka sebagai retur, tapi tak pernah tercatat diserahkan ke kurir">↩ TERLANJUR JADI RETUR · BELUM TERCATAT DIKIRIM</span>
                 @elseif($isJblCancel)
                     <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 ring-1 ring-red-300" title="Dibatalkan di Jubelio — SO masih aktif, perlu void manual">⛔ DIBATALKAN DI JUBELIO</span>
                 @else
@@ -57,6 +60,9 @@
                         <div class="text-[13px] text-gray-500">No. Jubelio: <span class="js-copy cursor-pointer hover:text-indigo-600 font-semibold text-gray-700" data-copy="{{ $row['jubelio_no'] }}" title="Klik untuk salin">{{ $row['jubelio_no'] }}</span></div>
                     @endif
                     <div class="text-[13px] text-gray-500">Total <b class="text-gray-800">Rp {{ number_format($row['grand_total'], 0, ',', '.') }}</b></div>
+                    @if($row['tracking_no'])
+                        <div class="text-[13px] text-gray-500">Resi: <span class="js-copy cursor-pointer hover:text-indigo-600 font-semibold text-gray-700" data-copy="{{ $row['tracking_no'] }}" title="Klik untuk salin">{{ $row['tracking_no'] }}</span>@if($row['shipper']) <span class="text-gray-400">· {{ $row['shipper'] }}</span>@endif</div>
+                    @endif
                 </div>
 
                 <div class="space-y-1.5 lg:pl-6 lg:border-l lg:border-gray-100">
@@ -65,7 +71,9 @@
                             <div class="text-gray-400 font-semibold mb-0.5">{{ $isJblCancel ? '📝 Keterangan' : '📝 Alasan Pembeli' }}</div>
                             <div class="text-gray-700 whitespace-pre-line break-words">{{ $row['cancel_reason'] ?: '— (tidak disebutkan)' }}</div>
                         </div>
-                        @if($isJblCancel)
+                        @if($isTerlanjurRetur)
+                            <div class="text-[11px] text-orange-600 font-semibold">Cek resi dulu: bila belum ada scan kurir (barang masih di gudang), tekan "Bukan retur — batal sebelum dikirim" → draft retur dihapus, faktur + Surat Jalan + SO di-void, stok kembali.</div>
+                        @elseif($isJblCancel)
                             <div class="text-[11px] text-amber-600 font-semibold">Sudah ada Faktur/Surat Jalan — void manual: batalkan dokumen turunannya dulu lewat "Lihat SO".</div>
                         @elseif($row['requested_at'])
                             <div class="text-[11px] text-gray-400">Diminta {{ \Carbon\Carbon::parse($row['requested_at'])->format('d M Y H:i') }}</div>
@@ -89,14 +97,21 @@
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🖨 Cetak SO</a>
                 <a href="{{ route('sales.orders.show', $row['id']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🔎 Lihat SO</a>
-                @unless($isVoid)
+                @if($isTerlanjurRetur)
+                    <form action="{{ route('pos.fulfillment.retur-jadi-batal', $row['id']) }}" method="POST" class="ml-auto"
+                          onsubmit="return confirm('Paket {{ $row['number'] }} BELUM diserahkan ke kurir?\n\nDraft retur dihapus, lalu SO + faktur + Surat Jalan di-void dan stok kembali ke gudang.')">
+                        @csrf
+                        <button type="submit"
+                                class="text-xs px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold">⛔ Bukan retur — batal sebelum dikirim</button>
+                    </form>
+                @elseif(!$isVoid)
                     <form action="{{ route('sales.orders.void', $row['id']) }}" method="POST" class="ml-auto"
                           onsubmit="return confirm('Batalkan (void) SO {{ $row['number'] }}?\n\nReservasi stok dikembalikan. Bila faktur/Surat Jalan sudah terbit, harus di-void lebih dulu dari halaman SO.')">
                         @csrf
                         <button type="submit"
                                 class="text-xs px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold">✗ Batalkan SO (Void)</button>
                     </form>
-                @endunless
+                @endif
             </div>
         </div>
     @empty

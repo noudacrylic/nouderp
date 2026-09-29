@@ -825,7 +825,22 @@ class FulfillmentReadinessService
             ->whereNotNull('sales_order_id')
             ->where(fn ($q) => $q->where('cancel_requested', true)->orWhere('last_status', 'canceled'))
             ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
-            ->whereNot(fn ($q) => $this->batalSetelahKirim($q));
+            ->whereNot(fn ($q) => $this->batalTercatatDikirim($q));
+    }
+
+    /**
+     * Seperti batalSetelahKirim() tapi HANYA yang terbukti diserahkan ke kurir (`shipped_at`).
+     * Kasus lama yang terlanjur dibuka sebagai retur tanpa bukti kirim (`return_created`
+     * saja) tetap tampil di tab Pembatalan juga, supaya admin bisa memeriksa & mem-void-nya
+     * dari sana (tombol "Bukan retur — batal sebelum dikirim").
+     */
+    private function batalTercatatDikirim($q)
+    {
+        return $q->where('jubelio_order_links.last_status', 'canceled')
+            ->whereNotNull('jubelio_order_links.shipped_at')
+            ->whereExists(fn ($so) => $so->from('sales_orders')
+                ->whereColumn('sales_orders.id', 'jubelio_order_links.sales_order_id')
+                ->whereNotIn('sales_orders.status', ['void', 'cancelled']));
     }
 
     /**
@@ -859,8 +874,8 @@ class FulfillmentReadinessService
                   ->orWhere('last_status', 'canceled')   // dibatalkan di Jubelio (auto-void / perlu manual)
                   ->orWhereHas('salesOrder', fn ($s) => $s->whereIn('status', ['void', 'cancelled']));
             })
-            // Batal setelah kirim tinggal di tab Retur — lihat batalSetelahKirim().
-            ->whereNot(fn ($q) => $this->batalSetelahKirim($q));
+            // Batal setelah kirim tinggal di tab Retur — lihat batalTercatatDikirim().
+            ->whereNot(fn ($q) => $this->batalTercatatDikirim($q));
     }
 
     /**
@@ -882,6 +897,11 @@ class FulfillmentReadinessService
             // State: void (sudah dibatalkan) > jubelio_canceled (batal di Jubelio, SO masih aktif
             // → perlu void manual) > requested (pembeli minta batal).
             $state = $isVoid ? 'void' : ($link->last_status === 'canceled' ? 'jubelio_canceled' : 'requested');
+            // Batal di marketplace, terlanjur dibuka sebagai retur, tapi tak pernah tercatat
+            // diserahkan ke kurir → admin cek resi lalu void penuh lewat koreksi retur→batal.
+            if ($state === 'jubelio_canceled' && $link->return_created && !$link->shipped_at) {
+                $state = 'terlanjur_retur';
+            }
 
             return [
                 'id'             => $so->id,
@@ -894,10 +914,16 @@ class FulfillmentReadinessService
                 'date'           => $so->order_date,
                 'date_sort'      => (string) ($link->cancel_requested_at ?? $so->updated_at ?? $so->order_date ?? $so->created_at),
                 'state'          => $state,
-                'cancel_reason'  => $state === 'jubelio_canceled' ? ($link->last_error ?: 'Dibatalkan di Jubelio') : $link->cancel_reason,
+                'cancel_reason'  => match ($state) {
+                    'jubelio_canceled' => $link->last_error ?: 'Dibatalkan di Jubelio',
+                    'terlanjur_retur'  => $link->cancel_reason ?: 'Dibatalkan di marketplace',
+                    default            => $link->cancel_reason,
+                },
                 'requested_at'   => $link->cancel_requested_at,
                 'invoice_posted' => (bool) $link->invoice_posted,
                 'sj_created'     => (bool) $link->sj_created,
+                'tracking_no'    => $link->tracking_no,
+                'shipper'        => $link->shipper,
                 // Teks produk (nama + SKU) untuk pencarian.
                 'product_search' => $so->items->map(fn ($si) =>
                     trim(($si->description ?: ($si->product->name ?? '')) . ' ' . ($si->product->sku ?? '')))
