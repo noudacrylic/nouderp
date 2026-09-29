@@ -657,7 +657,7 @@ class JubelioOrderSyncService
      */
     public function syncCancellationRequests(): array
     {
-        $stats = ['flagged' => 0, 'cleared' => 0];
+        $stats = ['flagged' => 0, 'cleared' => 0, 'voided' => 0];
         if (!$this->client->isReady()) {
             return $stats;
         }
@@ -703,9 +703,64 @@ class JubelioOrderSyncService
         foreach ($stale as $link) {
             $link->forceFill(['cancel_requested' => false, 'cancel_reason' => null, 'cancel_requested_at' => null])->save();
             $stats['cleared']++;
+
+            /*
+             * Permintaan hilang dari daftar = seller baru saja MENERIMA (pesanan batal) atau
+             * MENOLAKNYA (pesanan jalan terus). Cek statusnya SEKARANG, jangan menunggu
+             * rekonsiliasi: bila diterima, jalur batal langsung mem-void SO + faktur + SJ
+             * (selama paket belum diserahkan ke kurir). Dengan begini admin cukup menyetujui
+             * di Seller Center lalu menekan "Tarik Permintaan Batal" — ERP menyusul seketika.
+             */
+            if ($link->sales_order_id) {
+                try {
+                    $fresh = $this->syncOnce((int) $link->jubelio_salesorder_id);
+                    if ($fresh && $fresh->last_status === 'canceled'
+                        && SalesOrder::where('id', $fresh->sales_order_id)->value('status') === 'void') {
+                        $stats['voided']++;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Jubelio cek pembatalan diterima gagal', ['id' => $link->jubelio_salesorder_id, 'error' => $e->getMessage()]);
+                }
+            }
         }
 
+        $stats['voided'] += $this->ulangiVoidYangGagal();
+
         return $stats;
+    }
+
+    /**
+     * Coba lagi pesanan batal yang void otomatisnya pernah GAGAL (mis. masih ada tagihan
+     * atau pembayaran yang menghalangi, yang lalu dibereskan admin). Dulu tak pernah dicoba
+     * ulang — rekonsiliasi melewati pesanan berstatus 'canceled' — sehingga ia menggantung di
+     * tab Pembatalan sampai di-void manual.
+     *
+     * Hanya yang ditandai 'Gagal auto-void' dan belum diserahkan ke kurir: pesanan batal lama
+     * yang ditangani jalur lain (retur) tak pernah tersentuh. Dibatasi sejam sekali per pesanan
+     * supaya kegagalan yang menetap tidak membanjiri log sync tiap 5 menit.
+     */
+    private function ulangiVoidYangGagal(): int
+    {
+        $links = JubelioOrderLink::query()
+            ->where('last_status', 'canceled')
+            ->where('last_error', 'like', 'Gagal auto-void%')
+            ->where('return_created', false)
+            ->whereNull('shipped_at')
+            ->where('updated_at', '<', now()->subHour())
+            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
+            ->get();
+
+        $n = 0;
+        foreach ($links as $link) {
+            $this->cancelOrderFromJubelio($link);
+            if (SalesOrder::where('id', $link->sales_order_id)->value('status') === 'void') {
+                $n++;
+            } else {
+                $link->touch();   // mulai hitungan sejam berikutnya
+            }
+        }
+
+        return $n;
     }
 
     /**

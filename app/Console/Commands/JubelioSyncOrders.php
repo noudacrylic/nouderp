@@ -27,7 +27,7 @@ class JubelioSyncOrders extends Command
 
         // Tarik juga permintaan pembatalan dari pembeli (tab "Pembatalan").
         $cancel = $sync->syncCancellationRequests();
-        $this->info("Permintaan batal: ditandai {$cancel['flagged']}, dibersihkan {$cancel['cleared']}.");
+        $this->info("Permintaan batal: ditandai {$cancel['flagged']}, dibersihkan {$cancel['cleared']}, di-void {$cancel['voided']}.");
 
         // Cek-ulang pesanan in-flight: tangkap pembatalan channel pasca-bayar yang sudah
         // hilang dari daftar ready/completed (auto-void bila aman, atau tandai manual).

@@ -13,6 +13,7 @@ use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\MarketplaceConfig;
 use App\Models\SalesInvoice;
+use App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink;
 use App\Modules\Marketplace\Jubelio\Models\JubelioSetting;
 use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService;
@@ -439,6 +440,68 @@ class JubelioUnpaidSalesOrderTest extends TestCase
             'Surat Jalan ikut di-void → stok kembali ke gudang');
         $this->assertSame(0, SalesInvoice::where('sales_order_id', $soId)->whereNotIn('status', ['void', 'cancelled'])->count());
         $this->assertSame(0, SalesReturn::count(), 'bukan retur');
+    }
+
+    /**
+     * Admin menyetujui pembatalan di Seller Center → permintaan hilang dari daftar Jubelio.
+     * "Tarik Permintaan Batal" (syncCancellationRequests) langsung mengecek pesanannya dan
+     * mem-void SO + faktur + SJ — tak perlu menunggu rekonsiliasi.
+     */
+    public function test_pembatalan_yang_disetujui_langsung_di_void_saat_tarik_permintaan(): void
+    {
+        $this->prepareMarketplaceAccounting();
+
+        $proses = $this->orderDetail(['grand_total' => 44000, 'is_paid' => true, 'tracking_number' => 'SPX123']);
+        $batal  = $this->orderDetail(['grand_total' => 44000, 'is_paid' => true, 'tracking_number' => 'SPX123',
+            'is_canceled' => true]);
+
+        $client = Mockery::mock(JubelioClient::class);
+        $client->shouldReceive('isReady')->andReturn(true);
+        $client->shouldReceive('getOrder')->andReturnValues([
+            ['success' => true, 'status' => 200, 'data' => $proses, 'error' => null],
+            ['success' => true, 'status' => 200, 'data' => $batal, 'error' => null],
+        ]);
+        $client->shouldReceive('postCreateInvoice')->andReturn(['success' => true, 'data' => ['id' => 9001]]);
+        // Permintaan sudah tak ada di daftar = sudah diputuskan seller.
+        $client->shouldReceive('listRequestCancel')->andReturn(['success' => true, 'data' => []]);
+        $this->app->instance(JubelioClient::class, $client);
+        $svc = $this->app->make(JubelioOrderSyncService::class);
+
+        $link = $svc->syncOrderById(self::SO_ID);
+        $link->forceFill(['cancel_requested' => true, 'cancel_requested_at' => now()])->save();
+        $soId = (int) $link->sales_order_id;
+
+        $stats = $svc->syncCancellationRequests();
+
+        $this->assertSame(1, $stats['voided']);
+        $this->assertSame('void', SalesOrder::find($soId)->status);
+        $this->assertSame(0, SalesInvoice::where('sales_order_id', $soId)->whereNotIn('status', ['void', 'cancelled'])->count(),
+            'faktur ikut di-void');
+        $this->assertSame(0, SalesDelivery::where('sales_order_id', $soId)->where('status', 'posted')->count());
+    }
+
+    /** Void otomatis yang pernah gagal dicoba lagi (sejam sekali), bukan menggantung selamanya. */
+    public function test_void_otomatis_yang_pernah_gagal_dicoba_ulang(): void
+    {
+        $svc  = $this->syncServiceReturning($this->orderDetail());
+        $link = $svc->syncOrderById(self::SO_ID);
+        $soId = (int) $link->sales_order_id;
+
+        JubelioOrderLink::where('id', $link->id)->update([
+            'last_status' => 'canceled',
+            'last_error'  => 'Gagal auto-void: masih ada tagihan aktif',
+            'updated_at'  => now()->subHours(2),
+        ]);
+
+        $client = Mockery::mock(JubelioClient::class);
+        $client->shouldReceive('isReady')->andReturn(true);
+        $client->shouldReceive('listRequestCancel')->andReturn(['success' => true, 'data' => []]);
+        $this->app->instance(JubelioClient::class, $client);
+
+        $stats = $this->app->make(JubelioOrderSyncService::class)->syncCancellationRequests();
+
+        $this->assertSame(1, $stats['voided']);
+        $this->assertSame('void', SalesOrder::find($soId)->status);
     }
 
     /**

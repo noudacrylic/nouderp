@@ -5,6 +5,10 @@
     <div>
         <h1 class="text-lg font-semibold">Pembatalan</h1>
         <p class="text-xs text-gray-500">Pesanan marketplace yang <b>pembeli minta batalkan</b> (dari Jubelio) &amp; SO marketplace yang sudah <b>dibatalkan (void)</b>.</p>
+        <p class="text-xs text-indigo-700 mt-1">
+            Alur: cek pesanan di Seller Center → <b>setujui pembatalan</b> di sana → klik <b>Tarik Permintaan Batal</b>
+            (atau tunggu ±5 menit). ERP mem-void SO, faktur &amp; Surat Jalannya sendiri; stok kembali ke gudang.
+        </p>
     </div>
     {{-- Tombol tarik manual (selain cron) — pola wajib: fitur otomatis + trigger manual. --}}
     <form method="POST" action="{{ route('pos.fulfillment.sync-cancel') }}">
@@ -74,7 +78,7 @@
                         @if($isTerlanjurRetur)
                             <div class="text-[11px] text-orange-600 font-semibold">Cek resi dulu: bila belum ada scan kurir (barang masih di gudang), tekan "Bukan retur — batal sebelum dikirim" → draft retur dihapus, faktur + Surat Jalan + SO di-void, stok kembali.</div>
                         @elseif($isJblCancel)
-                            <div class="text-[11px] text-amber-600 font-semibold">Sudah ada Faktur/Surat Jalan — void manual: batalkan dokumen turunannya dulu lewat "Lihat SO".</div>
+                            <div class="text-[11px] text-amber-600 font-semibold">Void otomatis belum berhasil — sistem mencoba lagi tiap jam. Bereskan penghalangnya (lihat keterangan di atas), atau void manual lewat "Lihat SO".</div>
                         @elseif($row['requested_at'])
                             <div class="text-[11px] text-gray-400">Diminta {{ \Carbon\Carbon::parse($row['requested_at'])->format('d M Y H:i') }}</div>
                         @endif
