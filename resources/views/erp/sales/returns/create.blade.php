@@ -31,6 +31,12 @@
 
     {{-- ALERT: Error --}}
 
+    @if(!empty($pindahFaktur['invoice']))
+        <form id="pindahFakturForm" method="POST" action="{{ route('sales.returns.pindah-faktur', $return->id) }}" class="hidden">
+            @csrf
+        </form>
+    @endif
+
     <form id="returnForm" method="POST" action="{{ route('sales.returns.store') }}">
         @csrf
         <input type="hidden" name="return_id" :value="returnId">
@@ -101,6 +107,18 @@
                             <div class="w-full border border-amber-200 bg-amber-50 rounded-xl px-3.5 py-2.5 text-sm text-amber-700">
                                 📋 Dari Sales Order <span class="text-[11px]">(dokumen lama)</span>
                             </div>
+                            {{-- SO-nya sudah berfaktur → retur ini seharusnya atas faktur. Tombolnya
+                                 memakai form terpisah (form tak boleh bersarang); isian yang belum
+                                 disimpan hilang, jadi simpan draft dulu bila ada perubahan. --}}
+                            @if(!empty($pindahFaktur['invoice']))
+                                <button type="submit" form="pindahFakturForm"
+                                    onclick="return confirm('Pindahkan retur ini ke faktur {{ $pindahFaktur['invoice']->invoice_number }}? Tanggal retur tetap. Perubahan yang belum disimpan akan hilang.')"
+                                    class="mt-1.5 w-full border border-blue-300 text-blue-700 hover:bg-blue-50 bg-white rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors">
+                                    Pindahkan ke Faktur {{ $pindahFaktur['invoice']->invoice_number }}
+                                </button>
+                            @elseif(!empty($pindahFaktur['alasan']))
+                                <p class="mt-1 text-[11px] text-gray-500">{{ $pindahFaktur['alasan'] }}</p>
+                            @endif
                         </div>
 
                         {{-- Document Selector Search --}}
@@ -168,6 +186,18 @@
                             <div class="flex items-center gap-2 mb-1">
                                 <span class="font-black text-blue-800 text-sm" x-text="selectedDoc?.number"></span>
                                 <span class="bg-green-100 text-green-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase" x-text="selectedDoc?.status"></span>
+                                {{-- Salin nomor pesanan inti (tanpa prefix SP-/TT- & store-id) untuk dicocokkan di Seller Center --}}
+                                <button type="button"
+                                        x-show="nomorPesananInti(selectedDoc?.number)"
+                                        @click="salinNomorPesanan()"
+                                        :title="'Salin nomor pesanan: ' + nomorPesananInti(selectedDoc?.number)"
+                                        class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md border transition"
+                                        :class="nomorTersalin ? 'border-green-300 bg-green-50 text-green-700' : 'border-blue-200 bg-white text-blue-600 hover:bg-blue-50'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                    <span x-text="nomorTersalin ? 'Tersalin' : nomorPesananInti(selectedDoc?.number)"></span>
+                                </button>
                             </div>
                             <div class="grid grid-cols-3 gap-2 text-xs text-gray-500">
                                 <div>Tanggal: <span class="text-gray-700 font-semibold" x-text="selectedDoc?.date"></span></div>
@@ -495,6 +525,96 @@
                     </div>
                 </div>
 
+                {{-- ═══ JURNAL DANA DITULIS TANGAN ═══
+                     Retur yang diajukan konsumen hasilnya bermacam-macam — ganti
+                     penuh, sebagian, atau tak sama sekali — dan tak semuanya bisa
+                     disimpulkan dari kondisi barang. Blok BARANG di Preview Jurnal
+                     sengaja tidak ikut bisa diubah: ia cerminan pergerakan stok yang
+                     benar-benar terjadi. Diletakkan di kolom utama (bukan panel kanan)
+                     supaya nama akun terbaca utuh. --}}
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6" x-show="selectedDoc && summary.net > 0" x-cloak>
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" x-model="jurnalManual" @change="toggleJurnalManual()"
+                               class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                        <span class="text-sm font-bold text-gray-700">✏️ Tulis sendiri jurnal dananya</span>
+                    </label>
+
+                    <div x-show="jurnalManual" x-transition class="mt-3">
+                        <p class="text-xs text-gray-500 mb-3 leading-relaxed">
+                            Menggantikan blok dana di Preview Jurnal. Jurnal <b>barang</b> tetap dihitung sistem dari
+                            kondisi tiap baris, supaya buku besar dan kartu stok tidak bercerita beda.
+                        </p>
+
+                        <div class="grid grid-cols-12 gap-2 px-1 mb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                            <div class="col-span-6">Akun</div>
+                            <div class="col-span-3 text-right">Debit</div>
+                            <div class="col-span-3 text-right pr-8">Kredit</div>
+                        </div>
+
+                        {{-- Akun dicari lewat nama ATAU kode — orang hafal nama akun, bukan nomornya. --}}
+                        <template x-for="(b, i) in jurnalRows" :key="i">
+                            <div class="grid grid-cols-12 gap-2 mb-2 items-start"
+                                 x-data="{ buka: false, cari: '', sorot: 0 }">
+                                <div class="col-span-6 relative" @click.outside="buka = false">
+                                    <input type="hidden" :name="`journal[${i}][account_id]`" :value="b.account_id">
+                                    <input type="text" x-ref="cariAkun"
+                                           :value="buka ? cari : akunLabel(b.account_id)"
+                                           @focus="buka = true; cari = ''; sorot = 0"
+                                           @input="cari = $event.target.value; sorot = 0"
+                                           @keydown.arrow-down.prevent="sorot = Math.min(sorot + 1, akunCocok(cari).length - 1)"
+                                           @keydown.arrow-up.prevent="sorot = Math.max(sorot - 1, 0)"
+                                           @keydown.enter.prevent="const a = akunCocok(cari)[sorot]; if (a) { b.account_id = String(a.id); buka = false; $refs.cariAkun.blur(); }"
+                                           @keydown.escape="buka = false; $refs.cariAkun.blur()"
+                                           @keydown.tab="buka = false"
+                                           placeholder="Cari nama atau kode akun…"
+                                           class="w-full border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                           :class="b.account_id ? 'border-gray-200 text-gray-800 font-semibold' : 'border-amber-300'">
+                                    <div x-show="buka" x-cloak
+                                         class="absolute z-30 left-0 right-0 mt-1 max-h-64 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                                        <template x-for="(a, n) in akunCocok(cari)" :key="a.id">
+                                            <button type="button"
+                                                    @mousedown.prevent="b.account_id = String(a.id); buka = false; $refs.cariAkun.blur()"
+                                                    @mouseenter="sorot = n"
+                                                    class="w-full text-left px-3 py-2 text-sm flex gap-3"
+                                                    :class="n === sorot ? 'bg-indigo-50' : ''">
+                                                <span class="font-mono text-gray-400 shrink-0" x-text="a.code"></span>
+                                                <span class="text-gray-700" x-text="a.name"></span>
+                                            </button>
+                                        </template>
+                                        <div x-show="akunCocok(cari).length === 0" class="px-3 py-2 text-sm text-gray-400 italic">Akun tidak ditemukan</div>
+                                    </div>
+                                </div>
+                                <input type="text" :name="`journal[${i}][debit]`" x-model="b.debit"
+                                       @input="b.credit = ''" placeholder="Debit" inputmode="numeric"
+                                       class="rupiah-input col-span-3 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right bg-white">
+                                <div class="col-span-3 flex items-center gap-1">
+                                    <input type="text" :name="`journal[${i}][credit]`" x-model="b.credit"
+                                           @input="b.debit = ''" placeholder="Kredit" inputmode="numeric"
+                                           class="rupiah-input flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right bg-white">
+                                    <button type="button" @click="jurnalRows.splice(i, 1)"
+                                            class="text-gray-300 hover:text-red-500 w-7 text-lg font-bold" title="Hapus baris">×</button>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                            <div class="flex items-center gap-4">
+                                <button type="button" @click="jurnalRows.push({account_id: '', debit: '', credit: ''})"
+                                        class="text-xs font-bold text-indigo-600 hover:text-indigo-800">+ Tambah baris</button>
+                                <button type="button" @click="if (confirm('Ganti semua baris dengan hitungan sistem?')) { jurnalRows = []; toggleJurnalManual(); }"
+                                        class="text-xs font-semibold text-gray-500 hover:text-indigo-700">↺ Isi ulang dari sistem</button>
+                            </div>
+
+                            <div class="text-xs font-mono" :class="jurnalSeimbang() ? 'text-green-600' : 'text-red-600 font-bold'">
+                                <span x-text="`D ${formatNumber(totalJurnal('debit'))} · K ${formatNumber(totalJurnal('credit'))}`"></span>
+                                <span x-show="!jurnalSeimbang()"
+                                      x-text="` · selisih ${formatNumber(Math.abs(totalJurnal('debit') - totalJurnal('credit')))}`"></span>
+                                <span x-show="jurnalSeimbang()"> · seimbang ✓</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             {{-- RIGHT COLUMN --}}
@@ -533,18 +653,19 @@
                             <div class="bg-white border border-gray-200 rounded-xl p-4 text-[11px] font-mono leading-relaxed relative">
                                 <div class="absolute top-2 right-3 text-[8px] text-gray-400 font-bold uppercase tracking-widest">Live Preview</div>
                                 
-                                {{-- Core Ledger (Revenue or Advance reversal) --}}
-                                <div class="space-y-1.5 mb-3" x-show="journalPreview.revenue">
-                                    <div class="flex justify-between">
-                                        <template x-if="journalPreview.revenue">
-                                            <span class="font-bold" :class="journalPreview.revenue.debitClass" x-text="journalPreview.revenue.debitLabel"></span>
-                                        </template>
-                                        <span class="text-gray-900 font-black" x-text="formatNumber(journalPreview.revenue?.amount ?? 0)"></span>
-                                    </div>
-                                    <template x-for="c in journalPreview.credits" :key="c.label">
-                                        <div class="flex justify-between pl-4">
-                                            <span class="text-gray-500 italic" x-text="c.label"></span>
-                                            <span class="text-gray-700 font-black" x-text="formatNumber(c.amount)"></span>
+                                {{-- Sisi dana: tiap baris satu akun (Dr/Cr), persis jurnal yang diposting.
+                                     Pasangan titipan (Dr Uang Muka / Cr Saldo Ditahan) tampil dua baris,
+                                     bukan dijejalkan ke satu label. --}}
+                                <div class="space-y-1.5 mb-3" x-show="barisDanaSistem().length">
+                                    <template x-for="(r, k) in barisDanaSistem()" :key="k">
+                                        <div class="flex justify-between gap-2"
+                                             :class="{ 'pl-4': !r.debit, 'pt-2': r.debit && k > 0 }">
+                                            <span :class="r.debit ? 'font-bold text-blue-600' : 'text-gray-500 italic'">
+                                                <span x-text="(r.debit ? 'Dr. ' : 'Cr. ') + r.label"></span>
+                                                <span x-show="r.note" class="text-gray-400" x-text="`(${r.note})`"></span>
+                                            </span>
+                                            <span class="font-black shrink-0" :class="r.debit ? 'text-gray-900' : 'text-gray-700'"
+                                                  x-text="formatNumber(r.debit || r.credit)"></span>
                                         </div>
                                     </template>
                                 </div>
@@ -572,58 +693,6 @@
                                 </div>
                             </div>
 
-                            {{-- ═══ JURNAL DANA DITULIS TANGAN ═══
-                                 Retur yang diajukan konsumen hasilnya bermacam-macam — ganti
-                                 penuh, sebagian, atau tak sama sekali — dan tak semuanya bisa
-                                 disimpulkan dari kondisi barang. Blok BARANG di atas sengaja
-                                 tidak ikut bisa diubah: ia cerminan pergerakan stok yang
-                                 benar-benar terjadi. --}}
-                            <div class="mt-3" x-show="summary.net > 0" x-cloak>
-                                <label class="flex items-center gap-2 cursor-pointer select-none">
-                                    <input type="checkbox" x-model="jurnalManual" @change="toggleJurnalManual()"
-                                           class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                                    <span class="text-[11px] font-bold text-gray-600">✏️ Tulis sendiri jurnal dananya</span>
-                                </label>
-
-                                <div x-show="jurnalManual" x-transition class="mt-2 border border-indigo-200 bg-indigo-50/40 rounded-xl p-3">
-                                    <p class="text-[10px] text-gray-500 mb-2 leading-relaxed">
-                                        Menggantikan blok dana di atas. Jurnal <b>barang</b> tetap dihitung sistem dari
-                                        kondisi tiap baris, supaya buku besar dan kartu stok tidak bercerita beda.
-                                    </p>
-
-                                    <template x-for="(b, i) in jurnalRows" :key="i">
-                                        <div class="flex items-center gap-1.5 mb-1.5">
-                                            <select :name="`journal[${i}][account_id]`" x-model="b.account_id"
-                                                    class="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] bg-white">
-                                                <option value="">— pilih akun —</option>
-                                                @foreach(($akunJurnal ?? []) as $a)
-                                                    <option value="{{ $a->id }}">{{ $a->code }} · {{ $a->name }}</option>
-                                                @endforeach
-                                            </select>
-                                            <input type="text" :name="`journal[${i}][debit]`" x-model="b.debit"
-                                                   @input="b.credit = ''" placeholder="Debit" inputmode="numeric"
-                                                   class="rupiah-input w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] text-right bg-white">
-                                            <input type="text" :name="`journal[${i}][credit]`" x-model="b.credit"
-                                                   @input="b.debit = ''" placeholder="Kredit" inputmode="numeric"
-                                                   class="rupiah-input w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] text-right bg-white">
-                                            <button type="button" @click="jurnalRows.splice(i, 1)"
-                                                    class="text-gray-300 hover:text-red-500 px-1 text-sm font-bold" title="Hapus baris">×</button>
-                                        </div>
-                                    </template>
-
-                                    <div class="flex items-center justify-between mt-2">
-                                        <button type="button" @click="jurnalRows.push({account_id: '', debit: '', credit: ''})"
-                                                class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800">+ Tambah baris</button>
-
-                                        <div class="text-[10px] font-mono" :class="jurnalSeimbang() ? 'text-green-600' : 'text-red-600 font-bold'">
-                                            <span x-text="`D ${formatNumber(totalJurnal('debit'))} · K ${formatNumber(totalJurnal('credit'))}`"></span>
-                                            <span x-show="!jurnalSeimbang()"
-                                                  x-text="` · selisih ${formatNumber(Math.abs(totalJurnal('debit') - totalJurnal('credit')))}`"></span>
-                                            <span x-show="jurnalSeimbang()"> · seimbang ✓</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -785,7 +854,8 @@
  *                    null, jadi simpan tetap membuat retur baru, dan dokumennya masih
  *                    boleh diganti seperti biasa.
  */
-const PETA_AKUN = @json(($akunJurnal ?? collect())->pluck('id', 'code'));
+const KAS_AKUN = @json(collect($cashAccounts ?? [])->map(fn ($a) => ['id' => $a->id, 'code' => $a->code, 'name' => $a->name])->values());
+const AKUN_JURNAL = @json(($akunJurnal ?? collect())->map(fn ($a) => ['id' => $a->id, 'code' => $a->code, 'name' => $a->name])->values());
 
 function returForm(initialData = null, prefill = null) {
     // Mode edit menang: kalau retur tersimpan ada, isian di muka tak berlaku lagi.
@@ -801,6 +871,7 @@ function returForm(initialData = null, prefill = null) {
         documents: [],
         selectedDocId: initialData?.invoice_id || initialData?.sales_order_id || prefill?.invoice_id || null,
         selectedDoc: null,
+        nomorTersalin: false,
         items: [],
         returnDate: initialData?.return_date ? initialData.return_date.split('T')[0] : '{{ now()->format("Y-m-d") }}',
         today: '{{ now()->format("Y-m-d") }}',
@@ -896,8 +967,6 @@ function returForm(initialData = null, prefill = null) {
             },
         },
         journalPreview: {
-            revenue: null,
-            credits: [],
             conditions: [],
         },
 
@@ -1063,7 +1132,7 @@ function returForm(initialData = null, prefill = null) {
                     damaged: 0,
                 },
             };
-            this.journalPreview = { revenue: null, credits: [], conditions: [] };
+            this.journalPreview = { conditions: [] };
             this.returnId = null; // Reset draft reference if customer changes
 
             if (!id) return;
@@ -1120,7 +1189,7 @@ function returForm(initialData = null, prefill = null) {
                     damaged: 0,
                 },
             };
-            this.journalPreview = { revenue: null, credits: [], conditions: [] };
+            this.journalPreview = { conditions: [] };
             this.docQuery = '';
 
             try {
@@ -1153,7 +1222,7 @@ function returForm(initialData = null, prefill = null) {
                     damaged: 0,
                 },
             };
-            this.journalPreview = { revenue: null, credits: [], conditions: [] };
+            this.journalPreview = { conditions: [] };
 
             if (!this.selectedDoc) return;
 
@@ -1480,24 +1549,77 @@ function returForm(initialData = null, prefill = null) {
         toggleJurnalManual() {
             if (!this.jurnalManual || this.jurnalRows.length > 0) return;
 
-            // Label preview membawa kode akunnya ("Dr. 4004 Retur Penjualan"), jadi
-            // pemetaannya lewat kode — bukan menebak dari namanya.
-            const kode = (label) => {
-                const m = String(label).match(/(\d{4})/);
-                return m && PETA_AKUN[m[1]] ? String(PETA_AKUN[m[1]]) : '';
-            };
-
-            const rows = [];
-            const p = this.journalPreview;
-            if (p.revenue) {
-                rows.push({ account_id: kode(p.revenue.debitLabel), debit: String(p.revenue.amount), credit: '' });
-            }
-            (p.credits || []).forEach(c => {
-                rows.push({ account_id: kode(c.label), debit: '', credit: String(c.amount) });
-            });
+            const rows = this.barisDanaSistem().map(r => ({
+                account_id: r.account_id ? String(r.account_id) : '',
+                debit:  r.debit  ? String(r.debit)  : '',
+                credit: r.credit ? String(r.credit) : '',
+            }));
 
             // Selalu sisakan satu baris kosong supaya jelas daftarnya masih bisa ditambah.
             this.jurnalRows = rows.length ? rows : [{ account_id: '', debit: '', credit: '' }];
+        },
+
+        /**
+         * Baris jurnal sisi dana hitungan sistem — cermin SalesReturnService::
+         * getRevenueReversalLines(). Akunnya dari `selectedDoc.akun` (dikirim server),
+         * bukan ditebak dari label, jadi Saldo Ditahan misalnya menyebut akun milik
+         * marketplace pelanggan ini (1202 Saldo Ditahan Shopee), bukan nama umum.
+         */
+        barisDanaSistem() {
+            const amount = Number(this.summary.reversed || 0);
+            if (!(amount > 0)) return [];
+
+            const A = this.selectedDoc?.akun || {};
+            const baris = (akun, debit, credit, note = '', cadangan = '') => ({
+                account_id: akun?.id || '',
+                label: akun ? `${akun.code} ${akun.name}` : cadangan,
+                debit, credit, note,
+            });
+
+            // Retur atas SO: yang dibalik titipan pembeli, belum ada omzet.
+            if (this.returnType === 'so') {
+                return [
+                    baris(A.uang_muka, amount, 0),
+                    baris(this.isMarketplace ? A.ditahan : A.kredit, 0, amount),
+                ];
+            }
+
+            const d = this.dana;
+            const rows = [baris(A.retur, amount, 0)];
+            if (d.ar > 0) rows.push(baris(A.piutang, 0, d.ar, 'tagihan dihapus'));
+
+            if (this.nilaiRefund > 0) {
+                const kas = KAS_AKUN.find(a => String(a.id) === String(this.refundAccountId));
+                const tujuan = { hold: A.ditahan, wallet: A.dompet, credit: A.kredit, bank: kas }[this.refundTarget] || A.kredit;
+                rows.push(baris(tujuan, 0, this.nilaiRefund, 'dana dikembalikan', 'Kas/Bank (pilih akun)'));
+            }
+
+            const fee = Math.round((d.cash - this.nilaiRefund) * 100) / 100;
+            if (fee > 0) rows.push(baris(A.admin, 0, fee, 'biaya admin tak dikembalikan'));
+
+            if (d.hold > 0) {
+                rows.push(baris(A.uang_muka, d.hold, 0, 'titipan pembeli dikembalikan'));
+                rows.push(baris(A.ditahan, 0, d.hold, 'saldo ditahan dilepas'));
+            }
+
+            return rows;
+        },
+
+        akunLabel(id) {
+            const a = AKUN_JURNAL.find(x => String(x.id) === String(id))
+                || Object.values(this.selectedDoc?.akun || {}).find(x => x && String(x.id) === String(id));
+            return a ? `${a.code} · ${a.name}` : '';
+        },
+
+        // Semua kata yang diketik harus muncul di kode+nama akun, urutan bebas:
+        // "retur jual" menemukan "4004 Retur Penjualan".
+        akunCocok(cari) {
+            const kata = String(cari || '').toLowerCase().split(/\s+/).filter(Boolean);
+            if (!kata.length) return AKUN_JURNAL;
+            return AKUN_JURNAL.filter(a => {
+                const teks = `${a.code} ${a.name}`.toLowerCase();
+                return kata.every(k => teks.includes(k));
+            });
         },
 
         totalJurnal(sisi) {
@@ -1511,38 +1633,16 @@ function returForm(initialData = null, prefill = null) {
 
         buildJournalPreview() {
             const preview = {
-                revenue: null,
-                credits: [],
+                dana: [],
                 conditions: [],
             };
 
             // Sisi UANG. Satu debit (nilai jual yang dibatalkan) dan beberapa kredit, persis
             // urutan SalesReturnService::hitungUang(): tagihan dihapus dulu, sisanya baru
             // dikembalikan, dan selisihnya membalik biaya admin.
-            if (this.summary.reversed > 0) {
-                const d = this.dana;
-
-                preview.revenue = {
-                    debitLabel: this.returnType === 'so'
-                        ? 'Dr. 2105 Uang Muka Penjualan'
-                        : 'Dr. 4004 Retur Penjualan',
-                    debitClass: this.returnType === 'so' ? 'text-indigo-600' : 'text-blue-600',
-                    amount: this.summary.reversed,
-                };
-
-                if (this.returnType === 'so') {
-                    preview.credits.push({ label: `Cr. ${this.getReturnAccountName()}`, amount: this.summary.reversed });
-                } else {
-                    if (d.ar > 0)   preview.credits.push({ label: 'Cr. 1120 Piutang (tagihan dihapus)', amount: d.ar });
-                    if (this.nilaiRefund > 0) preview.credits.push({ label: `Cr. ${this.labelTujuan()}`, amount: this.nilaiRefund });
-                    const fee = Math.round((d.cash - this.nilaiRefund) * 100) / 100;
-                    if (fee > 0) preview.credits.push({ label: 'Cr. 5101 Beban Admin (dibalik)', amount: fee });
-                    if (d.hold > 0 || (d.jenis === 'marketplace' && d.ar > 0)) {
-                        preview.credits.push({ label: 'Dr. 2105 Uang Muka / Cr. Saldo Ditahan', amount: this.summary.reversed });
-                    }
-                }
-            }
-
+            // Sisi UANG tidak di sini: template memanggil barisDanaSistem() langsung, supaya
+            // ikut berubah saat Tujuan/Nilai pengembalian diganti (bukan hanya saat item
+            // berubah) — dan itu sumber yang sama dengan isian awal jurnal manual.
             ['good', 'repair', 'damaged', 'hilang'].forEach(condition => {
                 const amount = this.summary.conditionTotals?.[condition] ?? 0;
                 if (amount > 0) {
@@ -1590,6 +1690,34 @@ function returForm(initialData = null, prefill = null) {
         },
 
         // ── Helpers ───────────────────────────────────
+        // Nomor pesanan inti ala MarketplaceSettlementService::normalizeOrderRef():
+        // "SP-260909JCMTPRG2" → "260909JCMTPRG2", "TT-5862...680-127338" → "5862...680".
+        // Faktur non-marketplace (SI/2026/09/...) tak berprefix → '' (tombol disembunyikan).
+        nomorPesananInti(nomor) {
+            const ref = String(nomor || '').trim();
+            if (!/^[A-Za-z]{2,4}-/.test(ref)) return '';
+            return ref.replace(/^[A-Za-z]{2,4}-/, '').split('-')[0].trim();
+        },
+
+        salinNomorPesanan() {
+            const teks = this.nomorPesananInti(this.selectedDoc?.number);
+            if (!teks) return;
+            const selesai = () => {
+                this.nomorTersalin = true;
+                setTimeout(() => this.nomorTersalin = false, 1200);
+            };
+            // clipboard API hanya hidup di konteks aman (https/localhost) — server via IP http pakai cadangan.
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(teks).then(selesai).catch(() => {});
+                return;
+            }
+            const ta = document.createElement('textarea');
+            ta.value = teks; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); selesai(); } catch (_) {}
+            document.body.removeChild(ta);
+        },
+
         formatNumber(n) {
             if (!n && n !== 0) return '0';
             return Math.round(n).toLocaleString('id-ID');
@@ -1621,7 +1749,10 @@ function returForm(initialData = null, prefill = null) {
                     ? 'Dananya sudah kita terima, jadi bagian ini memang harus dikembalikan ke suatu tempat. Pilih ke mana.'
                     : 'Fakturnya belum pernah dibayar, jadi yang dibatalkan hanyalah tagihannya — tidak ada uang yang bergerak.');
 
-            return { amount, ar, cash, feeMax, jenis, penjelasan, refundDefault: Math.max(0, cash - feeMax) };
+            // Titipan pembeli yang masih ditahan marketplace — aturan SalesReturnService::hitungUang().
+            const hold = this.refundTarget === 'hold' ? Math.min(amount, Number(doc.sisa_ditahan || 0)) : 0;
+
+            return { amount, ar, cash, hold, feeMax, jenis, penjelasan, refundDefault: Math.max(0, cash - feeMax) };
         },
 
         /** Tujuan dana yang masuk akal untuk dokumen ini — sisanya disembunyikan. */
@@ -1658,16 +1789,6 @@ function returForm(initialData = null, prefill = null) {
                     : (tersedia[0] || '');
             }
             this.isiUlangRefund();
-        },
-
-        /** Nama akun tujuan dana, untuk pratinjau jurnal. */
-        labelTujuan() {
-            return {
-                hold:   'Saldo Ditahan Marketplace',
-                wallet: 'Saldo Penjualan Marketplace',
-                bank:   'Kas/Bank',
-                credit: '2106 Kredit Pelanggan',
-            }[this.refundTarget] || '2106 Kredit Pelanggan';
         },
 
         getReturnAccountName() {

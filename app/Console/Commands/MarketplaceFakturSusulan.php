@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\SalesInvoice;
 use App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink;
 use App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService;
 use App\Modules\Sales\Models\SalesOrder;
@@ -100,13 +99,20 @@ class MarketplaceFakturSusulan extends Command
 
             try {
                 DB::transaction(function () use ($so, $sync, &$dibuat, &$returDipindah) {
+                    $draftSebelum = $this->draftDiSO($so);
+
+                    // Retur draft SO ikut dipindah di dalam terbitkanFakturPengiriman.
                     $invoice = $sync->terbitkanFakturPengiriman($so);
                     if (!$invoice) {
                         $this->warn("    tak ada baris terkirim yang belum difakturkan — dilewati.");
                         return;
                     }
 
-                    $returDipindah += $this->pindahkanReturDraft($so, $invoice);
+                    $tertinggal = $this->draftDiSO($so);
+                    $returDipindah += $draftSebelum - $tertinggal;
+                    if ($tertinggal > 0) {
+                        $this->warn("    {$tertinggal} retur draft dibiarkan di SO — ada baris yang tak terpetakan ke faktur.");
+                    }
 
                     JubelioOrderLink::where('sales_order_id', $so->id)
                         ->update(['invoice_posted' => true]);
@@ -136,43 +142,8 @@ class MarketplaceFakturSusulan extends Command
         return self::SUCCESS;
     }
 
-    /**
-     * Pindahkan retur DRAFT dari SO ke faktur yang baru terbit.
-     *
-     * Barisnya dipetakan lewat `sales_invoice_items.sales_order_item_id` — kaitan yang memang
-     * sudah ditulis saat faktur dibuat, jadi pemetaannya persis per baris, bukan menebak lewat
-     * produk. Bila ada satu baris saja yang tak terpetakan, seluruh retur itu dibiarkan
-     * menempel ke SO dan dilaporkan — lebih baik ditangani manual daripada separuh pindah.
-     */
-    private function pindahkanReturDraft(SalesOrder $so, SalesInvoice $invoice): int
+    private function draftDiSO(SalesOrder $so): int
     {
-        $invoice->loadMissing('items');
-        $petaBaris = $invoice->items->pluck('id', 'sales_order_item_id');
-
-        $pindah = 0;
-        foreach (SalesReturn::with('items')->where('sales_order_id', $so->id)->where('status', 'draft')->get() as $retur) {
-            $baru = [];
-            foreach ($retur->items as $ri) {
-                $idBaru = $petaBaris[$ri->reference_item_id] ?? null;
-                if (!$idBaru) {
-                    $baru = null;
-                    break;
-                }
-                $baru[$ri->id] = $idBaru;
-            }
-
-            if ($baru === null) {
-                $this->warn("    retur {$retur->return_number} dibiarkan di SO — ada baris yang tak terpetakan ke faktur.");
-                continue;
-            }
-
-            foreach ($baru as $itemId => $idBaru) {
-                DB::table('sales_return_items')->where('id', $itemId)->update(['reference_item_id' => $idBaru]);
-            }
-            $retur->update(['invoice_id' => $invoice->id, 'sales_order_id' => null]);
-            $pindah++;
-        }
-
-        return $pindah;
+        return SalesReturn::where('sales_order_id', $so->id)->where('status', 'draft')->count();
     }
 }

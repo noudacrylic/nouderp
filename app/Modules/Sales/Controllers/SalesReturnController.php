@@ -178,10 +178,16 @@ class SalesReturnController extends Controller
             return redirect(list_url('sales.returns.index'))->with('error', 'Hanya retur draf yang dapat diedit.');
         }
 
+        // Retur lama yang masih menempel ke SO padahal SO-nya sudah berfaktur → tawarkan pindah.
+        $pindahFaktur = $return->sales_order_id && !$return->invoice_id
+            ? app(SalesReturnService::class)->fakturUntukReturSO($return)
+            : null;
+
         $customers = Customer::orderBy('name')->get(['id', 'name']);
         return view('erp.sales.returns.create', [
             'customers'    => $customers,
             'return'       => $return,
+            'pindahFaktur' => $pindahFaktur,
             'cashAccounts' => $this->cashAccounts(),
             'akunJurnal'   => $this->akunJurnal(),
         ]);
@@ -232,6 +238,7 @@ class SalesReturnController extends Controller
                     'grand_total'    => (float) $so->grand_total,
                     'status'         => strtoupper($so->status),
                     'delivery_count' => $so->deliveries->where('status', 'posted')->count(),
+                    'akun'           => app(SalesReturnService::class)->akunDana($so->customer_id),
                     'items'          => $so->items->map(function($item) use ($so) {
                         // Ambil COGS dari SJ yang sudah terkirim
                         $cogsTotal = $so->deliveries->where('status', 'posted')->flatMap->items
@@ -335,6 +342,10 @@ class SalesReturnController extends Controller
                     'sisa_tagihan'   => round(max(0, (float) $inv->remaining_amount), 2),
                     'fee'            => round((float) ($inv->marketplace_fee ?? 0), 2),
                     'is_marketplace' => (bool) $inv->customer?->is_marketplace,
+                    // Akun sisi dana + titipan yang masih ditahan — agar pratinjau & isian
+                    // jurnal manual mencerminkan SalesReturnService, bukan menebak.
+                    'akun'           => $svc->akunDana($inv->customer_id),
+                    'sisa_ditahan'   => $svc->sisaDitahan($inv),
                     'items'          => $inv->items->map(function ($item) use ($deliveryItems) {
                         $cogsTotal = (float) $item->cogs_total;
 
@@ -536,6 +547,25 @@ class SalesReturnController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }
+    }
+
+    /**
+     * Pindahkan retur draft dari SO ke faktur SO tersebut. Tanggal retur tetap.
+     * Logika di SalesReturnService — dipakai juga saat faktur marketplace terbit & oleh
+     * command `retur:pindah-ke-faktur`.
+     */
+    public function pindahKeFaktur($id, SalesReturnService $returnService)
+    {
+        $return = SalesReturn::with('items')->findOrFail($id);
+
+        try {
+            $invoice = $returnService->pindahkanReturKeFaktur($return);
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('sales.returns.edit', $return->id)
+            ->with('success', "Retur {$return->return_number} kini atas faktur {$invoice->invoice_number}. Tanggal retur tidak berubah.");
     }
 
     public function void($id)

@@ -1045,6 +1045,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::get('/returns/{id}/edit', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'edit'])->name('returns.edit');
     Route::delete('/returns/{id}', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'destroy'])->name('returns.destroy');
     Route::post('/returns/{id}/post', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'post'])->name('returns.post');
+    Route::post('/returns/{id}/pindah-faktur', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'pindahKeFaktur'])->name('returns.pindah-faktur');
     Route::post('/returns/{id}/void', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'void'])->name('returns.void');
     Route::get('/returns/{id}/print', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'print'])->name('returns.print');
     Route::get('/ajax/returns/invoices', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'getInvoices'])->name('ajax.returns.invoices');

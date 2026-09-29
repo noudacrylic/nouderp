@@ -269,6 +269,151 @@ class SalesReturnService
     }
 
     /**
+     * Faktur tempat sebuah retur DRAFT atas SO bisa dipindahkan, atau alasan kenapa tidak.
+     *
+     * Retur atas SO adalah jalur lama: lahir sebelum faktur terbit. Begitu SO-nya berfaktur,
+     * retur itu harus ikut ke faktur — kalau tetap di SO, saat diposting ia membalik Uang Muka
+     * yang sudah habis dipakai faktur, dan kasusnya tak tersambung ke dokumen penjualannya.
+     *
+     * Hanya DRAFT: draft belum berjurnal, jadi memindahkannya cuma mengganti kaitan. Retur yang
+     * sudah diposting gaya lama sudah membalik Uang Muka; memindahkannya berarti menulis ulang
+     * jurnal, dan itu keputusan tersendiri.
+     *
+     * Baris dipetakan lewat `sales_invoice_items.sales_order_item_id` — kaitan yang ditulis saat
+     * faktur dibuat — jadi persis per baris, bukan menebak lewat produk. Satu baris saja tak
+     * terpetakan (atau qty-nya melebihi baris faktur) = faktur itu tak memenuhi syarat; lebih
+     * baik ditangani manual daripada separuh pindah.
+     *
+     * @return array{invoice: ?SalesInvoice, peta: array<int,int>, alasan: ?string}
+     *         peta = sales_return_items.id => sales_invoice_items.id
+     */
+    public function fakturUntukReturSO(SalesReturn $retur, ?SalesInvoice $invoice = null): array
+    {
+        $gagal = fn (string $alasan) => ['invoice' => null, 'peta' => [], 'alasan' => $alasan];
+
+        if (!$retur->sales_order_id || $retur->invoice_id) {
+            return $gagal('Retur ini tidak menempel ke Sales Order.');
+        }
+        if ($retur->status !== 'draft') {
+            return $gagal('Hanya retur draf yang bisa dipindah — retur posted sudah berjurnal atas Uang Muka.');
+        }
+
+        $calon = $invoice
+            ? collect([$invoice])
+            : SalesInvoice::with('items')
+                ->where('sales_order_id', $retur->sales_order_id)
+                ->whereIn('status', ['posted', 'partial'])
+                ->orderBy('id')
+                ->get();
+
+        if ($calon->isEmpty()) {
+            return $gagal('Sales Order ini belum punya faktur aktif.');
+        }
+
+        $retur->loadMissing('items');
+
+        foreach ($calon as $inv) {
+            $inv->loadMissing('items');
+            $petaBaris = $inv->items->whereNotNull('sales_order_item_id')->keyBy('sales_order_item_id');
+
+            $peta = [];
+            $qtyPerBaris = [];
+            foreach ($retur->items as $ri) {
+                $baris = $petaBaris->get($ri->reference_item_id);
+                if (!$baris) {
+                    $peta = null;
+                    break;
+                }
+                $peta[$ri->id] = $baris->id;
+                $qtyPerBaris[$baris->id] = ($qtyPerBaris[$baris->id] ?? 0) + (float) $ri->qty;
+            }
+
+            if ($peta === null) {
+                continue;
+            }
+
+            $lebih = collect($qtyPerBaris)->first(
+                fn ($qty, $id) => $qty > (float) $inv->items->firstWhere('id', $id)->qty + 0.00001
+            );
+            if ($lebih === null) {
+                return ['invoice' => $inv, 'peta' => $peta, 'alasan' => null];
+            }
+        }
+
+        return $gagal('Ada baris retur yang tidak tercakup faktur ' . $calon->pluck('invoice_number')->implode(', ') . '.');
+    }
+
+    /**
+     * Pindahkan satu retur DRAFT dari SO ke fakturnya. Tanggal retur, jenis, kondisi, catatan,
+     * dan jurnal manual tidak disentuh — yang berganti hanya dokumen acuannya, beserta harga
+     * baris yang kini dibaca dari faktur.
+     *
+     * @throws Exception bila tak ada faktur yang memenuhi syarat (lihat fakturUntukReturSO).
+     */
+    public function pindahkanReturKeFaktur(SalesReturn $retur, ?SalesInvoice $invoice = null): SalesInvoice
+    {
+        $hasil = $this->fakturUntukReturSO($retur, $invoice);
+        if (!$hasil['invoice']) {
+            throw new Exception($hasil['alasan']);
+        }
+
+        $inv = $hasil['invoice'];
+
+        DB::transaction(function () use ($retur, $inv, $hasil) {
+            $total = 0.0;
+            foreach ($retur->items as $ri) {
+                $baris = $inv->items->firstWhere('id', $hasil['peta'][$ri->id]);
+                $subtotalBaris = (float) ($baris->subtotal ?? $baris->line_total ?? 0);
+                $subtotal = (float) $baris->qty > 0 ? round($subtotalBaris / (float) $baris->qty * (float) $ri->qty, 2) : 0.0;
+                $total += $subtotal;
+
+                $ri->update([
+                    'reference_item_id' => $baris->id,
+                    'unit_price'        => $baris->unit_price,
+                    'subtotal'          => $subtotal,
+                ]);
+            }
+
+            $retur->update([
+                'invoice_id'     => $inv->id,
+                'sales_order_id' => null,
+                'grand_total'    => round($total, 2),
+            ]);
+        });
+
+        return $inv;
+    }
+
+    /**
+     * Pindahkan SEMUA retur draft sebuah SO ke faktur yang baru terbit. Retur yang tak bisa
+     * dipetakan dibiarkan di SO (dan dilaporkan lewat nomornya) — bukan alasan menggagalkan
+     * penerbitan faktur.
+     *
+     * @return array{dipindah: string[], tertinggal: array<string,string>} nomor retur
+     */
+    public function pindahkanDraftSOKeFaktur(int $salesOrderId, SalesInvoice $invoice): array
+    {
+        $hasil = ['dipindah' => [], 'tertinggal' => []];
+
+        $drafts = SalesReturn::with('items')
+            ->where('sales_order_id', $salesOrderId)
+            ->whereNull('invoice_id')
+            ->where('status', 'draft')
+            ->get();
+
+        foreach ($drafts as $retur) {
+            try {
+                $this->pindahkanReturKeFaktur($retur, $invoice);
+                $hasil['dipindah'][] = $retur->return_number;
+            } catch (Exception $e) {
+                $hasil['tertinggal'][$retur->return_number] = $e->getMessage();
+            }
+        }
+
+        return $hasil;
+    }
+
+    /**
      * Bersihkan map kondisi per komponen: buang nilai kosong/tak valid, kunci = product_id int.
      * Return null bila tidak ada (item non-bundle) → item pakai `condition` tunggal.
      */
@@ -386,7 +531,7 @@ class SalesReturnService
     }
 
     /** Saldo titipan pembeli yang masih tertahan untuk dokumen ini. */
-    private function sisaDitahan($doc): float
+    public function sisaDitahan($doc): float
     {
         $soId = $doc->sales_order_id ?? ($doc instanceof \App\Modules\Sales\Models\SalesOrder ? $doc->id : null);
         if (!$soId) {
@@ -417,6 +562,35 @@ class SalesReturnService
             ->selectRaw('SUM(jl.credit) - SUM(jl.debit) v')->value('v');
 
         return round(max(0, $deposit - $terpakai), 2);
+    }
+
+    /**
+     * Akun-akun sisi dana untuk pelanggan ini, persis yang dipakai getRevenueReversalLines()
+     * & akunTujuan(). Dikirim ke form retur supaya Preview Jurnal dan isian awal "Tulis
+     * sendiri jurnal dananya" menyebut akun yang SAMA dengan jurnal yang nanti diposting —
+     * bukan tebakan dari label.
+     *
+     * @return array<string, array{id:int, code:string, name:string}|null>
+     */
+    public function akunDana(?int $customerId): array
+    {
+        $config = $customerId ? \App\Models\MarketplaceConfig::where('customer_id', $customerId)->first() : null;
+
+        $ids = [
+            'retur'     => $this->getAccountId(AccountCodeEnum::SALES_RETURN),
+            'piutang'   => $this->getAccountId(AccountCodeEnum::AR_RECEIVABLE),
+            'uang_muka' => $this->getAccountId(AccountCodeEnum::SALES_ADVANCE),
+            'kredit'    => $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY),
+            'ditahan'   => $config?->account_receivable_hold_id ?: $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY),
+            'dompet'    => $config?->account_wallet_id ?: $this->getAccountId(AccountCodeEnum::CASH),
+            'admin'     => $config?->account_fee_id ?: $this->getAccountId(AccountCodeEnum::SALES_LOSS),
+        ];
+
+        $akun = \App\Core\Accounting\Account::whereIn('id', array_filter($ids))->get(['id', 'code', 'name'])->keyBy('id');
+
+        return array_map(fn ($id) => ($a = $akun->get($id))
+            ? ['id' => (int) $a->id, 'code' => (string) $a->code, 'name' => (string) $a->name]
+            : null, $ids);
     }
 
     /** Akun tujuan pengembalian dana. */

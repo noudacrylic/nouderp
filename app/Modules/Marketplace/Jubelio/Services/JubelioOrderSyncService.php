@@ -1847,7 +1847,12 @@ class JubelioOrderSyncService
 
         app(\App\Services\InvoicePostingService::class)->post($invoice);
 
-        return $invoice->fresh();
+        // Retur draft yang lahir saat SO belum berfaktur ikut pindah ke faktur ini — kalau
+        // tertinggal di SO, saat diposting ia membalik Uang Muka yang baru saja dipakai faktur.
+        $invoice = $invoice->fresh();
+        $this->returnService->pindahkanDraftSOKeFaktur($so->id, $invoice);
+
+        return $invoice;
     }
 
     /**
