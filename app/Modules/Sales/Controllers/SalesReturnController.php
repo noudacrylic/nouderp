@@ -346,6 +346,9 @@ class SalesReturnController extends Controller
                     // jurnal manual mencerminkan SalesReturnService, bukan menebak.
                     'akun'           => $svc->akunDana($inv->customer_id),
                     'sisa_ditahan'   => $svc->sisaDitahan($inv),
+                    // Faktur gaya baru yang dananya belum cair: posting retur ikut mencairkan
+                    // sisa titipan ke Saldo Penjualan (SalesReturnService::selesaikanFakturBelumCair).
+                    'akan_dicairkan' => (bool) $inv->fee_at_settlement && !$inv->marketplace_processed,
                     'items'          => $inv->items->map(function ($item) use ($deliveryItems) {
                         $cogsTotal = (float) $item->cogs_total;
 
@@ -646,6 +649,10 @@ class SalesReturnController extends Controller
                         ->where('product_id', $item->product_id)
                         ->delete();
                 }
+
+                // 4. Faktur kembali ke keadaan sebelum retur: piutang dibuka lagi dan
+                //    pencairan Saldo Ditahan yang dipicu retur ini ikut dibatalkan.
+                app(SalesReturnService::class)->batalkanPenyelesaian($return);
 
                 $return->status = 'void';
                 $return->stage  = 'batal';

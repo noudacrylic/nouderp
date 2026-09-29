@@ -97,7 +97,7 @@ class BillingService
                 $targetAmount = 0;
                 if ($billing->billing_type === 'invoice' && $item->invoice) {
                     $inv = $item->invoice;
-                    $targetAmount = round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount);
+                    $targetAmount = round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount - ($inv->returned_amount ?? 0));
                     
                     if ($targetAmount <= 0) continue;
                     $alloc = min($paymentForThisBilling, $targetAmount);

@@ -247,8 +247,115 @@ class SalesReturnService
                 }
             }
 
+            if (!$isSO && $doc instanceof SalesInvoice) {
+                $this->catatPiutangDihapus($return, $doc);
+                $this->selesaikanFakturBelumCair($return, $doc->fresh(), $dto->date);
+            }
+
             return $return;
         });
+    }
+
+    /**
+     * Faktur perlu tahu berapa piutangnya yang sudah dihapus retur. Angkanya dibaca dari
+     * jurnal retur itu sendiri (baris Piutang), jadi berlaku sama untuk hitungan sistem
+     * maupun jurnal dana yang ditulis tangan.
+     */
+    private function catatPiutangDihapus(SalesReturn $return, SalesInvoice $invoice): void
+    {
+        $arId = (int) Account::where('code', AccountCodeEnum::AR_RECEIVABLE)->value('id');
+        if (!$arId) {
+            return;
+        }
+
+        $ar = round((float) DB::table('journal_lines as jl')
+            ->join('journals as j', 'j.id', '=', 'jl.journal_id')
+            ->where('j.reference_type', 'sales_return')
+            ->where('j.reference_id', $return->id)
+            ->where('j.status', '!=', 'void')
+            ->where('jl.account_id', $arId)
+            ->selectRaw('SUM(jl.credit) - SUM(jl.debit) v')->value('v'), 2);
+
+        if ($ar > 0) {
+            $return->forceFill(['ar_credited' => $ar])->save();
+            $invoice->increment('returned_amount', $ar);
+        }
+    }
+
+    /**
+     * Posting retur = penyelesaian faktur marketplace yang dananya BELUM CAIR.
+     *
+     * Pesanan yang berakhir retur tidak pernah berstatus "selesai" di Jubelio, jadi pencairan
+     * yang biasanya jalan saat itu (Saldo Ditahan → Saldo Penjualan) tak pernah terjadi:
+     * fakturnya menggantung "Belum Cair" dan Saldo Ditahan tak pernah turun — padahal untuk
+     * barang yang dananya DIGANTI (paket hilang, banding menang) marketplace sudah membayar.
+     * Di sini sisa yang belum dikembalikan ke pembeli dicairkan lewat engine yang sama:
+     *
+     *     Dr Uang Muka / Cr Piutang              (faktur tuntas)
+     *     Dr Saldo Penjualan / Cr Saldo Ditahan  (dana masuk dompet)
+     *
+     * Fee SENGAJA 0: potongan untuk dana pengganti bukan biaya admin (umumnya premi asuransi,
+     * jauh lebih kecil) — selisih terhadap dana cair sebenarnya dibukukan rekonsiliasi.
+     *
+     * Tanggal = tanggal retur, tapi tak pernah sebelum tanggal faktur: melunasi faktur yang
+     * belum terbit tidak masuk akal di buku besar.
+     */
+    private function selesaikanFakturBelumCair(SalesReturn $return, SalesInvoice $invoice, string $tanggalRetur): void
+    {
+        if (!$invoice->fee_at_settlement || $invoice->marketplace_processed) {
+            return;
+        }
+
+        $tanggalFaktur = $invoice->invoice_date?->toDateString() ?? $tanggalRetur;
+        $tanggal       = max(\Carbon\Carbon::parse($tanggalRetur)->toDateString(), $tanggalFaktur);
+        $uangMukaAwal  = (float) $invoice->advance_applied;
+
+        $journal = app(MarketplaceEngineService::class)->handle($invoice, 0.0, $tanggal);
+
+        if ($journal) {
+            $return->forceFill([
+                'settlement_journal_id' => $journal->id,
+                'settlement_ar_applied' => round((float) $invoice->fresh()->advance_applied - $uangMukaAwal, 2),
+            ])->save();
+        }
+    }
+
+    /**
+     * Kebalikan dari penyelesaian di atas — dipanggil saat retur di-void, SETELAH jurnal
+     * returnya sendiri di-void. Faktur kembali ke keadaan sebelum retur: piutang yang dihapus
+     * dibuka lagi, dan pencairan yang dipicu retur ini dibatalkan sehingga fakturnya kembali
+     * "Belum Cair" dan bisa dicairkan lagi saat pesanannya benar-benar selesai.
+     */
+    public function batalkanPenyelesaian(SalesReturn $return): void
+    {
+        $invoice = $return->invoice_id ? SalesInvoice::find($return->invoice_id) : null;
+        if (!$invoice) {
+            return;
+        }
+
+        $isi = [];
+        if ($return->settlement_journal_id) {
+            \App\Core\Journal\Journal::whereKey($return->settlement_journal_id)
+                ->update(['status' => 'void', 'voided_at' => now()]);
+            $isi['advance_applied'] = round(max(0, (float) $invoice->advance_applied - (float) $return->settlement_ar_applied), 2);
+        }
+        if ((float) $return->ar_credited > 0) {
+            $isi['returned_amount'] = round(max(0, (float) $invoice->returned_amount - (float) $return->ar_credited), 2);
+        }
+
+        // Tanpa jurnal pencairan aktif, faktur gaya baru belum cair — buka lagi penandanya.
+        // (Retur yang mengembalikan SELURUH titipan menandai faktur tuntas tanpa jurnal.)
+        $masihCair = \App\Core\Journal\Journal::where('reference_type', 'sales_invoice_settlement')
+            ->where('reference_id', $invoice->id)
+            ->where('status', '!=', 'void')
+            ->exists();
+        if ($invoice->fee_at_settlement && !$masihCair) {
+            $isi['marketplace_processed'] = false;
+        }
+
+        if ($isi) {
+            $invoice->update($isi);
+        }
     }
 
     private function storeReturnItem(int $returnId, $doc, array $item): void

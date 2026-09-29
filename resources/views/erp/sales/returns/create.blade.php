@@ -20,7 +20,7 @@
             {{-- Semua barisnya "tidak kembali" → dananya diganti, tak ada yang dibalik. --}}
             <p class="text-xs text-green-600 mt-0.5 font-semibold"
                x-show="summary.net > 0 && summary.reversed <= 0" x-cloak>
-                Semua barang tidak kembali &amp; dananya diganti — retur ini hanya dicatat sebagai kasus, tanpa jurnal pembalik.
+                Semua barang tidak kembali &amp; dananya diganti — penjualannya tidak dibalik<span x-show="!barisPencairan().length">, retur ini hanya dicatat sebagai kasus</span><span x-show="barisPencairan().length">; dana penggantinya dicairkan ke Saldo Penjualan</span>.
             </p>
         </div>
         <a href="{{ route('sales.returns.index') }}"
@@ -356,7 +356,7 @@
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-green-400"></span> Utuh → Stok kembali + HPP reverse</div>
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-yellow-400"></span> Perbaikan → Persediaan Perbaikan + HPP reverse</div>
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-red-400"></span> Rusak → Beban kerugian, tidak masuk stok</div>
-                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span> Tidak Kembali → dana diganti marketplace, tidak ada jurnal pembalik</div>
+                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span> Tidak Kembali → dana diganti marketplace, penjualan tidak dibalik (faktur belum cair: dananya dicairkan ke Saldo Penjualan)</div>
                         <div class="flex items-center gap-1.5 text-blue-400">Butuh campur kondisi? Klik <span class="font-bold">"Pisah kondisi"</span> pada baris produk.</div>
                     </div>
 
@@ -661,6 +661,24 @@
                                         <div class="flex justify-between gap-2"
                                              :class="{ 'pl-4': !r.debit, 'pt-2': r.debit && k > 0 }">
                                             <span :class="r.debit ? 'font-bold text-blue-600' : 'text-gray-500 italic'">
+                                                <span x-text="(r.debit ? 'Dr. ' : 'Cr. ') + r.label"></span>
+                                                <span x-show="r.note" class="text-gray-400" x-text="`(${r.note})`"></span>
+                                            </span>
+                                            <span class="font-black shrink-0" :class="r.debit ? 'text-gray-900' : 'text-gray-700'"
+                                                  x-text="formatNumber(r.debit || r.credit)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                {{-- Penyelesaian faktur yang BELUM CAIR — cermin SalesReturnService::
+                                     selesaikanFakturBelumCair(). Sisa titipan yang tidak dikembalikan
+                                     ke pembeli dicairkan ke Saldo Penjualan, dan fakturnya tuntas. --}}
+                                <div class="border-t border-gray-100 pt-3 mb-3 space-y-1.5" x-show="barisPencairan().length" x-cloak>
+                                    <div class="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Penyelesaian faktur · dana cair (fee 0)</div>
+                                    <template x-for="(r, k) in barisPencairan()" :key="'c' + k">
+                                        <div class="flex justify-between gap-2"
+                                             :class="{ 'pl-4': !r.debit, 'pt-2': r.debit && k > 0 }">
+                                            <span :class="r.debit ? 'font-bold text-emerald-700' : 'text-gray-500 italic'">
                                                 <span x-text="(r.debit ? 'Dr. ' : 'Cr. ') + r.label"></span>
                                                 <span x-show="r.note" class="text-gray-400" x-text="`(${r.note})`"></span>
                                             </span>
@@ -1602,6 +1620,35 @@ function returForm(initialData = null, prefill = null) {
                 rows.push(baris(A.ditahan, 0, d.hold, 'saldo ditahan dilepas'));
             }
 
+            return rows;
+        },
+
+        /**
+         * Jurnal pencairan yang ikut terbit saat retur diposting atas faktur BELUM CAIR —
+         * perkiraan dari sisa tagihan & sisa titipan SETELAH bagian retur di atas. Server
+         * tetap yang berwenang (MarketplaceEngineService); ini hanya pratinjau.
+         */
+        barisPencairan() {
+            const doc = this.selectedDoc || {};
+            if (this.returnType !== 'invoice' || !doc.akan_dicairkan || !(this.summary.net > 0)) return [];
+
+            const A = this.selectedDoc?.akun || {};
+            const baris = (akun, debit, credit, note = '') => ({
+                label: akun ? `${akun.code} ${akun.name}` : '', debit, credit, note,
+            });
+            const d = this.dana;
+            const bulat = v => Math.max(0, Math.round(v * 100) / 100);
+            const holdSisa = bulat(Number(doc.sisa_ditahan || 0) - d.hold);
+            const arSisa   = bulat(Math.min(Number(doc.sisa_tagihan || 0) - d.ar, holdSisa));
+            if (!(holdSisa > 0)) return [];
+
+            const rows = [];
+            if (arSisa > 0) {
+                rows.push(baris(A.uang_muka, arSisa, 0, 'faktur tuntas'));
+                rows.push(baris(A.piutang, 0, arSisa));
+            }
+            rows.push(baris(A.dompet, holdSisa, 0, 'dana cair'));
+            rows.push(baris(A.ditahan, 0, holdSisa));
             return rows;
         },
 

@@ -111,7 +111,7 @@ class BillingController extends Controller
             })
             ->get()
             ->map(function($inv) {
-                $inv->remaining = (float) ($inv->grand_total - $inv->paid_amount - ($inv->advance_applied ?? 0));
+                $inv->remaining = (float) ($inv->grand_total - $inv->paid_amount - ($inv->advance_applied ?? 0) - ($inv->returned_amount ?? 0));
                 if ($inv->remaining <= 0) return null;
                 return $inv;
             })
@@ -179,7 +179,7 @@ class BillingController extends Controller
                         if ($exists) throw new \Exception("Invoice ID $id sudah masuk di penagihan lain yang aktif.");
 
                         $item = SalesInvoice::findOrFail($id);
-                        $remaining = round($item->grand_total - $item->paid_amount - ($item->advance_applied ?? 0), 2);
+                        $remaining = round($item->grand_total - $item->paid_amount - ($item->advance_applied ?? 0) - ($item->returned_amount ?? 0), 2);
                         
                         CustomerBillingItem::create([
                             'customer_billing_id' => $billing->id,
@@ -255,7 +255,7 @@ class BillingController extends Controller
                         if ($exists) throw new \Exception("Invoice ID $id sudah masuk di penagihan lain yang aktif.");
 
                         $item = SalesInvoice::findOrFail($id);
-                        $remaining = round($item->grand_total - $item->paid_amount - ($item->advance_applied ?? 0), 2);
+                        $remaining = round($item->grand_total - $item->paid_amount - ($item->advance_applied ?? 0) - ($item->returned_amount ?? 0), 2);
                         
                         CustomerBillingItem::create([
                             'customer_billing_id' => $billing->id,

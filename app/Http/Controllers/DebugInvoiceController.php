@@ -89,7 +89,7 @@ class DebugInvoiceController extends Controller
                 // Dana marketplace yang belum cair bukan tagihan yang menua — dikeluarkan
                 // dari umur faktur, kalau tidak laporan ini kehilangan artinya.
                 ->where(fn ($q) => $q->whereNull('fee_at_settlement')->orWhere('fee_at_settlement', false))
-                ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1');
+                ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) - IFNULL(returned_amount, 0) >= 1');
 
             if ($request->age === 'lt_1w') {
                 $query->whereDate('invoice_date', '>=', $w1);
@@ -111,12 +111,12 @@ class DebugInvoiceController extends Controller
                 // ditagih siapa pun. Mereka punya filternya sendiri: "Belum Cair".
                 'belum_lunas'      => $query->where('status', 'posted')
                                             ->where(fn ($q) => $q->whereNull('fee_at_settlement')->orWhere('fee_at_settlement', false))
-                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1'),
+                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) - IFNULL(returned_amount, 0) >= 1'),
                 'belum_cair'       => $query->where('status', 'posted')
                                             ->where('fee_at_settlement', true)
-                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) >= 1'),
+                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) - IFNULL(returned_amount, 0) >= 1'),
                 'selesai'          => $query->where('status', 'posted')
-                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) < 1'),
+                                            ->whereRaw('grand_total - IFNULL(paid_amount, 0) - IFNULL(advance_applied, 0) - IFNULL(returned_amount, 0) < 1'),
                 'void'             => $query->where('status', 'void'),
                 'returned_partial' => $query->where('status', 'posted')
                                             ->havingRaw('items_returned_total > 0 AND items_returned_total < items_qty_total'),

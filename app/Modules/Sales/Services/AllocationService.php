@@ -33,7 +33,7 @@ class AllocationService
                 break;
             }
 
-            $invoiceRemaining = round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount, 2);
+            $invoiceRemaining = round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount - ($inv->returned_amount ?? 0), 2);
             
             if ($invoiceRemaining <= 0) {
                 continue;

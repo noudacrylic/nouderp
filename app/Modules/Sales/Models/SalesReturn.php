@@ -28,6 +28,11 @@ class SalesReturn extends Model
         'fee_reversed',
         // Baris jurnal DANA yang diketik sendiri; NULL = pakai hitungan sistem.
         'journal_override',
+        // Piutang faktur yang dihapus retur ini, dan jurnal pencairan (Saldo Ditahan →
+        // Saldo Penjualan) yang dipicunya — keduanya dibatalkan saat retur di-void.
+        'ar_credited',
+        'settlement_journal_id',
+        'settlement_ar_applied',
     ];
 
     /**

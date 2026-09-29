@@ -20,10 +20,13 @@ class MarketplaceEngineService
      *   — fee-nya baru diketahui & dibukukan di sini, saat pesanan selesai. Faktur lama
      *   mengabaikannya: fee-nya sudah masuk jurnal faktur. NULL → pakai yang tersimpan di
      *   faktur (dipakai command perbaikan yang memanggil ulang engine).
+     * @param string|null $tanggal Tanggal jurnal pencairan. NULL = tanggal faktur. Retur yang
+     *   menuntaskan faktur memakai tanggal returnya (lihat SalesReturnService::post()).
+     * @return Journal|null jurnal pencairan yang diposting; null bila tak ada yang dijurnal.
      */
-    public function handle($invoice, ?float $feeAktual = null)
+    public function handle($invoice, ?float $feeAktual = null, ?string $tanggal = null): ?Journal
     {
-        DB::transaction(function () use ($invoice, $feeAktual) {
+        return DB::transaction(function () use ($invoice, $feeAktual, $tanggal) {
 
             // 🔒 1. DETEKSI MARKETPLACE
             $config = MarketplaceConfig::where('customer_id', $invoice->customer_id)
@@ -31,7 +34,7 @@ class MarketplaceEngineService
                 ->first();
 
             if (!$config) {
-                return; // bukan marketplace
+                return null; // bukan marketplace
             }
 
             // 🔒 2. IDEMPOTENT (WAJIB)
@@ -39,7 +42,7 @@ class MarketplaceEngineService
             // di-save ulang), jadi cek juga keberadaan jurnal settlement: kalau sudah
             // ada, cukup rapikan flag & keluar — jangan posting dobel.
             if ($invoice->marketplace_processed) {
-                return;
+                return null;
             }
             $alreadySettled = Journal::where('reference_type', 'sales_invoice_settlement')
                 ->where('reference_id', $invoice->id)
@@ -47,7 +50,7 @@ class MarketplaceEngineService
                 ->exists();
             if ($alreadySettled) {
                 $invoice->update(['marketplace_processed' => true]);
-                return;
+                return null;
             }
 
             // 🔒 2a. GUARD AKUN — wallet wajib ada (tujuan pelepasan saldo ditahan).
@@ -55,7 +58,7 @@ class MarketplaceEngineService
                 \Illuminate\Support\Facades\Log::warning('MarketplaceEngine: akun wallet belum diset — settlement dilewati', [
                     'invoice' => $invoice->id, 'customer' => $invoice->customer_id,
                 ]);
-                return;
+                return null;
             }
 
             // 🔒 2b. AMBIL SALDO YANG BENAR-BENAR DITAHAN (DEPOSITED) dari DP.
@@ -81,7 +84,7 @@ class MarketplaceEngineService
                 \Illuminate\Support\Facades\Log::warning('MarketplaceEngine: tidak ada DP ke akun Hold untuk SO ini — settlement Hold→Wallet dilewati (AR ditagih biasa)', [
                     'invoice' => $invoice->id, 'sales_order_id' => $invoice->sales_order_id,
                 ]);
-                return;
+                return null;
             }
 
             // Akun hold tempat DP berada. Marketplace = selalu satu akun; bila ternyata lebih
@@ -99,6 +102,14 @@ class MarketplaceEngineService
             // nilai returnya.
             $returCredit = $this->returKreditKeHold($invoice, $holdAcctId);
             $holdSisa    = round($deposited - $returCredit, 2);
+
+            // Retur sudah melepas SELURUH titipan (semua barang kembali & dananya dikembalikan
+            // ke pembeli): tak ada yang tersisa untuk dicairkan. Cukup tandai tuntas supaya
+            // status "selesai" dari Jubelio nanti tidak mencoba mencairkannya lagi.
+            if ($holdSisa <= 0.005) {
+                $invoice->update(['marketplace_processed' => true]);
+                return null;
+            }
 
             // SETTLEMENT: PELEPASAN SALDO DITAHAN -> WALLET.
             //
@@ -193,14 +204,14 @@ class MarketplaceEngineService
             );
 
             $dto = new JournalEntryDTO(
-                date: $invoice->invoice_date,
+                date: $tanggal ?? $invoice->invoice_date,
                 reference_type: 'sales_invoice_settlement', // Unik agar tak bentrok journal invoice utama
                 reference_id: $invoice->id,
                 description: 'Marketplace Settlement - ' . $invoice->invoice_number,
                 lines: $lines
             );
 
-            app(JournalPostingService::class)->post($dto);
+            $journal = app(JournalPostingService::class)->post($dto);
 
             // 4. TANDAI SUDAH DIPROSES. Untuk faktur gaya baru, fee yang baru saja dibebankan
             //    dicatat di faktur sbg "sudah dibukukan" — dipakai rekonsiliasi sebagai
@@ -213,6 +224,8 @@ class MarketplaceEngineService
                 $isi['advance_applied'] = round((float) $invoice->advance_applied + $arApply, 2);
             }
             $invoice->update($isi);
+
+            return $journal;
         });
     }
 
@@ -239,11 +252,49 @@ class MarketplaceEngineService
             ->where('id', '!=', $invoice->id)
             ->sum('advance_applied');
 
+        // Retur yang diposting lebih dulu sudah menghapus sebagian piutang (returned_amount)
+        // dan mengembalikan sebagian titipan pembeli (Dr Uang Muka). Tanpa dikurangkan,
+        // pelunasan di sini menutup piutang yang sudah nol dan memakai uang muka yang sudah
+        // habis — keduanya jadi MINUS sebesar nilai returnya.
         $sisaTagihan = round((float) $invoice->grand_total
             - (float) ($invoice->paid_amount ?? 0)
-            - (float) ($invoice->advance_applied ?? 0), 2);
+            - (float) ($invoice->advance_applied ?? 0)
+            - (float) ($invoice->returned_amount ?? 0), 2);
 
-        return round(max(0, min($sisaTagihan, $posted - $used)), 2);
+        $uangMukaRetur = $this->returDebitUangMuka($invoice);
+
+        return round(max(0, min($sisaTagihan, $posted - $used - $uangMukaRetur)), 2);
+    }
+
+    /** Uang muka pembeli yang sudah dikembalikan lewat retur posted (Dr 2105 di jurnal retur). */
+    private function returDebitUangMuka($invoice): float
+    {
+        $akun = (int) DB::table('accounts')->where('code', AccountCodeEnum::SALES_ADVANCE)->value('id');
+        $returIds = $this->returPostedIds($invoice);
+        if (!$akun || $returIds->isEmpty()) {
+            return 0.0;
+        }
+
+        return max(0.0, round((float) DB::table('journal_lines as jl')
+            ->join('journals as j', 'j.id', '=', 'jl.journal_id')
+            ->where('j.status', '!=', 'void')
+            ->where('j.reference_type', 'sales_return')
+            ->whereIn('j.reference_id', $returIds)
+            ->where('jl.account_id', $akun)
+            ->selectRaw('SUM(jl.debit) - SUM(jl.credit) v')->value('v'), 2));
+    }
+
+    private function returPostedIds($invoice): \Illuminate\Support\Collection
+    {
+        return \App\Modules\Sales\Models\SalesReturn::query()
+            ->where('status', 'posted')
+            ->where(function ($w) use ($invoice) {
+                $w->where('invoice_id', $invoice->id);
+                if ($invoice->sales_order_id) {
+                    $w->orWhere('sales_order_id', $invoice->sales_order_id);
+                }
+            })
+            ->pluck('id');
     }
 
     /**
@@ -259,15 +310,7 @@ class MarketplaceEngineService
             return 0.0;
         }
 
-        $returIds = \App\Modules\Sales\Models\SalesReturn::query()
-            ->where('status', 'posted')
-            ->where(function ($w) use ($invoice) {
-                $w->where('invoice_id', $invoice->id);
-                if ($invoice->sales_order_id) {
-                    $w->orWhere('sales_order_id', $invoice->sales_order_id);
-                }
-            })
-            ->pluck('id');
+        $returIds = $this->returPostedIds($invoice);
 
         if ($returIds->isEmpty()) {
             return 0.0;

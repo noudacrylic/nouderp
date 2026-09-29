@@ -257,7 +257,7 @@ class CustomerPaymentService
 
         if (!empty($invoiceIds)) {
             $total += SalesInvoice::whereIn('id', $invoiceIds)->get()->sum(function($inv) {
-                return round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount, 2);
+                return round($inv->grand_total - ($inv->advance_applied ?? 0) - $inv->paid_amount - ($inv->returned_amount ?? 0), 2);
             });
         }
 

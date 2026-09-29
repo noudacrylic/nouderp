@@ -55,6 +55,8 @@ class SalesInvoice extends Model
         'unique_code',
         'paid_amount',
         'advance_applied',
+        // Bagian piutang yang sudah dihapus retur — lihat SalesReturnService::post().
+        'returned_amount',
         'hpp_total',
         'notes',
         'marketplace_processed',
@@ -126,7 +128,8 @@ class SalesInvoice extends Model
         return round(
             (float) ($this->grand_total) 
             - (float) ($this->advance_applied ?? 0) 
-            - (float) ($this->paid_amount ?? 0), 
+            - (float) ($this->paid_amount ?? 0)
+            - (float) ($this->returned_amount ?? 0), 
             2
         );
     }
@@ -165,6 +168,11 @@ class SalesInvoice extends Model
         // Toleransi Rp1: sisa di bawah 1 rupiah = debu rekonsiliasi (mis. DP marketplace
         // dibukukan sebesar grand_total SO yang beda pecahan dengan grand_total faktur).
         if ($this->remaining_amount < 1) {
+            // Tuntas LEWAT retur — bukan dibayar penuh. Dibedakan supaya faktur yang
+            // pesanannya berakhir retur tidak terbaca sebagai penjualan yang lunas biasa.
+            if ($this->punyaReturPosted()) {
+                return ['key' => 'retur', 'label' => 'Retur', 'cls' => 'bg-rose-100 text-rose-700'];
+            }
             return ['key' => 'lunas', 'label' => 'Lunas', 'cls' => 'bg-green-100 text-green-700'];
         }
 
@@ -173,6 +181,13 @@ class SalesInvoice extends Model
         }
 
         return ['key' => 'belum_lunas', 'label' => 'Belum Lunas', 'cls' => 'bg-orange-100 text-orange-700'];
+    }
+
+    private function punyaReturPosted(): bool
+    {
+        return $this->relationLoaded('returns')
+            ? $this->returns->contains('status', 'posted')
+            : $this->returns()->where('status', 'posted')->exists();
     }
 
     /** Dana pembeli masih ditahan marketplace — bukan tagihan yang perlu dikejar. */
