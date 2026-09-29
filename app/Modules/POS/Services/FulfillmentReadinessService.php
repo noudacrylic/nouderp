@@ -709,7 +709,12 @@ class FulfillmentReadinessService
     {
         return \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::query()
             ->whereNotNull('sales_order_id')
-            ->where(fn ($q) => $q->where('last_status', 'returned')->orWhere('return_created', true))
+            ->where(fn ($q) => $q->where('last_status', 'returned')
+                ->orWhere('return_created', true)
+                // Batal SETELAH barang keluar = kasus retur (paket hilang / gagal kirim /
+                // dikembalikan), bukan pembatalan. Dokumennya dibuka otomatis oleh sync;
+                // yang gagal (mis. item tak terpetakan) tetap harus kelihatan di sini.
+                ->orWhere(fn ($w) => $this->batalSetelahKirim($w)))
             /*
              * Retur bisa menggantung pada DUA dokumen induk, dan hanya salah satunya
              * yang terisi: retur atas faktur menyimpan invoice_id dengan sales_order_id
@@ -819,7 +824,27 @@ class FulfillmentReadinessService
         return \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::query()
             ->whereNotNull('sales_order_id')
             ->where(fn ($q) => $q->where('cancel_requested', true)->orWhere('last_status', 'canceled'))
-            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']));
+            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
+            ->whereNot(fn ($q) => $this->batalSetelahKirim($q));
+    }
+
+    /**
+     * Link yang dibatalkan di marketplace SETELAH barangnya keluar (ada Surat Jalan posted)
+     * dan SO-nya masih aktif. Ini kasus RETUR, bukan pembatalan: SO memang tidak boleh
+     * di-void (omzet & stok keluar itu nyata), dan sync sudah membuka draft retur untuknya
+     * (JubelioOrderSyncService::openReturnCaseInsteadOfVoid). Dulu ia tetap nongkrong di
+     * tab Pembatalan dengan anjuran "void manual" — menyuruh operator melakukan persis hal
+     * yang tidak boleh dilakukan, sementara kasusnya sendiri sudah menunggu di tab Retur.
+     */
+    private function batalSetelahKirim($q)
+    {
+        return $q->where('jubelio_order_links.last_status', 'canceled')
+            ->whereExists(fn ($d) => $d->from('sales_deliveries')
+                ->whereColumn('sales_deliveries.sales_order_id', 'jubelio_order_links.sales_order_id')
+                ->where('sales_deliveries.status', 'posted'))
+            ->whereExists(fn ($so) => $so->from('sales_orders')
+                ->whereColumn('sales_orders.id', 'jubelio_order_links.sales_order_id')
+                ->whereNotIn('sales_orders.status', ['void', 'cancelled']));
     }
 
     /** Query dasar: link marketplace yang diminta batal pembeli ATAU SO-nya sudah di-void/cancel. */
@@ -831,7 +856,9 @@ class FulfillmentReadinessService
                 $q->where('cancel_requested', true)
                   ->orWhere('last_status', 'canceled')   // dibatalkan di Jubelio (auto-void / perlu manual)
                   ->orWhereHas('salesOrder', fn ($s) => $s->whereIn('status', ['void', 'cancelled']));
-            });
+            })
+            // Batal setelah kirim tinggal di tab Retur — lihat batalSetelahKirim().
+            ->whereNot(fn ($q) => $this->batalSetelahKirim($q));
     }
 
     /**

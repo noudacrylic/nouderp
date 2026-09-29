@@ -1046,22 +1046,36 @@ class JubelioOrderSyncService
      */
     private function createShippedCancellationReturn(SalesOrder $so): ?SalesReturn
     {
-        $shippedQty = [];
+        /*
+         * Dicocokkan lewat BARIS PESANAN (sales_order_item_id), bukan lewat product_id.
+         * Surat Jalan tidak selalu memuat produk yang sama dengan fakturnya: paket
+         * dikirim sebagai komponennya (faktur "Frame 3R", SJ "Body + Kaki") dan varian
+         * bisa diganti saat packing. Dulu dicocokkan per produk, sehingga kedua kasus
+         * itu gagal jadi retur ("item tak terpetakan") dan pesanannya menggantung di
+         * tab Pembatalan dengan anjuran void manual.
+         */
         $deliveries = \App\Modules\Sales\Models\SalesDelivery::with('items')
             ->where('sales_order_id', $so->id)
             ->where('status', 'posted')
             ->get();
 
+        $perBaris = [];   // sales_order_item_id => ['sama' => qty produk sama, 'ada' => bool]
+        $perProduk = [];  // cadangan untuk baris SJ lama tanpa sales_order_item_id
         foreach ($deliveries as $delivery) {
             foreach ($delivery->items as $di) {
                 $qty = (float) $di->qty;
-                if ($di->product_id && $qty > 0) {
-                    $shippedQty[$di->product_id] = ($shippedQty[$di->product_id] ?? 0) + $qty;
+                if ($qty <= 0) {
+                    continue;
+                }
+                if ($di->sales_order_item_id) {
+                    $perBaris[$di->sales_order_item_id][] = $di;
+                } elseif ($di->product_id) {
+                    $perProduk[$di->product_id] = ($perProduk[$di->product_id] ?? 0) + $qty;
                 }
             }
         }
 
-        if (empty($shippedQty)) {
+        if (empty($perBaris) && empty($perProduk)) {
             return null;
         }
 
@@ -1074,11 +1088,27 @@ class JubelioOrderSyncService
         $doc = $invoice ?: $so->loadMissing('items');
 
         $items = [];
-        foreach ($shippedQty as $productId => $qty) {
-            $docItem = $doc->items->firstWhere('product_id', $productId);
-            if (!$docItem) {
+        foreach ($doc->items as $docItem) {
+            if (!$docItem->product_id || (float) $docItem->qty <= 0) {
                 continue;
             }
+
+            // Baris faktur menunjuk baris SO-nya; baris SO ya dirinya sendiri.
+            $soItemId = $invoice ? $docItem->sales_order_item_id : $docItem->id;
+            $baris    = $soItemId ? ($perBaris[$soItemId] ?? []) : [];
+
+            if ($baris) {
+                $sama = collect($baris)->where('product_id', $docItem->product_id)->sum(fn ($di) => (float) $di->qty);
+                // Produk sama → qty terkirim apa adanya. Beda produk (komponen paket /
+                // varian pengganti) → qty-nya bukan satuan faktur; baris ini dianggap
+                // terkirim penuh, dan admin mengoreksinya saat cek barang.
+                $qty = $sama > 0 ? $sama : (float) $docItem->qty;
+            } elseif (isset($perProduk[$docItem->product_id])) {
+                $qty = $perProduk[$docItem->product_id];
+            } else {
+                continue;
+            }
+
             $items[] = [
                 'invoice_item_id' => $docItem->id,
                 'qty'             => min($qty, (float) $docItem->qty),
@@ -1819,7 +1849,7 @@ class JubelioOrderSyncService
      */
     private function syncReturnsDariStatus(): array
     {
-        $stats = ['created' => 0, 'skipped' => 0];
+        $stats = $this->bukaUlangReturBatalSetelahKirim();
 
         $links = JubelioOrderLink::query()
             ->whereNotNull('sales_order_id')
@@ -1876,6 +1906,48 @@ class JubelioOrderSyncService
                 $stats['skipped']++;
                 Log::error('Jubelio createReturnDraftPenuh error', ['sales_order_id' => $link->sales_order_id, 'error' => $e->getMessage()]);
             }
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Coba ulang kasus "batal setelah barang keluar" yang dulu gagal dibuatkan retur.
+     *
+     * Jalur utamanya (openReturnCaseInsteadOfVoid) hanya berjalan sekali, saat status
+     * batal pertama kali ditarik. Yang gagal di situ — mis. item tak terpetakan — tidak
+     * pernah dicoba lagi, karena pesanan yang sudah batal tidak ditarik ulang. Sapuan ini
+     * ikut cron & tombol "Tarik Retur" supaya tak ada kasus yang tertinggal.
+     *
+     * @return array{created:int, skipped:int}
+     */
+    private function bukaUlangReturBatalSetelahKirim(): array
+    {
+        $stats = ['created' => 0, 'skipped' => 0];
+
+        $links = JubelioOrderLink::query()
+            ->whereNotNull('sales_order_id')
+            ->where('last_status', 'canceled')
+            ->where('return_created', false)
+            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
+            ->whereExists(fn ($d) => $d->from('sales_deliveries')
+                ->whereColumn('sales_deliveries.sales_order_id', 'jubelio_order_links.sales_order_id')
+                ->where('sales_deliveries.status', 'posted'))
+            ->get();
+
+        foreach ($links as $link) {
+            if ($this->sudahAdaRetur((int) $link->sales_order_id)) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            $this->openReturnCaseInsteadOfVoid(
+                SalesOrder::find($link->sales_order_id),
+                $link,
+                $link->jubelio_salesorder_no ?: (string) $link->jubelio_salesorder_id,
+            );
+
+            $link->refresh()->return_created ? $stats['created']++ : $stats['skipped']++;
         }
 
         return $stats;
