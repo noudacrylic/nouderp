@@ -170,7 +170,8 @@ class JubelioUnpaidSalesOrderTest extends TestCase
      */
     public function test_canceled_order_after_shipment_opens_return_case_instead_of_void(): void
     {
-        $svc = $this->syncServiceReturning($this->orderDetail(), $this->orderDetail(['is_canceled' => true]));
+        // Detail batal masih membawa shipped_date: paket SUDAH diserahkan ke kurir → retur.
+        $svc = $this->syncServiceReturning($this->orderDetail(), $this->orderDetail(['is_canceled' => true, 'shipped_date' => now()->toDateString()]));
 
         $link = $svc->syncOrderById(self::SO_ID);
         $soId = (int) $link->sales_order_id;
@@ -210,8 +211,8 @@ class JubelioUnpaidSalesOrderTest extends TestCase
     {
         $svc = $this->syncServiceReturning(
             $this->orderDetail(),
-            $this->orderDetail(['is_canceled' => true]),
-            $this->orderDetail(['is_canceled' => true]),
+            $this->orderDetail(['is_canceled' => true, 'shipped_date' => now()->toDateString()]),
+            $this->orderDetail(['is_canceled' => true, 'shipped_date' => now()->toDateString()]),
         );
 
         $link = $svc->syncOrderById(self::SO_ID);
@@ -389,7 +390,9 @@ class JubelioUnpaidSalesOrderTest extends TestCase
     {
         $this->prepareMarketplaceAccounting();
 
-        $kirim = $this->orderDetail(['grand_total' => 44000, 'is_paid' => true, 'tracking_number' => 'SPX123']);
+        // Sudah DISERAHKAN ke kurir (SHIPPED) sebelum dibatalkan → retur.
+        $kirim = $this->orderDetail(['grand_total' => 44000, 'is_paid' => true, 'tracking_number' => 'SPX123',
+            'internal_status' => 'SHIPPED']);
         $batal = $this->orderDetail(['grand_total' => 44000, 'is_paid' => true, 'tracking_number' => 'SPX123',
             'is_canceled' => true]);
 
@@ -408,6 +411,34 @@ class JubelioUnpaidSalesOrderTest extends TestCase
 
         $so = SalesOrder::find($link->sales_order_id);
         $this->assertNotSame('void', $so->status, 'barang sudah keluar → tidak boleh di-void');
+    }
+
+    /**
+     * GARIS BATAL vs RETUR = serah ke kurir. Pesanan yang sudah DIPROSES (resi terbit →
+     * faktur + Surat Jalan) tapi dibatalkan sebelum diserahkan ke kurir adalah PEMBATALAN:
+     * faktur & SJ di-void, stok kembali, SO void — bukan retur.
+     */
+    public function test_batal_setelah_diproses_tapi_belum_diserahkan_kurir_di_void(): void
+    {
+        $this->prepareMarketplaceAccounting();
+
+        $proses = $this->orderDetail(['grand_total' => 44000, 'is_paid' => true, 'tracking_number' => 'SPX123']);
+        $batal  = $this->orderDetail(['grand_total' => 44000, 'is_paid' => true, 'tracking_number' => 'SPX123',
+            'is_canceled' => true]);
+
+        $svc  = $this->syncServiceReturning($proses, $batal);
+        $link = $svc->syncOrderById(self::SO_ID);
+        $this->assertTrue((bool) $link->fresh()->sj_created, 'sudah diproses: Surat Jalan terbit');
+        $this->assertNull($link->fresh()->shipped_at, 'tapi belum diserahkan ke kurir');
+
+        $svc->syncOrderById(self::SO_ID);
+
+        $soId = (int) $link->sales_order_id;
+        $this->assertSame('void', SalesOrder::find($soId)->status);
+        $this->assertSame(0, SalesDelivery::where('sales_order_id', $soId)->where('status', 'posted')->count(),
+            'Surat Jalan ikut di-void → stok kembali ke gudang');
+        $this->assertSame(0, SalesInvoice::where('sales_order_id', $soId)->whereNotIn('status', ['void', 'cancelled'])->count());
+        $this->assertSame(0, SalesReturn::count(), 'bukan retur');
     }
 
     /**

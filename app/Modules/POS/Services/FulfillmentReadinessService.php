@@ -829,19 +829,21 @@ class FulfillmentReadinessService
     }
 
     /**
-     * Link yang dibatalkan di marketplace SETELAH barangnya keluar (ada Surat Jalan posted)
-     * dan SO-nya masih aktif. Ini kasus RETUR, bukan pembatalan: SO memang tidak boleh
-     * di-void (omzet & stok keluar itu nyata), dan sync sudah membuka draft retur untuknya
-     * (JubelioOrderSyncService::openReturnCaseInsteadOfVoid). Dulu ia tetap nongkrong di
-     * tab Pembatalan dengan anjuran "void manual" — menyuruh operator melakukan persis hal
-     * yang tidak boleh dilakukan, sementara kasusnya sendiri sudah menunggu di tab Retur.
+     * Link yang dibatalkan di marketplace SETELAH paketnya DISERAHKAN KE KURIR (`shipped_at`)
+     * dan SO-nya masih aktif. Ini kasus RETUR, bukan pembatalan: omzet & barang keluar itu
+     * nyata, dan sync sudah membuka draft retur untuknya
+     * (JubelioOrderSyncService::openReturnCaseInsteadOfVoid).
+     *
+     * Garisnya serah-ke-kurir, BUKAN "ada Surat Jalan": SJ marketplace terbit saat pesanan
+     * diproses, jadi batal saat paket masih di tab "Telah Diproses" = pembatalan (void).
+     * `return_created` ikut dihitung untuk kasus lama yang sudah terlanjur dibuka sebagai
+     * retur sebelum garis ini ada — admin bisa mengoreksinya dari kartu retur.
      */
     private function batalSetelahKirim($q)
     {
         return $q->where('jubelio_order_links.last_status', 'canceled')
-            ->whereExists(fn ($d) => $d->from('sales_deliveries')
-                ->whereColumn('sales_deliveries.sales_order_id', 'jubelio_order_links.sales_order_id')
-                ->where('sales_deliveries.status', 'posted'))
+            ->where(fn ($w) => $w->whereNotNull('jubelio_order_links.shipped_at')
+                ->orWhere('jubelio_order_links.return_created', true))
             ->whereExists(fn ($so) => $so->from('sales_orders')
                 ->whereColumn('sales_orders.id', 'jubelio_order_links.sales_order_id')
                 ->whereNotIn('sales_orders.status', ['void', 'cancelled']));

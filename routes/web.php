@@ -1162,6 +1162,8 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::post('/fulfillment/sync-retur',    [\App\Modules\POS\Controllers\FulfillmentController::class, 'syncRetur'])->name('fulfillment.sync-retur');
     // Pindah tahap retur (Retur Baru ↔ Banding). Tahap saja — tak ada jurnal maupun stok.
     Route::post('/fulfillment/retur/{retur}/tahap', [\App\Modules\POS\Controllers\FulfillmentController::class, 'returTahap'])->whereNumber('retur')->name('fulfillment.retur-tahap');
+    // Koreksi: batal sebelum diserahkan ke kurir yang terlanjur jadi retur → void.
+    Route::post('/fulfillment/so/{so}/retur-jadi-batal', \App\Modules\POS\Controllers\KoreksiReturBatalController::class)->whereNumber('so')->name('fulfillment.retur-jadi-batal');
     Route::get('/fulfillment/pembatalan',     [\App\Modules\POS\Controllers\FulfillmentController::class, 'pembatalan'])->name('fulfillment.pembatalan');
     Route::post('/fulfillment/sync-cancel',   [\App\Modules\POS\Controllers\FulfillmentController::class, 'syncCancel'])->name('fulfillment.sync-cancel');
     Route::post('/fulfillment/so/{so}/proses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'prosesPesanan'])->whereNumber('so')->name('fulfillment.proses');

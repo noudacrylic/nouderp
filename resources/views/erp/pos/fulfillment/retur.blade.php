@@ -58,6 +58,11 @@
             $adaDokumen  = ! empty($row['retur_id']);
             $borderColor = $diBanding ? 'border-l-amber-500' : ($adaDokumen ? 'border-l-orange-500' : 'border-l-gray-400');
             $jubelioNo   = $row['j_link']->jubelio_salesorder_no ?? null;
+            // Batal di marketplace tapi TIDAK pernah tercatat diserahkan ke kurir → mungkin
+            // sebenarnya pembatalan, bukan retur. Admin yang memutuskan (tombol koreksi).
+            $batalBelumKirim = ! $diBanding && ($row['j_link'] ?? null)
+                && $row['j_link']->last_status === 'canceled'
+                && ! $row['j_link']->shipped_at;
         @endphp
         <div class="bg-white rounded-xl border border-gray-300 border-l-4 {{ $borderColor }} shadow-md p-4">
             {{-- Header --}}
@@ -74,6 +79,10 @@
                     <span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-700 ring-1 ring-orange-300">↩ RETUR BARU</span>
                 @else
                     <span class="px-2 py-0.5 rounded text-[10px] font-black bg-gray-200 text-gray-600 ring-1 ring-gray-300">⚠ BELUM ADA DOKUMEN</span>
+                @endif
+                @if($batalBelumKirim)
+                    <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 ring-1 ring-red-300"
+                          title="Dibatalkan di marketplace dan tidak pernah tercatat diserahkan ke kurir">⛔ BATAL — BELUM TERCATAT DIKIRIM</span>
                 @endif
                 <span class="ml-auto text-xs text-gray-500 whitespace-nowrap">
                     {{ $row['date'] ? \Carbon\Carbon::parse($row['date'])->format('d M Y') : '' }}
@@ -127,6 +136,19 @@
                 @if($row['id'])
                     <a href="{{ route('sales.orders.show', $row['id']) }}"
                        class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🔎 Lihat SO</a>
+                @endif
+                @if($batalBelumKirim && $row['id'])
+                    {{-- Garis batal vs retur = serah ke kurir. Paket yang belum diserahkan
+                         bukan retur: faktur & SJ di-void, stok kembali ke gudang. --}}
+                    <form method="POST" action="{{ route('pos.fulfillment.retur-jadi-batal', $row['id']) }}"
+                          onsubmit="return confirm('Paket {{ $row['number'] }} BELUM diserahkan ke kurir?
+
+Draft retur dihapus, lalu SO + faktur + Surat Jalan di-void dan stok kembali ke gudang.')">
+                        @csrf
+                        <button type="submit" class="text-xs px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 font-semibold">
+                            ⛔ Bukan retur — batal sebelum dikirim
+                        </button>
+                    </form>
                 @endif
 
                 @if($adaDokumen)

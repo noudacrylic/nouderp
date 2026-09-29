@@ -31,7 +31,7 @@ class ReturBatalSetelahKirimTest extends TestCase
     use RefreshDatabase;
 
     /** Faktur memuat PAKET, Surat Jalan memuat KOMPONENNYA — bentuk yang dulu gagal. */
-    private function pesananBatalSetelahKirim(bool $returnCreated = false): array
+    private function pesananBatalSetelahKirim(bool $returnCreated = false, bool $sudahDiserahkan = true): array
     {
         $cust = Customer::create([
             'code' => 'CUST-' . uniqid(), 'name' => 'Shopee Official',
@@ -78,6 +78,7 @@ class ReturBatalSetelahKirimTest extends TestCase
             'jubelio_salesorder_id' => 8101, 'jubelio_salesorder_no' => 'SP-8101', 'sales_order_id' => $so->id,
             'store' => 'Shopee', 'dp_posted' => true, 'invoice_posted' => true, 'sj_created' => true,
             'last_status' => 'canceled', 'return_created' => $returnCreated,
+            'shipped_at' => $sudahDiserahkan ? now()->subDays(7) : null,
         ]);
 
         return [$so, $invoice];
@@ -121,12 +122,81 @@ class ReturBatalSetelahKirimTest extends TestCase
         $this->assertSame(1, SalesReturn::count());
     }
 
-    /** Pembatalan biasa (barang belum keluar) tetap di tab Pembatalan. */
-    public function test_batal_sebelum_kirim_tetap_di_tab_pembatalan(): void
+    /**
+     * GARIS BATAL vs RETUR = serah ke kurir, BUKAN "ada Surat Jalan". Surat Jalan
+     * marketplace terbit saat diproses; batal selagi paket di "Telah Diproses" = pembatalan.
+     */
+    public function test_batal_sebelum_diserahkan_kurir_tetap_di_tab_pembatalan_meski_sudah_ber_sj(): void
     {
-        [$so] = $this->pesananBatalSetelahKirim();
-        SalesDelivery::where('sales_order_id', $so->id)->update(['status' => 'draft']);
+        [$so] = $this->pesananBatalSetelahKirim(false, false);
+        $svc = app(FulfillmentReadinessService::class);
 
-        $this->assertNotNull(app(FulfillmentReadinessService::class)->pembatalanRows()->firstWhere('id', $so->id));
+        $this->assertNotNull($svc->pembatalanRows()->firstWhere('id', $so->id));
+        $this->assertNull($svc->returRows('baru')->firstWhere('id', $so->id));
+    }
+
+    public function test_tarik_retur_tidak_membuat_retur_untuk_yang_belum_diserahkan(): void
+    {
+        $this->pesananBatalSetelahKirim(false, false);
+
+        app(JubelioOrderSyncService::class)->syncReturns();
+
+        $this->assertSame(0, SalesReturn::count());
+    }
+
+    private function batalkan(SalesOrder $so): void
+    {
+        $svc = app(JubelioOrderSyncService::class);
+        $m = new \ReflectionMethod($svc, 'cancelOrderFromJubelio');
+        $m->setAccessible(true);
+        $m->invoke($svc, JubelioOrderLink::where('sales_order_id', $so->id)->first());
+    }
+
+    /** Sinyal batal untuk paket yang BELUM diserahkan → void, bukan retur. */
+    public function test_sinyal_batal_sebelum_diserahkan_mem_void_bukan_membuka_retur(): void
+    {
+        [$so, $invoice] = $this->pesananBatalSetelahKirim(false, false);
+        // Faktur dinonaktifkan supaya yang diuji murni garisnya; SJ di-void lewat voidDelivery.
+        $invoice->forceFill(['status' => 'void'])->save();
+        SalesDeliveryItem::query()->update(['cogs_deferred' => true]);
+
+        $this->batalkan($so);
+
+        $this->assertSame('void', $so->fresh()->status);
+        $this->assertSame('void', SalesDelivery::where('sales_order_id', $so->id)->value('status'));
+        $this->assertSame(0, SalesReturn::count());
+    }
+
+    public function test_sinyal_batal_sesudah_diserahkan_membuka_retur(): void
+    {
+        [$so] = $this->pesananBatalSetelahKirim(false, true);
+
+        $this->batalkan($so);
+
+        $this->assertSame('confirmed', $so->fresh()->status);
+        $this->assertSame(1, SalesReturn::count());
+    }
+
+    /** Kasus lama yang terlanjur jadi retur dikoreksi admin dari kartu retur. */
+    public function test_admin_mengoreksi_retur_yang_ternyata_batal_sebelum_dikirim(): void
+    {
+        [$so, $invoice] = $this->pesananBatalSetelahKirim(false, false);
+        $invoice->forceFill(['status' => 'void'])->save();
+        SalesDeliveryItem::query()->update(['cogs_deferred' => true]);
+        JubelioOrderLink::where('sales_order_id', $so->id)->update(['return_created' => true]);
+        SalesReturn::create([
+            'return_number' => 'SR-UJI', 'sales_order_id' => $so->id, 'customer_id' => $so->customer_id,
+            'return_date' => now()->toDateString(), 'status' => 'draft', 'stage' => 'baru',
+        ]);
+
+        $admin = \App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->actingAs($admin)->get(route('pos.fulfillment.retur'))->assertOk()
+            ->assertSee('Bukan retur — batal sebelum dikirim');
+
+        $this->actingAs($admin)->post(route('pos.fulfillment.retur-jadi-batal', $so->id))
+            ->assertSessionHas('success');
+
+        $this->assertSame(0, SalesReturn::count());
+        $this->assertSame('void', $so->fresh()->status);
     }
 }

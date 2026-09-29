@@ -50,6 +50,7 @@ class JubelioOrderLink extends Model
         // Kapan MARKETPLACE menyatakan pesanannya selesai (bukan kapan kita
         // selesai memprosesnya — itu wms_completed_at).
         'mp_completed_at',
+        'shipped_at',
         'resi_printed_at',
     ];
 
@@ -73,6 +74,7 @@ class JubelioOrderLink extends Model
         'mp_due_date'         => 'datetime',
         'wms_completed_at'    => 'datetime',
         'mp_completed_at'     => 'datetime',
+        'shipped_at'          => 'datetime',
         'resi_printed_at'     => 'datetime',
     ];
 
@@ -142,6 +144,16 @@ class JubelioOrderLink extends Model
             (bool) $this->cancel_requested    => 'PEMBELI MINTA BATAL',
             default                           => null,
         };
+    }
+
+    /**
+     * Paket sudah pernah DISERAHKAN KE KURIR — garis antara batal (void) dan retur, juga
+     * antara "Telah Diproses" dan "Dikirim". Dicatat sekali oleh sync (kolom `shipped_at`),
+     * karena `last_status` tertimpa 'canceled' begitu pesanan batal.
+     */
+    public function sudahDiserahkanKurir(): bool
+    {
+        return $this->shipped_at !== null || in_array($this->last_status, ['shipped', 'completed', 'returned'], true);
     }
 
     /** Resi sudah didapat (rantai WMS tuntas). */

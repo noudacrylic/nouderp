@@ -392,8 +392,18 @@ class JubelioOrderSyncService
         // Batas kirim (ship-by) marketplace — jangan timpa dgn null bila detail tak menyertakannya.
         $link->mp_due_date      = $this->dueDate($detail) ?: $link->mp_due_date;
 
-        // Pesanan dibatalkan di Jubelio → auto-void SO bila aman (belum ada faktur/SJ);
-        // bila sudah ada faktur/SJ → tandai untuk ditangani manual (tab Pembatalan).
+        /*
+         * Catat SEKALI kapan paket pertama kali terlihat diserahkan ke kurir — SEBELUM cek
+         * batal, karena begitu batal `last_status` tertimpa 'canceled' dan jejaknya hilang.
+         * Pesanan yang sudah batal pun masih bisa membawa `shipped_date`; isShipped()
+         * membacanya, jadi batal-setelah-kirim yang terlewat cron tetap tertangkap.
+         */
+        if (!$link->shipped_at && ($this->isShipped($detail) || $this->isCompleted($detail) || $this->isReturned($detail))) {
+            $link->shipped_at = now();
+        }
+
+        // Pesanan dibatalkan di Jubelio → sebelum diserahkan ke kurir = void; sesudahnya =
+        // retur. Lihat cancelOrderFromJubelio.
         if ($this->isCanceled($detail)) {
             $link->cancel_reason = $this->cancelReason($detail) ?: $link->cancel_reason;
             $this->cancelOrderFromJubelio($link);
@@ -855,6 +865,57 @@ class JubelioOrderSyncService
     }
 
     /**
+     * Koreksi admin: pesanan batal yang TERLANJUR dibuka sebagai retur padahal paketnya
+     * belum pernah diserahkan ke kurir (kasus sebelum garis serah-kurir ada, atau yang
+     * status kirimnya tak pernah tertangkap sync).
+     *
+     * Draft retur dihapus — draft belum membukukan jurnal maupun stok, jadi tak ada yang
+     * perlu dibalik — lalu pesanan dijalankan lewat jalur void yang sama dengan pembatalan
+     * otomatis: faktur & Surat Jalan di-void, stok kembali ke gudang, SO jadi void.
+     *
+     * @return array{success:bool, message:string}
+     */
+    public function koreksiReturJadiBatal(JubelioOrderLink $link): array
+    {
+        $so = $link->sales_order_id ? SalesOrder::find($link->sales_order_id) : null;
+
+        if ($link->last_status !== 'canceled') {
+            return ['success' => false, 'message' => 'Pesanan ini tidak dibatalkan di marketplace — tetap retur.'];
+        }
+        if (!$so || in_array($so->status, ['void', 'cancelled'], true)) {
+            return ['success' => false, 'message' => 'SO-nya sudah tidak aktif.'];
+        }
+
+        $invoiceIds = \App\Models\SalesInvoice::where('sales_order_id', $so->id)->pluck('id');
+        $returs = SalesReturn::where('sales_order_id', $so->id)
+            ->orWhereIn('invoice_id', $invoiceIds)->get();
+
+        if ($returs->contains(fn (SalesReturn $r) => $r->status !== 'draft')) {
+            return ['success' => false, 'message' => 'Returnya sudah diposting — tak bisa dijadikan batal. Void retur itu dulu.'];
+        }
+
+        DB::transaction(function () use ($returs, $link) {
+            foreach ($returs as $r) {
+                $r->items()->delete();
+                $r->delete();
+            }
+            $link->forceFill(['return_created' => false, 'shipped_at' => null])->save();
+        });
+
+        $this->cancelOrderFromJubelio($link->fresh());
+
+        $so->refresh();
+        $berhasil = $so->status === 'void';
+
+        return [
+            'success' => $berhasil,
+            'message' => $berhasil
+                ? "{$so->order_number} dibatalkan (void): faktur & Surat Jalan di-void, stok kembali ke gudang."
+                : 'Draft retur dihapus, tapi void otomatis gagal: ' . ($link->fresh()->last_error ?: 'tak diketahui') . ' — selesaikan di tab Pembatalan.',
+        ];
+    }
+
+    /**
      * Pesanan dibatalkan di Jubelio → batalkan di ERP.
      *  - Belum ada SO / SO sudah void → cukup catat.
      *  - BARANG SUDAH KELUAR (ada Surat Jalan posted) → JANGAN void; buka kasus RETUR.
@@ -889,14 +950,17 @@ class JubelioOrderSyncService
             return;
         }
 
-        // Barang sudah keluar gudang → bukan pembatalan, melainkan retur/klaim. Dokumen
-        // dibiarkan utuh (omzet tetap diakui, stok tetap keluar) dan kasusnya dibuka sebagai
-        // Retur tahap `baru` untuk ditindaklanjuti manual.
-        $hasShipped = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
-            ->where('status', 'posted')
-            ->exists();
-
-        if ($hasShipped) {
+        /*
+         * GARIS BATAL vs RETUR = paket sudah DISERAHKAN KE KURIR, bukan "sudah ada Surat Jalan".
+         *
+         * Surat Jalan marketplace terbit saat pesanan DIPROSES (faktur Jubelio), jadi paket
+         * yang masih di meja packing pun sudah ber-SJ. Dulu itu dianggap "barang keluar",
+         * sehingga pesanan yang dibatalkan saat masih di tab "Telah Diproses" berubah jadi
+         * retur. Sekarang: belum diserahkan → void penuh (faktur di-void, SJ ikut di-void,
+         * stok kembali ke gudang — barangnya memang masih di sini); sudah diserahkan → retur.
+         * Garis yang sama memisahkan "Telah Diproses" dari "Dikirim".
+         */
+        if ($link->sudahDiserahkanKurir()) {
             $this->openReturnCaseInsteadOfVoid($so, $link, $ref);
             return;
         }
@@ -932,8 +996,13 @@ class JubelioOrderSyncService
                     $this->invoiceService->voidPosted($inv);
                 }
 
-                // (Tak ada penanganan Surat Jalan di sini: SO dengan SJ posted sudah dialihkan
-                //  ke kasus retur di atas dan tak pernah sampai ke titik ini.)
+                // 1c. Surat Jalan yang masih posted (tak tertaut faktur yang di-void di atas) —
+                //     paket belum diserahkan ke kurir, jadi barangnya kembali ke gudang.
+                $sjAktif = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
+                    ->where('status', 'posted')->get();
+                foreach ($sjAktif as $sj) {
+                    app(\App\Modules\Sales\Services\SalesDeliveryService::class)->voidDelivery($sj);
+                }
 
                 // 2. Void SO — mirror SalesOrderController::void.
                 \App\Core\Inventory\StockReservation::where('sales_order_id', $so->id)->update(['status' => 'cancelled']);
@@ -1912,7 +1981,7 @@ class JubelioOrderSyncService
     }
 
     /**
-     * Coba ulang kasus "batal setelah barang keluar" yang dulu gagal dibuatkan retur.
+     * Coba ulang kasus "batal setelah diserahkan ke kurir" yang dulu gagal dibuatkan retur.
      *
      * Jalur utamanya (openReturnCaseInsteadOfVoid) hanya berjalan sekali, saat status
      * batal pertama kali ditarik. Yang gagal di situ — mis. item tak terpetakan — tidak
@@ -1929,10 +1998,9 @@ class JubelioOrderSyncService
             ->whereNotNull('sales_order_id')
             ->where('last_status', 'canceled')
             ->where('return_created', false)
+            // Garis retur = sudah diserahkan ke kurir (lihat cancelOrderFromJubelio).
+            ->whereNotNull('shipped_at')
             ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
-            ->whereExists(fn ($d) => $d->from('sales_deliveries')
-                ->whereColumn('sales_deliveries.sales_order_id', 'jubelio_order_links.sales_order_id')
-                ->where('sales_deliveries.status', 'posted'))
             ->get();
 
         foreach ($links as $link) {
