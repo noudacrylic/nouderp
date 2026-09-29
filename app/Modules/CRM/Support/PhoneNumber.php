@@ -28,6 +28,11 @@ class PhoneNumber
             $digits = '62' . ltrim($digits, '0');
         }
 
+        // +62 (0)812… / 620812… → 62812…  (nol lokal ikut tertulis di belakang kode negara)
+        if (str_starts_with($digits, '620')) {
+            $digits = '62' . ltrim(substr($digits, 2), '0');
+        }
+
         // 8123… (tanpa 0 maupun kode negara) → 628123…
         if (str_starts_with($digits, '8')) {
             $digits = '62' . $digits;

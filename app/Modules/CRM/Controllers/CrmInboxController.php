@@ -258,6 +258,20 @@ class CrmInboxController extends Controller
                     ->where('unread_count', '>', 0)
                     ->count()
                 : 0,
+            /*
+             * Chat belum dibaca per pemegang ('' = belum dioper), untuk angka di
+             * tab "Semua" dan di dropdown agen. Lencana menu CRM super admin
+             * menghitung seluruh inbox; tanpa angka per tempat ini, chat yang
+             * membuatnya menyala harus dicari satu per satu.
+             */
+            'belumDibacaPerPemilik' => CrmConversation::query()
+                ->where('status', CrmConversation::STATUS_AKTIF)
+                ->where('unread_count', '>', 0)
+                ->selectRaw('owner_user_id, COUNT(*) AS n')
+                ->groupBy('owner_user_id')
+                ->pluck('n', 'owner_user_id')
+                ->mapWithKeys(fn ($n, $pemilik) => [(string) $pemilik => (int) $n])
+                ->all(),
             'terpilih' => $terpilih,
         ];
     }
@@ -520,6 +534,18 @@ class CrmInboxController extends Controller
 
     public function show(Request $request, CrmConversation $conversation)
     {
+        /*
+         * Coba tautkan ulang saat dibuka. Webhook hanya mencocokkan nomor saat
+         * pesan masuk, jadi pelanggan (atau nomor cabangnya) yang dicatat
+         * sesudahnya tak pernah ketemu — chatnya tetap Lead tanpa riwayat
+         * pesanan, dan Buat SO lalu melahirkan pelanggan kembar.
+         */
+        if (! $conversation->customer_id && str_starts_with((string) $conversation->channel, 'whatsapp')) {
+            if ($customer = app(\App\Modules\CRM\Services\IncomingWebhookService::class)->cocokkanPelanggan($conversation->contact_key)) {
+                $conversation->forceFill(['customer_id' => $customer->id])->save();
+            }
+        }
+
         $conversation->load(['customer', 'owner']);
 
         /*
@@ -1507,6 +1533,7 @@ class CrmInboxController extends Controller
             $data['jumlahBelumDibaca'],
             $data['belumDioper'],
             $data['belumDibacaSaya'],
+            json_encode($data['belumDibacaPerPemilik']),
             json_encode($data['jumlah']),
             $data['terpilih']?->id,
         ]));

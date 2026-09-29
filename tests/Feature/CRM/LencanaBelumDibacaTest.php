@@ -285,4 +285,19 @@ class LencanaBelumDibacaTest extends TestCase
 
         $this->actingAs($admin)->get('/erp/crm')->assertOk()->assertSee('99+');
     }
+    /** Tab "Semua" ikut berangka, supaya chat yang menyalakan lencana menu mudah dicari. */
+    public function test_tab_semua_dan_dropdown_agen_menampilkan_belum_dibaca(): void
+    {
+        $admin = $this->admin();
+        $agen  = $this->agen();
+
+        $this->chat(1, $agen->id);
+        $this->chat(1, null);
+
+        $this->actingAs($admin)->get('/erp/crm?pemilik=' . $admin->id)->assertOk()
+            ->assertSeeInOrder(['data-lencana-semua', '>2<'], false)
+            ->assertDontSee('data-lencana-milik-saya', false)
+            ->assertSee($agen->name . ' · 1 belum dibaca', false)
+            ->assertSee('Belum dioper (1) · 1 belum dibaca', false);
+    }
 }

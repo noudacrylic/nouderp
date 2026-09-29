@@ -87,9 +87,22 @@
 
     {{-- ---------------------------------------------------- 1. chat siapa --}}
     <div class="grid grid-cols-3 gap-1 text-xs">
+        @php
+            $belumPerPemilik = $belumDibacaPerPemilik ?? [];
+            $belumDibacaSemua = array_sum($belumPerPemilik);
+            $angkaLencana = fn (int $n) => $n > 99 ? '99+' : $n;
+        @endphp
         <a href="{{ $tautanSaring(['pemilik' => 'semua']) }}"
-           class="text-center truncate {{ $semuaOrang ? $tabAktif : $tabDiam }}"
-           title="Semua chat, milik siapa pun">Semua</a>
+           class="flex items-center justify-center gap-1 {{ $semuaOrang ? $tabAktif : $tabDiam }}"
+           title="Semua chat, milik siapa pun{{ $belumDibacaSemua > 0 ? ' — ' . $belumDibacaSemua . ' belum dibaca' : '' }}">
+            <span class="truncate">Semua</span>
+            @if($belumDibacaSemua > 0)
+                <span data-lencana-semua
+                      class="shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full
+                             text-[10px] font-bold leading-none
+                             {{ $semuaOrang ? 'bg-white text-emerald-700' : 'bg-red-600 text-white' }}">{{ $angkaLencana($belumDibacaSemua) }}</span>
+            @endif
+        </a>
 
         {{-- Angka belum-dibaca menempel di tab ini, bukan cuma di chip "Belum
              dibaca" di bawahnya: chip itu menghitung daftar yang SEDANG
@@ -120,10 +133,10 @@
                 <select name="pemilik" onchange="this.form.submit()"
                         class="border rounded px-1 py-1 text-xs w-full {{ $agenLain ? 'border-emerald-600 text-emerald-700 font-medium' : 'border-gray-300' }}">
                     <option value="">Agen lain…</option>
-                    <option value="belum" @selected($pemilikKini === 'belum')>Belum dioper ({{ $belumDioper }})</option>
+                    <option value="belum" @selected($pemilikKini === 'belum')>Belum dioper ({{ $belumDioper }}){{ ($belumPerPemilik[''] ?? 0) > 0 ? ' · ' . $belumPerPemilik[''] . ' belum dibaca' : '' }}</option>
                     @foreach($pemilikOpsi as $u)
                         @continue($u->id === $akuId)
-                        <option value="{{ $u->id }}" @selected($pemilikKini === (string) $u->id)>{{ $u->name }}</option>
+                        <option value="{{ $u->id }}" @selected($pemilikKini === (string) $u->id)>{{ $u->name }}{{ ($belumPerPemilik[(string) $u->id] ?? 0) > 0 ? ' · ' . $belumPerPemilik[(string) $u->id] . ' belum dibaca' : '' }}</option>
                     @endforeach
                 </select>
             </form>

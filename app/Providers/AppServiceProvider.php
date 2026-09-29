@@ -98,6 +98,9 @@ class AppServiceProvider extends ServiceProvider
         SalesOrder::observe(CrmSalesOrderObserver::class);
         SalesDelivery::observe(CrmSalesDeliveryObserver::class);
 
+        // Chat Lead langsung tertaut begitu nomornya disimpan di master pelanggan.
+        \App\Models\Customer::observe(\App\Modules\CRM\Observers\CrmCustomerObserver::class);
+
         /*
          * Titipan "kabari kalau stoknya ada". Dua model, karena stok yang bisa
          * DIJANJIKAN berubah oleh keduanya: ledger (barang masuk/keluar) dan
