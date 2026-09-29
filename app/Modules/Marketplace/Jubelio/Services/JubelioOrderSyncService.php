@@ -865,6 +865,69 @@ class JubelioOrderSyncService
     }
 
     /**
+     * Telusuri pesanan batal yang TERLANJUR dibuka sebagai retur sebelum garis serah-kurir
+     * ada: tarik ulang detailnya dari Jubelio dan lihat apakah paketnya pernah diserahkan
+     * ke kurir (aturan yang sama dengan sync — isShipped/isReturned).
+     *
+     * Hanya MENGELOMPOKKAN, tidak pernah mem-void: void tetap keputusan admin lewat tombol
+     * "Bukan retur — batal sebelum dikirim". Dengan $simpan, yang terbukti sudah dikirim
+     * dicatatkan `shipped_at`-nya, sehingga chip & tombol koreksi di kartunya hilang dan
+     * yang tersisa di layar hanya kasus yang memang perlu diputuskan.
+     *
+     * @return array<int, array{link:JubelioOrderLink, so:?string, hasil:string, bukti:array}>
+     *         hasil: 'sudah_dikirim' | 'belum_dikirim' | 'gagal'
+     */
+    public function telusuriBatalTerlanjurRetur(bool $simpan = false): array
+    {
+        $links = JubelioOrderLink::query()
+            ->with('salesOrder:id,order_number,status')
+            ->where('last_status', 'canceled')
+            ->where('return_created', true)
+            ->whereNull('shipped_at')
+            ->whereHas('salesOrder', fn ($s) => $s->whereNotIn('status', ['void', 'cancelled']))
+            ->orderBy('id')
+            ->get();
+
+        $hasil = [];
+
+        foreach ($links as $link) {
+            $resp = $this->client->getOrder((int) $link->jubelio_salesorder_id);
+
+            if (!$resp['success']) {
+                $hasil[] = ['link' => $link, 'so' => $link->salesOrder?->order_number, 'hasil' => 'gagal',
+                    'bukti' => ['error' => (string) ($resp['error'] ?? 'tidak diketahui')]];
+                continue;
+            }
+
+            $d = (array) ($resp['data'] ?? []);
+            $dikirim = $this->isShipped($d) || $this->isReturned($d) || $this->isCompleted($d);
+
+            // Semua isian yang berbau pengiriman ikut ditampilkan: belum pasti Jubelio
+            // menyimpan tanggal kirim untuk pesanan batal, dan admin perlu melihat buktinya.
+            $bukti = collect($d)
+                ->filter(fn ($v, $k) => filled($v) && !is_array($v)
+                    && preg_match('/ship|status|tracking|awb|pickup|received|deliver/i', (string) $k))
+                ->map(fn ($v) => is_bool($v) ? ($v ? 'true' : 'false') : (string) $v)
+                ->all();
+
+            if ($dikirim && $simpan) {
+                $tgl = $d['shipped_date'] ?? null;
+                try {
+                    $tgl = $tgl ? \Carbon\Carbon::parse($tgl)->timezone(config('app.timezone')) : now();
+                } catch (\Throwable) {
+                    $tgl = now();
+                }
+                $link->forceFill(['shipped_at' => $tgl])->save();
+            }
+
+            $hasil[] = ['link' => $link, 'so' => $link->salesOrder?->order_number,
+                'hasil' => $dikirim ? 'sudah_dikirim' : 'belum_dikirim', 'bukti' => $bukti];
+        }
+
+        return $hasil;
+    }
+
+    /**
      * Koreksi admin: pesanan batal yang TERLANJUR dibuka sebagai retur padahal paketnya
      * belum pernah diserahkan ke kurir (kasus sebelum garis serah-kurir ada, atau yang
      * status kirimnya tak pernah tertangkap sync).

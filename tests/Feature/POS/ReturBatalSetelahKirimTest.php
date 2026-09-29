@@ -39,8 +39,10 @@ class ReturBatalSetelahKirimTest extends TestCase
         ]);
         $warehouseId = Warehouse::firstOrCreate(['name' => 'Gudang Test'])->id;
 
-        $paket    = Product::create(['sku' => 'FF-3R', 'name' => 'Frame Foto 3R', 'sale_type' => 'bundle']);
-        $komponen = Product::create(['sku' => 'FF-3R-Body', 'name' => 'Frame Foto 3R Body', 'sale_type' => 'ready']);
+        static $urut = 0;
+        $urut++;
+        $paket    = Product::create(['sku' => 'FF-3R-' . $urut, 'name' => 'Frame Foto 3R', 'sale_type' => 'bundle']);
+        $komponen = Product::create(['sku' => 'FF-3R-Body-' . $urut, 'name' => 'Frame Foto 3R Body', 'sale_type' => 'ready']);
 
         $so = SalesOrder::create([
             'order_number' => 'SO-' . uniqid(), 'customer_id' => $cust->id, 'warehouse_id' => $warehouseId,
@@ -75,7 +77,7 @@ class ReturBatalSetelahKirimTest extends TestCase
         ]);
 
         JubelioOrderLink::create([
-            'jubelio_salesorder_id' => 8101, 'jubelio_salesorder_no' => 'SP-8101', 'sales_order_id' => $so->id,
+            'jubelio_salesorder_id' => 8100 + $urut, 'jubelio_salesorder_no' => 'SP-' . (8100 + $urut), 'sales_order_id' => $so->id,
             'store' => 'Shopee', 'dp_posted' => true, 'invoice_posted' => true, 'sj_created' => true,
             'last_status' => 'canceled', 'return_created' => $returnCreated,
             'shipped_at' => $sudahDiserahkan ? now()->subDays(7) : null,
@@ -198,5 +200,35 @@ class ReturBatalSetelahKirimTest extends TestCase
 
         $this->assertSame(0, SalesReturn::count());
         $this->assertSame('void', $so->fresh()->status);
+    }
+
+    /**
+     * Data lama: batal yang terlanjur jadi retur dipilah ulang dari detail Jubelio.
+     * Yang terbukti sudah dikirim dicatat shipped_at (tombol koreksi hilang); yang belum
+     * TIDAK di-void otomatis — tetap keputusan admin.
+     */
+    public function test_telusuri_memilah_batal_terlanjur_retur_tanpa_mem_void(): void
+    {
+        [$soA] = $this->pesananBatalSetelahKirim(true, false);
+        [$soB] = $this->pesananBatalSetelahKirim(true, false);
+        $linkA = JubelioOrderLink::where('sales_order_id', $soA->id)->first();
+        $linkB = JubelioOrderLink::where('sales_order_id', $soB->id)->first();
+
+        $client = \Mockery::mock(\App\Modules\Marketplace\Jubelio\Services\JubelioClient::class);
+        $client->shouldReceive('getOrder')->with((int) $linkA->jubelio_salesorder_id)->andReturn(['success' => true, 'data' => [
+            'internal_status' => 'CANCELED', 'shipped_date' => '2026-09-20T03:00:00Z', 'tracking_number' => 'SPX1',
+        ], 'error' => null]);
+        $client->shouldReceive('getOrder')->with((int) $linkB->jubelio_salesorder_id)->andReturn(['success' => true, 'data' => [
+            'internal_status' => 'CANCELED', 'tracking_number' => 'SPX2',
+        ], 'error' => null]);
+        $this->app->instance(\App\Modules\Marketplace\Jubelio\Services\JubelioClient::class, $client);
+
+        $hasil = collect(app(JubelioOrderSyncService::class)->telusuriBatalTerlanjurRetur(true));
+
+        $this->assertSame('sudah_dikirim', $hasil->firstWhere('link.id', $linkA->id)['hasil']);
+        $this->assertSame('belum_dikirim', $hasil->firstWhere('link.id', $linkB->id)['hasil']);
+        $this->assertNotNull($linkA->fresh()->shipped_at);
+        $this->assertNull($linkB->fresh()->shipped_at);
+        $this->assertSame('confirmed', $soB->fresh()->status, 'tidak di-void otomatis');
     }
 }
