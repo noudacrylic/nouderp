@@ -16,7 +16,7 @@
      dicari orang adalah RENTANG TANGGAL, bukan nama kurir. Dropdown kurir di tab ini
      juga tak lagi bisa disaring di SQL sejak daftarnya dipaginasi — menyaringnya
      sesudah halaman terambil hanya akan mengosongkan halaman yang isinya ada. --}}
-<form method="GET" class="mb-3 flex items-end gap-2 flex-wrap">
+<form method="GET" id="formSelesai" class="mb-2 flex items-end gap-2 flex-wrap">
     <div>
         <label class="block text-xs text-gray-500 mb-1">Cari</label>
         <input type="text" name="q" value="{{ request('q') }}" placeholder="No. Faktur / No. SO / pelanggan / produk / SKU…"
@@ -30,6 +30,14 @@
             <option value="non" @selected(request('channel') === 'non')>🏬 Non-Marketplace</option>
         </select>
     </div>
+    {{-- Satu hari saja: mengisi "dari" & "sampai" dengan tanggal yang sama. --}}
+    <div>
+        <label class="block text-xs text-gray-500 mb-1">Tanggal</label>
+        <input type="date" id="tanggalSatu" value="{{ request('from') && request('from') === request('to') ? request('from') : '' }}"
+               onchange="pilihTanggal(this.value, this.value)"
+               class="border rounded px-2 py-1.5 text-sm">
+    </div>
+    <div class="pb-2 text-xs text-gray-400">atau</div>
     <div>
         <label class="block text-xs text-gray-500 mb-1">Selesai dari</label>
         <input type="date" name="from" value="{{ request('from') }}" class="border rounded px-2 py-1.5 text-sm">
@@ -45,7 +53,76 @@
     @endif
 </form>
 
-<p class="mb-3 text-xs text-gray-500">{{ number_format($rows->total(), 0, ',', '.') }} pesanan selesai</p>
+{{-- Pilihan cepat rentang tanggal. --}}
+@php
+    $hari = now();
+    $cepat = [
+        'Hari ini'   => [$hari->toDateString(), $hari->toDateString()],
+        'Kemarin'    => [$hari->copy()->subDay()->toDateString(), $hari->copy()->subDay()->toDateString()],
+        '7 hari'     => [$hari->copy()->subDays(6)->toDateString(), $hari->toDateString()],
+        'Bulan ini'  => [$hari->copy()->startOfMonth()->toDateString(), $hari->toDateString()],
+        'Bulan lalu' => [$hari->copy()->subMonthNoOverflow()->startOfMonth()->toDateString(), $hari->copy()->subMonthNoOverflow()->endOfMonth()->toDateString()],
+    ];
+@endphp
+<div class="mb-3 flex flex-wrap items-center gap-1.5">
+    @foreach($cepat as $label => [$dari, $sampai])
+        @php $aktif = request('from') === $dari && request('to') === $sampai; @endphp
+        <button type="button" onclick="pilihTanggal('{{ $dari }}', '{{ $sampai }}')"
+                class="px-2.5 py-1 rounded-full text-xs font-semibold border transition
+                       {{ $aktif ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50' }}">
+            {{ $label }}
+        </button>
+    @endforeach
+</div>
+
+{{-- Ringkasan uang SELURUH hasil saringan (semua halaman, bukan hanya yang tampil). --}}
+@php
+    $ringkas = app(\App\Modules\POS\Services\FulfillmentReadinessService::class)
+        ->selesaiRingkasan(request('q'), request()->only(['channel', 'from', 'to']));
+    $rpS = fn ($v) => ((float) $v < 0 ? '−Rp ' : 'Rp ') . number_format(abs((float) $v), 0, ',', '.');
+    $periode = request('from') || request('to')
+        ? (request('from') === request('to')
+            ? \Carbon\Carbon::parse(request('from'))->translatedFormat('d F Y')
+            : (request('from') ? \Carbon\Carbon::parse(request('from'))->format('d/m/Y') : '…') . ' – ' . (request('to') ? \Carbon\Carbon::parse(request('to'))->format('d/m/Y') : '…'))
+        : 'semua tanggal';
+@endphp
+<div class="mb-4 bg-white rounded-xl border border-gray-200 p-4">
+    <div class="text-xs text-gray-500 mb-2">
+        <b class="text-gray-700">{{ number_format($ringkas['jumlah'], 0, ',', '.') }} pesanan selesai</b> · {{ $periode }}
+    </div>
+    <div class="flex flex-wrap items-stretch gap-2 text-sm">
+        <div class="flex-1 min-w-[150px] rounded-lg border border-gray-200 px-3 py-2">
+            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Penjualan</div>
+            <div class="font-bold text-gray-800">{{ $rpS($ringkas['penjualan']) }}</div>
+        </div>
+        <div class="self-center text-gray-400 font-bold">−</div>
+        <div class="flex-1 min-w-[150px] rounded-lg border border-gray-200 px-3 py-2">
+            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Potongan marketplace</div>
+            <div class="font-bold text-gray-800">{{ $rpS($ringkas['potongan']) }}</div>
+            <div class="text-[10px] text-gray-400">admin + Hemat Biaya Kirim + pajak</div>
+        </div>
+        <div class="self-center text-gray-400 font-bold">−</div>
+        <div class="flex-1 min-w-[150px] rounded-lg border border-gray-200 px-3 py-2">
+            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Retur</div>
+            <div class="font-bold text-gray-800">{{ $rpS($ringkas['retur']) }}</div>
+        </div>
+        <div class="self-center text-gray-400 font-bold">=</div>
+        <div class="flex-1 min-w-[180px] rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2">
+            <div class="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Pendapatan bersih</div>
+            <div class="font-bold text-emerald-700 text-base">{{ $rpS($ringkas['bersih']) }}</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /** Isi rentang tanggal lalu langsung cari — halaman kembali ke 1. */
+    function pilihTanggal(dari, sampai) {
+        const f = document.getElementById('formSelesai');
+        f.querySelector('[name=from]').value = dari;
+        f.querySelector('[name=to]').value = sampai;
+        f.submit();
+    }
+</script>
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     <div class="overflow-x-auto">

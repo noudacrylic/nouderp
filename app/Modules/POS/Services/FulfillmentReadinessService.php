@@ -312,6 +312,74 @@ class FulfillmentReadinessService
      */
     public function selesaiPaginated(?string $search, array $filters, int $perPage)
     {
+        $page = DB::query()->fromSub($this->selesaiUnion($search, $filters), 'x')
+            ->orderByDesc('selesai_at')
+            ->orderByDesc('id')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        $page->setCollection($this->barisSelesai(collect($page->items())));
+
+        return $page;
+    }
+
+    /**
+     * Ringkasan uang SELURUH hasil saringan tab Selesai (bukan cuma halaman yang tampil):
+     *
+     *   Penjualan − Potongan marketplace − Retur = Pendapatan bersih
+     *
+     * Penjualan  = nilai KOTOR faktur (faktur marketplace gaya lama bernilai bersih, jadi
+     *              potongannya ditambahkan balik supaya semua baris sebanding).
+     * Potongan   = biaya admin + pajak yang dibukukan marketplace (`marketplace_fee`).
+     * Retur      = nilai penjualan yang dibalik retur posted (sama dgn SalesReturn::reversedAmount).
+     * Garansi tak bernilai jual, jadi tak ikut.
+     *
+     * @return array{jumlah:int, penjualan:float, potongan:float, retur:float, bersih:float}
+     */
+    public function selesaiRingkasan(?string $search, array $filters): array
+    {
+        $x = DB::query()->fromSub($this->selesaiUnion($search, $filters), 'x');
+
+        // Faktur milik tiap baris: SO → semua fakturnya; kasir → faktur itu sendiri.
+        $faktur = (clone $x)
+            ->join('sales_invoices as si', fn ($j) => $j
+                ->on(fn ($o) => $o->where('x.sumber', '=', 'so')->whereColumn('si.sales_order_id', 'x.id'))
+                ->orOn(fn ($o) => $o->where('x.sumber', '=', 'kasir')->whereColumn('si.id', 'x.id')))
+            ->where('si.status', '!=', 'void');
+
+        $uang = (clone $faktur)->selectRaw('
+                COALESCE(SUM(si.grand_total + CASE WHEN si.fee_at_settlement = 0 THEN COALESCE(si.marketplace_fee, 0) ELSE 0 END), 0) AS penjualan,
+                COALESCE(SUM(COALESCE(si.marketplace_fee, 0)), 0) AS potongan')
+            ->first();
+
+        // Retur posted atas faktur-faktur itu (atau atas SO-nya, dokumen lama).
+        $retur = (float) DB::table('sales_returns as sr')
+            ->where('sr.status', 'posted')
+            ->where(fn ($w) => $w
+                ->whereIn('sr.invoice_id', (clone $faktur)->select('si.id'))
+                ->orWhere(fn ($q) => $q->whereNull('sr.invoice_id')
+                    ->whereIn('sr.sales_order_id', (clone $x)->where('x.sumber', 'so')->select('x.id'))))
+            ->selectRaw("COALESCE(SUM(COALESCE(sr.reversed_amount, (
+                    SELECT COALESCE(SUM(sri.subtotal), 0) FROM sales_return_items sri
+                    WHERE sri.sales_return_id = sr.id AND sri.`condition` <> 'tidak_kembali'))), 0) AS v")
+            ->value('v');
+
+        $penjualan = round((float) ($uang->penjualan ?? 0), 2);
+        $potongan  = round((float) ($uang->potongan ?? 0), 2);
+        $retur     = round($retur, 2);
+
+        return [
+            'jumlah'    => (clone $x)->count(),
+            'penjualan' => $penjualan,
+            'potongan'  => $potongan,
+            'retur'     => $retur,
+            'bersih'    => round($penjualan - $potongan - $retur, 2),
+        ];
+    }
+
+    /** Indeks baris tab Selesai (sumber + id + selesai_at) sesuai saringan — satu sumber utk daftar & ringkasan. */
+    private function selesaiUnion(?string $search, array $filters)
+    {
         $search  = trim((string) $search);
         $like    = '%' . $search . '%';
         $channel = $filters['channel'] ?? null;
@@ -344,12 +412,17 @@ class FulfillmentReadinessService
            tab "Retur" ke "Selesai" — sama persis dengan yang dilakukan mesin bucket.
            Retur yang masih draft tetap tinggal di tab Retur; ia belum selesai, dan
            menampilkannya di dua tempat sekaligus membuat orang mengerjakannya dua kali. */
-        $rt = DB::table('sales_returns')
-            ->selectRaw("sales_order_id,
-                         MAX(CASE WHEN status = 'posted' THEN 1 ELSE 0 END) as retur_posted,
-                         MAX(CASE WHEN status = 'draft'  THEN 1 ELSE 0 END) as retur_draft")
-            ->whereNotNull('sales_order_id')
-            ->groupBy('sales_order_id');
+        //    Retur dikelompokkan per SO lewat SO-nya MAUPUN fakturnya: retur marketplace
+        //    menggantung di invoice_id dengan sales_order_id NULL. Mengelompokkan lewat
+        //    sales_order_id saja membuat pesanan yang returnya diposting lewat faktur tak
+        //    pernah dianggap tuntas — hilang dari tab Selesai.
+        $rt = DB::table('sales_returns as sr')
+            ->leftJoin('sales_invoices as sri_inv', 'sri_inv.id', '=', 'sr.invoice_id')
+            ->selectRaw("COALESCE(sr.sales_order_id, sri_inv.sales_order_id) as sales_order_id,
+                         MAX(CASE WHEN sr.status = 'posted' THEN 1 ELSE 0 END) as retur_posted,
+                         MAX(CASE WHEN sr.status = 'draft'  THEN 1 ELSE 0 END) as retur_draft")
+            ->whereRaw('COALESCE(sr.sales_order_id, sri_inv.sales_order_id) IS NOT NULL')
+            ->groupByRaw('COALESCE(sr.sales_order_id, sri_inv.sales_order_id)');
 
         $sd = DB::table('sales_deliveries')
             ->selectRaw('sales_order_id,
@@ -470,15 +543,7 @@ class FulfillmentReadinessService
             $union = $union->unionAll($qGaransi);
         }
 
-        $page = DB::query()->fromSub($union, 'x')
-            ->orderByDesc('selesai_at')
-            ->orderByDesc('id')
-            ->paginate($perPage)
-            ->withQueryString();
-
-        $page->setCollection($this->barisSelesai(collect($page->items())));
-
-        return $page;
+        return $union;
     }
 
     /**

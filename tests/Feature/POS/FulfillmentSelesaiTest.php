@@ -363,6 +363,61 @@ class FulfillmentSelesaiTest extends TestCase
         ]);
     }
 
+    /**
+     * Retur marketplace menempel ke FAKTUR (sales_order_id NULL). Dulu subquery retur hanya
+     * mengelompokkan lewat SO, jadi pesanan yang returnya sudah diposting lewat faktur tak
+     * pernah dianggap tuntas dan hilang dari tab ini.
+     */
+    public function test_retur_yang_diposting_lewat_faktur_membuat_pesanan_masuk_selesai(): void
+    {
+        $so = $this->pesanan([], marketplace: true);
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 5101, 'jubelio_salesorder_no' => 'TP-5101',
+            'sales_order_id' => $so->id, 'store' => 'Shopee', 'dp_posted' => true, 'last_status' => 'returned',
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('sales_returns')->insert([
+            'return_number' => 'SR-FAKTUR', 'customer_id' => $so->customer_id,
+            'invoice_id' => SalesInvoice::where('sales_order_id', $so->id)->value('id'), 'sales_order_id' => null,
+            'return_date' => now()->toDateString(), 'grand_total' => 100000, 'reversed_amount' => 100000,
+            'status' => 'posted', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertContains($so->order_number, $this->nomorDiTabSelesai());
+    }
+
+    /** Ringkasan uang: Penjualan − Potongan marketplace − Retur = Pendapatan bersih, ikut saringan. */
+    public function test_ringkasan_pendapatan_bersih_mengikuti_saringan_tanggal(): void
+    {
+        $tgl = now()->subDays(45);
+        $mp  = $this->pesanan([], marketplace: true);
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 5201, 'jubelio_salesorder_no' => 'TP-5201',
+            'sales_order_id' => $mp->id, 'store' => 'Shopee', 'dp_posted' => true,
+            'last_status' => 'completed', 'mp_completed_at' => $tgl,
+        ]);
+        // Faktur gaya baru: kotor 100.000, potongan admin + pajak 16.000 dibukukan saat cair.
+        SalesInvoice::where('sales_order_id', $mp->id)->update(['fee_at_settlement' => true, 'marketplace_fee' => 16000]);
+
+        // Pesanan lain di tanggal berbeda — tak boleh ikut terhitung.
+        $lain = $this->pesanan([], marketplace: true);
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 5202, 'jubelio_salesorder_no' => 'TP-5202',
+            'sales_order_id' => $lain->id, 'store' => 'Shopee', 'dp_posted' => true,
+            'last_status' => 'completed', 'mp_completed_at' => now()->subDays(10),
+        ]);
+
+        $r = app(FulfillmentReadinessService::class)->selesaiRingkasan(null, [
+            'from' => $tgl->toDateString(), 'to' => $tgl->toDateString(),
+        ]);
+
+        $this->assertSame(1, $r['jumlah']);
+        $this->assertEqualsWithDelta(100000, $r['penjualan'], 0.01);
+        $this->assertEqualsWithDelta(16000, $r['potongan'], 0.01);
+        $this->assertEqualsWithDelta(0, $r['retur'], 0.01);
+        $this->assertEqualsWithDelta(84000, $r['bersih'], 0.01);
+    }
+
     /* ------------------------------------------------- saringan & layar */
 
     public function test_saringan_channel_memisahkan_marketplace_dari_toko(): void
