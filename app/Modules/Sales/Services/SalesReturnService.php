@@ -53,6 +53,10 @@ class SalesReturnService
                 // Draft boleh menyimpan jurnal yang belum seimbang; yang menuntut
                 // seimbang adalah posting (lihat barisJurnalManual).
                 'journal_override'       => $dto->journal_override ?: null,
+                'appeal_result'          => $dto->appeal_result,
+                'return_case'            => $dto->return_case,
+                'journal_reversal'       => $dto->journal_reversal,
+                'journal_settlement'     => $dto->journal_settlement,
             ]);
 
             foreach ($dto->items as $item) {
@@ -105,6 +109,10 @@ class SalesReturnService
                 // Draft boleh menyimpan jurnal yang belum seimbang; yang menuntut
                 // seimbang adalah posting (lihat barisJurnalManual).
                 'journal_override'       => $dto->journal_override ?: null,
+                'appeal_result'          => $dto->appeal_result,
+                'return_case'            => $dto->return_case,
+                'journal_reversal'       => $dto->journal_reversal,
+                'journal_settlement'     => $dto->journal_settlement,
             ]);
 
             $return->items()->delete();
@@ -172,6 +180,12 @@ class SalesReturnService
                 foreach ($dto->items as $item) {
                     $this->storeReturnItem($return->id, $doc, $item);
                 }
+            }
+
+            if ($this->modeTigaBlok($dto, $doc)) {
+                $this->postTigaBlok($dto, $doc, $return);
+
+                return $return;
             }
 
             // Penjualan hanya dibalik sebesar baris yang BUKAN `tidak_kembali`. Baris
@@ -255,6 +269,370 @@ class SalesReturnService
             return $return;
         });
     }
+
+    // ─────────────────────────── Jurnal tiga blok ───────────────────────────
+    //
+    // Form retur menyusun jurnal dalam tiga blok yang menjawab tiga pertanyaan berbeda:
+    //   a. HPP          — barangnya ke mana? Selalu dihitung dari kondisi barang, TAK bisa
+    //                     diubah (cerminan kartu stok; lihat getCogsReversalLines).
+    //   b. Pembalikan   — berapa penjualan yang batal, dan titipan pembeli dikembalikan.
+    //   c. Penyelesaian — uang pesanan berakhir di mana: sisa titipan dicairkan ke dompet,
+    //                     dipotong biaya admin (termasuk Hemat Biaya Kirim) / pajak.
+    // Blok b & c terisi bawaan dari jurnalBawaan() dan boleh diubah admin; yang dijaga saat
+    // posting cuma keseimbangan & batas saldo nyata pesanan (piutang, uang muka, saldo
+    // ditahan) — supaya setelah pesanan tuntas ketiganya tetap NOL, tidak minus.
+
+    /** Retur ini memakai jurnal tiga blok? (Dokumen atas SO & pemanggil lama tidak.) */
+    private function modeTigaBlok(SalesReturnDTO $dto, $doc): bool
+    {
+        return $doc instanceof SalesInvoice
+            && ($dto->journal_reversal !== null || $dto->journal_settlement !== null);
+    }
+
+    /**
+     * Isi bawaan blok Pembalikan & Penyelesaian untuk sebuah faktur.
+     *
+     * @param array       $items   [['invoice_item_id'=>int,'qty'=>float,'condition'=>string], ...]
+     * @param string|null $banding 'menang' | 'kalah' | null
+     * @param float|null  $dibalikDiminta nilai penjualan yang dibalik hasil negosiasi (refund
+     *   sebagian). NULL = seluruh nilai barang yang tidak "dana diganti".
+     * @return array{pembalikan:array, penyelesaian:?array, nilai:float, dibalik:float, konteks:array, target:string, tujuan:array}
+     */
+    public function jurnalBawaan(SalesInvoice $inv, array $items, ?string $jenis, ?string $banding, ?string $target = null, ?int $refundAccountId = null, ?float $dibalikDiminta = null): array
+    {
+        $inv->loadMissing('items', 'customer');
+        $akun   = $this->akunDana($inv->customer_id);
+        $config = \App\Models\MarketplaceConfig::where('customer_id', $inv->customer_id)->first();
+
+        // Nilai jual barang yang diretur & bagian yang membalik penjualan.
+        $nilai = 0.0;
+        foreach ($items as $it) {
+            $docItem = $inv->items->firstWhere('id', (int) ($it['invoice_item_id'] ?? 0));
+            $qty = (float) ($it['qty'] ?? 0);
+            if (!$docItem || $qty <= 0 || (float) $docItem->qty <= 0) {
+                continue;
+            }
+            $nilai += (float) $docItem->subtotal * $qty / (float) $docItem->qty;
+        }
+        $nilai = round($nilai, 2);
+        // Penjualan dibalik atau tidak ditentukan KASUSNYA, bukan kondisi barang (kondisi hanya
+        // mengurus HPP). Tidak dibalik = dananya tetap milik kita: paket hilang yang klaimnya
+        // tidak ditolak, atau banding yang menang.
+        $tetapSah = ($jenis === 'paket_hilang' && $banding !== 'kalah') || $banding === 'menang';
+        $dibalik  = $tetapSah ? 0.0 : $nilai;
+        if ($dibalikDiminta !== null) {
+            $dibalik = round(max(0, $dibalikDiminta), 2);
+        }
+
+        $tujuan = $this->tujuanTersedia($inv);
+        $target = $target && isset($tujuan[$target]) ? $target : $this->tujuanDanaBawaan($inv);
+
+        $baris = fn (?array $a, float $debit, float $credit, string $memo, bool $auto = false) => [
+            'account_id' => $a['id'] ?? null,
+            'code'       => $a['code'] ?? '',
+            'name'       => $a['name'] ?? '',
+            'debit'      => round(max(0, $debit), 2),
+            'credit'     => round(max(0, $credit), 2),
+            'memo'       => $memo,
+            'auto'       => $auto,
+        ];
+        $akunId = function (?int $id): ?array {
+            $a = $id ? Account::find($id, ['id', 'code', 'name']) : null;
+
+            return $a ? ['id' => (int) $a->id, 'code' => (string) $a->code, 'name' => (string) $a->name] : null;
+        };
+
+        // ── b. Pembalikan ──
+        $pembalikan = [];
+        $uang = ['ar' => 0.0, 'hold' => 0.0];
+        if ($dibalik > 0) {
+            $uang = $this->hitungUang($inv, $dibalik, $target);
+            $pembalikan[] = $baris($akun['retur'], $dibalik, 0, 'Retur penjualan - ' . $inv->invoice_number);
+            if ($uang['ar'] > 0) {
+                $pembalikan[] = $baris($akun['piutang'], 0, $uang['ar'], 'Tagihan dihapus');
+            }
+            if ($uang['refund'] > 0) {
+                $tujuanAkun = match ($target) {
+                    'hold'   => $akun['ditahan'],
+                    'wallet' => $akun['dompet'],
+                    'bank'   => $akunId($refundAccountId),
+                    default  => $akun['kredit'],
+                };
+                $pembalikan[] = $baris($tujuanAkun, 0, $uang['refund'], 'Dana dikembalikan (' . (SalesReturn::REFUND_TARGETS[$target] ?? $target) . ')');
+            }
+            if ($uang['fee'] > 0) {
+                $pembalikan[] = $baris($akun['admin'], 0, $uang['fee'], 'Biaya admin tidak dikembalikan ke pembeli');
+            }
+            if ($uang['hold'] > 0) {
+                $pembalikan[] = $baris($akun['uang_muka'], $uang['hold'], 0, 'Titipan pembeli dikembalikan');
+                $pembalikan[] = $baris($akun['ditahan'], 0, $uang['hold'], 'Saldo ditahan dilepas ke pembeli');
+            }
+        }
+
+        // ── c. Penyelesaian — hanya faktur marketplace yang dananya belum dicairkan ──
+        $penyelesaian = null;
+        $sisaDitahan  = $this->sisaDitahan($inv);
+        $sisaTagihan  = round(max(0, (float) $inv->remaining_amount), 2);
+        $uangMuka     = app(MarketplaceEngineService::class)->uangMukaTersedia($inv);
+
+        if ($config && $inv->fee_at_settlement && !$inv->marketplace_processed) {
+            $penyelesaian = [];
+            $holdSisa = round(max(0, $sisaDitahan - $uang['hold']), 2);
+            $arSisa   = round(max(0, min($sisaTagihan - $uang['ar'], $uangMuka - $uang['hold'])), 2);
+
+            if ($arSisa > 0) {
+                $penyelesaian[] = $baris($akun['uang_muka'], $arSisa, 0, 'Faktur tuntas dari uang muka');
+                $penyelesaian[] = $baris($akun['piutang'], 0, $arSisa, 'Piutang lunas');
+            }
+
+            // Kompensasi (paket hilang, gagal kirim yang banding-nya menang) dibayar KOTOR tanpa
+            // biaya admin. Selain itu sisa pesanan dicairkan seperti penjualan biasa.
+            $kompensasi = $jenis === 'paket_hilang' || ($jenis === 'gagal_kirim' && $banding === 'menang');
+            $admin = (!$kompensasi && $holdSisa > 0)
+                ? round($holdSisa * (float) $config->admin_fee_percent / 100 + (float) $config->admin_fee_fixed, 0)
+                : 0.0;
+            $pajak = $config->pajakDari($holdSisa);
+
+            // Biaya Admin SELALU ada (0 untuk kompensasi): di sinilah juga Program Hemat Biaya
+            // Kirim / premi asuransi diisi — sama seperti pesanan berhasil, semua potongan
+            // marketplace selain pajak masuk Beban Admin.
+            $penyelesaian[] = $baris($akun['admin'], $admin, 0, $kompensasi
+                ? 'Biaya admin + Program Hemat Biaya Kirim (isi sesuai Seller Centre)'
+                : 'Biaya admin + Program Hemat Biaya Kirim (taksiran — sesuaikan dgn Seller Centre)');
+            $penyelesaian[] = $baris($akunId($config->account_tax_id), $pajak, 0, 'Pajak dipotong marketplace');
+
+            // Saldo Penjualan = penyeimbang: mengikuti isian di atasnya sampai diubah sendiri.
+            $dompet = round($holdSisa - $admin - $pajak, 2);
+            $penyelesaian[] = $baris($akun['dompet'], max(0, $dompet), max(0, -$dompet), 'Dana cair ke Saldo Penjualan', true);
+
+            if ($holdSisa > 0) {
+                $penyelesaian[] = $baris($akun['ditahan'], 0, $holdSisa, 'Pelepasan saldo ditahan');
+            }
+        }
+
+        return [
+            'pembalikan'   => $pembalikan,
+            'penyelesaian' => $penyelesaian,
+            'nilai'        => $nilai,
+            'dibalik'      => $dibalik,
+            'target'       => $target,
+            'tujuan'       => $tujuan,
+            'konteks'      => [
+                'sisa_tagihan' => $sisaTagihan,
+                'sisa_ditahan' => $sisaDitahan,
+                'uang_muka'    => $uangMuka,
+                'akun'         => [
+                    'piutang'   => $akun['piutang']['id'] ?? null,
+                    'uang_muka' => $akun['uang_muka']['id'] ?? null,
+                    'ditahan'   => $config?->account_receivable_hold_id ? (int) $config->account_receivable_hold_id : null,
+                ],
+            ],
+        ];
+    }
+
+    /** Tujuan dana yang masuk akal untuk faktur ini (pilihan di blok Pembalikan). */
+    public function tujuanTersedia(SalesInvoice $inv): array
+    {
+        if ($this->jenisRetur($inv) === 'marketplace') {
+            return ['hold' => SalesReturn::REFUND_TARGETS['hold']];
+        }
+
+        $out = [];
+        if ($inv->customer?->is_marketplace) {
+            $out['wallet'] = SalesReturn::REFUND_TARGETS['wallet'];
+        }
+        $out['credit'] = SalesReturn::REFUND_TARGETS['credit'];
+        $out['bank']   = SalesReturn::REFUND_TARGETS['bank'];
+
+        return $out;
+    }
+
+    /**
+     * Posting retur tiga blok. Blok HPP dihitung sistem; blok Pembalikan ikut jurnal retur,
+     * blok Penyelesaian jadi jurnal pencairan faktur (`sales_invoice_settlement`) — persis
+     * tempat MarketplaceEngineService menaruh pencairan pesanan normal, sehingga penanda
+     * idempoten & pembatalannya (batalkanPenyelesaian) berlaku sama.
+     */
+    private function postTigaBlok(SalesReturnDTO $dto, SalesInvoice $inv, SalesReturn $return): void
+    {
+        $rev = $this->barisBlok($dto->journal_reversal, 'Pembalikan');
+        $set = $this->barisBlok($dto->journal_settlement, 'Penyelesaian');
+
+        $config = \App\Models\MarketplaceConfig::where('customer_id', $inv->customer_id)->first();
+        $belumCair = $config && $inv->fee_at_settlement && !$inv->marketplace_processed;
+
+        if ($set && !$belumCair) {
+            throw new Exception('Blok Penyelesaian hanya untuk faktur marketplace yang dananya belum dicairkan. Faktur ' . $inv->invoice_number . ' sudah tuntas — kosongkan blok itu.');
+        }
+
+        // ── Batas saldo nyata pesanan ──
+        $net = fn (array $lines, ?int $akunId, string $sisi) => $akunId
+            ? round(collect($lines)->where('account_id', $akunId)->sum(fn ($l) => $sisi === 'kredit' ? $l->credit - $l->debit : $l->debit - $l->credit), 2)
+            : 0.0;
+        $semua    = array_merge($rev, $set);
+        $piutang  = (int) $this->getAccountId(AccountCodeEnum::AR_RECEIVABLE);
+        $uangMuka = (int) $this->getAccountId(AccountCodeEnum::SALES_ADVANCE);
+        $ditahan  = $config?->account_receivable_hold_id ? (int) $config->account_receivable_hold_id : null;
+
+        $sisaTagihan = round(max(0, (float) $inv->remaining_amount), 2);
+        if ($net($semua, $piutang, 'kredit') > $sisaTagihan + 0.01) {
+            throw new Exception('Piutang yang ditutup (' . rupiah($net($semua, $piutang, 'kredit')) . ') melebihi sisa tagihan faktur (' . rupiah($sisaTagihan) . ').');
+        }
+        $sisaDitahan = $this->sisaDitahan($inv);
+        if ($ditahan && $net($semua, $ditahan, 'kredit') > $sisaDitahan + 0.01) {
+            throw new Exception('Saldo Ditahan yang dilepas (' . rupiah($net($semua, $ditahan, 'kredit')) . ') melebihi titipan yang masih ditahan (' . rupiah($sisaDitahan) . ').');
+        }
+        $umTersedia = app(MarketplaceEngineService::class)->uangMukaTersedia($inv);
+        if ($inv->sales_order_id && $net($semua, $uangMuka, 'debit') > $umTersedia + 0.01) {
+            throw new Exception('Uang Muka yang dipakai (' . rupiah($net($semua, $uangMuka, 'debit')) . ') melebihi uang muka pesanan yang tersisa (' . rupiah($umTersedia) . ').');
+        }
+
+        // ── a + b: jurnal retur ──
+        $lines = array_merge($rev, $this->getCogsReversalLines($dto, $inv, $return->id));
+        if ($lines) {
+            app(JournalPostingService::class)->post(new JournalEntryDTO(
+                date: $dto->date,
+                reference_type: 'sales_return',
+                reference_id: $return->id,
+                description: "Sales Return Reversal (Ref: {$inv->invoice_number})",
+                lines: $lines,
+                reference_number: $return->return_number
+            ));
+        }
+
+        // Nilai penjualan yang benar-benar dibalik = mutasi akun pendapatan di blok Pembalikan.
+        $revenueIds = Account::whereIn('id', collect($rev)->pluck('account_id')->unique())
+            ->where('type', 'revenue')->pluck('id')->all();
+        $dibalik = round(collect($rev)->whereIn('account_id', $revenueIds)->sum(fn ($l) => $l->debit - $l->credit), 2);
+
+        $isi = [
+            'appeal_result'      => $dto->appeal_result,
+            'return_case'        => $dto->return_case,
+            'journal_reversal'   => $dto->journal_reversal ?? [],
+            'journal_settlement' => $dto->journal_settlement,
+            'journal_override'   => null,
+            'reversed_amount'    => max(0, $dibalik),
+        ];
+
+        // Dana dijadikan kredit belanja pelanggan → kolam saldo kredit bertambah.
+        $kredit = $net($rev, (int) $this->getAccountId(AccountCodeEnum::CUSTOMER_OVERPAY), 'kredit');
+        if ($kredit > 0) {
+            CustomerOverpayment::create([
+                'customer_id' => $dto->refund_customer_id ?: $dto->customer_id,
+                'amount'      => $kredit,
+                'reference'   => $return->return_number,
+                'note'        => 'Retur ' . $return->return_number,
+            ]);
+            $isi += ['refund_target' => 'credit', 'refund_amount' => $kredit, 'refund_customer_id' => $dto->refund_customer_id];
+        }
+        $return->forceFill($isi)->save();
+
+        $this->catatPiutangDihapus($return, $inv);
+
+        // ── c: jurnal penyelesaian ──
+        $inv = $inv->fresh();
+        if ($belumCair && $set) {
+            $tanggal = max(\Carbon\Carbon::parse($dto->date)->toDateString(), $inv->invoice_date?->toDateString() ?? $dto->date);
+            $journal = app(JournalPostingService::class)->post(new JournalEntryDTO(
+                date: $tanggal,
+                reference_type: 'sales_invoice_settlement',
+                reference_id: $inv->id,
+                description: 'Penyelesaian pesanan via retur ' . $return->return_number . ' - ' . $inv->invoice_number,
+                lines: $set,
+                reference_number: $return->return_number
+            ));
+
+            $arApplied = $net($set, $piutang, 'kredit');
+            $dompet    = $net($set, $config->account_wallet_id ? (int) $config->account_wallet_id : null, 'debit');
+            // Potongan tercatat = nilai kotor yang tersisa − yang masuk dompet. Dengan begitu
+            // rekonsiliasi (gross − net vs tercatat) persis membandingkan dana cair sebenarnya
+            // dengan yang dibukukan di sini, apa pun pembagian admin / pajaknya.
+            $potongan  = round(max(0, $this->kotorTersisa($inv) - $dompet), 2);
+
+            $return->forceFill([
+                'settlement_journal_id' => $journal->id,
+                'settlement_ar_applied' => $arApplied,
+                'settlement_fee'        => round($potongan - (float) $inv->marketplace_fee, 2),
+            ])->save();
+
+            $inv->update([
+                'advance_applied'       => round((float) $inv->advance_applied + $arApplied, 2),
+                'marketplace_processed' => true,
+                'marketplace_fee'       => $potongan,
+            ]);
+        } elseif ($belumCair && $this->sisaDitahan($inv) <= 0.005) {
+            // Seluruh titipan sudah dikembalikan ke pembeli — tak ada yang tersisa untuk cair.
+            $inv->update(['marketplace_processed' => true]);
+        }
+
+        app(MarketplaceEngineService::class)->cocokkanUlangRekonsiliasi($inv->fresh());
+    }
+
+    /** Nilai kotor pesanan yang tersisa setelah semua retur posted membalik penjualannya. */
+    private function kotorTersisa(SalesInvoice $inv): float
+    {
+        $dibalik = SalesReturn::where('status', 'posted')
+            ->where(fn ($w) => $w->where('invoice_id', $inv->id)
+                ->when($inv->sales_order_id, fn ($q) => $q->orWhere('sales_order_id', $inv->sales_order_id)))
+            ->get()
+            ->sum(fn (SalesReturn $r) => $r->reversedAmount());
+
+        return round(max(0, (float) $inv->grand_total - $dibalik), 2);
+    }
+
+    /** barisJurnalManual dengan nama blok di pesan galatnya. */
+    private function barisBlok(?array $raw, string $blok): array
+    {
+        try {
+            return $this->barisJurnalManual($raw);
+        } catch (Exception $e) {
+            throw new Exception("Blok {$blok}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Isi blok untuk retur yang diposting TANPA lewat form (tombol posting di daftar):
+     * pakai yang tersimpan di draft; kalau belum pernah disusun, pakai bawaan sistem.
+     *
+     * @return array{0:?array,1:?array} [pembalikan, penyelesaian]
+     */
+    public function blokUntukPosting(SalesReturn $return): array
+    {
+        if ($return->journal_reversal !== null || $return->journal_settlement !== null) {
+            return [$return->journal_reversal ?? [], $return->journal_settlement];
+        }
+
+        // Dokumen lama yang dananya ditulis tangan dengan cara lama — jadikan blok Pembalikan.
+        if (!empty($return->journal_override)) {
+            return [$return->journal_override, null];
+        }
+
+        $inv = $return->invoice_id ? SalesInvoice::find($return->invoice_id) : null;
+        if (!$inv) {
+            return [null, null];
+        }
+
+        $items = $return->items->map(fn ($i) => [
+            'invoice_item_id' => $i->reference_item_id, 'qty' => $i->qty, 'condition' => $i->condition,
+        ])->all();
+        $b = $this->jurnalBawaan($inv, $items, $return->return_type, $return->appeal_result, $return->refund_target, $return->refund_account_id);
+
+        return [self::barisTersimpan($b['pembalikan']), self::barisTersimpan($b['penyelesaian'])];
+    }
+
+    /** Baris bawaan → bentuk yang disimpan & diposting (tanpa baris nol / tanpa akun). */
+    public static function barisTersimpan(?array $rows): ?array
+    {
+        if ($rows === null) {
+            return null;
+        }
+
+        return array_values(array_map(
+            fn ($r) => ['account_id' => (int) $r['account_id'], 'debit' => (float) $r['debit'], 'credit' => (float) $r['credit'], 'memo' => $r['memo'] ?? null],
+            array_filter($rows, fn ($r) => !empty($r['account_id']) && ((float) $r['debit'] > 0 || (float) $r['credit'] > 0))
+        ));
+    }
+
 
     /**
      * Faktur perlu tahu berapa piutangnya yang sudah dihapus retur. Angkanya dibaca dari
@@ -341,6 +719,11 @@ class SalesReturnService
         }
         if ((float) $return->ar_credited > 0) {
             $isi['returned_amount'] = round(max(0, (float) $invoice->returned_amount - (float) $return->ar_credited), 2);
+        }
+        // Potongan (admin + pajak) yang dibukukan retur tiga blok — rekonsiliasi
+        // membacanya sebagai "sudah tercatat", jadi ikut dikembalikan.
+        if ($return->settlement_fee !== null) {
+            $isi['marketplace_fee'] = round(max(0, (float) $invoice->marketplace_fee - (float) $return->settlement_fee), 2);
         }
 
         // Tanpa jurnal pencairan aktif, faktur gaya baru belum cair — buka lagi penandanya.
@@ -531,7 +914,8 @@ class SalesReturnService
         }
         $out = [];
         foreach ($raw as $pid => $cond) {
-            if (in_array($cond, ['good', 'repair', 'damaged', 'hilang'], true)) {
+            $cond = in_array($cond, SalesReturn::CONDITIONS_LAMA, true) ? SalesReturn::CONDITION_NO_RETURN : $cond;
+            if (isset(SalesReturn::CONDITIONS[$cond])) {
                 $out[(int) $pid] = $cond;
             }
         }
@@ -656,16 +1040,21 @@ class SalesReturnService
             ->where('bank_account_id', $holdId)
             ->sum('amount');
 
-        // Retur sebelumnya sudah melepas sebagian — jangan melepasnya dua kali.
+        // Retur sebelumnya sudah melepas sebagian, dan pencairan pesanan (dari engine maupun
+        // blok Penyelesaian retur) melepas sisanya — jangan melepasnya dua kali.
+        $returIds = SalesReturn::where('status', 'posted')
+            ->where(fn ($w) => $w->where('invoice_id', $doc->id ?? 0)
+                ->orWhere('sales_order_id', $soId))
+            ->pluck('id');
+        $fakturIds = SalesInvoice::where('sales_order_id', $soId)->pluck('id');
+
         $terpakai = (float) DB::table('journal_lines as jl')
             ->join('journals as j', 'j.id', '=', 'jl.journal_id')
             ->where('j.status', '!=', 'void')
-            ->where('j.reference_type', 'sales_return')
             ->where('jl.account_id', $holdId)
-            ->whereIn('j.reference_id', SalesReturn::where('status', 'posted')
-                ->where(fn ($w) => $w->where('invoice_id', $doc->id ?? 0)
-                    ->orWhere('sales_order_id', $soId))
-                ->pluck('id'))
+            ->where(fn ($w) => $w
+                ->where(fn ($q) => $q->where('j.reference_type', 'sales_return')->whereIn('j.reference_id', $returIds))
+                ->orWhere(fn ($q) => $q->where('j.reference_type', 'sales_invoice_settlement')->whereIn('j.reference_id', $fakturIds)))
             ->selectRaw('SUM(jl.credit) - SUM(jl.debit) v')->value('v');
 
         return round(max(0, $deposit - $terpakai), 2);
@@ -894,10 +1283,6 @@ class SalesReturnService
 
             // `tidak_kembali`: barang hilang & dananya diganti → penjualannya sah. HPP tetap
             // di 5001, stok tidak dipulihkan, tidak ada baris jurnal sama sekali.
-            if (($item['condition'] ?? null) === SalesReturn::CONDITION_NO_RETURN) {
-                continue;
-            }
-
             $unitCogs = $cogsTotal > 0 ? $cogsTotal / $qty : 0;
             $returnCogs = round($unitCogs * $item['qty'], 2);
 
@@ -1022,9 +1407,6 @@ class SalesReturnService
 
             // Komponen yang tidak kembali & dananya diganti: tak ada stok masuk, tak ada
             // pemindahan HPP — sama seperti baris non-bundle.
-            if ($cond === SalesReturn::CONDITION_NO_RETURN) {
-                continue;
-            }
             $compQtyPerBundle = (float) ($comp->{$qtyField} ?? 1);
             if ($compQtyPerBundle <= 0) {
                 continue;
@@ -1084,7 +1466,7 @@ class SalesReturnService
             // Barang tak kembali & dananya dikembalikan: penjualannya batal, jadi modalnya
             // bukan lagi HPP sebuah penjualan melainkan kerugian. Tidak ada barang yang masuk
             // gudang — getCogsReversalLines hanya memasukkan `good` & `repair` ke persediaan.
-            'hilang' => AccountCodeEnum::SALES_LOSS,
+            'hilang', 'tetap', SalesReturn::CONDITION_NO_RETURN => AccountCodeEnum::SALES_LOSS,
             // tidak_kembali tak pernah sampai sini (dilewati di getCogsReversalLines).
             default => AccountCodeEnum::INVENTORY,
         };
@@ -1095,7 +1477,7 @@ class SalesReturnService
         return match ($condition) {
             'good' => 'Persediaan',
             'repair' => 'Persediaan Perbaikan',
-            'damaged', 'hilang' => 'Beban Kerugian Retur',
+            'damaged', 'hilang', 'tetap', SalesReturn::CONDITION_NO_RETURN => 'Beban Kerugian Retur',
             default => 'Persediaan',
         };
     }

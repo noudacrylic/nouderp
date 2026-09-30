@@ -26,6 +26,7 @@ class JubelioSettingController extends Controller
             'customer.marketplace.holdAccount',
             'customer.marketplace.feeAccount',
             'customer.marketplace.walletAccount',
+            'customer.marketplace.taxAccount',
         ])->orderBy('store')->get();
         $accounts = Account::orderBy('code')->get();
 
@@ -194,6 +195,9 @@ class JubelioSettingController extends Controller
             'account_receivable_hold_id' => 'required|exists:accounts,id',
             'account_fee_id'             => 'required|exists:accounts,id',
             'account_wallet_id'          => 'required|exists:accounts,id',
+            // Pajak marketplace dipisah dari biaya admin supaya terlihat di laba rugi.
+            'tax_percent'                => 'nullable|numeric|min:0|max:100',
+            'account_tax_id'             => 'nullable|exists:accounts,id',
         ]);
 
         MarketplaceConfig::updateOrCreate(
@@ -204,6 +208,8 @@ class JubelioSettingController extends Controller
                 'account_receivable_hold_id' => $data['account_receivable_hold_id'],
                 'account_fee_id'             => $data['account_fee_id'],
                 'account_wallet_id'          => $data['account_wallet_id'],
+                'tax_percent'                => $data['tax_percent'] ?? 0,
+                'account_tax_id'             => $data['account_tax_id'] ?? null,
                 'is_active'                  => true,
             ]
         );

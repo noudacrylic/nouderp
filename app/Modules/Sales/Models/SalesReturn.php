@@ -33,6 +33,51 @@ class SalesReturn extends Model
         'ar_credited',
         'settlement_journal_id',
         'settlement_ar_applied',
+        // Jurnal tiga blok (lihat SalesReturnService::jurnalBawaan): Pembalikan & Penyelesaian
+        // yang boleh diubah admin. Blok HPP tak pernah disimpan — selalu dari kondisi barang.
+        'appeal_result',
+        'return_case',
+        'journal_reversal',
+        'journal_settlement',
+        'reversed_amount',
+        'settlement_fee',
+    ];
+
+    /**
+     * Kasus di bawah tiap jenis retur — pilihan "Kasus" di form, sama dengan daftar Panduan
+     * Jurnal. Kodenya dipakai bersama form & panduan. Dua kasus panduan sengaja BUKAN pilihan
+     * karena ditentukan data: K5 (dana pesanan sudah cair) & K7 (pelanggan non-marketplace).
+     */
+    public const CASES = [
+        'paket_hilang' => [
+            'PH1' => 'Klaim menang — dana diganti',
+            'PH2' => 'Klaim ditolak — dana dikembalikan',
+        ],
+        'gagal_kirim' => [
+            'GK1' => 'Kalah / tidak banding',
+            'GK2' => 'Banding menang',
+        ],
+        'diajukan_konsumen' => [
+            'K1' => 'Barang & dana kembali penuh',
+            'K2' => 'Retur sebagian barang',
+            'K3' => 'Refund saja, barang tidak dikirim balik',
+            'K4' => 'Refund sebagian, barang tetap di pembeli',
+            'K6' => 'Banding menang',
+        ],
+    ];
+
+    /** Hasil banding yang tersirat dari kasus — dipakai SalesReturnService::jurnalBawaan. */
+    public const CASE_APPEAL = ['PH2' => 'kalah', 'GK2' => 'menang', 'K6' => 'menang'];
+
+    public function caseLabel(): ?string
+    {
+        return self::CASES[$this->return_type][$this->return_case] ?? null;
+    }
+
+    /** Hasil banding ke marketplace. NULL = tidak dibanding / belum ada hasil. */
+    public const APPEAL_RESULTS = [
+        'menang' => 'Menang — dana tetap milik kita',
+        'kalah'  => 'Kalah — dana dikembalikan ke pembeli',
     ];
 
     /**
@@ -95,41 +140,39 @@ class SalesReturn extends Model
     ];
 
     /**
-     * Kondisi barang retur — menentukan nasib BARANG sekaligus nasib UANG.
+     * Kondisi barang retur — HANYA menentukan nasib BARANG (jurnal HPP & stok). Keputusan 30 Sep
+     * 2026: nasib UANG (penjualan dibalik atau tidak) dipisah sepenuhnya ke Jenis Retur + Hasil
+     * Banding + Nilai dibalik (lihat SalesReturnService::jurnalBawaan). Dulu kondisi memikul
+     * keduanya ("Tidak Kembali (dana diganti)" vs "(dana dikembalikan)" vs "Tetap di Pembeli")
+     * dan admin gampang salah pilih.
      *
-     *   utuh          : barang kembali utuh    → masuk persediaan;        dana dikembalikan
-     *   perbaikan     : barang kembali rusak   → Gudang Perbaikan;        dana dikembalikan
-     *   rusak         : barang kembali tapi tak terpakai → Beban Kerugian Retur
-     *   hilang        : barang TIDAK kembali & dana DIKEMBALIKAN → Beban Kerugian Retur
-     *   tidak_kembali : barang TIDAK kembali TAPI DANANYA DIGANTI → tidak membalik apa pun
+     *   good          : kembali utuh              → Dr Persediaan / Cr HPP, stok masuk
+     *   repair        : kembali perlu perbaikan   → Dr Persediaan Perbaikan / Cr HPP, stok ke Gudang Perbaikan
+     *   damaged       : kembali tak terpakai      → Dr Beban Kerugian Retur / Cr HPP
+     *   tidak_kembali : barang tak sampai ke kita → Dr Beban Kerugian Retur / Cr HPP (= rusak)
      *
-     * DUA KEADAAN "barang tidak kembali" yang gampang tertukar, padahal jurnalnya berlawanan:
-     *
-     *   - `tidak_kembali` — paket hilang, klaim MENANG, uangnya tetap kita terima. Penjualannya
-     *     sah dan tuntas, jadi omzet & HPP dibiarkan persis seperti penjualan normal. Inilah
-     *     satu-satunya kondisi yang tidak membalik apa pun.
-     *   - `hilang` — paket hilang, tapi dananya dikembalikan ke pembeli (klaim kalah, atau kita
-     *     memilih mengganti). Penjualannya batal, jadi modal barangnya bukan lagi HPP sebuah
-     *     penjualan melainkan KERUGIAN: direklas ke 6105.
-     *
-     * Sebelum ada `hilang`, keadaan kedua tidak bisa diungkapkan sama sekali — CS terpaksa
-     * memakai `tidak_kembali` dan omzet yang batal tetap tercatat sebagai penjualan.
-     * Dipasang PER BARIS supaya satu pesanan bisa sebagian diganti & sebagian tidak.
+     * `hilang` & `tetap` adalah kondisi LAMA (hanya ada di dokumen lama) — diperlakukan sama
+     * dengan `tidak_kembali` dan tak lagi ditawarkan di form.
      */
     public const CONDITION_NO_RETURN = 'tidak_kembali';
 
     public const CONDITIONS = [
-        'good'                   => 'Utuh',
-        'repair'                 => 'Perbaikan',
-        'damaged'                => 'Tidak Dapat Diperbaiki',
-        'hilang'                 => 'Tidak Kembali (dana dikembalikan)',
-        self::CONDITION_NO_RETURN => 'Tidak Kembali (dana diganti)',
+        'good'                    => 'Utuh',
+        'repair'                  => 'Perbaikan',
+        'damaged'                 => 'Rusak',
+        self::CONDITION_NO_RETURN => 'Tidak Kembali',
     ];
+
+    /** Kondisi lama yang hanya dibaca dari dokumen lama → diperlakukan sebagai `tidak_kembali`. */
+    public const CONDITIONS_LAMA = ['hilang', 'tetap'];
 
     protected $casts = [
         'return_date'      => 'date',
         'grand_total'      => 'decimal:2',
         'journal_override' => 'array',
+        'journal_reversal'   => 'array',
+        'journal_settlement' => 'array',
+        'reversed_amount'    => 'decimal:2',
     ];
 
     /**
@@ -140,6 +183,12 @@ class SalesReturn extends Model
      */
     public function reversedAmount(): float
     {
+        // Retur jurnal tiga blok mencatat angkanya sendiri — nilai pembalikan bisa hasil
+        // negosiasi (refund sebagian) atau nol (banding menang) apa pun kondisi barangnya.
+        if ($this->reversed_amount !== null) {
+            return round((float) $this->reversed_amount, 2);
+        }
+
         return round((float) $this->items()
             ->where('condition', '!=', self::CONDITION_NO_RETURN)
             ->sum('subtotal'), 2);
@@ -148,6 +197,10 @@ class SalesReturn extends Model
     /** Seluruh baris berkondisi `tidak_kembali` → retur ini tidak membalik apa pun. */
     public function skipsReversal(): bool
     {
+        if ($this->reversed_amount !== null) {
+            return (float) $this->reversed_amount < 0.005;
+        }
+
         return $this->items()->exists()
             && !$this->items()->where('condition', '!=', self::CONDITION_NO_RETURN)->exists();
     }

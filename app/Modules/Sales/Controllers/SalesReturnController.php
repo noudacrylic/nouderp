@@ -146,6 +146,57 @@ class SalesReturnController extends Controller
     }
 
     /**
+     * Baris satu blok jurnal (`jurnal[pembalikan][..]` / `jurnal[penyelesaian][..]`).
+     * NULL bila bloknya tidak dikirim sama sekali; array kosong bila dikirim tanpa baris terisi.
+     */
+    private function barisBlok(Request $request, string $blok): ?array
+    {
+        if (!$request->boolean('tiga_blok') || !$request->has("jurnal_ada.{$blok}")) {
+            return null;
+        }
+
+        return collect($request->input("jurnal.{$blok}", []))
+            ->map(fn ($r) => [
+                'account_id' => (int) ($r['account_id'] ?? 0),
+                'debit'      => (float) clean_number($r['debit'] ?? 0),
+                'credit'     => (float) clean_number($r['credit'] ?? 0),
+                'memo'       => trim((string) ($r['memo'] ?? '')) ?: null,
+            ])
+            ->filter(fn ($r) => $r['account_id'] > 0 && ($r['debit'] > 0 || $r['credit'] > 0))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * API: isi bawaan blok Pembalikan & Penyelesaian — SATU sumber hitungan untuk form,
+     * posting dari daftar, dan tes (SalesReturnService::jurnalBawaan).
+     */
+    public function jurnalBawaan(Request $request, SalesReturnService $svc)
+    {
+        $request->validate([
+            'invoice_id'        => 'required|exists:sales_invoices,id',
+            'items'             => 'nullable|array',
+            'return_type'       => 'nullable|string',
+            'appeal_result'     => 'nullable|in:' . implode(',', array_keys(SalesReturn::APPEAL_RESULTS)),
+            'refund_target'     => 'nullable|in:' . implode(',', array_keys(SalesReturn::REFUND_TARGETS)),
+            'refund_account_id' => 'nullable|exists:accounts,id',
+            'dibalik'           => 'nullable|numeric|min:0',
+        ]);
+
+        $inv = SalesInvoice::with('items', 'customer')->findOrFail($request->invoice_id);
+
+        return response()->json($svc->jurnalBawaan(
+            $inv,
+            (array) $request->input('items', []),
+            $request->return_type ?: null,
+            $request->appeal_result ?: null,
+            $request->refund_target ?: null,
+            $request->refund_account_id ? (int) $request->refund_account_id : null,
+            $request->filled('dibalik') ? (float) $request->dibalik : null,
+        ));
+    }
+
+    /**
      * Akun yang boleh dipakai saat jurnal dana retur ditulis tangan.
      *
      * Akun induk (control account) sengaja tidak ikut: menjurnal ke sana membuat saldo
@@ -409,10 +460,10 @@ class SalesReturnController extends Controller
             'items'             => 'required|array|min:1',
             'items.*.invoice_item_id' => 'required|integer',
             'items.*.qty'       => 'required|numeric|min:0',
-            'items.*.condition' => 'required|in:good,damaged,repair,hilang,tidak_kembali',
+            'items.*.condition' => 'required|in:good,damaged,repair,hilang,tidak_kembali,tetap',
             // Bundle: kondisi per komponen { "<product_id>": "good|repair|damaged" }.
             'items.*.component_conditions'   => 'nullable|array',
-            'items.*.component_conditions.*' => 'in:good,damaged,repair,hilang,tidak_kembali',
+            'items.*.component_conditions.*' => 'in:good,damaged,repair,hilang,tidak_kembali,tetap',
             'return_type'            => 'nullable|in:' . implode(',', array_keys(SalesReturn::RETURN_TYPES)),
             'external_return_number' => 'nullable|string|max:60',
             'notes'                  => 'nullable|string|max:5000',
@@ -428,6 +479,18 @@ class SalesReturnController extends Controller
             'journal.*.debit'        => 'nullable|string',
             'journal.*.credit'       => 'nullable|string',
             'journal.*.memo'         => 'nullable|string|max:190',
+            // Jurnal tiga blok. Blok yang TIDAK dikirim (draft yang bloknya belum diubah) = NULL,
+            // artinya "pakai bawaan sistem" — supaya draft tak membekukan angka yang masih bisa
+            // berubah saat kondisi barang dicek belakangan.
+            'appeal_result'                  => 'nullable|in:' . implode(',', array_keys(SalesReturn::APPEAL_RESULTS)),
+            'return_case'                    => 'nullable|string|max:10',
+            'tiga_blok'                      => 'nullable|boolean',
+            'jurnal'                         => 'nullable|array',
+            'jurnal.*'                       => 'nullable|array|max:30',
+            'jurnal.*.*.account_id'          => 'nullable|exists:accounts,id',
+            'jurnal.*.*.debit'               => 'nullable|string',
+            'jurnal.*.*.credit'              => 'nullable|string',
+            'jurnal.*.*.memo'                => 'nullable|string|max:190',
         ]);
 
         // Retur hanya boleh diselesaikan setelah kasusnya didefinisikan — tahap "Retur Baru"
@@ -438,11 +501,24 @@ class SalesReturnController extends Controller
 
         $items = collect($request->items)
             ->filter(fn($i) => (float)($i['qty'] ?? 0) > 0)
+            // Kondisi lama (hilang / tetap) kini satu: Tidak Kembali.
+            ->map(fn ($i) => array_merge($i, [
+                'condition' => in_array($i['condition'] ?? null, SalesReturn::CONDITIONS_LAMA, true)
+                    ? SalesReturn::CONDITION_NO_RETURN : $i['condition'],
+            ]))
             ->values()
             ->toArray();
 
         if (empty($items)) {
             return back()->with('error', 'Tidak ada item dengan qty yang valid.')->withInput();
+        }
+
+        // Kasus hanya sah bila memang milik jenis yang dipilih.
+        $kasus = isset(SalesReturn::CASES[$request->return_type][$request->return_case]) ? $request->return_case : null;
+
+        // Form tiga blok: kasus menentukan dibalik-tidaknya penjualan — wajib sebelum selesai.
+        if ($request->status === 'posted' && $request->boolean('tiga_blok') && !$kasus) {
+            return back()->with('error', 'Pilih Kasus dulu sebelum menyelesaikan retur.')->withInput();
         }
 
         $dto = new SalesReturnDTO(
@@ -460,8 +536,19 @@ class SalesReturnController extends Controller
             // Nominal rupiah datang berformat Indonesia — jangan pernah di-cast langsung.
             refund_amount:      $request->filled('refund_amount') ? (float) clean_number($request->refund_amount) : null,
             // Nominalnya juga berformat Indonesia — lewat clean_number, bukan cast.
-            journal_override:   $this->barisJurnal($request),
+            journal_override:   $request->boolean('tiga_blok') ? null : $this->barisJurnal($request),
+            // Kasus menentukan hasil banding; tanpa kasus (dokumen lama) pakai isian langsung.
+            appeal_result:      $kasus ? (SalesReturn::CASE_APPEAL[$kasus] ?? null) : ($request->appeal_result ?: null),
+            return_case:        $kasus,
+            journal_reversal:   $this->barisBlok($request, 'pembalikan'),
+            journal_settlement: $this->barisBlok($request, 'penyelesaian'),
         );
+
+        // Menyelesaikan dari form = jurnal yang terlihat di layar itulah yang diposting,
+        // termasuk blok Pembalikan yang memang kosong (paket hilang).
+        if ($request->status === 'posted' && $request->boolean('tiga_blok') && $dto->journal_reversal === null) {
+            $dto->journal_reversal = [];
+        }
 
         try {
             if ($request->status === 'draft') {
@@ -496,7 +583,11 @@ class SalesReturnController extends Controller
             ->with('lines.account')
             ->first();
 
-        return view('erp.sales.returns.show', compact('return', 'journal'));
+        $pencairan = $return->settlement_journal_id
+            ? \App\Core\Journal\Journal::with('lines.account')->find($return->settlement_journal_id)
+            : null;
+
+        return view('erp.sales.returns.show', compact('return', 'journal', 'pencairan'));
     }
 
     public function destroy($id)
@@ -530,8 +621,11 @@ class SalesReturnController extends Controller
                 'invoice_item_id' => $i->reference_item_id,
                 'qty' => $i->qty,
                 'condition' => $i->condition,
+                'component_conditions' => $i->component_conditions,
             ];
         })->toArray();
+
+        [$pembalikan, $penyelesaian] = $returnService->blokUntukPosting($return);
 
         $dto = new SalesReturnDTO(
             customer_id: $return->customer_id,
@@ -542,6 +636,13 @@ class SalesReturnController extends Controller
             return_type:            $return->return_type,
             external_return_number: $return->external_return_number,
             notes:                  $return->notes,
+            refund_target:          $return->refund_target,
+            refund_account_id:      $return->refund_account_id,
+            refund_customer_id:     $return->refund_customer_id,
+            appeal_result:          $return->appeal_result,
+            return_case:            $return->return_case,
+            journal_reversal:       $pembalikan,
+            journal_settlement:     $penyelesaian,
         );
 
         try {
@@ -581,7 +682,9 @@ class SalesReturnController extends Controller
         // ── Dependency check: customer overpayment dari retur sudah dipakai sebagian/seluruhnya ──
         $overpay = \App\Models\CustomerOverpayment::where('reference', $return->return_number)->first();
         if ($overpay) {
-            $originalAmount = (float) $return->grand_total;
+            $originalAmount = (float) ($return->refund_target === 'credit' && $return->refund_amount !== null
+                ? $return->refund_amount
+                : $return->grand_total);
             $remainingAmount = (float) $overpay->amount;
             // Bila amount di overpayment sudah berkurang dari nilai awal retur → sudah dipakai di payment
             if ($remainingAmount + 0.0001 < $originalAmount) {

@@ -1051,6 +1051,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::get('/ajax/returns/invoices', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'getInvoices'])->name('ajax.returns.invoices');
     Route::get('/ajax/returns/orders', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'getSalesOrders'])->name('ajax.returns.orders');
     Route::get('/ajax/returns/customer-balance', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'getCustomerBalance'])->name('ajax.returns.customer_balance');
+    Route::post('/ajax/returns/jurnal-bawaan', [\App\Modules\Sales\Controllers\SalesReturnController::class, 'jurnalBawaan'])->name('ajax.returns.jurnal_bawaan');
 
     // GARANSI
     Route::get('/warranty', [\App\Modules\Sales\Controllers\WarrantyOrderController::class, 'index'])->name('warranty.index');

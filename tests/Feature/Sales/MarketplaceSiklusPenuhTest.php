@@ -310,11 +310,13 @@ class MarketplaceSiklusPenuhTest extends TestCase
 
         $this->assertPerantaraNol('Paket hilang, klaim menang');
 
-        // Uangnya memang kita terima — omzet, HPP, dompet & beban admin dibiarkan apa adanya.
+        // Uangnya memang kita terima — omzet, dompet & beban admin dibiarkan apa adanya.
+        // Barangnya tak kembali → modalnya direklas HPP → Kerugian Retur (kondisi hanya
+        // mengurus HPP, keputusan 30 Sep 2026); laba tak berubah, keduanya beban.
         $this->assertEqualsWithDelta(-self::HARGA, $this->saldo('4001'), 0.01);
         $this->assertEqualsWithDelta(0, $this->saldo('4004'), 0.01, 'Tidak ada omzet yang dibatalkan');
-        $this->assertEqualsWithDelta(self::MODAL, $this->saldo('5001'), 0.01);
-        $this->assertEqualsWithDelta(0, $this->saldo('6105'), 0.01);
+        $this->assertEqualsWithDelta(0, $this->saldo('5001'), 0.01);
+        $this->assertEqualsWithDelta(self::MODAL, $this->saldo('6105'), 0.01);
         $this->assertEqualsWithDelta(self::HARGA - self::FEE, $this->saldo('1104'), 0.01);
     }
 }

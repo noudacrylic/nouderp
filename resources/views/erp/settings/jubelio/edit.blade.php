@@ -273,6 +273,9 @@
                                 @if($cfg)
                                     {{ rtrim(rtrim(number_format($cfg->admin_fee_percent, 2, '.', ''), '0'), '.') }}%
                                     + Rp{{ number_format($cfg->admin_fee_fixed, 0, ',', '.') }}
+                                    @if((float) $cfg->tax_percent > 0)
+                                        <span class="text-gray-400">· pajak {{ rtrim(rtrim(number_format($cfg->tax_percent, 2, '.', ''), '0'), '.') }}%</span>
+                                    @endif
                                 @else
                                     <span class="text-amber-500">belum diatur</span>
                                 @endif
@@ -280,6 +283,7 @@
                             <td class="py-2 text-xs text-gray-500">
                                 @if($cfg)
                                     {{ $cfg->holdAccount->code ?? '?' }} / {{ $cfg->feeAccount->code ?? '?' }} / {{ $cfg->walletAccount->code ?? '?' }}
+                                    <span class="text-gray-400">· pajak {{ $cfg->taxAccount->code ?? '—' }}</span>
                                 @else
                                     <span class="text-gray-300">—</span>
                                 @endif
@@ -310,6 +314,10 @@
                                         <label class="block text-[11px] font-semibold text-gray-500 mb-1">Biaya (Rp)</label>
                                         <input type="number" step="1" min="0" name="admin_fee_fixed" value="{{ $cfg->admin_fee_fixed ?? 0 }}" class="w-full border rounded px-2 py-1.5 text-sm">
                                     </div>
+                                    <div class="w-24" title="Pajak yang dipotong marketplace atas nilai kotor pesanan (PPh final UMKM). Isi 0,5 saat mulai berlaku.">
+                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Pajak (%)</label>
+                                        <input type="number" step="0.01" min="0" max="100" name="tax_percent" value="{{ $cfg->tax_percent ?? 0 }}" class="w-full border rounded px-2 py-1.5 text-sm">
+                                    </div>
                                     <div class="min-w-[200px]">
                                         @include('erp.fixed-assets.categories._account_picker', [
                                             'name' => 'account_receivable_hold_id',
@@ -338,6 +346,16 @@
                                             'value' => $cfg->account_wallet_id ?? null,
                                             'displayValue' => $accLabel($cfg->account_wallet_id ?? null),
                                             'searchTypes' => 'asset',
+                                        ])
+                                    </div>
+                                    <div class="min-w-[200px]">
+                                        @include('erp.fixed-assets.categories._account_picker', [
+                                            'name' => 'account_tax_id',
+                                            'label' => 'Akun Pajak Marketplace (Beban)',
+                                            'required' => false,
+                                            'value' => $cfg->account_tax_id ?? null,
+                                            'displayValue' => $accLabel($cfg->account_tax_id ?? null),
+                                            'searchTypes' => 'expense',
                                         ])
                                     </div>
                                     <button class="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm font-semibold hover:bg-emerald-700">Simpan</button>

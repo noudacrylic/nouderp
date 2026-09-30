@@ -14,13 +14,8 @@
             <h1 class="text-xl font-bold text-gray-800">
                 Form Retur Pelanggan
             </h1>
-            <p class="text-xs text-gray-500 mt-0.5" x-show="summary.reversed > 0">
-                Retur akan membalik penjualan &amp; menambah saldo Kelebihan Bayar Pelanggan (2106).
-            </p>
-            {{-- Semua barisnya "tidak kembali" → dananya diganti, tak ada yang dibalik. --}}
-            <p class="text-xs text-green-600 mt-0.5 font-semibold"
-               x-show="summary.net > 0 && summary.reversed <= 0" x-cloak>
-                Semua barang tidak kembali &amp; dananya diganti — penjualannya tidak dibalik<span x-show="!barisPencairan().length">, retur ini hanya dicatat sebagai kasus</span><span x-show="barisPencairan().length">; dana penggantinya dicairkan ke Saldo Penjualan</span>.
+            <p class="text-xs text-gray-500 mt-0.5">
+                1 · Pilih faktur &amp; kasusnya → 2 · Item yang diretur → 3 · Jurnal (HPP · Pembalikan · Penyelesaian)
             </p>
         </div>
         <a href="{{ route('sales.returns.index') }}"
@@ -218,27 +213,37 @@
                     </div>
 
                     {{-- Definisi kasus retur. Selama Jenis Retur kosong, retur menunggu di
-                         tab "Retur Baru" dan tidak bisa diselesaikan. --}}
-                    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4" x-show="selectedDoc" x-transition>
+                         tab "Retur Baru" dan tidak bisa diselesaikan. Jenis + Hasil Banding
+                         + kondisi barang menentukan isi bawaan jurnal di langkah 3. --}}
+                    <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4" x-show="selectedDoc" x-transition>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
                                 Jenis Retur <span class="text-red-500">*</span>
                             </label>
                             <select name="return_type" x-model="caseType"
-                                    @change="applyDefaultConditionFromCaseType()"
+                                    @change="gantiJenis()"
                                     class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 <option value="">— Belum ditentukan —</option>
                                 @foreach(\App\Modules\Sales\Models\SalesReturn::RETURN_TYPES as $key => $label)
                                     <option value="{{ $key }}">{{ $label }}</option>
                                 @endforeach
                             </select>
+                        </div>
 
-                            {{-- Apa yang dituntut tiap jenis, dikatakan di tempat memilihnya.
-                                 Ketiganya berbeda pada dua hal saja: barangnya kembali atau
-                                 tidak, dan uangnya jadi milik kita atau tidak. --}}
-                            <p class="text-[11px] mt-1.5 leading-relaxed"
-                               :class="caseType === 'paket_hilang' ? 'text-green-600' : 'text-gray-500'"
-                               x-show="caseType" x-cloak x-text="penjelasanJenis()"></p>
+                        {{-- Kasus = rincian jenis retur, sama dengan daftar Panduan Jurnal di kanan.
+                             Kasus menentukan penjualan dibalik atau tidak (hasil banding tersirat di
+                             dalamnya) dan kondisi barang bawaannya. --}}
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+                                Kasus <span class="text-red-500" x-show="caseType">*</span>
+                            </label>
+                            <select name="return_case" x-model="returnCase" @change="gantiKasus()" :disabled="!caseType"
+                                    class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400">
+                                <option value="" x-text="caseType ? '— Pilih kasus —' : '— Pilih jenis retur dulu —'"></option>
+                                <template x-for="(label, kode) in (KASUS[caseType] || {})" :key="kode">
+                                    <option :value="kode" x-text="label" :selected="kode === returnCase"></option>
+                                </template>
+                            </select>
                         </div>
 
                         <div>
@@ -248,93 +253,19 @@
                             <input type="text" name="external_return_number" x-model="externalReturnNo"
                                    placeholder="Nomor yang tertempel di paket retur"
                                    class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <p class="text-[11px] text-gray-400 mt-1">Sering berbeda dari nomor pesanan — dipakai gudang saat paket datang.</p>
                         </div>
 
-                        <div class="md:col-span-2">
+                        {{-- Apa yang dituntut tiap jenis, dikatakan di tempat memilihnya. --}}
+                        <p class="md:col-span-3 -mt-2 text-[11px] leading-relaxed text-gray-500"
+                           x-show="caseType" x-cloak x-text="penjelasanKasus()"></p>
+
+                        <div class="md:col-span-3">
                             <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">
                                 Catatan Penanganan
                             </label>
                             <textarea name="notes" x-model="caseNotes" rows="3"
                                       placeholder="Riwayat banding, video packing yang dikirim, tanggapan marketplace…"
                                       class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-                        </div>
-                    </div>
-
-                    {{-- ═══ PENANGANAN DANA ═══
-                         Jenisnya DISIMPULKAN dari keadaan dana faktur, bukan ditanyakan: CS
-                         belum tentu tahu pesanan marketplace itu sudah tuntas atau belum, dan
-                         salah menebaknya membuat saldo ditahan jadi minus. Angka di sini hanya
-                         pratinjau — SalesReturnService::hitungUang() menghitung ulang saat
-                         posting dan dialah yang berwenang. --}}
-                    <div class="mt-5 pt-5 border-t border-gray-100" x-show="selectedDoc && returnType === 'invoice'" x-cloak>
-                        <div class="flex items-center gap-2 mb-3">
-                            <h4 class="font-bold text-gray-700 text-sm">Penanganan Dana</h4>
-                            <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase"
-                                  :class="dana.jenis === 'marketplace' ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600'"
-                                  x-text="dana.jenis === 'marketplace' ? 'Retur Marketplace' : 'Retur Biasa'"></span>
-                        </div>
-
-                        <p class="text-[11px] text-gray-500 mb-4" x-text="dana.penjelasan"></p>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Tujuan Dana</label>
-                                <select name="refund_target" x-model="refundTarget" @change="isiUlangRefund()"
-                                        class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <template x-for="(label, key) in tujuanTersedia" :key="key">
-                                        <option :value="key" x-text="label"></option>
-                                    </template>
-                                </select>
-                            </div>
-
-                            <div x-show="dana.cash > 0" x-cloak>
-                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Nilai Dikembalikan</label>
-                                <input type="text" name="refund_amount" x-model="refundAmount"
-                                       class="rupiah-input w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <p class="text-[11px] text-gray-400 mt-1" x-show="dana.feeMax > 0"
-                                   x-text="'Bawaannya dana bersih yang kita terima. Biaya admin ' + formatNumber(dana.feeMax) + ' sudah hangus dan tidak dikembalikan platform — selisihnya ditanggung pembeli.'"></p>
-                            </div>
-
-                            <div x-show="refundTarget === 'bank'" x-cloak>
-                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Dari Akun Kas/Bank</label>
-                                <select name="refund_account_id" x-model="refundAccountId"
-                                        class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option value="">— pilih akun —</option>
-                                    @foreach($cashAccounts as $acc)
-                                        <option value="{{ $acc->id }}">{{ $acc->code }} — {{ $acc->name }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-
-                            <div x-show="refundTarget === 'credit'" x-cloak>
-                                <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Kredit Atas Nama</label>
-                                <select name="refund_customer_id" x-model="refundCustomerId"
-                                        class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option value="">— pelanggan di faktur —</option>
-                                    @foreach($customers as $cust)
-                                        <option value="{{ $cust->id }}">{{ $cust->name }}</option>
-                                    @endforeach
-                                </select>
-                                <p class="text-[11px] text-gray-400 mt-1">
-                                    Pembeli marketplace yang menukar barang adalah orang, sementara pelanggan di faktur adalah akun channel-nya.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div class="mt-4 bg-gray-50 rounded-xl p-3 text-xs space-y-1" x-show="dana.amount > 0" x-cloak>
-                            <div class="flex justify-between" x-show="dana.ar > 0">
-                                <span class="text-gray-500">Tagihan dihapus</span>
-                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(dana.ar)"></span></span>
-                            </div>
-                            <div class="flex justify-between" x-show="dana.cash > 0">
-                                <span class="text-gray-500">Uang dikembalikan</span>
-                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(nilaiRefund)"></span></span>
-                            </div>
-                            <div class="flex justify-between" x-show="(dana.cash - nilaiRefund) > 0">
-                                <span class="text-gray-500">Biaya admin dibalik</span>
-                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(dana.cash - nilaiRefund)"></span></span>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -356,7 +287,8 @@
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-green-400"></span> Utuh → Stok kembali + HPP reverse</div>
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-yellow-400"></span> Perbaikan → Persediaan Perbaikan + HPP reverse</div>
                         <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-red-400"></span> Rusak → Beban kerugian, tidak masuk stok</div>
-                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span> Tidak Kembali → dana diganti marketplace, penjualan tidak dibalik (faktur belum cair: dananya dicairkan ke Saldo Penjualan)</div>
+                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-gray-500"></span> Tidak Kembali → jurnalnya sama dengan Rusak</div>
+                        <div class="w-full text-[11px] text-gray-400 font-medium">Kondisi hanya menentukan jurnal HPP. Penjualan dibalik atau tidak ditentukan Jenis Retur &amp; Hasil Banding.</div>
                         <div class="flex items-center gap-1.5 text-blue-400">Butuh campur kondisi? Klik <span class="font-bold">"Pisah kondisi"</span> pada baris produk.</div>
                     </div>
 
@@ -448,9 +380,7 @@
                                                                 <option value="good">🟢 Utuh</option>
                                                                 <option value="repair">🟡 Perbaikan</option>
                                                                 <option value="damaged">🔴 Rusak</option>
-                                                                <option value="hilang">⚫ Tidak Kembali (dana dikembalikan)</option>
-                                                                <option value="hilang">⚫ Tidak Kembali (dana dikembalikan)</option>
-                                                        <option value="tidak_kembali">⚪ Tidak Kembali (dana diganti)</option>
+                                                                <option value="tidak_kembali">⚪ Tidak Kembali</option>
                                                             </select>
                                                         </div>
                                                     </template>
@@ -469,8 +399,8 @@
                                                             }">
                                                         <option value="good">🟢 Utuh</option>
                                                         <option value="repair">🟡 Perbaikan</option>
-                                                        <option value="damaged">🔴 Tidak Dapat Diperbaiki</option>
-                                                        <option value="tidak_kembali">⚪ Tidak Kembali (dana diganti)</option>
+                                                        <option value="damaged">🔴 Rusak</option>
+                                                        <option value="tidak_kembali">⚪ Tidak Kembali</option>
                                                     </select>
                                                     <button type="button" @click="enableSplit(index)"
                                                             class="text-[9px] text-blue-500 hover:text-blue-700 hover:underline font-semibold">
@@ -495,6 +425,11 @@
                                                         <span class="text-[11px] font-bold text-red-700">🔴 Rusak</span>
                                                         <input type="number" x-model="item.splits.damaged" @input="onSplitChange(index)" min="0" step="0.01"
                                                                class="w-16 border-2 border-red-200 text-center rounded-lg px-1.5 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-red-300">
+                                                    </div>
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-bold text-gray-600">⚪ Tidak Kembali</span>
+                                                        <input type="number" x-model="item.splits.tidak_kembali" @input="onSplitChange(index)" min="0" step="0.01"
+                                                               class="w-16 border-2 border-gray-200 text-center rounded-lg px-1.5 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-gray-300">
                                                     </div>
                                                     <button type="button" @click="disableSplit(index)"
                                                             class="text-[9px] text-gray-400 hover:text-gray-600 hover:underline font-semibold self-end">
@@ -525,285 +460,345 @@
                     </div>
                 </div>
 
-                {{-- ═══ JURNAL DANA DITULIS TANGAN ═══
-                     Retur yang diajukan konsumen hasilnya bermacam-macam — ganti
-                     penuh, sebagian, atau tak sama sekali — dan tak semuanya bisa
-                     disimpulkan dari kondisi barang. Blok BARANG di Preview Jurnal
-                     sengaja tidak ikut bisa diubah: ia cerminan pergerakan stok yang
-                     benar-benar terjadi. Diletakkan di kolom utama (bukan panel kanan)
-                     supaya nama akun terbaca utuh. --}}
-                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6" x-show="selectedDoc && summary.net > 0" x-cloak>
-                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" x-model="jurnalManual" @change="toggleJurnalManual()"
-                               class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                        <span class="text-sm font-bold text-gray-700">✏️ Tulis sendiri jurnal dananya</span>
-                    </label>
+                {{-- ═══ SECTION 3: JURNAL (tiga blok) ═══
+                     a. HPP          — dari kondisi barang, TIDAK bisa diubah (cermin kartu stok).
+                     b. Pembalikan   — penjualan yang batal & titipan pembeli dikembalikan.
+                     c. Penyelesaian — uang pesanan berakhir di mana (dompet, admin, pajak).
+                     Isi b & c bawaan dari SalesReturnService::jurnalBawaan() dan boleh diubah.
+                     Draft hanya menyimpan blok yang BENAR-BENAR diubah; blok yang tak disentuh
+                     ikut bergerak saat kondisi barang dicek belakangan. --}}
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6" x-show="selectedDoc && returnType === 'invoice'" x-cloak>
+                    <input type="hidden" name="tiga_blok" value="1">
 
-                    <div x-show="jurnalManual" x-transition class="mt-3">
-                        <p class="text-xs text-gray-500 mb-3 leading-relaxed">
-                            Menggantikan blok dana di Preview Jurnal. Jurnal <b>barang</b> tetap dihitung sistem dari
-                            kondisi tiap baris, supaya buku besar dan kartu stok tidak bercerita beda.
-                        </p>
-
-                        <div class="grid grid-cols-12 gap-2 px-1 mb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                            <div class="col-span-6">Akun</div>
-                            <div class="col-span-3 text-right">Debit</div>
-                            <div class="col-span-3 text-right pr-8">Kredit</div>
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-2">
+                            <span class="w-7 h-7 bg-orange-500 text-white rounded-lg flex items-center justify-center text-xs font-black">3</span>
+                            <h3 class="font-bold text-gray-700">Jurnal</h3>
                         </div>
+                        <span class="text-[11px] text-gray-400" x-show="memuatBawaan" x-cloak>Menghitung bawaan…</span>
+                    </div>
 
-                        {{-- Akun dicari lewat nama ATAU kode — orang hafal nama akun, bukan nomornya. --}}
-                        <template x-for="(b, i) in jurnalRows" :key="i">
-                            <div class="grid grid-cols-12 gap-2 mb-2 items-start"
-                                 x-data="{ buka: false, cari: '', sorot: 0 }">
-                                <div class="col-span-6 relative" @click.outside="buka = false">
-                                    <input type="hidden" :name="`journal[${i}][account_id]`" :value="b.account_id">
-                                    <input type="text" x-ref="cariAkun"
-                                           :value="buka ? cari : akunLabel(b.account_id)"
-                                           @focus="buka = true; cari = ''; sorot = 0"
-                                           @input="cari = $event.target.value; sorot = 0"
-                                           @keydown.arrow-down.prevent="sorot = Math.min(sorot + 1, akunCocok(cari).length - 1)"
-                                           @keydown.arrow-up.prevent="sorot = Math.max(sorot - 1, 0)"
-                                           @keydown.enter.prevent="const a = akunCocok(cari)[sorot]; if (a) { b.account_id = String(a.id); buka = false; $refs.cariAkun.blur(); }"
-                                           @keydown.escape="buka = false; $refs.cariAkun.blur()"
-                                           @keydown.tab="buka = false"
-                                           placeholder="Cari nama atau kode akun…"
-                                           class="w-full border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                                           :class="b.account_id ? 'border-gray-200 text-gray-800 font-semibold' : 'border-amber-300'">
-                                    <div x-show="buka" x-cloak
-                                         class="absolute z-30 left-0 right-0 mt-1 max-h-64 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
-                                        <template x-for="(a, n) in akunCocok(cari)" :key="a.id">
-                                            <button type="button"
-                                                    @mousedown.prevent="b.account_id = String(a.id); buka = false; $refs.cariAkun.blur()"
-                                                    @mouseenter="sorot = n"
-                                                    class="w-full text-left px-3 py-2 text-sm flex gap-3"
-                                                    :class="n === sorot ? 'bg-indigo-50' : ''">
-                                                <span class="font-mono text-gray-400 shrink-0" x-text="a.code"></span>
-                                                <span class="text-gray-700" x-text="a.name"></span>
-                                            </button>
+                    {{-- a. HPP --}}
+                    <div class="mb-5">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-xs font-black text-gray-600 uppercase tracking-widest">a. Jurnal HPP</span>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-semibold">🔒 mengikuti kondisi barang</span>
+                        </div>
+                        <div class="rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3 text-xs font-mono space-y-2">
+                            <template x-for="g in journalPreview.conditions" :key="g.condition">
+                                <div class="space-y-0.5">
+                                    <div class="flex justify-between"><span class="font-bold" :class="g.debitClass" x-text="g.debitLabel"></span><span class="font-black text-gray-800" x-text="formatNumber(g.amount)"></span></div>
+                                    <div class="flex justify-between pl-4"><span class="text-gray-500 italic" x-text="g.creditLabel"></span><span class="font-black text-gray-600" x-text="formatNumber(g.amount)"></span></div>
+                                </div>
+                            </template>
+                            <div x-show="journalPreview.conditions.length === 0" class="text-gray-400 italic font-sans">
+                                Belum ada barang yang diretur.
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- b & c. Blok yang bisa diubah --}}
+                    <template x-for="kunci in ['pembalikan', 'penyelesaian']" :key="kunci">
+                        <div class="mb-5" x-show="blok[kunci].rows !== null">
+                            <input type="hidden" :name="`jurnal_ada[${kunci}]`" value="1" :disabled="!kirimBlok(kunci)">
+
+                            <div class="flex items-center justify-between gap-2 mb-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-black text-gray-600 uppercase tracking-widest"
+                                          x-text="kunci === 'pembalikan' ? 'b. Pembalikan Jurnal Faktur' : 'c. Penyelesaian Pesanan'"></span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                                          :class="blok[kunci].diubah ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-50 text-emerald-700'"
+                                          x-text="blok[kunci].diubah ? '✏️ diubah' : 'bawaan sistem'"></span>
+                                </div>
+                                <button type="button" @click="isiUlangBlok(kunci)"
+                                        class="text-[11px] font-semibold text-gray-500 hover:text-indigo-700">↺ Isi ulang dari bawaan</button>
+                            </div>
+                            <p class="text-[11px] text-gray-400 mb-3"
+                               x-text="kunci === 'pembalikan'
+                                    ? 'Penjualan yang batal & titipan pembeli yang dikembalikan. Kosong = penjualannya tetap sah (paket hilang, banding menang).'
+                                    : 'Sisa titipan pesanan dicairkan: faktur dilunasi, dipotong biaya admin (termasuk Hemat Biaya Kirim) / pajak. Baris Saldo Penjualan ⚖ menyeimbangkan otomatis sampai diubah sendiri.'"></p>
+
+                            {{-- Nilai penjualan yang dibalik. Bawaannya nilai barang (kecuali yang dananya
+                                 diganti); ubah untuk refund hasil negosiasi — blok Pembalikan disusun
+                                 ulang dan Penyelesaian mencairkan sisanya. --}}
+                            <div x-show="kunci === 'pembalikan'" class="flex items-center gap-2 mb-3">
+                                <label class="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Nilai dibalik / refund</label>
+                                <input type="text" x-model="dibalikInput" @change="aturDibalik()" @keydown.enter.prevent="aturDibalik()"
+                                       inputmode="numeric" placeholder="0"
+                                       class="rupiah-input w-36 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-right bg-white">
+                                <span class="text-[10px] text-gray-400" x-show="dibalikManual !== null">nilai hasil negosiasi</span>
+                            </div>
+
+                            {{-- Tujuan dana — hanya bila ada lebih dari satu pilihan masuk akal
+                                 (pelanggan biasa / dana marketplace yang sudah cair). --}}
+                            <div x-show="kunci === 'pembalikan' && Object.keys(bawaan.tujuan || {}).length > 1"
+                                 class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3 bg-gray-50 rounded-xl p-3">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Dana dikembalikan ke</label>
+                                    <select name="refund_target" x-model="refundTarget" @change="muatBawaan('pembalikan')"
+                                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white">
+                                        <template x-for="(label, key) in bawaan.tujuan" :key="key">
+                                            <option :value="key" x-text="label" :selected="key === refundTarget"></option>
                                         </template>
-                                        <div x-show="akunCocok(cari).length === 0" class="px-3 py-2 text-sm text-gray-400 italic">Akun tidak ditemukan</div>
+                                    </select>
+                                </div>
+                                <div x-show="refundTarget === 'bank'">
+                                    <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Dari akun kas/bank</label>
+                                    <select name="refund_account_id" x-model="refundAccountId" @change="muatBawaan('pembalikan')"
+                                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white">
+                                        <option value="">— pilih akun —</option>
+                                        @foreach($cashAccounts as $acc)
+                                            <option value="{{ $acc->id }}">{{ $acc->code }} — {{ $acc->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div x-show="refundTarget === 'credit'">
+                                    <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Kredit atas nama</label>
+                                    <select name="refund_customer_id" x-model="refundCustomerId"
+                                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white">
+                                        <option value="">— pelanggan di faktur —</option>
+                                        @foreach($customers as $cust)
+                                            <option value="{{ $cust->id }}">{{ $cust->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-12 gap-2 px-1 mb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                                <div class="col-span-6">Akun</div>
+                                <div class="col-span-3 text-right">Debit</div>
+                                <div class="col-span-3 text-right pr-8">Kredit</div>
+                            </div>
+
+                            {{-- Akun dicari lewat nama ATAU kode — orang hafal nama akun, bukan nomornya. --}}
+                            <template x-for="(b, i) in (blok[kunci].rows || [])" :key="kunci + i">
+                              <div>
+                                {{-- Judul kelompok: muncul tiap kali kelompok baris berganti. --}}
+                                <div x-show="i === 0 || grupBaris(kunci, blok[kunci].rows[i - 1]) !== grupBaris(kunci, b)"
+                                     class="flex items-baseline gap-2 mt-3 mb-1.5 pl-2 border-l-2"
+                                     :class="grupInfo(kunci, b).warna">
+                                    <span class="text-[11px] font-black text-gray-700" x-text="grupInfo(kunci, b).judul"></span>
+                                    <span class="text-[10px] text-gray-400" x-text="grupInfo(kunci, b).ket"></span>
+                                </div>
+                                <div class="grid grid-cols-12 gap-2 mb-2 items-start"
+                                     x-data="{ buka: false, cari: '', sorot: 0 }">
+                                    <div class="col-span-6 relative" @click.outside="buka = false">
+                                        <input type="hidden" :name="`jurnal[${kunci}][${i}][account_id]`" :value="b.account_id" :disabled="!kirimBlok(kunci)">
+                                        <input type="hidden" :name="`jurnal[${kunci}][${i}][memo]`" :value="b.memo || ''" :disabled="!kirimBlok(kunci)">
+                                        <input type="text" x-ref="cariAkun"
+                                               :value="buka ? cari : akunLabel(b.account_id)"
+                                               @focus="buka = true; cari = ''; sorot = 0"
+                                               @input="cari = $event.target.value; sorot = 0"
+                                               @keydown.arrow-down.prevent="sorot = Math.min(sorot + 1, akunCocok(cari).length - 1)"
+                                               @keydown.arrow-up.prevent="sorot = Math.max(sorot - 1, 0)"
+                                               @keydown.enter.prevent="const a = akunCocok(cari)[sorot]; if (a) { b.account_id = String(a.id); ubahBlok(kunci); buka = false; $refs.cariAkun.blur(); }"
+                                               @keydown.escape="buka = false; $refs.cariAkun.blur()"
+                                               @keydown.tab="buka = false"
+                                               placeholder="Cari nama atau kode akun…"
+                                               class="w-full border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                               :class="b.account_id ? 'border-gray-200 text-gray-800 font-semibold' : 'border-amber-300'">
+                                        <div class="text-[10px] text-gray-400 mt-0.5 pl-1 truncate" x-show="b.memo" x-text="(b.auto ? '⚖ ' : '') + b.memo"></div>
+                                        <div x-show="buka" x-cloak
+                                             class="absolute z-30 left-0 right-0 mt-1 max-h-64 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                                            <template x-for="(a, n) in akunCocok(cari)" :key="a.id">
+                                                <button type="button"
+                                                        @mousedown.prevent="b.account_id = String(a.id); ubahBlok(kunci); buka = false; $refs.cariAkun.blur()"
+                                                        @mouseenter="sorot = n"
+                                                        class="w-full text-left px-3 py-2 text-sm flex gap-3"
+                                                        :class="n === sorot ? 'bg-indigo-50' : ''">
+                                                    <span class="font-mono text-gray-400 shrink-0" x-text="a.code"></span>
+                                                    <span class="text-gray-700" x-text="a.name"></span>
+                                                </button>
+                                            </template>
+                                            <div x-show="akunCocok(cari).length === 0" class="px-3 py-2 text-sm text-gray-400 italic">Akun tidak ditemukan</div>
+                                        </div>
+                                    </div>
+                                    <input type="text" :name="`jurnal[${kunci}][${i}][debit]`" x-model="b.debit" :disabled="!kirimBlok(kunci)"
+                                           @input="b.credit = ''; b.auto = false; ubahBlok(kunci)" placeholder="Debit" inputmode="numeric"
+                                           class="rupiah-input col-span-3 border rounded-lg px-3 py-2 text-sm text-right bg-white"
+                                           :class="b.auto ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200'">
+                                    <div class="col-span-3 flex items-center gap-1">
+                                        <input type="text" :name="`jurnal[${kunci}][${i}][credit]`" x-model="b.credit" :disabled="!kirimBlok(kunci)"
+                                               @input="b.debit = ''; b.auto = false; ubahBlok(kunci)" placeholder="Kredit" inputmode="numeric"
+                                               class="rupiah-input flex-1 min-w-0 border rounded-lg px-3 py-2 text-sm text-right bg-white"
+                                               :class="b.auto ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200'">
+                                        <button type="button" @click="blok[kunci].rows.splice(i, 1); ubahBlok(kunci)"
+                                                class="text-gray-300 hover:text-red-500 w-7 text-lg font-bold" title="Hapus baris">×</button>
                                     </div>
                                 </div>
-                                <input type="text" :name="`journal[${i}][debit]`" x-model="b.debit"
-                                       @input="b.credit = ''" placeholder="Debit" inputmode="numeric"
-                                       class="rupiah-input col-span-3 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right bg-white">
-                                <div class="col-span-3 flex items-center gap-1">
-                                    <input type="text" :name="`journal[${i}][credit]`" x-model="b.credit"
-                                           @input="b.debit = ''" placeholder="Kredit" inputmode="numeric"
-                                           class="rupiah-input flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right bg-white">
-                                    <button type="button" @click="jurnalRows.splice(i, 1)"
-                                            class="text-gray-300 hover:text-red-500 w-7 text-lg font-bold" title="Hapus baris">×</button>
+                              </div>
+                            </template>
+
+                            <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                                <button type="button" @click="blok[kunci].rows.push({account_id: '', debit: '', credit: '', memo: '', auto: false}); ubahBlok(kunci)"
+                                        class="text-xs font-bold text-indigo-600 hover:text-indigo-800">+ Tambah baris</button>
+                                <div class="text-xs font-mono" :class="blokSeimbang(kunci) ? 'text-green-600' : 'text-red-600 font-bold'">
+                                    <span x-show="totalBlok(kunci, 'debit') === 0 && totalBlok(kunci, 'credit') === 0">tanpa jurnal</span>
+                                    <span x-show="totalBlok(kunci, 'debit') > 0 || totalBlok(kunci, 'credit') > 0"
+                                          x-text="`D ${formatNumber(totalBlok(kunci, 'debit'))} · K ${formatNumber(totalBlok(kunci, 'credit'))}` + (blokSeimbang(kunci) ? ' · seimbang ✓' : ` · selisih ${formatNumber(Math.abs(totalBlok(kunci, 'debit') - totalBlok(kunci, 'credit')))}`)"></span>
                                 </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    {{-- Uji akhir yang sama dengan MarketplaceSiklusPenuhTest: setelah pesanan tuntas,
+                         Piutang / Uang Muka / Saldo Ditahan pesanan ini WAJIB nol. --}}
+                    <div class="rounded-xl border px-4 py-3 text-xs" x-show="cekSaldo().length"
+                         :class="cekSaldo().every(c => Math.abs(c.sisa) < 1) ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/60'">
+                        <div class="font-bold mb-1.5"
+                             :class="cekSaldo().every(c => Math.abs(c.sisa) < 1) ? 'text-green-700' : 'text-amber-700'"
+                             x-text="cekSaldo().every(c => Math.abs(c.sisa) < 1) ? '✓ Pesanan tuntas — semua saldo pesanan nol setelah retur ini' : '⚠ Sisa saldo pesanan setelah retur ini'"></div>
+                        <template x-for="c in cekSaldo()" :key="c.label">
+                            <div class="flex justify-between">
+                                <span class="text-gray-600" x-text="c.label"></span>
+                                <span class="font-mono" :class="Math.abs(c.sisa) < 1 ? 'text-gray-500' : (c.sisa < 0 ? 'text-red-600 font-bold' : 'text-amber-700 font-bold')"
+                                      x-text="`${formatNumber(c.awal)} → ${formatNumber(c.sisa)}`"></span>
                             </div>
                         </template>
-
-                        <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-                            <div class="flex items-center gap-4">
-                                <button type="button" @click="jurnalRows.push({account_id: '', debit: '', credit: ''})"
-                                        class="text-xs font-bold text-indigo-600 hover:text-indigo-800">+ Tambah baris</button>
-                                <button type="button" @click="if (confirm('Ganti semua baris dengan hitungan sistem?')) { jurnalRows = []; toggleJurnalManual(); }"
-                                        class="text-xs font-semibold text-gray-500 hover:text-indigo-700">↺ Isi ulang dari sistem</button>
-                            </div>
-
-                            <div class="text-xs font-mono" :class="jurnalSeimbang() ? 'text-green-600' : 'text-red-600 font-bold'">
-                                <span x-text="`D ${formatNumber(totalJurnal('debit'))} · K ${formatNumber(totalJurnal('credit'))}`"></span>
-                                <span x-show="!jurnalSeimbang()"
-                                      x-text="` · selisih ${formatNumber(Math.abs(totalJurnal('debit') - totalJurnal('credit')))}`"></span>
-                                <span x-show="jurnalSeimbang()"> · seimbang ✓</span>
-                            </div>
-                        </div>
+                        <p class="text-[10px] text-gray-500 mt-1.5" x-show="!cekSaldo().every(c => Math.abs(c.sisa) < 1)">
+                            Sisa positif = masih menunggu (mis. pesanan selesai dari marketplace). Sisa minus akan ditolak saat posting.
+                        </p>
                     </div>
                 </div>
 
-            </div>
-
-            {{-- RIGHT COLUMN --}}
-            <div class="col-span-4 space-y-4">
-
-                {{-- SALDO CUSTOMER REMOVED FOR CLEANER UI --}}
-
-                {{-- ═══ RETURN SUMMARY (UPGRADE: TRANSPARENT ACCOUNTING) ═══ --}}
-                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden" x-show="selectedDoc" x-transition>
-                    <div class="p-5">
-                        <div class="flex items-center gap-2 mb-4">
-                            <span class="w-7 h-7 bg-orange-500 text-white rounded-lg flex items-center justify-center text-xs font-black">3</span>
-                            <h3 class="font-bold text-gray-700">Ringkasan Retur</h3>
-                        </div>
-
-                        <div class="space-y-3">
-                            <div class="flex justify-between items-center text-sm">
-                                <span class="text-gray-500 font-medium">Subtotal (Net)</span>
-                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(summary.net)"></span></span>
-                            </div>
-                            <div class="border-t border-gray-100 pt-3 flex justify-between items-center">
-                                <span class="font-black text-gray-800">Total Retur</span>
-                                <span class="font-black text-blue-600 text-lg">Rp <span x-text="formatNumber(summary.net)"></span></span>
-                            </div>
-                        </div>
-
-                        {{-- 🔥 PREVIEW JURNAL (DINAMIS & CLEAN) --}}
-                        <div class="mt-4 border-t border-gray-100 pt-4">
-                            <h4 class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                </svg>
-                                Preview Jurnal
-                            </h4>
-
-                            <div class="bg-white border border-gray-200 rounded-xl p-4 text-[11px] font-mono leading-relaxed relative">
-                                <div class="absolute top-2 right-3 text-[8px] text-gray-400 font-bold uppercase tracking-widest">Live Preview</div>
-                                
-                                {{-- Sisi dana: tiap baris satu akun (Dr/Cr), persis jurnal yang diposting.
-                                     Pasangan titipan (Dr Uang Muka / Cr Saldo Ditahan) tampil dua baris,
-                                     bukan dijejalkan ke satu label. --}}
-                                <div class="space-y-1.5 mb-3" x-show="barisDanaSistem().length">
-                                    <template x-for="(r, k) in barisDanaSistem()" :key="k">
-                                        <div class="flex justify-between gap-2"
-                                             :class="{ 'pl-4': !r.debit, 'pt-2': r.debit && k > 0 }">
-                                            <span :class="r.debit ? 'font-bold text-blue-600' : 'text-gray-500 italic'">
-                                                <span x-text="(r.debit ? 'Dr. ' : 'Cr. ') + r.label"></span>
-                                                <span x-show="r.note" class="text-gray-400" x-text="`(${r.note})`"></span>
-                                            </span>
-                                            <span class="font-black shrink-0" :class="r.debit ? 'text-gray-900' : 'text-gray-700'"
-                                                  x-text="formatNumber(r.debit || r.credit)"></span>
-                                        </div>
-                                    </template>
-                                </div>
-
-                                {{-- Penyelesaian faktur yang BELUM CAIR — cermin SalesReturnService::
-                                     selesaikanFakturBelumCair(). Sisa titipan yang tidak dikembalikan
-                                     ke pembeli dicairkan ke Saldo Penjualan, dan fakturnya tuntas. --}}
-                                <div class="border-t border-gray-100 pt-3 mb-3 space-y-1.5" x-show="barisPencairan().length" x-cloak>
-                                    <div class="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Penyelesaian faktur · dana cair (fee 0)</div>
-                                    <template x-for="(r, k) in barisPencairan()" :key="'c' + k">
-                                        <div class="flex justify-between gap-2"
-                                             :class="{ 'pl-4': !r.debit, 'pt-2': r.debit && k > 0 }">
-                                            <span :class="r.debit ? 'font-bold text-emerald-700' : 'text-gray-500 italic'">
-                                                <span x-text="(r.debit ? 'Dr. ' : 'Cr. ') + r.label"></span>
-                                                <span x-show="r.note" class="text-gray-400" x-text="`(${r.note})`"></span>
-                                            </span>
-                                            <span class="font-black shrink-0" :class="r.debit ? 'text-gray-900' : 'text-gray-700'"
-                                                  x-text="formatNumber(r.debit || r.credit)"></span>
-                                        </div>
-                                    </template>
-                                </div>
-
-                                {{-- Stock / Condition Impact Ledger --}}
-                                <template x-if="journalPreview.conditions.length > 0">
-                                    <div class="border-t border-gray-100 pt-3 space-y-2">
-                                        <template x-for="group in journalPreview.conditions" :key="group.condition">
-                                            <div class="space-y-1.5">
-                                                <div class="flex justify-between">
-                                                    <span class="font-bold" :class="group.debitClass" x-text="group.debitLabel"></span>
-                                                    <span class="text-gray-900 font-black" x-text="formatNumber(group.amount)"></span>
-                                                </div>
-                                                <div class="flex justify-between pl-4">
-                                                    <span class="text-gray-500 italic" x-text="group.creditLabel"></span>
-                                                    <span class="text-gray-700 font-black" x-text="formatNumber(group.amount)"></span>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </template>
-
-                                <div x-show="summary.net === 0" class="text-gray-300 italic text-center text-[10px] py-1">
-                                    Menunggu input data...
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
+                {{-- Retur LAMA atas SO: jurnalnya tetap cara lama (membalik Uang Muka). --}}
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-700" x-show="selectedDoc && returnType === 'so'" x-cloak>
+                    Retur lama atas Sales Order — jurnalnya dihitung cara lama (Dr Uang Muka / Cr titipan pembeli).
+                    Pindahkan ke faktur untuk memakai jurnal tiga blok.
                 </div>
 
-                {{-- ═══ UX WARNINGS ═══ --}}
-                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5" x-show="selectedDoc" x-transition>
-                    <div class="font-bold text-amber-700 text-sm mb-2 flex items-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.268 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        EFEK RETUR:
-                    </div>
-                    <ul class="space-y-2 text-xs text-amber-600 font-medium">
-                        <li class="flex items-start gap-2" x-show="returnType === 'invoice'">
-                            <span class="bg-amber-200 text-amber-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">1</span>
-                            <span>Penjualan (Revenue) akan dibalik/dikurangi.</span>
-                        </li>
-                        <li class="flex items-start gap-2" x-show="returnType === 'so'">
-                            <span class="bg-indigo-200 text-indigo-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">1</span>
-                            <span>Uang Muka (Advance) akan dibalik ke saldo pelanggan.</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <span class="bg-amber-200 text-amber-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">2</span>
-                            <span x-text="`Saldo ${getReturnAccountName()} pelanggan akan bertambah.`"></span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <span class="bg-amber-200 text-amber-700 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0 font-black">3</span>
-                            <span>Barang dipisahkan sesuai kondisi: utuh ke persediaan, perbaikan ke akun perbaikan, rusak ke beban kerugian retur.</span>
-                        </li>
-                        <li class="flex items-start gap-2 pt-1 border-t border-amber-200/50">
-                            <span class="text-red-500 font-black">✖</span>
-                            <span class="text-red-600 font-black uppercase tracking-tight">Data permanen setelah posting.</span>
-                        </li>
-                    </ul>
-                </div>
-
-                {{-- ═══ ACTION BUTTONS ═══ --}}
-                <div class="flex flex-col gap-3" x-show="selectedDoc" x-transition>
-                    
-                    <div class="flex gap-2">
-                        <button type="button"
-                                @click="saveDraft()"
-                                :disabled="!canSubmit()"
-                                class="flex-1 py-3.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 border border-gray-200"
-                                :class="canSubmit()
-                                    ? 'bg-white text-gray-700 hover:bg-gray-50'
-                                    : 'bg-gray-50 text-gray-300 cursor-not-allowed'">
-                            <span x-text="returnId ? '💾 Perbarui Draf' : '💾 Simpan Draf'"></span>
-                        </button>
-
-                        <button type="button"
-                                @click="confirmAndSubmit()"
-                                :disabled="!canSubmit()"
-                                class="flex-[1.5] py-3.5 rounded-xl font-black text-sm transition-all flex items-center justify-center gap-2 shadow-lg"
-                                :class="canSubmit()
-                                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 active:scale-95'
-                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                            SELESAIKAN RETUR
-                        </button>
+                {{-- ═══ RINGKASAN + TOMBOL (bawah form) ═══
+                     Tombol duduk setelah jurnal: orang baru menyelesaikan setelah membaca
+                     seluruh isian, bukan dari pojok kanan atas. Pemindah tahap (Banding)
+                     bersebelahan dengan tombol yang menyelesaikan — dua jalan keluar sebuah
+                     kasus harus terlihat bersamaan. --}}
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5" x-show="selectedDoc" x-transition>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+                        <div>
+                            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nilai barang diretur</div>
+                            <div class="font-bold text-gray-800">Rp <span x-text="formatNumber(summary.net)"></span></div>
+                        </div>
+                        <div x-show="returnType === 'invoice'">
+                            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Penjualan dibalik</div>
+                            <div class="font-bold" :class="nilaiDibalik() > 0 ? 'text-blue-600' : 'text-green-600'"
+                                 x-text="nilaiDibalik() > 0 ? 'Rp ' + formatNumber(nilaiDibalik()) : 'tidak dibalik'"></div>
+                        </div>
+                        <div x-show="returnType === 'invoice' && blok.penyelesaian.rows !== null">
+                            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Dana cair ke Saldo Penjualan</div>
+                            <div class="font-bold" :class="danaCair() < 0 ? 'text-red-600' : 'text-gray-800'" x-text="'Rp ' + formatNumber(danaCair())"></div>
+                        </div>
+                        <div x-show="returnType === 'invoice' && blok.penyelesaian.rows !== null">
+                            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Potongan marketplace</div>
+                            <div class="font-bold text-gray-800" x-text="'Rp ' + formatNumber(potonganMarketplace())"></div>
+                        </div>
                     </div>
 
-                    {{-- Pemindah tahap duduk DI SINI, bersebelahan dengan tombol yang
-                         menyelesaikan: saat CS selesai membaca kasusnya, dua jalan
-                         keluarnya harus terlihat bersamaan — diselesaikan sekarang,
-                         atau disengketakan dulu ke marketplace. --}}
-                    @isset($return)
-                        @if($return->status === 'draft')
-                            <form method="POST" action="{{ route('pos.fulfillment.retur-tahap', $return->id) }}">
-                                @csrf
-                                <input type="hidden" name="tahap" value="{{ $return->stage === 'banding' ? 'baru' : 'banding' }}">
-                                <button type="submit"
-                                        class="w-full py-3 rounded-xl font-bold text-sm border transition-all
+                    <div class="flex flex-wrap items-center gap-2 pt-4 border-t border-gray-100">
+                        <a href="{{ route('pos.fulfillment.retur') }}"
+                           class="px-4 py-3 rounded-xl font-semibold text-sm text-gray-400 hover:text-gray-600">Batal &amp; Kembali</a>
+
+                        <div class="flex-1"></div>
+
+                        @isset($return)
+                            @if($return->status === 'draft')
+                                <button type="submit" form="tahapForm"
+                                        class="px-5 py-3 rounded-xl font-bold text-sm border transition-all
                                                {{ $return->stage === 'banding'
                                                     ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
                                                     : 'border-amber-400 text-amber-700 hover:bg-amber-50' }}">
                                     {{ $return->stage === 'banding' ? '← Kembalikan ke Retur Baru' : '⚖ Ajukan Banding' }}
                                 </button>
-                            </form>
-                        @endif
-                    @endisset
+                            @endif
+                        @endisset
 
-                    <a href="{{ route('pos.fulfillment.retur') }}"
-                       class="w-full py-3 rounded-xl font-semibold text-sm text-gray-400 hover:text-gray-600 transition-all flex items-center justify-center">
-                        Batal &amp; Kembali
-                    </a>
+                        <button type="button" @click="saveDraft()" :disabled="!canSubmit()"
+                                class="px-5 py-3 rounded-xl font-bold text-sm transition-all border border-gray-200"
+                                :class="canSubmit() ? 'bg-white text-gray-700 hover:bg-gray-50' : 'bg-gray-50 text-gray-300 cursor-not-allowed'">
+                            <span x-text="returnId ? '💾 Perbarui Draf' : '💾 Simpan Draf'"></span>
+                        </button>
+
+                        <button type="button" @click="confirmAndSubmit()" :disabled="!canSubmit()"
+                                class="px-6 py-3 rounded-xl font-black text-sm transition-all shadow-lg"
+                                :class="canSubmit()
+                                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 active:scale-95'
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'">
+                            ✓ SELESAIKAN RETUR
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-red-600 font-bold mt-2 text-right">Data permanen setelah retur diselesaikan.</p>
                 </div>
 
             </div>
+
+            {{-- RIGHT COLUMN — panduan jurnal per kasus. Kasus yang sedang dikerjakan
+                 (dari jenis, hasil banding, kondisi & qty barang) terbuka dan disorot;
+                 kasus lain bisa dibuka untuk perbandingan. --}}
+            <div class="col-span-4">
+                <div class="sticky top-4 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden" x-show="selectedDoc" x-transition>
+                    <div class="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
+                        <h3 class="font-bold text-gray-700">📘 Panduan Jurnal Retur</h3>
+                        <p class="text-[11px] text-gray-500 mt-0.5">Isi bawaan di langkah 3 mengikuti panduan ini — ubah angkanya sesuai Seller Centre.</p>
+                    </div>
+
+                    <div class="max-h-[calc(100vh-7rem)] overflow-y-auto p-4 space-y-3">
+                        {{-- Peringatan: isian yang bertentangan dengan jenis kasusnya. --}}
+                        <template x-for="w in peringatanKasus()" :key="w">
+                            <div class="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800" x-text="'⚠ ' + w"></div>
+                        </template>
+
+                        <template x-for="grup in panduanGrup()" :key="grup.nama">
+                            <div>
+                                <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 mt-1" x-text="grup.nama"></div>
+                                <div class="space-y-1.5">
+                                    <template x-for="k in grup.kasus" :key="k.key">
+                                        <div class="rounded-xl border transition-colors"
+                                             :class="k.key === kasusAktif() ? 'border-blue-400 bg-blue-50/60 shadow-sm' : 'border-gray-100'">
+                                            <button type="button" @click="panduanBuka = panduanBuka === k.key ? null : k.key"
+                                                    class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left">
+                                                <span class="text-xs font-bold" :class="k.key === kasusAktif() ? 'text-blue-800' : 'text-gray-700'" x-text="k.judul"></span>
+                                                <span class="flex items-center gap-1.5 shrink-0">
+                                                    <span x-show="k.key === kasusAktif()" class="text-[9px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded">KASUS INI</span>
+                                                    <span class="text-gray-400 text-xs" x-text="panduanTerbuka(k.key) ? '▾' : '▸'"></span>
+                                                </span>
+                                            </button>
+                                            <div x-show="panduanTerbuka(k.key)" class="px-3 pb-3 text-[11px] space-y-2">
+                                                <p class="text-gray-500 leading-relaxed" x-text="k.kapan"></p>
+                                                <div><span class="font-bold text-gray-600">Barang:</span> <span class="text-gray-600" x-text="k.barang"></span></div>
+                                                <template x-for="bag in [['a. HPP', k.hpp], ['b. Pembalikan', k.pembalikan], ['c. Penyelesaian', k.penyelesaian]]" :key="bag[0]">
+                                                    <div>
+                                                        <div class="font-black text-gray-500 text-[10px] uppercase tracking-wider" x-text="bag[0]"></div>
+                                                        <div x-show="!bag[1].length" class="text-gray-400 italic">tanpa jurnal</div>
+                                                        <template x-for="(l, n) in bag[1]" :key="n">
+                                                            <div class="font-mono flex gap-1.5" :class="l[0] === 'Cr' ? 'pl-4 text-gray-500' : 'text-gray-800'">
+                                                                <span class="font-bold w-5 shrink-0" x-text="l[0]"></span>
+                                                                <span class="font-sans" x-text="l[1]"></span>
+                                                                <span class="font-sans text-gray-400" x-show="l[2]" x-text="'— ' + l[2]"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <p x-show="k.catatan" class="text-gray-500 bg-white/70 border border-gray-100 rounded-lg px-2 py-1.5 leading-relaxed" x-text="'💡 ' + k.catatan"></p>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
         </div>
     </form>
+
+    @isset($return)
+        @if($return->status === 'draft')
+            {{-- Di luar form retur: form tak boleh bersarang. --}}
+            <form id="tahapForm" method="POST" action="{{ route('pos.fulfillment.retur-tahap', $return->id) }}" class="hidden">
+                @csrf
+                <input type="hidden" name="tahap" value="{{ $return->stage === 'banding' ? 'baru' : 'banding' }}">
+            </form>
+        @endif
+    @endisset
 
     {{-- ═══ CONFIRM MODAL ═══ --}}
     <div x-show="showConfirm"
@@ -830,19 +825,23 @@
             <div class="bg-gray-50 rounded-xl p-4 mb-5 space-y-2 text-sm">
                 <div class="flex justify-between">
                     <span class="text-gray-500">Pelanggan</span>
-                    <span class="font-bold text-gray-800" x-text="selectedInvoice?.number ? getCustomerName() : '—'"></span>
+                    <span class="font-bold text-gray-800" x-text="getCustomerName() || '—'"></span>
                 </div>
                 <div class="flex justify-between">
                     <span class="text-gray-500" x-text="returnType === 'invoice' ? 'Faktur' : 'Sales Order'"></span>
                     <span class="font-bold text-gray-800" x-text="selectedDoc?.number"></span>
                 </div>
                 <div class="flex justify-between">
-                    <span class="text-gray-500">Total Retur</span>
+                    <span class="text-gray-500">Nilai barang diretur</span>
                     <span class="font-black text-blue-600">Rp <span x-text="formatNumber(summary.net)"></span></span>
                 </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-500" x-text="`Saldo ${getReturnAccountName()} naik menjadi`"></span>
-                    <span class="font-black text-green-600">Rp <span x-text="formatNumber(customerBalance + summary.net)"></span></span>
+                <div class="flex justify-between" x-show="returnType === 'invoice'">
+                    <span class="text-gray-500">Penjualan dibalik</span>
+                    <span class="font-bold text-gray-800" x-text="nilaiDibalik() > 0 ? 'Rp ' + formatNumber(nilaiDibalik()) : 'tidak dibalik'"></span>
+                </div>
+                <div class="flex justify-between" x-show="returnType === 'invoice' && blok.penyelesaian.rows !== null">
+                    <span class="text-gray-500">Dana cair ke Saldo Penjualan</span>
+                    <span class="font-bold text-gray-800" x-text="'Rp ' + formatNumber(danaCair())"></span>
                 </div>
             </div>
 
@@ -853,7 +852,7 @@
                 </button>
                 <button type="button" @click="doSubmit()"
                         class="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-black hover:bg-blue-700 transition active:scale-95 shadow-lg shadow-blue-200">
-                    Ya, POST Retur
+                    Ya, Selesaikan Retur
                 </button>
             </div>
         </div>
@@ -874,6 +873,125 @@
  */
 const KAS_AKUN = @json(collect($cashAccounts ?? [])->map(fn ($a) => ['id' => $a->id, 'code' => $a->code, 'name' => $a->name])->values());
 const AKUN_JURNAL = @json(($akunJurnal ?? collect())->map(fn ($a) => ['id' => $a->id, 'code' => $a->code, 'name' => $a->name])->values());
+const URL_JURNAL_BAWAAN = @json(route('sales.ajax.returns.jurnal_bawaan'));
+const KASUS = @json(\App\Modules\Sales\Models\SalesReturn::CASES);
+const KASUS_BANDING = @json(\App\Modules\Sales\Models\SalesReturn::CASE_APPEAL);
+/** Kasus yang barangnya pasti tak sampai ke gudang kita → kondisi bawaan "Tidak Kembali". */
+const KASUS_TIDAK_KEMBALI = ['PH1', 'PH2', 'K3', 'K4'];
+
+/*
+ * Panduan jurnal per kasus — CERMIN SalesReturnService::jurnalBawaan(). Kalau aturan bawaan
+ * di service berubah, ubah juga di sini. Baris: [Dr|Cr, akun, nilai].
+ */
+const PANDUAN = [
+    { grup: 'Paket Hilang', key: 'PH1', judul: 'Klaim menang — dana diganti',
+      kapan: 'Paket tidak pernah sampai; marketplace mengganti penuh (dana KOTOR, tanpa biaya admin).',
+      barang: 'semua baris "Tidak Kembali" — terisi otomatis.',
+      hpp: [['Dr', 'Beban Kerugian Retur', 'HPP barang'], ['Cr', 'HPP', '']], pembalikan: [],
+      penyelesaian: [['Dr', 'Uang Muka', 'nilai faktur'], ['Cr', 'Piutang Usaha', 'nilai faktur'],
+                     ['Dr', 'Saldo Penjualan', 'dana cair'], ['Dr', 'Beban Admin', '+ Hemat Biaya Kirim'],
+                     ['Dr', 'PPh Final 0,5%', 'pajak dipotong'], ['Cr', 'Saldo Ditahan', 'nilai faktur']],
+      catatan: 'Tanpa biaya admin, tapi Program Hemat Biaya Kirim (Biaya Lainnya di Seller Centre) tetap diisi di baris Beban Admin — Saldo Penjualan menyesuaikan sendiri. Selisih kecil terhadap dana cair dibereskan rekonsiliasi.' },
+    { grup: 'Paket Hilang', key: 'PH2', judul: 'Klaim ditolak — dana dikembalikan',
+      kapan: 'Paket hilang tapi marketplace mengembalikan dana ke pembeli. Pilih Hasil Banding = Kalah.',
+      barang: '"Tidak Kembali".',
+      hpp: [['Dr', 'Beban Kerugian Retur', 'HPP barang'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'nilai retur'], ['Cr', 'Piutang Usaha', ''],
+                   ['Dr', 'Uang Muka', 'titipan pembeli'], ['Cr', 'Saldo Ditahan', '']],
+      penyelesaian: [['Dr', 'Beban Admin', '+ Hemat Biaya Kirim'], ['Cr', 'Saldo Penjualan', '']],
+      catatan: '' },
+
+    { grup: 'Gagal Kirim', key: 'GK1', judul: 'Kalah / tidak banding',
+      kapan: 'Paket kembali ke kita tanpa penggantian — penjualannya batal.',
+      barang: 'sesuai hasil cek paket: Utuh / Perbaikan / Rusak.',
+      hpp: [['Dr', 'Persediaan · Persediaan Perbaikan · Beban Kerugian Retur', 'sesuai kondisi'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'nilai retur'], ['Cr', 'Piutang Usaha', ''],
+                   ['Dr', 'Uang Muka', 'titipan pembeli'], ['Cr', 'Saldo Ditahan', '']],
+      penyelesaian: [['Dr', 'Beban Admin', '+ Hemat Biaya Kirim'], ['Cr', 'Saldo Penjualan', 'jadi minus']],
+      catatan: 'Program Hemat Biaya Kirim (Biaya Lainnya di Seller Centre) — isi di baris Beban Admin — tetap dibebankan walau penjualannya batal — Saldo Penjualan pesanan ini boleh minus, memang praktiknya.' },
+    { grup: 'Gagal Kirim', key: 'GK2', judul: 'Banding menang',
+      kapan: 'Barang rusak di jalan dan marketplace mengganti — penjualannya tetap sah.',
+      barang: 'sesuai hasil cek paket.',
+      hpp: [['Dr', 'Persediaan · Persediaan Perbaikan · Beban Kerugian Retur', 'sesuai kondisi'], ['Cr', 'HPP', '']],
+      pembalikan: [],
+      penyelesaian: [['Dr', 'Uang Muka', 'nilai faktur'], ['Cr', 'Piutang Usaha', ''],
+                     ['Dr', 'Saldo Penjualan', 'dana cair'], ['Dr', 'Beban Admin', '+ Hemat Biaya Kirim'], ['Dr', 'PPh Final 0,5%', ''],
+                     ['Cr', 'Saldo Ditahan', 'nilai faktur']],
+      catatan: 'Kompensasi dibayar kotor — tanpa biaya admin, sama seperti paket hilang.' },
+
+    { grup: 'Diajukan Konsumen', key: 'K1', judul: 'Barang & dana kembali penuh',
+      kapan: 'Semua barang dikirim balik, seluruh dana dikembalikan ke pembeli, dana belum cair.',
+      barang: 'sesuai kondisi saat paket dibuka.',
+      hpp: [['Dr', 'Persediaan · Perbaikan · Kerugian Retur', 'sesuai kondisi'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'nilai retur'], ['Cr', 'Piutang Usaha', ''],
+                   ['Dr', 'Uang Muka', 'titipan pembeli'], ['Cr', 'Saldo Ditahan', '']],
+      penyelesaian: [['Dr', 'Beban Admin', '+ Hemat Biaya Kirim'], ['Cr', 'Saldo Penjualan', '']],
+      catatan: 'Pesanan yang diretur biasanya tetap dipotong Program Hemat Biaya Kirim (Biaya Lainnya) — isi di baris Beban Admin; Saldo Penjualan jadi minus sebesar itu.' },
+    { grup: 'Diajukan Konsumen', key: 'K2', judul: 'Retur sebagian barang',
+      kapan: 'Hanya sebagian qty yang dikembalikan; sisanya tetap terjual.',
+      barang: 'isi qty yang kembali + kondisinya; sisanya biarkan 0.',
+      hpp: [['Dr', 'Persediaan · Perbaikan · Kerugian Retur', 'qty yang kembali'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'bagian diretur'], ['Cr', 'Piutang Usaha', ''],
+                   ['Dr', 'Uang Muka', ''], ['Cr', 'Saldo Ditahan', '']],
+      penyelesaian: [['Dr', 'Uang Muka', 'sisa pesanan'], ['Cr', 'Piutang Usaha', ''],
+                     ['Dr', 'Saldo Penjualan', 'dana cair'], ['Dr', 'Beban Admin', ''], ['Dr', 'PPh Final 0,5%', ''],
+                     ['Cr', 'Saldo Ditahan', 'sisa pesanan']],
+      catatan: 'Sisa pesanan dicairkan di sini seperti penjualan biasa — sesuaikan biaya admin dengan Seller Centre.' },
+    { grup: 'Diajukan Konsumen', key: 'K3', judul: 'Refund saja, barang tidak dikirim balik',
+      kapan: 'Dana dikembalikan penuh, pembeli tidak mengirim barangnya kembali.',
+      barang: '"Tidak Kembali".',
+      hpp: [['Dr', 'Beban Kerugian Retur', 'HPP barang'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'nilai retur'], ['Cr', 'Piutang Usaha', ''],
+                   ['Dr', 'Uang Muka', ''], ['Cr', 'Saldo Ditahan', '']],
+      penyelesaian: [],
+      catatan: '' },
+    { grup: 'Diajukan Konsumen', key: 'K4', judul: 'Refund sebagian, barang tetap di pembeli',
+      kapan: 'Hasil negosiasi: pembeli menyimpan barangnya, sebagian dana dikembalikan.',
+      barang: '"Tidak Kembali" (barangnya di pembeli).',
+      hpp: [['Dr', 'Beban Kerugian Retur', 'HPP barang'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'nilai refund'], ['Cr', 'Piutang Usaha', ''],
+                   ['Dr', 'Uang Muka', 'nilai refund'], ['Cr', 'Saldo Ditahan', '']],
+      penyelesaian: [['Dr', 'Uang Muka', 'sisa pesanan'], ['Cr', 'Piutang Usaha', ''],
+                     ['Dr', 'Saldo Penjualan', 'dana cair'], ['Dr', 'Beban Admin', ''], ['Dr', 'PPh Final 0,5%', ''],
+                     ['Cr', 'Saldo Ditahan', 'sisa pesanan']],
+      catatan: 'Isi "Nilai dibalik / refund" di blok Pembalikan — kedua blok disusun ulang otomatis.' },
+    { grup: 'Diajukan Konsumen', key: 'K5', judul: 'Dana pesanan sudah cair',
+      kapan: 'Pesanan sudah selesai & dananya sudah masuk Saldo Penjualan; marketplace memotong dari dompet.',
+      barang: 'sesuai kondisi.',
+      hpp: [['Dr', 'Persediaan · Perbaikan · Kerugian Retur', 'sesuai kondisi'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'nilai retur'], ['Cr', 'Saldo Penjualan', 'yang dipotong'],
+                   ['Cr', 'Beban Admin', 'bila fee dikembalikan']],
+      penyelesaian: [],
+      catatan: 'Tidak ada blok Penyelesaian — pesanannya sudah tuntas sebelumnya.' },
+    { grup: 'Diajukan Konsumen', key: 'K6', judul: 'Banding menang',
+      kapan: 'Pengajuan pembeli ditolak marketplace — dana tetap milik kita.',
+      barang: '"Tidak Kembali" bila barang tak dikirim balik.',
+      hpp: [['Dr', 'Beban Kerugian Retur', 'HPP barang'], ['Cr', 'HPP', '']], pembalikan: [],
+      penyelesaian: [['Dr', 'Uang Muka', 'nilai faktur'], ['Cr', 'Piutang Usaha', ''],
+                     ['Dr', 'Saldo Penjualan', 'dana cair'], ['Dr', 'Beban Admin', ''], ['Dr', 'PPh Final 0,5%', ''],
+                     ['Cr', 'Saldo Ditahan', 'nilai faktur']],
+      catatan: 'Beda dengan paket hilang: ini penjualan biasa, jadi biaya admin tetap ditagih.' },
+    { grup: 'Diajukan Konsumen', key: 'K7', judul: 'Pelanggan non-marketplace',
+      kapan: 'Toko, web, reseller — tak ada saldo ditahan marketplace.',
+      barang: 'sesuai kondisi.',
+      hpp: [['Dr', 'Persediaan · Perbaikan · Kerugian Retur', 'sesuai kondisi'], ['Cr', 'HPP', '']],
+      pembalikan: [['Dr', 'Retur Penjualan', 'nilai retur'], ['Cr', 'Piutang Usaha', 'sisa tagihan'],
+                   ['Cr', 'Kas/Bank · Kredit Pelanggan', 'yang sudah dibayar']],
+      penyelesaian: [],
+      catatan: 'Pilih "Dana dikembalikan ke" di blok Pembalikan: Kredit Pelanggan (tanpa uang keluar) atau Kas/Bank.' },
+];
+
+
+/** Baris jurnal tersimpan (angka) → baris form (teks berformat ribuan). */
+function barisForm(rows) {
+    if (rows === null || rows === undefined) return null;
+    const f = v => (Number(v) > 0 ? window.formatThousands(Math.round(Number(v))) : '');
+    return rows.map(r => ({
+        account_id: r.account_id ? String(r.account_id) : '',
+        debit: f(r.debit), credit: f(r.credit),
+        memo: r.memo || '', auto: !!r.auto,
+    }));
+}
 
 function returForm(initialData = null, prefill = null) {
     // Mode edit menang: kalau retur tersimpan ada, isian di muka tak berlaku lagi.
@@ -901,27 +1019,40 @@ function returForm(initialData = null, prefill = null) {
         caseNotes: initialData?.notes || '',
         customerBalance: initialData?.customer?.credit_balance || 0,
 
-        // Penanganan dana. Nilainya hanya PRATINJAU: SalesReturnService::hitungUang()
-        // menghitung ulang saat posting dan dialah yang berwenang. Yang dikirim ke server
-        // cuma keputusannya (tujuan, nominal, penerima), bukan hasil hitungannya.
+        // Tujuan dana — dipilih di blok Pembalikan, hanya bila ada lebih dari satu pilihan
+        // masuk akal (pelanggan biasa / dana marketplace yang sudah cair).
         refundTarget: initialData?.refund_target || '',
-        refundAmount: initialData?.refund_amount ? String(initialData.refund_amount) : '',
-        refundAccountId: initialData?.refund_account_id || '',
-        refundCustomerId: initialData?.refund_customer_id || '',
+        refundAccountId: initialData?.refund_account_id ? String(initialData.refund_account_id) : '',
+        refundCustomerId: initialData?.refund_customer_id ? String(initialData.refund_customer_id) : '',
+        returnCase: initialData?.return_case || '',
+        /** Hasil banding tersirat dari kasus (sama dengan SalesReturn::CASE_APPEAL). */
+        get appealResult() { return KASUS_BANDING[this.returnCase] || ''; },
         isMarketplace: initialData?.customer?.is_marketplace || prefill?.customer?.is_marketplace || false,
         marketplaceHoldName: initialData?.customer?.marketplace_hold_name || prefill?.customer?.marketplace_hold_name || '',
 
         /*
-         * Jurnal dana yang ditulis tangan. Mati secara bawaan: yang otomatis tetap jalur
-         * normalnya, dan ini cuma dinyalakan saat kasusnya memang tak bisa disimpulkan
-         * dari kondisi barang (retur yang diajukan konsumen dengan ganti sebagian).
+         * Jurnal tiga blok. `diubah` = admin sudah menyentuh bloknya: bawaan sistem tak lagi
+         * menimpanya, dan hanya blok yang diubah yang ikut tersimpan di draft. Draft lama yang
+         * dananya ditulis tangan (journal_override) masuk sebagai blok Pembalikan.
          */
-        jurnalManual: Array.isArray(initialData?.journal_override) && initialData.journal_override.length > 0,
-        jurnalRows: (initialData?.journal_override || []).map(b => ({
-            account_id: String(b.account_id ?? ''),
-            debit:  b.debit  > 0 ? String(b.debit)  : '',
-            credit: b.credit > 0 ? String(b.credit) : '',
-        })),
+        blok: {
+            pembalikan: {
+                rows: barisForm(initialData?.journal_reversal ?? (initialData?.journal_override?.length ? initialData.journal_override : null)) || [],
+                diubah: initialData?.journal_reversal != null || !!initialData?.journal_override?.length,
+            },
+            penyelesaian: {
+                rows: barisForm(initialData?.journal_settlement ?? null),
+                diubah: initialData?.journal_settlement != null,
+            },
+        },
+        bawaan: { tujuan: {}, konteks: null, dibalik: 0 },
+        dibalikManual: initialData?.reversed_amount != null && initialData?.journal_reversal != null ? Number(initialData.reversed_amount) : null,
+        dibalikInput: '',
+        labelAkun: {},
+        memuatBawaan: false,
+        panduanBuka: null,
+        bawaanTimer: null,
+        bawaanSeq: 0,
 
         // UI
         loadingDocs: false,
@@ -989,9 +1120,10 @@ function returForm(initialData = null, prefill = null) {
         },
 
         async init() {
+            if (this.caseType && !this.returnCase) this.returnCase = Object.keys(KASUS[this.caseType] || {})[0] || '';
             // Watch for changes to recalculate
             // Qty berubah -> nilai retur berubah -> nominal pengembalian bawaannya ikut.
-            this.$watch('items', () => { this.calculateSummary(); this.isiUlangRefund(); }, { deep: true });
+            this.$watch('items', () => { this.calculateSummary(); this.muatBawaan(); }, { deep: true });
 
             if (this.returnId && initialData) {
                 // We are in EDIT mode (from Draft)
@@ -1024,12 +1156,15 @@ function returForm(initialData = null, prefill = null) {
                             const rows = grouped[docItem.id] || [];
                             let saved = null;
                             if (rows.length === 1) {
-                                saved = { qty: rows[0].qty, condition: rows[0].condition || 'good',
+                                saved = { qty: rows[0].qty, condition: ['hilang', 'tetap'].includes(rows[0].condition) ? 'tidak_kembali' : (rows[0].condition || 'good'),
                                           component_conditions: rows[0].component_conditions || null };
                             } else if (rows.length > 1) {
                                 // Beberapa baris kondisi (produk non-bundle) → mode pisah.
-                                const splits = { good: 0, repair: 0, damaged: 0 };
-                                rows.forEach(r => { if (splits[r.condition] !== undefined) splits[r.condition] += parseFloat(r.qty) || 0; });
+                                const splits = { good: 0, repair: 0, damaged: 0, tidak_kembali: 0 };
+                                rows.forEach(r => {
+                                const c = ['hilang', 'tetap'].includes(r.condition) ? 'tidak_kembali' : r.condition;
+                                if (splits[c] !== undefined) splits[c] += parseFloat(r.qty) || 0;
+                            });
                                 saved = { split: true, splits };
                             }
                             return this.buildItem(docItem, saved);
@@ -1038,6 +1173,7 @@ function returForm(initialData = null, prefill = null) {
                     
                     await this.refreshBalance();
                     this.calculateSummary(); // 🔥 TRIGGER INITIAL CALCULATION
+                    this.muatBawaan();
                 } catch (e) {
                     console.error('Error initializing edit form:', e);
                 } finally {
@@ -1248,7 +1384,10 @@ function returForm(initialData = null, prefill = null) {
             this.items = this.selectedDoc.items.map(item => this.buildItem(item));
 
             this.calculateSummary(); // 🔥 TRIGGER INITIAL CALCULATION
-            this.selarasDana();      // tujuan dana mengikuti keadaan dana faktur
+            // Dokumen baru → bawaan dihitung ulang dari nol, termasuk blok yang sempat diubah.
+            this.blok.pembalikan.diubah = false;
+            this.blok.penyelesaian.diubah = false;
+            this.muatBawaan('semua');
         },
 
         // ── Qty Validation ──────────────────────────────
@@ -1283,41 +1422,29 @@ function returForm(initialData = null, prefill = null) {
             this.calculateSummary();
         },
 
-        /**
-         * HANYA paket hilang yang kondisinya boleh ditentukan otomatis, dan bawaannya
-         * `tidak_kembali`: barangnya tidak pernah sampai ke tangan siapa pun untuk diperiksa,
-         * dan marketplace mengganti dananya — jadi tidak ada yang perlu dibalik.
-         * Kalau ternyata klaimnya ditolak, admin tinggal mengubah barisnya ke "Tidak Dapat
-         * Diperbaiki" supaya penjualannya dibalik & barangnya jadi Beban Kerugian Retur.
-         *
-         * Jenis lain SENGAJA TIDAK diisi otomatis. Barang yang datang belum tentu utuh: paket
-         * gagal kirim bisa penyok di jalan, barang "tidak sesuai" bisa sekalian rusak. Menebak
-         * "utuh" membuat admin tinggal klik simpan tanpa membuka paketnya, dan stok barang rusak
-         * masuk kembali sebagai barang baik. Kondisi wajib hasil pemeriksaan manual.
-         *
-         * Baris yang kondisinya sudah dipisah manual TIDAK diutak-atik.
-         */
-        /** Apa yang dituntut jenis kasus yang sedang dipilih. */
-        penjelasanJenis() {
-            return {
-                paket_hilang: 'Paket tidak kembali dan dananya penuh jadi milik kita — seluruh baris '
-                    + 'otomatis ditandai "Tidak Kembali (dana diganti)", jadi penjualannya tidak dibalik. '
-                    + 'Kalau klaimnya ternyata ditolak, ubah barisnya sendiri.',
-                gagal_kirim: 'Paket kembali TANPA penggantian uang — penjualannya batal seutuhnya. '
-                    + 'Cek kondisi barangnya saat paket datang; barang gagal kirim sering sudah rusak di '
-                    + 'jalan, dan kalau begitu kasusnya pantas dibawa ke Banding.',
-                diajukan_konsumen: 'Hasilnya bermacam-macam — barang bisa kembali utuh, rusak, atau hanya '
-                    + 'sebagian dananya yang dikembalikan. Tidak ada yang diisi otomatis: isi kondisi tiap '
-                    + 'baris dan nilai pengembaliannya sesuai keputusan kasusnya.',
-            }[this.caseType] || '';
+        gantiJenis() {
+            this.returnCase = Object.keys(KASUS[this.caseType] || {})[0] || '';
+            this.gantiKasus();
         },
 
+        gantiKasus() {
+            // Refund sebagian hanya milik K4 — kasus lain kembali ke nilai penuh bawaan.
+            if (this.returnCase !== 'K4') { this.dibalikManual = null; this.dibalikInput = ''; }
+            this.applyDefaultConditionFromCaseType();
+            this.muatBawaan();
+        },
+
+        /**
+         * Kasus yang barangnya pasti tak sampai ke kita (paket hilang, refund tanpa barang
+         * kembali, barang tetap di pembeli) → semua baris "Tidak Kembali". Kasus lain SENGAJA
+         * tidak diisi: barang yang datang belum tentu utuh, kondisinya wajib hasil cek paket.
+         * Baris yang kondisinya sudah dipisah manual TIDAK diutak-atik.
+         */
         applyDefaultConditionFromCaseType() {
-            const bawaan = { paket_hilang: 'tidak_kembali' }[this.caseType];
+            if (!KASUS_TIDAK_KEMBALI.includes(this.returnCase)) return;
+            const bawaan = 'tidak_kembali';
 
-            if (!bawaan) return;
-
-            this.items.forEach((item, i) => {
+            this.items.forEach(item => {
                 if (item.split) return;
                 if (item.is_bundle) {
                     Object.keys(item.component_conditions || {}).forEach(pid => {
@@ -1330,6 +1457,13 @@ function returForm(initialData = null, prefill = null) {
             this.calculateSummary();
         },
 
+        penjelasanKasus() {
+            if (!this.returnCase) return 'Pilih kasusnya — isi bawaan jurnal & panduan di kanan mengikuti kasus ini.';
+            const k = PANDUAN.find(x => x.key === this.returnCase);
+            const tambahan = this.returnCase === 'K4' ? ' Isi "Nilai dibalik / refund" di blok Pembalikan.' : '';
+            return k ? `${k.kapan} Barang: ${k.barang}${tambahan}` : '';
+        },
+
         onSplitChange(index) {
             this.validateQty(index);
             this.calculateSummary();
@@ -1339,7 +1473,7 @@ function returForm(initialData = null, prefill = null) {
         // pada kondisi terpilih agar tidak hilang.
         enableSplit(index) {
             const item = this.items[index];
-            item.splits = { good: 0, repair: 0, damaged: 0 };
+            item.splits = { good: 0, repair: 0, damaged: 0, tidak_kembali: 0 };
             const qty = parseFloat(item.qty_return) || 0;
             if (qty > 0 && item.splits[item.condition] !== undefined) {
                 item.splits[item.condition] = qty;
@@ -1355,7 +1489,7 @@ function returForm(initialData = null, prefill = null) {
             const allocs = this.itemAllocations(item);
             item.qty_return = allocs.reduce((s, a) => s + a.qty, 0);
             item.condition  = allocs.length ? allocs[0].condition : 'good';
-            item.splits     = { good: 0, repair: 0, damaged: 0 };
+            item.splits     = { good: 0, repair: 0, damaged: 0, tidak_kembali: 0 };
             item.split      = false;
             this.validateQty(index);
             this.calculateSummary();
@@ -1368,7 +1502,8 @@ function returForm(initialData = null, prefill = null) {
             const isBundle = components.length > 0;
             const cc = {};
             components.forEach(c => {
-                cc[c.product_id] = (saved && saved.component_conditions && saved.component_conditions[c.product_id]) || 'good';
+                const lama = (saved && saved.component_conditions && saved.component_conditions[c.product_id]) || 'good';
+                cc[c.product_id] = ['hilang', 'tetap'].includes(lama) ? 'tidak_kembali' : lama;
             });
             return {
                 id:              docItem.id,
@@ -1381,7 +1516,7 @@ function returForm(initialData = null, prefill = null) {
                 cogs_total:      docItem.cogs_total,
                 condition:       saved ? (saved.condition || 'good') : 'good',
                 split:           saved ? !!saved.split : false,
-                splits:          (saved && saved.splits) ? saved.splits : { good: 0, repair: 0, damaged: 0 },
+                splits:          (saved && saved.splits) ? saved.splits : { good: 0, repair: 0, damaged: 0, tidak_kembali: 0 },
                 is_bundle:       isBundle,
                 components:      components,
                 component_conditions: cc,
@@ -1397,7 +1532,7 @@ function returForm(initialData = null, prefill = null) {
         itemAllocations(item) {
             if (item.is_bundle) return [];
             if (item.split) {
-                return ['good', 'repair', 'damaged']
+                return ['good', 'repair', 'damaged', 'tidak_kembali']
                     .map(c => ({ condition: c, qty: parseFloat(item.splits?.[c]) || 0 }))
                     .filter(a => a.qty > 0);
             }
@@ -1463,60 +1598,36 @@ function returForm(initialData = null, prefill = null) {
         },
 
         calculateSummary() {
-            let net = 0;        // nilai kasus retur seutuhnya
-            let reversed = 0;   // bagian yang benar-benar membalik penjualan
+            // Kondisi barang HANYA menentukan jurnal HPP (blok a). Penjualan dibalik atau tidak
+            // diputuskan server dari Jenis Retur + Hasil Banding (blok b & c).
+            let net = 0;
             let cogs = 0;
-            const conditionTotals = {
-                good: 0,
-                repair: 0,
-                damaged: 0,
-                // Barang tak kembali & dananya dikembalikan: modalnya jadi kerugian, sama
-                // seperti `damaged`. Bedanya cuma fakta fisiknya — barangnya tak pernah datang.
-                hilang: 0,
-                tidak_kembali: 0,
+            const conditionTotals = { good: 0, repair: 0, damaged: 0, tidak_kembali: 0 };
+            const tambah = (kondisi, nilai) => {
+                const k = ['hilang', 'tetap'].includes(kondisi) ? 'tidak_kembali' : kondisi;
+                cogs += nilai;
+                if (conditionTotals[k] !== undefined) conditionTotals[k] += nilai;
             };
 
             this.items.forEach(item => {
                 if (item.is_bundle) {
-                    // Pendapatan/nilai retur = level bundle; COGS di-split per komponen sesuai kondisinya.
                     const q = parseFloat(item.qty_return) || 0;
                     if (q <= 0) return;
-                    const nilai = this.lineValueFor(item, q);
-                    net += nilai;
-                    if (item.condition !== 'tidak_kembali') reversed += nilai;
-                    this.bundleComponentCogs(item).forEach(cc => {
-                        // Komponen yang tidak kembali tak memindahkan HPP ke mana pun.
-                        if (cc.condition === 'tidak_kembali') return;
-                        cogs += cc.cogs;
-                        if (conditionTotals[cc.condition] !== undefined) {
-                            conditionTotals[cc.condition] += cc.cogs;
-                        }
-                    });
+                    net += this.lineValueFor(item, q);
+                    this.bundleComponentCogs(item).forEach(cc => tambah(cc.condition, cc.cogs));
                     return;
                 }
                 this.itemAllocations(item).forEach(a => {
-                    const nilai = this.lineValueFor(item, a.qty);
-                    net += nilai;
-                    if (a.condition === 'tidak_kembali') return; // dana diganti → tak membalik apa pun
-                    reversed += nilai;
-                    const lineCogs = this.lineCogsFor(item, a.qty);
-                    cogs += lineCogs;
-                    if (conditionTotals[a.condition] !== undefined) {
-                        conditionTotals[a.condition] += lineCogs;
-                    }
+                    net += this.lineValueFor(item, a.qty);
+                    tambah(a.condition, this.lineCogsFor(item, a.qty));
                 });
             });
 
+            const bulat = v => Math.round(v * 100) / 100;
             this.summary = {
-                net: Math.round(net * 100) / 100,
-                reversed: Math.round(reversed * 100) / 100,
-                cogs: Math.round(cogs * 100) / 100,
-                conditionTotals: {
-                    good: Math.round(conditionTotals.good * 100) / 100,
-                    repair: Math.round(conditionTotals.repair * 100) / 100,
-                    damaged: Math.round(conditionTotals.damaged * 100) / 100,
-                    hilang: Math.round(conditionTotals.hilang * 100) / 100,
-                },
+                net: bulat(net),
+                cogs: bulat(cogs),
+                conditionTotals: Object.fromEntries(Object.entries(conditionTotals).map(([k, v]) => [k, bulat(v)])),
             };
 
             this.journalPreview = this.buildJournalPreview();
@@ -1545,9 +1656,9 @@ function returForm(initialData = null, prefill = null) {
                     debitClass: 'text-red-600',
                     tone: 'red',
                 },
-                hilang: {
+                tidak_kembali: {
                     label: 'Beban Kerugian Retur',
-                    debitLabel: 'Dr. 6105 Beban Kerugian Retur (barang tak kembali)',
+                    debitLabel: 'Dr. 6105 Beban Kerugian Retur (barang tidak kembali)',
                     creditLabel: 'Cr. 5001 HPP',
                     debitClass: 'text-red-600',
                     tone: 'red',
@@ -1557,105 +1668,235 @@ function returForm(initialData = null, prefill = null) {
             return meta[condition] || meta.good;
         },
 
+        // ── Panduan jurnal (kolom kanan) ───────────────
+        /** Kondisi semua baris yang diretur (bundle: kondisi per komponen). */
+        kondisiDipakai() {
+            const out = [];
+            this.items.forEach(item => {
+                if (item.is_bundle) {
+                    if ((parseFloat(item.qty_return) || 0) > 0) out.push(...Object.values(item.component_conditions || {}));
+                    return;
+                }
+                this.itemAllocations(item).forEach(a => out.push(a.condition));
+            });
+            return out;
+        },
+
+        /** Kasus yang sedang dikerjakan — kunci PANDUAN. */
+        kasusAktif() {
+            if (!this.selectedDoc || this.returnType !== 'invoice') return null;
+            if (!this.selectedDoc.is_marketplace) return 'K7';
+            if (this.caseType === 'diajukan_konsumen' && this.blok.penyelesaian.rows === null && this.returnCase !== 'K6') return 'K5';
+            return this.returnCase || null;
+        },
+
+        panduanGrup() {
+            const grup = [];
+            PANDUAN.forEach(k => {
+                let g = grup.find(x => x.nama === k.grup);
+                if (!g) grup.push(g = { nama: k.grup, kasus: [] });
+                g.kasus.push(k);
+            });
+            // Grup kasus yang sedang dikerjakan tampil paling atas.
+            const aktif = PANDUAN.find(k => k.key === this.kasusAktif());
+            return aktif ? [...grup.filter(g => g.nama === aktif.grup), ...grup.filter(g => g.nama !== aktif.grup)] : grup;
+        },
+
+        panduanTerbuka(key) {
+            return this.panduanBuka === null ? key === this.kasusAktif() : this.panduanBuka === key;
+        },
+
+        /** Isian yang bertentangan dengan jenis kasusnya. */
+        peringatanKasus() {
+            if (!this.selectedDoc) return [];
+            const w = [];
+            const k = this.kondisiDipakai();
+            if (!this.caseType) w.push('Jenis Retur belum dipilih — retur tak bisa diselesaikan.');
+            else if (!this.returnCase) w.push('Kasus belum dipilih.');
+            if (KASUS_TIDAK_KEMBALI.includes(this.returnCase) && k.some(c => c !== 'tidak_kembali')) {
+                w.push('Kasus ini barangnya tidak sampai ke kita, tapi ada baris yang kondisinya bukan "Tidak Kembali" — periksa lagi (kondisi hanya memengaruhi jurnal HPP).');
+            }
+            if (this.caseType === 'gagal_kirim' && k.includes('tidak_kembali')) {
+                w.push('Gagal Kirim berarti paketnya kembali — isi kondisi hasil cek paket (Utuh / Perbaikan / Rusak).');
+            }
+            if (this.returnCase === 'K4' && this.dibalikManual === null) {
+                w.push('Refund sebagian: isi "Nilai dibalik / refund" di blok Pembalikan sesuai nilai yang dikembalikan ke pembeli.');
+            }
+            return w;
+        },
+
+        // ── Jurnal tiga blok ───────────────────────────
         /**
-         * Nyalakan jurnal manual dengan ISI hitungan sistem, bukan halaman kosong.
-         *
-         * Kasus yang butuh jurnal tangan hampir selalu cuma menggeser satu-dua angka dari
-         * hitungan bawaan. Memulai dari kosong memaksa orang menyusun ulang seluruh jurnal
-         * dari ingatan — dan di situlah akun salah mulai bermunculan.
+         * Minta isi bawaan ke server (SalesReturnService::jurnalBawaan — satu sumber hitungan
+         * dengan posting). Blok yang sudah diubah admin TIDAK ditimpa, kecuali diminta
+         * (`paksa` = nama blok, atau 'semua').
          */
-        toggleJurnalManual() {
-            if (!this.jurnalManual || this.jurnalRows.length > 0) return;
+        muatBawaan(paksa = null) {
+            if (this.returnType !== 'invoice' || !this.selectedDocId) return;
+            clearTimeout(this.bawaanTimer);
+            this.bawaanTimer = setTimeout(async () => {
+                const seq = ++this.bawaanSeq;
+                this.memuatBawaan = true;
+                try {
+                    const res = await fetch(URL_JURNAL_BAWAAN, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json', 'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('#returnForm input[name=_token]')?.value || '',
+                        },
+                        body: JSON.stringify({
+                            invoice_id: this.selectedDocId,
+                            items: this.flatItems(),
+                            return_type: this.caseType || null,
+                            appeal_result: this.appealResult || null,
+                            refund_target: this.refundTarget || null,
+                            refund_account_id: this.refundAccountId || null,
+                            dibalik: this.dibalikManual,
+                        }),
+                    });
+                    if (!res.ok || seq !== this.bawaanSeq) return;
+                    const data = await res.json();
+                    if (seq !== this.bawaanSeq) return;
 
-            const rows = this.barisDanaSistem().map(r => ({
-                account_id: r.account_id ? String(r.account_id) : '',
-                debit:  r.debit  ? String(r.debit)  : '',
-                credit: r.credit ? String(r.credit) : '',
-            }));
+                    this.bawaan = { tujuan: data.tujuan || {}, konteks: data.konteks || null, dibalik: data.dibalik || 0 };
+                    if (this.dibalikManual === null) this.dibalikInput = data.dibalik > 0 ? window.formatThousands(Math.round(data.dibalik)) : '';
+                    if (!this.refundTarget || !(this.refundTarget in this.bawaan.tujuan)) this.refundTarget = data.target || '';
 
-            // Selalu sisakan satu baris kosong supaya jelas daftarnya masih bisa ditambah.
-            this.jurnalRows = rows.length ? rows : [{ account_id: '', debit: '', credit: '' }];
+                    ['pembalikan', 'penyelesaian'].forEach(k => {
+                        (data[k] || []).forEach(r => { if (r.account_id) this.labelAkun[r.account_id] = `${r.code} · ${r.name}`; });
+                        const b = this.blok[k];
+                        if (paksa === k || paksa === 'semua' || !b.diubah) {
+                            b.rows = barisForm(data[k]);
+                            b.diubah = false;
+                        }
+                    });
+                } catch (e) {
+                    console.error('Gagal memuat jurnal bawaan:', e);
+                } finally {
+                    if (seq === this.bawaanSeq) this.memuatBawaan = false;
+                }
+            }, paksa ? 0 : 350);
+        },
+
+        isiUlangBlok(kunci) {
+            if (this.blok[kunci].diubah && !confirm('Ganti isi blok ini dengan bawaan sistem?')) return;
+            if (kunci === 'pembalikan') { this.dibalikManual = null; this.dibalikInput = ''; }
+            this.muatBawaan(kunci);
         },
 
         /**
-         * Baris jurnal sisi dana hitungan sistem — cermin SalesReturnService::
-         * getRevenueReversalLines(). Akunnya dari `selectedDoc.akun` (dikirim server),
-         * bukan ditebak dari label, jadi Saldo Ditahan misalnya menyebut akun milik
-         * marketplace pelanggan ini (1202 Saldo Ditahan Shopee), bukan nama umum.
+         * Refund hasil negosiasi (mis. barang tetap di pembeli, dikembalikan sebagian): satu
+         * angka ini menyusun ulang blok Pembalikan, dan blok Penyelesaian ikut mencairkan
+         * sisanya — bukan empat baris yang diketik ulang satu per satu.
          */
-        barisDanaSistem() {
-            const amount = Number(this.summary.reversed || 0);
-            if (!(amount > 0)) return [];
-
-            const A = this.selectedDoc?.akun || {};
-            const baris = (akun, debit, credit, note = '', cadangan = '') => ({
-                account_id: akun?.id || '',
-                label: akun ? `${akun.code} ${akun.name}` : cadangan,
-                debit, credit, note,
-            });
-
-            // Retur atas SO: yang dibalik titipan pembeli, belum ada omzet.
-            if (this.returnType === 'so') {
-                return [
-                    baris(A.uang_muka, amount, 0),
-                    baris(this.isMarketplace ? A.ditahan : A.kredit, 0, amount),
-                ];
-            }
-
-            const d = this.dana;
-            const rows = [baris(A.retur, amount, 0)];
-            if (d.ar > 0) rows.push(baris(A.piutang, 0, d.ar, 'tagihan dihapus'));
-
-            if (this.nilaiRefund > 0) {
-                const kas = KAS_AKUN.find(a => String(a.id) === String(this.refundAccountId));
-                const tujuan = { hold: A.ditahan, wallet: A.dompet, credit: A.kredit, bank: kas }[this.refundTarget] || A.kredit;
-                rows.push(baris(tujuan, 0, this.nilaiRefund, 'dana dikembalikan', 'Kas/Bank (pilih akun)'));
-            }
-
-            const fee = Math.round((d.cash - this.nilaiRefund) * 100) / 100;
-            if (fee > 0) rows.push(baris(A.admin, 0, fee, 'biaya admin tak dikembalikan'));
-
-            if (d.hold > 0) {
-                rows.push(baris(A.uang_muka, d.hold, 0, 'titipan pembeli dikembalikan'));
-                rows.push(baris(A.ditahan, 0, d.hold, 'saldo ditahan dilepas'));
-            }
-
-            return rows;
+        aturDibalik() {
+            const v = this.dibalikInput === '' ? null : this.angka(this.dibalikInput);
+            this.dibalikManual = v;
+            this.muatBawaan('pembalikan');
         },
 
+        /** Admin menyentuh blok: kunci dari bawaan, lalu seimbangkan baris penyeimbang (⚖). */
+        ubahBlok(kunci) {
+            this.blok[kunci].diubah = true;
+            this.$nextTick(() => this.seimbangkan(kunci));
+        },
+
+        seimbangkan(kunci) {
+            const rows = this.blok[kunci].rows || [];
+            const auto = rows.find(r => r.auto);
+            if (!auto) return;
+            let d = 0, k = 0;
+            rows.forEach(r => { if (r !== auto) { d += this.angka(r.debit); k += this.angka(r.credit); } });
+            const selisih = Math.round((k - d) * 100) / 100;
+            auto.debit  = selisih > 0 ? window.formatThousands(Math.round(selisih)) : '';
+            auto.credit = selisih < 0 ? window.formatThousands(Math.round(-selisih)) : '';
+        },
+
+        /** Blok dikirim ke server? Draft hanya menyimpan blok yang diubah. */
+        kirimBlok(kunci) {
+            const b = this.blok[kunci];
+            return b.rows !== null && (this.formStatus !== 'draft' || b.diubah);
+        },
+
+        angka(v) { return window.cleanNumber(v); },
+
         /**
-         * Jurnal pencairan yang ikut terbit saat retur diposting atas faktur BELUM CAIR —
-         * perkiraan dari sisa tagihan & sisa titipan SETELAH bagian retur di atas. Server
-         * tetap yang berwenang (MarketplaceEngineService); ini hanya pratinjau.
+         * Kelompok sebuah baris — murni tampilan, dari akunnya:
+         *   Pembalikan   : pembatalan penjualan (Retur / Piutang / tujuan dana) · pengembalian titipan (Uang Muka / Saldo Ditahan)
+         *   Penyelesaian : pelunasan faktur (Uang Muka / Piutang) · pencairan dana (sisanya)
          */
-        barisPencairan() {
-            const doc = this.selectedDoc || {};
-            if (this.returnType !== 'invoice' || !doc.akan_dicairkan || !(this.summary.net > 0)) return [];
-
+        grupBaris(kunci, b) {
             const A = this.selectedDoc?.akun || {};
-            const baris = (akun, debit, credit, note = '') => ({
-                label: akun ? `${akun.code} ${akun.name}` : '', debit, credit, note,
-            });
-            const d = this.dana;
-            const bulat = v => Math.max(0, Math.round(v * 100) / 100);
-            const holdSisa = bulat(Number(doc.sisa_ditahan || 0) - d.hold);
-            const arSisa   = bulat(Math.min(Number(doc.sisa_tagihan || 0) - d.ar, holdSisa));
-            if (!(holdSisa > 0)) return [];
+            const id = String(b?.account_id || '');
+            const di = (...akun) => akun.some(a => a && String(a.id) === id);
+            if (kunci === 'pembalikan') return di(A.uang_muka, A.ditahan) ? 'titipan' : 'batal';
+            return di(A.uang_muka, A.piutang) ? 'pelunasan' : 'pencairan';
+        },
 
-            const rows = [];
-            if (arSisa > 0) {
-                rows.push(baris(A.uang_muka, arSisa, 0, 'faktur tuntas'));
-                rows.push(baris(A.piutang, 0, arSisa));
+        grupInfo(kunci, b) {
+            return {
+                batal:     { judul: 'Pembatalan penjualan', ket: 'penjualan dibalik & tagihan faktur dihapus', warna: 'border-blue-300' },
+                titipan:   { judul: 'Pengembalian titipan', ket: 'uang pembeli yang ditahan marketplace dikembalikan ke pembeli', warna: 'border-sky-300' },
+                pelunasan: { judul: 'Pelunasan faktur', ket: 'titipan pembeli melunasi tagihan — tanpa uang bergerak', warna: 'border-violet-300' },
+                pencairan: { judul: 'Pencairan dana', ket: 'Saldo Ditahan → Saldo Penjualan, dipotong admin / pajak', warna: 'border-emerald-300' },
+            }[this.grupBaris(kunci, b)];
+        },
+
+        totalBlok(kunci, sisi) {
+            return (this.blok[kunci].rows || []).reduce((t, r) => t + (r.account_id ? this.angka(r[sisi]) : 0), 0);
+        },
+
+        blokSeimbang(kunci) {
+            return Math.abs(this.totalBlok(kunci, 'debit') - this.totalBlok(kunci, 'credit')) < 0.5;
+        },
+
+        /** Mutasi (debit − kredit) sebuah akun di blok-blok yang disebut. */
+        mutasi(akunId, bloks = ['pembalikan', 'penyelesaian']) {
+            if (!akunId) return 0;
+            return bloks.reduce((t, k) => t + (this.blok[k].rows || [])
+                .filter(r => String(r.account_id) === String(akunId))
+                .reduce((s, r) => s + this.angka(r.debit) - this.angka(r.credit), 0), 0);
+        },
+
+        kodeAkun(id) {
+            return (this.akunLabel(id).split(' · ')[0] || '').trim();
+        },
+
+        /** Penjualan yang dibalik = mutasi akun pendapatan (kode 4…) di blok Pembalikan. */
+        nilaiDibalik() {
+            return (this.blok.pembalikan.rows || [])
+                .filter(r => r.account_id && this.kodeAkun(r.account_id).startsWith('4'))
+                .reduce((s, r) => s + this.angka(r.debit) - this.angka(r.credit), 0);
+        },
+
+        danaCair() {
+            return this.mutasi(this.selectedDoc?.akun?.dompet?.id, ['penyelesaian']);
+        },
+
+        /** Beban yang dipotong marketplace di blok Penyelesaian (admin, pajak, …). */
+        potonganMarketplace() {
+            return (this.blok.penyelesaian.rows || [])
+                .filter(r => r.account_id && /^[56]/.test(this.kodeAkun(r.account_id)))
+                .reduce((s, r) => s + this.angka(r.debit) - this.angka(r.credit), 0);
+        },
+
+        /** Saldo pesanan sebelum → sesudah retur ini (piutang, uang muka, saldo ditahan). */
+        cekSaldo() {
+            const K = this.bawaan.konteks;
+            if (!K || this.returnType !== 'invoice') return [];
+            const out = [{ label: 'Piutang faktur', awal: K.sisa_tagihan, sisa: K.sisa_tagihan + this.mutasi(K.akun.piutang) }];
+            if (K.akun.ditahan) {
+                out.push({ label: 'Uang Muka pembeli', awal: K.uang_muka, sisa: K.uang_muka - this.mutasi(K.akun.uang_muka) });
+                out.push({ label: 'Saldo Ditahan', awal: K.sisa_ditahan, sisa: K.sisa_ditahan + this.mutasi(K.akun.ditahan) });
             }
-            rows.push(baris(A.dompet, holdSisa, 0, 'dana cair'));
-            rows.push(baris(A.ditahan, 0, holdSisa));
-            return rows;
+            return out.map(c => ({ ...c, sisa: Math.round(c.sisa) }));
         },
 
         akunLabel(id) {
+            if (!id) return '';
             const a = AKUN_JURNAL.find(x => String(x.id) === String(id))
                 || Object.values(this.selectedDoc?.akun || {}).find(x => x && String(x.id) === String(id));
-            return a ? `${a.code} · ${a.name}` : '';
+            return a ? `${a.code} · ${a.name}` : (this.labelAkun[id] || '');
         },
 
         // Semua kata yang diketik harus muncul di kode+nama akun, urutan bebas:
@@ -1669,28 +1910,14 @@ function returForm(initialData = null, prefill = null) {
             });
         },
 
-        totalJurnal(sisi) {
-            return this.jurnalRows.reduce((t, b) => t + (parseFloat(String(b[sisi]).replace(/[^\d]/g, '')) || 0), 0);
-        },
-
-        jurnalSeimbang() {
-            const d = this.totalJurnal('debit'), k = this.totalJurnal('credit');
-            return d > 0 && Math.abs(d - k) < 0.005;
-        },
-
         buildJournalPreview() {
             const preview = {
-                dana: [],
                 conditions: [],
             };
 
-            // Sisi UANG. Satu debit (nilai jual yang dibatalkan) dan beberapa kredit, persis
-            // urutan SalesReturnService::hitungUang(): tagihan dihapus dulu, sisanya baru
-            // dikembalikan, dan selisihnya membalik biaya admin.
-            // Sisi UANG tidak di sini: template memanggil barisDanaSistem() langsung, supaya
-            // ikut berubah saat Tujuan/Nilai pengembalian diganti (bukan hanya saat item
-            // berubah) — dan itu sumber yang sama dengan isian awal jurnal manual.
-            ['good', 'repair', 'damaged', 'hilang'].forEach(condition => {
+            // Hanya blok HPP (a). Blok Pembalikan & Penyelesaian datang dari server lewat
+            // muatBawaan() — satu sumber hitungan dengan posting.
+            ['good', 'repair', 'damaged', 'tidak_kembali'].forEach(condition => {
                 const amount = this.summary.conditionTotals?.[condition] ?? 0;
                 if (amount > 0) {
                     const meta = this.getConditionMeta(condition);
@@ -1710,8 +1937,13 @@ function returForm(initialData = null, prefill = null) {
             if (!this.customerId || !this.selectedDoc || !this.returnDate) return false;
             const hasItem = this.items.some(i => this.itemTotalQty(i) > 0);
             const hasError = this.items.some(i => i.qty_error);
-            // Jurnal timpang ditahan di sini, bukan dibiarkan memantul dari server.
-            if (this.jurnalManual && !this.jurnalSeimbang()) return false;
+            // Jurnal timpang & saldo pesanan yang jadi minus ditahan di sini, bukan dibiarkan
+            // memantul dari server.
+            if (this.returnType === 'invoice') {
+                if (this.memuatBawaan) return false;
+                if (['pembalikan', 'penyelesaian'].some(k => this.blok[k].rows !== null && !this.blokSeimbang(k))) return false;
+                if (this.cekSaldo().some(c => c.sisa < -1)) return false;
+            }
             return hasItem && !hasError && this.summary.net > 0;
         },
 
@@ -1772,77 +2004,6 @@ function returForm(initialData = null, prefill = null) {
 
         getCustomerName() {
             return this.customerName;
-        },
-
-        /**
-         * Pembagian uang retur — cerminan SalesReturnService::hitungUang().
-         *
-         * Urutannya yang membuatnya benar: hapus tagihan dulu sebesar piutang yang masih
-         * terbuka, sisanya barulah uang yang sudah kita terima dan perlu dikembalikan.
-         */
-        get dana() {
-            const doc    = this.selectedDoc || {};
-            const amount = Number(this.summary.reversed || 0);
-            const sisa   = Number(doc.sisa_tagihan || 0);
-            const ar     = Math.min(amount, sisa);
-            const cash   = Math.max(0, Math.round((amount - ar) * 100) / 100);
-            const grand  = Number(doc.grand_total || 0);
-            const feeMax = grand > 0 ? Math.round(Number(doc.fee || 0) * amount / grand) : 0;
-            const jenis  = doc.jenis || 'biasa';
-
-            const penjelasan = jenis === 'marketplace'
-                ? 'Dana pembeli masih ditahan marketplace. Membatalkan penjualan berarti menghapus tagihannya, dan titipan pembeli dilepas balik — tidak ada uang yang keluar dari kas kita.'
-                : (cash > 0
-                    ? 'Dananya sudah kita terima, jadi bagian ini memang harus dikembalikan ke suatu tempat. Pilih ke mana.'
-                    : 'Fakturnya belum pernah dibayar, jadi yang dibatalkan hanyalah tagihannya — tidak ada uang yang bergerak.');
-
-            // Titipan pembeli yang masih ditahan marketplace — aturan SalesReturnService::hitungUang().
-            const hold = this.refundTarget === 'hold' ? Math.min(amount, Number(doc.sisa_ditahan || 0)) : 0;
-
-            return { amount, ar, cash, hold, feeMax, jenis, penjelasan, refundDefault: Math.max(0, cash - feeMax) };
-        },
-
-        /** Tujuan dana yang masuk akal untuk dokumen ini — sisanya disembunyikan. */
-        get tujuanTersedia() {
-            const doc = this.selectedDoc || {};
-            const out = {};
-            if (this.dana.jenis === 'marketplace') {
-                out.hold = 'Saldo Ditahan Marketplace (dana belum cair)';
-                return out;
-            }
-            if (doc.is_marketplace) out.wallet = 'Saldo Penjualan Marketplace (dipotong dari dompet)';
-            out.credit = 'Jadi Kredit Pelanggan (tidak ada uang keluar)';
-            out.bank   = 'Transfer dari Kas/Bank';
-            return out;
-        },
-
-        get nilaiRefund() {
-            const v = parseFloat(String(this.refundAmount).replace(/\./g, '').replace(',', '.'));
-            return isNaN(v) ? 0 : v;
-        },
-
-        /** Kembalikan nominal ke bawaan: dana BERSIH yang kita terima. */
-        isiUlangRefund() {
-            this.refundAmount = this.dana.refundDefault > 0 ? this.formatNumber(this.dana.refundDefault) : '';
-        },
-
-        /** Dipanggil saat dokumen berganti — tujuan mengikuti keadaan dana fakturnya. */
-        selarasDana() {
-            const doc = this.selectedDoc || {};
-            const tersedia = Object.keys(this.tujuanTersedia);
-            if (!this.refundTarget || !tersedia.includes(this.refundTarget)) {
-                this.refundTarget = doc.tujuan_bawaan && tersedia.includes(doc.tujuan_bawaan)
-                    ? doc.tujuan_bawaan
-                    : (tersedia[0] || '');
-            }
-            this.isiUlangRefund();
-        },
-
-        getReturnAccountName() {
-            if (this.isMarketplace && this.marketplaceHoldName) {
-                return this.marketplaceHoldName;
-            }
-            return '2106 Overpay Customer';
         },
 
         async refreshBalance() {

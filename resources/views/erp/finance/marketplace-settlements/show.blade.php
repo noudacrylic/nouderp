@@ -8,7 +8,9 @@
         'void'   => 'bg-red-100 text-red-700',
     };
     $matched = $ms->lines->where('is_matched', true)->count();
-    $unmatched = $ms->lines->count() - $matched;
+    // Menunggu = pesanannya dikenal tapi belum dituntaskan ERP (retur / pesanan selesai).
+    $menunggu = $ms->lines->filter(fn($l) => !$l->is_matched && $l->sales_invoice_id)->count();
+    $unmatched = $ms->lines->count() - $matched - $menunggu;
     $linesLebih = $ms->lines->filter(fn($l) => $l->fee_diff > 0.01)->count();
     $linesKurang = $ms->lines->filter(fn($l) => $l->fee_diff < -0.01)->count();
     $linesSesuai = $ms->lines->count() - $linesLebih - $linesKurang;
@@ -21,23 +23,27 @@
     <div class="flex-1">
         <div class="font-semibold text-amber-900">Hasil Pencocokan</div>
         <div class="text-xs text-amber-800 mt-1 flex gap-3 flex-wrap">
-            <span>✓ <b>{{ $linesSesuai }}</b> sesuai (fee aktual = tercatat)</span>
-            @if($linesLebih > 0)<span class="text-red-700">⬆ <b>{{ $linesLebih }}</b> fee aktual > tercatat</span>@endif
-            @if($linesKurang > 0)<span class="text-blue-700">⬇ <b>{{ $linesKurang }}</b> fee aktual < tercatat</span>@endif
+            <span>✓ <b>{{ $linesSesuai }}</b> sesuai (potongan aktual = tercatat)</span>
+            @if($linesLebih > 0)<span class="text-red-700">⬆ <b>{{ $linesLebih }}</b> potongan aktual > tercatat</span>@endif
+            @if($linesKurang > 0)<span class="text-blue-700">⬇ <b>{{ $linesKurang }}</b> potongan aktual < tercatat</span>@endif
+            @if($menunggu > 0)<span class="text-slate-600">⏳ <b>{{ $menunggu }}</b> menunggu retur / pesanan selesai di ERP</span>@endif
             @if($unmatched > 0)<span class="text-amber-700">⚠ <b>{{ $unmatched }}</b> tidak match faktur</span>@endif
+        </div>
+        <div class="text-[11px] text-amber-700 mt-1">
+            Potongan = biaya admin (termasuk Program Hemat Biaya Kirim) + pajak, dibandingkan sebagai satu total. Selisihnya dibukukan ke Beban Admin.
         </div>
         @if(abs($ms->total_fee_diff) > 0.01)
             <div class="text-xs text-amber-800 mt-1">
-                Selisih total fee (dibukukan):
+                Selisih total potongan (dibukukan):
                 <b class="{{ $ms->total_fee_diff > 0 ? 'text-red-700' : 'text-blue-700' }}">
                     {{ $ms->total_fee_diff > 0 ? '+' : '' }}{{ number_format($ms->total_fee_diff, 0, ',', '.') }}
                 </b>
                 {{ $ms->total_fee_diff > 0 ? '(marketplace potong lebih banyak dari yg tercatat di faktur)' : '(marketplace potong lebih sedikit dari yg tercatat di faktur)' }}
             </div>
         @endif
-        @if($unmatched > 0 && $matched > 0)
+        @if(($unmatched + $menunggu) > 0 && $matched > 0)
             <div class="mt-2 text-xs text-amber-900 bg-white border border-amber-200 rounded px-2 py-1.5">
-                💡 Submit akan men-jurnal <b>{{ $matched }} baris matched</b>. Sisa <b>{{ $unmatched }} unmatched</b> dipindah ke rekonsiliasi baru (DRAF) — akan auto-match saat faktur marketplace baru dibuat, atau klik <b>Retry Match</b>.
+                💡 Submit akan men-jurnal <b>{{ $matched }} baris matched</b>. Sisa <b>{{ $unmatched + $menunggu }} unmatched/menunggu</b> dipindah ke rekonsiliasi baru (DRAF) — akan auto-match saat faktur marketplace baru dibuat, atau klik <b>Retry Match</b>.
             </div>
         @elseif($unmatched > 0 && $matched === 0)
             <div class="mt-2 text-xs text-red-900 bg-white border border-red-200 rounded px-2 py-1.5">
@@ -102,8 +108,8 @@
         <div><div class="text-xs text-gray-500">File Sumber</div>{{ $ms->source_filename ?? '-' }}</div>
         <div><div class="text-xs text-gray-500">Jurnal</div>{{ $ms->journal_id ? '#'.$ms->journal_id : '-' }}</div>
         <div><div class="text-xs text-gray-500">Total Gross</div>{{ number_format($ms->total_gross, 0, ',', '.') }}</div>
-        <div><div class="text-xs text-gray-500">Fee Tercatat (Faktur)</div>{{ number_format($feePrebooked, 0, ',', '.') }}</div>
-        <div><div class="text-xs text-gray-500">Fee Aktual (Marketplace)</div>{{ number_format($ms->total_fee_actual, 0, ',', '.') }}</div>
+        <div><div class="text-xs text-gray-500">Potongan Tercatat (ERP)</div>{{ number_format($feePrebooked, 0, ',', '.') }}</div>
+        <div><div class="text-xs text-gray-500">Potongan Aktual (Marketplace)</div>{{ number_format($ms->total_fee_actual, 0, ',', '.') }}</div>
         <div><div class="text-xs text-gray-500">Selisih (Dibukukan)</div><span class="{{ abs($ms->total_fee_diff) > 0.01 ? 'text-amber-700 font-semibold' : '' }}">{{ number_format($ms->total_fee_diff, 0, ',', '.') }}</span></div>
         <div class="col-span-2"><div class="text-xs text-gray-500">Total Net</div><span class="text-base font-semibold">{{ number_format($ms->total_net, 0, ',', '.') }}</span></div>
         <div><div class="text-xs text-gray-500">Matched</div><span class="text-green-700">{{ $matched }}</span> / {{ $ms->lines->count() }}</div>
@@ -136,9 +142,10 @@
         <select id="filter_status" class="border rounded px-2 py-1.5 text-sm">
             <option value="">Semua Status</option>
             <option value="sesuai">✓ Sesuai</option>
-            <option value="lebih">⬆ Lebih (fee aktual &gt; tercatat)</option>
-            <option value="kurang">⬇ Kurang (fee aktual &lt; tercatat)</option>
+            <option value="lebih">⬆ Lebih (potongan aktual &gt; tercatat)</option>
+            <option value="kurang">⬇ Kurang (potongan aktual &lt; tercatat)</option>
             <option value="no_match">✗ No Match</option>
+            <option value="menunggu">⏳ Menunggu retur / selesai</option>
         </select>
     </div>
     <button type="button" id="filter_reset" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-xs">Reset</button>
@@ -156,8 +163,8 @@
                 <th class="px-3 py-2 text-left">Tgl Cair</th>
                 <th class="px-3 py-2 text-left">Faktur Match</th>
                 <th class="px-3 py-2 text-right">Gross</th>
-                <th class="px-3 py-2 text-right">Fee Tercatat</th>
-                <th class="px-3 py-2 text-right">Fee Aktual</th>
+                <th class="px-3 py-2 text-right" title="Admin + pajak yang sudah dibukukan ERP">Potongan Tercatat</th>
+                <th class="px-3 py-2 text-right" title="Gross − dana cair">Potongan Aktual</th>
                 <th class="px-3 py-2 text-right">Selisih</th>
                 <th class="px-3 py-2 text-right">Net</th>
                 <th class="px-3 py-2 text-center">Status</th>
@@ -166,7 +173,9 @@
         <tbody id="settlement_lines_body">
             @foreach($ms->lines as $line)
                 @php
-                    if (!$line->is_matched) {
+                    if (!$line->is_matched && $line->sales_invoice_id) {
+                        $statusKey = 'menunggu';
+                    } elseif (!$line->is_matched) {
                         $statusKey = 'no_match';
                     } elseif ($line->fee_diff > 0.01) {
                         $statusKey = 'lebih';
@@ -191,6 +200,12 @@
                                class="text-blue-600 hover:underline font-mono text-xs" target="_blank" rel="noopener">
                                 {{ $line->salesInvoice->invoice_number }}
                             </a>
+                        @elseif($statusKey === 'menunggu' && $line->salesInvoice)
+                            <a href="{{ route('sales.invoices.show', $line->salesInvoice->id) }}"
+                               class="text-slate-500 hover:underline font-mono text-xs" target="_blank" rel="noopener"
+                               title="{{ $line->note }}">
+                                {{ $line->salesInvoice->invoice_number }}
+                            </a>
                         @else
                             <span class="text-amber-700 text-xs" title="{{ $line->note }}">⚠ tidak match</span>
                         @endif
@@ -201,7 +216,9 @@
                     <td class="px-3 py-2 text-right {{ abs($line->fee_diff) > 0.01 ? 'text-amber-700 font-semibold' : '' }}">{{ number_format($line->fee_diff, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-right">{{ number_format($line->net_amount, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-center">
-                        @if($statusKey === 'no_match')
+                        @if($statusKey === 'menunggu')
+                            <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 font-semibold" title="{{ $line->note }}">⏳ Menunggu</span>
+                        @elseif($statusKey === 'no_match')
                             <span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 font-semibold">✗ No Match</span>
                         @elseif($statusKey === 'lebih')
                             <span class="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 font-semibold" title="Marketplace memotong fee lebih besar dari yang tercatat di faktur">⬆ Lebih</span>

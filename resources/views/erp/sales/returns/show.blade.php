@@ -86,11 +86,23 @@
                         <div class="font-bold text-gray-800">{{ $return->external_return_number }}</div>
                     </div>
                     @endif
-                    @if($return->skipsReversal())
+                    @if($return->caseLabel())
+                    <div>
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Kasus</div>
+                        <div class="font-bold text-gray-800">{{ $return->caseLabel() }}</div>
+                    </div>
+                    @elseif($return->appeal_result)
+                    <div>
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Hasil Banding</div>
+                        <div class="font-bold {{ $return->appeal_result === 'menang' ? 'text-green-700' : 'text-red-600' }}">
+                            {{ \App\Modules\Sales\Models\SalesReturn::APPEAL_RESULTS[$return->appeal_result] ?? $return->appeal_result }}
+                        </div>
+                    </div>
+                    @endif
+                    @if($return->status === 'posted' && $return->skipsReversal())
                     <div class="col-span-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">
-                        <strong>Tidak ada pembalikan.</strong>
-                        Seluruh barang berkondisi "Tidak Kembali" — dananya diganti marketplace, jadi omzet &amp; HPP tetap diakui
-                        dan stok tidak dikembalikan. Dokumen ini murni catatan kasus.
+                        <strong>Penjualan tidak dibalik.</strong>
+                        Dananya tetap milik kita (diganti marketplace / banding menang), jadi omzet tetap diakui.
                     </div>
                     @endif
                     @if($return->notes)
@@ -187,7 +199,9 @@
                                         @elseif($item->condition === 'repair')
                                             <span class="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-xs font-bold px-2.5 py-1 rounded-full">🟡 Perbaikan</span>
                                         @elseif($item->condition === 'damaged')
-                                            <span class="inline-flex items-center gap-1 bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full">🔴 Tidak Dapat Diperbaiki</span>
+                                            <span class="inline-flex items-center gap-1 bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full">🔴 Rusak</span>
+                                        @elseif(in_array($item->condition, ['tidak_kembali', 'hilang', 'tetap'], true))
+                                            <span class="inline-flex items-center gap-1 bg-gray-100 text-gray-600 text-xs font-bold px-2.5 py-1 rounded-full">⚪ Tidak Kembali</span>
                                         @endif
                                     </td>
                                     <td class="px-4 py-3 text-right text-gray-600 font-medium">
@@ -217,13 +231,19 @@
                 </div>
             </div>
 
-            {{-- ═══ JOURNAL ENTRIES ═══ --}}
+            {{-- ═══ JOURNAL ENTRIES ═══
+                 Jurnal retur (HPP + Pembalikan) dan jurnal Penyelesaian Pesanan (pencairan
+                 faktur yang dipicu retur ini) — dua jurnal terpisah, ditampilkan berurutan. --}}
+            @foreach([['Jurnal Retur · HPP & Pembalikan', $journal], ['Jurnal Penyelesaian Pesanan', $pencairan ?? null]] as [$judulJurnal, $journal])
             @if($journal)
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                 <div class="flex items-center justify-between mb-5">
                     <div class="flex items-center gap-2">
                         <span class="w-7 h-7 bg-gray-700 text-white rounded-lg flex items-center justify-center text-xs font-black">3</span>
-                        <h3 class="font-bold text-gray-700">Entri Jurnal</h3>
+                        <h3 class="font-bold text-gray-700">{{ $judulJurnal }}</h3>
+                        @if($journal->status === 'void')
+                            <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-600">VOID</span>
+                        @endif
                     </div>
                     <span class="text-xs font-bold text-gray-400">{{ $journal->journal_number }}</span>
                 </div>
@@ -285,6 +305,7 @@
                 </div>
             </div>
             @endif
+            @endforeach
 
         </div>
 

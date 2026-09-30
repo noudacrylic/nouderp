@@ -36,5 +36,15 @@ class SalesReturnDTO
          * NULL/array kosong = pakai hitungan sistem. Jurnal BARANG tak pernah dari sini.
          */
         public ?array $journal_override = null,
+        /** Hasil banding: 'menang' | 'kalah' | NULL. Lihat SalesReturn::APPEAL_RESULTS. */
+        public ?string $appeal_result = null,
+        /**
+         * Jurnal tiga blok (bentuk baris sama dengan journal_override). NULL keduanya = retur
+         * gaya lama. Blok HPP tak pernah dari sini — selalu dari kondisi barang.
+         */
+        public ?array $journal_reversal = null,
+        public ?array $journal_settlement = null,
+        /** Kasus di bawah jenis retur (SalesReturn::CASES), mis. 'K4'. */
+        public ?string $return_case = null,
     ) {}
 }

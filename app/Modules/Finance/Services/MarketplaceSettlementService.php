@@ -192,6 +192,29 @@ class MarketplaceSettlementService
                 // salah ambil PO yang kebetulan sama dari customer lain.
                 $invoice = $this->matchInvoiceByOrderRef($row['order_ref'], $customerIds);
 
+                // Pesanan yang belum dituntaskan ERP (retur/penyelesaian belum diposting):
+                // barisnya DITAHAN, tidak dicocokkan & tidak dibukukan. Membukukan selisihnya
+                // sekarang lalu menuntaskan pesanannya belakangan = potongan tercatat dua kali.
+                if ($this->menungguPenyelesaian($invoice)) {
+                    MarketplaceSettlementLine::create([
+                        'marketplace_settlement_id' => $ms->id,
+                        'order_ref'                 => $row['order_ref'],
+                        'settlement_date'           => $row['settlement_date'] ?? null,
+                        'gross_amount'              => 0,
+                        'fee_prebooked'             => 0,
+                        'fee_actual'                => 0,
+                        'fee_config'                => 0,
+                        'fee_diff'                  => 0,
+                        'net_amount'                => $row['net_amount'],
+                        'sales_invoice_id'          => $invoice->id,
+                        'is_matched'                => false,
+                        'raw_row'                   => $row['raw_row'] ?? null,
+                        'note'                      => self::NOTE_MENUNGGU,
+                    ]);
+                    $totals['net'] += (float) $row['net_amount'];
+                    continue;
+                }
+
                 [$gross, $prebooked] = $this->resolveGross($invoice, $row);
 
                 // Fee aktual = fee marketplace SEBENARNYA = gross (nilai jual penuh) - net (dana cair).
@@ -335,7 +358,11 @@ class MarketplaceSettlementService
         // faktur: ia bukan pesanan yang fakturnya belum dibuat, melainkan biaya marketplace
         // (premi asuransi dsb) yang memang tak akan pernah punya faktur. Kalau ikut dipindah,
         // ia mengendap di draf selamanya & preminya tak pernah terjurnal.
-        $pindah = $ms->lines->filter(fn ($l) => !$l->is_matched && (float) $l->net_amount >= 0);
+        //
+        // Baris yang MENUNGGU pesanannya dituntaskan di ERP (sales_invoice_id terisi tapi belum
+        // matched) selalu ikut dipindah, berapa pun net-nya — termasuk premi −350 milik pesanan
+        // gagal kirim yang returnya belum diselesaikan.
+        $pindah = $ms->lines->filter(fn ($l) => !$l->is_matched && ((float) $l->net_amount >= 0 || $l->sales_invoice_id));
         $unmatchedCount = $pindah->count();
 
         if ($matchedCount === 0) {
@@ -360,7 +387,7 @@ class MarketplaceSettlementService
                 // 2. Pindahkan unmatched lines ke settlement baru
                 MarketplaceSettlementLine::where('marketplace_settlement_id', $ms->id)
                     ->where('is_matched', false)
-                    ->where('net_amount', '>=', 0)
+                    ->where(fn ($w) => $w->where('net_amount', '>=', 0)->orWhereNotNull('sales_invoice_id'))
                     ->update(['marketplace_settlement_id' => $pending->id]);
 
                 // 3. Recalc totals di dua-duanya
@@ -388,7 +415,8 @@ class MarketplaceSettlementService
         }
 
         return DB::transaction(function () use ($ms) {
-            $deleted = (int) $ms->lines()->where('is_matched', false)->delete();
+            // Baris yang menunggu pesanannya dituntaskan BUKAN baris pra-ERP — jangan ikut dibuang.
+            $deleted = (int) $ms->lines()->where('is_matched', false)->whereNull('sales_invoice_id')->delete();
             if ($deleted > 0) {
                 $this->recalcTotals($ms);
             }
@@ -413,7 +441,7 @@ class MarketplaceSettlementService
 
             foreach ($ms->lines()->where('is_matched', false)->get() as $line) {
                 $invoice = $this->matchInvoiceByOrderRef($line->order_ref, $customerIds);
-                if (!$invoice) continue;
+                if (!$invoice || $this->menungguPenyelesaian($invoice)) continue;
 
                 $this->applyMatchToLine($line, $invoice, $config);
                 $newly++;
@@ -462,7 +490,7 @@ class MarketplaceSettlementService
             foreach ($lines as $line) {
                 $config = $line->settlement->marketplaceConfig;
                 $invoice = $this->matchInvoiceByOrderRef($line->order_ref, $this->relatedCustomerIds($config));
-                if (!$invoice) continue;
+                if (!$invoice || $this->menungguPenyelesaian($invoice)) continue;
 
                 $this->applyMatchToLine($line, $invoice, $config);
                 $affectedSettlementIds[$line->marketplace_settlement_id] = true;
@@ -476,6 +504,18 @@ class MarketplaceSettlementService
         });
 
         return $count;
+    }
+
+    public const NOTE_MENUNGGU = 'Menunggu pesanan dituntaskan di ERP (retur / pesanan selesai) — dicocokkan otomatis sesudahnya';
+
+    /**
+     * Faktur gaya baru yang dananya belum dicairkan ERP. Potongan finalnya (admin — termasuk
+     * Hemat Biaya Kirim — + pajak) baru diketahui saat pesanan selesai atau returnya diselesaikan — sebelum itu
+     * tak ada angka pembanding, jadi baris rekonsiliasinya harus menunggu.
+     */
+    public function menungguPenyelesaian(?SalesInvoice $invoice): bool
+    {
+        return $invoice && $invoice->fee_at_settlement && !$invoice->marketplace_processed;
     }
 
     /**
@@ -584,7 +624,18 @@ class MarketplaceSettlementService
             return 0.0;
         }
 
-        return round((float) \App\Modules\Sales\Models\SalesReturnItem::query()
+        // Retur jurnal tiga blok mencatat nilai pembaliknya sendiri (bisa hasil negosiasi atau
+        // nol karena banding menang) — kondisi barangnya tak lagi menentukan.
+        $tigaBlok = \App\Modules\Sales\Models\SalesReturn::whereIn('id', $returnIds)
+            ->whereNotNull('reversed_amount')->pluck('reversed_amount', 'id');
+        $returnIds = $returnIds->diff($tigaBlok->keys());
+        $nilaiTigaBlok = round((float) $tigaBlok->sum(), 2);
+
+        if ($returnIds->isEmpty()) {
+            return $nilaiTigaBlok;
+        }
+
+        return $nilaiTigaBlok + round((float) \App\Modules\Sales\Models\SalesReturnItem::query()
             ->whereIn('sales_return_id', $returnIds)
             ->where('condition', '!=', \App\Modules\Sales\Models\SalesReturn::CONDITION_NO_RETURN)
             ->sum('subtotal'), 2);

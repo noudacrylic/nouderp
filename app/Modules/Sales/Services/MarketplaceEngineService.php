@@ -22,11 +22,15 @@ class MarketplaceEngineService
      *   faktur (dipakai command perbaikan yang memanggil ulang engine).
      * @param string|null $tanggal Tanggal jurnal pencairan. NULL = tanggal faktur. Retur yang
      *   menuntaskan faktur memakai tanggal returnya (lihat SalesReturnService::post()).
+     * @param float|null $pajak Pajak yang dipotong marketplace (PPh final UMKM). NULL = hitung dari
+     *   `tax_percent` config atas sisa saldo ditahan (nilai kotor). Hanya faktur gaya baru.
+     * @param bool $feeTermasukPajak TRUE bila $feeAktual adalah TOTAL potongan yang dilaporkan
+     *   marketplace (sudah memuat pajak) — pajaknya lalu dipisah dari biaya admin, bukan ditambah.
      * @return Journal|null jurnal pencairan yang diposting; null bila tak ada yang dijurnal.
      */
-    public function handle($invoice, ?float $feeAktual = null, ?string $tanggal = null): ?Journal
+    public function handle($invoice, ?float $feeAktual = null, ?string $tanggal = null, ?float $pajak = null, bool $feeTermasukPajak = false): ?Journal
     {
-        return DB::transaction(function () use ($invoice, $feeAktual, $tanggal) {
+        $journal = DB::transaction(function () use ($invoice, $feeAktual, $tanggal, $pajak, $feeTermasukPajak) {
 
             // 🔒 1. DETEKSI MARKETPLACE
             $config = MarketplaceConfig::where('customer_id', $invoice->customer_id)
@@ -123,18 +127,32 @@ class MarketplaceEngineService
             // Sisa yang tak terjelaskan (mis. DP kotor vs faktur lama yang bersih) direklas ke
             // Uang Muka Customer (2105) supaya hold & uang muka sama-sama bersih tanpa dampak
             // laba-rugi — biaya admin tetap dibebankan tepat sekali.
+            //
+            // Pajak (PPh final UMKM yang dipotong marketplace) dipisah ke akunnya sendiri supaya
+            // setoran pajak bulanan terlihat, bukan tenggelam di Beban Admin. Rekonsiliasi tetap
+            // membandingkan TOTAL potongan (admin + pajak), jadi salah taksir pembagiannya
+            // tak membuat saldo dompet meleset — selisihnya dibukukan di sana.
             $feeBaru = 0.0;
+            $pajakBaru = 0.0;
             if ($invoice->fee_at_settlement) {
                 $feeBaru = round($feeAktual ?? (float) ($invoice->marketplace_fee ?? 0), 2);
                 if ($feeBaru < 0) {
                     $feeBaru = 0.0;
                 }
-                $payout = round($holdSisa - $feeBaru, 2);
+                $pajakBaru = max(0.0, round($pajak ?? $config->pajakDari($holdSisa), 2));
+                if ($pajakBaru > 0 && !$config->account_tax_id) {
+                    // Tanpa akun pajak, pajaknya tetap potongan — dilebur ke biaya admin.
+                    $feeBaru   = $feeTermasukPajak ? $feeBaru : round($feeBaru + $pajakBaru, 2);
+                    $pajakBaru = 0.0;
+                } elseif ($feeTermasukPajak) {
+                    $feeBaru = max(0.0, round($feeBaru - $pajakBaru, 2));
+                }
+                $payout = round($holdSisa - $feeBaru - $pajakBaru, 2);
             } else {
                 $payout = round((float) $invoice->grand_total, 2);
             }
 
-            $gap = round($holdSisa - $payout - $feeBaru, 2);
+            $gap = round($holdSisa - $payout - $feeBaru - $pajakBaru, 2);
             $advanceAccountId = (int) DB::table('accounts')->where('code', '2105')->value('id');
 
             if ($feeBaru > 0 && !$config->account_fee_id) {
@@ -186,6 +204,13 @@ class MarketplaceEngineService
                     description: 'Biaya admin marketplace'
                 );
             }
+            if ($pajakBaru > 0) {
+                $lines[] = new JournalLineDTO(
+                    account_id: (int) $config->account_tax_id,
+                    debit: $pajakBaru, credit: 0,
+                    description: 'Pajak dipotong marketplace'
+                );
+            }
             // Dr/Cr Uang Muka Customer utk selisih gross↔net (agar hold & uang muka bersih)
             if (abs($gap) > 0.005 && $advanceAccountId) {
                 $lines[] = new JournalLineDTO(
@@ -218,7 +243,8 @@ class MarketplaceEngineService
             //    `prebooked`. grand_total SENGAJA tidak diturunkan.
             $isi = ['marketplace_processed' => true];
             if ($invoice->fee_at_settlement) {
-                $isi['marketplace_fee'] = $feeBaru;
+                // TOTAL potongan yang sudah dibukukan — dibaca rekonsiliasi sebagai `prebooked`.
+                $isi['marketplace_fee'] = round($feeBaru + $pajakBaru, 2);
             }
             if ($arApply > 0) {
                 $isi['advance_applied'] = round((float) $invoice->advance_applied + $arApply, 2);
@@ -227,6 +253,56 @@ class MarketplaceEngineService
 
             return $journal;
         });
+
+        $this->cocokkanUlangRekonsiliasi($invoice);
+
+        return $journal;
+    }
+
+    /**
+     * Baris rekonsiliasi yang MENUNGGU pesanan ini tuntas di ERP (lihat
+     * MarketplaceSettlementService::menungguPenyelesaian) dicocokkan sekarang. Rekonsiliasi
+     * mencocokkan lewat nomor pesanan, bukan tanggal — jadi retur yang diselesaikan belakangan
+     * tetap ketemu barisnya, dan selisih potongannya dihitung terhadap angka yang sudah final.
+     */
+    public function cocokkanUlangRekonsiliasi($invoice): void
+    {
+        if (!$invoice->marketplace_processed || !$invoice->sales_order_id) {
+            return;
+        }
+
+        try {
+            $ref = \App\Modules\Sales\Models\SalesOrder::whereKey($invoice->sales_order_id)->value('customer_po_number');
+            if ($ref) {
+                app(\App\Modules\Finance\Services\MarketplaceSettlementService::class)
+                    ->autoRematchForOrderRef((int) $invoice->customer_id, $ref);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('MarketplaceEngine: cocokkan ulang rekonsiliasi gagal', [
+                'invoice' => $invoice->id, 'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Uang muka pembeli yang masih bisa dipakai faktur ini — tanpa dibatasi sisa tagihan.
+     * Dipakai retur jurnal tiga blok untuk mengisi & menjaga baris Uang Muka.
+     */
+    public function uangMukaTersedia($invoice): float
+    {
+        if (!$invoice->sales_order_id) {
+            return 0.0;
+        }
+
+        $posted = (float) SalesAdvance::where('sales_order_id', $invoice->sales_order_id)
+            ->where('status', 'posted')
+            ->sum(DB::raw('amount + credit_used'));
+
+        $used = (float) \App\Models\SalesInvoice::where('sales_order_id', $invoice->sales_order_id)
+            ->where('status', 'posted')
+            ->sum('advance_applied');
+
+        return round(max(0, $posted - $used - $this->returDebitUangMuka($invoice)), 2);
     }
 
     /**

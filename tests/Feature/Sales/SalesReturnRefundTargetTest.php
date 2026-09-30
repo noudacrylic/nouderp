@@ -264,8 +264,11 @@ class SalesReturnRefundTargetTest extends TestCase
 
         $return = $this->retur($inv, [], condition: 'tidak_kembali');
 
-        // Penjualannya sah & tuntas — tak ada jurnal sama sekali untuk retur ini.
-        $this->assertSame(0, Journal::where('reference_type', 'sales_return')->where('reference_id', $return->id)->count());
+        // Penjualannya sah & tuntas — tak ada omzet yang dibalik (4004 tak tersentuh). Jurnal
+        // retur hanya memindahkan modal barang yang tak kembali: HPP → Kerugian Retur.
+        $akun4004 = (int) \App\Core\Accounting\Account::where('code', '4004')->value('id');
+        $jurnal = Journal::where('reference_type', 'sales_return')->where('reference_id', $return->id)->first();
+        $this->assertFalse($jurnal && $jurnal->lines()->where('account_id', $akun4004)->exists(), 'omzet tidak dibalik');
         $this->assertEqualsWithDelta(0, (float) $return->fresh()->refund_amount, 0.01);
     }
 
@@ -293,7 +296,9 @@ class SalesReturnRefundTargetTest extends TestCase
         // Pilihan "Dari Sales Order" tak lagi ditawarkan untuk dokumen baru — dulu ia diam-diam
         // mengubah jurnal, keputusan akuntansi yang disamarkan jadi pertanyaan pemilihan dokumen.
         $html = $this->get(route('sales.returns.create'))->assertOk()->getContent();
-        $this->assertStringContainsString('Penanganan Dana', $html);
+        // Penanganan Dana diganti jurnal tiga blok (30 Sep 2026).
+        $this->assertStringNotContainsString('Penanganan Dana', $html);
+        $this->assertStringContainsString('Pembalikan Jurnal Faktur', $html);
         $this->assertStringNotContainsString('<option value="so">', $html);
 
         // Form menyimpulkan jenis retur dari payload ini — tanpa field-nya ia cuma menebak.

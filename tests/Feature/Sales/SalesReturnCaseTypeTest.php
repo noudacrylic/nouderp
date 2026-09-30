@@ -122,11 +122,9 @@ class SalesReturnCaseTypeTest extends TestCase
             ['paket_hilang', 'gagal_kirim', 'diajukan_konsumen'],
             array_keys(SalesReturn::RETURN_TYPES)
         );
-        $this->assertCount(5, SalesReturn::CONDITIONS);
-        // Dua keadaan "barang tidak kembali" yang jurnalnya berlawanan, dan keduanya wajib
-        // bisa diungkapkan: `tidak_kembali` (dana diganti, penjualan sah) vs `hilang` (dana
-        // dikembalikan, penjualan batal & modalnya jadi kerugian).
-        $this->assertArrayHasKey(SalesReturn::CONDITION_NO_RETURN, SalesReturn::CONDITIONS);
-        $this->assertArrayHasKey('hilang', SalesReturn::CONDITIONS);
+        // EMPAT kondisi, dan kondisi HANYA mengurus jurnal HPP (30 Sep 2026). Nasib uang
+        // ditentukan Jenis Retur + Hasil Banding. Kondisi lama tetap terbaca sbg tidak_kembali.
+        $this->assertSame(['good', 'repair', 'damaged', SalesReturn::CONDITION_NO_RETURN], array_keys(SalesReturn::CONDITIONS));
+        $this->assertSame(['hilang', 'tetap'], SalesReturn::CONDITIONS_LAMA);
     }
 }

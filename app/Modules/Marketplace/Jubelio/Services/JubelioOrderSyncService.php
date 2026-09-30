@@ -1937,12 +1937,17 @@ class JubelioOrderSyncService
         $grandTotal = (float) ($detail['grand_total'] ?? ($subtotal + $shipping));
         $fee        = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, (int) $so->customer_id)['fee'];
 
-        app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice, $fee);
+        // Potongan yang DILAPORKAN Jubelio (kotor − grand_total) adalah total potongan
+        // marketplace, pajak termasuk di dalamnya → pajaknya dipisah dari situ. Taksiran dari
+        // config (% admin) hanya biaya admin → pajaknya ditambahkan di atasnya.
+        $dariJubelio = round($subtotal + $shipping - $grandTotal, 2) > 0;
+
+        app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice, $fee, null, null, $dariJubelio);
 
         JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
             'reference'             => $link->jubelio_salesorder_no,
             'jubelio_salesorder_id' => $link->jubelio_salesorder_id,
-            'message'               => 'Pesanan selesai → saldo ditahan dilepas ke wallet, biaya admin ' . number_format($fee, 0, ',', '.') . ' dibebankan.',
+            'message'               => 'Pesanan selesai → saldo ditahan dilepas ke wallet, potongan marketplace ' . number_format((float) $invoice->fresh()->marketplace_fee, 0, ',', '.') . ' dibebankan (admin + pajak).',
             'meta'                  => ['invoice_id' => $invoice->id, 'fee' => $fee],
         ]);
     }
