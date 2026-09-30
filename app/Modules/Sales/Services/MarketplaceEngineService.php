@@ -265,6 +265,35 @@ class MarketplaceEngineService
      * mencocokkan lewat nomor pesanan, bukan tanggal — jadi retur yang diselesaikan belakangan
      * tetap ketemu barisnya, dan selisih potongannya dihitung terhadap angka yang sudah final.
      */
+    /**
+     * Cairkan faktur gaya baru dengan biaya admin TAKSIRAN dari config toko (% + nominal),
+     * pajak dari `tax_percent`. Dipakai saat tak ada data potongan dari Jubelio — mis. retur
+     * yang ternyata tidak jadi (pesanannya selesai normal). Selisih terhadap potongan
+     * sebenarnya dibukukan rekonsiliasi, yang membandingkan TOTAL potongan.
+     *
+     * @return array{journal:?Journal, admin:float, sudah_cair:bool}
+     */
+    public function cairkanDenganTaksiran($invoice, ?string $tanggal = null): array
+    {
+        if (!$invoice->fee_at_settlement || $invoice->marketplace_processed) {
+            return ['journal' => null, 'admin' => 0.0, 'sudah_cair' => true];
+        }
+
+        $config = MarketplaceConfig::where('customer_id', $invoice->customer_id)->where('is_active', true)->first();
+        $kotor  = max(0.0, (float) $invoice->grand_total - (float) ($invoice->returned_amount ?? 0));
+        $admin  = $config && $kotor > 0
+            ? round($kotor * (float) $config->admin_fee_percent / 100 + (float) $config->admin_fee_fixed, 0)
+            : 0.0;
+
+        $tanggalFaktur = $invoice->invoice_date ? \Carbon\Carbon::parse($invoice->invoice_date)->toDateString() : null;
+        $tanggal = $tanggal ?? now()->toDateString();
+        if ($tanggalFaktur && $tanggal < $tanggalFaktur) {
+            $tanggal = $tanggalFaktur;
+        }
+
+        return ['journal' => $this->handle($invoice, $admin, $tanggal), 'admin' => $admin, 'sudah_cair' => false];
+    }
+
     public function cocokkanUlangRekonsiliasi($invoice): void
     {
         if (!$invoice->marketplace_processed || !$invoice->sales_order_id) {

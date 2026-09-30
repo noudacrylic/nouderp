@@ -270,6 +270,52 @@ class SalesReturnService
         });
     }
 
+    /**
+     * Retur TIDAK JADI — pembeli mengajukan tapi barangnya tak pernah dikirim, dan marketplace
+     * menjadikannya pesanan biasa. Draft ditutup (status void, tahap batal), BUKAN dihapus:
+     *   - dokumennya tetap ada, jadi kartu "BELUM ADA DOKUMEN" tak muncul & sinkron Jubelio
+     *     tak membuat draft baru (penanda return_created tetap menyala);
+     *   - tab Pemrosesan Pesanan memperlakukan pesanannya seperti pesanan biasa lagi.
+     * Tak ada jurnal & stok untuk returnya. Faktur marketplace yang belum cair dicairkan lewat
+     * marketplace engine dengan biaya admin taksiran (lihat cairkanDenganTaksiran).
+     *
+     * @return array{faktur:array<int,array{nomor:string, sudah_cair:bool, admin:float, dicairkan:bool}>}
+     */
+    public function batalkanDraft(SalesReturn $return, string $alasan): array
+    {
+        if ($return->status !== 'draft') {
+            throw new Exception('Hanya retur draf yang bisa dinyatakan tidak jadi.');
+        }
+
+        return DB::transaction(function () use ($return, $alasan) {
+            $catatan = trim(($return->notes ? $return->notes . "\n" : '') . '[Retur tidak jadi ' . now()->format('d/m/Y') . '] ' . $alasan);
+            $return->forceFill(['status' => 'void', 'stage' => 'batal', 'notes' => $catatan])->save();
+
+            // Faktur pesanan ini: faktur returnya sendiri, atau semua faktur SO-nya.
+            $soId = $return->sales_order_id
+                ?: ($return->invoice_id ? SalesInvoice::whereKey($return->invoice_id)->value('sales_order_id') : null);
+            $fakturs = SalesInvoice::query()
+                ->where('status', '!=', 'void')
+                ->where(fn ($w) => $w->where('id', $return->invoice_id ?? 0)
+                    ->when($soId, fn ($q) => $q->orWhere('sales_order_id', $soId)))
+                ->get();
+
+            $engine = app(MarketplaceEngineService::class);
+            $hasil  = [];
+            foreach ($fakturs as $inv) {
+                $r = $engine->cairkanDenganTaksiran($inv);
+                $hasil[] = [
+                    'nomor'      => $inv->invoice_number,
+                    'sudah_cair' => $r['sudah_cair'],
+                    'admin'      => $r['admin'],
+                    'dicairkan'  => (bool) $r['journal'],
+                ];
+            }
+
+            return ['faktur' => $hasil];
+        });
+    }
+
     // ─────────────────────────── Jurnal tiga blok ───────────────────────────
     //
     // Form retur menyusun jurnal dalam tiga blok yang menjawab tiga pertanyaan berbeda:

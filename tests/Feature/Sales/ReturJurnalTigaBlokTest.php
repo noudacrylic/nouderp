@@ -469,7 +469,7 @@ class ReturJurnalTigaBlokTest extends TestCase
         $this->assertPesananTuntas($inv);
     }
 
-    public function test_halaman_edit_menampilkan_panduan_dan_tombol_banding_di_luar_form_retur(): void
+    public function test_halaman_edit_menampilkan_panduan_dan_form_aksi_di_luar_form_retur(): void
     {
         $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]));
         $inv = $this->faktur();
@@ -481,7 +481,8 @@ class ReturJurnalTigaBlokTest extends TestCase
         $html = $this->get(route('sales.returns.edit', $retur->id))->assertOk()->getContent();
 
         $this->assertStringContainsString('Panduan Jurnal Retur', $html);
-        $this->assertStringContainsString('form="tahapForm"', $html);
+        $this->assertStringContainsString("simpanLaluPindah('banding')", $html, 'Ajukan Banding menyimpan draft dulu');
+        $this->assertStringContainsString('id="batalForm"', $html, 'tombol Retur Tidak Jadi');
         // Form Banding tak boleh bersarang di dalam form retur.
         $retur_ = substr($html, strpos($html, 'id="returnForm"'));
         $this->assertStringNotContainsString('<form', substr($retur_, 0, strpos($retur_, '</form>')));
@@ -514,6 +515,71 @@ class ReturJurnalTigaBlokTest extends TestCase
         $cetak = $this->get(route('sales.invoices.print', $inv->id))->assertOk()->getContent();
         $this->assertStringNotContainsString('perjalanan dana', $cetak);
         $this->assertStringNotContainsString('Biaya Admin Marketplace', $cetak);
+    }
+
+    /**
+     * Retur TIDAK JADI: pembeli tak mengirim barangnya, Shopee menjadikannya pesanan biasa.
+     * Draft ditutup tanpa jurnal retur, dan karena keputusan Shopee sudah final, dananya
+     * langsung dicairkan lewat marketplace engine (biaya admin taksiran config 10% + pajak 0,5%).
+     */
+    public function test_retur_tidak_jadi_menutup_draft_dan_langsung_mencairkan_dana(): void
+    {
+        $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]));
+        $inv = $this->faktur();
+        \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 7001, 'jubelio_salesorder_no' => 'SP-2609AAAA1111',
+            'sales_order_id' => $this->so->id, 'store' => 'Shopee', 'dp_posted' => true,
+            'last_status' => 'completed', 'mp_completed_at' => now(), 'return_created' => true,
+        ]);
+        $retur = app(SalesReturnService::class)->saveDraft(new SalesReturnDTO(
+            customer_id: $inv->customer_id, items: $this->items($inv, 'good'), date: now()->toDateString(), invoice_id: $inv->id,
+        ));
+
+        $this->post(route('sales.returns.batal', $retur->id), ['alasan' => 'barang tidak dikirim pembeli'])
+            ->assertSessionMissing('error')
+            ->assertRedirect(route('pos.fulfillment.retur'));
+
+        $retur->refresh();
+        $this->assertSame('void', $retur->status);
+        $this->assertSame('batal', $retur->stage);
+        $this->assertStringContainsString('barang tidak dikirim pembeli', $retur->notes);
+        $this->assertSame(0, Journal::where('reference_type', 'sales_return')->where('reference_id', $retur->id)->count(), 'retur tak dijurnal');
+
+        // Dana langsung cair: 100.000 − admin 10.000 − pajak 500.
+        $this->assertPesananTuntas($inv);
+        $this->assertEqualsWithDelta(89500, $this->saldo($this->walletId), 0.01);
+        $this->assertEqualsWithDelta(10500, (float) $inv->fresh()->marketplace_fee, 0.01);
+
+        // Pesanannya kembali jadi pesanan biasa: keluar dari tab Retur, masuk Selesai.
+        app()->forgetInstance(\App\Modules\POS\Services\FulfillmentReadinessService::class);
+        $svc = app(\App\Modules\POS\Services\FulfillmentReadinessService::class);
+        $this->assertSame(0, $svc->returCounts()['baru'], 'tak muncul sebagai "belum ada dokumen"');
+        $this->assertSame(0, $svc->counts()['retur']);
+        $this->assertSame(1, $svc->selesaiPaginated(null, [], 50)->total());
+    }
+
+    /** Ajukan Banding menyimpan isian draft DULU, lalu memindahkan tahap & membuka tab Banding. */
+    public function test_ajukan_banding_menyimpan_draft_lalu_pindah_tahap(): void
+    {
+        $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]));
+        $inv = $this->faktur();
+        $retur = app(SalesReturnService::class)->saveDraft(new SalesReturnDTO(
+            customer_id: $inv->customer_id, items: $this->items($inv, 'good'), date: now()->toDateString(), invoice_id: $inv->id,
+        ));
+
+        $this->post(route('sales.returns.store'), [
+            'status' => 'draft', 'return_id' => $retur->id, 'customer_id' => $inv->customer_id, 'invoice_id' => $inv->id,
+            'return_date' => now()->toDateString(), 'return_type' => 'gagal_kirim', 'return_case' => 'GK1',
+            'notes' => 'paket penyok, diajukan banding', 'items' => $this->items($inv, 'damaged'),
+            'tiga_blok' => 1, 'pindah_tahap' => 'banding',
+        ])->assertRedirect(route('pos.fulfillment.retur', ['tahap' => 'banding']));
+
+        $retur->refresh();
+        $this->assertSame('banding', $retur->stage);
+        $this->assertSame('draft', $retur->status);
+        $this->assertSame('gagal_kirim', $retur->return_type, 'isian ikut tersimpan');
+        $this->assertSame('paket penyok, diajukan banding', $retur->notes);
+        $this->assertSame('damaged', $retur->items()->value('condition'));
     }
 
     public function test_potongan_dari_jubelio_sudah_memuat_pajak(): void

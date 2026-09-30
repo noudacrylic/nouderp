@@ -36,6 +36,8 @@
         @csrf
         <input type="hidden" name="return_id" :value="returnId">
         <input type="hidden" name="status" :value="formStatus">
+        {{-- Diisi tombol Ajukan Banding / Kembalikan: draft disimpan DULU, baru tahapnya pindah. --}}
+        <input type="hidden" name="pindah_tahap" :value="pindahTahap">
 
         {{-- Submit payload: 1 alokasi = 1 items[]; satu produk bisa jadi beberapa baris (per kondisi).
              Bundle: 1 baris + component_conditions per komponen. --}}
@@ -701,7 +703,14 @@
 
                         @isset($return)
                             @if($return->status === 'draft')
-                                <button type="submit" form="tahapForm"
+                                {{-- Retur tidak jadi: pembeli tak mengirim barangnya & marketplace
+                                     menjadikannya pesanan biasa. Draft ditutup tanpa jurnal, faktur
+                                     yang belum cair dicairkan (biaya admin taksiran). --}}
+                                <button type="button" onclick="returTidakJadi()"
+                                        class="px-4 py-3 rounded-xl font-bold text-sm border border-red-200 text-red-600 hover:bg-red-50 transition-all">
+                                    ✕ Retur Tidak Jadi
+                                </button>
+                                <button type="button" @click="simpanLaluPindah('{{ $return->stage === 'banding' ? 'baru' : 'banding' }}')"
                                         class="px-5 py-3 rounded-xl font-bold text-sm border transition-all
                                                {{ $return->stage === 'banding'
                                                     ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -793,10 +802,23 @@
     @isset($return)
         @if($return->status === 'draft')
             {{-- Di luar form retur: form tak boleh bersarang. --}}
-            <form id="tahapForm" method="POST" action="{{ route('pos.fulfillment.retur-tahap', $return->id) }}" class="hidden">
+            <form id="batalForm" method="POST" action="{{ route('sales.returns.batal', $return->id) }}" class="hidden">
                 @csrf
-                <input type="hidden" name="tahap" value="{{ $return->stage === 'banding' ? 'baru' : 'banding' }}">
+                <input type="hidden" name="alasan" id="batalAlasan">
             </form>
+            <script>
+                function returTidakJadi() {
+                    const alasan = prompt(
+                        'RETUR TIDAK JADI — draft ditutup tanpa jurnal & stok, pesanan kembali jadi pesanan biasa, '
+                        + 'dan faktur yang belum cair langsung dicairkan (biaya admin taksiran). '
+                        + 'Tulis alasannya, mis. "barang tidak dikirim pembeli, Shopee jadikan pesanan normal":'
+                    );
+                    if (alasan === null) return;
+                    if (alasan.trim().length < 5) { alert('Alasan minimal 5 huruf.'); return; }
+                    document.getElementById('batalAlasan').value = alasan.trim();
+                    document.getElementById('batalForm').submit();
+                }
+            </script>
         @endif
     @endisset
 
@@ -1051,6 +1073,7 @@ function returForm(initialData = null, prefill = null) {
         labelAkun: {},
         memuatBawaan: false,
         panduanBuka: null,
+        pindahTahap: '',
         bawaanTimer: null,
         bawaanSeq: 0,
 
@@ -1949,6 +1972,16 @@ function returForm(initialData = null, prefill = null) {
 
         // ── Submit Logic ───────────────────────────────
         
+        /** Ajukan Banding / Kembalikan ke Retur Baru — isian draft ikut tersimpan. */
+        simpanLaluPindah(tahap) {
+            if (!this.canSubmit()) {
+                alert('Isian belum lengkap (pelanggan, faktur, tanggal, item) — lengkapi dulu sebelum memindahkan tahap.');
+                return;
+            }
+            this.pindahTahap = tahap;
+            this.saveDraft();
+        },
+
         saveDraft() {
             if (!this.canSubmit()) return;
             this.formStatus = 'draft';

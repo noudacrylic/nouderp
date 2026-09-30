@@ -553,11 +553,22 @@ class SalesReturnController extends Controller
         try {
             if ($request->status === 'draft') {
                 if ($request->return_id) {
-                    $returnService->updateDraft((int)$request->return_id, $dto);
+                    $draft = $returnService->updateDraft((int)$request->return_id, $dto);
                     $msg = 'Draft retur berhasil diperbarui.';
                 } else {
-                    $returnService->saveDraft($dto);
+                    $draft = $returnService->saveDraft($dto);
                     $msg = 'Draft retur berhasil disimpan.';
+                }
+
+                // Tombol Ajukan Banding / Kembalikan: isian tersimpan dulu, baru tahapnya
+                // pindah — lalu langsung ke tab tujuannya di Pemrosesan Pesanan.
+                $tahap = $request->input('pindah_tahap');
+                if (in_array($tahap, SalesReturn::STAGES_AKTIF, true)) {
+                    $draft->update(['stage' => $tahap]);
+
+                    return redirect()->route('pos.fulfillment.retur', ['tahap' => $tahap])
+                        ->with('success', "Draft {$draft->return_number} tersimpan & " . ($tahap === 'banding'
+                            ? 'dipindahkan ke Banding.' : 'dikembalikan ke Retur Baru.'));
                 }
             } else {
                 $returnService->post($dto, $request->return_id ? (int)$request->return_id : null);
@@ -600,6 +611,26 @@ class SalesReturnController extends Controller
         $return->delete();
         
         return back()->with('success', 'Draft retur berhasil dihapus.');
+    }
+
+    /** Retur tidak jadi: tutup draft tanpa jurnal & cairkan faktur marketplace yang belum cair. */
+    public function batal(Request $request, $id, SalesReturnService $returnService)
+    {
+        $data = $request->validate(['alasan' => 'required|string|min:5|max:500']);
+        $return = SalesReturn::findOrFail($id);
+
+        try {
+            $hasil = $returnService->batalkanDraft($return, trim($data['alasan']));
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        $info = collect($hasil['faktur'])->map(fn ($f) => $f['dicairkan']
+            ? "{$f['nomor']} dicairkan (biaya admin taksiran Rp " . number_format($f['admin'], 0, ',', '.') . ')'
+            : "{$f['nomor']} " . ($f['sudah_cair'] ? 'sudah cair sebelumnya' : 'tidak dicairkan'))->implode('; ');
+
+        return redirect()->route('pos.fulfillment.retur')
+            ->with('success', "Retur {$return->return_number} dinyatakan tidak jadi." . ($info ? " Faktur: {$info}." : ''));
     }
 
     public function post($id, SalesReturnService $returnService)

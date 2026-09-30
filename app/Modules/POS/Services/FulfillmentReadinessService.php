@@ -420,7 +420,8 @@ class FulfillmentReadinessService
             ->leftJoin('sales_invoices as sri_inv', 'sri_inv.id', '=', 'sr.invoice_id')
             ->selectRaw("COALESCE(sr.sales_order_id, sri_inv.sales_order_id) as sales_order_id,
                          MAX(CASE WHEN sr.status = 'posted' THEN 1 ELSE 0 END) as retur_posted,
-                         MAX(CASE WHEN sr.status = 'draft'  THEN 1 ELSE 0 END) as retur_draft")
+                         MAX(CASE WHEN sr.status = 'draft'  THEN 1 ELSE 0 END) as retur_draft,
+                         MAX(CASE WHEN sr.status = 'void'   THEN 1 ELSE 0 END) as retur_batal")
             ->whereRaw('COALESCE(sr.sales_order_id, sri_inv.sales_order_id) IS NOT NULL')
             ->groupByRaw('COALESCE(sr.sales_order_id, sri_inv.sales_order_id)');
 
@@ -443,9 +444,13 @@ class FulfillmentReadinessService
                      -- bertahap); selama satu di antaranya masih draft, urusannya
                      -- belum kelar — ia tinggal di tab Retur, dan tidak boleh ikut
                      -- dihitung sebagai uang masuk.
+                     -- Retur yang tidak jadi (hanya dokumen void) = pesanan biasa:
+                     -- tuntas menurut status marketplace-nya sendiri.
                      WHEN mp.diretur = 1
                           THEN CASE WHEN COALESCE(rt.retur_draft, 0) = 1 THEN 0
-                                    ELSE COALESCE(rt.retur_posted, 0) END
+                                    WHEN COALESCE(rt.retur_posted, 0) = 1 THEN 1
+                                    WHEN COALESCE(rt.retur_batal, 0) = 1 THEN mp.tuntas
+                                    ELSE 0 END
                      ELSE mp.tuntas
                  END
             WHEN so.delivery_method = 'ambil_toko' THEN (so.pickup_status = 'picked_up')
@@ -1187,7 +1192,10 @@ class FulfillmentReadinessService
             // menangkap order yang last_status-nya belum ter-refresh dari cron. Begitu draft
             // retur DI-POST → tuntas, pindah ke "Selesai" (badge "Retur" ikut self-clearing).
             $returPosted = $retur && $retur->status === 'posted';
-            $isReturn    = $link->last_status === 'returned' || $link->return_created;
+            // Retur yang dinyatakan TIDAK JADI (satu-satunya dokumen berstatus void):
+            // pesanannya kembali diperlakukan seperti pesanan biasa.
+            $returBatal  = $retur && $retur->status === 'void';
+            $isReturn    = ($link->last_status === 'returned' || $link->return_created) && !$returBatal;
             if ($isReturn && !$returPosted) {
                 $bucket = 'retur';
             } elseif ($isReturn) {
