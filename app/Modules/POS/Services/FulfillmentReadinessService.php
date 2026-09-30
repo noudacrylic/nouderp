@@ -786,8 +786,17 @@ class FulfillmentReadinessService
         $linksBySo = $soIds ? \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::whereIn('sales_order_id', $soIds)
             ->get()->keyBy('sales_order_id') : collect();
 
-        $returnsBySo = $soIds ? SalesReturn::whereIn('sales_order_id', $soIds)
-            ->orderByDesc('id')->get()->groupBy('sales_order_id') : collect();
+        // Retur dicari lewat SO MAUPUN fakturnya. Retur marketplace menggantung di `invoice_id`
+        // dengan `sales_order_id` NULL (jalur normal sejak faktur terbit saat pengiriman) —
+        // mencarinya lewat SO saja membuat kartunya terbaca "tanpa draf": lencana tab Retur
+        // cuma menghitung sebagian, dan retur yang sudah diposting tak pernah pindah ke Selesai.
+        $soDariFaktur = $soIds ? \App\Models\SalesInvoice::whereIn('sales_order_id', $soIds)
+            ->pluck('sales_order_id', 'id') : collect();
+        $returnsBySo = $soIds ? SalesReturn::query()
+            ->where(fn ($w) => $w->whereIn('sales_order_id', $soIds)
+                ->orWhereIn('invoice_id', $soDariFaktur->keys()->all()))
+            ->orderByDesc('id')->get()
+            ->groupBy(fn (SalesReturn $r) => $r->sales_order_id ?: $soDariFaktur->get($r->invoice_id)) : collect();
 
         // Kekurangan stok seluruh halaman dihitung sekali (logikanya milik SalesOrderStockCheck,
         // di sini hanya dipanggil versi batch-nya) lalu dibaca per baris lewat shortagesFor().

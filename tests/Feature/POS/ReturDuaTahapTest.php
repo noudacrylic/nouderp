@@ -147,6 +147,53 @@ class ReturDuaTahapTest extends TestCase
     }
 
     /**
+     * Lencana tab induk "Retur" harus menghitung retur yang menempel ke FAKTUR.
+     *
+     * Retur marketplace menggantung di `invoice_id` dengan `sales_order_id` NULL. Dulu kartu
+     * pesanan hanya mencari retur lewat SO, jadi kartu itu terbaca "tanpa draf": lencana cuma
+     * menunjukkan 41 dari 122 draf, dan retur yang sudah diposting tak pernah pindah ke Selesai.
+     */
+    public function test_lencana_retur_menghitung_retur_yang_menempel_ke_faktur(): void
+    {
+        // Instance baru tiap hitungan — service menyimpan baris SO di memori (soRows).
+        $svc = function () {
+            app()->forgetInstance(FulfillmentReadinessService::class);
+
+            return app()->make(FulfillmentReadinessService::class);
+        };
+        $so  = $this->pesanan(marketplace: true);
+
+        JubelioOrderLink::create([
+            'jubelio_salesorder_id' => 6101,
+            'jubelio_salesorder_no' => 'SP-6101',
+            'sales_order_id'        => $so->id,
+            'store'                 => 'Shopee',
+            'dp_posted'             => true,
+            'last_status'           => 'returned',
+            'return_created'        => true,
+        ]);
+
+        $inv = \App\Models\SalesInvoice::create([
+            'invoice_number' => 'SP-6101', 'sales_order_id' => $so->id, 'customer_id' => $so->customer_id,
+            'warehouse_id' => $so->warehouse_id, 'invoice_date' => now()->toDateString(),
+            'subtotal' => 100000, 'grand_total' => 100000, 'status' => 'posted',
+        ]);
+        $retur = SalesReturn::create([
+            'return_number' => 'SR-FAKTUR', 'customer_id' => $so->customer_id,
+            'invoice_id' => $inv->id, 'sales_order_id' => null,
+            'return_date' => now()->toDateString(), 'grand_total' => 100000,
+            'status' => 'draft', 'stage' => 'baru',
+        ]);
+
+        $this->assertSame(1, $svc()->counts()['retur'], 'draf atas faktur ikut dihitung lencana');
+        $this->assertSame(1, $svc()->returCounts()['baru']);
+
+        // Begitu diposting, pesanannya keluar dari tab Retur.
+        $retur->update(['status' => 'posted', 'stage' => 'selesai']);
+        $this->assertSame(0, $svc()->counts()['retur']);
+    }
+
+    /**
      * Terbaru di atas, dan itu berlaku LINTAS SUMBER.
      *
      * Dua sumber mengalir ke daftar ini — dokumen retur dan pesanan yang ditandai
