@@ -499,6 +499,23 @@ class ReturJurnalTigaBlokTest extends TestCase
         $this->assertEqualsWithDelta(12500, (float) $inv->fresh()->marketplace_fee, 0.01, 'potongan tercatat = admin + pajak');
     }
 
+    public function test_detail_faktur_menampilkan_jejak_dana_tapi_cetak_hanya_nilai_faktur(): void
+    {
+        $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]));
+        $inv = $this->faktur();
+        app(MarketplaceEngineService::class)->handle($inv, 12000);
+
+        $detail = $this->get(route('sales.invoices.show', $inv->id))->assertOk()->getContent();
+        $this->assertStringContainsString('perjalanan dana', $detail);
+        $this->assertStringContainsString('Rp 87.500', $detail, 'dana masuk Saldo Penjualan = 100.000 − admin 12.000 − pajak 500');
+        // Faktur gaya baru bernilai kotor: biaya admin bukan bagian ringkasan faktur.
+        $this->assertStringNotContainsString('Biaya Admin Marketplace', $detail);
+
+        $cetak = $this->get(route('sales.invoices.print', $inv->id))->assertOk()->getContent();
+        $this->assertStringNotContainsString('perjalanan dana', $cetak);
+        $this->assertStringNotContainsString('Biaya Admin Marketplace', $cetak);
+    }
+
     public function test_potongan_dari_jubelio_sudah_memuat_pajak(): void
     {
         $inv = $this->faktur();

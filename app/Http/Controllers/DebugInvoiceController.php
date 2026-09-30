@@ -139,7 +139,10 @@ class DebugInvoiceController extends Controller
     {
         $invoice = \App\Models\SalesInvoice::with('items.product')->findOrFail($id);
 
-        return view('erp.sales.invoices.show', compact('invoice'));
+        // Jejak dana (marketplace, retur, jurnal) — hanya di halaman detail, tidak di cetak.
+        $jejak = app(\App\Modules\Sales\Services\InvoiceTrailService::class)->untuk($invoice);
+
+        return view('erp.sales.invoices.show', compact('invoice', 'jejak'));
     }
 
     public function print($id)

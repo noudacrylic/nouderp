@@ -97,7 +97,10 @@
             </div>
             @endif
 
-            @if(($invoice->marketplace_fee ?? 0) > 0)
+            {{-- Faktur marketplace gaya BARU bernilai kotor; biaya admin dipotong saat dana cair
+                 dan ditampilkan di bagian "Marketplace — perjalanan dana", bukan di sini. Hanya
+                 faktur gaya LAMA yang memang memotongnya di dalam faktur (Grand Total bersih). --}}
+            @if(($invoice->marketplace_fee ?? 0) > 0 && !$invoice->fee_at_settlement)
             <div class="flex justify-between mb-2 text-gray-500">
                 <span>Biaya Admin Marketplace</span>
                 <span class="text-red-500">- {{ number_format($invoice->marketplace_fee) }}</span>

@@ -125,7 +125,9 @@
         @if($expense > 0)
             <div class="row"><span>Biaya Lain</span><span>{{ number_format($expense, 0, ',', '.') }}</span></div>
         @endif
-        @if($marketplaceFee > 0)
+        {{-- Cetak = nilai faktur saja. Biaya admin hanya tampil bila memang bagian faktur
+             (gaya lama, Grand Total bersih); faktur gaya baru memotongnya saat dana cair. --}}
+        @if($marketplaceFee > 0 && !$invoice->fee_at_settlement)
             <div class="row"><span>Biaya Admin Marketplace</span><span class="neg">- {{ number_format($marketplaceFee, 0, ',', '.') }}</span></div>
         @endif
         @if((int) ($invoice->unique_code ?? 0) !== 0)

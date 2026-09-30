@@ -25,6 +25,11 @@
         </x-slot>
     </x-erp.document-layout>
 
+    {{-- Jejak dana: marketplace, retur, jurnal — hanya di layar, tidak dicetak. --}}
+    @isset($jejak)
+        @include('erp.sales.invoices.partials.jejak-dana')
+    @endisset
+
     @include('erp.sales.invoices.partials.shipping-info')
 
     @include('erp.sales._partials.relations-invoice')
