@@ -439,7 +439,7 @@ class ReturJurnalTigaBlokTest extends TestCase
         $retur = SalesReturn::where('invoice_id', $inv->id)->firstOrFail();
         $this->assertSame('GK2', $retur->return_case);
         $this->assertSame('menang', $retur->appeal_result);
-        $this->assertSame('Banding menang', $retur->caseLabel());
+        $this->assertSame('Banding menang — dana diganti ke kita', $retur->caseLabel());
 
         // Kasus milik jenis lain tidak disimpan.
         $this->post(route('sales.returns.store'), array_merge($isian, ['status' => 'draft', 'return_id' => $retur->id, 'return_case' => 'K4']));

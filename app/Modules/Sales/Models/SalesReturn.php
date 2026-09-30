@@ -50,19 +50,19 @@ class SalesReturn extends Model
      */
     public const CASES = [
         'paket_hilang' => [
-            'PH1' => 'Klaim menang — dana diganti',
-            'PH2' => 'Klaim ditolak — dana dikembalikan',
+            'PH1' => 'Klaim menang — dana diganti ke kita',
+            'PH2' => 'Klaim ditolak — dana kembali ke pembeli',
         ],
         'gagal_kirim' => [
-            'GK1' => 'Kalah / tidak banding',
-            'GK2' => 'Banding menang',
+            'GK1' => 'Kalah / tidak banding — dana kembali ke pembeli',
+            'GK2' => 'Banding menang — dana diganti ke kita',
         ],
         'diajukan_konsumen' => [
-            'K1' => 'Barang & dana kembali penuh',
-            'K2' => 'Retur sebagian barang',
-            'K3' => 'Refund saja, barang tidak dikirim balik',
-            'K4' => 'Refund sebagian, barang tetap di pembeli',
-            'K6' => 'Banding menang',
+            'K1' => 'Barang kembali, dana penuh ke pembeli',
+            'K2' => 'Sebagian barang kembali, dana sebagian ke pembeli',
+            'K3' => 'Barang tidak dikirim balik, dana penuh ke pembeli',
+            'K4' => 'Barang tetap di pembeli, dana sebagian ke pembeli',
+            'K6' => 'Banding menang — dana tetap ke kita',
         ],
     ];
 
