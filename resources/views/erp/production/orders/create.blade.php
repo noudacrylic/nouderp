@@ -1513,8 +1513,27 @@ function orderForm() {
             const params = new URLSearchParams(window.location.search);
             const t = params.get('type');
 
-            // Retur → perbaikan berbasis SKU (tanpa dokumen). Cukup set tipe.
-            if (t === 'perbaikan') { this.type = 'perbaikan'; return; }
+            // Retur / Barang Perbaikan → perbaikan berbasis SKU. `barang=id:qty,id:qty` (dari menu
+            // Produksi › Barang Perbaikan) langsung mengisi daftar SKU; qty dibatasi saldo gudang.
+            if (t === 'perbaikan') {
+                this.type = 'perbaikan';
+                const minta = (params.get('barang') || '').split(',')
+                    .map(x => x.split(':')).filter(x => x[0])
+                    .map(([id, q]) => ({ id: String(id), qty: parseFloat(q) || 0 }));
+                if (!minta.length) return;
+                try {
+                    const res  = await fetch('/erp/production/ajax/repair-stock');
+                    const stok = await res.json();
+                    minta.forEach(m => {
+                        const p = stok.find(s => String(s.product_id) === m.id);
+                        if (!p) return;
+                        this.addRepairStockItem(p);
+                        const it = this.perbaikanItems.find(i => String(i.product_id) === m.id);
+                        if (it && m.qty > 0) it.qty = Math.min(m.qty, it.max);
+                    });
+                } catch (e) { /* abaikan; user bisa pilih manual */ }
+                return;
+            }
 
             // Garansi (atau legacy repair-warranty) → pilih dokumen garansi.
             if (t !== 'garansi' && t !== 'repair') return;

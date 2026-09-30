@@ -216,6 +216,7 @@ return [
             'production.process'             => ['label' => 'Proses Produksi',   'url' => '/erp/production/process',            'route_patterns' => ['production.process.*'], 'dynamic_dept' => true],
             'production.material-additions'  => ['label' => 'Penambahan Bahan',  'url' => '/erp/production/material-additions', 'route_patterns' => ['production.material-additions.*']],
             'production.completed'           => ['label' => 'Finalisasi',        'url' => '/erp/production/completed',          'route_patterns' => ['production.completed.*']],
+            'production.perbaikan'           => ['label' => 'Barang Perbaikan',  'url' => '/erp/production/perbaikan',          'route_patterns' => ['production.perbaikan.*']],
         ],
     ],
 
