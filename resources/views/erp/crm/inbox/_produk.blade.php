@@ -142,11 +142,11 @@
                                 {{-- Pratinjau tautan di WhatsApp tidak bisa diandalkan: kalau
                                      pengambil halaman Meta gagal membuka etalase, yang sampai
                                      ke pembeli cuma sebaris URL. Tombol ini mengirim fotonya
-                                     sendiri berikut caption yang sama. --}}
+                                     SAJA, tanpa caption — info & link punya tombolnya sendiri. --}}
                                 <button type="button" x-show="g.foto && percakapan" x-cloak
                                         @click="kirimFoto(varianTerpilih(g), g)"
                                         :disabled="mengirimFoto === g.pilih"
-                                        title="Kirim beserta foto produk"
+                                        title="Kirim foto produknya saja (tanpa teks)"
                                         class="shrink-0 flex items-center gap-1 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 rounded px-2 py-1.5 text-xs disabled:opacity-50">
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round"
@@ -647,8 +647,12 @@ function panelProduk(percakapanId) {
             this.mengirimFoto = p.id;
             this.galat = '';
 
+            // Foto SAJA, tanpa caption (1 Okt 2026). Dulu caption-nya kalimat
+            // info & link yang sama dengan tombol "Kirim info & link"; CS yang
+            // menekan keduanya membuat link sampai dua kali ke pembeli. Kini
+            // tiap tombol mengirim satu hal: link ya link, foto ya foto.
             window.dispatchEvent(new CustomEvent('kirim-foto-produk', {
-                detail: { foto, caption: this.kalimat(p, grup) },
+                detail: { foto, caption: '' },
             }));
         },
 

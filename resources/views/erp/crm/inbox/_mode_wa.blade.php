@@ -58,8 +58,9 @@
              * Foto tidak bisa ikut ke papan klip: yang dipegang panel produk
              * cuma ALAMAT gambar etalase, dan menyalin berkasnya berarti
              * mengunduh lalu menulis blob — jalur yang putus di http biasa.
-             * Yang disalin caption + tautannya; fotonya diseret sendiri oleh
-             * operator dari tab yang dibuka tautan itu.
+             * Yang disalin tautan fotonya (panel Produk kini mengirim foto
+             * tanpa caption); fotonya diseret sendiri oleh operator dari tab
+             * yang dibuka tautan itu.
              */
             async salinFoto(detail) {
                 const teks = [detail?.caption, detail?.foto].filter(Boolean).join('\n');
