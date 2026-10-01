@@ -27,8 +27,7 @@ class CustomerPaymentService
      */
     public function create(array $dto): CustomerPayment
     {
-        return CustomerPayment::create([
-            'payment_number' => $dto['payment_number'] ?? $this->generateNumber(),
+        $attrs = [
             'customer_id' => $dto['customer_id'],
             'date' => $dto['date'],
             'cash_account_id' => $dto['cash_account_id'],
@@ -38,7 +37,31 @@ class CustomerPaymentService
             'sales_order_id' => $dto['sales_order_id'] ?? null,
             'status' => 'draft',
             'notes' => $dto['notes'] ?? null,
-        ]);
+        ];
+
+        if (isset($dto['payment_number'])) {
+            return CustomerPayment::create(['payment_number' => $dto['payment_number']] + $attrs);
+        }
+
+        // Nomor bisa bentrok bila dua proses (webhook Jubelio + cron) memposting DP
+        // bersamaan: baris proses lain belum ter-commit sehingga tak terlihat saat
+        // MAX dihitung. Duplikat di MySQL hanya membatalkan statement-nya, bukan
+        // transaksinya — coba lagi. Lompati nomor yang bentrok, jangan hitung ulang
+        // saja: di dalam transaksi luar (REPEATABLE READ) query MAX membaca snapshot
+        // lama dan akan mengembalikan nomor yang sama lagi.
+        $after = 0;
+        for ($attempt = 1; ; $attempt++) {
+            $number = $this->generateNumber($after);
+            try {
+                return CustomerPayment::create(['payment_number' => $number] + $attrs);
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                if ($attempt >= 5) {
+                    throw $e;
+                }
+                $after = (int) substr($number, strrpos($number, '/') + 1);
+                usleep(random_int(50, 250) * 1000);
+            }
+        }
     }
 
     /**
@@ -520,7 +543,7 @@ class CustomerPaymentService
         }
     }
 
-    private function generateNumber(): string
+    private function generateNumber(int $after = 0): string
     {
         // Urut per bulan (MAX suffix + 1), BUKAN acak — rand(1,9999) sering bentrok
         // begitu jumlah payment/bulan padat (unique constraint gagal). Ekstrak suffix
@@ -531,7 +554,7 @@ class CustomerPaymentService
             ->selectRaw("MAX(CAST(SUBSTRING_INDEX(payment_number, '/', -1) AS UNSIGNED)) as m")
             ->value('m');
 
-        $next = $max + 1;
+        $next = max($max, $after) + 1;
         do {
             $number = $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
             $next++;
