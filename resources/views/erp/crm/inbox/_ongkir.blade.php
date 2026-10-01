@@ -40,7 +40,8 @@
 <div class="space-y-3 text-sm" x-data="ongkirCrm()"
      @hitung-ulang-ongkir.window="hitungUlang($event.detail.produk)"
      @tab-rail.window="$event.detail.tab === 'ongkir' && ambilKeranjangPesanan()"
-     @pesanan-dibuat.window="lepasSetelahJadi()">
+     @pesanan-dibuat.window="lepasSetelahJadi()"
+     @isi-titik-ongkir.window="titik = $event.detail.titik; lacak()">
 
     {{-- --------------------------------------------------------------- asal --}}
     <div>

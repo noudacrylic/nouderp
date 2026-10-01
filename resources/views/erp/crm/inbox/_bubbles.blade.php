@@ -68,8 +68,8 @@
                             </div>
                         @endif
 
-                        @if($m->reply_to_wam_id)
-                            @include('erp.crm.inbox._kutipan', ['dikutip' => $m->pesanDikutip()])
+                        @if($m->adaKutipan())
+                            @include('erp.crm.inbox._kutipan', ['dikutip' => $m->pesanDikutip(), 'cadangan' => $m->ringkasKutipanWaha()])
                         @endif
 
                         {{-- Media DI ATAS teks, seperti WhatsApp: di HP pelanggan yang
@@ -105,6 +105,24 @@
                             </div>
                         @endif
 
+                        {{-- Shareloc: peta kecil + tautan Google Maps. Petanya hanya
+                             gambar (pointer-events mati) supaya satu klik di mana pun
+                             langsung membuka Maps, bukan menggeser peta. --}}
+                        @if($lokasi = $m->lokasi())
+                            <a href="{{ $lokasi['url'] }}" target="_blank" rel="noopener"
+                               class="block w-64 max-w-full rounded border overflow-hidden bg-white hover:opacity-90 {{ $m->content ? 'mb-2' : '' }}">
+                                <iframe class="w-full h-36 pointer-events-none" loading="lazy" tabindex="-1"
+                                        src="https://www.openstreetmap.org/export/embed.html?bbox={{ $lokasi['lng'] - 0.004 }},{{ $lokasi['lat'] - 0.004 }},{{ $lokasi['lng'] + 0.004 }},{{ $lokasi['lat'] + 0.004 }}&layer=mapnik&marker={{ $lokasi['lat'] }},{{ $lokasi['lng'] }}"></iframe>
+                                <div class="px-2 py-1.5 text-xs">
+                                    <div class="font-medium text-gray-800">📍 {{ $lokasi['nama'] ?: ($lokasi['live'] ? 'Lokasi terkini' : 'Lokasi') }}</div>
+                                    @if($lokasi['alamat'])
+                                        <div class="text-gray-600">{{ $lokasi['alamat'] }}</div>
+                                    @endif
+                                    <div class="text-blue-600">Buka di Google Maps ↗</div>
+                                </div>
+                            </a>
+                        @endif
+
                         {{-- Tautan dibuat bisa diklik: thread ini dipakai MEMERIKSA apa
                              yang sudah terkirim, dan pemeriksaan itu setengah jalan
                              kalau alamatnya harus disalin dulu ke tab baru. Isinya
@@ -112,6 +130,37 @@
                              kenapa urutannya tidak boleh dibalik. --}}
                         @if($m->content)
                             <div class="whitespace-pre-wrap">{!! \App\Modules\CRM\Support\TeksPesan::tautkan($m->content) !!}</div>
+                        @endif
+
+                        {{-- Titik tujuan (shareloc, link Maps, atau koordinat ketikan)
+                             dibawa ke panel Ongkir dengan satu ketukan — menyorot dan
+                             menyalin dari gelembung chat di HP nyaris mustahil.
+                             Salin memakai jalur textarea bila bukan konteks aman
+                             (ERP dibuka lewat http://ip-lan), lihat _mode_wa. --}}
+                        @if($titik = $m->titikPeta())
+                            <div class="mt-1.5 flex flex-wrap gap-1" x-data="{ info: '' }">
+                                <button type="button"
+                                        @click="$dispatch('buka-tab', { tab: 'ongkir' }); $dispatch('isi-titik-ongkir', { titik: @js($titik) })"
+                                        class="px-2 py-0.5 rounded border border-emerald-600 text-emerald-700 bg-white text-[11px] font-semibold hover:bg-emerald-50">
+                                    🚚 Pakai di Ongkir
+                                </button>
+                                <button type="button"
+                                        @click="(async () => {
+                                            const t = @js($titik);
+                                            let ok = false;
+                                            try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(t); ok = true; } } catch (e) {}
+                                            if (!ok) {
+                                                const a = document.createElement('textarea');
+                                                a.value = t; a.setAttribute('readonly', ''); a.style.position = 'fixed'; a.style.opacity = '0';
+                                                document.body.appendChild(a); a.select(); ok = document.execCommand('copy'); a.remove();
+                                            }
+                                            info = ok ? 'Tersalin ✓' : 'Gagal menyalin';
+                                            setTimeout(() => info = '', 1500);
+                                        })()"
+                                        class="px-2 py-0.5 rounded border border-gray-300 text-gray-600 bg-white text-[11px] hover:bg-gray-50">
+                                    <span x-text="info || '{{ $m->lokasi() ? 'Salin koordinat' : 'Salin link' }}'"></span>
+                                </button>
+                            </div>
                         @endif
 
                         {{-- Tombol balasan cepat yang IKUT dikirim ke pelanggan.

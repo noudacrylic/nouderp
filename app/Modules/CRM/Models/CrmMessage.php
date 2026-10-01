@@ -187,7 +187,70 @@ class CrmMessage extends Model
      */
     public function pesanDikutip(): ?self
     {
-        return $this->dikutipWamid ?: $this->dikutipVendor;
+        if ($this->reply_to_wam_id) {
+            return $this->dikutipWamid ?: $this->dikutipVendor;
+        }
+
+        return ($id = $this->idKutipanWaha()) ? self::cariKutipanWaha($this->conversation_id, $id) : null;
+    }
+
+    /**
+     * Apakah pesan ini membalas (mengutip) pesan lain.
+     *
+     * Selain `reply_to_wam_id`, dibaca juga `replyTo` di raw WAHA: balasan
+     * pelanggan yang masuk sebelum kutipan WAHA dikenali (2 Okt 2026) tidak
+     * punya `reply_to_wam_id`, dan tanpa ini kutipannya tetap hilang.
+     */
+    public function adaKutipan(): bool
+    {
+        return (bool) $this->reply_to_wam_id || $this->idKutipanWaha() !== null;
+    }
+
+    /** Id pendek ('3EB0…') pesan yang dikutip menurut payload WAHA. */
+    public function idKutipanWaha(): ?string
+    {
+        $id = data_get($this->raw, 'replyTo.id')
+            ?? data_get($this->raw, '_data.message.extendedTextMessage.contextInfo.stanzaId');
+
+        return is_string($id) && trim($id) !== '' ? trim($id) : null;
+    }
+
+    /** Ringkasan kutipan dari WAHA sendiri — dipakai bila pesan aslinya tak ada di ERP. */
+    public function ringkasKutipanWaha(): ?string
+    {
+        $isi = data_get($this->raw, 'replyTo.body');
+        $isi = is_string($isi) ? trim(preg_replace('/\s+/u', ' ', $isi)) : '';
+
+        if ($isi === '' && data_get($this->raw, 'replyTo.hasMedia')) {
+            $isi = '📎 Media';
+        }
+
+        return $isi !== '' ? (mb_strlen($isi) > 90 ? mb_substr($isi, 0, 89) . '…' : $isi) : null;
+    }
+
+    /**
+     * Baris yang dikutip, dari id pendek WAHA.
+     *
+     * Baris kita menyimpan id dalam dua bentuk: 'waha:3EB0…' (balasan dari
+     * ERP, id dari /api/sendText) dan 'waha:false_628…@c.us_3EB0…' (semua
+     * yang datang lewat webhook). Dijangkarkan ke satu percakapan karena
+     * LIKE berawalan jokar tak bisa memakai indeks — lihat
+     * WahaCerminService::barisKitaSendiri.
+     */
+    public static function cariKutipanWaha(?int $percakapanId, string $id): ?self
+    {
+        if (! $percakapanId || strlen($id) < 8) {
+            return null;
+        }
+
+        $id = substr($id, (int) strrpos($id, '_') + (str_contains($id, '_') ? 1 : 0));
+
+        return self::where('conversation_id', $percakapanId)
+            ->where(fn ($q) => $q
+                ->where('provider_message_id', 'waha:' . $id)
+                ->orWhere('provider_message_id', 'like', 'waha:%\_' . $id))
+            ->latest('id')
+            ->first();
     }
 
     public function diteruskanDari(): BelongsTo
@@ -212,7 +275,9 @@ class CrmMessage extends Model
                 'video'    => '🎬 Video',
                 'audio'    => '🎤 Pesan suara',
                 'document' => '📄 ' . ($this->attachments->first()?->original_name ?: 'Dokumen'),
-                default    => 'Pesan',
+                default    => ($lokasi = $this->lokasi())
+                    ? '📍 ' . ($lokasi['nama'] ?: $lokasi['alamat'] ?: 'Lokasi')
+                    : 'Pesan',
             };
         }
 
@@ -221,6 +286,77 @@ class CrmMessage extends Model
         $isi = preg_replace('/\s+/u', ' ', $isi);
 
         return mb_strlen($isi) > $batas ? mb_substr($isi, 0, $batas - 1) . '…' : $isi;
+    }
+
+    /**
+     * Lokasi yang dibagikan pelanggan (shareloc), atau null bila bukan pesan lokasi.
+     *
+     * Dibaca dari `raw`, bukan dari kolom sendiri: pesan lokasi yang masuk
+     * sebelum ini dikenali tercatat sebagai 'text' tanpa isi, dan membacanya
+     * dari raw membuat gelembung lama yang kosong ikut terisi tanpa backfill.
+     * Tiga bentuk payload dikenali — WAHA (`location`), isi mentah NOWEB
+     * (`_data.message.locationMessage` / `liveLocationMessage`), dan webhook
+     * resmi (`raw.location`).
+     *
+     * @return array{lat: float, lng: float, nama: ?string, alamat: ?string, live: bool, url: string}|null
+     */
+    public function lokasi(): ?array
+    {
+        $raw = (array) ($this->raw ?? []);
+
+        $kandidat = [
+            [data_get($raw, 'location'), 'latitude', 'longitude'],
+            [data_get($raw, '_data.message.locationMessage'), 'degreesLatitude', 'degreesLongitude'],
+            [data_get($raw, '_data.message.liveLocationMessage'), 'degreesLatitude', 'degreesLongitude'],
+            [data_get($raw, 'raw.location'), 'latitude', 'longitude'],
+        ];
+
+        foreach ($kandidat as [$l, $kunciLat, $kunciLng]) {
+            if (! is_array($l) || ! is_numeric($l[$kunciLat] ?? null) || ! is_numeric($l[$kunciLng] ?? null)) {
+                continue;
+            }
+
+            $lat  = (float) $l[$kunciLat];
+            $lng  = (float) $l[$kunciLng];
+            $teks = fn ($v) => is_string($v) && trim($v) !== '' ? trim($v) : null;
+
+            return [
+                'lat'    => $lat,
+                'lng'    => $lng,
+                'nama'   => $teks($l['name'] ?? null),
+                'alamat' => $teks($l['address'] ?? null),
+                'live'   => (bool) ($l['live'] ?? false) || data_get($raw, '_data.message.liveLocationMessage') !== null,
+                'url'    => 'https://www.google.com/maps/search/?api=1&query=' . $lat . ',' . $lng,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Titik tujuan yang bisa langsung dibawa ke panel Ongkir: "lat,lng" dari
+     * shareloc, link Google Maps di teks, atau koordinat yang diketik pelanggan.
+     *
+     * Ada karena menyalin koordinat atau link dari gelembung chat di HP nyaris
+     * mustahil — tombol "Pakai di Ongkir" membawa nilai ini tanpa disalin.
+     */
+    public function titikPeta(): ?string
+    {
+        if ($lokasi = $this->lokasi()) {
+            return $lokasi['lat'] . ',' . $lokasi['lng'];
+        }
+
+        $isi = (string) $this->content;
+
+        if (preg_match('~https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|g\.co/kgs|(?:www\.|maps\.)?google\.[a-z.]+/maps|maps\.google\.[a-z.]+)[^\s]*~i', $isi, $m)) {
+            return rtrim($m[0], '.,;:!?)]}\'"');
+        }
+
+        if (preg_match('~-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}~', $isi, $m)) {
+            return preg_replace('~\s+~', '', $m[0]);
+        }
+
+        return null;
     }
 
     /** Label pengirim di kotak kutipan, seperti WhatsApp menulis nama di atas kutipan. */

@@ -22,6 +22,9 @@
                 {{ $dikutip->labelPengirim() }}
             </div>
             <div class="text-[12px] text-gray-600 truncate">{{ $dikutip->ringkas() }}</div>
+        @elseif(! empty($cadangan))
+            {{-- Pesan aslinya tak ada di ERP, tapi WAHA menitipkan isinya. --}}
+            <div class="text-[12px] text-gray-600 truncate">{{ $cadangan }}</div>
         @else
             <div class="text-[12px] text-gray-500 italic py-0.5">Pesan yang dikutip tidak ada di riwayat ERP.</div>
         @endif

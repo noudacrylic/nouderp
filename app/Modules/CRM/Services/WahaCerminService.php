@@ -586,6 +586,7 @@ class WahaCerminService
                  */
                 'source'              => $dariKita ? CrmMessage::SOURCE_WHATSAPP_APP : null,
                 'provider_message_id' => $id,
+                'reply_to_wam_id'     => $this->idDikutip($payload, $percakapan->id),
                 /*
                  * Centang diambil dari `ack` yang SUDAH ikut di payload
                  * `message.any` — tidak perlu menunggu peristiwa terpisah.
@@ -602,6 +603,26 @@ class WahaCerminService
             // 'message.any' atas pesan yang sama, misalnya).
             return null;
         }
+    }
+
+    /**
+     * Pesan yang dibalas (dikutip), dalam ruang id `provider_message_id`
+     * supaya relasi dikutipVendor langsung menemukannya.
+     *
+     * WAHA hanya memberi id pendek ('3EB0…'); bila barisnya tak ada di ERP
+     * (pesan lebih tua dari impor), id pendeknya tetap disimpan supaya
+     * gelembung tahu ini balasan dan menampilkan isi kutipan dari raw.
+     */
+    private function idDikutip(array $payload, int $percakapanId): ?string
+    {
+        $id = self::teks(data_get($payload, 'replyTo.id')
+            ?? data_get($payload, '_data.message.extendedTextMessage.contextInfo.stanzaId'));
+
+        if ($id === '') {
+            return null;
+        }
+
+        return CrmMessage::cariKutipanWaha($percakapanId, $id)?->provider_message_id ?? 'waha:' . $id;
     }
 
     /**
@@ -652,6 +673,14 @@ class WahaCerminService
 
         if ($jenis !== '') {
             return $jenis;
+        }
+
+        // Shareloc tak membawa `type` maupun media — tanpa ini ia tercatat
+        // sebagai teks kosong dan gelembungnya tampil tanpa isi.
+        if (is_array($payload['location'] ?? null)
+            || data_get($payload, '_data.message.locationMessage')
+            || data_get($payload, '_data.message.liveLocationMessage')) {
+            return 'location';
         }
 
         if (! ($payload['hasMedia'] ?? false)) {

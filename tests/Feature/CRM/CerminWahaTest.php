@@ -261,6 +261,78 @@ class CerminWahaTest extends TestCase
     }
 
     /**
+     * Shareloc tak membawa `type`, `body`, maupun media — dulu tercatat sebagai
+     * teks kosong dan gelembungnya tampil hanya berisi jam (dilaporkan 1 Okt 2026).
+     */
+    public function test_shareloc_tercatat_sebagai_lokasi_dan_tampil(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'body'     => null,
+            'location' => [
+                'live'      => false,
+                'latitude'  => '-6.98172',
+                'longitude' => '110.41234',
+                'name'      => null,
+                'address'   => null,
+            ],
+            '_data' => ['message' => ['locationMessage' => [
+                'degreesLatitude'  => -6.98172,
+                'degreesLongitude' => 110.41234,
+            ]]],
+        ]))->assertOk();
+
+        $pesan = CrmMessage::sole();
+
+        $this->assertSame('location', $pesan->message_type);
+        $this->assertSame(-6.98172, $pesan->lokasi()['lat']);
+        $this->assertSame(110.41234, $pesan->lokasi()['lng']);
+        $this->assertSame('📍 Lokasi', $pesan->ringkas());
+
+        $html = view('erp.crm.inbox._bubbles', ['pesan' => collect([$pesan]), 'percakapan' => $pesan->conversation])->render();
+        $this->assertStringContainsString('query=-6.98172,110.41234', $html);
+    }
+
+    /**
+     * Balasan pelanggan yang mengutip pesan lain — WAHA hanya memberi id
+     * pendek di `replyTo.id`, sedangkan baris kita menyimpan bentuk panjang.
+     * Dulu kutipannya hilang sama sekali (dilaporkan 2 Okt 2026).
+     */
+    public function test_balasan_pelanggan_menampilkan_kutipan(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'id'     => 'true_628123456789@c.us_3EB0KUTIPAN01',
+            'fromMe' => true,
+            'from'   => '628998844666@c.us',
+            'to'     => '628123456789@c.us',
+            'body'   => 'Stok ready kak',
+        ]))->assertOk();
+
+        $this->kirim($this->payload(pesan: [
+            'id'      => 'false_628123456789@c.us_3EB0BALASAN01',
+            'body'    => 'Oke saya ambil',
+            'replyTo' => ['id' => '3EB0KUTIPAN01', 'body' => 'Stok ready kak'],
+        ]))->assertOk();
+
+        // Yang dikutip tak ada di ERP: isi titipan WAHA yang tampil.
+        $this->kirim($this->payload(pesan: [
+            'id'      => 'false_628123456789@c.us_3EB0BALASAN02',
+            'body'    => 'Yang ini juga',
+            'replyTo' => ['id' => '3EB0TAKADA0001', 'body' => 'Pesan lama sekali'],
+        ]))->assertOk();
+
+        $asli    = CrmMessage::where('content', 'Stok ready kak')->sole();
+        $balasan = CrmMessage::where('content', 'Oke saya ambil')->sole();
+        $yatim   = CrmMessage::where('content', 'Yang ini juga')->sole();
+
+        $this->assertSame($asli->provider_message_id, $balasan->reply_to_wam_id);
+        $this->assertTrue($balasan->pesanDikutip()->is($asli));
+
+        $html = view('erp.crm.inbox._bubbles', ['pesan' => collect([$balasan, $yatim]), 'percakapan' => $balasan->conversation])->render();
+        $this->assertStringContainsString('data-lompat="' . $asli->id . '"', $html);
+        $this->assertStringContainsString('Pesan lama sekali', $html);
+    }
+
+    /**
      * Bentuk id NOWEB ('@s.whatsapp.net') diterima sama seperti '@c.us'.
      *
      * DIVERIFIKASI di server 24 Sep 2026: endpoint /chats mengembalikan 643

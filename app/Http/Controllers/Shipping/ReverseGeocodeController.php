@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Shipping;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Shipping\Services\MapsLinkExpander;
 use App\Modules\Shipping\Services\PointAddressResolver;
 use App\Modules\Shipping\ShippingManager;
 use Illuminate\Http\Request;
@@ -16,7 +17,7 @@ use Illuminate\Http\Request;
  */
 class ReverseGeocodeController extends Controller
 {
-    public function __invoke(Request $request, ShippingManager $manager, PointAddressResolver $resolver)
+    public function __invoke(Request $request, ShippingManager $manager, PointAddressResolver $resolver, MapsLinkExpander $expander)
     {
         // Provider pencari area = yang AKTIF. Dulu dipaku ke Biteship; begitu Biteship
         // dinonaktifkan, provider() mengembalikan null dan "Lacak Alamat" gagal diam-diam
@@ -36,10 +37,26 @@ class ReverseGeocodeController extends Controller
         $point = trim((string) $request->input('point', ''));
         $coord = parse_lat_long($point);
 
+        // Link pendek dari tombol "Bagikan" Maps di HP tak memuat koordinat —
+        // dibuka dulu ke link panjangnya.
+        $linkPanjang = $point;
+        if ($coord['latitude'] === null && MapsLinkExpander::linkPendek($point)) {
+            $linkPanjang = $expander->buka($point);
+            $coord       = parse_lat_long($linkPanjang);
+        }
+
         if ($coord['latitude'] === null) {
+            $tempat = MapsLinkExpander::namaTempat($linkPanjang);
+
             return response()->json([
                 'success' => false,
-                'error'   => 'Koordinat tidak terbaca. Paste link Google Maps atau format "lat,long" (mis. -7.79,110.36).',
+                'tempat'  => $tempat,
+                'error'   => match (true) {
+                    $tempat !== null => 'Link ini hanya berisi nama tempat, tanpa titik: ' . $tempat
+                        . '. Untuk kurir instant, minta pelanggan kirim lokasi lewat fitur "Lokasi" WhatsApp.',
+                    MapsLinkExpander::linkPendek($point) => 'Link Maps ini tidak bisa dibuka atau tidak memuat titik. Minta pelanggan kirim lokasi lewat fitur "Lokasi" WhatsApp.',
+                    default => 'Koordinat tidak terbaca. Paste link Google Maps atau format "lat,long" (mis. -7.79,110.36).',
+                },
             ]);
         }
 
