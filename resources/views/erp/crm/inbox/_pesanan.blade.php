@@ -737,7 +737,8 @@
             keepStok: awal.keepStok ?? false,
             tempo: awal.tempo ?? false,
             tempoHari: awal.tempoHari ?? '',
-            metode: awal.metode ?? 'kurir',
+            // Bawaan Ambil di Toko; berubah ke Kurir sendiri begitu ongkir dikirim dari tab Ongkir.
+            metode: awal.metode ?? 'ambil_toko',
             catatan: awal.catatan ?? '',
             // Jalan, No. rumah, patokan. Draft dulu, lalu alamat pelanggan yang
             // sudah tersimpan — alamat orang tidak berubah antar pesanan.
@@ -1329,7 +1330,7 @@
                     this.keepStok = false;
                     this.tempo = false;
                     this.tempoHari = '';
-                    this.metode = 'kurir';
+                    this.metode = 'ambil_toko';
 
                     window.dispatchEvent(new CustomEvent('pesanan-dibuat'));
 
