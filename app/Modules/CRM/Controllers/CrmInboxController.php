@@ -1896,6 +1896,10 @@ class CrmInboxController extends Controller
     {
         $data = $request->validate($this->aturanKeranjang());
 
+        if ($galat = $this->alamatKirimKurang($data)) {
+            return response()->json(['success' => false, 'error' => $galat], 422);
+        }
+
         try {
             $customerId = $this->pelangganUntukSo($conversation, $data);
         } catch (\Throwable $e) {
@@ -1984,6 +1988,10 @@ class CrmInboxController extends Controller
     public function buatSo(Request $request, CrmConversation $conversation, SalesOrderService $salesOrder)
     {
         $data = $request->validate($this->aturanKeranjang());
+
+        if ($galat = $this->alamatKirimKurang($data)) {
+            return response()->json(['success' => false, 'error' => $galat], 422);
+        }
 
         try {
             $customerId = $this->pelangganUntukSo($conversation, $data);
@@ -2081,6 +2089,29 @@ class CrmInboxController extends Controller
      * dibuat tanpa mencari wilayah lagi, dan itu tidak boleh menghapus kecamatan
      * & id area yang sudah benar dari pesanan sebelumnya.
      */
+    /**
+     * Pesanan yang DIKIRIM wajib punya alamat jalan: tanpa itu resi tak bisa
+     * dipesan, dan kekurangannya baru ketahuan saat barang mau keluar.
+     *
+     * Kosong masih boleh bila pelanggannya sudah punya alamat tersimpan —
+     * alamat itu yang dipakai, dan memang tidak ditimpa oleh isian kosong.
+     * Diperiksa SEBELUM pelanggan baru dibuat, supaya penolakan tidak
+     * meninggalkan pelanggan yatim.
+     */
+    private function alamatKirimKurang(array $data): ?string
+    {
+        if (($data['delivery_method'] ?? 'kurir') === 'ambil_toko'
+            || trim((string) ($data['shipping_address'] ?? '')) !== '') {
+            return null;
+        }
+
+        $tersimpan = ! empty($data['customer_id'])
+            ? \App\Models\Customer::whereKey((int) $data['customer_id'])->value('shipping_address')
+            : null;
+
+        return filled($tersimpan) ? null : 'Alamat lengkap wajib diisi untuk pesanan yang dikirim.';
+    }
+
     private function simpanAlamatPelanggan(int $customerId, CrmConversation $conversation, array $data): void
     {
         $customer = \App\Models\Customer::find($customerId);

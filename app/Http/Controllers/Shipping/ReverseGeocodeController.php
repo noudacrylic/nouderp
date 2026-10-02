@@ -43,6 +43,11 @@ class ReverseGeocodeController extends Controller
         if ($coord['latitude'] === null && MapsLinkExpander::linkPendek($point)) {
             $linkPanjang = $expander->buka($point);
             $coord       = parse_lat_long($linkPanjang);
+
+            // share.google / g.co/kgs berujung di halaman tempat tanpa koordinat.
+            if ($coord['latitude'] === null && ($titik = $expander->titikTempat($linkPanjang))) {
+                $coord = $titik;
+            }
         }
 
         if ($coord['latitude'] === null) {

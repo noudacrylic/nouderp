@@ -407,8 +407,8 @@
                      alamat pelanggan saat SO dibuat, karena dari sanalah resi
                      dipesan. --}}
                 <div class="space-y-1">
-                    <label class="block text-[10px] font-bold text-gray-400 uppercase">Alamat Lengkap</label>
-                    <textarea x-model="alamat" rows="2" maxlength="2000"
+                    <label class="block text-[10px] font-bold text-gray-400 uppercase">Alamat Lengkap <span class="text-red-500">*</span></label>
+                    <textarea x-model="alamat" x-ref="alamat" rows="2" maxlength="2000" required"
                               placeholder="Nama jalan, No. rumah, RT/RW, patokan…"
                               class="w-full border rounded px-1.5 py-1 text-xs"
                               :class="alamat.trim() ? 'border-gray-300' : 'border-amber-300'"></textarea>
@@ -1218,6 +1218,13 @@
                 if (this.ongkirBasi()) {
                     this.buka.ongkir = true;
                     this.galat = 'Ongkir dihitung untuk isi keranjang yang lama. Hitung ulang, atau buang ongkirnya.';
+                    return;
+                }
+
+                if (this.metode !== 'ambil_toko' && !this.alamat.trim()) {
+                    this.buka.ongkir = true;
+                    this.galat = 'Alamat lengkap wajib diisi untuk pesanan yang dikirim.';
+                    this.$nextTick(() => this.$refs.alamat?.focus());
                     return;
                 }
 

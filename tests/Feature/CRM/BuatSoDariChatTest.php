@@ -68,6 +68,7 @@ class BuatSoDariChatTest extends TestCase
         return array_replace_recursive([
             'warehouse_id'  => $this->warehouseId,
             'customer_name' => 'Pak Budi',
+            'shipping_address' => 'Jl. Melati Utara No. 3',
             'items' => [[
                 'product_id'     => $this->productId,
                 'qty'            => 2,
@@ -704,6 +705,19 @@ class BuatSoDariChatTest extends TestCase
         $this->assertSame('Jl. Lama 1', $lama->shipping_address);
         $this->assertSame('JB-1', $lama->jubelio_area_id);
         $this->assertSame('08111', $lama->recipient_phone);
+    }
+
+    /** Pesanan kurir tanpa alamat ditolak — dan ditolak sebelum pelanggan baru sempat dibuat. */
+    public function test_kurir_tanpa_alamat_ditolak(): void
+    {
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.inbox.buat-so', $this->percakapan()), $this->muatan([
+                'delivery_method' => 'kurir', 'shipping_address' => '  ',
+            ]))
+            ->assertStatus(422)
+            ->assertJsonPath('error', 'Alamat lengkap wajib diisi untuk pesanan yang dikirim.');
+
+        $this->assertFalse(Customer::where('name', 'Pak Budi')->exists());
     }
 
     public function test_ambil_di_toko_tidak_mengubah_alamat(): void

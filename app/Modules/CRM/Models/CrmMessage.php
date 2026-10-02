@@ -348,7 +348,7 @@ class CrmMessage extends Model
 
         $isi = (string) $this->content;
 
-        if (preg_match('~https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|g\.co/kgs|(?:www\.|maps\.)?google\.[a-z.]+/maps|maps\.google\.[a-z.]+)[^\s]*~i', $isi, $m)) {
+        if (preg_match('~https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|g\.co/kgs|share\.google/|(?:www\.|maps\.)?google\.[a-z.]+/maps|maps\.google\.[a-z.]+)[^\s]*~i', $isi, $m)) {
             return rtrim($m[0], '.,;:!?)]}\'"');
         }
 

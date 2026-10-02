@@ -67,6 +67,7 @@ class PenawaranDariChatTest extends TestCase
         return array_replace_recursive([
             'warehouse_id'  => $this->warehouseId,
             'customer_name' => 'Pak Budi',
+            'shipping_address' => 'Jl. Melati Utara No. 3',
             'items' => [[
                 'product_id'     => $this->productId,
                 'qty'            => 2,
