@@ -366,7 +366,7 @@
          jalan keluar jauh lebih buruk daripada satu tombol yang jarang dipakai. --}}
     <div class="shrink-0 px-3 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-500
                 flex items-center justify-between gap-2"
-         data-daftar-kaki data-muat="{{ $muat }}" data-ada-lagi="{{ $adaLagi ? 1 : 0 }}">
+         data-daftar-kaki data-sidik="{{ $sidikDaftar ?? '' }}" data-muat="{{ $muat }}" data-ada-lagi="{{ $adaLagi ? 1 : 0 }}">
         <span>{{ $percakapan->count() }} dari {{ $percakapan->total() }} chat</span>
         @if($adaLagi)
             <a href="{{ $tautanSaring(['muat' => $muat + 1]) }}"

@@ -745,6 +745,12 @@
                                 this.keBawah(true);
                                 this.mulaiJam();
 
+                                // Dibuka lewat tombol ← / → bisa berasal dari cache
+                                // HTTP: tarik SEGERA pesan yang belum tergambar.
+                                if (performance.getEntriesByType?.('navigation')?.[0]?.type === 'back_forward') {
+                                    this.tarik();
+                                }
+
                                 /*
                                  * Keyboard di HP. Layar yang mengecil membuat
                                  * daftar pesan ikut memendek, dan pesan terakhir

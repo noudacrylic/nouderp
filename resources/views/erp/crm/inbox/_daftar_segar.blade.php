@@ -29,13 +29,25 @@
         const JEDA  = 8000;
         const DASAR = '{{ route('crm.inbox.daftar-segar') }}';
 
-        let sidik   = '';
-        let pertama = true;
         let sibuk   = false;
         let pengamat = null;
 
         function muatKini() {
             return parseInt(wadah.querySelector('[data-daftar-kaki]')?.dataset.muat || '1', 10) || 1;
+        }
+
+        /*
+         * Sidik jari daftar yang SEDANG TAMPIL, dibaca dari HTML-nya sendiri
+         * (server menuliskannya saat menggambar), bukan diingat di variabel.
+         *
+         * Dulu tarikan pertama hanya merekam sidik server dan menganggap layar
+         * sudah sama. Halaman yang dipulihkan dari cache — tombol ←, atau PWA
+         * yang dibuka lagi — membawa daftar LAMA, dan daftar itu lalu dianggap
+         * terbaru: chat yang sudah dibalas tampil lagi seperti pesan masuk,
+         * sampai ada pesan baru lain atau CS menekan "Semua".
+         */
+        function sidikLayar() {
+            return wadah.querySelector('[data-daftar-kaki]')?.dataset.sidik || '';
         }
 
         function adaLagi() {
@@ -167,8 +179,6 @@
 
                 if (!d || !d.html) return;
 
-                sidik = d.sidik || sidik;
-
                 tukar(d.html);
 
                 /* URL ikut dibawa supaya muat ulang manual (F5) tidak memangkas
@@ -216,25 +226,11 @@
             sibuk = true;
 
             try {
-                const d = await ambil(muatKini(), sidik);
+                /* Sidik kosong (HTML lama tanpa data-sidik) = selalu minta isi;
+                   lebih baik satu tukar yang tak perlu daripada daftar basi. */
+                const d = await ambil(muatKini(), sidikLayar());
 
-                if (!d) return;
-
-                sidik = d.sidik || sidik;
-
-                /*
-                 * Putaran pertama hanya MEREKAM sidik jarinya. Tanpa ini,
-                 * daftar yang baru saja digambar server ditukar dengan salinan
-                 * yang isinya sama persis — menutup menu titik-tiga yang
-                 * kebetulan sedang terbuka tanpa sebab yang terlihat.
-                 */
-                if (pertama) {
-                    pertama = false;
-
-                    return;
-                }
-
-                if (d.sama || !d.html) return;
+                if (!d || d.sama || !d.html) return;
 
                 tukar(d.html);
             } catch (e) {
@@ -256,6 +252,13 @@
         pasangPengamat();
         keBarisAktif();
         mulaiJam();
+
+        /* Halaman yang dibuka lewat tombol ← / → bisa saja diambil dari cache
+           HTTP, bukan dari server — periksa SEGERA, jangan tunggu 8 detik
+           dengan daftar lama di depan mata. */
+        if (performance.getEntriesByType?.('navigation')?.[0]?.type === 'back_forward') {
+            segarkan();
+        }
 
         /*
          * Tiga pintu masuk, karena HP menutup halaman ini dengan tiga cara yang

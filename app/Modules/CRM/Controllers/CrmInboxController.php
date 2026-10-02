@@ -220,7 +220,7 @@ class CrmInboxController extends Controller
             ->paginate(per_page_size() * $muat, ['*'], 'page', 1)
             ->withQueryString();
 
-        return [
+        $data = [
             'percakapan'        => $percakapan,
             'muat'              => $muat,
             'adaLagi'           => $percakapan->total() > $percakapan->count(),
@@ -274,6 +274,19 @@ class CrmInboxController extends Controller
                 ->all(),
             'terpilih' => $terpilih,
         ];
+
+        /*
+         * Sidik jari daftar YANG DIGAMBAR halaman ini, ditulis ke HTML-nya.
+         *
+         * Penyegar dulu cuma merekam sidik server pada tarikan pertama dan
+         * menganggap layar sudah sama dengan itu. Halaman yang dipulihkan
+         * dari cache (tombol ←, PWA dibuka lagi) melanggar anggapan itu:
+         * daftar lama terlanjur dianggap terbaru, dan chat yang sudah dibalas
+         * tampil lagi sebagai pesan masuk sampai ada pesan baru berikutnya.
+         */
+        $data['sidikDaftar'] = $this->sidikDaftar($data);
+
+        return $data;
     }
 
     private function ruangKerja(Request $request, ?CrmConversation $terpilih = null, bool $modeWa = false): array
@@ -1443,7 +1456,7 @@ class CrmInboxController extends Controller
             : null;
 
         $data  = $this->dataDaftar($request, $terpilih);
-        $sidik = $this->sidikDaftar($data);
+        $sidik = $data['sidikDaftar'];
 
         if ($sidik === (string) $request->input('sidik')) {
             return response()->json(['sama' => true, 'sidik' => $sidik]);

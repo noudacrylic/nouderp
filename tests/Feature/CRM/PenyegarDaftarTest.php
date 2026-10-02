@@ -59,6 +59,37 @@ class PenyegarDaftarTest extends TestCase
         $this->assertStringContainsString('Halo kak', $jawab->json('html'));
     }
 
+    /**
+     * Halaman membawa sidik daftar YANG IA GAMBAR. Salinan dari cache (tombol ←,
+     * PWA dibuka lagi) lalu dikenali basi pada tarikan pertama — dulu tarikan
+     * pertama cuma merekam sidik server, dan daftar lama dianggap terbaru.
+     */
+    public function test_halaman_membawa_sidik_daftar_yang_digambarnya(): void
+    {
+        $admin = $this->admin();
+        $p     = CrmConversation::findOrCreateFor('628111222333');
+        $p->forceFill(['last_message_at' => now()->subHour()])->save();
+
+        foreach ([route('crm.inbox.index'), route('cs.chat')] as $halaman) {
+            $html = $this->actingAs($admin)->get($halaman)->assertOk()->getContent();
+            $this->assertMatchesRegularExpression('~data-sidik="([0-9a-f]{40})"~', $html, $halaman);
+            preg_match('~data-sidik="([0-9a-f]{40})"~', $html, $m);
+
+            $segar = $this->actingAs($admin)
+                ->getJson(route('crm.inbox.daftar-segar', ['sidik' => $m[1]] + ($halaman === route('cs.chat') ? ['aplikasi' => 'cs'] : [])))
+                ->assertOk();
+
+            $this->assertTrue($segar->json('sama'), 'Sidik di halaman wajib sama dengan sidik penyegar: ' . $halaman);
+        }
+
+        // Pesan baru masuk sesudah halaman tergambar → sidik lama dikenali basi.
+        $p->forceFill(['last_message_at' => now(), 'unread_count' => 1])->save();
+
+        $this->actingAs($admin)
+            ->getJson(route('crm.inbox.daftar-segar', ['sidik' => $m[1], 'aplikasi' => 'cs']))
+            ->assertOk()->assertJson(['sama' => false]);
+    }
+
     /** Percakapan yang BARU LAHIR juga harus memunculkan dirinya. */
     public function test_percakapan_baru_muncul_tanpa_muat_ulang(): void
     {
