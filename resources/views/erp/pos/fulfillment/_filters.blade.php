@@ -17,12 +17,55 @@
         <option value="non" @selected(request('channel') === 'non')>🏬 Non-Marketplace</option>
     </select>
 
-    <select name="courier" onchange="this.form.submit()" class="border rounded px-3 py-2 text-sm bg-white">
-        <option value="">Semua Kurir</option>
-        @foreach($couriers ?? [] as $c)
-            <option value="{{ $c }}" @selected(request('courier') === $c)>{{ $c }}</option>
-        @endforeach
-    </select>
+    {{-- Kurir: boleh centang beberapa. Tidak langsung kirim tiap centang (halaman
+         memuat ulang di tengah memilih), tapi lewat tombol Terapkan / Cari.
+         `courier` string tunggal dari tautan lama tetap terbaca lewat (array). --}}
+    @php
+        $kurirDipilih = array_values(array_filter(array_map('strval', (array) request('courier', []))));
+    @endphp
+    <details class="relative" data-filter-kurir>
+        <summary class="list-none cursor-pointer border rounded px-3 py-2 text-sm bg-white min-w-[16rem]
+                        flex items-center justify-between gap-2 {{ $kurirDipilih ? 'border-blue-400 text-blue-700 font-semibold' : '' }}">
+            <span class="truncate max-w-[18rem]">
+                @if(! $kurirDipilih)
+                    Semua Kurir
+                @elseif(count($kurirDipilih) === 1)
+                    {{ $kurirDipilih[0] }}
+                @else
+                    {{ count($kurirDipilih) }} kurir: {{ implode(', ', $kurirDipilih) }}
+                @endif
+            </span>
+            <span class="text-gray-400 text-xs">▾</span>
+        </summary>
+        <div class="absolute z-30 mt-1 w-72 bg-white border rounded-lg shadow-lg p-2">
+            <div class="max-h-72 overflow-y-auto space-y-0.5">
+                @forelse($couriers ?? [] as $c)
+                    <label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-sm cursor-pointer">
+                        <input type="checkbox" name="courier[]" value="{{ $c }}" class="rounded"
+                               @checked(in_array((string) $c, $kurirDipilih, true))>
+                        <span>{{ $c }}</span>
+                    </label>
+                @empty
+                    <div class="px-2 py-1.5 text-xs text-gray-400">Belum ada kurir di daftar ini.</div>
+                @endforelse
+            </div>
+            <div class="flex items-center justify-between gap-2 border-t mt-2 pt-2">
+                <button type="button" class="text-xs text-gray-500 hover:text-gray-700 font-semibold"
+                        onclick="this.closest('[data-filter-kurir]').querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false)">
+                    Kosongkan
+                </button>
+                <button type="submit" class="text-xs px-3 py-1.5 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700">Terapkan</button>
+            </div>
+        </div>
+    </details>
+    <script>
+        /* Panel kurir ditutup saat klik di luar — <details> tidak melakukannya sendiri. */
+        document.addEventListener('click', (e) => {
+            document.querySelectorAll('[data-filter-kurir][open]').forEach((d) => {
+                if (!d.contains(e.target)) d.removeAttribute('open');
+            });
+        });
+    </script>
 
     {{-- Chip cepat "prioritas": kurir instant ATAU ambil di toko — dua-duanya ada orang yang
          menunggu di tempat. Angkanya ditempel di chip supaya operator tahu ADA berapa & jenis

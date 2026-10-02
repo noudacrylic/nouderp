@@ -189,6 +189,33 @@ class FulfillmentDikirimTest extends TestCase
         $this->assertSame('selesai', $this->bucketOf($so));
     }
 
+    /** Filter kurir boleh centang beberapa; string tunggal dari tautan lama tetap jalan. */
+    public function test_filter_kurir_bisa_beberapa_sekaligus(): void
+    {
+        $sj = ['tracking_number' => 'JX123', 'resi_printed_at' => now()->subDay()];
+        $jne = $this->so(['shipping_courier_code' => 'jne'], $sj);
+        $jnt = $this->so(['shipping_courier_code' => 'jnt'], $sj);
+        $sic = $this->so(['shipping_courier_code' => 'sicepat'], $sj);
+
+        $svc = app(FulfillmentReadinessService::class);
+
+        $dua = $svc->bucket('dikirim', null, ['courier' => ['JNE', 'JNT']])->pluck('id');
+        $this->assertEqualsCanonicalizing([$jne->id, $jnt->id], $dua->all());
+
+        $satu = $svc->bucket('dikirim', null, ['courier' => 'SICEPAT'])->pluck('id');
+        $this->assertSame([$sic->id], $satu->values()->all());
+
+        $semua = $svc->bucket('dikirim', null, ['courier' => []])->pluck('id');
+        $this->assertCount(3, $semua);
+
+        $this->actingAs($this->admin())
+            ->get(route('pos.fulfillment.dikirim', ['courier' => ['JNE', 'JNT']]))
+            ->assertOk()
+            ->assertSee('2 kurir: JNE, JNT')
+            ->assertSee($jne->order_number)
+            ->assertDontSee($sic->order_number);
+    }
+
     public function test_halaman_dikirim_terbuka(): void
     {
         $this->so([], [

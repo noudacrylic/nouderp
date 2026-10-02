@@ -50,9 +50,14 @@ class FulfillmentReadinessService
             $rows = $rows->filter(fn ($r) => empty($r['is_marketplace']));
         }
 
-        // Filter kurir (cocok persis nama kurir/layanan).
-        if ($courier = trim((string) ($filters['courier'] ?? ''))) {
-            $rows = $rows->filter(fn ($r) => ($r['courier'] ?? null) === $courier);
+        // Filter kurir (cocok persis nama kurir/layanan). Boleh beberapa sekaligus
+        // (centang di layar); string tunggal dari tautan lama tetap diterima.
+        $couriers = collect((array) ($filters['courier'] ?? []))
+            ->map(fn ($c) => trim((string) $c))
+            ->filter()
+            ->all();
+        if ($couriers) {
+            $rows = $rows->filter(fn ($r) => in_array($r['courier'] ?? null, $couriers, true));
         }
 
         // Filter status resi (khusus "Telah Diproses").
