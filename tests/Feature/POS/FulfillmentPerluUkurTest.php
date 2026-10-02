@@ -111,6 +111,17 @@ class FulfillmentPerluUkurTest extends TestCase
         $this->assertSame('perlu_diproses', $this->bucketOf($so));
     }
 
+    public function test_kurir_instant_lompati_gerbang_ukur(): void
+    {
+        // Tarif instant dihitung dari jarak, bukan berat kardus.
+        $so = $this->so([
+            'shipping_courier_code' => 'grab',
+            'shipping_service_name' => 'Grab Express Instant',
+        ]);
+
+        $this->assertSame('perlu_diproses', $this->bucketOf($so));
+    }
+
     public function test_form_ukur_terisi_taksiran_dari_master_produk(): void
     {
         $so = $this->so();

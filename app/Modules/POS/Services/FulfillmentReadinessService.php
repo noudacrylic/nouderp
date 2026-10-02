@@ -1134,7 +1134,7 @@ class FulfillmentReadinessService
         $shortages = $this->shortagesFor($so);
 
         // Paket belum ditimbang & diukur setelah dipacking → tertahan di sub-tab "Perlu Ukur".
-        $needsMeasure = $this->needsMeasurement($so, $link);
+        $needsMeasure = $this->needsMeasurement($so, $link, $isInstant);
 
         // Batas waktu kirim. Order marketplace: pakai batas kirim ASLI dari Jubelio (due_date),
         // bukan estimasi lokal. Lainnya: ready stock = order_date + 1 hari; preorder = order_date +
@@ -1513,10 +1513,14 @@ class FulfillmentReadinessService
      * Hanya pesanan yang resinya nanti diterbitkan lewat agregator: marketplace dikecualikan
      * (ukuran & tarifnya sudah dikunci channel, tidak bisa diubah dari sini), begitu juga
      * ambil di toko dan kurir manual yang memang tidak menerbitkan resi sama sekali.
+     *
+     * Kurir instant juga dilewati: tarifnya dihitung dari jarak, bukan berat kardus, dan
+     * drivernya sering sudah di jalan — menahannya di "Perlu Ukur" cuma memperlambat.
+     * Jadi tahap ini khusus kurir reguler untuk pesanan ERP & storefront.
      */
-    private function needsMeasurement(SalesOrder $so, ?\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link): bool
+    private function needsMeasurement(SalesOrder $so, ?\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link, bool $isInstant = false): bool
     {
-        if ($link || $so->isPickup()) {
+        if ($link || $so->isPickup() || $isInstant) {
             return false;
         }
         if (\App\Models\ManualCourier::isManualCode($so->shipping_courier_code)) {

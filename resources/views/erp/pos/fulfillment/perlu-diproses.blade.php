@@ -5,7 +5,7 @@
     $judul = match($tahap) {
         'belum-siap'  => ['Belum Siap', 'Uangnya sudah masuk (DP atau lunas) tapi barangnya belum ada: produksi belum selesai atau stok fisik belum cukup. Tombol proses sengaja dimatikan.'],
         'belum-lunas' => ['Belum Lunas', 'Barang sudah siap, tinggal menunggu pelunasan. Pesanan yang boleh dikirim sebelum lunas ditetapkan admin lewat tempo di form SO.'],
-        'perlu-ukur'  => ['Perlu Ukur', 'Timbang & ukur kardus setelah dipacking supaya resi terbit dengan ongkir yang benar. Kolom sudah terisi taksiran — kalau sudah pas, simpan saja.'],
+        'perlu-ukur'  => ['Perlu Ukur', 'Khusus kurir reguler pesanan ERP & storefront — ambil di toko, kurir instant, dan marketplace langsung dilewati. Timbang & ukur kardus setelah dipacking supaya resi terbit dengan ongkir yang benar. Kolom sudah terisi taksiran — kalau sudah pas, simpan saja.'],
         default       => ['Siap Proses', 'Klik "Proses" untuk generate Faktur + Surat Jalan (kode booking wajib bila ambil di toko).'],
     };
 @endphp
