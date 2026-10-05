@@ -767,11 +767,18 @@
                                                 <span class="text-xs font-bold" :class="k.key === kasusAktif() ? 'text-blue-800' : 'text-gray-700'" x-text="k.judul"></span>
                                                 <span class="flex items-center gap-1.5 shrink-0">
                                                     <span x-show="k.key === kasusAktif()" class="text-[9px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded">KASUS INI</span>
+                                                    <span x-show="k.key === 'K5' && danaSudahCair() && kasusAktif() !== 'K5'" class="text-[9px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded">TERDETEKSI</span>
                                                     <span class="text-gray-400 text-xs" x-text="panduanTerbuka(k.key) ? '▾' : '▸'"></span>
                                                 </span>
                                             </button>
                                             <div x-show="panduanTerbuka(k.key)" class="px-3 pb-3 text-[11px] space-y-2">
                                                 <p class="text-gray-500 leading-relaxed" x-text="k.kapan"></p>
+                                                <div x-show="k.key === kasusAktif() && k.key !== 'K5' && danaSudahCair()"
+                                                     class="rounded-md bg-blue-50 border border-blue-200 px-2 py-1.5 text-blue-900 leading-relaxed">
+                                                    <span class="font-black">ℹ Dana pesanan ini sudah cair ke kita.</span>
+                                                    Saldo ditahannya sudah 0, jadi uang untuk pembeli dipotong dari Saldo Penjualan dan tidak ada blok Penyelesaian —
+                                                    blok Pembalikan mengikuti panduan "Dana pesanan sudah cair ke kita".
+                                                </div>
                                                 <div class="rounded-md bg-amber-50 border border-amber-100 px-2 py-1.5 text-amber-900 leading-relaxed">
                                                     <span class="font-black">💰 Uang:</span> <span x-text="k.uang"></span>
                                                 </div>
@@ -1723,8 +1730,15 @@ function returForm(initialData = null, prefill = null) {
         kasusAktif() {
             if (!this.selectedDoc || this.returnType !== 'invoice') return null;
             if (!this.selectedDoc.is_marketplace) return 'K7';
-            if (this.caseType === 'diajukan_konsumen' && this.blok.penyelesaian.rows === null && this.returnCase !== 'K6') return 'K5';
-            return this.returnCase || null;
+            // Kasus pilihan admin tetap jadi "KASUS INI"; dana yang sudah cair (K5) hanya
+            // penanda tambahan, bukan pengganti pilihannya.
+            return this.returnCase || (this.danaSudahCair() ? 'K5' : null);
+        },
+
+        /** Dana pesanan sudah cair ke Saldo Penjualan (tak ada blok Penyelesaian) — terdeteksi dari data. */
+        danaSudahCair() {
+            return !!this.selectedDoc?.is_marketplace && this.returnType === 'invoice'
+                && this.caseType === 'diajukan_konsumen' && this.blok.penyelesaian.rows === null && this.returnCase !== 'K6';
         },
 
         panduanGrup() {
@@ -1740,7 +1754,9 @@ function returForm(initialData = null, prefill = null) {
         },
 
         panduanTerbuka(key) {
-            return this.panduanBuka === null ? key === this.kasusAktif() : this.panduanBuka === key;
+            return this.panduanBuka === null
+                ? key === this.kasusAktif() || (key === 'K5' && this.danaSudahCair())
+                : this.panduanBuka === key;
         },
 
         /** Isian yang bertentangan dengan jenis kasusnya. */
