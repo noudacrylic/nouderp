@@ -1927,6 +1927,16 @@ class JubelioOrderSyncService
             return;
         }
 
+        // Masih ada draft retur → status "selesai" Jubelio belum bisa dipercaya (pesanan bisa
+        // berbalik jadi "returned"). Penyelesaiannya diserahkan ke retur itu: diposting
+        // (blok Penyelesaian) atau dinyatakan Retur Tidak Jadi (cairkanDenganTaksiran).
+        $returTerbuka = SalesReturn::where('status', 'draft')
+            ->where(fn ($q) => $q->where('invoice_id', $invoice->id)->orWhere('sales_order_id', $link->sales_order_id))
+            ->exists();
+        if ($returTerbuka) {
+            return;
+        }
+
         $so = SalesOrder::find($link->sales_order_id);
         if (!$so) {
             return;
