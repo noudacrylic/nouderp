@@ -1040,9 +1040,14 @@ class SalesReturnService
         $hold = $target === 'hold' ? round(min($amount, $this->sisaDitahan($doc)), 2) : 0.0;
 
         // Fee yang pernah dibebankan untuk porsi yang diretur ini.
+        // Porsinya dihitung terhadap nilai KOTOR faktur, sama seperti $amount. Faktur gaya lama
+        // menyimpan grand_total BERSIH (fee sudah dipotong), jadi kotornya = grand_total + fee.
         $feeMax = 0.0;
-        if ($isInvoice && $cash > 0 && (float) $doc->grand_total > 0) {
-            $feeMax = round((float) ($doc->marketplace_fee ?? 0) * ($amount / (float) $doc->grand_total), 2);
+        $kotor  = $isInvoice
+            ? (float) $doc->grand_total + ($doc->fee_at_settlement ? 0.0 : (float) ($doc->marketplace_fee ?? 0))
+            : 0.0;
+        if ($isInvoice && $cash > 0 && $kotor > 0) {
+            $feeMax = round((float) ($doc->marketplace_fee ?? 0) * min(1, $amount / $kotor), 2);
         }
 
         // Bawaan: kembalikan dana BERSIH yang kita terima (fee-nya ditanggung pembeli).
