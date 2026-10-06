@@ -1179,7 +1179,6 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::post('/fulfillment/so/{so}/seller-notes', [\App\Modules\POS\Controllers\FulfillmentController::class, 'updateSellerNotes'])->whereNumber('so')->name('fulfillment.seller-notes');
     // Cetak resi/faktur marketplace (label resmi Jubelio) — proxy URL report, same-tab.
     Route::get('/fulfillment/jubelio-resi-bulk', [\App\Modules\POS\Controllers\FulfillmentController::class, 'cetakResiJubelioBulk'])->name('fulfillment.jubelio-resi-bulk');
-    Route::post('/fulfillment/jubelio-resi/tandai-dicetak', [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiResiDicetak'])->name('fulfillment.jubelio-resi.tandai');
     Route::get('/fulfillment/so/{so}/jubelio-resi', [\App\Modules\POS\Controllers\FulfillmentController::class, 'cetakResiJubelio'])->whereNumber('so')->name('fulfillment.jubelio-resi');
     Route::get('/fulfillment/so/{so}/jubelio-faktur', [\App\Modules\POS\Controllers\FulfillmentController::class, 'cetakFakturJubelio'])->whereNumber('so')->name('fulfillment.jubelio-faktur');
 });

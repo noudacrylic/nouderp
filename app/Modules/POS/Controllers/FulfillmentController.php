@@ -896,15 +896,16 @@ class FulfillmentController extends Controller
     /**
      * Tampilkan label Jubelio yang sudah lolos bukaLabelJubelio().
      *
-     * PDF = label terbukti jadi → tandai sudah dicetak lalu teruskan. Halaman penampil report
-     * (yang biasa dikirim Jubelio) dibingkai di halaman ERP dan TIDAK langsung ditandai: penampil
-     * itu bisa macet "0 pages loaded" tanpa error, jadi hanya operator yang tahu labelnya keluar.
-     * Tanda dipasang lewat tombol "Sudah Tercetak" (tandaiResiDicetak).
+     * Langsung ditandai sudah dicetak. Halaman penampil report (yang biasa dikirim Jubelio) bisa
+     * macet "0 pages loaded" tanpa error, maka ia dibingkai di halaman ERP bersama tombol
+     * "Cetak Label ERP" — packing tetap bisa mencetak label lewat jalur itu. (Sempat ditandai
+     * lewat tombol konfirmasi, tapi packing tak pernah menekannya: semua resi tampak belum dicetak.)
      */
     private function tampilkanLabelJubelio(\Illuminate\Support\Collection $links, array $hasil)
     {
+        $this->tandaiDicetak($links);
+
         if (isset($hasil['pdf'])) {
-            $this->tandaiDicetak($links);
             return response($hasil['pdf'], 200, [
                 'Content-Type'        => 'application/pdf',
                 'Content-Disposition' => 'inline; filename="resi.pdf"',
@@ -921,22 +922,6 @@ class FulfillmentController extends Controller
             'links'   => $links,
             'kembali' => $kembali,
         ]);
-    }
-
-    /** Tombol "Sudah Tercetak" di bingkai label Jubelio: tandai pesanan-pesanannya sudah dicetak. */
-    public function tandaiResiDicetak(Request $request)
-    {
-        $ids = collect(explode(',', (string) $request->input('so', '')))
-            ->map(fn ($v) => (int) trim($v))->filter()->unique();
-        $links = JubelioOrderLink::whereIn('sales_order_id', $ids)->get();
-        $this->tandaiDicetak($links);
-
-        $kembali = (string) $request->input('kembali');
-        if (parse_url($kembali, PHP_URL_HOST) !== $request->getHost()) {
-            $kembali = route('pos.fulfillment.telah-diproses');
-        }
-
-        return redirect($kembali)->with('success', $links->count() . ' resi marketplace ditandai sudah dicetak.');
     }
 
     /** Tandai sudah dicetak sekali per pesanan, agar tak menimpa toggle manual. */

@@ -160,37 +160,28 @@ class CetakResiJubelioTest extends TestCase
     }
 
     /**
-     * Penampil report Jubelio bisa macet "0 pages loaded" tanpa error — membuka halamannya
-     * TIDAK boleh menandai sudah dicetak. Tanda baru dipasang lewat tombol "Sudah Tercetak".
+     * Penampil report Jubelio langsung ditandai sudah dicetak (packing tak pernah menekan tombol
+     * konfirmasi). Ia dibingkai bersama tombol "Cetak Label ERP" untuk saat penampilnya macet.
      */
-    public function test_penampil_jubelio_dibingkai_dan_belum_ditandai_sampai_dikonfirmasi(): void
+    public function test_penampil_jubelio_dibingkai_dan_langsung_ditandai(): void
     {
         $this->jubelioMemberiUrl();
         $this->reportJubelioPenampil();
         $link = $this->pesanan(10451);
-        $admin = $this->admin();
 
-        $this->actingAs($admin)
+        $this->actingAs($this->admin())
             ->from('/erp/pos/fulfillment/telah-diproses')
             ->get(route('pos.fulfillment.jubelio-resi', $link->sales_order_id))
             ->assertOk()
             ->assertSee(self::LABEL_URL)
-            ->assertSee('Sudah Tercetak')
-            ->assertSee('Cetak Label ERP');
-
-        $this->assertNull($link->fresh()->resi_printed_at, 'baru dibuka, belum tentu tercetak');
-        $this->assertSame(self::LABEL_URL, $link->fresh()->j_label_url);
-
-        $this->actingAs($admin)
-            ->post(route('pos.fulfillment.jubelio-resi.tandai'), [
-                'so' => (string) $link->sales_order_id, 'kembali' => url('/erp/pos/fulfillment/telah-diproses'),
-            ])
-            ->assertRedirect(url('/erp/pos/fulfillment/telah-diproses'));
+            ->assertSee('Cetak Label ERP')
+            ->assertSee(url('/erp/pos/fulfillment/telah-diproses'));
 
         $this->assertNotNull($link->fresh()->resi_printed_at);
+        $this->assertSame(self::LABEL_URL, $link->fresh()->j_label_url);
     }
 
-    public function test_penampil_jubelio_massal_belum_ditandai(): void
+    public function test_penampil_jubelio_massal_langsung_ditandai(): void
     {
         $this->jubelioMemberiUrl();
         $this->reportJubelioPenampil();
@@ -200,19 +191,10 @@ class CetakResiJubelioTest extends TestCase
         $this->actingAs($this->admin())
             ->get(route('pos.fulfillment.jubelio-resi-bulk', ['so' => $a->sales_order_id . ',' . $b->sales_order_id]))
             ->assertOk()
-            ->assertSee('Sudah Tercetak');
+            ->assertSee('Cetak Label ERP');
 
-        $this->assertNull($a->fresh()->resi_printed_at);
-        $this->assertNull($b->fresh()->resi_printed_at);
-    }
-
-    public function test_tandai_dicetak_menolak_alamat_kembali_luar(): void
-    {
-        $link = $this->pesanan(10454);
-
-        $this->actingAs($this->admin())
-            ->post(route('pos.fulfillment.jubelio-resi.tandai'), ['so' => (string) $link->sales_order_id, 'kembali' => 'https://evil.example/x'])
-            ->assertRedirect(route('pos.fulfillment.telah-diproses'));
+        $this->assertNotNull($a->fresh()->resi_printed_at);
+        $this->assertNotNull($b->fresh()->resi_printed_at);
     }
 
     /** Tombol "Label ERP": report Jubelio bisa macet tanpa error ("0 pages loaded") — lewati sepenuhnya. */
