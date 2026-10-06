@@ -136,6 +136,47 @@ class FulfillmentSelesaiTest extends TestCase
         $this->assertNotContains($belum->order_number, $tampil);
     }
 
+    /**
+     * Ambil di toko yang SJ-nya terbit lewat jalur lain tak pernah ditandai diambil → nyangkut di
+     * Telah Diproses. Tombol "Sudah Diambil" memindahkannya ke Selesai, bertanggal SJ (bukan hari ini).
+     */
+    public function test_tombol_sudah_diambil_memindahkan_ke_selesai_dengan_tanggal_sj(): void
+    {
+        $so = $this->pesanan(['delivery_method' => 'ambil_toko', 'pickup_status' => null]);
+        SalesDelivery::create([
+            'delivery_number' => 'SJ-' . uniqid(),
+            'sales_order_id'  => $so->id,
+            'warehouse_id'    => $so->warehouse_id,
+            'delivery_method' => 'ambil_toko',
+            'delivery_date'   => $so->order_date,
+            'status'          => 'posted',
+        ]);
+        $this->assertNotContains($so->order_number, $this->nomorDiTabSelesai());
+
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->actingAs($admin)
+            ->from('/erp/pos/fulfillment/telah-diproses')
+            ->post(route('pos.fulfillment.sudah-diambil', $so->id))
+            ->assertRedirect('/erp/pos/fulfillment/telah-diproses')
+            ->assertSessionHas('success');
+
+        $so->refresh();
+        $this->assertSame('picked_up', $so->pickup_status);
+        $this->assertSame(\Carbon\Carbon::parse($so->order_date)->toDateString(), $so->picked_up_at->toDateString());
+        $this->assertContains($so->order_number, $this->nomorDiTabSelesai());
+    }
+
+    public function test_tombol_sudah_diambil_ditolak_tanpa_surat_jalan(): void
+    {
+        $so = $this->pesanan(['delivery_method' => 'ambil_toko', 'pickup_status' => 'pending']);
+
+        $this->actingAs(User::factory()->create(['role' => 'super_admin', 'is_active' => true]))
+            ->post(route('pos.fulfillment.sudah-diambil', $so->id))
+            ->assertSessionHas('error');
+
+        $this->assertSame('pending', $so->fresh()->pickup_status);
+    }
+
     /* ------------------------------------------------- 3. kasir POS */
 
     public function test_transaksi_kasir_tanpa_sales_order_ikut_tampil(): void

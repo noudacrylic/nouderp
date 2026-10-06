@@ -549,6 +549,12 @@
             @else
                 <a href="{{ route('pos.fulfillment.jubelio-resi', $r['id']) }}"
                    class="text-xs px-3 py-1.5 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 font-semibold">🏷️ Cetak Resi</a>
+                @if(!empty($r['tracking_no']))
+                    {{-- Cadangan saat report label Jubelio macet/error: label dicetak ERP sendiri. --}}
+                    <a href="{{ route('pos.fulfillment.jubelio-resi', ['so' => $r['id'], 'erp' => 1]) }}"
+                       class="text-xs px-2 py-1 rounded border border-gray-300 text-gray-500 hover:bg-gray-50"
+                       title="Pakai bila label Jubelio tidak mau keluar — label resi dicetak dari ERP (nomor resi & penerima dari Jubelio)">Label ERP</a>
+                @endif
             @endif
             <a href="{{ route('pos.fulfillment.jubelio-faktur', $r['id']) }}"
                class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</a>
@@ -581,6 +587,16 @@
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</a>
                 <a href="{{ route('sales.invoices.show', $r['invoice']->id) }}"
                    class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">Lihat Faktur</a>
+            @endif
+            {{-- Ambil di toko yang SJ-nya terbit lewat jalur lain (bukan tombol Proses/konfirmasi
+                 pengambilan) tak pernah ditandai diambil → nyangkut di Telah Diproses. --}}
+            @if($mode === 'telah_diproses' && ($r['is_pickup'] ?? false) && ($r['pickup_status'] ?? null) !== 'picked_up' && $deliveries->count())
+                <form action="{{ route('pos.fulfillment.sudah-diambil', $r['id']) }}" method="POST"
+                      onsubmit="return confirm('Tandai barang {{ $r['number'] }} sudah diambil pembeli? Pesanan pindah ke Selesai.')">
+                    @csrf
+                    <button type="submit"
+                            class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">✅ Sudah Diambil</button>
+                </form>
             @endif
         </div>
         @if($deliveries->count())

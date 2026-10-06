@@ -46,6 +46,8 @@
         <button type="button" id="tdSelectAll" data-all="0" class="text-xs px-3 py-1.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">☑ Pilih semua</button>
         <button type="button" id="tdGenResi" class="text-xs px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">📮 Generate Resi</button>
         <button type="button" id="tdPrintResi" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Resi</button>
+        <button type="button" id="tdPrintResiErp" class="text-xs px-2 py-1 rounded border border-gray-300 text-gray-500 hover:bg-gray-50"
+                title="Pakai bila label Jubelio tidak mau keluar — resi marketplace dicetak dari ERP">Resi Marketplace (Label ERP)</button>
         <button type="button" id="tdPrintLabel" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Label</button>
         <button type="button" id="tdPrintInv" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</button>
         <button type="button" id="tdPrintSj" class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">📄 Cetak Surat Jalan</button>
@@ -306,6 +308,13 @@
         }
         if (mpSo.size) { window.location.href = mpResiBase + '?so=' + Array.from(mpSo).join(','); return; }
         goPrint(resiBase, Array.from(npResi), 'Tidak ada resi pada pesanan terpilih (belum di-generate).');
+    });
+    // Cadangan saat report label Jubelio macet: label resi marketplace dicetak ERP sendiri.
+    document.getElementById('tdPrintResiErp').addEventListener('click', function () {
+        const mpSo = new Set();
+        selected().forEach(c => { if (c.dataset.mp === '1' && c.dataset.so) mpSo.add(c.dataset.so); });
+        if (!mpSo.size) { alert('Tidak ada pesanan marketplace pada pilihan.'); return; }
+        window.location.href = mpResiBase + '?erp=1&so=' + Array.from(mpSo).join(',');
     });
     document.getElementById('tdPrintLabel').addEventListener('click', () =>
         goPrint(labelBase, collect('gen'), 'Tidak ada pengiriman tanpa resi pada pesanan terpilih (yang ber-resi pakai Cetak Resi).'));

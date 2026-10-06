@@ -1155,6 +1155,7 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::post('/fulfillment/so/{so}/bebaskan-produksi', [\App\Modules\POS\Controllers\FulfillmentController::class, 'waiveProduksi'])->whereNumber('so')->name('fulfillment.bebaskan-produksi');
     Route::post('/fulfillment/so/{so}/batal-bebas',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalWaiveProduksi'])->whereNumber('so')->name('fulfillment.batal-bebas');
     Route::post('/fulfillment/sj/{delivery}/sampai',       [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiSampai'])->whereNumber('delivery')->name('fulfillment.sampai');
+    Route::post('/fulfillment/so/{so}/sudah-diambil', [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiDiambil'])->whereNumber('so')->name('fulfillment.sudah-diambil');
     Route::post('/fulfillment/sj/{delivery}/batal-sampai', [\App\Modules\POS\Controllers\FulfillmentController::class, 'batalSampai'])->whereNumber('delivery')->name('fulfillment.batal-sampai');
     Route::get('/fulfillment/telah-diproses', [\App\Modules\POS\Controllers\FulfillmentController::class, 'telahDiproses'])->name('fulfillment.telah-diproses');
     Route::get('/fulfillment/dikirim',        [\App\Modules\POS\Controllers\FulfillmentController::class, 'dikirim'])->name('fulfillment.dikirim');
@@ -1178,6 +1179,7 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::post('/fulfillment/so/{so}/seller-notes', [\App\Modules\POS\Controllers\FulfillmentController::class, 'updateSellerNotes'])->whereNumber('so')->name('fulfillment.seller-notes');
     // Cetak resi/faktur marketplace (label resmi Jubelio) — proxy URL report, same-tab.
     Route::get('/fulfillment/jubelio-resi-bulk', [\App\Modules\POS\Controllers\FulfillmentController::class, 'cetakResiJubelioBulk'])->name('fulfillment.jubelio-resi-bulk');
+    Route::post('/fulfillment/jubelio-resi/tandai-dicetak', [\App\Modules\POS\Controllers\FulfillmentController::class, 'tandaiResiDicetak'])->name('fulfillment.jubelio-resi.tandai');
     Route::get('/fulfillment/so/{so}/jubelio-resi', [\App\Modules\POS\Controllers\FulfillmentController::class, 'cetakResiJubelio'])->whereNumber('so')->name('fulfillment.jubelio-resi');
     Route::get('/fulfillment/so/{so}/jubelio-faktur', [\App\Modules\POS\Controllers\FulfillmentController::class, 'cetakFakturJubelio'])->whereNumber('so')->name('fulfillment.jubelio-faktur');
 });

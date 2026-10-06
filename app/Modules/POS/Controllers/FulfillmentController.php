@@ -178,6 +178,40 @@ class FulfillmentController extends Controller
         return back()->with('success', "Surat Jalan {$sj->delivery_number} ditandai sudah sampai.");
     }
 
+    /**
+     * Tandai pesanan ambil di toko SUDAH DIAMBIL → pindah dari "Telah Diproses" ke "Selesai".
+     *
+     * Untuk pesanan yang Surat Jalannya terbit lewat jalur selain tombol Proses / konfirmasi
+     * booking code, sehingga pickup_status tak pernah terisi. Tanggal diambil = tanggal SJ
+     * (barang keluar gudang hari itu), bukan hari tombol ditekan — tanggal ini dipakai grafik
+     * Penjualan sebagai tanggal pesanan selesai.
+     */
+    public function tandaiDiambil(int $so)
+    {
+        $order = SalesOrder::findOrFail($so);
+
+        if (! $order->isPickup()) {
+            return back()->with('error', "{$order->order_number} bukan pesanan ambil di toko.");
+        }
+        if ($order->pickup_status === 'picked_up') {
+            return back()->with('error', "Barang {$order->order_number} sudah tercatat diambil.");
+        }
+
+        $sj = SalesDelivery::where('sales_order_id', $order->id)
+            ->where('status', 'posted')
+            ->latest('delivery_date')->first();
+        if (! $sj) {
+            return back()->with('error', "{$order->order_number} belum punya Surat Jalan yang diposting — proses pesanannya dulu.");
+        }
+
+        $order->update([
+            'pickup_status' => 'picked_up',
+            'picked_up_at'  => \Carbon\Carbon::parse($sj->delivery_date)->setTimeFrom($sj->created_at ?? now()),
+        ]);
+
+        return back()->with('success', "Barang {$order->order_number} ditandai sudah diambil — pindah ke Selesai.");
+    }
+
     /** Tarik kembali penandaan sampai — pesanan kembali ke tab "Dikirim". */
     public function batalSampai(int $delivery)
     {
@@ -773,36 +807,57 @@ class FulfillmentController extends Controller
     }
 
     /**
-     * Cetak resi marketplace (label resmi Jubelio). Ambil URL report dari Jubelio lalu
-     * navigasi SAME-TAB (redirect away) — patuhi aturan no target=_blank. URL di-cache di
-     * link agar cetak ulang tak selalu menembak API.
+     * Cetak resi marketplace (label resmi Jubelio). Ambil URL report dari Jubelio, pastikan
+     * labelnya benar-benar bisa dibuka, baru tampilkan SAME-TAB. URL di-cache di link agar
+     * cetak ulang tak selalu menembak API.
+     *
+     * Tanda "sudah dicetak" baru dipasang SETELAH label terbukti keluar: report Jubelio bisa
+     * membalas "Error. An error occurred while processing your request." (HTTP 500). Bila begitu,
+     * ERP mencetak label resinya SENDIRI (nomor resi + penerima dari Jubelio) supaya paket
+     * tetap bisa dikirim — lihat labelResiErp().
+     *
+     * `?erp=1` (tombol "Label ERP") langsung mencetak label ERP tanpa menyentuh report Jubelio.
+     * Perlu karena report Jubelio juga bisa MACET tanpa error (halaman terbuka, label tak
+     * pernah jadi: "0 pages loaded") — kasus yang tak terdeteksi dari sisi server.
      */
-    public function cetakResiJubelio(int $so, JubelioClient $client)
+    public function cetakResiJubelio(Request $request, int $so, JubelioClient $client)
     {
         $link = JubelioOrderLink::where('sales_order_id', $so)->firstOrFail();
 
-        // Klik Cetak Resi → otomatis tandai sudah dicetak (sekali, agar tak menimpa toggle manual).
-        if (!$link->resi_printed_at) {
-            $link->forceFill(['resi_printed_at' => now()])->save();
+        if ($request->boolean('erp')) {
+            if (trim((string) $link->tracking_no) === '') {
+                return back()->with('error', 'Pesanan ' . ($link->jubelio_salesorder_no ?: $so) . ' belum punya nomor resi — label ERP belum bisa dicetak.');
+            }
+            return $this->labelResiErp(collect([$link]), $client);
         }
 
-        if ($link->j_label_url) {
-            return redirect()->away($link->j_label_url);
-        }
-        $res = $client->getShippingLabelUrl((int) $link->jubelio_salesorder_id);
-        $url = data_get($res, 'data.url');
-        if (!$res['success'] || !$url) {
-            return back()->with('error', 'Gagal mengambil label resi Jubelio: ' . ($res['error'] ?? 'URL tidak tersedia'));
-        }
-        $link->forceFill(['j_label_url' => $url])->save();
+        $respon = $link->j_label_url ? $this->bukaLabelJubelio($link->j_label_url) : null;
 
-        return redirect()->away($url);
+        if (!$respon) {
+            // Cache kosong atau URL lama gagal → minta URL baru sekali.
+            $res = $client->getShippingLabelUrl((int) $link->jubelio_salesorder_id);
+            $url = data_get($res, 'data.url');
+            if ($res['success'] && $url) {
+                $respon = $this->bukaLabelJubelio($url);
+                $link->forceFill(['j_label_url' => $respon ? $url : null])->save();
+            }
+        }
+
+        if (!$respon) {
+            if (trim((string) $link->tracking_no) === '') {
+                return back()->with('error', 'Label resi ' . ($link->jubelio_salesorder_no ?: $so) . ' gagal dibuat oleh Jubelio dan nomor resinya belum terbit. Pesanan TIDAK ditandai sudah dicetak — coba lagi beberapa saat lagi.');
+            }
+            return $this->labelResiErp(collect([$link]), $client);
+        }
+
+        return $this->tampilkanLabelJubelio(collect([$link]), $respon);
     }
 
     /**
      * Cetak resi marketplace MASSAL: gabungkan beberapa pesanan marketplace menjadi SATU URL
      * report Jubelio (endpoint shipping-label menerima ids[] jamak → 1 PDF banyak label).
-     * Tandai tiap pesanan "sudah dicetak" lalu navigasi SAME-TAB. SO tanpa link/resi dilewati.
+     * Bila label terbukti keluar, tandai tiap pesanan "sudah dicetak" lalu tampilkan SAME-TAB.
+     * SO tanpa link/resi dilewati.
      */
     public function cetakResiJubelioBulk(Request $request, JubelioClient $client)
     {
@@ -822,20 +877,155 @@ class FulfillmentController extends Controller
             return back()->with('error', 'Pesanan terpilih belum punya resi yang terbit untuk dicetak.');
         }
 
-        $res = $client->getShippingLabelUrl($links->pluck('jubelio_salesorder_id')->map(fn ($v) => (int) $v)->all());
-        $url = data_get($res, 'data.url');
-        if (!$res['success'] || !$url) {
-            return back()->with('error', 'Gagal mengambil label resi gabungan Jubelio: ' . ($res['error'] ?? 'URL tidak tersedia'));
+        if ($request->boolean('erp')) {
+            return $this->labelResiErp($links->values(), $client);
         }
 
-        // Tandai sudah dicetak (sekali per pesanan), konsisten dengan cetak resi satuan.
+        $res = $client->getShippingLabelUrl($links->pluck('jubelio_salesorder_id')->map(fn ($v) => (int) $v)->all());
+        $url = data_get($res, 'data.url');
+        $respon = ($res['success'] && $url) ? $this->bukaLabelJubelio($url) : null;
+
+        if (!$respon) {
+            // Label resmi Jubelio gagal → cetak label ERP (lihat cetakResiJubelio).
+            return $this->labelResiErp($links->values(), $client);
+        }
+
+        return $this->tampilkanLabelJubelio($links->values(), $respon);
+    }
+
+    /**
+     * Tampilkan label Jubelio yang sudah lolos bukaLabelJubelio().
+     *
+     * PDF = label terbukti jadi → tandai sudah dicetak lalu teruskan. Halaman penampil report
+     * (yang biasa dikirim Jubelio) dibingkai di halaman ERP dan TIDAK langsung ditandai: penampil
+     * itu bisa macet "0 pages loaded" tanpa error, jadi hanya operator yang tahu labelnya keluar.
+     * Tanda dipasang lewat tombol "Sudah Tercetak" (tandaiResiDicetak).
+     */
+    private function tampilkanLabelJubelio(\Illuminate\Support\Collection $links, array $hasil)
+    {
+        if (isset($hasil['pdf'])) {
+            $this->tandaiDicetak($links);
+            return response($hasil['pdf'], 200, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="resi.pdf"',
+            ]);
+        }
+
+        $kembali = url()->previous();
+        if (parse_url($kembali, PHP_URL_HOST) !== request()->getHost() || str_contains($kembali, '/jubelio-resi')) {
+            $kembali = route('pos.fulfillment.telah-diproses');
+        }
+
+        return view('erp.pos.fulfillment.resi-marketplace-jubelio', [
+            'url'     => $hasil['viewer'],
+            'links'   => $links,
+            'kembali' => $kembali,
+        ]);
+    }
+
+    /** Tombol "Sudah Tercetak" di bingkai label Jubelio: tandai pesanan-pesanannya sudah dicetak. */
+    public function tandaiResiDicetak(Request $request)
+    {
+        $ids = collect(explode(',', (string) $request->input('so', '')))
+            ->map(fn ($v) => (int) trim($v))->filter()->unique();
+        $links = JubelioOrderLink::whereIn('sales_order_id', $ids)->get();
+        $this->tandaiDicetak($links);
+
+        $kembali = (string) $request->input('kembali');
+        if (parse_url($kembali, PHP_URL_HOST) !== $request->getHost()) {
+            $kembali = route('pos.fulfillment.telah-diproses');
+        }
+
+        return redirect($kembali)->with('success', $links->count() . ' resi marketplace ditandai sudah dicetak.');
+    }
+
+    /** Tandai sudah dicetak sekali per pesanan, agar tak menimpa toggle manual. */
+    private function tandaiDicetak(\Illuminate\Support\Collection $links): void
+    {
         foreach ($links as $link) {
             if (!$link->resi_printed_at) {
                 $link->forceFill(['resi_printed_at' => now()])->save();
             }
         }
+    }
 
-        return redirect()->away($url);
+    /**
+     * Label resi CADANGAN buatan ERP untuk pesanan marketplace, dipakai saat report label
+     * Jubelio error. Nomor resi & kurir dari link, penerima & berat dari detail pesanan
+     * Jubelio (pelanggan SO marketplace = kanalnya, bukan pembeli), barang dari Surat Jalan.
+     * Halaman ini tampil = label keluar → pesanan ditandai sudah dicetak.
+     */
+    private function labelResiErp(\Illuminate\Support\Collection $links, JubelioClient $client)
+    {
+        $profile = \App\Models\BusinessProfile::instance();
+
+        $labels = $links->map(function (JubelioOrderLink $link) use ($client, $profile) {
+            $sj = SalesDelivery::with(['items.product', 'order'])
+                ->where('sales_order_id', $link->sales_order_id)
+                ->where('status', '!=', 'void')
+                ->latest('id')->first();
+
+            $d = data_get($client->getOrder((int) $link->jubelio_salesorder_id), 'data', []);
+
+            $warehouse = \App\Core\Inventory\Warehouse::find($sj?->warehouse_id ?? SalesOrder::find($link->sales_order_id)?->warehouse_id);
+            $origin = [
+                'name'    => $warehouse?->contact_name ?: $profile->name,
+                'phone'   => $warehouse?->contact_phone ?: ($profile->phone ?: $profile->whatsapp),
+                'address' => collect([$warehouse?->address, $warehouse?->city, $warehouse?->province, $warehouse?->postal_code])->filter()->implode(', '),
+            ];
+            $dest = [
+                'name'    => data_get($d, 'shipping_full_name') ?: ($link->snap_customer ?: '-'),
+                'phone'   => data_get($d, 'shipping_phone') ?: '-',
+                'address' => data_get($d, 'shipping_address') ?: '-',
+            ];
+
+            // Dokumen label dirakit di memori saja — tak ada yang disimpan ke SJ.
+            $delivery = $sj ? clone $sj : new SalesDelivery(['delivery_date' => now()]);
+            if (!$sj) $delivery->setRelation('items', collect());
+            $delivery->tracking_number       = $link->tracking_no;
+            $delivery->courier_name          = $link->shipper ?: data_get($d, 'courier');
+            $delivery->shipping_courier_code = null;
+            $delivery->provider_order_id     = $link->jubelio_salesorder_no;
+
+            $kg = (float) data_get($d, 'total_weight_in_kg', 0);
+            $weight = $kg > 0
+                ? $kg * 1000
+                : ($sj ? app(\App\Modules\Shipping\Services\PackageDefaults::class)->weightFor($sj->order, $delivery->items) : 0);
+
+            return compact('delivery', 'origin', 'dest', 'weight');
+        });
+
+        $this->tandaiDicetak($links);
+
+        return view('erp.pos.fulfillment.resi-marketplace-erp', compact('labels'));
+    }
+
+    /**
+     * Buka URL report label Jubelio dari server untuk memastikan labelnya benar-benar jadi.
+     * PDF → ['pdf' => isi] (diteruskan langsung, tak perlu Jubelio merender dua kali). Balasan
+     * 2xx lain → ['viewer' => url] (halaman penampil report). Gagal/galat → null.
+     */
+    private function bukaLabelJubelio(string $url): ?array
+    {
+        @set_time_limit(120);
+
+        try {
+            $res = \Illuminate\Support\Facades\Http::timeout(55)->get($url);
+        } catch (\Throwable $e) {
+            Log::warning('Label resi Jubelio tak bisa dibuka: ' . $e->getMessage());
+            return null;
+        }
+
+        if (!$res->successful()) {
+            Log::warning('Label resi Jubelio membalas HTTP ' . $res->status());
+            return null;
+        }
+
+        if (str_contains(strtolower((string) $res->header('Content-Type')), 'pdf')) {
+            return ['pdf' => $res->body()];
+        }
+
+        return ['viewer' => $url];
     }
 
     /** Cetak faktur Jubelio (report), same-tab. Pakai j_invoice_id (fallback jubelio_invoice_id). */
