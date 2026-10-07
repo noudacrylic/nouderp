@@ -536,7 +536,7 @@
                             <div x-show="kunci === 'pembalikan' && Object.keys(bawaan.tujuan || {}).length > 1"
                                  class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3 bg-gray-50 rounded-xl p-3">
                                 <div>
-                                    <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Dana dikembalikan ke</label>
+                                    <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Pengembalian dana pembeli lewat</label>
                                     <select name="refund_target" x-model="refundTarget" @change="muatBawaan('pembalikan')"
                                             class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white">
                                         <template x-for="(label, key) in bawaan.tujuan" :key="key">
@@ -1021,7 +1021,7 @@ const PANDUAN = [
       pembalikan: [['Dr', 'Retur Penjualan', 'penjualan dibatalkan'], ['Cr', 'Piutang Usaha', 'tagihan yang belum dibayar dihapus'],
                    ['Cr', 'Kas/Bank · Kredit Pelanggan', 'uang yang sudah dibayar dikembalikan ke pembeli']],
       penyelesaian: [],
-      catatan: 'Pilih "Dana dikembalikan ke" di blok Pembalikan: Kredit Pelanggan (tanpa uang keluar) atau Kas/Bank.' },
+      catatan: 'Pilih "Pengembalian dana pembeli lewat" di blok Pembalikan: Kredit Pelanggan (tanpa uang keluar) atau Kas/Bank.' },
 ];
 
 
