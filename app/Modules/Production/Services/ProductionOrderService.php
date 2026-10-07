@@ -34,6 +34,16 @@ class ProductionOrderService
     public function create(array $data): ProductionOrder
     {
         return DB::transaction(function () use ($data) {
+            // OP Perbaikan dibuat dari SATU Kelompok Perbaikan: isi barangnya diambil dari
+            // kelompok (dikunci), bukan dari form — supaya tak ada yang lolos di luar kelompok.
+            $repairGroup = null;
+            if (($data['type'] ?? null) === 'perbaikan' && !empty($data['repair_group_id'])) {
+                $repairGroup = \App\Modules\Production\Models\RepairGroup::findOrFail((int) $data['repair_group_id']);
+                $data['repair_items'] = collect(app(RepairGroupService::class)->itemsForOrder($repairGroup->id))
+                    ->map(fn ($qty, $pid) => ['product_id' => $pid, 'qty' => $qty])
+                    ->values()->all();
+            }
+
             $order = ProductionOrder::create([
                 'order_number'           => NumberGeneratorService::generate('OP'),
                 'type'                   => $data['type'],
@@ -98,104 +108,10 @@ class ProductionOrderService
                     }
                 }
             } else {
-                // Sync materials
-                foreach ($data['materials'] ?? [] as $m) {
-                    if (empty($m['product_id']) || empty($m['qty_required'])) continue;
-                    // Unit wajib terisi: pakai unit dari form, jika kosong fallback ke base_unit
-                    // produk. Unit ikut menentukan componentSignature() (gabung OP) — unit kosong
-                    // membuat sidik jari beda sehingga OP dari resep sama gagal digabung.
-                    $unit = $m['unit'] ?? null;
-                    if (blank($unit)) {
-                        $unit = \App\Core\Inventory\Product::where('id', $m['product_id'])->value('base_unit');
-                    }
-                    ProductionOrderMaterial::create([
-                        'production_order_id' => $order->id,
-                        'product_id'          => $m['product_id'],
-                        'qty_required'        => $m['qty_required'],
-                        'unit'                => $unit,
-                        'notes'               => $m['notes'] ?? null,
-                    ]);
-                }
-
-                // Sync outputs. Persentase output sampingan:
-                //  • DENGAN BOM: otoritatif dari master Produk Sampingan (fixed per-unit):
-                //    sampingan = unit% × (qty/siklus), unit_percentage disimpan → finalize recompute.
-                //  • TANPA BOM: ukuran material bisa beda sehingga persentase pasti beda untuk
-                //    sampingan yang sama → pakai persentase yang di-input/di-override user apa adanya,
-                //    unit_percentage = null sebagai sinyal "manual" (finalize hormati nilai ini).
-                //  Utama selalu = sisa (100 − Σ sampingan).
-                $rawOutputs = array_values(array_filter(
-                    $data['outputs'] ?? [],
-                    fn($o) => !empty($o['product_id']) && !empty($o['qty_planned'])
-                ));
-                if ($rawOutputs) {
-                    $usesBom = !empty($order->bom_id);
-                    $cycles  = max(1e-9, (float) ($order->planned_cycles ?: 1));
-
-                    if ($usesBom) {
-                        $byIds  = collect($rawOutputs)
-                            ->filter(fn($o) => ($o['output_type'] ?? 'main') === 'by_product')
-                            ->pluck('product_id')->map(fn($id) => (int) $id)->unique();
-                        $masters = \App\Modules\Production\Models\ProductionByproduct::whereIn('product_id', $byIds)
-                            ->get()->keyBy('product_id');
-
-                        $sumBp = 0.0;
-                        foreach ($rawOutputs as $k => $o) {
-                            if (($o['output_type'] ?? 'main') !== 'by_product') continue;
-                            $master = $masters->get((int) $o['product_id']);
-                            // Master tanpa % default (null/tak terdaftar) → manual: hormati persentase user.
-                            if (!$master || $master->percentage === null) {
-                                $rawOutputs[$k]['unit_percentage'] = null;
-                                $rawOutputs[$k]['percentage']      = round((float) ($o['percentage'] ?? 0), 4);
-                                $sumBp += $rawOutputs[$k]['percentage'];
-                                continue;
-                            }
-                            $unitPct = (float) $master->percentage;
-                            $pct     = round($unitPct * ((float) $o['qty_planned'] / $cycles), 4);
-                            $rawOutputs[$k]['unit_percentage'] = $unitPct;
-                            $rawOutputs[$k]['percentage']      = $pct;
-                            $sumBp += $pct;
-                        }
-                    } else {
-                        // Tanpa BOM: hormati persentase manual; jangan timpa dari master.
-                        $sumBp = 0.0;
-                        foreach ($rawOutputs as $k => $o) {
-                            if (($o['output_type'] ?? 'main') !== 'by_product') continue;
-                            $rawOutputs[$k]['unit_percentage'] = null;
-                            $rawOutputs[$k]['percentage']      = round((float) ($o['percentage'] ?? 0), 4);
-                            $sumBp += $rawOutputs[$k]['percentage'];
-                        }
-                    }
-
-                    $mainPct = round(100 - $sumBp, 4);
-
-                    foreach ($rawOutputs as $o) {
-                        $isMain = ($o['output_type'] ?? 'main') === 'main';
-                        ProductionOrderOutput::create([
-                            'production_order_id' => $order->id,
-                            'product_id'          => $o['product_id'],
-                            'qty_planned'         => $o['qty_planned'],
-                            'output_type'         => $o['output_type'] ?? 'main',
-                            'percentage'          => $isMain ? $mainPct : ($o['percentage'] ?? 0),
-                            'unit_percentage'     => $isMain ? null : ($o['unit_percentage'] ?? null),
-                        ]);
-                    }
-                }
+                $this->syncMaterialsAndOutputs($order, $data);
             }
 
-            // Sync steps
-            foreach ($data['steps'] ?? [] as $i => $s) {
-                if (empty($s['name'])) continue;
-                ProductionOrderStep::create([
-                    'production_order_id' => $order->id,
-                    'bom_step_id'         => $s['bom_step_id'] ?? null,
-                    'step_number'         => $i + 1,
-                    'department_id'       => $s['department_id'] ?? null,
-                    'name'                => $s['name'],
-                    'description'         => $s['description'] ?? null,
-                    'status'              => 'pending',
-                ]);
-            }
+            $this->syncSteps($order, $data['steps'] ?? []);
 
             // Sync sources (untuk tipe repair)
             foreach ($data['sources'] ?? [] as $src) {
@@ -210,55 +126,325 @@ class ProductionOrderService
                 ]);
             }
 
-            // Simpan biaya produksi & jurnal Dr.WIP / Cr.Kas
-            $costItems = collect($data['costs'] ?? [])
-                ->filter(fn($c) => !empty($c['description']) && !empty($c['amount']) && !empty($c['cash_account_id']));
+            // Simpan baris biaya produksi saja — jurnalnya (Dr.WIP / Cr.Kas) baru diposting
+            // saat konfirmasi, bersama jurnal material. Draft tidak boleh punya jurnal.
+            $this->saveCostRows($order, $data['costs'] ?? []);
 
-            if ($costItems->isNotEmpty()) {
-                $wipAccount = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
-                $totalCost  = 0;
-                $lines      = [];
-
-                foreach ($costItems->groupBy('cash_account_id') as $cashAccId => $items) {
-                    $subtotal = $items->sum('amount');
-                    $totalCost += $subtotal;
-                    $cashAccount = Account::findOrFail($cashAccId);
-                    $lines[] = new JournalLineDTO(
-                        account_id:  $cashAccount->id,
-                        debit:       0,
-                        credit:      (float) $subtotal,
-                        description: 'Kas keluar biaya produksi'
-                    );
-                }
-
-                $lines[] = new JournalLineDTO(
-                    account_id:  $wipAccount->id,
-                    debit:       (float) $totalCost,
-                    credit:      0,
-                    description: 'Biaya produksi masuk WIP'
-                );
-
-                app(JournalPostingService::class)->post(new JournalEntryDTO(
-                    date:             $order->production_date->format('Y-m-d'),
-                    reference_type:   'production_order_cost',
-                    reference_id:     $order->id,
-                    description:      "Biaya Produksi - {$order->order_number}",
-                    lines:            $lines,
-                    reference_number: $order->order_number
-                ));
-
-                foreach ($costItems as $c) {
-                    ProductionOrderCost::create([
-                        'production_order_id' => $order->id,
-                        'description'         => $c['description'],
-                        'amount'              => $c['amount'],
-                        'cash_account_id'     => $c['cash_account_id'],
-                    ]);
-                }
+            if ($repairGroup) {
+                app(RepairGroupService::class)->attachToOrder($repairGroup, $order);
             }
 
             return $order;
         });
+    }
+
+    /**
+     * Edit OP yang masih DRAFT (belum ada stok/WIP material yang bergerak).
+     *
+     * Header, langkah, dan biaya selalu bisa diubah. Material/output dibangun ulang dari
+     * form hanya untuk Ready Stock/Preorder; OP Perbaikan/Garansi isinya terkunci ke
+     * kelompok/dokumen sumber, jadi tipe & isinya tidak disentuh.
+     *
+     * Draft belum punya jurnal: baris biaya cukup diganti, jurnalnya menyusul saat konfirmasi.
+     */
+    public function update(int $orderId, array $data): ProductionOrder
+    {
+        return DB::transaction(function () use ($orderId, $data) {
+            $order = ProductionOrder::lockForUpdate()->findOrFail($orderId);
+
+            if ($order->status !== 'draft') {
+                throw new Exception('Hanya order berstatus Draft yang bisa diedit.');
+            }
+
+            $isRepair = $order->isRepairLike();
+            // Tipe hanya boleh pindah antar Ready Stock ↔ Preorder; perbaikan/garansi terkunci.
+            $type = $isRepair ? $order->type : ($data['type'] ?? $order->type);
+            if (!$isRepair && ProductionOrder::isRepairType($type)) {
+                throw new Exception('Tipe order tidak bisa diubah menjadi Perbaikan/Garansi. Batalkan order ini lalu buat order baru.');
+            }
+
+            $scoreType = $data['score_type'] ?? 'auto';
+            $order->update([
+                'type'            => $type,
+                'bom_id'          => $isRepair ? $order->bom_id : (($data['bom_id'] ?? null) ?: null),
+                'sales_order_id'  => $type === 'custom' ? ($data['sales_order_id'] ?? null) : null,
+                'warehouse_id'    => $data['warehouse_id'],
+                'score_type'      => $scoreType,
+                'priority_level'  => $scoreType === 'priority' ? ($data['priority_level'] ?? 'low') : null,
+                'planned_cycles'  => $isRepair ? $order->planned_cycles : ($data['planned_cycles'] ?? 1),
+                'production_date' => $data['production_date'],
+                'notes'           => $data['notes'] ?? null,
+                'description'     => $data['description'] ?? null,
+            ]);
+
+            if (!$isRepair) {
+                $order->materials()->delete();
+                $order->outputs()->delete();
+                $this->syncMaterialsAndOutputs($order, $data);
+            }
+
+            $order->steps()->delete();
+            $this->syncSteps($order, $data['steps'] ?? []);
+
+            // Biaya: draft hanya menyimpan baris, jadi cukup diganti. Jurnal biaya sisa versi
+            // lama (OP draft yang dibuat sebelum aturan ini) di-void — akan diposting ulang
+            // dengan isi terbaru saat konfirmasi.
+            $this->voidCostJournals($order);
+            $order->costs()->delete();
+            $this->saveCostRows($order, $data['costs'] ?? []);
+
+            return $order->fresh();
+        });
+    }
+
+    /**
+     * Isi material & output OP non-perbaikan dari data form (dipakai create & update draft).
+     */
+    private function syncMaterialsAndOutputs(ProductionOrder $order, array $data): void
+    {
+        // Sync materials
+        foreach ($data['materials'] ?? [] as $m) {
+            if (empty($m['product_id']) || empty($m['qty_required'])) continue;
+            // Unit wajib terisi: pakai unit dari form, jika kosong fallback ke base_unit
+            // produk. Unit ikut menentukan componentSignature() (gabung OP) — unit kosong
+            // membuat sidik jari beda sehingga OP dari resep sama gagal digabung.
+            $unit = $m['unit'] ?? null;
+            if (blank($unit)) {
+                $unit = \App\Core\Inventory\Product::where('id', $m['product_id'])->value('base_unit');
+            }
+            ProductionOrderMaterial::create([
+                'production_order_id' => $order->id,
+                'product_id'          => $m['product_id'],
+                'qty_required'        => $m['qty_required'],
+                'unit'                => $unit,
+                'notes'               => $m['notes'] ?? null,
+            ]);
+        }
+
+        // Sync outputs. Persentase output sampingan:
+        //  • DENGAN BOM: otoritatif dari master Produk Sampingan (fixed per-unit):
+        //    sampingan = unit% × (qty/siklus), unit_percentage disimpan → finalize recompute.
+        //  • TANPA BOM: ukuran material bisa beda sehingga persentase pasti beda untuk
+        //    sampingan yang sama → pakai persentase yang di-input/di-override user apa adanya,
+        //    unit_percentage = null sebagai sinyal "manual" (finalize hormati nilai ini).
+        //  Utama selalu = sisa (100 − Σ sampingan).
+        $rawOutputs = array_values(array_filter(
+            $data['outputs'] ?? [],
+            fn($o) => !empty($o['product_id']) && !empty($o['qty_planned'])
+        ));
+        if ($rawOutputs) {
+            $usesBom = !empty($order->bom_id);
+            $cycles  = max(1e-9, (float) ($order->planned_cycles ?: 1));
+
+            if ($usesBom) {
+                $byIds  = collect($rawOutputs)
+                    ->filter(fn($o) => ($o['output_type'] ?? 'main') === 'by_product')
+                    ->pluck('product_id')->map(fn($id) => (int) $id)->unique();
+                $masters = \App\Modules\Production\Models\ProductionByproduct::whereIn('product_id', $byIds)
+                    ->get()->keyBy('product_id');
+
+                $sumBp = 0.0;
+                foreach ($rawOutputs as $k => $o) {
+                    if (($o['output_type'] ?? 'main') !== 'by_product') continue;
+                    $master = $masters->get((int) $o['product_id']);
+                    // Master tanpa % default (null/tak terdaftar) → manual: hormati persentase user.
+                    if (!$master || $master->percentage === null) {
+                        $rawOutputs[$k]['unit_percentage'] = null;
+                        $rawOutputs[$k]['percentage']      = round((float) ($o['percentage'] ?? 0), 4);
+                        $sumBp += $rawOutputs[$k]['percentage'];
+                        continue;
+                    }
+                    $unitPct = (float) $master->percentage;
+                    $pct     = round($unitPct * ((float) $o['qty_planned'] / $cycles), 4);
+                    $rawOutputs[$k]['unit_percentage'] = $unitPct;
+                    $rawOutputs[$k]['percentage']      = $pct;
+                    $sumBp += $pct;
+                }
+            } else {
+                // Tanpa BOM: hormati persentase manual; jangan timpa dari master.
+                $sumBp = 0.0;
+                foreach ($rawOutputs as $k => $o) {
+                    if (($o['output_type'] ?? 'main') !== 'by_product') continue;
+                    $rawOutputs[$k]['unit_percentage'] = null;
+                    $rawOutputs[$k]['percentage']      = round((float) ($o['percentage'] ?? 0), 4);
+                    $sumBp += $rawOutputs[$k]['percentage'];
+                }
+            }
+
+            $mainPct = round(100 - $sumBp, 4);
+
+            foreach ($rawOutputs as $o) {
+                $isMain = ($o['output_type'] ?? 'main') === 'main';
+                ProductionOrderOutput::create([
+                    'production_order_id' => $order->id,
+                    'product_id'          => $o['product_id'],
+                    'qty_planned'         => $o['qty_planned'],
+                    'output_type'         => $o['output_type'] ?? 'main',
+                    'percentage'          => $isMain ? $mainPct : ($o['percentage'] ?? 0),
+                    'unit_percentage'     => $isMain ? null : ($o['unit_percentage'] ?? null),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Buat langkah OP dari data form (semua pending).
+     */
+    private function syncSteps(ProductionOrder $order, array $steps): void
+    {
+        foreach ($steps as $i => $s) {
+            if (empty($s['name'])) continue;
+            ProductionOrderStep::create([
+                'production_order_id' => $order->id,
+                'bom_step_id'         => $s['bom_step_id'] ?? null,
+                'step_number'         => $i + 1,
+                'department_id'       => $s['department_id'] ?? null,
+                'name'                => $s['name'],
+                'description'         => $s['description'] ?? null,
+                'status'              => 'pending',
+            ]);
+        }
+    }
+
+    /**
+     * Simpan baris biaya produksi dari form (tanpa jurnal). Baris tanpa nominal diabaikan.
+     */
+    private function saveCostRows(ProductionOrder $order, array $costs): void
+    {
+        collect($costs)
+            ->filter(fn($c) => !empty($c['description']) && !empty($c['amount']) && !empty($c['cash_account_id']))
+            ->each(fn($c) => ProductionOrderCost::create([
+                'production_order_id' => $order->id,
+                'description'         => $c['description'],
+                'amount'              => $c['amount'],
+                'cash_account_id'     => $c['cash_account_id'],
+            ]));
+    }
+
+    /**
+     * Jurnal biaya produksi Dr.WIP / Cr.Kas — diposting saat konfirmasi.
+     * Dilewati bila OP tak punya biaya, atau jurnalnya sudah ada (OP draft lama yang
+     * biayanya terlanjur dijurnal saat dibuat) supaya tidak dobel.
+     */
+    private function postCostJournal(ProductionOrder $order): void
+    {
+        $costItems = $order->costs()->get();
+        if ($costItems->isEmpty()) {
+            return;
+        }
+
+        $alreadyPosted = \App\Core\Journal\Journal::where('reference_type', 'production_order_cost')
+            ->where('reference_id', $order->id)
+            ->where('status', '!=', 'void')
+            ->exists();
+        if ($alreadyPosted) {
+            return;
+        }
+
+        $wipAccount = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
+        $totalCost  = 0;
+        $lines      = [];
+
+        foreach ($costItems->groupBy('cash_account_id') as $cashAccId => $items) {
+            $subtotal = (float) $items->sum('amount');
+            $totalCost += $subtotal;
+            $lines[] = new JournalLineDTO(
+                account_id:  Account::findOrFail($cashAccId)->id,
+                debit:       0,
+                credit:      $subtotal,
+                description: 'Kas keluar biaya produksi'
+            );
+        }
+
+        $lines[] = new JournalLineDTO(
+            account_id:  $wipAccount->id,
+            debit:       (float) $totalCost,
+            credit:      0,
+            description: 'Biaya produksi masuk WIP'
+        );
+
+        app(JournalPostingService::class)->post(new JournalEntryDTO(
+            date:             $order->production_date->format('Y-m-d'),
+            reference_type:   'production_order_cost',
+            reference_id:     $order->id,
+            description:      "Biaya Produksi - {$order->order_number}",
+            lines:            $lines,
+            reference_number: $order->order_number
+        ));
+    }
+
+    /**
+     * Jurnal pembalik biaya produksi (Dr.Kas / Cr.WIP) untuk OP yang dibatalkan setelah
+     * biayanya dijurnal. Jurnal asli tetap posted sebagai jejak audit — keduanya saling
+     * meniadakan (pola sama dengan production_order_cancel untuk material).
+     * Idempoten: tidak memposting bila tak ada jurnal biaya aktif atau pembaliknya sudah ada.
+     *
+     * @return float  nominal yang dibalik (0 bila tidak ada)
+     */
+    public function reverseCostJournal(ProductionOrder $order, ?string $date = null): float
+    {
+        $journals = \App\Core\Journal\Journal::with('lines')
+            ->where('reference_type', 'production_order_cost')
+            ->where('reference_id', $order->id)
+            ->where('status', '!=', 'void')
+            ->get();
+        if ($journals->isEmpty()) {
+            return 0.0;
+        }
+
+        $alreadyReversed = \App\Core\Journal\Journal::where('reference_type', 'production_order_cost_cancel')
+            ->where('reference_id', $order->id)
+            ->where('status', '!=', 'void')
+            ->exists();
+        if ($alreadyReversed) {
+            return 0.0;
+        }
+
+        // Cerminkan semua baris per akun: debit ↔ kredit.
+        $byAccount = [];
+        foreach ($journals->flatMap->lines as $line) {
+            $byAccount[$line->account_id] = ($byAccount[$line->account_id] ?? 0.0)
+                + (float) $line->debit - (float) $line->credit;
+        }
+
+        $lines = [];
+        $total = 0.0;
+        foreach ($byAccount as $accountId => $net) {
+            if (abs($net) < 1e-9) continue;
+            $lines[] = new JournalLineDTO(
+                account_id:  (int) $accountId,
+                debit:       $net < 0 ? -$net : 0,
+                credit:      $net > 0 ? $net : 0,
+                description: $net > 0 ? 'Balik biaya produksi dari WIP' : 'Biaya produksi kembali ke kas'
+            );
+            if ($net > 0) $total += $net;
+        }
+        if (!$lines) {
+            return 0.0;
+        }
+
+        app(JournalPostingService::class)->post(new JournalEntryDTO(
+            date:             $date ?? now()->format('Y-m-d'),
+            reference_type:   'production_order_cost_cancel',
+            reference_id:     $order->id,
+            description:      "Batal Biaya Produksi - {$order->order_number}",
+            lines:            $lines,
+            reference_number: $order->order_number
+        ));
+
+        return $total;
+    }
+
+    /**
+     * Void jurnal biaya produksi OP draft versi lama (dipakai saat edit draft) — draft tidak
+     * boleh berjurnal; biayanya diposting ulang dengan isi terbaru saat konfirmasi.
+     */
+    private function voidCostJournals(ProductionOrder $order): void
+    {
+        \App\Core\Journal\Journal::where('reference_type', 'production_order_cost')
+            ->where('reference_id', $order->id)
+            ->where('status', '!=', 'void')
+            ->update(['status' => 'void', 'voided_at' => now()]);
     }
 
     public function updateSteps(int $orderId, array $steps): void
@@ -383,6 +569,9 @@ class ProductionOrderService
             if ($consumable->isNotEmpty()) {
                 $this->consumeOrderMaterials($order, $consumable);
             }
+
+            // Biaya produksi ikut dijurnal saat konfirmasi (draft belum punya jurnal).
+            $this->postCostJournal($order);
 
             $order->update(['status' => 'confirmed']);
 
@@ -1152,14 +1341,18 @@ class ProductionOrderService
                 ->sum('wip_released');
             $sisaWip  = max(0.0, $totalWip - $released);
 
+            // OP Perbaikan: tiap unit berakhir "berhasil" (masuk stok jual) atau "gagal" (beban 6105).
+            $isPerbaikan = $order->type === 'perbaikan';
+
             // Baris output yang benar-benar dilepas di batch ini.
             $rows = [];
             foreach ($actualOutputs as $out) {
                 $rec = $order->outputs->firstWhere('id', $out['output_id'] ?? null);
                 if (!$rec) continue;
-                $qty = (float) ($out['qty_produced'] ?? 0);
-                if ($qty <= 0) continue;
-                $rows[] = ['rec' => $rec, 'input' => $out, 'qty' => $qty];
+                $qty    = max(0.0, (float) ($out['qty_produced'] ?? 0));
+                $failed = $isPerbaikan ? max(0.0, (float) ($out['qty_failed'] ?? 0)) : 0.0;
+                if ($qty + $failed <= 0) continue;
+                $rows[] = ['rec' => $rec, 'input' => $out, 'qty' => $qty, 'failed' => $failed];
             }
 
             if ($rows === []) {
@@ -1168,9 +1361,14 @@ class ProductionOrderService
 
             $tallies = $this->releasedTallies($orderId);
 
-            $costs = $closing
-                ? $this->allocateClosingCost($order, $rows, $totalWip, $sisaWip)
-                : $this->allocatePartialCost($order, $rows, $totalWip, $sisaWip, $tallies);
+            if ($isPerbaikan) {
+                $this->assertRepairQty($order, $rows, $tallies, $closing);
+                $costs = $this->allocateRepairCost($order, $rows, $totalWip, $sisaWip, $tallies, $closing);
+            } else {
+                $costs = $closing
+                    ? $this->allocateClosingCost($order, $rows, $totalWip, $sisaWip)
+                    : $this->allocatePartialCost($order, $rows, $totalWip, $sisaWip, $tallies);
+            }
 
             $sequence = (int) (ProductionFinalization::where('production_order_id', $orderId)->max('sequence') ?? 0) + 1;
 
@@ -1184,18 +1382,26 @@ class ProductionOrderService
             ]);
 
             $totalOutputCost = 0.0;
+            $totalFailedCost = 0.0;
             $fifo = app(FifoService::class);
 
             foreach ($rows as $row) {
                 $outputRecord = $row['rec'];
                 $qtyProduced  = $row['qty'];
+                $qtyFailed    = $row['failed'];
                 $itemCost     = (float) ($costs[$outputRecord->id]['cost'] ?? 0);
+                $failedCost   = (float) ($costs[$outputRecord->id]['cost_failed'] ?? 0);
                 $pct          = $costs[$outputRecord->id]['pct'] ?? null;
 
                 // Alokasi hasil produksi ke satu/beberapa gudang. Fallback: semua ke gudang order
                 // (default Utama). Biaya per unit seragam lintas gudang (produk & WIP sama).
-                $allocations = $this->resolveOutputAllocations($row['input'], $qtyProduced, (int) $order->warehouse_id);
-                $unitCost    = $qtyProduced > 0 ? $itemCost / $qtyProduced : 0;
+                // Unit gagal diperbaiki tidak masuk gudang mana pun.
+                $allocations = $qtyProduced > 0
+                    ? $this->resolveOutputAllocations($row['input'], $qtyProduced, (int) $order->warehouse_id)
+                    : [];
+                $unitCost    = $qtyProduced > 0
+                    ? $itemCost / $qtyProduced
+                    : ($qtyFailed > 0 ? $failedCost / $qtyFailed : 0);
 
                 // qty_produced = AKUMULASI qty yang sudah masuk stok lintas batch, bukan angka
                 // batch ini saja — supaya semua layar lama (kartu output, laporan) tetap benar.
@@ -1203,8 +1409,11 @@ class ProductionOrderService
 
                 $updatePayload = [
                     'qty_produced'          => $releasedBefore + $qtyProduced,
-                    'warehouse_allocations' => $allocations,
+                    'warehouse_allocations' => $allocations ?: $outputRecord->warehouse_allocations,
                 ];
+                if ($isPerbaikan) {
+                    $updatePayload['qty_failed'] = (float) ($tallies['qty_failed'][$outputRecord->id] ?? 0) + $qtyFailed;
+                }
                 if (array_key_exists('variance_notes', $row['input'])) {
                     $updatePayload['variance_notes'] = $row['input']['variance_notes'];
                 }
@@ -1244,7 +1453,9 @@ class ProductionOrderService
                     'production_order_output_id' => $outputRecord->id,
                     'product_id'                 => $outputRecord->product_id,
                     'qty'                        => $qtyProduced,
+                    'qty_failed'                 => $qtyFailed,
                     'cost'                       => $itemCost,
+                    'cost_failed'                => $failedCost,
                     'unit_cost'                  => $unitCost,
                     'percentage'                 => $pct !== null ? round($pct, 4) : null,
                     'warehouse_allocations'      => $allocations,
@@ -1252,39 +1463,53 @@ class ProductionOrderService
                 ]);
 
                 $totalOutputCost += $itemCost;
+                $totalFailedCost += $failedCost;
             }
 
-            // Jurnal: Dr. Persediaan / Cr. WIP — per batch, bukan per order.
-            if ($totalOutputCost > 0) {
+            // Jurnal: Dr. Persediaan (+ Dr. Beban Kerugian Retur utk unit gagal diperbaiki)
+            // / Cr. WIP — per batch, bukan per order.
+            $totalReleased = $totalOutputCost + $totalFailedCost;
+            if ($totalReleased > 0) {
                 $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
                 $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
+
+                $lines = [];
+                if ($totalOutputCost > 0) {
+                    $lines[] = new JournalLineDTO(
+                        account_id:  $inventoryAccount->id,
+                        debit:       (float) $totalOutputCost,
+                        credit:      0,
+                        description: 'Output produksi masuk persediaan'
+                    );
+                }
+                if ($totalFailedCost > 0) {
+                    $lines[] = new JournalLineDTO(
+                        account_id:  Account::where('code', AccountCodeEnum::SALES_LOSS)->firstOrFail()->id,
+                        debit:       (float) $totalFailedCost,
+                        credit:      0,
+                        description: 'Barang gagal diperbaiki (rusak)'
+                    );
+                }
+                $lines[] = new JournalLineDTO(
+                    account_id:  $wipAccount->id,
+                    debit:       0,
+                    credit:      (float) $totalReleased,
+                    description: $closing ? 'Closing WIP produksi' : 'Pelepasan sebagian WIP produksi'
+                );
 
                 $journal = app(JournalPostingService::class)->post(new JournalEntryDTO(
                     date:             now()->format('Y-m-d'),
                     reference_type:   'production_order_release',
                     reference_id:     $batch->id,
                     description:      ($closing ? 'Produksi Selesai - ' : 'Produksi Selesai Sebagian - ') . $order->order_number,
-                    lines: [
-                        new JournalLineDTO(
-                            account_id:  $inventoryAccount->id,
-                            debit:       (float) $totalOutputCost,
-                            credit:      0,
-                            description: 'Output produksi masuk persediaan'
-                        ),
-                        new JournalLineDTO(
-                            account_id:  $wipAccount->id,
-                            debit:       0,
-                            credit:      (float) $totalOutputCost,
-                            description: $closing ? 'Closing WIP produksi' : 'Pelepasan sebagian WIP produksi'
-                        ),
-                    ],
+                    lines:            $lines,
                     reference_number: $closing ? $order->order_number : "{$order->order_number}/{$sequence}"
                 ));
 
                 $batch->journal_id = $journal->id;
             }
 
-            $batch->wip_released = $totalOutputCost;
+            $batch->wip_released = $totalReleased;
             $batch->save();
 
             if (!$closing) {
@@ -1301,6 +1526,9 @@ class ProductionOrderService
             // pengecekan kesiapan SO (FulfillmentReadinessService), sehingga produk yang habis
             // tidak pernah memicu OP otomatis lagi.
             $this->syncMergedChildrenStatus($order->refresh());
+
+            // Kelompok Perbaikan ikut Selesai.
+            app(RepairGroupService::class)->syncFromOrder($order);
 
             // Auto-advance dokumen sumber Perbaikan → "Selesai Diperbaiki".
             // Garansi: received/posted → repaired, sehingga SJ Garansi bisa langsung dibuat.
@@ -1353,7 +1581,7 @@ class ProductionOrderService
     /**
      * Qty & biaya yang sudah dilepas ke stok per baris output (batch aktif saja).
      *
-     * @return array{qty: array<int,float>, cost: array<int,float>}
+     * @return array{qty: array<int,float>, cost: array<int,float>, qty_failed: array<int,float>, cost_total: array<int,float>}
      */
     private function releasedTallies(int $orderId): array
     {
@@ -1361,18 +1589,25 @@ class ProductionOrderService
             ->join('production_finalizations as f', 'f.id', '=', 'production_finalization_items.production_finalization_id')
             ->where('f.production_order_id', $orderId)
             ->whereNull('f.voided_at')
-            ->selectRaw('production_order_output_id as oid, SUM(qty) as total_qty, SUM(cost) as total_cost')
+            ->selectRaw('production_order_output_id as oid, SUM(qty) as total_qty, SUM(cost) as total_cost,
+                SUM(qty_failed) as total_failed, SUM(cost_failed) as total_cost_failed')
             ->groupBy('production_order_output_id')
             ->get();
 
         $qty = [];
         $cost = [];
+        $failed = [];
+        $costTotal = [];
         foreach ($rows as $r) {
-            $qty[(int) $r->oid]  = (float) $r->total_qty;
-            $cost[(int) $r->oid] = (float) $r->total_cost;
+            $qty[(int) $r->oid]       = (float) $r->total_qty;
+            $cost[(int) $r->oid]      = (float) $r->total_cost;
+            $failed[(int) $r->oid]    = (float) $r->total_failed;
+            $costTotal[(int) $r->oid] = (float) $r->total_cost + (float) $r->total_cost_failed;
         }
 
-        return ['qty' => $qty, 'cost' => $cost];
+        // qty/cost = unit yang masuk stok; qty_failed = unit gagal diperbaiki (beban);
+        // cost_total = seluruh nilai yang sudah keluar dari WIP untuk output itu.
+        return ['qty' => $qty, 'cost' => $cost, 'qty_failed' => $failed, 'cost_total' => $costTotal];
     }
 
     /**
@@ -1525,6 +1760,128 @@ class ProductionOrderService
         }
 
         return $result;
+    }
+
+    /**
+     * Qty OP Perbaikan: tiap unit berakhir berhasil ATAU gagal, tidak ada unit yang hilang.
+     *  • Tiap batch: berhasil + gagal tidak boleh melebihi sisa unit output itu.
+     *  • Batch penutup: SEMUA output wajib tuntas (berhasil + gagal = target). Tanpa ini sisa
+     *    HPP awal output yang tak diisi nyangkut di WIP selamanya.
+     */
+    private function assertRepairQty(ProductionOrder $order, array $rows, array $tallies, bool $closing): void
+    {
+        $byId = collect($rows)->keyBy(fn ($r) => $r['rec']->id);
+
+        foreach ($order->outputs as $o) {
+            $done  = (float) ($tallies['qty'][$o->id] ?? 0) + (float) ($tallies['qty_failed'][$o->id] ?? 0);
+            $sisa  = max(0.0, (float) $o->qty_planned - $done);
+            $row   = $byId->get($o->id);
+            $batch = $row ? $row['qty'] + $row['failed'] : 0.0;
+            $nama  = $o->product?->name ?? "output #{$o->id}";
+            $fmt   = fn ($v) => rtrim(rtrim(number_format($v, 4, ',', '.'), '0'), ',');
+
+            if ($batch > $sisa + 1e-6) {
+                throw new Exception("{$nama}: berhasil + gagal ({$fmt($batch)}) melebihi sisa unit ({$fmt($sisa)}).");
+            }
+            if ($closing && abs($batch - $sisa) > 1e-6) {
+                throw new Exception("{$nama}: berhasil + gagal harus {$fmt($sisa)} unit (semua unit yang diperbaiki harus tuntas), terisi {$fmt($batch)}.");
+            }
+        }
+    }
+
+    /**
+     * Alokasi biaya OP PERBAIKAN (kelompok berisi beberapa SKU dengan HPP berbeda).
+     *
+     *  • HPP awal tiap SKU = nilai FIFO yang benar-benar keluar dari Gudang Perbaikan untuk SKU
+     *    itu — tetap milik SKU-nya, TIDAK dilebur dengan SKU lain.
+     *  • Biaya perbaikan = WIP keseluruhan − total HPP awal (Penambahan Bahan + Biaya Produksi),
+     *    dibagi SEBANDING HPP awal: porsi SKU = HPP awal SKU ÷ total HPP awal × biaya perbaikan.
+     *    Akibatnya semua SKU naik dengan persentase yang sama.
+     *  • Nilai per unit = (HPP awal + porsi) ÷ qty target. Unit berhasil dan unit gagal
+     *    menanggung nilai per unit yang sama; bagian unit gagal dibebankan ke 6105.
+     *  • Batch penutup menyapu SISA nilai tiap output (nilai penuh − yang sudah dilepas), jadi
+     *    WIP order pasti nol dan pembulatan batch sebelumnya ikut terkoreksi.
+     *
+     * @return array<int,array{cost: float, cost_failed: float, pct: null}>  keyed by output id
+     */
+    private function allocateRepairCost(ProductionOrder $order, array $rows, float $totalWip, float $sisaWip, array $tallies, bool $closing): array
+    {
+        $full = $this->repairCostBreakdown($order, $totalWip)['full'];
+
+        $batch = [];
+        foreach ($rows as $row) {
+            $o       = $row['rec'];
+            $planned = max(1e-9, (float) $o->qty_planned);
+            $sisa    = max(0.0, $full[$o->id] - (float) ($tallies['cost_total'][$o->id] ?? 0));
+            $units   = $row['qty'] + $row['failed'];
+
+            $batch[$o->id] = $closing ? $sisa : min($sisa, $full[$o->id] / $planned * $units);
+        }
+
+        // Penutup: yang dilepas persis sisa WIP order. Selisih kecil (pembulatan, atau bahan
+        // yang ditambahkan setelah sebuah SKU tuntas di batch sebagian) ikut dibagi sebanding.
+        if ($closing) {
+            $sum = array_sum($batch);
+            foreach ($batch as $id => $v) {
+                $batch[$id] = $sum > 1e-9 ? $sisaWip * $v / $sum : $sisaWip / count($batch);
+            }
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            $id    = $row['rec']->id;
+            $units = $row['qty'] + $row['failed'];
+            $gagal = $units > 0 ? $batch[$id] * $row['failed'] / $units : 0.0;
+
+            $result[$id] = ['cost' => $batch[$id] - $gagal, 'cost_failed' => $gagal, 'pct' => null];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Rincian biaya OP Perbaikan per output: HPP awal dan nilai penuh (HPP awal + porsi biaya
+     * perbaikan). Dipakai mesin finalisasi sekaligus pratinjau di layar finalisasi.
+     *
+     * HPP awal dibaca dari jejak konsumsi FIFO (inventory_cost_layers 'production_material'),
+     * jadi juga berlaku untuk OP lama. SKU yang sama di beberapa output dibagi menurut qty target.
+     *
+     * @return array{awal: array<int,float>, full: array<int,float>, total_awal: float, tambahan: float}
+     *         awal/full keyed output id
+     */
+    public function repairCostBreakdown(ProductionOrder $order, ?float $totalWip = null): array
+    {
+        $totalWip ??= $this->getWipCost($order->id);
+
+        $awalPerProduk = \App\Models\InventoryCostLayer::where('reference_type', 'production_material')
+            ->where('reference_id', $order->id)
+            ->whereNotNull('qty_out')
+            ->selectRaw('product_id, SUM(qty_out * unit_cost) as nilai')
+            ->groupBy('product_id')
+            ->pluck('nilai', 'product_id');
+
+        $outputs     = $order->outputs;
+        $qtyPerProd  = $outputs->groupBy('product_id')->map(fn ($g) => (float) $g->sum('qty_planned'));
+        $awal        = [];
+        foreach ($outputs as $o) {
+            $share = ($qtyPerProd[$o->product_id] ?? 0) > 0 ? (float) $o->qty_planned / $qtyPerProd[$o->product_id] : 0;
+            $awal[$o->id] = (float) ($awalPerProduk[$o->product_id] ?? 0) * $share;
+        }
+
+        $totalAwal = array_sum($awal);
+        $tambahan  = $totalWip - $totalAwal;
+        $totalQty  = (float) $outputs->sum('qty_planned');
+
+        $full = [];
+        foreach ($outputs as $o) {
+            // Tanpa HPP awal sama sekali (mis. barang bernilai nol) → porsi menurut qty.
+            $bobot = $totalAwal > 1e-9
+                ? $awal[$o->id] / $totalAwal
+                : ($totalQty > 0 ? (float) $o->qty_planned / $totalQty : 0);
+            $full[$o->id] = $awal[$o->id] + $tambahan * $bobot;
+        }
+
+        return ['awal' => $awal, 'full' => $full, 'total_awal' => $totalAwal, 'tambahan' => $tambahan];
     }
 
     /**
@@ -1721,25 +2078,41 @@ class ProductionOrderService
             $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
             $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();
 
+            // Bagian unit gagal diperbaiki (OP Perbaikan) dibalik dari 6105, sisanya dari persediaan.
+            $failedCost = (float) $batch->items->sum('cost_failed');
+            $stockCost  = (float) $batch->wip_released - $failedCost;
+
+            $lines = [
+                new JournalLineDTO(
+                    account_id:  $wipAccount->id,
+                    debit:       (float) $batch->wip_released,
+                    credit:      0,
+                    description: 'Balik WIP dari pembatalan pelepasan hasil'
+                ),
+            ];
+            if ($stockCost > 1e-9) {
+                $lines[] = new JournalLineDTO(
+                    account_id:  $inventoryAccount->id,
+                    debit:       0,
+                    credit:      $stockCost,
+                    description: 'Balik persediaan dari pembatalan pelepasan hasil'
+                );
+            }
+            if ($failedCost > 1e-9) {
+                $lines[] = new JournalLineDTO(
+                    account_id:  Account::where('code', AccountCodeEnum::SALES_LOSS)->firstOrFail()->id,
+                    debit:       0,
+                    credit:      $failedCost,
+                    description: 'Balik beban barang gagal diperbaiki'
+                );
+            }
+
             $journal = app(JournalPostingService::class)->post(new JournalEntryDTO(
                 date:             now()->format('Y-m-d'),
                 reference_type:   'production_order_release_void',
                 reference_id:     $batch->id,
                 description:      "Batal {$batch->label()} Produksi - {$order->order_number}",
-                lines: [
-                    new JournalLineDTO(
-                        account_id:  $wipAccount->id,
-                        debit:       (float) $batch->wip_released,
-                        credit:      0,
-                        description: 'Balik WIP dari pembatalan pelepasan hasil'
-                    ),
-                    new JournalLineDTO(
-                        account_id:  $inventoryAccount->id,
-                        debit:       0,
-                        credit:      (float) $batch->wip_released,
-                        description: 'Balik persediaan dari pembatalan pelepasan hasil'
-                    ),
-                ],
+                lines:            $lines,
                 reference_number: "{$order->order_number}/{$batch->sequence}"
             ));
 
@@ -1767,12 +2140,10 @@ class ProductionOrderService
 
         StockLayer::where('production_finalization_id', $batch->id)->delete();
 
-        // Jurnal pelepasan batch ini ditandai void supaya tidak ikut terhitung lagi.
-        if ($batch->journal_id) {
-            \App\Core\Journal\Journal::where('id', $batch->journal_id)
-                ->where('status', '!=', 'void')
-                ->update(['status' => 'void', 'voided_at' => now()]);
-        }
+        // Jurnal pelepasan asli SENGAJA tetap posted: jurnal balik di atas sudah meniadakannya.
+        // Dulu jurnal asli juga ditandai void — saldo hanya menghitung jurnal posted, jadi
+        // pembatalannya terhitung DUA KALI (WIP kelebihan & Persediaan kekurangan sebesar
+        // wip_released). Batch pengganti punya id baru, jadi tak ada bentrok double-posting.
 
         // qty_produced kumulatif dikurangi porsi batch ini.
         foreach ($batch->items as $item) {
@@ -1781,6 +2152,7 @@ class ProductionOrderService
 
             $output->update([
                 'qty_produced' => max(0.0, (float) $output->qty_produced - (float) $item->qty),
+                'qty_failed'   => max(0.0, (float) $output->qty_failed - (float) $item->qty_failed),
             ]);
         }
 
@@ -1816,6 +2188,9 @@ class ProductionOrderService
 
         // Induk tidak lagi selesai → anak gabungan dikembalikan ke status 'Digabung'.
         $this->syncMergedChildrenStatus($order->refresh());
+
+        // Kelompok Perbaikan kembali "Di OP" bila batch penutupnya dibatalkan.
+        app(RepairGroupService::class)->syncFromOrder($order);
     }
 
     /**
@@ -1988,7 +2363,11 @@ class ProductionOrderService
                 ->findOrFail($orderId);
 
             if ($order->status === 'draft') {
+                // Draft normalnya tanpa jurnal; OP draft versi lama yang biayanya terlanjur
+                // dijurnal dibalik dengan jurnal pembalik.
+                $this->reverseCostJournal($order);
                 $order->update(['status' => 'cancelled']);
+                app(RepairGroupService::class)->syncFromOrder($order);
                 return false;
             }
 
@@ -2019,7 +2398,13 @@ class ProductionOrderService
 
             $restored = $this->reverseConfirmConsumption($order);
 
+            // Biaya produksi yang dijurnal saat konfirmasi ikut dibalik (jurnal pembalik).
+            $this->reverseCostJournal($order);
+
             $order->update(['status' => 'cancelled']);
+
+            // OP batal → kelompoknya terbuka lagi (barang kembali ke Gudang Perbaikan di atas).
+            app(RepairGroupService::class)->syncFromOrder($order);
 
             return $restored;
         });
@@ -2370,7 +2755,8 @@ class ProductionOrderService
      *
      * Jurnal yang berkontribusi:
      *  - production_order_confirm  → konsumsi material awal (reference_id = order_id)
-     *  - production_order_cost     → biaya produksi saat buat order (reference_id = order_id)
+     *  - production_order_cost     → biaya produksi saat konfirmasi order (reference_id = order_id)
+     *  - production_order_cost_cancel → pembalik biaya saat order dibatalkan
      *  - production_material_addition → penambahan bahan (reference_id = addition_id)
      *  - production_cost_addition  → biaya tambahan saat penambahan bahan (reference_id = addition_id)
      *
@@ -2412,7 +2798,7 @@ class ProductionOrderService
         $breakdown = [
             // production_order_cancel mengkredit WIP saat order dibatalkan → netto jadi nol.
             'material'          => $net(['production_order_confirm', 'production_order_cancel'], [$orderId]),
-            'cost'              => $net(['production_order_cost'], [$orderId]),
+            'cost'              => $net(['production_order_cost', 'production_order_cost_cancel'], [$orderId]),
             'addition_material' => $net(['production_material_addition', 'production_material_addition_void'], $additionIds),
             'addition_cost'     => $net(['production_cost_addition', 'production_cost_addition_void'], $additionIds),
         ];

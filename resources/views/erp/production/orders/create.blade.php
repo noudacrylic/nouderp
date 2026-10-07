@@ -1,23 +1,35 @@
 ﻿@extends('layouts.erp')
 
 @section('content')
+@php
+    $editOrder    = $editOrder ?? null;
+    $isEdit       = (bool) $editOrder;
+    // Edit OP Perbaikan/Garansi: tipe & isi barang terkunci ke kelompok/dokumen sumber.
+    $isEditRepair = $isEdit && $editOrder->isRepairLike();
+@endphp
 <div class="w-full px-6 py-4" x-data="orderForm()">
 
     <div class="flex justify-between items-start mb-6">
         <div>
             <div class="flex items-center gap-2 text-xs text-gray-400 mb-1">
                 <a href="{{ route('production.orders.index') }}" class="hover:text-blue-600">Order Produksi</a>
-                <span>›</span><span>Buat Order Baru</span>
+                @if($isEdit)
+                    <span>›</span><a href="{{ route('production.orders.show', $editOrder->id) }}" class="hover:text-blue-600">{{ $editOrder->order_number }}</a>
+                    <span>›</span><span>Edit</span>
+                @else
+                    <span>›</span><span>Buat Order Baru</span>
+                @endif
             </div>
-            <h1 class="text-xl font-bold text-gray-800">Buat Order Produksi</h1>
+            <h1 class="text-xl font-bold text-gray-800">{{ $isEdit ? 'Edit Order Produksi ' . $editOrder->order_number : 'Buat Order Produksi' }}</h1>
         </div>
-        <a href="{{ route('production.orders.index') }}" class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Kembali</a>
+        <a href="{{ $isEdit ? route('production.orders.show', $editOrder->id) : route('production.orders.index') }}" class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Kembali</a>
     </div>
 
 
-    <form action="{{ route('production.orders.store') }}" method="POST" enctype="multipart/form-data"
+    <form action="{{ $isEdit ? route('production.orders.update', $editOrder->id) : route('production.orders.store') }}" method="POST" enctype="multipart/form-data"
           @submit="onFormSubmit($event)">
         @csrf
+        @if($isEdit) @method('PUT') @endif
 
         @if($errors->any() || session('error'))
             <div class="mb-5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
@@ -48,17 +60,26 @@
                     <div class="grid grid-cols-3 gap-3 mb-3">
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">Tujuan Produksi *</label>
+                            @if($isEditRepair)
+                                <div class="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-600">
+                                    {{ $editOrder->type === 'perbaikan' ? 'Perbaikan' : 'Garansi' }}
+                                    <span class="block text-[10px] text-gray-400">Tipe tidak bisa diubah saat edit.</span>
+                                </div>
+                            @else
                             <select name="type" x-model="type"
                                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                                 <option value="ready_stock">Ready Stock</option>
                                 <option value="custom">Preorder</option>
+                                @unless($isEdit)
                                 <option value="perbaikan">Perbaikan</option>
                                 <option value="garansi">Garansi</option>
+                                @endunless
                             </select>
+                            @endif
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-500 mb-1">Tanggal Produksi *</label>
-                            <input type="date" name="production_date" value="{{ date('Y-m-d') }}" required
+                            <input type="date" name="production_date" value="{{ old('production_date', $editOrder?->production_date?->format('Y-m-d') ?? date('Y-m-d')) }}" required
                                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                         </div>
                         <div>
@@ -152,6 +173,35 @@
                         <p class="text-[10px] text-purple-500 mt-0.5">Hanya SO dengan produk <strong>preorder</strong>. Output akan di-cap sesuai sisa yang belum diproduksi.</p>
                     </div>
 
+                    @if($isEditRepair)
+                    {{-- EDIT perbaikan/garansi: isi barang terkunci (baca-saja) --}}
+                    <div class="mb-3">
+                        <div class="bg-orange-50 border border-orange-100 rounded-xl p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h4 class="text-xs font-bold text-orange-700">Barang yang Diperbaiki</h4>
+                                <span class="text-[10px] text-orange-400">
+                                    @if($editOrder->type === 'perbaikan')
+                                        Dari {{ $editOrder->repairGroup?->number ?? 'kelompok perbaikan' }} · tidak dapat diubah
+                                    @else
+                                        Dari {{ $editOrder->repair_source_ref ?? 'dokumen garansi' }} · tidak dapat diubah
+                                    @endif
+                                </span>
+                            </div>
+                            <div class="space-y-2">
+                                @foreach($lockedItems as $it)
+                                    <div class="flex items-center gap-3 bg-white rounded-lg px-3 py-2 border border-orange-100">
+                                        <div class="flex-1 min-w-0">
+                                            <span class="font-bold text-blue-600 text-xs">{{ $it['sku'] }}</span>
+                                            <span class="text-gray-700 text-xs ml-1">{{ $it['name'] }}</span>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-700 flex-shrink-0">{{ rtrim(rtrim(number_format($it['qty'], 4, '.', ''), '0'), '.') }} unit</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <p class="text-[10px] text-orange-500 mt-2">Kalau barangnya salah, batalkan order ini lalu buat order baru.</p>
+                        </div>
+                    </div>
+                    @else
                     {{-- GARANSI: pilih dokumen garansi (sumber = warranty) --}}
                     <div x-show="type === 'garansi'" x-transition class="mb-3">
                         <input type="hidden" name="repair_source_type" value="warranty">
@@ -212,71 +262,52 @@
                         </div>
                     </div>
 
-                    {{-- PERBAIKAN: pilih SKU dari Gudang Perbaikan (retur/penyesuaian) --}}
+                    {{-- PERBAIKAN: pilih Kelompok Perbaikan (isi barangnya dikunci dari kelompok) --}}
                     <div x-show="type === 'perbaikan'" x-transition class="mb-3">
-                        <label class="block text-xs font-bold text-gray-500 mb-1">Pilih SKU dari Gudang Perbaikan *</label>
-                        <div class="relative" @click.outside="repairStockDrop = false">
-                            <input type="text" x-model="repairStockQuery"
-                                   @input.debounce.300ms="searchRepairStock()"
-                                   @focus="searchRepairStock(); repairStockDrop = true"
-                                   placeholder="Cari SKU/nama barang yang menunggu perbaikan..."
-                                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
-                            <div x-show="repairStockDrop && availableRepairStock().length > 0"
-                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto">
-                                <template x-for="p in availableRepairStock()" :key="p.product_id">
-                                    <div @click="addRepairStockItem(p)"
-                                         class="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0 flex justify-between items-center gap-2">
-                                        <span class="min-w-0">
-                                            <span class="font-bold text-blue-600" x-text="p.sku"></span>
-                                            <span class="text-gray-600 text-xs ml-1" x-text="p.name"></span>
-                                        </span>
-                                        <span class="text-[10px] text-orange-600 font-bold flex-shrink-0">stok: <span x-text="p.qty"></span></span>
-                                    </div>
-                                </template>
-                            </div>
-                            <div x-show="repairStockDrop && availableRepairStock().length === 0 && repairStockQuery.trim() !== ''"
-                                 class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-30 px-3 py-2.5 text-xs text-gray-400">
-                                Tidak ada SKU yang cocok di Gudang Perbaikan.
-                            </div>
-                        </div>
-                        <p class="text-[10px] text-orange-500 mt-0.5">Daftar barang yang sudah masuk perbaikan (dari retur kondisi "Perbaikan" &amp; penyesuaian stok). Tidak terikat nomor retur.</p>
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Kelompok Perbaikan *</label>
+                        <select x-model="repairGroupId" name="repair_group_id" :disabled="type !== 'perbaikan'"
+                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white">
+                            <option value="">— Pilih kelompok —</option>
+                            @foreach($repairGroups as $g)
+                                <option value="{{ $g['id'] }}">{{ $g['number'] }} · {{ $g['name'] }} ({{ count($g['items']) }} SKU)</option>
+                            @endforeach
+                        </select>
+                        <p class="text-[10px] text-orange-500 mt-0.5">
+                            Satu OP Perbaikan mengerjakan satu kelompok. Kelompok dibuat &amp; diubah di
+                            <a href="{{ route('production.perbaikan.index', ['tab' => 'kelompok']) }}" class="font-bold underline">Produksi › Barang Perbaikan › Kelompok</a>.
+                        </p>
+                        <p x-show="!repairGroups.length" x-cloak class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                            Belum ada kelompok terbuka. Buat kelompok dulu dari antrean Barang Perbaikan.
+                        </p>
                     </div>
 
-                    {{-- PERBAIKAN: SKU terpilih + qty --}}
+                    {{-- PERBAIKAN: isi kelompok terpilih (baca-saja) --}}
                     <div x-show="type === 'perbaikan' && perbaikanItems.length > 0" x-transition class="mb-3">
                         <div class="bg-orange-50 border border-orange-100 rounded-xl p-4">
                             <h4 class="text-xs font-bold text-orange-700 flex items-center gap-1.5 mb-3">
                                 <span class="w-4 h-4 bg-orange-200 text-orange-700 rounded flex items-center justify-center text-[9px] font-black">P</span>
-                                SKU yang Akan Diperbaiki
+                                Barang yang Akan Diperbaiki
                             </h4>
                             <div class="space-y-2">
-                                <template x-for="(item, idx) in perbaikanItems" :key="item.product_id">
+                                <template x-for="item in perbaikanItems" :key="item.product_id">
                                     <div class="flex items-center gap-3 bg-white rounded-lg px-3 py-2 border border-orange-100">
                                         <div class="flex-1 min-w-0">
                                             <span class="font-bold text-blue-600 text-xs" x-text="item.sku"></span>
                                             <span class="text-gray-700 text-xs ml-1" x-text="item.name"></span>
-                                            <span class="block text-[10px] text-gray-400">Tersedia di perbaikan: <span x-text="item.max"></span></span>
                                         </div>
-                                        <div class="flex flex-col items-end flex-shrink-0">
-                                            <input type="number" min="0.0001" :max="item.max" step="any"
-                                                   x-model="item.qty" @input="validateRepairQty(idx)"
-                                                   class="w-20 border-2 border-orange-200 text-center rounded-lg px-2 py-1 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-300">
-                                        </div>
-                                        <button type="button" @click="removeRepairStockItem(idx)"
-                                                class="text-red-400 hover:text-red-600 text-sm flex-shrink-0">✕</button>
-                                        {{-- Hidden inputs submit (output_type/percentage default di server) --}}
-                                        <input type="hidden" :name="`repair_items[${idx}][product_id]`" :value="item.product_id">
-                                        <input type="hidden" :name="`repair_items[${idx}][qty]`"         :value="item.qty">
+                                        <span class="text-sm font-bold text-gray-700 flex-shrink-0" x-text="item.qty + ' unit'"></span>
                                     </div>
                                 </template>
                             </div>
                         </div>
                     </div>
 
+                    @endif
+
                     {{-- Catatan --}}
                     <div>
                         <label class="block text-xs font-bold text-gray-500 mb-1">Catatan</label>
-                        <input type="text" name="notes" placeholder="Catatan tambahan..."
+                        <input type="text" name="notes" placeholder="Catatan tambahan..." value="{{ old('notes', $editOrder?->notes) }}"
                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                     </div>
                 </div>
@@ -525,7 +556,7 @@
                     <div class="flex justify-between items-center mb-4">
                         <div>
                             <h3 class="font-bold text-gray-700">Biaya Produksi</h3>
-                            <p class="text-[10px] text-gray-400 mt-0.5">Biaya kas langsung (komponen kecil, jasa, dll). Jurnal Dr.WIP / Cr.Kas otomatis.</p>
+                            <p class="text-[10px] text-gray-400 mt-0.5">Biaya kas langsung (komponen kecil, jasa, dll). Jurnal Dr.WIP / Cr.Kas dibuat saat order dikonfirmasi.</p>
                         </div>
                         <button type="button" @click="addCost()"
                                 class="text-xs text-blue-600 font-bold hover:text-blue-700">+ Tambah Biaya</button>
@@ -593,7 +624,7 @@
                                       x-text="idx + 1"></span>
                                 <input type="hidden" :name="`steps[${idx}][name]`" :value="s.name || s.department_name || ('Langkah ' + (idx+1))">
                                 <select :name="`steps[${idx}][department_id]`" x-model="s.department_id"
-                                        @change="s.department_name = $el.options[$el.selectedIndex].text"
+                                        @change="s.department_name = $el.options[$el.selectedIndex].text; s.name = ''"
                                         class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                                     <option value="">— Departemen —</option>
                                     @foreach($departments as $dept)
@@ -623,6 +654,11 @@
                               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 resize-y mb-1"></textarea>
                     <p x-show="description && selectedBomId" class="text-[10px] text-amber-600 mb-3">Diisi otomatis dari BOM. Bisa diedit.</p>
 
+                    @if($isEdit)
+                    <div class="border-t border-gray-100 pt-3 text-[11px] text-gray-400">
+                        Gambar kerja dikelola di <a href="{{ route('production.orders.show', $editOrder->id) }}" class="text-blue-600 font-bold hover:underline">halaman detail order</a>.
+                    </div>
+                    @else
                     {{-- Gambar Kerja --}}
                     <div class="border-t border-gray-100 pt-3">
                         <div class="flex items-center justify-between mb-2">
@@ -663,6 +699,7 @@
                         <p x-show="images.length > 0" class="text-[10px] text-gray-400 mt-2 text-center">
                             Hover gambar untuk hapus · Ctrl+V untuk tambah paste
                         </p>
+                    @endif
                     </div>
                 </div>
 
@@ -706,9 +743,13 @@
                          class="mb-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2"></div>
                     <button type="submit"
                             class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-sm font-bold transition">
-                        Buat Order Produksi
+                        {{ $isEdit ? 'Simpan Perubahan' : 'Buat Order Produksi' }}
                     </button>
-                    <p class="text-[10px] text-gray-400 text-center mt-2">Order tersimpan sebagai Draft. Konfirmasi dari halaman detail untuk mulai produksi.</p>
+                    @if($isEdit)
+                        <a href="{{ route('production.orders.show', $editOrder->id) }}"
+                           class="block w-full text-center border border-gray-200 text-gray-600 hover:bg-gray-50 py-2.5 rounded-xl text-sm font-semibold transition mt-2">Batal</a>
+                    @endif
+                    <p class="text-[10px] text-gray-400 text-center mt-2">{{ $isEdit ? 'Order tetap Draft. Belum ada jurnal — biaya & material dijurnal saat konfirmasi.' : 'Order tersimpan sebagai Draft. Konfirmasi dari halaman detail untuk mulai produksi.' }}</p>
                 </div>
 
             </div>
@@ -923,8 +964,14 @@
 @push('scripts')
 <script>
 // Data input lama (saat submit gagal validasi) untuk mempertahankan isi form.
+// Mode edit tanpa old(): diisi dari data OP draft yang sedang diedit.
+@if(!empty($editPrefill) && empty(old('outputs')) && empty(old('materials')) && empty(old('type')) && empty(old('production_date')))
+window.__poOld = @json($editPrefill);
+@else
 window.__poOld = {
-    has_old:        @json(!empty(old('outputs')) || !empty(old('materials')) || !empty(old('type'))),
+    has_old:        @json(!empty(old('outputs')) || !empty(old('materials')) || !empty(old('type')) || !empty(old('production_date'))),
+    is_edit:        @json($isEdit),
+    bom_id:         @json(old('bom_id')),
     type:           @json(old('type')),
     score_type:     @json(old('score_type')),
     priority_level: @json(old('priority_level')),
@@ -932,6 +979,7 @@ window.__poOld = {
     description:    @json(old('description')),
     notes:          @json(old('notes')),
     sales_order_id: @json(old('sales_order_id')),
+    repair_group_id: @json(old('repair_group_id')),
     so_label:       @json(old('so_label')),
     so_customer:    @json(old('so_customer')),
     materials:      @json(old('materials', [])),
@@ -939,6 +987,7 @@ window.__poOld = {
     steps:          @json(old('steps', [])),
     costs:          @json(old('costs', [])),
 };
+@endif
 @php
 $bomOptions = $boms->map(fn ($b) => [
     'id'             => $b->id,
@@ -965,10 +1014,9 @@ function orderForm() {
         repairSourceResults: [],
         repairSourceDrop: false,
         repairItems: [],
-        // Perbaikan berbasis SKU dari Gudang Perbaikan
-        repairStockQuery: '',
-        repairStockResults: [],
-        repairStockDrop: false,
+        // Perbaikan: isi diambil dari satu Kelompok Perbaikan
+        repairGroups: @json($repairGroups),
+        repairGroupId: '',
         perbaikanItems: [],
         salesOrderId: null,
         salesOrderLabel: '',
@@ -1316,12 +1364,12 @@ function orderForm() {
             }
             // Order repair-like (perbaikan/garansi) tidak pakai outputs[] biasa.
             if (this.isRepairLike()) {
+                // Edit: isi barang perbaikan/garansi terkunci, tak perlu pilih ulang sumbernya.
+                if ((window.__poOld || {}).is_edit) return;
                 if (this.type === 'perbaikan') {
-                    const ok = this.perbaikanItems.length > 0
-                        && this.perbaikanItems.every(i => parseFloat(i.qty) > 0);
-                    if (!ok) {
+                    if (!this.repairGroupId) {
                         e.preventDefault();
-                        this.submitError = 'Pilih minimal 1 SKU dari Gudang Perbaikan dengan qty > 0.';
+                        this.submitError = 'Pilih Kelompok Perbaikan yang akan dikerjakan.';
                         return;
                     }
                 } else if (!this.repairSourceId) {
@@ -1427,44 +1475,10 @@ function orderForm() {
             return this.type === 'perbaikan' || this.type === 'garansi';
         },
 
-        // ── Perbaikan: pilih SKU dari Gudang Perbaikan ──
-        async searchRepairStock() {
-            const q   = this.repairStockQuery.trim();
-            const res = await fetch(`/erp/production/ajax/repair-stock?search=${encodeURIComponent(q)}`);
-            this.repairStockResults = await res.json();
-            this.repairStockDrop    = true;
-        },
-
-        // Hasil pencarian tanpa SKU yang sudah ditambahkan (biar tidak muncul lagi di dropdown).
-        availableRepairStock() {
-            const added = new Set(this.perbaikanItems.map(i => i.product_id));
-            return this.repairStockResults.filter(p => !added.has(p.product_id));
-        },
-
-        addRepairStockItem(p) {
-            if (this.perbaikanItems.some(i => i.product_id === p.product_id)) {
-                this.repairStockQuery = ''; this.repairStockResults = []; this.repairStockDrop = false;
-                return;
-            }
-            this.perbaikanItems.push({
-                product_id: p.product_id, sku: p.sku, name: p.name,
-                qty: p.qty, max: p.qty, unit_cost: p.unit_cost,
-            });
-            this.repairStockQuery   = '';
-            this.repairStockResults = [];
-            this.repairStockDrop    = false;
-        },
-
-        removeRepairStockItem(idx) {
-            this.perbaikanItems.splice(idx, 1);
-        },
-
-        validateRepairQty(idx) {
-            const it = this.perbaikanItems[idx];
-            let q = parseFloat(it.qty) || 0;
-            if (q < 0) q = 0;
-            if (q > it.max) q = it.max;
-            it.qty = q;
+        // ── Perbaikan: isi kelompok terpilih (baca-saja; server mengambil ulang dari kelompok) ──
+        applyRepairGroup() {
+            const g = this.repairGroups.find(x => String(x.id) === String(this.repairGroupId));
+            this.perbaikanItems = g ? g.items.map(i => ({ ...i })) : [];
         },
 
         async searchSalesOrders() {
@@ -1513,25 +1527,12 @@ function orderForm() {
             const params = new URLSearchParams(window.location.search);
             const t = params.get('type');
 
-            // Retur / Barang Perbaikan → perbaikan berbasis SKU. `barang=id:qty,id:qty` (dari menu
-            // Produksi › Barang Perbaikan) langsung mengisi daftar SKU; qty dibatasi saldo gudang.
+            // Retur / Barang Perbaikan → OP Perbaikan. `kelompok=ID` (tombol "Buat OP" di tab
+            // Kelompok) langsung memilih kelompoknya.
             if (t === 'perbaikan') {
                 this.type = 'perbaikan';
-                const minta = (params.get('barang') || '').split(',')
-                    .map(x => x.split(':')).filter(x => x[0])
-                    .map(([id, q]) => ({ id: String(id), qty: parseFloat(q) || 0 }));
-                if (!minta.length) return;
-                try {
-                    const res  = await fetch('/erp/production/ajax/repair-stock');
-                    const stok = await res.json();
-                    minta.forEach(m => {
-                        const p = stok.find(s => String(s.product_id) === m.id);
-                        if (!p) return;
-                        this.addRepairStockItem(p);
-                        const it = this.perbaikanItems.find(i => String(i.product_id) === m.id);
-                        if (it && m.qty > 0) it.qty = Math.min(m.qty, it.max);
-                    });
-                } catch (e) { /* abaikan; user bisa pilih manual */ }
+                const k = params.get('kelompok');
+                if (k) { this.repairGroupId = String(k); this.applyRepairGroup(); }
                 return;
             }
 
@@ -1568,6 +1569,15 @@ function orderForm() {
             const old = window.__poOld || {};
             if (old.has_old) {
                 if (old.type) this.type = old.type;
+                @if($isEditRepair) this.type = @json($editOrder->type); @endif
+                if (old.bom_id) {
+                    const b = (this.bomList || []).find(x => String(x.id) === String(old.bom_id));
+                    this.selectedBomId = old.bom_id;
+                    this.bomLabel      = b ? b.bom_number : ('BOM #' + old.bom_id);
+                    this.bomName       = b ? b.name : '';
+                    this.bomOpen       = true;
+                }
+                if (old.repair_group_id) this.$nextTick(() => { this.repairGroupId = String(old.repair_group_id); });
                 if (old.score_type) this.scoreType = old.score_type;
                 if (old.priority_level) this.priorityLevel = old.priority_level;
                 if (old.planned_cycles) this.cycles = old.planned_cycles;
@@ -1588,6 +1598,7 @@ function orderForm() {
                             unit: m.unit ?? '',
                             unitOptions: Array.isArray(opts) ? opts : [],
                             results: [], showDrop: false,
+                            ...(m.per_cycle != null ? { _perCycle: m.per_cycle } : {}),
                         };
                     });
                 }
@@ -1600,20 +1611,22 @@ function orderForm() {
                         percentage: (o.percentage === null || o.percentage === undefined) ? '' : o.percentage,
                         unit_percentage: (o.unit_percentage === null || o.unit_percentage === undefined || o.unit_percentage === '') ? null : o.unit_percentage,
                         results: [], showDrop: false, fromSo: false,
+                        ...(o.per_cycle != null ? { _perCycle: o.per_cycle } : {}),
                     }));
                     this.recalcPercentages();
                 }
                 if (Array.isArray(old.steps) && old.steps.length) {
-                    this.steps = old.steps.map(s => ({ name: s.name || '', department_id: s.department_id || '', department_name: '' }));
+                    this.steps = old.steps.map(s => ({ name: s.name || '', department_id: s.department_id ? String(s.department_id) : '', department_name: '' }));
                 }
                 if (Array.isArray(old.costs) && old.costs.length) {
-                    this.costs = old.costs.map(c => ({ description: c.description || '', amount: c.amount || '', cash_account_id: c.cash_account_id || '' }));
+                    this.costs = old.costs.map(c => ({ description: c.description || '', amount: c.amount || '', cash_account_id: c.cash_account_id ? String(c.cash_account_id) : '' }));
                 }
             }
 
             // Jumlah siklus berubah → skala qty material/output (sinkron) + hitung ulang % sampingan.
             this.$watch('cycles', () => this.applyCycles());
             this.$watch('repairSource', () => this.clearRepairSource());
+            this.$watch('repairGroupId', () => this.applyRepairGroup());
             this.$watch('type', (val) => {
                 if (val === 'perbaikan' || val === 'garansi') {
                     this.scoreType = 'priority';
@@ -1627,11 +1640,10 @@ function orderForm() {
                     this.repairSource = '';
                     this.clearRepairSource();
                 }
-                // Bersihkan pilihan SKU perbaikan bila pindah dari 'perbaikan'.
+                // Bersihkan pilihan kelompok perbaikan bila pindah dari 'perbaikan'.
                 if (val !== 'perbaikan') {
-                    this.perbaikanItems   = [];
-                    this.repairStockQuery = '';
-                    this.repairStockResults = [];
+                    this.repairGroupId  = '';
+                    this.perbaikanItems = [];
                 }
                 if (val !== 'custom') {
                     this.clearSalesOrder();

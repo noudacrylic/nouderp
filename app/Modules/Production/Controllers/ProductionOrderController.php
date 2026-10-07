@@ -112,7 +112,23 @@ class ProductionOrderController extends Controller
             ];
         })->values();
 
-        return view('erp.production.orders.create', compact('boms', 'warehouses', 'defaultWarehouseId', 'salesOrders', 'departments', 'cashAccounts', 'lockWarehouse', 'byproductOptions', 'rawMaterialOptions'));
+        // Kelompok Perbaikan terbuka — sumber tunggal isi OP Perbaikan.
+        $repairGroups = \App\Modules\Production\Models\RepairGroup::with('items.product:id,sku,name')
+            ->where('status', \App\Modules\Production\Models\RepairGroup::TERBUKA)
+            ->orderByDesc('id')->get()
+            ->map(fn($g) => [
+                'id'     => $g->id,
+                'number' => $g->number,
+                'name'   => $g->name,
+                'items'  => $g->items->map(fn($it) => [
+                    'product_id' => (int) $it->product_id,
+                    'sku'        => $it->product?->sku ?? '',
+                    'name'       => $it->product?->name ?? ('Produk #' . $it->product_id),
+                    'qty'        => (float) $it->qty,
+                ])->values(),
+            ])->values();
+
+        return view('erp.production.orders.create', compact('boms', 'warehouses', 'defaultWarehouseId', 'salesOrders', 'departments', 'cashAccounts', 'lockWarehouse', 'byproductOptions', 'rawMaterialOptions', 'repairGroups'));
     }
 
     /**
@@ -130,8 +146,154 @@ class ProductionOrderController extends Controller
 
     public function store(Request $request, ProductionOrderService $service)
     {
+        if ($fail = $this->validateOrderInput($request)) {
+            return $fail;
+        }
+
+        try {
+            $data = $request->all();
+
+            if ($request->hasFile('images')) {
+                $data['image_paths'] = collect($request->file('images'))
+                    ->map(fn($f) => $f->store('production-images', 'public'))
+                    ->values()
+                    ->toArray();
+            }
+
+            $order = $service->create($data);
+            return redirect()->route('production.orders.show', $order->id)
+                ->with('success', "Order produksi {$order->order_number} berhasil dibuat.");
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage())->withInput();
+        }
+    }
+
+    /**
+     * Edit OP yang masih Draft — memakai form yang sama dengan Buat OP, terisi data lama.
+     */
+    public function edit(Request $request, int $id)
+    {
+        $order = ProductionOrder::with([
+            'bom', 'salesOrder.customer', 'materials.product.units', 'outputs.product',
+            'steps', 'costs', 'repairGroup',
+        ])->findOrFail($id);
+
+        if ($order->status !== 'draft') {
+            return redirect()->route('production.orders.show', $order->id)
+                ->with('error', 'Hanya order berstatus Draft yang bisa diedit.');
+        }
+
+        $cycles   = max(1e-9, (float) ($order->planned_cycles ?: 1));
+        $usesBom  = !empty($order->bom_id);
+        $label    = fn ($p) => $p ? trim(($p->sku ? $p->sku . ' - ' : '') . $p->name) : '';
+
+        $editPrefill = [
+            'has_old'         => true,
+            'is_edit'         => true,
+            'type'            => $order->type,
+            'score_type'      => $order->score_type ?: 'auto',
+            'priority_level'  => $order->priority_level,
+            'planned_cycles'  => (float) $order->planned_cycles,
+            'description'     => $order->description,
+            'notes'           => $order->notes,
+            'bom_id'          => $order->bom_id,
+            'sales_order_id'  => $order->sales_order_id,
+            'so_label'        => $order->salesOrder?->order_number,
+            'so_customer'     => $order->salesOrder?->customer?->name,
+            'repair_group_id' => null,
+            // Perbaikan/garansi: isi terkunci → tak dikirim ke form (ditampilkan baca-saja).
+            'materials'       => $order->isRepairLike() ? [] : $order->materials->map(function ($m) use ($label, $usesBom, $cycles) {
+                $units = collect([$m->product?->base_unit])
+                    ->merge($m->product?->units?->where('is_active', true)->pluck('unit_name') ?? [])
+                    ->filter()->unique()->values()->all();
+                return [
+                    'product_id'   => $m->product_id,
+                    'label'        => $label($m->product),
+                    'qty_required' => (float) $m->qty_required,
+                    'unit'         => $m->unit,
+                    'unit_options' => json_encode($units),
+                    'per_cycle'    => $usesBom ? (float) $m->qty_required / $cycles : null,
+                ];
+            })->values(),
+            'outputs'         => $order->isRepairLike() ? [] : $order->outputs->map(fn ($o) => [
+                'product_id'      => $o->product_id,
+                'label'           => $label($o->product),
+                'qty_planned'     => (float) $o->qty_planned,
+                'output_type'     => $o->output_type,
+                'percentage'      => (float) $o->percentage,
+                'unit_percentage' => $o->unit_percentage === null ? null : (float) $o->unit_percentage,
+                'per_cycle'       => $usesBom ? (float) $o->qty_planned / $cycles : null,
+            ])->values(),
+            'steps'           => $order->steps->sortBy('step_number')->map(fn ($s) => [
+                'name'          => $s->name,
+                'department_id' => $s->department_id,
+                'bom_step_id'   => $s->bom_step_id,
+                'description'   => $s->description,
+            ])->values(),
+            'costs'           => $order->costs->map(fn ($c) => [
+                'description'     => $c->description,
+                'amount'          => (float) $c->amount,
+                'cash_account_id' => $c->cash_account_id,
+            ])->values(),
+        ];
+
+        $lockedItems = $order->isRepairLike()
+            ? $order->materials->map(fn ($m) => [
+                'sku'  => $m->product?->sku ?? '',
+                'name' => $m->product?->name ?? ('Produk #' . $m->product_id),
+                'qty'  => (float) $m->qty_required,
+            ])->values()
+            : collect();
+
+        // Data master form sama persis dengan halaman Buat OP.
+        $view = $this->create($request);
+        $lockWarehouse = $order->type === 'garansi'
+            && $this->repairSourceWarehouseId($order->repair_source_type, (int) $order->repair_source_id);
+
+        return $view->with([
+            'editOrder'          => $order,
+            'editPrefill'        => $editPrefill,
+            'lockedItems'        => $lockedItems,
+            'defaultWarehouseId' => $order->warehouse_id,
+            'lockWarehouse'      => $lockWarehouse,
+        ]);
+    }
+
+    public function update(Request $request, int $id, ProductionOrderService $service)
+    {
+        $order = ProductionOrder::findOrFail($id);
+        if ($order->status !== 'draft') {
+            return redirect()->route('production.orders.show', $order->id)
+                ->with('error', 'Hanya order berstatus Draft yang bisa diedit.');
+        }
+
+        if ($fail = $this->validateOrderInput($request, $order)) {
+            return $fail;
+        }
+
+        try {
+            $order = $service->update($order->id, $request->all());
+            return redirect()->route('production.orders.show', $order->id)
+                ->with('success', "Order produksi {$order->order_number} berhasil diperbarui.");
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage())->withInput();
+        }
+    }
+
+    /**
+     * Validasi isi form OP (dipakai Buat & Edit draft). Mengembalikan redirect berisi
+     * pesan bila ada yang salah, atau null bila lolos.
+     */
+    private function validateOrderInput(Request $request, ?ProductionOrder $editing = null): ?\Illuminate\Http\RedirectResponse
+    {
         // Garansi/legacy repair = repair-like berbasis DOKUMEN warranty (wajib source_id).
         // Perbaikan = repair-like berbasis SKU di Gudang Perbaikan (tanpa dokumen).
+        // Edit draft perbaikan/garansi: tipe & isi terkunci ke kelompok/dokumen sumbernya.
+        if ($editing && $editing->isRepairLike()) {
+            $request->merge(['type' => $editing->type]);
+        }
+        $lockedRepairContent = $editing && $editing->isRepairLike();
+
         $isGaransi   = in_array($request->type, ['garansi', 'repair'], true);
         $isPerbaikan = $request->type === 'perbaikan';
         $isRepair    = $isGaransi || $isPerbaikan;
@@ -156,7 +318,9 @@ class ProductionOrderController extends Controller
             $rules['sales_order_id'] = 'required|exists:sales_orders,id';
         }
 
-        if ($isGaransi) {
+        if ($lockedRepairContent) {
+            // Isi barang tidak diedit di sini — tak perlu validasi repair_items/kelompok.
+        } elseif ($isGaransi) {
             $rules['repair_source_id']             = 'required|integer';
             $rules['repair_items']                 = 'required|array|min:1';
             $rules['repair_items.*.product_id']    = 'required|exists:products,id';
@@ -164,10 +328,9 @@ class ProductionOrderController extends Controller
             $rules['repair_items.*.output_type']   = 'required|in:main,by_product';
             $rules['repair_items.*.percentage']    = 'required|numeric|min:0|max:100';
         } elseif ($isPerbaikan) {
-            // Perbaikan berbasis SKU: cukup product_id + qty (output_type/percentage default).
-            $rules['repair_items']                 = 'required|array|min:1';
-            $rules['repair_items.*.product_id']    = 'required|exists:products,id';
-            $rules['repair_items.*.qty']           = 'required|numeric|min:0.0001';
+            // Perbaikan selalu dari satu Kelompok Perbaikan; isi barangnya diambil service dari
+            // kelompok itu (repair_items dari form diabaikan).
+            $rules['repair_group_id'] = 'required|integer|exists:repair_groups,id';
         } else {
             $rules['materials']                = 'required|array|min:1';
             $rules['materials.*.product_id']   = 'required|exists:products,id';
@@ -188,6 +351,7 @@ class ProductionOrderController extends Controller
             'materials.*.product_id.required'       => 'Pilih produk untuk setiap baris Material.',
             'materials.*.qty_required.required'     => 'Isi qty untuk setiap baris Material.',
             'materials.required'                    => 'Minimal harus ada 1 material.',
+            'repair_group_id.required'              => 'Pilih Kelompok Perbaikan yang akan dikerjakan.',
             'outputs.required'                      => 'Minimal harus ada 1 output.',
         ];
 
@@ -195,15 +359,17 @@ class ProductionOrderController extends Controller
 
         // Garansi/legacy repair dari dokumen → WAJIB segudang dokumen sumber
         // (output & SJ segudang barang diterima → tidak ada stok phantom).
-        if ($isGaransi && $request->repair_source_id) {
-            $srcWh = $this->repairSourceWarehouseId($request->repair_source_type, (int) $request->repair_source_id);
+        if ($isGaransi && ($editing || $request->repair_source_id)) {
+            $srcWh = $editing
+                ? $this->repairSourceWarehouseId($editing->repair_source_type, (int) $editing->repair_source_id)
+                : $this->repairSourceWarehouseId($request->repair_source_type, (int) $request->repair_source_id);
             if ($srcWh) {
                 $request->merge(['warehouse_id' => $srcWh]);
             }
         }
 
-        // Perbaikan: qty tiap SKU tidak boleh melebihi stok di Gudang Perbaikan, dan
-        // gudang output tidak boleh Gudang Perbaikan itu sendiri (hasil = stok jual).
+        // Perbaikan: gudang output tidak boleh Gudang Perbaikan itu sendiri (hasil = stok jual).
+        // Kecukupan stok per SKU diperiksa service saat mengambil isi kelompok.
         if ($isPerbaikan) {
             $repairWarehouseId = Warehouse::repairId();
             if (!$repairWarehouseId) {
@@ -211,24 +377,6 @@ class ProductionOrderController extends Controller
             }
             if ((int) $request->warehouse_id === (int) $repairWarehouseId) {
                 return back()->withInput()->with('error', 'Gudang output perbaikan harus gudang jual, bukan Gudang Perbaikan.');
-            }
-
-            $requestedByProduct = [];
-            foreach ((array) $request->input('repair_items', []) as $it) {
-                if (empty($it['product_id']) || empty($it['qty'])) continue;
-                $pid = (int) $it['product_id'];
-                $requestedByProduct[$pid] = ($requestedByProduct[$pid] ?? 0) + (float) $it['qty'];
-            }
-            foreach ($requestedByProduct as $pid => $qtyReq) {
-                $avail = (float) ProductStock::where('product_id', $pid)
-                    ->where('warehouse_id', $repairWarehouseId)
-                    ->sum('qty_on_hand');
-                if ($qtyReq > $avail + 1e-6) {
-                    $prod = \App\Core\Inventory\Product::find($pid);
-                    $label = $prod ? trim(($prod->sku ? $prod->sku . ' - ' : '') . $prod->name) : "produk #{$pid}";
-                    return back()->withInput()->with('error',
-                        "Qty perbaikan {$label} ({$qtyReq}) melebihi stok di Gudang Perbaikan ({$avail}).");
-                }
             }
         }
 
@@ -262,28 +410,13 @@ class ProductionOrderController extends Controller
         }
 
         if ($request->type === 'custom' && $request->filled('sales_order_id')) {
-            $overError = $this->validateSoOutputLimits($request);
+            $overError = $this->validateSoOutputLimits($request, $editing?->id);
             if ($overError) {
                 return back()->with('error', $overError)->withInput();
             }
         }
 
-        try {
-            $data = $request->all();
-
-            if ($request->hasFile('images')) {
-                $data['image_paths'] = collect($request->file('images'))
-                    ->map(fn($f) => $f->store('production-images', 'public'))
-                    ->values()
-                    ->toArray();
-            }
-
-            $order = $service->create($data);
-            return redirect()->route('production.orders.show', $order->id)
-                ->with('success', "Order produksi {$order->order_number} berhasil dibuat.");
-        } catch (\Exception $e) {
-            return back()->with('error', $e->getMessage())->withInput();
-        }
+        return null;
     }
 
     public function show(int $id, ProductionOrderService $service)
@@ -436,9 +569,13 @@ class ProductionOrderController extends Controller
         $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
         $defaultWarehouseId = Warehouse::defaultId();
 
+        // OP Perbaikan: rincian HPP awal & nilai penuh per produk untuk pratinjau.
+        $repairCost = $order->type === 'perbaikan' ? $service->repairCostBreakdown($order) : null;
+        $releasedFailed = $order->outputs->mapWithKeys(fn($o) => [$o->id => (float) $o->qty_failed])->all();
+
         return view('erp.production.orders.finalize-confirm', compact(
             'order', 'deptSummary', 'totalDur', 'warehouses', 'defaultWarehouseId',
-            'wip', 'releasedQty', 'batches'
+            'wip', 'releasedQty', 'batches', 'repairCost', 'releasedFailed'
         ));
     }
 
@@ -463,8 +600,11 @@ class ProductionOrderController extends Controller
         $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
         $defaultWarehouseId = Warehouse::defaultId();
 
+        $repairCost = $order->type === 'perbaikan' ? $service->repairCostBreakdown($order) : null;
+        $releasedFailed = $order->outputs->mapWithKeys(fn($o) => [$o->id => (float) $o->qty_failed])->all();
+
         return view('erp.production.orders.partial-confirm', compact(
-            'order', 'wip', 'releasedQty', 'batches', 'warehouses', 'defaultWarehouseId'
+            'order', 'wip', 'releasedQty', 'batches', 'warehouses', 'defaultWarehouseId', 'repairCost', 'releasedFailed'
         ));
     }
 
@@ -477,6 +617,7 @@ class ProductionOrderController extends Controller
             'outputs'                    => 'required|array|min:1',
             'outputs.*.output_id'        => 'required|integer',
             'outputs.*.qty_produced'     => 'required|numeric|min:0',
+            'outputs.*.qty_failed'       => 'nullable|numeric|min:0',
             'outputs.*.variance_notes'   => 'nullable|string|max:500',
             'outputs.*.allocations'                => 'nullable|array',
             'outputs.*.allocations.*.warehouse_id' => 'required_with:outputs.*.allocations|integer|exists:warehouses,id',
@@ -533,6 +674,7 @@ class ProductionOrderController extends Controller
             'outputs'                    => 'required|array|min:1',
             'outputs.*.output_id'        => 'required|integer',
             'outputs.*.qty_produced'     => 'required|numeric|min:0',
+            'outputs.*.qty_failed'       => 'nullable|numeric|min:0',
             'outputs.*.percentage'       => 'nullable|numeric|min:0|max:100',
             'outputs.*.variance_notes'   => 'nullable|string|max:500',
             'outputs.*.allocations'                => 'nullable|array',
@@ -569,6 +711,7 @@ class ProductionOrderController extends Controller
             'outputs'                  => 'required|array|min:1',
             'outputs.*.output_id'      => 'required|integer',
             'outputs.*.qty_produced'   => 'required|numeric|min:0',
+            'outputs.*.qty_failed'     => 'nullable|numeric|min:0',
             'outputs.*.percentage'     => 'nullable|numeric|min:0|max:100',
             'outputs.*.variance_notes' => 'nullable|string|max:500',
             'outputs.*.allocations'                => 'nullable|array',
@@ -764,7 +907,7 @@ class ProductionOrderController extends Controller
         return view('erp.production.completed.index', compact('finalized', 'awaitingConfirm', 'warehouses', 'defaultWarehouseId'));
     }
 
-    private function validateSoOutputLimits(Request $request): ?string
+    private function validateSoOutputLimits(Request $request, ?int $excludeOrderId = null): ?string
     {
         $soId    = (int) $request->sales_order_id;
         $outputs = collect($request->input('outputs', []));
@@ -777,6 +920,8 @@ class ProductionOrderController extends Controller
             ->join('production_orders as po', 'poo.production_order_id', '=', 'po.id')
             ->where('po.sales_order_id', $soId)
             ->whereNotIn('po.status', ['cancelled'])
+            // Saat edit draft, rencana OP ini sendiri diganti isi form — jangan dihitung dua kali.
+            ->when($excludeOrderId, fn ($q) => $q->where('po.id', '!=', $excludeOrderId))
             ->selectRaw('poo.product_id, SUM(poo.qty_planned) as total')
             ->groupBy('poo.product_id')
             ->pluck('total', 'product_id');

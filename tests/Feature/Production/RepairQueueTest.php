@@ -82,7 +82,7 @@ class RepairQueueTest extends TestCase
         $d = app(RepairQueueService::class)->data();
         $m = $d['menunggu']->firstWhere('product_id', $this->produk->id);
 
-        $this->assertEqualsWithDelta(2, $m['dipesan'], 0.001);
+        $this->assertEqualsWithDelta(2, $m['di_op'], 0.001);
         $this->assertEqualsWithDelta(1, $m['tersedia'], 0.001, 'tinggal 1 unit yang belum masuk OP');
         $this->assertCount(1, $d['diproses']);
         $this->assertSame('OP-PRB-1', $d['diproses'][0]['nomor']);

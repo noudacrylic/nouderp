@@ -103,6 +103,12 @@ class ProductionOrder extends Model
         return $this->hasMany(ProductionMaterialAddition::class)->orderBy('id');
     }
 
+    /** Kelompok Perbaikan yang dikerjakan OP ini (hanya tipe 'perbaikan'). */
+    public function repairGroup()
+    {
+        return $this->hasOne(RepairGroup::class);
+    }
+
     /** OP induk tempat OP ini diserap (hasil penggabungan task). */
     public function mergedInto()
     {

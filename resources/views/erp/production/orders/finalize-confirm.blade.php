@@ -32,7 +32,9 @@
                     </span>
                 </div>
 
-                @if($order->isRepairLike())
+                @if($repairCost)
+                    @include('erp.production.orders.partials.repair-cost-preview')
+                @elseif($order->isRepairLike())
                     <div class="mb-4 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2 flex items-start gap-2">
                         <span class="font-black">ℹ️</span>
                         <span>Order {{ strtolower($order->type_label) }}: <b>nilai tambahan produksi</b> (biaya perbaikan &amp; penggantian komponen dari WIP) <b>dibagi rata per unit output</b> — HPP tiap produk naik merata sesuai jumlah unit.</span>
@@ -46,10 +48,13 @@
                             $qtyPlanned     = (float) $out->qty_planned;
                             // Qty yang sudah dilepas ke stok lewat penyelesaian sebagian.
                             $qtyReleased    = (float) ($releasedQty[$out->id] ?? 0);
-                            $sisaTarget     = max(0, $qtyPlanned - $qtyReleased);
+                            // OP Perbaikan: unit gagal yang sudah dicatat juga sudah "tuntas".
+                            $isPerbaikan    = (bool) $repairCost;
+                            $qtyFailedDone  = $isPerbaikan ? (float) ($releasedFailed[$out->id] ?? 0) : 0;
+                            $sisaTarget     = max(0, $qtyPlanned - $qtyReleased - $qtyFailedDone);
                             // Default qty aktual = target jika belum diisi, supaya admin lihat angka jelas.
                             // Kalau sebagian sudah diambil, yang ditanyakan tinggal SISA-nya.
-                            $qtyDefault     = $qtyReleased > 0
+                            $qtyDefault     = ($qtyReleased > 0 || $isPerbaikan)
                                 ? $sisaTarget
                                 : ($qtyActualSaved > 0 ? $qtyActualSaved : $qtyPlanned);
                             $pctSaved       = (float) $out->percentage;
@@ -62,6 +67,15 @@
                         <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50"
                              x-data="{
                                  qty: {{ $qtyDefault ?: 0 }},
+                                 failed: 0,
+                                 sisa: {{ $sisaTarget }},
+                                 // Perbaikan: berhasil + gagal = sisa unit. Isi gagal → berhasil menyesuaikan.
+                                 syncFailed() {
+                                     const f = Math.min(Math.max(parseFloat(this.failed) || 0, 0), this.sisa);
+                                     this.failed = f;
+                                     this.qty = Math.round((this.sisa - f) * 10000) / 10000;
+                                     this.syncSingle();
+                                 },
                                  whs: {{ Js::from($warehouses) }},
                                  defWh: {{ $defWh }},
                                  allocations: {{ Js::from($savedAlloc) }},
@@ -117,34 +131,47 @@
                                 @endif
                             </div>
 
-                            <div class="{{ $qtyReleased > 0 ? 'grid grid-cols-4' : 'grid grid-cols-3' }} gap-3">
+                            <div class="{{ ($qtyReleased > 0 || $qtyFailedDone > 0) ? 'grid grid-cols-4' : 'grid grid-cols-3' }} gap-3">
                                 <div>
                                     <label class="block text-[10px] font-bold text-gray-500 mb-1">Target</label>
                                     <div class="text-sm font-bold text-gray-600 bg-gray-100 rounded-lg px-3 py-2 text-right">
                                         {{ number_format($qtyPlanned, 2) }}
                                     </div>
                                 </div>
-                                @if($qtyReleased > 0)
+                                @if($qtyReleased > 0 || $qtyFailedDone > 0)
                                     <div>
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">Sudah Diambil</label>
                                         <div class="text-sm font-bold text-blue-700 bg-blue-50 rounded-lg px-3 py-2 text-right">
                                             {{ number_format($qtyReleased, 2) }}
+                                            @if($qtyFailedDone > 0)<span class="block text-[10px] text-red-600">+ {{ number_format($qtyFailedDone, 2) }} gagal</span>@endif
                                         </div>
                                     </div>
                                 @endif
                                 <div>
                                     <label class="block text-[10px] font-bold text-gray-500 mb-1">
-                                        {{ $qtyReleased > 0 ? 'Qty Penutup *' : 'Qty Aktual *' }}
+                                        {{ $isPerbaikan ? 'Berhasil diperbaiki *' : ($qtyReleased > 0 ? 'Qty Penutup *' : 'Qty Aktual *') }}
                                     </label>
                                     <input type="number"
                                            name="outputs[{{ $i }}][qty_produced]"
                                            x-model.number="qty" @input="syncSingle()"
-                                           data-main="{{ $out->output_type === 'main' ? 1 : 0 }}"
+                                           @if($isPerbaikan) readonly @endif
+                                           data-main="{{ ($out->output_type === 'main' && !$isPerbaikan) ? 1 : 0 }}"
                                            data-sisa="{{ $qtyReleased > 0 ? $sisaTarget : $qtyPlanned }}"
                                            data-label="{{ $out->product?->name ?? 'output' }}"
                                            step="0.01" min="0" required
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 bg-white text-right">
                                 </div>
+                                @if($isPerbaikan)
+                                <div>
+                                    <label class="block text-[10px] font-bold text-red-500 mb-1">Gagal diperbaiki</label>
+                                    <input type="number"
+                                           name="outputs[{{ $i }}][qty_failed]"
+                                           x-model.number="failed" @input="syncFailed()"
+                                           step="any" min="0" max="{{ $sisaTarget }}"
+                                           class="w-full border border-red-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-300 bg-white text-right">
+                                </div>
+                            </div>
+                                @else
                                 <div>
                                     @php
                                         // Override manual hanya untuk sampingan pada order TANPA BOM & bukan Perbaikan
@@ -162,6 +189,7 @@
                                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-green-400 text-right {{ $pctEditable ? 'bg-white' : 'bg-gray-100 text-gray-600 cursor-not-allowed' }}">
                                 </div>
                             </div>
+                                @endif
 
                             <div class="mt-3">
                                 <label class="block text-[10px] font-bold text-gray-500 mb-1">

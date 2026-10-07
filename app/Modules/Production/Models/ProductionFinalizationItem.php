@@ -8,12 +8,14 @@ class ProductionFinalizationItem extends Model
 {
     protected $fillable = [
         'production_finalization_id', 'production_order_output_id', 'product_id',
-        'qty', 'cost', 'unit_cost', 'percentage', 'warehouse_allocations', 'variance_notes',
+        'qty', 'qty_failed', 'cost', 'cost_failed', 'unit_cost', 'percentage', 'warehouse_allocations', 'variance_notes',
     ];
 
     protected $casts = [
         'qty'                   => 'decimal:4',
         'cost'                  => 'decimal:4',
+        'qty_failed'            => 'decimal:4',
+        'cost_failed'           => 'decimal:4',
         'unit_cost'             => 'decimal:4',
         'percentage'            => 'decimal:4',
         'warehouse_allocations' => 'array',

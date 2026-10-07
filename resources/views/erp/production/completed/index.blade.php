@@ -10,6 +10,8 @@
         'warehouse_id' => (int) $o->warehouse_id,
         // % cost bisa di-override manual hanya utk order TANPA BOM & bukan Perbaikan.
         'pct_manual'   => is_null($o->bom_id) && !in_array($o->type, ['repair','perbaikan','garansi'], true),
+        // OP Perbaikan: tiap unit berhasil ATAU gagal (gagal → beban, tidak masuk stok).
+        'is_perbaikan' => $o->type === 'perbaikan',
         'outputs'      => $o->outputs->map(fn($out) => [
             'output_id'      => $out->id,
             'name'           => $out->product?->name ?? '—',
@@ -17,6 +19,7 @@
             'output_type'    => $out->output_type,
             'qty_planned'    => (float) $out->qty_planned,
             'qty_produced'   => (float) ($out->qty_produced ?? 0),
+            'qty_failed'     => (float) ($out->qty_failed ?? 0),
             'percentage'     => (float) $out->percentage,
             'variance_notes' => $out->variance_notes ?? '',
             'allocations'    => is_array($out->warehouse_allocations) ? $out->warehouse_allocations : null,
@@ -155,6 +158,7 @@
                                         <span class="text-[9px] text-gray-400 font-bold ml-0.5">SMP</span>
                                     @endif
                                     · <strong>{{ number_format((float)$out->qty_produced, 2) }}</strong>
+                                    @if((float) $out->qty_failed > 0)<span class="text-[10px] text-red-600 font-bold">+ {{ number_format((float) $out->qty_failed, 2) }} gagal</span>@endif
                                     @if((float)$out->qty_produced != (float)$out->qty_planned)
                                         <span class="text-[10px] text-gray-400">(target {{ number_format((float)$out->qty_planned, 2) }})</span>
                                     @endif
@@ -268,7 +272,13 @@
                                                x-model="o.qty_produced" @input="syncSingleAlloc(o)" step="0.01" min="0" required
                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white text-right">
                                     </div>
-                                    <div>
+                                    <div x-show="current.is_perbaikan">
+                                        <label class="block text-[10px] font-bold text-red-500 mb-1">Gagal diperbaiki</label>
+                                        <input type="number" :name="`outputs[${idx}][qty_failed]`" :disabled="!current.is_perbaikan"
+                                               x-model="o.qty_failed" step="any" min="0"
+                                               class="w-full border border-red-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-300 bg-white text-right">
+                                    </div>
+                                    <div x-show="!current.is_perbaikan">
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">
                                             Persentase Cost (%)
                                             <span class="font-normal text-gray-400" x-show="!pctEditable(o)">(otomatis)</span>

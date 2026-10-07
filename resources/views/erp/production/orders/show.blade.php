@@ -758,6 +758,10 @@
                                 ✓ Konfirmasi & Mulai Produksi
                             </button>
                         </form>
+                        <a href="{{ route('production.orders.edit', $order->id) }}"
+                           class="block w-full text-center border border-blue-200 text-blue-600 hover:bg-blue-50 py-2.5 rounded-xl text-sm font-semibold transition">
+                            ✎ Edit Order
+                        </a>
                         <form action="{{ route('production.orders.cancel', $order->id) }}" method="POST"
                               onsubmit="return confirm('Batalkan order ini?')">
                             @csrf

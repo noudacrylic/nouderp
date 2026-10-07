@@ -1367,11 +1367,17 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::get('ajax/repair-stock',   [\App\Modules\Production\Controllers\ProductionOrderController::class, 'getRepairStock'])->name('ajax.repair-stock');
     // Barang Perbaikan: antrean Gudang Perbaikan + OP perbaikan yang berjalan
     Route::get('perbaikan', [\App\Modules\Production\Controllers\RepairQueueController::class, 'index'])->name('perbaikan.index');
+    Route::post('perbaikan/kelompok', [\App\Modules\Production\Controllers\RepairQueueController::class, 'storeGroup'])->name('perbaikan.kelompok.store');
+    Route::get('perbaikan/kelompok/{id}/edit', [\App\Modules\Production\Controllers\RepairQueueController::class, 'editGroup'])->name('perbaikan.kelompok.edit');
+    Route::put('perbaikan/kelompok/{id}', [\App\Modules\Production\Controllers\RepairQueueController::class, 'updateGroup'])->name('perbaikan.kelompok.update');
+    Route::post('perbaikan/kelompok/{id}/batal', [\App\Modules\Production\Controllers\RepairQueueController::class, 'cancelGroup'])->name('perbaikan.kelompok.cancel');
     Route::get('ajax/sales-orders',   [\App\Modules\Production\Controllers\ProductionOrderController::class, 'searchSalesOrders'])->name('ajax.sales-orders');
     Route::get('orders', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'index'])->name('orders.index');
     Route::get('orders/create', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'create'])->name('orders.create');
     Route::post('orders', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'store'])->name('orders.store');
     Route::get('orders/{id}', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'show'])->name('orders.show');
+    Route::get('orders/{id}/edit', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'edit'])->name('orders.edit');
+    Route::put('orders/{id}', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'update'])->name('orders.update');
     Route::post('orders/{id}/confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'confirm'])->name('orders.confirm');
     Route::post('orders/{id}/cancel', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'cancel'])->name('orders.cancel');
     Route::get('orders/{id}/finalize-confirm', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'finalizeConfirm'])->name('orders.finalize-confirm');

@@ -33,6 +33,10 @@
 
                 @php $mainOutputs = $order->outputs->where('output_type', '!=', 'by_product'); @endphp
 
+                @if($repairCost)
+                    @include('erp.production.orders.partials.repair-cost-preview')
+                @endif
+
                 @if($mainOutputs->isEmpty())
                     <p class="text-xs text-gray-400 text-center py-6">Order ini tidak punya baris produk utama.</p>
                 @endif
@@ -42,7 +46,9 @@
                         @php
                             $released  = (float) ($releasedQty[$out->id] ?? 0);
                             $target    = (float) $out->qty_planned;
-                            $sisaQty   = max(0, $target - $released);
+                            // OP Perbaikan: unit gagal yang sudah dicatat juga sudah tuntas.
+                            $failedDone = $repairCost ? (float) ($releasedFailed[$out->id] ?? 0) : 0;
+                            $sisaQty   = max(0, $target - $released - $failedDone);
                             $savedAlloc = null;
                             $defWh     = (int) ($defaultWarehouseId ?: $order->warehouse_id);
                         @endphp
@@ -74,7 +80,7 @@
                                 @endif
                             </div>
 
-                            <div class="grid grid-cols-3 gap-3">
+                            <div class="grid {{ $repairCost ? 'grid-cols-4' : 'grid-cols-3' }} gap-3">
                                 <div>
                                     <label class="block text-[10px] font-bold text-gray-500 mb-1">Target</label>
                                     <div class="text-sm font-bold text-gray-600 bg-gray-100 rounded-lg px-3 py-2 text-right">
@@ -85,10 +91,11 @@
                                     <label class="block text-[10px] font-bold text-gray-500 mb-1">Sudah Diambil</label>
                                     <div class="text-sm font-bold text-gray-600 bg-gray-100 rounded-lg px-3 py-2 text-right">
                                         {{ number_format($released, 2) }}
+                                        @if($failedDone > 0)<span class="block text-[10px] text-red-600">+ {{ number_format($failedDone, 2) }} gagal</span>@endif
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">Ambil Sekarang *</label>
+                                    <label class="block text-[10px] font-bold text-gray-500 mb-1">{{ $repairCost ? 'Berhasil diperbaiki *' : 'Ambil Sekarang *' }}</label>
                                     <input type="number"
                                            name="outputs[{{ $i }}][qty_produced]"
                                            x-model.number="qty" @input="syncSingle()"
@@ -98,6 +105,16 @@
                                         Sisa target: <b>{{ rtrim(rtrim(number_format($sisaQty, 2, ',', '.'), '0'), ',') }}</b>
                                     </p>
                                 </div>
+                                @if($repairCost)
+                                <div>
+                                    <label class="block text-[10px] font-bold text-red-500 mb-1">Gagal diperbaiki</label>
+                                    <input type="number"
+                                           name="outputs[{{ $i }}][qty_failed]"
+                                           value="0" step="any" min="0" max="{{ $sisaQty }}"
+                                           class="w-full border border-red-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-300 bg-white text-right">
+                                    <p class="text-[10px] text-gray-400 mt-1 text-right">Tidak masuk stok (beban)</p>
+                                </div>
+                                @endif
                             </div>
 
                             <div class="mt-3">
