@@ -440,6 +440,33 @@ class PartialFinalizationTest extends TestCase
         $this->assertEqualsWithDelta(0, (float) $this->mainOutput($order)->qty_produced, 0.001);
     }
 
+    public function test_perintah_perbaikan_mengembalikan_jurnal_batch_yang_ikut_divoid(): void
+    {
+        $order = $this->makeOrder(wip: 2_800_000, byproductQty: null);
+        $mainId = $this->mainOutput($order)->id;
+
+        $this->service->finalizePartial($order->id, [['output_id' => $mainId, 'qty_produced' => 10]]);
+        $batch = ProductionFinalization::where('production_order_id', $order->id)->firstOrFail();
+        $this->service->voidBatch($batch->id);
+        $batch->refresh();
+
+        // Tiru data lama: dulu jurnal pelepasan asli ikut di-void → pembatalan terhitung dua kali.
+        DB::table('journals')->where('id', $batch->journal_id)->update(['status' => 'void', 'voided_at' => now()]);
+
+        $this->artisan('production:fix-double-void-batches', ['--dry-run' => true])->assertSuccessful();
+        $this->assertSame('void', DB::table('journals')->where('id', $batch->journal_id)->value('status'));
+
+        $this->artisan('production:fix-double-void-batches')->assertSuccessful();
+        $this->assertSame('posted', DB::table('journals')->where('id', $batch->journal_id)->value('status'));
+
+        // Jurnal asli + pembalik saling meniadakan di setiap akun.
+        $net = DB::table('journal_lines as l')->join('journals as j', 'j.id', '=', 'l.journal_id')
+            ->whereIn('j.id', [$batch->journal_id, $batch->void_journal_id])->where('j.status', 'posted')
+            ->groupBy('l.account_id')->selectRaw('SUM(l.debit) - SUM(l.credit) as net')->pluck('net');
+        $this->assertNotEmpty($net);
+        $net->each(fn ($n) => $this->assertEqualsWithDelta(0, (float) $n, 0.01));
+    }
+
     // ── Neraca WIP ────────────────────────────────────────────────────────────────
 
     public function test_rincian_wip_terpisah_per_sumber(): void
