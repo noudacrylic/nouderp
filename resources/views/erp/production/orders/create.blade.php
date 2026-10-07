@@ -699,8 +699,8 @@
                         <p x-show="images.length > 0" class="text-[10px] text-gray-400 mt-2 text-center">
                             Hover gambar untuk hapus · Ctrl+V untuk tambah paste
                         </p>
-                    @endif
                     </div>
+                    @endif
                 </div>
 
                 {{-- Skor Antrean --}}

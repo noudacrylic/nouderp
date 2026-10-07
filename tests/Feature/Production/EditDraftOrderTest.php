@@ -193,10 +193,18 @@ class EditDraftOrderTest extends TestCase
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
         $order = $this->service->create($this->payload());
 
-        $this->actingAs($admin)->get(route('production.orders.edit', $order->id))
+        $html = $this->actingAs($admin)->get(route('production.orders.edit', $order->id))
             ->assertOk()
             ->assertSee('Simpan Perubahan')
-            ->assertSee($order->order_number);
+            ->assertSee($order->order_number)
+            ->getContent();
+
+        // Tata letak: <div> di dalam form seimbang — satu </div> berlebih pernah menutup kolom
+        // kanan terlalu cepat sehingga kartu Skor Antrean & tombol Simpan terlempar ke bawah.
+        $start = strpos($html, 'action="' . route('production.orders.update', $order->id) . '"');
+        $this->assertNotFalse($start);
+        $form = substr($html, $start, strpos($html, '</form>', $start) - $start);
+        $this->assertSame(substr_count($form, '<div'), substr_count($form, '</div>'));
 
         $this->actingAs($admin)
             ->put(route('production.orders.update', $order->id), $this->payload([
