@@ -134,7 +134,7 @@
                         class="border rounded px-1 py-1 text-xs w-full {{ $agenLain ? 'border-emerald-600 text-emerald-700 font-medium' : 'border-gray-300' }}">
                     <option value="">Agen lain…</option>
                     <option value="belum" @selected($pemilikKini === 'belum')>Belum dioper ({{ $belumDioper }}){{ ($belumPerPemilik[''] ?? 0) > 0 ? ' · ' . $belumPerPemilik[''] . ' belum dibaca' : '' }}</option>
-                    @foreach($pemilikOpsi as $u)
+                    @foreach(($pemilikSaringOpsi ?? $pemilikOpsi) as $u)
                         @continue($u->id === $akuId)
                         <option value="{{ $u->id }}" @selected($pemilikKini === (string) $u->id)>{{ $u->name }}{{ ($belumPerPemilik[(string) $u->id] ?? 0) > 0 ? ' · ' . $belumPerPemilik[(string) $u->id] . ' belum dibaca' : '' }}</option>
                     @endforeach
@@ -551,11 +551,17 @@ function menuChatDaftar(basis, terbukaId) {
             return window.innerWidth < 640;
         },
 
+        /* OBJEK, bukan string. `:style` berupa string MENIMPA seluruh atribut
+           style — termasuk `display:none` milik x-show — jadi dropdown chip
+           yang mestinya tersembunyi ikut muncul kosong dan menutupi menu
+           titik tiga (di web baris "Tandai belum dibaca" hilang di baliknya,
+           di PWA baris paling bawah). Objek digabung Alpine per properti. */
         gaya() {
             return this.lembar
-                ? 'left:0; right:0; bottom:0; top:auto; max-height:70vh; overflow-y:auto;'
-                    + ' border-radius:1rem 1rem 0 0; padding-bottom:env(safe-area-inset-bottom, 0px);'
-                : `top:${this.posisi.y}px; left:${this.posisi.x}px`;
+                ? { left: '0', right: '0', bottom: '0', top: 'auto', maxHeight: '70vh', overflowY: 'auto',
+                    borderRadius: '1rem 1rem 0 0', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }
+                : { top: `${this.posisi.y}px`, left: `${this.posisi.x}px`, right: 'auto', bottom: 'auto',
+                    maxHeight: '', overflowY: '', borderRadius: '', paddingBottom: '' };
         },
 
         buka(e, data) {

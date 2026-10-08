@@ -229,7 +229,31 @@ class CrmInboxController extends Controller
             'jumlahSemua'       => (clone $dasar())->count(),
             'jumlahBelumDibaca' => (clone $dasar())->where('unread_count', '>', 0)->count(),
             'lihatSemua'        => $lihatSemua,
-            'pemilikOpsi'       => User::assignable()->orderBy('name')->get(['id', 'name']),
+            /*
+             * Hanya yang memegang akses CRM — sama dengan penerima notifikasi
+             * chat masuk (User::bisaChatCrm). Dulu memakai assignable(), jadi
+             * dropdown oper berisi seluruh akun ERP: chat bisa dioper ke orang
+             * gudang/produksi yang tak pernah membuka Inbox dan menganggur di sana.
+             */
+            'pemilikOpsi'       => User::bisaChatCrm()->orderBy('name')->get(['id', 'name']),
+            /*
+             * Penyaring "Agen lain…" ditambah orang yang MASIH memegang chat
+             * walau aksesnya sudah dicabut. Tanpa itu chat mereka tak bisa
+             * dicari lagi lewat dropdown ini — padahal justru chat itulah yang
+             * perlu ditemukan untuk dioper ke agen yang masih aktif.
+             */
+            /*
+             * SENGAJA dua kueri datar + daftar id, BUKAN whereIn(subkueri):
+             * subkueri bersarang berisi EXISTS (scope bisaChatCrm) membuat
+             * MariaDB 10.4.32 lokal crash (access violation) — server DB mati
+             * tiap Inbox dibuka.
+             */
+            'pemilikSaringOpsi' => User::query()
+                ->whereIn('id', User::bisaChatCrm()->pluck('id')
+                    ->merge(CrmConversation::query()->whereNotNull('owner_user_id')->distinct()->pluck('owner_user_id'))
+                    ->unique()->values()->all())
+                ->orderBy('name')
+                ->get(['id', 'name']),
             'dibatasiKeSaya'    => $dibatasiKeSaya,
             /*
              * Jumlah yang BELUM dipegang siapa pun ditampilkan ke semua orang.
@@ -2169,7 +2193,11 @@ class CrmInboxController extends Controller
     public function oper(Request $request, CrmConversation $conversation)
     {
         $data = $request->validate([
-            'owner_user_id' => ['nullable', User::assignableExistsRule()],
+            'owner_user_id' => ['nullable', 'integer', function ($attr, $nilai, $gagal) {
+                if (! User::bisaChatCrm()->whereKey($nilai)->exists()) {
+                    $gagal('Penerima tidak memiliki akses CRM.');
+                }
+            }],
         ]);
 
         $pemilikBaru = $data['owner_user_id'] ? (int) $data['owner_user_id'] : null;

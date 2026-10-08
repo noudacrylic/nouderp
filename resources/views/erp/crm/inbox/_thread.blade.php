@@ -352,7 +352,7 @@
                       class="relative"
                       enctype="multipart/form-data"
                       @submit.prevent="$dispatch('kirim-balasan', { form: $el })"
-                      x-data="komposerCrm(@js($potongan))"
+                      x-data="komposerCrm(@js($potongan), @js($modePwa))"
                       {{-- Panel Produk memakai peristiwa yang sama, hanya dengan
                            penanda `kirim` — tautan produk memang tak perlu
                            disunting lagi sebelum berangkat. --}}
@@ -462,8 +462,21 @@
                                 </svg>
                             </button>
 
+                            {{-- Di PWA jadi LEMBAR BAWAH yang menempel di tepi layar,
+                                 bukan kotak yang tumbuh ke atas dari tombolnya: di HP
+                                 kotak itu terjepit di wadah ber-overflow-hidden dan
+                                 terpotong begitu keyboard naik. Pola yang sama dengan
+                                 menu titik tiga daftar chat di layar sempit. --}}
+                            @if($modePwa)
+                                <div x-show="tplBuka" x-cloak @click="tutupTemplate(false)"
+                                     class="fixed inset-0 z-40 bg-black/40"></div>
+                            @endif
                             <div x-show="tplBuka" x-cloak
-                                 class="absolute bottom-12 left-0 z-30 w-[22rem] max-w-[80vw] bg-white border border-gray-200 rounded-lg shadow-xl text-sm overflow-hidden">
+                                 class="{{ $modePwa
+                                     ? 'fixed inset-x-0 bottom-0 z-50 max-h-[70vh] flex flex-col rounded-t-2xl'
+                                     : 'absolute bottom-12 left-0 z-30 w-[22rem] max-w-[80vw] rounded-lg' }}
+                                        bg-white border border-gray-200 shadow-xl text-sm overflow-hidden"
+                                 @if($modePwa) style="padding-bottom: env(safe-area-inset-bottom, 0px)" @endif>
 
                                 <div class="p-2 border-b border-gray-200 bg-gray-50">
                                     {{-- Bukan <input type=text> polos: Enter di
@@ -506,7 +519,7 @@
                                   class="flex-1 border border-gray-300 rounded-2xl px-4 py-2.5 text-sm resize-none overflow-y-auto leading-6 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
                                   @paste="tempel($event)"
                                   @keydown="enterKirim($event); pintasTemplate($event)"
-                                  @input="tumbuh()"
+                                  @input="tumbuh(); pintasGaring()"
                                   placeholder="Tulis balasan…">{{ old('teks') }}</textarea>
 
                         {{-- Tombolnya TIDAK lagi dikunci selama mengirim: penanda
@@ -573,7 +586,7 @@
                  markup yang disisipkan lewat insertAdjacentHTML. --}}
             <div x-show="menuAksi.tampil" x-cloak
                  @click.outside="tutupMenu()"
-                 :style="`top:${menuAksi.y}px; left:${menuAksi.x}px`"
+                 :style="{ top: menuAksi.y + 'px', left: menuAksi.x + 'px' }"
                  class="absolute z-40 w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
                 @if($terbuka)
                     <button type="button" x-show="menuAksi.bisaKutip" @click="mulaiKutip()"
@@ -1403,13 +1416,14 @@
                         };
                     }
 
-                    function komposerCrm(potongan) {
+                    function komposerCrm(potongan, pwa = false) {
                         return {
                             daftar: [],
                             nomor: 0,
                             menu: false,
 
                             // --- template balasan ("/" atau tombol gelembung) ---
+                            pwa,
                             tpl: potongan || [],
                             tplBuka: false,
                             tplCari: '',
@@ -1439,11 +1453,33 @@
                                 this.bukaTemplate();
                             },
 
+                            /*
+                             * Jalur kedua untuk "/" — dari ISI kotak, bukan dari
+                             * tombolnya. Papan ketik Android melaporkan
+                             * e.key = 'Unidentified' untuk hampir semua tombol,
+                             * jadi pintasTemplate() di atas tak pernah terpicu di HP.
+                             */
+                            pintasGaring() {
+                                const ta = this.$refs.teks;
+                                if (!ta || ta.value !== '/') return;
+                                ta.value = '';
+                                this.tumbuh();
+                                this.bukaTemplate();
+                            },
+
                             bukaTemplate() {
                                 this.tplBuka = true;
                                 this.tplCari = '';
                                 this.tplPilih = 0;
-                                this.$nextTick(() => this.$refs.tplCari?.focus());
+                                /*
+                                 * Di PWA kotak cari TIDAK difokus: fokus memunculkan
+                                 * keyboard HP, layar chat menyusut separuh, dan popup
+                                 * yang tumbuh ke atas terpotong habis — gejalanya
+                                 * "tombol template tidak ada apa-apanya". Mau mencari,
+                                 * ketuk kotaknya sendiri.
+                                 */
+                                if (! this.pwa) this.$nextTick(() => this.$refs.tplCari?.focus());
+                                else this.$refs.teks?.blur();
                             },
 
                             tutupTemplate(fokusKembali = true) {

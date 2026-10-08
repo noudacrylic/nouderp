@@ -130,4 +130,27 @@ class OperChatTest extends TestCase
 
         $this->assertSame(4, $chat->fresh()->unread_count);
     }
+
+    /**
+     * Penerima oper hanya yang memegang akses CRM. Akun ERP lain (gudang,
+     * produksi) tak pernah membuka Inbox — chat yang dioper ke sana menganggur.
+     */
+    public function test_tidak_bisa_dioper_ke_akun_tanpa_akses_crm(): void
+    {
+        $gudang = User::factory()->create(['name' => 'Gudang', 'role' => 'user', 'is_active' => true]);
+        $cs     = User::factory()->create(['name' => 'CS', 'role' => 'user', 'is_active' => true, 'pwa_crm' => true]);
+        $chat   = $this->chat();
+        $sari   = $this->agen('Sari');
+
+        $this->actingAs($sari)
+            ->get(route('crm.inbox.index'))
+            ->assertOk()
+            ->assertViewHas('pemilikOpsi', fn ($opsi) => $opsi->contains('id', $cs->id) && ! $opsi->contains('id', $gudang->id));
+
+        $this->actingAs($sari)
+            ->post(route('crm.inbox.oper', $chat), ['owner_user_id' => $gudang->id])
+            ->assertSessionHasErrors('owner_user_id');
+
+        $this->assertNull($chat->fresh()->owner_user_id);
+    }
 }
