@@ -169,7 +169,17 @@
                 <tr class="border-b">
                     <td class="px-3 py-2 whitespace-nowrap">{{ $n->salesOrder->order_number ?? '—' }}</td>
                     <td class="px-3 py-2 whitespace-nowrap">{{ $n->event }}</td>
-                    <td class="px-3 py-2 whitespace-nowrap">{{ $n->recipient ?: '—' }}</td>
+                    @php
+                        $namaTujuan = $n->salesOrder?->customer?->name ?: $n->conversation?->namaTampil();
+                        // namaTampil() jatuh ke nomor bila kontaknya belum bernama — jangan diulang.
+                        if ($namaTujuan === $n->recipient) $namaTujuan = null;
+                    @endphp
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        @if($namaTujuan)
+                            <div class="font-medium text-gray-800">{{ $namaTujuan }}</div>
+                        @endif
+                        <div class="{{ $namaTujuan ? 'text-xs text-gray-500' : '' }}">{{ $n->recipient ?: '—' }}</div>
+                    </td>
                     <td class="px-3 py-2 whitespace-nowrap text-xs text-gray-600">
                         @if($n->sent_at)
                             {{ $n->sent_at->translatedFormat('d M Y H:i') }}

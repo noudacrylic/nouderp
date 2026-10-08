@@ -25,7 +25,14 @@ class CrmNotifikasiController extends Controller
     public function index(Request $request)
     {
         $daftar = CrmOutboxMessage::query()
-            ->with('salesOrder:id,order_number')
+            // Nama penerima: pelanggan SO, atau nama kontak chat untuk kabar
+            // tanpa SO (mis. stok tersedia).
+            ->with([
+                'salesOrder:id,order_number,customer_id',
+                'salesOrder.customer:id,name',
+                'conversation:id,display_name,contact_key,customer_id',
+                'conversation.customer:id,name',
+            ])
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->status))
             ->when($request->filled('event'), fn ($q) => $q->where('event', $request->event))
             ->orderByDesc('id')
