@@ -14,11 +14,11 @@ use App\Modules\CRM\Models\CrmConversation;
  * membuat keduanya berhenti dipercaya. "3 chat menunggu" juga lebih bisa
  * dikerjakan daripada "17 pesan" — yang dibuka orang memang chatnya.
  *
- * CAKUPANNYA SENGAJA SAMA dengan daftar bawaan yang terbuka saat menu CRM
- * ditekan: super admin melihat semua, agen biasa hanya miliknya. Lencana yang
- * menghitung lebih banyak dari yang muncul setelah diklik adalah cara tercepat
- * membuat orang berhenti mempercayainya — ia menjanjikan pekerjaan yang tidak
- * ada di layar yang ia buka.
+ * CAKUPANNYA = PEKERJAAN ORANG INI, untuk SIAPA PUN termasuk super admin
+ * (8 Okt 2026): chat "Belum dioper" (antrean bersama) + chat "Milik Saya".
+ * Chat baru di tangan agen lain TIDAK dihitung — itu pekerjaan mereka, dan
+ * lencana yang menyala karena pesan orang lain membuat yang melihatnya membuka
+ * Inbox untuk menemukan tab kerjanya sendiri kosong.
  */
 class BelumDibaca
 {
@@ -31,12 +31,9 @@ class BelumDibaca
         return CrmConversation::query()
             ->where('status', CrmConversation::STATUS_AKTIF)
             ->where('unread_count', '>', 0)
-            /*
-             * Pembatas yang sama dengan dasarPercakapan() di CrmInboxController:
-             * tanpa pilihan pemilik yang disengaja, agen biasa hanya melihat
-             * chat yang ia pegang.
-             */
-            ->when(! $pengguna->isSuperAdmin(), fn ($q) => $q->where('owner_user_id', $pengguna->id))
+            ->where(fn ($q) => $q
+                ->whereNull('owner_user_id')
+                ->orWhere('owner_user_id', $pengguna->id))
             ->count();
     }
 }

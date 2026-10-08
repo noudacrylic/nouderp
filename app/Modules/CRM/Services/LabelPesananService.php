@@ -129,12 +129,10 @@ class LabelPesananService
             return null;
         }
 
-        // Pesanan marketplace (sudah dibayar di sana, butuh desain/print):
-        // Print sampai dikirim, lalu Selesai.
         $mp = JubelioOrderLink::where('sales_order_id', $so->id)->first();
 
         if ($mp) {
-            return ($mp->shipped_at || $mp->mp_completed_at || $mp->wms_completed_at) ? self::SELESAI : self::PRINT;
+            return $this->labelMarketplace($so, $mp);
         }
 
         if ($so->status === 'draft') {
@@ -161,29 +159,70 @@ class LabelPesananService
             return self::MENUNGGU_PEMBAYARAN;
         }
 
-        // Satu item custom saja sudah menjadikan seluruh pesanan alur custom.
-        $custom = $so->items()->whereHas('product', fn ($q) => $q->madeToOrder())->exists();
-
-        if (! $custom) {
+        if (! $this->adaItemCustom($so)) {
             return self::MENUNGGU_DIKIRIM;
         }
 
-        $op = $so->productionOrders()->where('status', '!=', 'cancelled')->pluck('status');
+        $tahap = $this->tahapProduksi($so);
 
-        /*
-         * Desain = sudah dibayar, produksi BELUM dikerjakan. OP preorder lahir
-         * otomatis begitu DP diterima, jadi "OP sudah ada" tidak bisa jadi
-         * penanda — tahap Desain akan selalu terlewati. Yang dipakai: OP mulai
-         * dikerjakan.
-         */
-        if ($op->isEmpty() || $op->every(fn ($s) => ! in_array($s, [...self::OP_BERJALAN, 'finalized'], true))) {
-            return self::DESAIN;
-        }
-
-        if (! $op->every(fn ($s) => $s === 'finalized')) {
-            return self::PRODUKSI;
+        if ($tahap !== 'final') {
+            return $tahap === 'berjalan' ? self::PRODUKSI : self::DESAIN;
         }
 
         return ($p['payment']['state'] ?? null) === 'dp' ? self::MENUNGGU_PELUNASAN : self::MENUNGGU_DIKIRIM;
+    }
+
+    /**
+     * Pesanan marketplace — sudah lunas di marketplace, jadi tahap pembayaran &
+     * pelunasan dilewati (disepakati 8 Okt 2026).
+     *
+     * Alur custom dikenali dari ADANYA OP, bukan hanya tanda produk custom: di
+     * data server 154 OP terbit dari pesanan marketplace, padahal hanya 4
+     * pesanan yang SKU-nya bertanda made-to-order — order custom via
+     * marketplace umumnya tercatat dengan SKU biasa. Tanpa OP & tanpa produk
+     * custom = pesanan yang butuh desain/print (Print).
+     */
+    private function labelMarketplace(SalesOrder $so, JubelioOrderLink $mp): string
+    {
+        if ($mp->shipped_at || $mp->mp_completed_at || $mp->wms_completed_at) {
+            return self::SELESAI;
+        }
+
+        $tahap = $this->tahapProduksi($so);
+
+        return match (true) {
+            $tahap === 'final'        => self::MENUNGGU_DIKIRIM,
+            $tahap === 'berjalan'     => self::PRODUKSI,
+            $tahap === 'menunggu',
+            $this->adaItemCustom($so) => self::DESAIN,
+            default                   => self::PRINT,
+        };
+    }
+
+    /** Satu item custom saja sudah menjadikan seluruh pesanan alur custom. */
+    private function adaItemCustom(SalesOrder $so): bool
+    {
+        return $so->items()->whereHas('product', fn ($q) => $q->madeToOrder())->exists();
+    }
+
+    /**
+     * Keadaan order produksi pesanan ini: 'tidak_ada' | 'menunggu' |
+     * 'berjalan' | 'final'.
+     *
+     * "Menunggu" (OP ada tapi belum dikerjakan) dihitung tahap Desain: OP
+     * preorder lahir otomatis begitu DP diterima, jadi "OP sudah terbit" tidak
+     * bisa jadi penanda produksi — tahap Desain akan selalu terlewati. Yang
+     * dipakai: OP mulai dikerjakan (disepakati 8 Okt 2026).
+     */
+    private function tahapProduksi(SalesOrder $so): string
+    {
+        $op = $so->productionOrders()->where('status', '!=', 'cancelled')->pluck('status');
+
+        return match (true) {
+            $op->isEmpty() => 'tidak_ada',
+            $op->every(fn ($s) => $s === 'finalized') => 'final',
+            $op->contains(fn ($s) => in_array($s, [...self::OP_BERJALAN, 'finalized'], true)) => 'berjalan',
+            default => 'menunggu',
+        };
     }
 }

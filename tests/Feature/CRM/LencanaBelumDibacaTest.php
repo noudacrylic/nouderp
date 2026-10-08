@@ -61,14 +61,10 @@ class LencanaBelumDibacaTest extends TestCase
     }
 
     /**
-     * Agen biasa hanya menghitung chat yang IA pegang.
-     *
-     * Cakupan ini menirukan daftar bawaan yang terbuka saat menu CRM ditekan.
-     * Kalau lencananya menghitung seluruh inbox, agen melihat angka 12 lalu
-     * membuka layar yang cuma berisi 2 — dan tidak ada apa pun di layar itu
-     * yang menjelaskan ke mana sepuluh sisanya pergi.
+     * Yang dihitung = PEKERJAAN orang ini: chat Belum dioper + chat Milik Saya
+     * (8 Okt 2026). Chat baru di tangan agen lain bukan urusannya.
      */
-    public function test_agen_hanya_menghitung_chat_miliknya(): void
+    public function test_agen_menghitung_belum_dioper_dan_miliknya(): void
     {
         $agen = $this->agen();
         $lain = $this->agen();
@@ -77,17 +73,18 @@ class LencanaBelumDibacaTest extends TestCase
         $this->chat(1, $lain->id);
         $this->chat(1, null);
 
-        $this->assertSame(1, BelumDibaca::untuk($agen));
+        $this->assertSame(2, BelumDibaca::untuk($agen));
     }
 
-    /** Super admin memang melihat semuanya, termasuk yang belum dioper. */
-    public function test_super_admin_menghitung_seluruh_inbox(): void
+    /** Super admin pun sama — chat milik agen lain tidak menyalakan lencananya. */
+    public function test_super_admin_tidak_menghitung_chat_agen_lain(): void
     {
         $admin = $this->admin();
         $agen  = $this->agen();
 
         $this->chat(1, $agen->id);
         $this->chat(1, null);
+        $this->chat(1, $admin->id);
 
         $this->assertSame(2, BelumDibaca::untuk($admin));
     }

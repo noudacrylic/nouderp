@@ -173,6 +173,49 @@ class LabelPesananTest extends TestCase
         $this->assertSame(LabelPesananService::SELESAI, $this->label($chat));
     }
 
+    /**
+     * Order custom via marketplace diperlakukan seperti custom biasa, tanpa
+     * tahap pembayaran (sudah lunas di marketplace). Dikenali dari ADANYA OP,
+     * karena SKU-nya sering produk biasa.
+     */
+    public function test_pesanan_marketplace_ber_op_ikut_alur_custom_tanpa_tahap_bayar(): void
+    {
+        $chat = $this->chat();
+        $so   = $this->soDariChat($this->chat('628111000777'), $this->produk(false));   // SKU biasa
+        $so->forceFill(['status' => 'confirmed'])->save();
+        $link = JubelioOrderLink::create(['jubelio_salesorder_id' => 778, 'jubelio_salesorder_no' => 'SP-CUSTOM', 'sales_order_id' => $so->id]);
+
+        app(LabelPesananService::class)->tautkan($chat, $so);
+        $this->assertSame(LabelPesananService::PRINT, $this->label($chat), 'Belum ada OP = Print');
+
+        $op = $this->op($so, 'confirmed');
+        $this->assertSame(LabelPesananService::DESAIN, $this->label($chat), 'OP ada, belum dikerjakan = Desain');
+
+        $op->forceFill(['status' => 'in_progress'])->save();
+        $this->assertSame(LabelPesananService::PRODUKSI, $this->label($chat));
+
+        $op->forceFill(['status' => 'finalized'])->save();
+        $this->assertSame(LabelPesananService::MENUNGGU_DIKIRIM, $this->label($chat), 'Tak pernah Menunggu Pelunasan — lunas di marketplace');
+
+        $link->forceFill(['shipped_at' => now()])->save();
+        $this->assertSame(LabelPesananService::SELESAI, $this->label($chat));
+    }
+
+    public function test_pesanan_marketplace_produk_custom_tanpa_op_langsung_desain(): void
+    {
+        $chat = $this->chat();
+        $so   = $this->soDariChat($this->chat('628111000666'), $this->produk(true));
+        $so->forceFill(['status' => 'confirmed'])->save();
+        JubelioOrderLink::create(['jubelio_salesorder_id' => 779, 'jubelio_salesorder_no' => 'SP-CS', 'sales_order_id' => $so->id]);
+
+        // OP preorder bisa lahir otomatis; dibuang supaya kasus "tanpa OP" teruji.
+        $so->productionOrders()->delete();
+
+        app(LabelPesananService::class)->tautkan($chat, $so);
+
+        $this->assertSame(LabelPesananService::DESAIN, $this->label($chat));
+    }
+
     /* ------------------------------------------------------------- aturan */
 
     public function test_label_mengikuti_pesanan_terbaru_saja(): void
