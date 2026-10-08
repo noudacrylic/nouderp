@@ -48,9 +48,24 @@ class OrderProgressService
         $productionDone  = $hasProduction && $production->every(fn ($p) => $p->status === 'finalized');
         $productionMoving = $hasProduction && $production->contains(fn ($p) => $p->status === 'in_progress');
 
-        $delivery = $so->deliveries()->where('status', '!=', 'void')->latest('id')->first();
+        $deliveries = $so->deliveries()->where('status', '!=', 'void')->latest('id')->get();
+        $delivery = $deliveries->first();
         $shipped  = (bool) ($delivery?->tracking_number) || in_array($delivery?->shipping_status, ['in_transit', 'delivered'], true);
-        $arrived  = $so->getDeliveryStatus() === 'delivered';
+
+        /*
+         * SAMPAI = semua barang sudah ber-surat jalan DAN tiap surat jalan sudah
+         * ditandai diterima (`delivered_at`, diisi SalesDelivery::markDelivered —
+         * webhook Jubelio, sinkron kurir, atau tombol "Tandai sampai").
+         *
+         * Dulu cukup getDeliveryStatus() === 'delivered', padahal itu cuma berarti
+         * "semua barang sudah keluar gudang". Begitu SJ penuh terbit, lacak pesanan
+         * melompat ke "Selesai — Pesanan sudah diterima" sementara paketnya baru
+         * menunggu kurir (dilaporkan 8 Okt 2026). Syarat ini sama dengan kriteria
+         * kurir di tab Selesai Pemrosesan Pesanan.
+         */
+        $arrived = $deliveries->isNotEmpty()
+            && $deliveries->every(fn ($d) => $d->delivered_at !== null)
+            && $so->getDeliveryStatus() === 'delivered';
         $pickedUp = $so->pickup_status === 'picked_up';
 
         // Keputusan 18 Agu 2026: DP ikut masuk tahap packing, tidak ditahan di produksi.
