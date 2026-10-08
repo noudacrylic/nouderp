@@ -86,7 +86,7 @@ Schedule::command('crm:tagih-pembayaran')->dailyAt('09:15')->name('crm-tagih-pem
 // terkirim, dan yang terkirim lima menit sebelum tutup hampir pasti mubazir.
 Schedule::command('crm:pancing-jendela')->everyFifteenMinutes()->name('crm-pancing-jendela')->withoutOverlapping(60);
 
-// Close otomatis chat Selesai & distributor yang sepi 3 hari. Ada tombol manualnya di layar CRM > Label.
+// Close otomatis chat Selesai, Tanya Harga & distributor yang sepi 3 hari. Ada tombol manualnya di layar CRM > Label.
 Schedule::command('crm:tutup-otomatis')->hourly()->name('crm-tutup-otomatis')->withoutOverlapping(60);
 
 Schedule::command('crm:pantau-waha')->everyFiveMinutes()->name('crm-pantau-waha')->withoutOverlapping(60);

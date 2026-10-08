@@ -129,11 +129,16 @@ class OpenCloseTest extends TestCase
         $distributor = $this->chat('628111000002', ['is_distributor' => true, 'last_message_at' => now()->subDays(4)]);
         $masihRamai  = $this->chat('628111000003', ['queue_state' => CrmConversation::LABEL_SELESAI, 'last_message_at' => now()->subDay()]);
         $biasa       = $this->chat('628111000004', ['queue_state' => 'cetak', 'last_message_at' => now()->subDays(10)]);
+        // Tanya Harga ikut Close otomatis (ditambahkan 8 Okt 2026).
+        $tanyaHarga  = $this->chat('628111000005', ['queue_state' => 'tanya_harga', 'last_message_at' => now()->subDays(4)]);
+        $tanyaBaru   = $this->chat('628111000006', ['queue_state' => 'tanya_harga', 'last_message_at' => now()->subDays(2)]);
 
-        $this->assertSame(2, app(TutupOtomatisService::class)->jalankan());
+        $this->assertSame(3, app(TutupOtomatisService::class)->jalankan());
 
         $this->assertFalse($selesai->fresh()->terbuka());
         $this->assertFalse($distributor->fresh()->terbuka());
+        $this->assertFalse($tanyaHarga->fresh()->terbuka());
+        $this->assertTrue($tanyaBaru->fresh()->terbuka());
         $this->assertTrue($masihRamai->fresh()->terbuka());
         $this->assertTrue($biasa->fresh()->terbuka());
     }

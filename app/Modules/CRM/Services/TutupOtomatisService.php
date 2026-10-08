@@ -7,8 +7,11 @@ use App\Modules\CRM\Models\CrmConversation;
 /**
  * Tutup chat yang pekerjaannya sudah selesai.
  *
- * Dua kelompok, sama-sama setelah sepi CrmConversation::HARI_TUTUP_OTOMATIS hari:
+ * Sama-sama setelah sepi CrmConversation::HARI_TUTUP_OTOMATIS hari:
  *  - chat berlabel Selesai — pesanannya sudah sampai ke pelanggan;
+ *  - chat berlabel Tanya Harga — penanya yang tak melanjutkan (ditambahkan
+ *    8 Okt 2026). Kalau ia menulis lagi < 30 hari, chatnya kembali ke
+ *    pemilik & label terakhirnya, jadi tak ada yang hilang;
  *  - chat distributor — langganan yang datang dan pergi; begitu ia menulis
  *    lagi, chatnya kembali ke pemilik terakhirnya (lihat model).
  *
@@ -26,7 +29,7 @@ class TutupOtomatisService
         return CrmConversation::query()
             ->where('status', CrmConversation::STATUS_AKTIF)
             ->where(fn ($q) => $q
-                ->where('queue_state', CrmConversation::LABEL_SELESAI)
+                ->whereIn('queue_state', CrmConversation::LABEL_TUTUP_OTOMATIS)
                 ->orWhere('is_distributor', true))
             ->whereRaw('COALESCE(last_message_at, created_at) <= ?', [now()->subDays(CrmConversation::HARI_TUTUP_OTOMATIS)])
             ->update(CrmConversation::nilaiTutup());

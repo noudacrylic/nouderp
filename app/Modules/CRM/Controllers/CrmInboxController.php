@@ -2492,7 +2492,7 @@ class CrmInboxController extends Controller
         $n = $tutup->jalankan();
 
         return back()->with('success', $n
-            ? "{$n} chat Selesai/distributor yang sepi " . CrmConversation::HARI_TUTUP_OTOMATIS . ' hari ditutup.'
+            ? "{$n} chat Selesai/Tanya Harga/distributor yang sepi " . CrmConversation::HARI_TUTUP_OTOMATIS . ' hari ditutup.'
             : 'Tidak ada chat yang perlu ditutup.');
     }
 

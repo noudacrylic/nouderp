@@ -56,8 +56,11 @@ class CrmConversation extends Model
      */
     public const HARI_KEMBALI_KE_PEMILIK = 30;
 
-    /** Chat berlabel Selesai & chat distributor tutup sendiri setelah sepi sekian hari. */
+    /** Chat berlabel di bawah ini & chat distributor tutup sendiri setelah sepi sekian hari. */
     public const HARI_TUTUP_OTOMATIS = 3;
+
+    /** Label yang ikut Close otomatis (Tanya Harga ditambahkan 8 Okt 2026). */
+    public const LABEL_TUTUP_OTOMATIS = [self::LABEL_SELESAI, 'tanya_harga'];
 
     /** Asal `display_name` — lihat migrasi add_name_source_to_crm_conversations. */
     public const NAMA_WHATSAPP = 'whatsapp';

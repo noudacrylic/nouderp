@@ -8,7 +8,7 @@
         <form method="POST" action="{{ route('crm.inbox.tutup-otomatis') }}">
             @csrf
             <button class="text-xs px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
-                    title="Close chat berlabel Selesai & chat distributor yang sepi {{ \App\Modules\CRM\Models\CrmConversation::HARI_TUTUP_OTOMATIS }} hari. Berjalan sendiri tiap jam.">
+                    title="Close chat berlabel Selesai / Tanya Harga & chat distributor yang sepi {{ \App\Modules\CRM\Models\CrmConversation::HARI_TUTUP_OTOMATIS }} hari. Berjalan sendiri tiap jam.">
                 Jalankan Close otomatis
             </button>
         </form>
