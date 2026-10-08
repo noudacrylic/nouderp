@@ -3,7 +3,17 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">Label Percakapan</h1>
-    <a href="{{ route('crm.inbox.index') }}" class="text-sm text-emerald-700 hover:underline">← Kembali ke Inbox</a>
+    <div class="flex items-center gap-3">
+        {{-- Tombol manual untuk penjadwal crm:tutup-otomatis (tiap jam). --}}
+        <form method="POST" action="{{ route('crm.inbox.tutup-otomatis') }}">
+            @csrf
+            <button class="text-xs px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+                    title="Close chat berlabel Selesai & chat distributor yang sepi {{ \App\Modules\CRM\Models\CrmConversation::HARI_TUTUP_OTOMATIS }} hari. Berjalan sendiri tiap jam.">
+                Jalankan Close otomatis
+            </button>
+        </form>
+        <a href="{{ route('crm.inbox.index') }}" class="text-sm text-emerald-700 hover:underline">← Kembali ke Inbox</a>
+    </div>
 </div>
 
 <div class="mb-4 rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700">
@@ -56,7 +66,9 @@
                         <td class="px-3 py-2 text-right whitespace-nowrap">
                             <button form="label-{{ $l->id }}"
                                     class="border border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-2 py-1 rounded text-xs">Simpan</button>
-                            @if(($jumlah[$l->kode] ?? 0) === 0)
+                            @if($l->sistem())
+                                <span class="text-[10px] text-gray-400 ml-1" title="Dipakai aturan otomatis CRM — tidak bisa dihapus">sistem</span>
+                            @elseif(($jumlah[$l->kode] ?? 0) === 0)
                                 <button form="hapus-label-{{ $l->id }}" class="text-xs text-red-600 hover:underline ml-1">Hapus</button>
                             @endif
                         </td>
@@ -92,6 +104,32 @@
         <p class="mt-2 text-[11px] text-gray-500 leading-relaxed">
             Label yang sudah dipakai chat tidak bisa dihapus — nonaktifkan saja.
             Yang nonaktif hilang dari pilihan, tapi chat lama tetap menampilkan namanya.
+        </p>
+
+        {{-- CRM Tahap 2: label yang terpasang saat chat dioper ke agen itu. --}}
+        <h2 class="mt-5 text-sm font-bold uppercase tracking-wider text-gray-500 mb-2">Label Dasar per Agen</h2>
+        <form method="POST" action="{{ route('crm.label.dasar') }}" class="space-y-2">
+            @csrf
+            @forelse($agen as $u)
+                <label class="flex items-center justify-between gap-2 text-sm">
+                    <span class="truncate">{{ $u->name }}</span>
+                    <select name="dasar[{{ $u->id }}]" class="border rounded px-2 py-1 text-sm w-40">
+                        <option value="">— tidak ada —</option>
+                        @foreach($labels->where('aktif', true) as $l)
+                            <option value="{{ $l->kode }}" @selected(($labelDasar[$u->id] ?? null) === $l->kode)>{{ $l->nama }}</option>
+                        @endforeach
+                    </select>
+                </label>
+            @empty
+                <p class="text-xs text-gray-500">Belum ada agen berakses CRM.</p>
+            @endforelse
+            @if($agen->isNotEmpty())
+                <button class="w-full border border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm">Simpan Label Dasar</button>
+            @endif
+        </form>
+        <p class="mt-2 text-[11px] text-gray-500 leading-relaxed">
+            Saat chat dioper, labelnya menjadi label <b>terakhir</b> chat itu di tangan agen tujuan.
+            Kalau agen itu belum pernah memegangnya, dipakai label dasarnya. Distributor tetap berlabel Distributor.
         </p>
     </div>
 </div>

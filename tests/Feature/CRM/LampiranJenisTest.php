@@ -41,7 +41,9 @@ class LampiranJenisTest extends TestCase
     private function percakapan(): CrmConversation
     {
         $p = CrmConversation::findOrCreateFor('628998844666');
-        $p->forceFill(['window_expires_at' => now()->addHours(5), 'status' => CrmConversation::STATUS_AKTIF])->save();
+        $p->forceFill(['window_expires_at' => now()->addHours(5), 'status' => CrmConversation::STATUS_AKTIF,
+            // Sudah dioper: chat belum dioper tak bisa dibalas (CRM Tahap 1).
+            'owner_user_id' => User::factory()->create(['role' => 'admin', 'is_active' => true])->id])->save();
 
         return $p;
     }

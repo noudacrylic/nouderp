@@ -245,7 +245,9 @@ class TemplateCrudTest extends TestCase
 
         // Daftarnya hidup di kotak ketik, jadi percakapannya harus dibuka dulu.
         $percakapan = CrmConversation::findOrCreateFor('628998844666');
-        $percakapan->forceFill(['window_expires_at' => now()->addHours(5)])->save();
+        $percakapan->forceFill(['window_expires_at' => now()->addHours(5),
+            // Sudah dioper: chat belum dioper tak bisa dibalas (CRM Tahap 1).
+            'owner_user_id' => User::factory()->create(['role' => 'admin', 'is_active' => true])->id])->save();
 
         $html = $this->actingAs($this->admin())
             ->get(route('crm.inbox.show', $percakapan->id))

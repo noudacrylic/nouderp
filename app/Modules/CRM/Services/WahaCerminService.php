@@ -186,6 +186,16 @@ class WahaCerminService
          */
         if ($hidup) {
             $ubah['unread_count'] = $dariKita ? 0 : $percakapan->unread_count + 1;
+
+            /*
+             * Pesan pelanggan membuka kembali chat yang tertutup — aturannya
+             * sama persis dengan jalur resmi (lihat model). Hanya pesan yang
+             * BARU tiba: impor riwayat tidak boleh membangunkan chat lama, dan
+             * balasan CS dari HP bukan permintaan pelanggan.
+             */
+            if (! $dariKita) {
+                $ubah += $percakapan->perubahanSaatPesanMasuk();
+            }
         }
 
         if ($ubah) {

@@ -129,6 +129,7 @@ Route::prefix('erp')->group(function () {
         // sebelum '/{conversation}' supaya 'label' tidak ditangkap sebagai id.
         Route::get   ('/label',          [\App\Modules\CRM\Controllers\CrmLabelController::class, 'index'])->name('label.index');
         Route::post  ('/label',          [\App\Modules\CRM\Controllers\CrmLabelController::class, 'store'])->name('label.store');
+        Route::post  ('/label/dasar',    [\App\Modules\CRM\Controllers\CrmLabelController::class, 'dasar'])->name('label.dasar');
         Route::post  ('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'update'])->name('label.update');
         Route::delete('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'destroy'])->name('label.destroy');
 
@@ -215,6 +216,8 @@ Route::prefix('erp')->group(function () {
         // Penyegar kolom kiri. WAJIB di atas '/{conversation}': wildcard itu
         // akan menelannya sebagai id percakapan dan membalas 404 yang sunyi.
         Route::get('/daftar-segar', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'daftarSegar'])->name('inbox.daftar-segar');
+        Route::get('/pesanan-cari', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariPesananTautan'])->name('inbox.pesanan.cari');
+        Route::post('/tutup-otomatis', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tutupOtomatis'])->name('inbox.tutup-otomatis');
 
         Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'show'])->name('inbox.show');
         Route::post('/{conversation}/balas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'balas'])->name('inbox.balas');
@@ -234,6 +237,8 @@ Route::prefix('erp')->group(function () {
         Route::post('/{conversation}/oper', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'oper'])->name('inbox.oper');
         Route::post('/{conversation}/antrean', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'antrean'])->name('inbox.antrean');
         Route::post('/{conversation}/arsip', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'arsip'])->name('inbox.arsip');
+        Route::post('/{conversation}/selalu-tutup', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'selaluTutup'])->name('inbox.selalu-tutup');
+        Route::post('/{conversation}/distributor', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'distributor'])->name('inbox.distributor');
         // Kembalikan tanda "belum dibaca" — dipakai saat chat terlanjur dibuka
         // tapi belum sempat dikerjakan.
         Route::post('/{conversation}/belum-dibaca', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'belumDibaca'])->name('inbox.belum-dibaca');
@@ -252,6 +257,8 @@ Route::prefix('erp')->group(function () {
         Route::post('/{conversation}/promo', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'promoKeranjang'])->name('inbox.promo');
         // Rincian siap kirim (barang + ongkir + total + tautan bayar).
         Route::post('/{conversation}/pesanan/{order}/rincian', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'rincianPesanan'])->name('inbox.pesanan.rincian');
+        Route::post('/{conversation}/pesanan/{order}/tautkan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tautkanPesanan'])->name('inbox.pesanan.tautkan');
+        Route::post('/{conversation}/pesanan/{order}/lepas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lepasPesanan'])->name('inbox.pesanan.lepas');
     });
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/dashboard/chart', [\App\Http\Controllers\DashboardController::class, 'chartData'])->name('dashboard.chart');

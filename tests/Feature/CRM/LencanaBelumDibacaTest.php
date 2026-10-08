@@ -294,10 +294,14 @@ class LencanaBelumDibacaTest extends TestCase
         $this->chat(1, $agen->id);
         $this->chat(1, null);
 
+        /*
+         * Sejak CRM Tahap 1 "Semua" pindah ke dropdown (opsi "Semua chat") dan
+         * "Belum dioper" jadi tab pertama berlencana jumlah chat-nya.
+         */
         $this->actingAs($admin)->get('/erp/crm?pemilik=' . $admin->id)->assertOk()
-            ->assertSeeInOrder(['data-lencana-semua', '>2<'], false)
+            ->assertSee('Semua chat · 2 belum dibaca', false)
+            ->assertSeeInOrder(['data-lencana-belum-dioper', '>1<'], false)
             ->assertDontSee('data-lencana-milik-saya', false)
-            ->assertSee($agen->name . ' · 1 belum dibaca', false)
-            ->assertSee('Belum dioper (1) · 1 belum dibaca', false);
+            ->assertSee($agen->name . ' · 1 belum dibaca', false);
     }
 }

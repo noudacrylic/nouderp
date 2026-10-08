@@ -34,6 +34,7 @@ use App\Modules\Sales\Services\QuotationDraftService;
 use App\Modules\Sales\Services\SalesOrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -184,9 +185,15 @@ class CrmInboxController extends Controller
      */
     private function dataDaftar(Request $request, ?CrmConversation $terpilih = null): array
     {
-        $pengguna       = $request->user();
-        $lihatSemua     = (bool) $pengguna?->isSuperAdmin();
-        $dibatasiKeSaya = ! $lihatSemua && ! ($request->filled('pemilik') || $request->filled('search')) && $pengguna;
+        $pengguna   = $request->user();
+        $lihatSemua = (bool) $pengguna?->isSuperAdmin();
+
+        /*
+         * Pembatas bawaan "hanya milik saya" untuk agen DICABUT: tab bawaannya
+         * kini "Belum dioper", yang memang milik bersama. Variabelnya tetap
+         * dikirim (selalu false) karena layar PWA lama masih membacanya.
+         */
+        $dibatasiKeSaya = false;
 
         $dasar = $this->dasarPercakapan($request);
 
@@ -255,6 +262,7 @@ class CrmInboxController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name']),
             'dibatasiKeSaya'    => $dibatasiKeSaya,
+            'pemilikKini'       => self::pemilikKini($request),
             /*
              * Jumlah yang BELUM dipegang siapa pun ditampilkan ke semua orang.
              * Tanpa angka ini, chat pelanggan baru (yang memang lahir tanpa
@@ -357,6 +365,8 @@ class CrmInboxController extends Controller
             'pesananTerkait' => $terpilih ? $this->ringkasPesanan($terpilih) : [],
             'penawaranTerkait' => $terpilih ? $this->ringkasPenawaran($terpilih) : [],
             'modeWa'   => $modeWa,
+            // Kotak ketik diganti keterangan untuk chat milik agen lain.
+            'bolehBalas' => $terpilih ? $terpilih->bolehDibalasOleh($request->user()) : false,
             /*
              * Gelembung tidak DIMUAT sama sekali di mode WhatsApp Web, bukan
              * sekadar disembunyikan lewat CSS: thread panjang menyeret ratusan
@@ -397,25 +407,37 @@ class CrmInboxController extends Controller
      */
     private function dasarPercakapan(Request $request): \Closure
     {
-        $status         = $request->string('status')->toString() ?: CrmConversation::STATUS_AKTIF;
-        $pengguna       = $request->user();
-        $lihatSemua     = (bool) $pengguna?->isSuperAdmin();
-        $memilihSendiri = $request->filled('pemilik') || $request->filled('search');
-        $dibatasiKeSaya = ! $lihatSemua && ! $memilihSendiri && $pengguna;
+        $pemilik = self::pemilikKini($request);
+        $status  = $request->string('status')->toString();
 
-        return function () use ($status, $request, $dibatasiKeSaya, $pengguna) {
+        /*
+         * Pencarian & tab "Semua" melihat SELURUH chat, Open maupun Close —
+         * keduanya dipakai mencari orang ("SO-xxxx itu chat yang mana?",
+         * menghubungi pelanggan lama), dan pelanggan lama justru hampir selalu
+         * sudah Close. Tab kerja (Belum dioper, Milik Saya, satu agen) hanya
+         * berisi yang Open. Chip "Close" mempersempit ke yang tertutup saja.
+         */
+        $menyeluruh = $request->filled('search') || $pemilik === 'semua';
+        $status     = $status !== '' ? $status : ($menyeluruh ? null : CrmConversation::STATUS_AKTIF);
+
+        return function () use ($status, $pemilik, $menyeluruh) {
             return CrmConversation::query()
-                ->where('status', $status)
-                // 'semua' = permintaan sadar untuk melepas pembatas bawaan, jadi ia
-                // TIDAK menyaring apa pun. Tanpa cabang ini nilainya jatuh ke
-                // where('owner_user_id', 'semua') dan daftarnya kosong melompong.
-                ->when($request->filled('pemilik') && $request->pemilik !== 'semua', function ($q) use ($request) {
-                    $request->pemilik === 'belum'
-                        ? $q->whereNull('owner_user_id')
-                        : $q->where('owner_user_id', $request->pemilik);
-                })
-                ->when($dibatasiKeSaya, fn ($q) => $q->where('owner_user_id', $pengguna->id));
+                ->when($status, fn ($q) => $q->where('status', $status))
+                ->when(! $menyeluruh, fn ($q) => $pemilik === 'belum'
+                    ? $q->whereNull('owner_user_id')
+                    : $q->where('owner_user_id', $pemilik));
         };
+    }
+
+    /**
+     * Tab yang sedang dibuka. Bawaan "Belum dioper" — antrean kerja bersama:
+     * chat Open yang belum dipegang siapa pun.
+     */
+    public static function pemilikKini(Request $request): string
+    {
+        $pemilik = (string) $request->input('pemilik', '');
+
+        return $pemilik !== '' ? $pemilik : 'belum';
     }
 
     /**
@@ -625,6 +647,10 @@ class CrmInboxController extends Controller
 
     public function balas(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
     {
+        if ($tolak = $this->tolakBalas($request, $conversation)) {
+            return $tolak;
+        }
+
         /*
          * Kotak ketik mengirim lewat FormData, dan input berkas yang KOSONG
          * tetap ikut terkirim sebagai entri hampa. Kalau dibiarkan, aturan
@@ -758,6 +784,10 @@ class CrmInboxController extends Controller
             }
         }
 
+        if ($hasil['success']) {
+            $conversation->catatDibalasOleh($request->user());
+        }
+
         /*
          * Permintaan dari kotak ketik dikirim lewat fetch, jadi jawabannya JSON
          * berisi gelembung siap tempel. Tanpa ini seluruh halaman dimuat ulang
@@ -802,7 +832,8 @@ class CrmInboxController extends Controller
 
         $daftar = CrmConversation::query()
             ->with('customer:id,name')
-            ->where('status', CrmConversation::STATUS_AKTIF)
+            // Open maupun Close: sejak ada Close, chat lama hampir semuanya
+            // tertutup, padahal tujuan teruskan justru sering pelanggan lama.
             // Percakapan asalnya sendiri tidak boleh jadi tujuan — meneruskan
             // pesan ke chat yang sama cuma menggandakannya di tempat semula.
             ->when($kecuali, fn ($q) => $q->whereKeyNot($kecuali))
@@ -852,7 +883,7 @@ class CrmInboxController extends Controller
 
         $percakapan = $hanyaPelanggan ? collect() : CrmConversation::query()
             ->with('customer:id,name')
-            ->where('status', CrmConversation::STATUS_AKTIF)
+            // Termasuk yang Close — "pelanggan lama" di atas memang tinggal di sana.
             ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('contact_key', 'like', "%{$cari}%")
                 ->orWhere('display_name', 'like', "%{$cari}%")
@@ -928,7 +959,15 @@ class CrmInboxController extends Controller
             return $this->jawabTeruskan($request, false, 'Tidak bisa meneruskan pesan ke percakapan yang sama.');
         }
 
+        if ($alasan = $tujuan->alasanTakBolehDibalas($request->user())) {
+            return $this->jawabTeruskan($request, false, 'Chat tujuan: ' . $alasan);
+        }
+
         $hasil = $balasan->teruskan($message, $tujuan, $request->user()?->id);
+
+        if ($hasil['success']) {
+            $tujuan->catatDibalasOleh($request->user());
+        }
 
         return $this->jawabTeruskan(
             $request,
@@ -1144,6 +1183,10 @@ class CrmInboxController extends Controller
      */
     public function pancingan(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
     {
+        if ($tolak = $this->tolakBalas($request, $conversation)) {
+            return $tolak;
+        }
+
         $hasil = $balasan->kirimPancingan($conversation, $request->user()?->id);
 
         return back()->with(
@@ -1191,6 +1234,10 @@ class CrmInboxController extends Controller
             'caption' => ['nullable', 'string', 'max:1024'],
         ]);
 
+        if ($alasan = $conversation->alasanTakBolehDibalas($request->user())) {
+            return response()->json(['success' => false, 'error' => $alasan], 403);
+        }
+
         $hasil = $balasan->kirimFoto(
             $conversation,
             $data['foto'],
@@ -1201,6 +1248,8 @@ class CrmInboxController extends Controller
         if (! $hasil['success']) {
             return response()->json(['success' => false, 'error' => $hasil['error']], 422);
         }
+
+        $conversation->catatDibalasOleh($request->user());
 
         $baru = $conversation->messages()
             ->with(self::MUATAN_GELEMBUNG)
@@ -1709,6 +1758,80 @@ class CrmInboxController extends Controller
     }
 
     /** Daftar pesanan pelanggan ini — dipanggil ulang setelah SO baru dibuat. */
+    /**
+     * Cari pesanan untuk ditautkan ke chat (CRM Tahap 3): nomor SO, nomor
+     * pesanan marketplace (yang diminta dari pelanggan Shopee yang butuh
+     * desain/print), atau nama pelanggan.
+     */
+    public function cariPesananTautan(Request $request)
+    {
+        $cari = trim((string) $request->input('q', ''));
+
+        if (mb_strlen($cari) < 3) {
+            return response()->json(['hasil' => []]);
+        }
+
+        $mp = DB::table('jubelio_order_links')
+            ->where('jubelio_salesorder_no', 'like', "%{$cari}%")
+            ->limit(20)
+            ->pluck('sales_order_id')
+            ->filter()
+            ->all();
+
+        $hasil = SalesOrder::query()
+            ->with('customer:id,name')
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->where(fn ($q) => $q
+                ->where('order_number', 'like', "%{$cari}%")
+                ->orWhere('customer_po_number', 'like', "%{$cari}%")
+                ->orWhereIn('id', $mp)
+                ->orWhereHas('customer', fn ($c) => $c->where('name', 'like', "%{$cari}%")))
+            ->latest('id')
+            ->limit(10)
+            ->get();
+
+        $tautan = DB::table('crm_pesanan_chat')->whereIn('sales_order_id', $hasil->pluck('id'))
+            ->pluck('conversation_id', 'sales_order_id');
+
+        return response()->json(['hasil' => $hasil->map(fn (SalesOrder $so) => [
+            'id'        => $so->id,
+            'nomor'     => $so->order_number,
+            'mp'        => $so->customer_po_number,
+            'pelanggan' => $so->customer?->name,
+            'tanggal'   => optional($so->order_date)->format('d M Y'),
+            'total'     => (float) $so->grand_total,
+            'chat'      => isset($tautan[$so->id]) ? (int) $tautan[$so->id] : null,
+        ])->all()]);
+    }
+
+    /** Tautkan satu pesanan ke chat ini — labelnya langsung ikut tahapan pesanan itu. */
+    public function tautkanPesanan(Request $request, CrmConversation $conversation, SalesOrder $order)
+    {
+        if ($alasan = $conversation->alasanTakBolehDibalas($request->user())) {
+            return response()->json(['success' => false, 'error' => $alasan], 403);
+        }
+
+        app(\App\Modules\CRM\Services\LabelPesananService::class)
+            ->tautkan($conversation, $order, $request->user()?->id);
+
+        return response()->json([
+            'success' => true,
+            'label'   => CrmLabel::nama($conversation->fresh()->queue_state),
+            'pesanan' => $this->ringkasPesanan($conversation->fresh()),
+        ]);
+    }
+
+    public function lepasPesanan(Request $request, CrmConversation $conversation, SalesOrder $order)
+    {
+        if ($alasan = $conversation->alasanTakBolehDibalas($request->user())) {
+            return response()->json(['success' => false, 'error' => $alasan], 403);
+        }
+
+        app(\App\Modules\CRM\Services\LabelPesananService::class)->lepas($conversation, $order);
+
+        return response()->json(['success' => true, 'pesanan' => $this->ringkasPesanan($conversation)]);
+    }
+
     public function daftarPesanan(CrmConversation $conversation)
     {
         return response()->json([
@@ -1787,14 +1910,23 @@ class CrmInboxController extends Controller
      */
     private function ringkasPesanan(CrmConversation $conversation): array
     {
-        if (! $conversation->customer_id) {
+        /*
+         * Pesanan TERTAUT (CRM Tahap 3) ikut tampil walau atas nama pelanggan
+         * lain — pesanan Shopee tercatat atas nama pelanggan marketplace, bukan
+         * orang yang chat. Pesanan pelanggan sendiri tetap tampil seperti dulu.
+         */
+        $tertaut = app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($conversation);
+
+        if (! $conversation->customer_id && ! $tertaut) {
             return [];
         }
 
         $progress = app(\App\Modules\Sales\Services\OrderProgressService::class);
 
         return SalesOrder::query()
-            ->where('customer_id', $conversation->customer_id)
+            ->where(fn ($q) => $q
+                ->when($conversation->customer_id, fn ($w) => $w->where('customer_id', $conversation->customer_id))
+                ->orWhereIn('id', $tertaut ?: [0]))
             ->whereNotIn('status', ['void', 'cancelled'])
             ->latest('id')
             /*
@@ -1808,7 +1940,7 @@ class CrmInboxController extends Controller
             ->limit(25)
             ->with('items.product:id,name,sku')
             ->get()
-            ->map(function (SalesOrder $so) use ($progress) {
+            ->map(function (SalesOrder $so) use ($progress, $tertaut) {
                 $p = $progress->for($so);
 
                 $tahap = collect($p['steps'])->firstWhere('key', $p['current']);
@@ -1836,6 +1968,11 @@ class CrmInboxController extends Controller
                     'ambil'     => $so->delivery_method === 'ambil_toko',
                     'id'      => $so->id,
                     'nomor'   => $so->order_number,
+                    // Tertaut = pesanan ini yang menggerakkan label chat (yang
+                    // terbaru di antaranya). Nomor marketplace ikut supaya
+                    // pesanan Shopee dikenali tanpa membuka SO-nya.
+                    'tertaut' => in_array($so->id, $tertaut, true),
+                    'mp'      => $so->customer_po_number,
                     // Cabang tujuan, bila pesanan ini untuk cabang. Orang cabang
                     // yang menghubungi kita perlu langsung melihat pesanan MANA
                     // yang miliknya di antara pesanan perusahaan yang sama.
@@ -2073,6 +2210,11 @@ class CrmInboxController extends Controller
             $so->forceFill($kesepakatan)->save();
         }
 
+        // CRM Tahap 3: SO yang lahir dari chat langsung tertaut ke chat ini,
+        // dan labelnya ikut bergerak (draft → Menunggu Pembayaran).
+        app(\App\Modules\CRM\Services\LabelPesananService::class)
+            ->tautkan($conversation, $so, $request->user()?->id);
+
         return response()->json([
             'success' => true,
             'nomor'   => $so->order_number,
@@ -2208,6 +2350,16 @@ class CrmInboxController extends Controller
 
         $ubah = ['owner_user_id' => $pemilikBaru];
 
+        /*
+         * Label ikut berpindah (CRM Tahap 2): label terakhir chat ini di
+         * tangan penerima, atau label dasarnya. Hanya saat pemilik BERUBAH —
+         * menyimpan pemilik yang sama bukan pengoperan, dan label yang sedang
+         * dipakai tidak boleh tergeser karenanya.
+         */
+        if ($berpindah) {
+            $ubah['queue_state'] = $conversation->labelSaatDioperKe($pemilikBaru);
+        }
+
         if ($keOrangLain) {
             $ubah['unread_count'] = max(1, (int) $conversation->unread_count);
         }
@@ -2215,6 +2367,10 @@ class CrmInboxController extends Controller
         $conversation->forceFill($ubah)->save();
 
         $pesan = $pemilikBaru ? 'Percakapan dioper.' : 'Kepemilikan dilepas.';
+
+        if ($berpindah) {
+            $pesan .= ' Label: ' . CrmLabel::nama($conversation->queue_state) . '.';
+        }
 
         if ($keOrangLain) {
             $pesan .= ' Ditandai belum dibaca supaya terlihat sebagai pekerjaan baru.';
@@ -2244,6 +2400,21 @@ class CrmInboxController extends Controller
                 ->with('success', $pesan);
         }
 
+        /*
+         * Ambil sendiri: tetap di chat yang sama, tapi daftar kirinya pindah ke
+         * "Milik Saya". Chat yang baru diambil keluar dari "Belum dioper", dan
+         * kalau daftarnya tetap di sana, chat itu seolah lenyap — padahal di
+         * barisnya justru terlihat label yang baru terpasang.
+         */
+        if ($berpindah && $pemilikBaru === (int) $request->user()?->id) {
+            $asal  = url()->previous();
+            $jalur = strtok($asal, '?');
+            parse_str((string) parse_url($asal, PHP_URL_QUERY), $kueriAsal);
+
+            return redirect()->to($jalur . '?' . http_build_query(['pemilik' => $pemilikBaru] + $kueriAsal))
+                ->with('success', $pesan);
+        }
+
         return back()->with('success', $pesan);
     }
 
@@ -2258,15 +2429,88 @@ class CrmInboxController extends Controller
         return back()->with('success', 'Label diperbarui: ' . CrmLabel::nama($data['queue_state']) . '.');
     }
 
+    /**
+     * Close / Open lagi (rute lama `arsip` dipertahankan — Arsip memang sudah
+     * diganti Close). Menutup menghapus tanda belum dibaca: chat yang
+     * ditutup sudah diputuskan, dan lencana yang tetap menyala untuk chat
+     * yang tak terlihat di tab mana pun hanya membuat angka sidebar bohong.
+     */
     public function arsip(CrmConversation $conversation)
     {
-        $keArsip = $conversation->status === CrmConversation::STATUS_AKTIF;
+        $tutup = $conversation->terbuka();
 
-        $conversation->forceFill([
-            'status' => $keArsip ? CrmConversation::STATUS_ARSIP : CrmConversation::STATUS_AKTIF,
-        ])->save();
+        $conversation->forceFill($tutup
+            ? CrmConversation::nilaiTutup() + ['unread_count' => 0]
+            : ['status' => CrmConversation::STATUS_AKTIF, 'closed_at' => null]
+        )->save();
 
-        return back()->with('success', $keArsip ? 'Percakapan diarsipkan.' : 'Percakapan diaktifkan lagi.');
+        return back()->with('success', $tutup ? 'Chat ditutup (Close).' : 'Chat dibuka lagi (Open).');
+    }
+
+    /**
+     * Nomor promo/iklan: tutup sekarang DAN untuk seterusnya. Pesan berikutnya
+     * dari nomor ini tetap tercatat, tapi chatnya tidak pernah dibuka lagi dan
+     * tidak membunyikan notifikasi. Bisa dicabut dari menu yang sama.
+     */
+    public function selaluTutup(CrmConversation $conversation)
+    {
+        $nyala = ! $conversation->selalu_tutup;
+
+        $conversation->forceFill(['selalu_tutup' => $nyala]
+            + ($nyala ? CrmConversation::nilaiTutup() + ['unread_count' => 0] : [])
+        )->save();
+
+        return back()->with('success', $nyala
+            ? 'Nomor ini selalu ditutup — pesan berikutnya tidak akan muncul di antrean.'
+            : 'Tanda "selalu tutup" dicabut.');
+    }
+
+    /**
+     * Tandai / cabut distributor. Sifat KONTAK, jadi labelnya ikut dipasang:
+     * distributor selalu kembali ke pemilik terakhir dan tutup sendiri
+     * setelah sepi 3 hari (lihat model & TutupOtomatisService).
+     */
+    public function distributor(CrmConversation $conversation)
+    {
+        $nyala = ! $conversation->is_distributor;
+        $ubah  = ['is_distributor' => $nyala];
+
+        if ($nyala) {
+            $ubah['queue_state'] = CrmConversation::LABEL_DISTRIBUTOR;
+        } elseif ($conversation->queue_state === CrmConversation::LABEL_DISTRIBUTOR) {
+            $ubah['queue_state'] = $conversation->labelAwal();
+        }
+
+        $conversation->forceFill($ubah)->save();
+
+        return back()->with('success', $nyala ? 'Ditandai sebagai distributor.' : 'Tanda distributor dicabut.');
+    }
+
+    /** Tombol manual penjadwal crm:tutup-otomatis. */
+    public function tutupOtomatis(\App\Modules\CRM\Services\TutupOtomatisService $tutup)
+    {
+        $n = $tutup->jalankan();
+
+        return back()->with('success', $n
+            ? "{$n} chat Selesai/distributor yang sepi " . CrmConversation::HARI_TUTUP_OTOMATIS . ' hari ditutup.'
+            : 'Tidak ada chat yang perlu ditutup.');
+    }
+
+    /**
+     * Penjaga hak balas — dipanggil setiap jalur yang MENGIRIM sesuatu ke
+     * pelanggan. Null = boleh; selain itu galat yang siap dikembalikan.
+     */
+    private function tolakBalas(Request $request, CrmConversation $conversation)
+    {
+        $pesan = $conversation->alasanTakBolehDibalas($request->user());
+
+        if ($pesan === null) {
+            return null;
+        }
+
+        return $request->expectsJson()
+            ? response()->json(['ok' => false, 'error' => $pesan, 'message' => $pesan], 403)
+            : back()->with('error', $pesan);
     }
 
     /**

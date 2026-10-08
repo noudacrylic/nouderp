@@ -3,9 +3,11 @@
 namespace App\Modules\CRM\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmLabel;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -21,9 +23,38 @@ class CrmLabelController extends Controller
     public function index()
     {
         return view('erp.crm.label.index', [
-            'labels' => CrmLabel::semua(),
-            'jumlah' => $this->jumlahPemakaian(),
+            'labels'     => CrmLabel::semua(),
+            'jumlah'     => $this->jumlahPemakaian(),
+            'agen'       => User::bisaChatCrm()->orderBy('name')->get(['id', 'name']),
+            'labelDasar' => CrmLabel::petaDasar(),
         ]);
+    }
+
+    /**
+     * Simpan label dasar semua agen sekaligus (CRM Tahap 2). Kosong = agen itu
+     * tanpa label dasar: chat yang dioper kepadanya tidak berganti label.
+     */
+    public function dasar(Request $request)
+    {
+        $data = $request->validate([
+            'dasar'   => ['nullable', 'array'],
+            'dasar.*' => ['nullable', Rule::in(array_keys(CrmLabel::peta()))],
+        ]);
+
+        $agen = User::bisaChatCrm()->pluck('id')->all();
+
+        foreach ($data['dasar'] ?? [] as $userId => $kode) {
+            if (! in_array((int) $userId, $agen, true)) {
+                continue;
+            }
+
+            $kode
+                ? DB::table('crm_label_dasar')->updateOrInsert(
+                    ['user_id' => (int) $userId], ['kode' => $kode, 'updated_at' => now(), 'created_at' => now()])
+                : DB::table('crm_label_dasar')->where('user_id', (int) $userId)->delete();
+        }
+
+        return back()->with('success', 'Label dasar agen disimpan.');
     }
 
     public function store(Request $request)
@@ -77,6 +108,10 @@ class CrmLabelController extends Controller
 
     public function destroy(CrmLabel $label)
     {
+        if ($label->sistem()) {
+            return back()->with('error', 'Label "' . $label->nama . '" dipakai aturan otomatis CRM — ganti namanya saja, jangan dihapus.');
+        }
+
         $dipakai = CrmConversation::where('queue_state', $label->kode)->count();
 
         if ($dipakai > 0) {

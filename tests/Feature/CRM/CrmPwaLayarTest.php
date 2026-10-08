@@ -120,7 +120,8 @@ class CrmPwaLayarTest extends TestCase
     public function test_daftar_chat_menampilkan_percakapan_dan_menunjuk_ke_layar_pwa(): void
     {
         $pengguna = $this->cs();
-        $p = $this->percakapan(['owner_user_id' => $pengguna->id]);
+        // Tanpa pemilik: tab bawaan kini "Belum dioper" (CRM Tahap 1).
+        $p = $this->percakapan(['owner_user_id' => null]);
 
         $this->actingAs($pengguna)
             ->get('/cs')
@@ -222,7 +223,8 @@ class CrmPwaLayarTest extends TestCase
     public function test_penyegar_pwa_menunjuk_layar_pwa(): void
     {
         $pengguna = $this->cs();
-        $p = $this->percakapan(['owner_user_id' => $pengguna->id]);
+        // Tanpa pemilik: tab bawaan kini "Belum dioper" (CRM Tahap 1).
+        $p = $this->percakapan(['owner_user_id' => null]);
 
         $html = $this->actingAs($pengguna)
             ->getJson(route('crm.inbox.daftar-segar', ['aplikasi' => 'cs']))

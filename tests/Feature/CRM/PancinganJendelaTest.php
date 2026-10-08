@@ -64,6 +64,8 @@ class PancinganJendelaTest extends TestCase
             'last_outbound_at'  => now()->subHours(22),
             'last_message_at'   => now()->subHours(22),
             'status'            => CrmConversation::STATUS_AKTIF,
+            // Sudah dioper: chat belum dioper tak bisa dibalas (CRM Tahap 1).
+            'owner_user_id'     => User::factory()->create(['role' => 'admin', 'is_active' => true])->id,
         ])->save();
 
         return $p->refresh();

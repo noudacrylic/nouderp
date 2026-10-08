@@ -103,7 +103,9 @@ class LabelDanSaringanTest extends TestCase
     public function test_label_bawaan_terpasang_dari_migrasi(): void
     {
         $this->assertSame(
-            ['menunggu_kita', 'menunggu_pelanggan', 'dingin'],
+            // + label sistem CRM Tahap 1 & 2 (8 Okt 2026).
+            ['menunggu_kita', 'menunggu_pelanggan', 'dingin', 'selesai', 'distributor',
+             'menunggu_pembayaran', 'menunggu_dikirim', 'menunggu_pelunasan'],
             CrmLabel::terpakai()->pluck('kode')->all()
         );
     }

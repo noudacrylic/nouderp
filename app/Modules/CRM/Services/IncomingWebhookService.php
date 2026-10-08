@@ -60,20 +60,29 @@ class IncomingWebhookService
         /*
          * `queue_state` SENGAJA tidak disentuh — lihat catatan di pesanKeluar().
          */
+        /*
+         * Open/Close diputuskan model (perubahanSaatPesanMasuk): kembali ke
+         * pemilik terakhir, jadi pesanan baru, atau tetap tertutup untuk nomor
+         * "selalu tutup". Dulu di sini status langsung dipaksa 'aktif'.
+         */
         $percakapan->forceFill([
             'last_inbound_at'   => $waktu,
             'last_message_at'   => $waktu,
             'window_expires_at' => $waktu->copy()->addHours(24),
             'unread_count'      => $percakapan->unread_count + 1,
-            'status'            => CrmConversation::STATUS_AKTIF,
-        ])->save();
+        ] + $percakapan->perubahanSaatPesanMasuk())->save();
 
         /*
          * Kabari tim. Ditaruh PALING AKHIR, sesudah pesan & percakapan
          * tersimpan: yang tidak boleh hilang adalah pesannya, bukan
          * notifikasinya. Servicenya sendiri tidak pernah melempar.
+         *
+         * Chat yang tetap tertutup (nomor promo) tidak dikabarkan — justru
+         * itu gunanya tombol "Selalu tutup".
          */
-        app(NotifikasiChatService::class)->pesanMasuk($percakapan, $pesan);
+        if ($percakapan->terbuka()) {
+            app(NotifikasiChatService::class)->pesanMasuk($percakapan, $pesan);
+        }
     }
 
     /* ----------------------------------------------------------------- keluar */

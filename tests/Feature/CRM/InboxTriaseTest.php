@@ -49,6 +49,8 @@ class InboxTriaseTest extends TestCase
             'last_message_at'   => now(),
             'queue_state'       => CrmConversation::QUEUE_KITA,
             'unread_count'      => 2,
+            // Sudah dioper: chat belum dioper tak bisa dibalas (CRM Tahap 1).
+            'owner_user_id'     => User::factory()->create(['role' => 'admin', 'is_active' => true])->id,
         ])->save();
 
         return $p;
@@ -63,7 +65,7 @@ class InboxTriaseTest extends TestCase
 
     public function test_inbox_menampilkan_percakapan_dan_menyaring_per_antrean(): void
     {
-        $this->percakapan();
+        $this->percakapan(['owner_user_id' => null]);   // tampil di tab bawaan Belum dioper
 
         $lain = CrmConversation::findOrCreateFor('628111222333');
         $lain->forceFill(['queue_state' => CrmConversation::QUEUE_DINGIN])->save();
@@ -77,7 +79,7 @@ class InboxTriaseTest extends TestCase
 
     public function test_percakapan_tanpa_pelanggan_ditandai_lead(): void
     {
-        $this->percakapan();
+        $this->percakapan(['owner_user_id' => null]);
 
         $this->actingAs($this->admin())
             ->get(route('crm.inbox.index'))
@@ -427,7 +429,12 @@ class InboxTriaseTest extends TestCase
      * Daftar bawaan agen biasa hanya berisi chat miliknya.
      * Ini penyaringan TAMPILAN, bukan penguncian — lihat dua tes berikutnya.
      */
-    public function test_agen_biasa_hanya_melihat_chat_miliknya_secara_bawaan(): void
+    /**
+     * Tab bawaan untuk SIAPA PUN = "Belum dioper" (CRM Tahap 1, 8 Okt 2026):
+     * antrean kerja bersama. Chat yang sudah dipegang — milik sendiri maupun
+     * milik orang lain — tinggal di tab "Milik Saya" / tab agennya.
+     */
+    public function test_tab_bawaan_belum_dioper_untuk_agen(): void
     {
         $munif = $this->agen();
         $lain  = $this->agen();
@@ -435,22 +442,30 @@ class InboxTriaseTest extends TestCase
         $milikMunif = $this->percakapan(['owner_user_id' => $munif->id]);
         $milikLain  = CrmConversation::findOrCreateFor('628111222333');
         $milikLain->forceFill(['owner_user_id' => $lain->id, 'status' => CrmConversation::STATUS_AKTIF])->save();
+        $belum = CrmConversation::findOrCreateFor('628111222444');
 
         $this->actingAs($munif)
             ->get(route('crm.inbox.index'))
+            ->assertOk()
+            ->assertSee($belum->contact_key)
+            ->assertDontSee($milikMunif->contact_key)
+            ->assertDontSee($milikLain->contact_key);
+
+        $this->actingAs($munif)
+            ->get(route('crm.inbox.index', ['pemilik' => $munif->id]))
             ->assertOk()
             ->assertSee($milikMunif->contact_key)
             ->assertDontSee($milikLain->contact_key);
     }
 
-    /** Super admin melihat semuanya tanpa perlu memilih apa pun. */
+    /** Super admin melihat semua agen lewat opsi "Semua chat". */
     public function test_super_admin_melihat_semua_agen(): void
     {
         $lain      = $this->agen();
         $milikLain = $this->percakapan(['owner_user_id' => $lain->id]);
 
         $this->actingAs($this->admin())
-            ->get(route('crm.inbox.index'))
+            ->get(route('crm.inbox.index', ['pemilik' => 'semua']))
             ->assertOk()
             ->assertSee($milikLain->contact_key);
     }
@@ -1109,7 +1124,7 @@ class InboxTriaseTest extends TestCase
     public function test_baris_chat_aktif_punya_penanda_sendiri(): void
     {
         $this->actingAs($this->admin());
-        $p = $this->percakapan();
+        $p = $this->percakapan(['owner_user_id' => null]);
 
         // Dicocokkan ke MARKUP barisnya, bukan ke katanya: skrip penyegar
         // memuat '[data-baris-aktif]' di dalam querySelector dan akan cocok palsu.

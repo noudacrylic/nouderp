@@ -3,10 +3,13 @@
      sesempit ini memaksa gulir mendatar dan tak ada yang mau memakainya. --}}
 @php
     $akuId       = auth()->id();
-    $pemilikKini = request('pemilik');
+    // Bawaan "belum" (Belum dioper) — lihat CrmInboxController::pemilikKini().
+    $pemilikKini = $pemilikKini ?? (request('pemilik') ?: 'belum');
     $milikSaya   = $pemilikKini === (string) $akuId;
     $semuaOrang  = $pemilikKini === 'semua';
-    $agenLain    = $pemilikKini && ! $milikSaya && ! $semuaOrang;   // id agen lain / 'belum'
+    $belumTab    = $pemilikKini === 'belum';
+    $agenLain    = ! $milikSaya && ! $belumTab;   // id agen lain / 'semua' — menyalakan dropdown
+    $sedangCari  = filled(request('search'));
     $tabAktif    = 'px-2 py-1 rounded border border-emerald-600 bg-emerald-600 text-white';
     $tabDiam     = 'px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50';
 
@@ -86,31 +89,33 @@
     <div class="shrink-0 px-2 pt-2 pb-2 border-b border-gray-200 bg-gray-50 space-y-1.5">
 
     {{-- ---------------------------------------------------- 1. chat siapa --}}
-    <div class="grid grid-cols-3 gap-1 text-xs">
+    {{-- Tab pertama = "Belum dioper": antrean kerja bersama (chat Open tanpa
+         pemilik). "Semua" turun pangkat jadi opsi di dropdown (super admin)
+         atau ikon kecil (agen) — ia alat mencari, bukan tempat bekerja. --}}
+    <div class="{{ ($lihatSemua ?? false) ? 'grid grid-cols-3' : 'flex' }} gap-1 text-xs">
         @php
             $belumPerPemilik = $belumDibacaPerPemilik ?? [];
             $belumDibacaSemua = array_sum($belumPerPemilik);
+            $belumDibacaTanpaPemilik = (int) ($belumPerPemilik[''] ?? 0);
             $angkaLencana = fn (int $n) => $n > 99 ? '99+' : $n;
         @endphp
-        <a href="{{ $tautanSaring(['pemilik' => 'semua']) }}"
-           class="flex items-center justify-center gap-1 {{ $semuaOrang ? $tabAktif : $tabDiam }}"
-           title="Semua chat, milik siapa pun{{ $belumDibacaSemua > 0 ? ' — ' . $belumDibacaSemua . ' belum dibaca' : '' }}">
-            <span class="truncate">Semua</span>
-            @if($belumDibacaSemua > 0)
-                <span data-lencana-semua
-                      class="shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full
-                             text-[10px] font-bold leading-none
-                             {{ $semuaOrang ? 'bg-white text-emerald-700' : 'bg-red-600 text-white' }}">{{ $angkaLencana($belumDibacaSemua) }}</span>
-            @endif
+        <a href="{{ $tautanSaring(['pemilik' => 'belum']) }}"
+           class="flex-1 min-w-0 flex items-center justify-center gap-1 {{ $belumTab ? $tabAktif : $tabDiam }}"
+           title="Chat Open yang belum dipegang siapa pun{{ $belumDibacaTanpaPemilik > 0 ? ' — ' . $belumDibacaTanpaPemilik . ' belum dibaca' : '' }}">
+            <span class="truncate">Belum dioper</span>
+            <span data-lencana-belum-dioper
+                  class="shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full
+                         text-[10px] font-bold leading-none
+                         {{ $belumTab ? 'bg-white text-emerald-700' : ($belumDibacaTanpaPemilik > 0 ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-600') }}">{{ $angkaLencana((int) $belumDioper) }}</span>
         </a>
 
         {{-- Angka belum-dibaca menempel di tab ini, bukan cuma di chip "Belum
              dibaca" di bawahnya: chip itu menghitung daftar yang SEDANG
              disaring, jadi selama agen melihat antrean orang lain ia diam di
              0 — persis saat chat sendiri menumpuk tanpa ada yang memberitahu. --}}
-        @php $milikSayaAktif = $milikSaya || $dibatasiKeSaya; @endphp
+        @php $milikSayaAktif = $milikSaya; @endphp
         <a href="{{ $tautanSaring(['pemilik' => $akuId]) }}"
-           class="flex items-center justify-center gap-1 {{ $milikSayaAktif ? $tabAktif : $tabDiam }}"
+           class="flex-1 min-w-0 flex items-center justify-center gap-1 {{ $milikSayaAktif ? $tabAktif : $tabDiam }}"
            title="Chat yang saya pegang{{ $belumDibacaSaya > 0 ? ' — ' . $belumDibacaSaya . ' belum dibaca' : '' }}">
             <span class="truncate">Milik Saya</span>
             @if($belumDibacaSaya > 0)
@@ -130,10 +135,10 @@
                 <input type="hidden" name="belum_dibaca" value="{{ request('belum_dibaca') }}">
                 <input type="hidden" name="status" value="{{ request('status') }}">
                 <input type="hidden" name="search" value="{{ request('search') }}">
-                <select name="pemilik" onchange="this.form.submit()"
+                <select name="pemilik" onchange="if (this.value) this.form.submit()"
                         class="border rounded px-1 py-1 text-xs w-full {{ $agenLain ? 'border-emerald-600 text-emerald-700 font-medium' : 'border-gray-300' }}">
-                    <option value="">Agen lain…</option>
-                    <option value="belum" @selected($pemilikKini === 'belum')>Belum dioper ({{ $belumDioper }}){{ ($belumPerPemilik[''] ?? 0) > 0 ? ' · ' . $belumPerPemilik[''] . ' belum dibaca' : '' }}</option>
+                    <option value="" @selected(! $agenLain)>Agen lain…</option>
+                    <option value="semua" @selected($semuaOrang)>Semua chat{{ $belumDibacaSemua > 0 ? ' · ' . $belumDibacaSemua . ' belum dibaca' : '' }}</option>
                     @foreach(($pemilikSaringOpsi ?? $pemilikOpsi) as $u)
                         @continue($u->id === $akuId)
                         <option value="{{ $u->id }}" @selected($pemilikKini === (string) $u->id)>{{ $u->name }}{{ ($belumPerPemilik[(string) $u->id] ?? 0) > 0 ? ' · ' . $belumPerPemilik[(string) $u->id] . ' belum dibaca' : '' }}</option>
@@ -141,9 +146,16 @@
                 </select>
             </form>
         @else
-            <a href="{{ $tautanSaring(['pemilik' => 'belum']) }}"
-               class="text-center truncate {{ $pemilikKini === 'belum' ? $tabAktif : $tabDiam }}"
-               title="Chat yang belum dipegang siapa pun">Belum dioper {{ $belumDioper }}</a>
+            {{-- Agen: "Semua" cukup ikon kecil. Dipakai sesekali (mencari
+                 pelanggan lama), jadi tak pantas selebar dua tab kerja. --}}
+            <a href="{{ $tautanSaring(['pemilik' => 'semua']) }}"
+               class="shrink-0 w-8 flex items-center justify-center {{ $semuaOrang ? $tabAktif : $tabDiam }}"
+               title="Semua chat — termasuk yang Close dan milik agen lain (hanya bisa dibaca)"
+               aria-label="Semua chat">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </a>
         @endif
     </div>
 
@@ -205,14 +217,23 @@
             </a>
         @endforeach
 
-        {{-- Arsip jadi chip, bukan dropdown sendiri: ia dipakai sesekali dan
-             tidak pantas menempati satu baris penuh selamanya. --}}
+        {{-- Close (dulu Arsip) jadi chip, bukan dropdown sendiri: ia dipakai
+             sesekali dan tidak pantas menempati satu baris penuh selamanya. --}}
         @php $diArsip = request('status') === 'arsip'; @endphp
         <a href="{{ $tautanSaring(['status' => $diArsip ? null : 'arsip']) }}"
-           class="{{ $chip }} {{ $diArsip ? 'border-gray-700 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50' }}">
-            Arsip
+           class="{{ $chip }} {{ $diArsip ? 'border-gray-700 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50' }}"
+           title="Hanya chat yang sudah Close">
+            Close
         </a>
     </div>
+
+    {{-- Pencarian selalu menyisir SEMUA chat (Open & Close, milik siapa pun):
+         pertanyaannya hampir selalu "chat orang ini yang mana", bukan "di tab
+         ini ada siapa". Disebut terang-terangan supaya tab yang tetap menyala
+         tidak disangka ikut membatasi hasilnya. --}}
+    @if($sedangCari)
+        <div class="text-[11px] text-gray-500">Mencari di semua chat — Open maupun Close.</div>
+    @endif
 
     </div>
 
@@ -239,6 +260,7 @@
                     'id' => $p->id, 'nama' => $namaTampil, 'label' => $p->queue_state, 'pemilik' => $p->owner_user_id,
                     'namaKontak' => $p->display_name, 'namaManual' => $p->name_source === \App\Modules\CRM\Models\CrmConversation::NAMA_MANUAL,
                     'pelanggan' => $p->customer?->name,
+                    'terbuka' => $p->terbuka(),
                 ];
             @endphp
             {{-- Barisnya BUKAN <a> lagi: tombol titik tiga tak boleh bersarang di
@@ -331,6 +353,12 @@
                              hampir setiap baris memakai lencana peringatan yang
                              tidak menghalangi apa pun — persis alarm palsu yang
                              sudah dibereskan di pita "pesan masuk tidak sampai". --}}
+                        {{-- Close hanya terlihat di "Semua" & hasil pencarian; tab
+                             kerja memang cuma berisi yang Open. --}}
+                        @unless($p->terbuka())
+                            <span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-700 text-white"
+                                  title="Chat ini sudah Close{{ $p->selalu_tutup ? ' — nomor selalu ditutup' : '' }}">{{ $p->selalu_tutup ? 'close · selalu' : 'close' }}</span>
+                        @endunless
                         @if(! $p->tanpaJendela() && ! $p->windowIsOpen())
                             <span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500"
                                   title="Hanya template berbayar yang bisa dikirim">jendela tutup</span>
@@ -368,6 +396,14 @@
                 flex items-center justify-between gap-2"
          data-daftar-kaki data-sidik="{{ $sidikDaftar ?? '' }}" data-muat="{{ $muat }}" data-ada-lagi="{{ $adaLagi ? 1 : 0 }}">
         <span>{{ $percakapan->count() }} dari {{ $percakapan->total() }} chat</span>
+        {{-- Jalan keluar dari antrean kerja ke seluruh chat — disepakati di
+             ujung daftar "Belum dioper", tempat orang tiba saat antreannya habis. --}}
+        @if($belumTab && ! $sedangCari)
+            <a href="{{ $tautanSaring(['pemilik' => 'semua', 'antrean' => null, 'belum_dibaca' => null, 'muat' => null]) }}"
+               class="ml-auto px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-600">
+                Semua pesan →
+            </a>
+        @endif
         @if($adaLagi)
             <a href="{{ $tautanSaring(['muat' => $muat + 1]) }}"
                data-muat-lagi
@@ -426,6 +462,14 @@
 
                 <button type="button" @click.stop="chip = 'oper'; menu = false"
                         class="w-full text-left px-3 py-2 hover:bg-gray-50">Oper chat…</button>
+
+                {{-- Close langsung dari daftar: chat promo tidak perlu dibuka
+                     dulu cuma untuk disingkirkan. --}}
+                <form :action="aksi('arsip')" method="POST" class="border-t border-gray-100">
+                    @csrf
+                    <button class="w-full text-left px-3 py-2 hover:bg-gray-50"
+                            x-text="chat.terbuka ? 'Close' : 'Open lagi'"></button>
+                </form>
             </div>
 
             {{-- dropdown label / oper: BERLABUH ke chip yang diklik --}}
@@ -541,7 +585,7 @@ function menuChatDaftar(basis, terbukaId) {
         popup: null,
         chip: null,          // 'label' | 'oper' — dropdown berlabuh di chip baris
         lembar: false,       // layar sempit (HP/PWA) → menu jadi lembar bawah
-        chat: { id: null, nama: '', label: null, pemilik: null, namaKontak: null, namaManual: false, pelanggan: null },
+        chat: { id: null, nama: '', label: null, pemilik: null, namaKontak: null, namaManual: false, pelanggan: null, terbuka: true },
         posisi: { x: 0, y: 0 },
 
         /* Ambang 640px, bukan deteksi "ini PWA": yang menentukan bisa-tidaknya

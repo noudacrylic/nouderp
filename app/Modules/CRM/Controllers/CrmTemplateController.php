@@ -281,6 +281,21 @@ class CrmTemplateController extends Controller
             return back()->withInput()->with('error', 'Template tidak ditemukan atau belum disetujui Meta.');
         }
 
+        /*
+         * Hak balas berlaku juga di sini: chat yang sudah dipegang agen lain
+         * tidak boleh "dimulai ulang" orang lain lewat template berbayar.
+         */
+        $ada = \App\Modules\CRM\Models\CrmConversation::query()
+            ->where('channel', \App\Modules\CRM\Models\CrmConversation::KANAL_RESMI)
+            ->where('contact_key', \App\Modules\CRM\Support\PhoneNumber::normalize($data['nomor']) ?? $data['nomor'])
+            ->first();
+
+        // Nomor yang BELUM pernah ada boleh dimulai — chatnya lahir jadi milik
+        // yang memulai. Yang sudah ada tunduk pada aturan oper seperti biasa.
+        if ($ada && ($alasan = $ada->alasanTakBolehDibalas($request->user()))) {
+            return back()->withInput()->with('error', $alasan);
+        }
+
         $hasil = $balasan->mulaiPercakapan(
             $data['nomor'],
             $pilihan->meta_name,
@@ -292,6 +307,8 @@ class CrmTemplateController extends Controller
         if (! $hasil['success']) {
             return back()->withInput()->with('error', $hasil['error']);
         }
+
+        $hasil['conversation']->catatDibalasOleh($request->user());
 
         return redirect()
             ->route('crm.inbox.show', $hasil['conversation'])

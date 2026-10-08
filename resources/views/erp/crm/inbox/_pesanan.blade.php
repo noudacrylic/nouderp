@@ -43,6 +43,30 @@
          — dan menjawabnya tidak boleh menuntut pindah menu. --}}
     <div x-show="mode === 'daftar'" class="space-y-2">
 
+        {{-- Tautkan pesanan ke chat ini (CRM Tahap 3). Label chat mengikuti
+             tahapan pesanan tertaut yang TERBARU. Pintu utamanya pesanan Shopee
+             yang butuh desain/print: minta nomor pesanannya, ketik di sini. --}}
+        <div class="rounded-lg border border-dashed border-gray-300 px-2 py-1.5">
+            <input type="text" x-model="tautCari" @input.debounce.400ms="cariTautan()"
+                   placeholder="Tautkan pesanan: nomor SO / nomor Shopee…"
+                   class="w-full border border-gray-300 rounded px-2 py-1 text-xs">
+            <div x-show="tautInfo" x-cloak class="mt-1 text-[11px] text-emerald-700" x-text="tautInfo"></div>
+            <template x-for="h in tautHasil" :key="'t' + h.id">
+                <div class="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                    <span class="min-w-0">
+                        <span class="block truncate font-semibold" x-text="h.nomor + (h.mp && h.mp !== h.nomor ? ' · ' + h.mp : '')"></span>
+                        <span class="block truncate text-gray-500" x-text="[h.pelanggan, h.tanggal, rupiah(h.total)].filter(Boolean).join(' · ')"></span>
+                    </span>
+                    <span x-show="h.chat === {{ (int) $terpilih?->id }}" class="shrink-0 text-gray-400">sudah tertaut</span>
+                    <button type="button" x-show="h.chat !== {{ (int) $terpilih?->id }}"
+                            @click="ubahTautan(h.id, 'tautkan')" :disabled="tautSibuk === h.id"
+                            class="shrink-0 border border-emerald-600 text-emerald-700 rounded px-2 py-0.5 hover:bg-emerald-50 disabled:opacity-60"
+                            :title="h.chat ? 'Sudah tertaut ke chat lain — menautkan di sini memindahkannya' : 'Tautkan ke chat ini'"
+                            x-text="h.chat ? 'Pindahkan ke sini' : 'Tautkan'"></button>
+                </div>
+            </template>
+        </div>
+
         <template x-for="p in pesananTampil" :key="p.id">
             <div class="rounded-lg border px-2 py-1.5"
                  :class="p.draft ? 'border-amber-300 bg-amber-50/60'
@@ -50,6 +74,19 @@
                 <div class="flex items-baseline justify-between gap-2">
                     <a :href="p.url" class="text-xs font-semibold truncate underline" x-text="p.nomor"></a>
                     <span class="shrink-0 text-xs font-bold" x-text="rupiah(p.total)"></span>
+                </div>
+                {{-- Tertaut = ikut menggerakkan label chat. Tombolnya kecil:
+                     menautkan pesanan pelanggan sendiri jarang perlu, karena SO
+                     yang dibuat dari chat sudah tertaut sendiri. --}}
+                <div class="flex items-center justify-between gap-2 mt-0.5 text-[10px]">
+                    <span class="truncate text-gray-500" x-text="p.mp && p.mp !== p.nomor ? 'Marketplace · ' + p.mp : ''"></span>
+                    <span class="shrink-0 flex items-center gap-1">
+                        <span x-show="p.tertaut" class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">tertaut</span>
+                        <button type="button" @click="ubahTautan(p.id, p.tertaut ? 'lepas' : 'tautkan')"
+                                :disabled="tautSibuk === p.id"
+                                class="text-gray-500 underline hover:no-underline disabled:opacity-60"
+                                x-text="p.tertaut ? 'lepas' : 'tautkan'"></button>
+                    </span>
                 </div>
                 {{-- Cabang tujuan. Satu perusahaan bisa punya beberapa cabang yang
                      pesanannya berjalan bersamaan; tanpa penanda ini orang cabang
@@ -750,6 +787,9 @@
             ongkirSidik: awal.ongkirSidik ?? '',
             sibuk: false, galat: '', jamSimpan: null, sibukRincian: null,
 
+            // Tautan pesanan ↔ chat (CRM Tahap 3).
+            tautCari: '', tautHasil: [], tautSibuk: null, tautInfo: '',
+
             // Daftar pesanan datang dari server, bukan dari draft: statusnya
             // berubah di luar layar ini (dibayar, masuk produksi, dikirim), jadi
             // salinan yang dibekukan di draft akan cepat berbohong.
@@ -1356,6 +1396,65 @@
              * bisa ditarik. Satu tekan Enter setelah dibaca sekilas jauh lebih
              * murah daripada satu pesan salah kirim ke pelanggan.
              */
+            /* --------------------------------------- tautan pesanan (Tahap 3) */
+            /*
+             * Menautkan pesanan ke chat ini supaya labelnya ikut tahapan
+             * pesanan. Dipakai terutama untuk pesanan Shopee yang butuh
+             * desain/print: minta nomor pesanannya, cari, tautkan.
+             */
+            async cariTautan() {
+                const q = this.tautCari.trim();
+
+                if (q.length < 3) {
+                    this.tautHasil = [];
+                    return;
+                }
+
+                try {
+                    const r = await fetch('{{ route('crm.inbox.pesanan.cari') }}?q=' + encodeURIComponent(q),
+                        { headers: { 'Accept': 'application/json' } });
+                    const d = await r.json().catch(() => ({}));
+
+                    // Jawaban lama yang datang belakangan tidak boleh menimpa
+                    // hasil ketikan yang lebih baru.
+                    if (q === this.tautCari.trim()) this.tautHasil = d.hasil ?? [];
+                } catch (e) { /* hasil lama tetap tampil */ }
+            },
+
+            async ubahTautan(id, aksi) {
+                if (this.tautSibuk) return;
+
+                this.tautSibuk = id;
+                this.tautInfo  = '';
+
+                try {
+                    const r = await fetch('{{ $terpilih ? url('/erp/crm/' . $terpilih->id . '/pesanan') : '' }}/' + id + '/' + aksi, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                        },
+                    });
+                    const d = await r.json().catch(() => ({}));
+
+                    if (!r.ok || !d.success) {
+                        this.tautInfo = d.error || d.message || 'Gagal mengubah tautan pesanan.';
+                        return;
+                    }
+
+                    this.pesanan = d.pesanan ?? this.pesanan;
+                    this.tautInfo = aksi === 'tautkan'
+                        ? 'Pesanan ditautkan.' + (d.label ? ' Label chat: ' + d.label + '.' : '')
+                        : 'Tautan pesanan dilepas.';
+                    this.tautCari  = '';
+                    this.tautHasil = [];
+                } catch (e) {
+                    this.tautInfo = 'Jaringan bermasalah — coba lagi.';
+                } finally {
+                    this.tautSibuk = null;
+                }
+            },
+
             async kirimRincian(p) {
                 if (this.sibukRincian) return;
 

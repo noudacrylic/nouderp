@@ -51,6 +51,8 @@ class BalasTeruskanTest extends TestCase
             'window_expires_at' => $terbuka ? now()->addHours(5) : now()->subHour(),
             'last_message_at'   => now(),
             'queue_state'       => CrmConversation::QUEUE_KITA,
+            // Sudah dioper: chat belum dioper tak bisa dibalas (CRM Tahap 1).
+            'owner_user_id'     => User::factory()->create(['role' => 'admin', 'is_active' => true])->id,
         ])->save();
 
         return $p;

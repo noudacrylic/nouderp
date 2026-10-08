@@ -95,7 +95,9 @@ class ChatBaruTest extends TestCase
         $t = $this->template();
 
         $percakapan = CrmConversation::findOrCreateFor('628557774446');
-        $percakapan->forceFill(['window_expires_at' => now()->subDays(3)])->save();
+        $percakapan->forceFill(['window_expires_at' => now()->subDays(3),
+            // Sudah dioper: chat belum dioper tak bisa dibalas (CRM Tahap 1).
+            'owner_user_id' => User::factory()->create(['role' => 'admin', 'is_active' => true])->id])->save();
 
         $this->actingAs($this->admin())
             ->post(route('crm.template.mulai'), [

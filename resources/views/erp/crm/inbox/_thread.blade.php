@@ -125,8 +125,20 @@
             {{ mb_strtoupper(mb_substr($terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key, 0, 1)) }}
         </div>
         <div class="min-w-0">
-            <div class="font-semibold leading-tight truncate text-gray-800">
-                {{ $terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key }}
+            <div class="flex items-center gap-1.5 min-w-0">
+                <span class="font-semibold leading-tight truncate text-gray-800">
+                    {{ $terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key }}
+                </span>
+                {{-- Label & pemilik WAJIB terlihat di sini: begitu chat diambil
+                     atau dioper, ia keluar dari tab "Belum dioper", dan tanpa
+                     chip ini hasil oper (termasuk label dasar yang baru
+                     terpasang) tak terlihat di mana pun di layar. --}}
+                <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] {{ \App\Modules\CRM\Models\CrmLabel::kelas($terpilih->queue_state) }}"
+                      title="Label">{{ \App\Modules\CRM\Models\CrmLabel::nama($terpilih->queue_state) }}</span>
+                @if($terpilih->owner)
+                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600"
+                          title="Pemegang chat">{{ $terpilih->owner->name }}</span>
+                @endif
             </div>
             <div class="text-[11px] text-gray-500 truncate">
                 {{ $terpilih->contact_key }}
@@ -138,6 +150,17 @@
             </div>
         </div>
         <div class="ml-auto shrink-0 flex items-center gap-2">
+            {{-- Close di kepala chat, bukan di menu: chat promo cukup satu
+                 ketukan untuk disingkirkan (disepakati 8 Okt 2026). --}}
+            <form method="POST" action="{{ route('crm.inbox.arsip', $terpilih->id) }}">
+                @csrf
+                <button class="text-[11px] px-2 py-1 rounded border {{ $terpilih->terbuka()
+                        ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                        : 'border-gray-700 bg-gray-700 text-white hover:bg-gray-800' }}"
+                        title="{{ $terpilih->terbuka() ? 'Tutup chat ini' : 'Chat ini Close — klik untuk membukanya lagi' }}">
+                    {{ $terpilih->terbuka() ? 'Close' : 'Open lagi' }}
+                </button>
+            </form>
             @if($terpilih->customer_id)
                 <a href="{{ url('/erp/master/customers/' . $terpilih->customer_id . '/edit') }}"
                    class="text-[11px] px-2 py-1 rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50">Pelanggan</a>
@@ -166,10 +189,21 @@
                         @if(filled($terpilih->notes))<span class="ml-1 text-[10px] text-emerald-700">&bull; ada</span>@endif
                     </button>
 
-                    <form method="POST" action="{{ route('crm.inbox.arsip', $terpilih->id) }}">
+                    {{-- Close biasa ada di kepala chat. Yang di sini dua tanda
+                         yang menempel pada KONTAK, berlaku untuk seterusnya. --}}
+                    <form method="POST" action="{{ route('crm.inbox.selalu-tutup', $terpilih->id) }}">
                         @csrf
-                        <button class="w-full text-left px-3 py-2 hover:bg-gray-50">
-                            {{ $terpilih->status === 'aktif' ? 'Arsipkan' : 'Aktifkan lagi' }}
+                        <button class="w-full text-left px-3 py-2 hover:bg-gray-50"
+                                title="Untuk nomor promo/iklan: pesan berikutnya tetap tercatat tapi langsung Close, tanpa notifikasi">
+                            {{ $terpilih->selalu_tutup ? 'Cabut "selalu tutup"' : 'Selalu tutup nomor ini' }}
+                        </button>
+                    </form>
+
+                    <form method="POST" action="{{ route('crm.inbox.distributor', $terpilih->id) }}">
+                        @csrf
+                        <button class="w-full text-left px-3 py-2 hover:bg-gray-50"
+                                title="Distributor selalu kembali ke pemilik terakhir dan Close sendiri setelah sepi {{ \App\Modules\CRM\Models\CrmConversation::HARI_TUTUP_OTOMATIS }} hari">
+                            {{ $terpilih->is_distributor ? 'Cabut tanda distributor' : 'Tandai distributor' }}
                         </button>
                     </form>
 
@@ -311,7 +345,49 @@
                     </button>
                 </form>
             @endif
-            @if($terbuka)
+            @if(! $terpilih->owner_user_id)
+                {{-- Belum dioper = belum boleh dibalas (disepakati 8 Okt 2026,
+                     "biar disiplin"). Jalan keluarnya diberikan DI SINI, satu
+                     ketukan: ambil sendiri, atau oper ke agen yang tepat. --}}
+                @php
+                    $agenOper = \App\Models\User::bisaChatCrm()->orderBy('name')->get(['id', 'name'])
+                        ->reject(fn ($u) => $u->id === auth()->id());
+                @endphp
+                <div class="rounded border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                    <div><b>Chat ini belum dioper.</b> Oper dulu sebelum membalas — supaya setiap chat punya penanggung jawab.</div>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}">
+                            @csrf
+                            <input type="hidden" name="owner_user_id" value="{{ auth()->id() }}">
+                            <button class="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+                                Ambil chat ini
+                            </button>
+                        </form>
+                        @if($agenOper->isNotEmpty())
+                            <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}" class="flex items-center gap-1">
+                                @csrf
+                                <select name="owner_user_id" required
+                                        class="border border-amber-300 rounded px-2 py-1.5 text-sm bg-white">
+                                    <option value="">Oper ke…</option>
+                                    @foreach($agenOper as $u)
+                                        <option value="{{ $u->id }}">{{ $u->name }}</option>
+                                    @endforeach
+                                </select>
+                                <button class="px-2.5 py-1.5 rounded border border-amber-600 text-amber-800 hover:bg-amber-100 text-sm">Oper</button>
+                            </form>
+                        @endif
+                    </div>
+                </div>
+            @elseif(! ($bolehBalas ?? true))
+                {{-- Chat milik agen lain: boleh DIBACA (menu Semua dipakai
+                     mencari pelanggan lama), tapi tidak dibalas — dua orang
+                     menjawab satu pelanggan dengan jawaban berbeda lebih buruk
+                     daripada jawaban yang sedikit tertunda. --}}
+                <div class="rounded border border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700">
+                    Chat ini dipegang <b>{{ $terpilih->owner->name ?? 'agen lain' }}</b> — Anda hanya bisa membacanya.
+                    Minta dioper lewat chip pemilik di daftar kalau perlu membalas.
+                </div>
+            @elseif($terbuka)
                 {{-- Peringatan dini. Jendela yang tinggal sebentar tidak
                      kelihatan dari kotak ketik yang bekerja normal — dan yang
                      paling sering menutupnya bukan pelanggan yang pergi,

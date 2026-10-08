@@ -98,6 +98,17 @@ class AppServiceProvider extends ServiceProvider
         SalesOrder::observe(CrmSalesOrderObserver::class);
         SalesDelivery::observe(CrmSalesDeliveryObserver::class);
 
+        // CRM Tahap 3: label chat mengikuti tahapan pesanan yang tertaut.
+        foreach ([
+            SalesOrder::class,
+            SalesAdvance::class,
+            SalesDelivery::class,
+            \App\Modules\Production\Models\ProductionOrder::class,
+            \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::class,
+        ] as $model) {
+            $model::observe(\App\Modules\CRM\Observers\CrmLabelPesananObserver::class);
+        }
+
         // Chat Lead langsung tertaut begitu nomornya disimpan di master pelanggan.
         \App\Models\Customer::observe(\App\Modules\CRM\Observers\CrmCustomerObserver::class);
         // Nomor + nama sama dengan pelanggan lama → langsung digabung (CustomerMergeService).
