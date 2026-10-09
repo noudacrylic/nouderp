@@ -239,7 +239,8 @@
 
         <button type="button" @click="mode = 'buat'"
                 class="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">
-            Buat Pesanan
+            <span x-show="!baris.length">Buat Pesanan</span>
+            <span x-show="baris.length" x-cloak x-text="'Lanjutkan Keranjang (' + baris.length + ' barang)'"></span>
         </button>
     </div>
 
@@ -830,11 +831,16 @@
 
             // Keranjang yang masih terisi berarti pekerjaan yang belum selesai;
             // membuka tab langsung ke daftar akan membuatnya terlihat hilang.
+            // KECUALI chat ini sudah punya pesanan/penawaran: keranjang sisa
+            // (mis. SO-nya akhirnya diketik di Sales) tak boleh menutupi daftar
+            // — keranjangnya tetap terbaca di tombol "Lanjutkan Keranjang".
             mode: (awal.baris ?? []).length ? 'buat' : 'daftar',
 
             buka: { pelanggan: true, produk: true, ongkir: false, catatan: false, lain: false, ringkas: true },
 
             init() {
+                if (this.pesanan.length || this.penawaran.length) this.mode = 'daftar';
+
                 ['namaPelanggan', 'baris', 'diskonBelanja', 'diskonBelanjaJenis', 'minDp',
                  'keepStok', 'tempo', 'tempoHari', 'metode', 'catatan', 'alamat', 'ongkir', 'ongkirSidik',
                  'diskonOngkir', 'diskonOngkirJenis', 'diskonBelanjaManual', 'diskonOngkirManual']
