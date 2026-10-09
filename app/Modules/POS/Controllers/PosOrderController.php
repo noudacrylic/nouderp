@@ -45,6 +45,7 @@ class PosOrderController extends Controller
             // tombol QRIS disembunyikan supaya kasir tidak membuat invoice nyangkut (posted,
             // tak pernah settle → BELUM LUNAS selamanya).
             'qrisEnabled'     => $this->qrisAvailable(),
+            'bolehAturProduk' => user_can_access('pos.kasir-atur-produk'),
         ]);
     }
 
@@ -106,10 +107,14 @@ class PosOrderController extends Controller
     {
         $q = trim((string) $request->query('q'));
         $whId = (int) (Warehouse::orderBy('id')->value('id') ?? 1);
+        // Mode "Atur Produk": yang disembunyikan ikut tampil supaya bisa dimunculkan lagi.
+        $semua = $request->boolean('semua') && user_can_access('pos.kasir-atur-produk');
 
         $rows = Product::query()
             ->where('is_active', true)
             ->where('is_sellable', true) // Kasir hanya tampilkan produk yang dijual.
+            // Varian yang hanya dijual online disembunyikan dari kasir (9 Okt 2026).
+            ->when(! $semua, fn ($w) => $w->where('tampil_di_kasir', true))
             // Guard: bundle tanpa komponen tidak boleh dijual (fulfillment/HPP gagal tanpa komponen).
             ->where(function ($w) {
                 $w->where('sale_type', '!=', 'bundle')
@@ -131,7 +136,9 @@ class PosOrderController extends Controller
         $promoMap = app(\App\Modules\Sales\Services\PromotionService::class)
             ->resolveItemDiscounts($promoItems);
 
-        return response()->json($rows->map(function ($p) use ($inventory, $whId, $promoMap) {
+        $foto = $this->fotoProduk($rows->pluck('id')->all());
+
+        return response()->json($rows->map(function ($p) use ($inventory, $whId, $promoMap, $foto) {
             $stock = $this->availableStockFor($p, $whId, $inventory);
             $price = (float) $p->display_price;
 
@@ -154,8 +161,50 @@ class PosOrderController extends Controller
                 'stock'   => $stock,            // null = tidak di-track (jasa/non-stok)
                 'tracked' => $stock !== null,
                 'promo'   => $promo,
+                'foto'    => $foto[$p->id] ?? null,
+                'tampil'  => (bool) $p->tampil_di_kasir,
             ];
         }));
+    }
+
+    /**
+     * Foto produk dari toko online: gambar varian bila ada, kalau tidak foto
+     * sampul produk tokonya. ERP sendiri tak menyimpan foto, dan produk tanpa
+     * halaman toko (mis. custom) memang tak punya — kasir menampilkan placeholder.
+     *
+     * @param  int[]  $ids
+     * @return array<int, string>  product_id → url
+     */
+    private function fotoProduk(array $ids): array
+    {
+        if (! $ids) return [];
+
+        $out = [];
+        \App\Models\StoreProductVariant::with(['image', 'storeProduct.images'])
+            ->whereIn('product_id', $ids)
+            ->orderBy('id')
+            ->get()
+            ->each(function ($v) use (&$out) {
+                if (isset($out[$v->product_id])) return;
+
+                $url = $v->image?->url
+                    ?? $v->storeProduct?->images->sortByDesc('is_primary')->first()?->url;
+
+                if ($url) $out[$v->product_id] = $url;
+            });
+
+        return $out;
+    }
+
+    /** Sembunyikan / tampilkan satu produk di layar Kasir. */
+    public function aturTampil(Request $request, Product $product): JsonResponse
+    {
+        abort_unless(user_can_access('pos.kasir-atur-produk'), 403);
+
+        $data = $request->validate(['tampil' => 'required|boolean']);
+        $product->forceFill(['tampil_di_kasir' => $data['tampil']])->save();
+
+        return response()->json(['success' => true, 'tampil' => (bool) $product->tampil_di_kasir]);
     }
 
     /**

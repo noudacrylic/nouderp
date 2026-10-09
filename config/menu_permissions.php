@@ -103,6 +103,14 @@ return [
                 'route_patterns' => ['pos.kasir*'],
             ],
             // Pemrosesan Pesanan — dashboard fulfillment tim packing (umbrella + 3 sub-tab gaya Absensi).
+            // Bukan halaman: izin menyembunyikan/menampilkan produk di layar Kasir.
+            // Super admin & admin selalu boleh; staf lain dicentang di User & Akses.
+            'pos.kasir-atur-produk' => [
+                'label'  => 'Kasir: Atur Produk Tampil',
+                'url'    => '/erp/pos/kasir',
+                'hidden' => true,
+                'route_patterns' => ['pos.atur-produk-kasir'],
+            ],
             'pos.fulfillment' => [
                 'label' => 'Pemrosesan Pesanan',
                 'url'   => '/erp/pos/fulfillment/perlu-diproses',

@@ -1143,6 +1143,8 @@ Route::prefix('erp/pos')->name('pos.')->group(function () {
     Route::get('/kasir',          [\App\Modules\POS\Controllers\PosOrderController::class, 'kasir'])->name('kasir');
     Route::get('/kasir/search',   [\App\Modules\POS\Controllers\PosOrderController::class, 'search'])->name('kasir.search');
     Route::post('/kasir/checkout', [\App\Modules\POS\Controllers\PosOrderController::class, 'checkout'])->name('kasir.checkout');
+    // Sembunyikan/tampilkan produk di layar Kasir (izin `pos.kasir-atur-produk`).
+    Route::post('/kasir/produk/{product}/tampil', [\App\Modules\POS\Controllers\PosOrderController::class, 'aturTampil'])->name('atur-produk-kasir');
     // Batalkan transaksi QRIS yang belum dibayar (void invoice + SJ + balik stok) → boleh transaksi baru.
     Route::post('/kasir/void-pending', [\App\Modules\POS\Controllers\PosOrderController::class, 'voidPending'])->name('kasir.void-pending');
     // Resolve promo untuk Kasir (akses lewat menu pos, supaya kasir non-admin tetap bisa).

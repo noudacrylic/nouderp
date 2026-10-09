@@ -15,8 +15,21 @@
     {{-- ───────── Kiri: katalog produk ───────── --}}
     <div class="lg:col-span-7">
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
-            <input id="posSearch" type="text" autocomplete="off" placeholder="Cari nama produk / SKU…"
-                   class="w-full border rounded-lg px-3 py-2 text-sm mb-3">
+            <div class="flex items-center gap-2 mb-3">
+                <input id="posSearch" type="text" autocomplete="off" placeholder="Cari nama produk / SKU…"
+                       class="flex-1 min-w-0 border rounded-lg px-3 py-2 text-sm">
+                @if($bolehAturProduk)
+                    {{-- Varian yang hanya dijual online disembunyikan dari kasir. Mode ini
+                         memperlihatkan semuanya; klik kartu = sembunyikan / tampilkan. --}}
+                    <button type="button" id="posAtur" title="Pilih produk yang tampil di kasir"
+                            class="shrink-0 text-xs px-2.5 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">
+                        👁 Atur Produk
+                    </button>
+                @endif
+            </div>
+            <div id="posAturInfo" class="hidden mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+                Mode Atur Produk — klik kartu untuk menyembunyikan / menampilkan di kasir. Yang redup tidak tampil saat jualan.
+            </div>
             <div id="posResults" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[70vh] overflow-y-auto">
                 <div class="text-sm text-gray-400 p-4 col-span-full text-center">Memuat produk…</div>
             </div>
@@ -210,15 +223,55 @@
         searchTimer = setTimeout(() => runSearch(q), 250);
     });
 
+    // ---------- Atur Produk (sembunyikan varian online-only dari kasir) ----------
+    let aturMode = false;
+    const ATUR_URL = @json(route('pos.atur-produk-kasir', ['product' => '__ID__']));
+
+    el('posAtur')?.addEventListener('click', function () {
+        aturMode = !aturMode;
+        this.classList.toggle('bg-amber-100', aturMode);
+        this.classList.toggle('border-amber-300', aturMode);
+        el('posAturInfo').classList.toggle('hidden', !aturMode);
+        runSearch(el('posSearch').value.trim());
+    });
+
+    window.posToggleTampil = function (p, kartu) {
+        fetch(ATUR_URL.replace('__ID__', p.id), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF },
+            body: JSON.stringify({ tampil: !p.tampil }),
+        })
+            .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+            .then(d => {
+                p.tampil = d.tampil;
+                kartu.classList.toggle('opacity-40', !p.tampil);
+                kartu.querySelector('[data-tampil]').textContent = p.tampil ? 'Tampil' : 'Disembunyikan';
+            })
+            .catch(() => showError('Gagal mengubah tampilan produk — coba lagi.'));
+    };
+
+    window.posKlikKartu = function (p, kartu) {
+        aturMode ? posToggleTampil(p, kartu) : posAdd(p);
+    };
+
+    function fotoProduk(p) {
+        return p.foto
+            ? `<img src="${escapeHtml(p.foto)}" alt="" loading="lazy" class="w-14 h-14 shrink-0 rounded-md object-cover bg-gray-100 border border-gray-100">`
+            : `<div class="w-14 h-14 shrink-0 rounded-md bg-gray-100 border border-gray-100 flex items-center justify-center text-xl text-gray-300">📦</div>`;
+    }
+
     function runSearch(q) {
-        fetch(SEARCH_URL + '?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+        fetch(SEARCH_URL + '?q=' + encodeURIComponent(q) + (aturMode ? '&semua=1' : ''), { headers: { 'Accept': 'application/json' } })
             .then(r => r.json())
             .then(rows => {
                 const box = el('posResults');
                 if (!rows.length) { box.innerHTML = '<div class="text-sm text-gray-400 p-4 col-span-full text-center">Tidak ada produk.</div>'; return; }
-                box.innerHTML = rows.map(p => `
-                    <div class="flex flex-col border border-gray-100 rounded-lg p-2.5 hover:bg-indigo-50/50 hover:border-indigo-200 cursor-pointer"
-                         onclick='posAdd(${JSON.stringify(p)})'>
+                window.posRows = rows;
+                box.innerHTML = rows.map((p, i) => `
+                    <div class="flex gap-2.5 border border-gray-100 rounded-lg p-2.5 hover:bg-indigo-50/50 hover:border-indigo-200 cursor-pointer ${p.tampil ? '' : 'opacity-40'}"
+                         onclick="posKlikKartu(window.posRows[${i}], this)">
+                        ${fotoProduk(p)}
+                        <div class="flex flex-col flex-1 min-w-0">
                         <div class="flex items-start justify-between gap-1.5">
                             <div class="text-[15px] font-bold text-gray-900 leading-snug">${escapeHtml(p.name)}</div>
                             ${stockBadge(p)}
@@ -231,6 +284,8 @@
                             <span class="text-[11px] font-semibold px-2 py-0.5 rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-100">＋ Tambah</span>
                         </div>
                         ${p.promo ? `<div class="text-[10px] text-rose-500 font-semibold mt-0.5 truncate">🏷️ ${escapeHtml(p.promo.name)}</div>` : ''}
+                        ${aturMode ? `<div data-tampil class="text-[10px] font-semibold text-amber-700 mt-0.5">${p.tampil ? 'Tampil' : 'Disembunyikan'}</div>` : ''}
+                        </div>
                     </div>`).join('');
             })
             // Gagal diam-diam meninggalkan "Memuat produk…" selamanya dan tak ada yang
