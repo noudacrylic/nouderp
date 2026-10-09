@@ -50,7 +50,8 @@ class OrderProgressService
 
         $deliveries = $so->deliveries()->where('status', '!=', 'void')->latest('id')->get();
         $delivery = $deliveries->first();
-        $shipped  = (bool) ($delivery?->tracking_number) || in_array($delivery?->shipping_status, ['in_transit', 'delivered'], true);
+        $shipped  = (bool) ($delivery?->tracking_number) || in_array($delivery?->shipping_status, ['in_transit', 'delivered'], true)
+            || $this->diserahkanManual($so, $delivery);
 
         /*
          * SAMPAI = semua barang sudah ber-surat jalan DAN tiap surat jalan sudah
@@ -95,7 +96,7 @@ class OrderProgressService
 
         $steps[] = $pickup
             ? ['key' => 'ambil', 'label' => 'Siap Diambil', 'note' => 'Pesanan bisa diambil di workshop Semarang']
-            : ['key' => 'kirim', 'label' => 'Kirim', 'note' => $this->shippingNote($delivery)];
+            : ['key' => 'kirim', 'label' => 'Kirim', 'note' => $this->shippingNote($delivery, $this->diserahkanManual($so, $delivery))];
 
         $steps[] = ['key' => 'selesai', 'label' => 'Selesai', 'note' => $pickup ? 'Pesanan sudah diambil' : 'Pesanan sudah diterima'];
 
@@ -192,8 +193,27 @@ class OrderProgressService
         return $delivery ? 'Sedang dikemas' : 'Masuk antrean packing';
     }
 
-    private function shippingNote($delivery): string
+    /**
+     * Kurir manual (SO tanpa penyedia kirim, mis. J&T Cargo yang diantar
+     * sendiri): SJ ter-posting = barang sudah diserahkan. Tak akan pernah ada
+     * resi atau status kurir yang menyusul, jadi tanpa ini pesanan selamanya
+     * berhenti di Packing (SO/2026/07/00006, 9 Okt 2026). SO yang akan
+     * di-booking (punya shipping_provider) tetap menunggu resi.
+     */
+    private function diserahkanManual(SalesOrder $so, $delivery): bool
     {
+        return $delivery?->status === 'posted'
+            && ! $delivery->provider_order_id
+            && ! $so->shipping_provider;
+    }
+
+    private function shippingNote($delivery, bool $manual = false): string
+    {
+        // Nama kurir manual tak bisa dipercaya ("Diambil Sendiri" pun ada).
+        if ($manual && ! $delivery->tracking_number) {
+            return 'Barang sudah diserahkan';
+        }
+
         if (! $delivery?->tracking_number) {
             return 'Menunggu diserahkan ke kurir';
         }

@@ -69,4 +69,23 @@ class OrderProgressSampaiTest extends TestCase
 
         $this->assertSame('selesai', app(OrderProgressService::class)->for($so->fresh())['current']);
     }
+
+    /** Kurir manual (SJ tanpa resi, SO tanpa penyedia kirim): SJ ter-posting = sudah diserahkan. */
+    public function test_kurir_manual_tanpa_resi_masuk_tahap_kirim(): void
+    {
+        [$so, $sj] = $this->pesananTerkirim();
+        $sj->forceFill(['tracking_number' => null])->save();
+
+        $this->assertSame('kirim', app(OrderProgressService::class)->for($so->fresh())['current']);
+    }
+
+    /** SO yang akan di-booking tetap menunggu resi walau SJ-nya sudah ter-posting. */
+    public function test_so_berpenyedia_tanpa_resi_masih_packing(): void
+    {
+        [$so, $sj] = $this->pesananTerkirim();
+        $sj->forceFill(['tracking_number' => null])->save();
+        $so->forceFill(['shipping_provider' => 'biteship'])->save();
+
+        $this->assertSame('packing', app(OrderProgressService::class)->for($so->fresh())['current']);
+    }
 }
