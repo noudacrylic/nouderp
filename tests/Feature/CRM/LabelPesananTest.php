@@ -153,6 +153,25 @@ class LabelPesananTest extends TestCase
         $this->assertSame(LabelPesananService::MENUNGGU_DIKIRIM, $this->label($chat));
     }
 
+    public function test_preorder_umum_ikut_alur_custom(): void
+    {
+        $preorder = Product::create([
+            'sku' => 'PO-01', 'name' => 'Rak Preorder', 'sale_type' => 'preorder', 'made_to_order' => false,
+            'base_unit' => 'pcs', 'base_price' => 100000, 'is_active' => true, 'is_sellable' => true,
+        ])->id;
+
+        $chat = $this->chat();
+        $so   = $this->soDariChat($chat, $preorder);
+        $so->forceFill(['status' => 'confirmed'])->save();
+
+        $this->bayar($so, 50000);
+        $this->assertSame(LabelPesananService::DESAIN, $this->label($chat), 'Bukan Menunggu Dikirim — barang belum diproduksi');
+
+        $op = $so->productionOrders()->first() ?? $this->op($so, 'confirmed');
+        $op->forceFill(['status' => 'in_progress'])->save();
+        $this->assertSame(LabelPesananService::PRODUKSI, $this->label($chat));
+    }
+
     /* ------------------------------------------------------- marketplace */
 
     public function test_pesanan_shopee_ditautkan_jadi_print_lalu_selesai_saat_dikirim(): void

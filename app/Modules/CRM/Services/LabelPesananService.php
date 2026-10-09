@@ -249,10 +249,15 @@ class LabelPesananService
         };
     }
 
-    /** Satu item custom saja sudah menjadikan seluruh pesanan alur custom. */
+    /**
+     * Satu item custom saja sudah menjadikan seluruh pesanan alur custom.
+     * Preorder umum (bukan made-to-order) ikut alur custom juga — barangnya
+     * tetap harus diproduksi dulu, dan "Menunggu Dikirim" sesudah bayar akan
+     * menyesatkan (disepakati 9 Okt 2026).
+     */
     private function adaItemCustom(SalesOrder $so): bool
     {
-        return $so->items()->whereHas('product', fn ($q) => $q->madeToOrder())->exists();
+        return $so->items()->whereHas('product', fn ($q) => $q->where('sale_type', 'preorder'))->exists();
     }
 
     /**
