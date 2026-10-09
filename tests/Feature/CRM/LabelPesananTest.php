@@ -255,6 +255,76 @@ class LabelPesananTest extends TestCase
         $this->assertSame('tanya_harga', $this->label($chat));
     }
 
+    /** SO diketik di modul Sales (orang pesan lewat WA) — tidak lewat tombol di chat. */
+    private function soDiSales(SalesOrder $contoh): SalesOrder
+    {
+        $so = $contoh->replicate(['public_token']);
+        $so->forceFill(['order_number' => 'SO-' . uniqid(), 'status' => 'draft'])->save();
+
+        foreach ($contoh->items as $item) {
+            $so->items()->save($item->replicate());
+        }
+
+        return $so;
+    }
+
+    public function test_so_dibuat_di_sales_tertaut_otomatis_ke_satu_satunya_chat_pelanggan(): void
+    {
+        $chat = $this->chat();
+        $lama = $this->soDariChat($chat, $this->produk(true));
+        app(LabelPesananService::class)->lepas($chat, $lama);
+        $chat->forceFill(['queue_state' => 'tanya_harga'])->save();
+
+        $so = $this->soDiSales($lama);
+        $this->assertSame(LabelPesananService::MENUNGGU_PEMBAYARAN, $this->label($chat), 'Tertaut saat lahir');
+
+        $so->forceFill(['status' => 'confirmed'])->save();
+        $this->bayar($so, 50000);
+        $op = $so->productionOrders()->first() ?? $this->op($so, 'confirmed');
+        $op->forceFill(['status' => 'in_progress'])->save();
+
+        $this->assertSame(LabelPesananService::PRODUKSI, $this->label($chat));
+    }
+
+    public function test_pelanggan_dengan_dua_chat_tidak_ditautkan_otomatis(): void
+    {
+        $chat = $this->chat();
+        $lama = $this->soDariChat($chat, $this->produk(false));
+        $this->chat('628111000555')->forceFill(['customer_id' => $lama->customer_id])->save();
+
+        $so = $this->soDiSales($lama);
+
+        $this->assertDatabaseMissing('crm_pesanan_chat', ['sales_order_id' => $so->id]);
+    }
+
+    public function test_tautkan_pesanan_lama_hanya_yang_masih_berjalan(): void
+    {
+        $chat = $this->chat();
+        $berjalan = $this->soDariChat($chat, $this->produk(true));
+        $berjalan->forceFill(['status' => 'confirmed'])->save();
+        $this->bayar($berjalan, 50000);
+
+        $selesai = $this->soDariChat($chat, Product::where('sku', 'CS-01')->value('id'));
+        $selesai->forceFill(['status' => 'confirmed'])->save();
+        $this->bayar($selesai, 100000);
+        $sj = new SalesDelivery();
+        $sj->forceFill(['delivery_number' => 'SJ-9', 'warehouse_id' => $this->gudang, 'delivery_date' => now()->toDateString(),
+            'sales_order_id' => $selesai->id, 'status' => 'posted', 'tracking_number' => 'JNE9'])->save();
+
+        // Keadaan sebelum 9 Okt: tak satu pun tertaut.
+        \DB::table('crm_pesanan_chat')->delete();
+        $chat->forceFill(['queue_state' => 'tanya_harga'])->save();
+
+        $this->artisan('crm:tautkan-pesanan-lama', ['--dry-run' => true])->assertSuccessful();
+        $this->assertDatabaseCount('crm_pesanan_chat', 0);
+
+        $this->artisan('crm:tautkan-pesanan-lama')->assertSuccessful();
+
+        $this->assertDatabaseHas('crm_pesanan_chat', ['sales_order_id' => $berjalan->id, 'conversation_id' => $chat->id]);
+        $this->assertDatabaseMissing('crm_pesanan_chat', ['sales_order_id' => $selesai->id]);
+        $this->assertSame(LabelPesananService::DESAIN, $this->label($chat));
+    }
+
     public function test_tautkan_wajib_oper_dulu(): void
     {
         $chat = $this->chat();

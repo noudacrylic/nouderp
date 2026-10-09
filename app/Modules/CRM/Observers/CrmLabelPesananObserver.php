@@ -17,6 +17,25 @@ use Illuminate\Database\Eloquent\Model;
  */
 class CrmLabelPesananObserver
 {
+    /**
+     * SO yang lahir di luar chat (modul Sales, kasir) ikut tertaut ke chat
+     * pelanggannya. Hanya saat lahir: tautan yang kemudian DILEPAS tangan
+     * tidak boleh tersambung lagi sendiri. Event `saved` sesudahnya yang
+     * menghitung labelnya.
+     */
+    public function created(Model $model): void
+    {
+        if (! $model instanceof SalesOrder) {
+            return;
+        }
+
+        try {
+            app(LabelPesananService::class)->tautkanOtomatis($model);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     public function saved(Model $model): void
     {
         $soId = $model instanceof SalesOrder ? $model->id : $model->getAttribute('sales_order_id');

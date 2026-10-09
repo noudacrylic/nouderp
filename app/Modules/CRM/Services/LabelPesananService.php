@@ -57,6 +57,56 @@ class LabelPesananService
         $this->perbaruiUntukSo($so->id);
     }
 
+    /**
+     * Tautkan SO ke chat pelanggannya tanpa campur tangan — untuk pesanan yang
+     * dibuat di LUAR chat (modul Sales, kasir), mis. orang pesan lewat WA lalu
+     * SO-nya diketik di Sales. Tanpa tautan, labelnya tak pernah bergerak.
+     *
+     * Hanya bila jawabannya pasti: pelanggan punya TEPAT SATU chat. Pelanggan
+     * marketplace & "Umum" (walk-in kasir) tidak pernah — mereka bukan orang
+     * yang sedang chat. Yang ragu dibiarkan, tetap bisa ditautkan dari panel
+     * Pesanan.
+     *
+     * @return int|null id chat yang ditautkan
+     */
+    public function tautkanOtomatis(SalesOrder $so): ?int
+    {
+        $chatId = $this->chatUntukTautanOtomatis($so);
+
+        if (! $chatId) {
+            return null;
+        }
+
+        DB::table('crm_pesanan_chat')->insertOrIgnore([
+            'conversation_id' => $chatId,
+            'sales_order_id'  => $so->id,
+            'user_id'         => null,
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
+
+        return $chatId;
+    }
+
+    /** Chat tujuan tautan otomatis, atau null bila tidak pasti / sudah tertaut. */
+    public function chatUntukTautanOtomatis(SalesOrder $so): ?int
+    {
+        if (! $so->customer_id || in_array($so->status, ['void', 'cancelled'], true)
+            || DB::table('crm_pesanan_chat')->where('sales_order_id', $so->id)->exists()) {
+            return null;
+        }
+
+        $pelanggan = DB::table('customers')->where('id', $so->customer_id)->first(['is_marketplace', 'code']);
+
+        if (! $pelanggan || $pelanggan->is_marketplace || $pelanggan->code === 'UMUM') {
+            return null;
+        }
+
+        $chatIds = CrmConversation::where('customer_id', $so->customer_id)->limit(2)->pluck('id');
+
+        return $chatIds->count() === 1 ? (int) $chatIds->first() : null;
+    }
+
     public function lepas(CrmConversation $chat, SalesOrder $so): void
     {
         DB::table('crm_pesanan_chat')
