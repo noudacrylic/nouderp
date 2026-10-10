@@ -332,7 +332,7 @@
         <div class="bg-white rounded shadow mt-3 border border-rose-200">
             <div class="px-3 py-2 border-b border-rose-100 bg-rose-50 rounded-t flex items-center gap-2">
                 <span class="text-rose-700 font-semibold text-sm">⚠ Transaksi rekening koran belum ada di ERP ({{ count($statementMatch['unmatched']) }})</span>
-                <span class="text-xs text-rose-500">Buat transaksinya lewat tombol <b>+ Pengeluaran</b> / <b>+ Pemasukan</b> di atas, lalu klik Cocokkan pada barisnya.</span>
+                <span class="text-xs text-rose-500">Klik tombol aksi di barisnya — tanggal &amp; nominal terisi otomatis — lalu klik Cocokkan pada transaksi barunya.</span>
             </div>
             <table class="text-sm w-full">
                 <thead class="bg-gray-50 border-b text-gray-600">
@@ -341,6 +341,7 @@
                         <th class="px-3 py-2 text-left">Keterangan</th>
                         <th class="px-3 py-2 text-right">Uang Masuk</th>
                         <th class="px-3 py-2 text-right">Uang Keluar</th>
+                        <th class="px-3 py-2 text-right" style="width: 210px">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -350,6 +351,24 @@
                             <td class="px-3 py-1.5 text-gray-700">{{ $u['desc'] ?: '-' }}</td>
                             <td class="px-3 py-1.5 text-right font-mono text-green-700">{{ $u['amount'] > 0 ? number_format($u['amount'], 0, ',', '.') : '' }}</td>
                             <td class="px-3 py-1.5 text-right font-mono text-red-600">{{ $u['amount'] < 0 ? number_format(abs($u['amount']), 0, ',', '.') : '' }}</td>
+                            <td class="px-3 py-1.5 text-right whitespace-nowrap">
+                                @php $uIn = $u['amount'] > 0; @endphp
+                                <span class="stmt-prefill inline-flex gap-1"
+                                      data-date="{{ \Carbon\Carbon::parse($u['date'])->format('Y-m-d') }}"
+                                      data-amount="{{ abs((float) $u['amount']) }}"
+                                      data-desc="{{ \Illuminate\Support\Str::limit($u['desc'] ?? '', 250, '') }}"
+                                      data-direction="{{ $uIn ? 'in' : 'out' }}">
+                                    @if($uIn)
+                                        <button type="button" data-action="receipt"
+                                                class="px-2 py-0.5 rounded text-xs font-semibold border border-emerald-400 text-emerald-700 hover:bg-emerald-50">+ Pemasukan</button>
+                                    @else
+                                        <button type="button" data-action="disbursement"
+                                                class="px-2 py-0.5 rounded text-xs font-semibold border border-red-400 text-red-700 hover:bg-red-50">+ Pengeluaran</button>
+                                    @endif
+                                    <button type="button" data-action="transfer"
+                                            class="px-2 py-0.5 rounded text-xs font-semibold border border-purple-400 text-purple-700 hover:bg-purple-50">⇄ Transfer</button>
+                                </span>
+                            </td>
                         </tr>
                     @endforeach
                 </tbody>
@@ -588,7 +607,20 @@ const QM_REVENUE_ACCOUNTS = @json($revenueAccounts->map(fn($a) => [
 
 let qmAccountByLabel = {};
 
-function openQuickModal(kind) {
+// Isi tanggal hanya bila masih di dalam periode rekonsiliasi (min/max input).
+function setDateInRange(id, date) {
+    const el = document.getElementById(id);
+    if (!date) return;
+    if ((el.min && date < el.min) || (el.max && date > el.max)) return;
+    el.value = date;
+}
+function setRupiah(id, amount) {
+    const el = document.getElementById(id);
+    el.value = Math.round(parseFloat(amount) || 0).toLocaleString('id-ID');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function openQuickModal(kind, prefill = null) {
     const modal = document.getElementById('quickModal');
     const title = document.getElementById('quickModalTitle');
     const header = document.getElementById('quickModalHeader');
@@ -620,9 +652,15 @@ function openQuickModal(kind) {
     document.getElementById('qmDescription').value = '';
     document.getElementById('qmReference').value = '';
 
+    if (prefill) {
+        setDateInRange('qmDate', prefill.date);
+        setRupiah('qmAmount', prefill.amount);
+        document.getElementById('qmDescription').value = prefill.desc || '';
+    }
+
     modal.classList.remove('hidden');
     modal.classList.add('flex');
-    setTimeout(() => document.getElementById('qmDate').focus(), 50);
+    setTimeout(() => document.getElementById(prefill ? 'qmAccountSearch' : 'qmDate').focus(), 50);
 }
 
 function closeQuickModal() {
@@ -822,7 +860,7 @@ function tmPopulate(listId, accounts, map) {
     });
 }
 
-function openTransferModal() {
+function openTransferModal(prefill = null) {
     const modal = document.getElementById('transferModal');
     tmPopulate('tmCounterList', TM_CASH_ACCOUNTS, tmCounterByLabel);
     tmPopulate('tmAdminFeeList', TM_EXPENSE_ACCOUNTS, tmAdminByLabel);
@@ -833,12 +871,18 @@ function openTransferModal() {
     document.getElementById('tmCounterId').value = '';
     document.getElementById('tmAdminFee').value = '';
     document.getElementById('tmReference').value = '';
-    document.querySelector('input[name="tmDirection"][value="out"]').checked = true;
+    document.querySelector('input[name="tmDirection"][value="' + (prefill?.direction || 'out') + '"]').checked = true;
     updateCounterLabel();
+
+    if (prefill) {
+        setDateInRange('tmDate', prefill.date);
+        setRupiah('tmAmount', prefill.amount);
+        document.getElementById('tmReference').value = prefill.desc || '';
+    }
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
-    setTimeout(() => document.getElementById('tmDate').focus(), 50);
+    setTimeout(() => document.getElementById(prefill ? 'tmCounterSearch' : 'tmDate').focus(), 50);
 }
 
 function closeTransferModal() {
@@ -869,6 +913,16 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !document.getElementById('transferModal').classList.contains('hidden')) {
         closeTransferModal();
     }
+});
+
+// Tombol aksi di tabel "belum ada di ERP": buka modal dengan tanggal & nominal koran.
+document.querySelectorAll('.stmt-prefill button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const d = btn.closest('.stmt-prefill').dataset;
+        const prefill = { date: d.date, amount: d.amount, desc: d.desc, direction: d.direction };
+        if (btn.dataset.action === 'transfer') openTransferModal(prefill);
+        else openQuickModal(btn.dataset.action, prefill);
+    });
 });
 
 async function submitTransferModal(e) {
