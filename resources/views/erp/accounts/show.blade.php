@@ -144,6 +144,47 @@
         </div>
     </div>
 
+    @php
+        // Ref ledger → halaman detail dokumennya (bukan index) supaya audit cukup sekali klik.
+        // DP pelanggan tak punya halaman sendiri → buka SO-nya; dipetakan sekali di sini (hindari N+1).
+        $advanceIds = collect($grouped)->flatten(1)
+            ->where('reference_type', 'sales_advance')->pluck('reference_id')->filter()->unique();
+        $advanceSo = $advanceIds->isEmpty() ? collect()
+            : \App\Modules\Sales\Models\SalesAdvance::whereIn('id', $advanceIds)->pluck('sales_order_id', 'id');
+        $refUrlFor = function ($line) use ($advanceSo) {
+            $id = $line->reference_id;
+            if (!$id) return null;
+            [$route, $param] = match ($line->reference_type ?? '') {
+                'sales_invoice', 'sales_invoice_settlement'
+                                         => ['sales.invoices.show', $id],
+                'sales_delivery', 'delivery'
+                                         => ['sales.deliveries.show', $id],
+                'sales_order'            => ['sales.orders.show', $id],
+                'sales_advance'          => ['sales.orders.show', $advanceSo[$id] ?? null],
+                'sales_return'           => ['sales.returns.show', $id],
+                'customer_payment'       => ['sales.payment.show', $id],
+                'warranty_order', 'warranty_post'
+                                         => ['sales.warranty.show', $id],
+                'purchase_invoice', 'dp_application'
+                                         => ['purchasing.invoices.show', $id],
+                'supplier_payment'       => ['purchasing.payments.show', $id],
+                'purchase_return'        => ['purchasing.returns.show', $id],
+                'cash_receipt'           => ['finance.cash-bank.receipts.show', $id],
+                'cash_disbursement'      => ['finance.cash-bank.disbursements.show', $id],
+                'bank_transfer'          => ['finance.cash-bank.transfers.show', $id],
+                'marketplace_settlement' => ['finance.cash-bank.settlements.show', $id],
+                'sdm_salary_payment'     => ['finance.cash-bank.salary-payments.show', $id],
+                'production_order_cost', 'production_order_cost_cancel',
+                'production_order_finalize', 'production_order_void'
+                                         => ['production.orders.show', $id],
+                'inventory_adjustment', 'inventory_adjustment_void'
+                                         => ['inventory.adjustments.edit', $id],
+                default                  => [null, null],
+            };
+            return ($route && $param && \Route::has($route)) ? route($route, $param) : null;
+        };
+    @endphp
+
     @forelse($grouped as $month => $items)
         <div class="month-group-wrapper">
             <div class="month-header shadow-sm mb-3">
@@ -180,26 +221,7 @@
                                     </td>
                                     <td class="ref-cell">
                                         @if ($line->reference_number)
-                                            @php
-                                                $refUrl = match($line->reference_type ?? '') {
-                                                    'sales_invoice'         => \Route::has('sales.invoices.show')
-                                                                                ? route('sales.invoices.show', $line->reference_id) : null,
-                                                    'sales_delivery',
-                                                    'delivery'              => \Route::has('sales.deliveries.show')
-                                                                                ? route('sales.deliveries.show', $line->reference_id) : null,
-                                                    'sales_order'           => \Route::has('sales.orders.show')
-                                                                                ? route('sales.orders.show', $line->reference_id) : null,
-                                                    'sales_advance'         => \Route::has('sales.advances.show')
-                                                                                ? route('sales.advances.show', $line->reference_id) : null,
-                                                    'sales_return'          => \Route::has('sales.returns.show')
-                                                                                ? route('sales.returns.show', $line->reference_id) : null,
-                                                    'customer_payment'      => \Route::has('sales.payment.index')
-                                                                                ? route('sales.payment.index') : null,
-                                                    'inventory_adjustment'  => \Route::has('inventory.adjustments.index')
-                                                                                ? route('inventory.adjustments.index') : null,
-                                                    default => null,
-                                                };
-                                            @endphp
+                                            @php $refUrl = $refUrlFor($line); @endphp
                                             @if ($refUrl)
                                                 <a href="{{ $refUrl }}" class="ref-link" title="{{ ucwords(str_replace('_', ' ', $line->reference_type ?? '')) }}">
                                                     {{ $line->reference_number }}
