@@ -323,8 +323,7 @@ class BankReconciliationService
     }
 
     /**
-     * Satu baris Midtrans = satu mutasi saldo BERSIH (Amount + Total Fee, fee bernilai negatif),
-     * dibulatkan ke rupiah — sama dengan cara ERP mencatat "Penerimaan Kas (Net)" ke Saldo
+     * Satu baris Midtrans = satu mutasi saldo BERSIH (Amount − fee bulat; Total Fee bernilai negatif) — sama dengan cara ERP mencatat "Penerimaan Kas (Net)" ke Saldo
      * Midtrans, jadi bisa cocok persis. Withdrawal (pencairan ke bank) jadi uang keluar.
      */
     private function convertMidtransRows(array $rows, array $c): array
@@ -337,7 +336,9 @@ class BankReconciliationService
 
             $amount = $this->statementNumber($row[$c['amount']] ?? 0);
             $fee    = $this->statementNumber($row[$c['fee']] ?? 0);
-            $net    = round($amount + $fee);
+            // Fee dibulatkan DULU, baru dikurangkan — sama dgn ERP (MidtransFeeCalculator menyimpan
+            // fee bulat). 409.500 − 2.866,5 → ERP 406.633; round(bersih) malah 406.634.
+            $net    = round($amount) - round(abs($fee));
             $type    = trim((string) ($row[$c['type']] ?? ''));
             $channel = trim((string) ($row[$c['channel']] ?? ''));
             $order   = trim((string) ($row[$c['order']] ?? ''));
