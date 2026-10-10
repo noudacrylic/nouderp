@@ -805,7 +805,6 @@ async function submitQuickModal(e) {
                     <label class="block text-xs text-gray-500 mb-1">Biaya Admin (Rp)</label>
                     <input type="text" inputmode="numeric" id="tmAdminFee"
                            class="border rounded px-2 h-9 w-full text-right rupiah-input" placeholder="0">
-                    <div class="text-[10px] text-gray-400 mt-0.5">Ditanggung rekening sumber.</div>
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Akun Beban Admin</label>
@@ -814,6 +813,21 @@ async function submitQuickModal(e) {
                     <input type="hidden" id="tmAdminFeeId" value="{{ $defaultAdminFeeAccountId }}">
                     <datalist id="tmAdminFeeList"></datalist>
                 </div>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">Biaya admin dipotong dari</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <label class="flex items-center gap-2 border rounded px-2 h-9 cursor-pointer has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+                        <input type="radio" name="tmFeeBorne" value="source" checked class="text-purple-600">
+                        <span class="text-xs">Rekening sumber</span>
+                    </label>
+                    <label class="flex items-center gap-2 border rounded px-2 h-9 cursor-pointer has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+                        <input type="radio" name="tmFeeBorne" value="destination" class="text-purple-600">
+                        <span class="text-xs">Tujuan (diterima bersih)</span>
+                    </label>
+                </div>
+                <div id="tmFeeSummary" class="text-[11px] text-gray-500 mt-1"></div>
             </div>
 
             <div>
@@ -847,6 +861,31 @@ const TM_EXPENSE_ACCOUNTS = @json($expenseAccounts->map(fn($a) => [
 ])->values());
 
 let tmCounterByLabel = {}, tmAdminByLabel = {};
+// Nominal bersih dari rekening koran (baris uang masuk). Selama tidak diubah manual,
+// Jumlah = bersih + biaya admin supaya baris jurnal di rekening ini persis = koran.
+let tmPrefillNet = null;
+const TM_DEFAULT_ADMIN_FEE_ID = @json($defaultAdminFeeAccountId);
+
+function tmFeeBorne() {
+    return document.querySelector('input[name="tmFeeBorne"]:checked').value;
+}
+function tmRecalcFee() {
+    const fee = window.cleanNumber(document.getElementById('tmAdminFee').value) || 0;
+    if (tmPrefillNet !== null) {
+        const gross = tmFeeBorne() === 'destination' ? tmPrefillNet + fee : tmPrefillNet;
+        document.getElementById('tmAmount').value = Math.round(gross).toLocaleString('id-ID');
+    }
+    const amount = window.cleanNumber(document.getElementById('tmAmount').value) || 0;
+    const fmtId = n => Math.round(n).toLocaleString('id-ID');
+    const out = tmFeeBorne() === 'destination' ? amount : amount + fee;
+    const recv = tmFeeBorne() === 'destination' ? amount - fee : amount;
+    document.getElementById('tmFeeSummary').textContent = fee > 0
+        ? 'Keluar dari sumber: ' + fmtId(out) + ' · Diterima tujuan: ' + fmtId(recv)
+        : '';
+}
+document.getElementById('tmAdminFee').addEventListener('input', tmRecalcFee);
+document.querySelectorAll('input[name="tmFeeBorne"]').forEach(r => r.addEventListener('change', tmRecalcFee));
+document.getElementById('tmAmount').addEventListener('input', () => { tmPrefillNet = null; tmRecalcFee(); });
 
 function tmPopulate(listId, accounts, map) {
     const dl = document.getElementById(listId);
@@ -871,14 +910,28 @@ function openTransferModal(prefill = null) {
     document.getElementById('tmCounterId').value = '';
     document.getElementById('tmAdminFee').value = '';
     document.getElementById('tmReference').value = '';
-    document.querySelector('input[name="tmDirection"][value="' + (prefill?.direction || 'out') + '"]').checked = true;
+    document.getElementById('tmAdminFeeId').value = TM_DEFAULT_ADMIN_FEE_ID || '';
+    document.getElementById('tmAdminFeeSearch').value =
+        Object.keys(tmAdminByLabel).find(k => tmAdminByLabel[k] == TM_DEFAULT_ADMIN_FEE_ID) || '';
+    const dir = prefill?.direction || 'out';
+    document.querySelector('input[name="tmDirection"][value="' + dir + '"]').checked = true;
+    // Uang masuk dari koran = nominal bersih → biaya biasanya dipotong di tujuan (mis. MDR QRIS).
+    document.querySelector('input[name="tmFeeBorne"][value="' + (dir === 'in' ? 'destination' : 'source') + '"]').checked = true;
     updateCounterLabel();
+    tmPrefillNet = null;
 
     if (prefill) {
         setDateInRange('tmDate', prefill.date);
         setRupiah('tmAmount', prefill.amount);
         document.getElementById('tmReference').value = prefill.desc || '';
+        if (dir === 'in') {
+            tmPrefillNet = parseFloat(prefill.amount) || 0;
+            // Mutasi QRIS BCA mencantumkan MDR-nya, mis. "... QR : 109195.00 DDR: 764.36".
+            const ddr = (prefill.desc || '').match(/DDR\s*:\s*([\d.]+)/i);
+            if (ddr) document.getElementById('tmAdminFee').value = Math.round(parseFloat(ddr[1])).toLocaleString('id-ID');
+        }
     }
+    tmRecalcFee();
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -957,6 +1010,7 @@ async function submitTransferModal(e) {
     fd.append('counterparty_account_id', counterId);
     fd.append('amount', window.cleanNumber(document.getElementById('tmAmount').value));
     fd.append('admin_fee', adminFee);
+    fd.append('fee_borne_by', tmFeeBorne());
     if (adminFeeId) fd.append('admin_fee_account_id', adminFeeId);
     fd.append('reference', document.getElementById('tmReference').value);
     fd.append('notes', document.getElementById('tmReference').value);

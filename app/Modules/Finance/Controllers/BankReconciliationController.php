@@ -388,6 +388,7 @@ class BankReconciliationController extends Controller
             'amount'               => 'required|numeric|gt:0',
             'admin_fee'            => 'nullable|numeric|min:0',
             'admin_fee_account_id' => 'nullable|exists:accounts,id',
+            'fee_borne_by'         => 'nullable|in:source,destination',
             'reference'            => 'nullable|string|max:255',
             'notes'                => 'nullable|string|max:255',
         ]);
@@ -410,7 +411,7 @@ class BankReconciliationController extends Controller
                 'admin_fee_account_id' => $data['admin_fee_account_id'] ?? null,
                 'amount'               => $data['amount'],
                 'admin_fee'            => $data['admin_fee'] ?? 0,
-                'fee_borne_by'         => 'source',
+                'fee_borne_by'         => $data['fee_borne_by'] ?? 'source',
                 'reference'            => $data['reference'] ?? null,
                 'notes'                => $data['notes'] ?? null,
             ]);
