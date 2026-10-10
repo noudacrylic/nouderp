@@ -87,6 +87,16 @@
     </div>
 </div>
 
+@if($currentOpening !== null && abs($currentOpening - (float) $br->opening_balance) > 0.009)
+    <div class="bg-amber-50 border border-amber-300 text-amber-800 px-3 py-2 rounded text-sm mb-3">
+        ⚠ Saldo awal sudah berubah sejak rekonsiliasi ini diselesaikan:
+        tersimpan <b>{{ number_format($br->opening_balance, 0, ',', '.') }}</b>,
+        menurut buku sekarang <b>{{ number_format($currentOpening, 0, ',', '.') }}</b>
+        (mis. Saldo Awal akun diinput/diedit belakangan).
+        Void rekonsiliasi ini lalu buat ulang untuk periode yang sama agar angkanya ikut terbaru.
+    </div>
+@endif
+
 {{-- Header ringkas 1 baris --}}
 <div class="bg-white rounded shadow px-3 py-2 mb-3 grid grid-cols-5 gap-3 text-sm items-end">
     <div>

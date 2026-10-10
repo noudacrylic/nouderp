@@ -16,6 +16,9 @@ class BankReconciliationService
 {
     use NumberGeneratorTrait;
 
+    /** Jurnal Saldo Awal akun (OpeningBalanceService) — masuk saldo awal periode, bukan baris. */
+    private const OPENING_BALANCE_TYPE = 'opening_balance';
+
     public function createDraft(array $data): BankReconciliation
     {
         $start = Carbon::parse($data['start_date']);
@@ -28,7 +31,7 @@ class BankReconciliationService
         }
 
         return DB::transaction(function () use ($data, $start, $end) {
-            $opening = $this->computeOpeningBalance((int) $data['account_id'], $start);
+            $opening = $this->computeOpeningBalance((int) $data['account_id'], $start, $end);
             $bookEnd = $this->computeBookBalance((int) $data['account_id'], $end);
 
             $br = BankReconciliation::create([
@@ -126,6 +129,9 @@ class BankReconciliationService
 
             $book = $this->computeBookBalance($br->account_id, $end);
             $br->update([
+                // Saldo awal ikut dihitung ulang: Saldo Awal akun bisa diinput/diedit
+                // setelah draft dibuat.
+                'opening_balance' => $this->computeOpeningBalance($br->account_id, $start, $end),
                 'book_balance' => $book,
                 'difference'   => round($book - (float) $br->statement_balance, 2),
             ]);
@@ -171,9 +177,28 @@ class BankReconciliationService
         return round($debit - $credit, 2);
     }
 
-    public function computeOpeningBalance(int $accountId, Carbon $start): float
+    /**
+     * Saldo s/d sehari sebelum periode + jurnal Saldo Awal (opening_balance) yang jatuh
+     * DI DALAM periode. Saldo Awal akun bukan mutasi bank — tak ada padanannya di koran —
+     * jadi ditampilkan sebagai "Saldo awal periode", bukan baris transaksi
+     * (lihat getJournalLineIds). Saldo akhir buku tetap sama.
+     */
+    public function computeOpeningBalance(int $accountId, Carbon $start, ?Carbon $end = null): float
     {
-        return $this->computeBookBalance($accountId, $start->copy()->subDay());
+        $opening = $this->computeBookBalance($accountId, $start->copy()->subDay());
+        if (!$end) return $opening;
+
+        $ob = JournalLine::where('account_id', $accountId)
+            ->whereHas('journal', function ($q) use ($start, $end) {
+                $q->where('status', 'posted')
+                  ->where('reference_type', self::OPENING_BALANCE_TYPE)
+                  ->whereDate('date', '>=', $start)
+                  ->whereDate('date', '<=', $end);
+            })
+            ->selectRaw('COALESCE(SUM(debit),0) - COALESCE(SUM(credit),0) as net')
+            ->value('net');
+
+        return round($opening + (float) $ob, 2);
     }
 
     /**
@@ -184,6 +209,7 @@ class BankReconciliationService
         return JournalLine::where('account_id', $accountId)
             ->whereHas('journal', function ($q) use ($start, $end) {
                 $q->where('status', 'posted')
+                  ->where('reference_type', '!=', self::OPENING_BALANCE_TYPE)
                   ->whereDate('date', '>=', $start)
                   ->whereDate('date', '<=', $end);
             })

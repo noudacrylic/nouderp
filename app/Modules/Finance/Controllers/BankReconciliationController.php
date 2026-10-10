@@ -437,7 +437,13 @@ class BankReconciliationController extends Controller
             fn($a, $b) => $a->journalLine->journal_id <=> $b->journalLine->journal_id,
             fn($a, $b) => $a->journalLine->id <=> $b->journalLine->id,
         ])->values());
-        return view('erp.finance.bank-reconciliations.show', compact('br'));
+        // Rekonsiliasi selesai = snapshot. Bila Saldo Awal akun diinput/diedit sesudahnya,
+        // saldo awal tersimpan tak lagi sesuai buku → tampilkan peringatan (void & buat ulang).
+        $currentOpening = $br->isCompleted()
+            ? $this->service->computeOpeningBalance(
+                $br->account_id, \Carbon\Carbon::parse($br->start_date), \Carbon\Carbon::parse($br->end_date))
+            : null;
+        return view('erp.finance.bank-reconciliations.show', compact('br', 'currentOpening'));
     }
 
     public function void($id)
