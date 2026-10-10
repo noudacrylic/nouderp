@@ -227,9 +227,14 @@ class BankReconciliationService
      * Kolom: 0 Tanggal, 1 Keterangan, 2 Uang Masuk, 3 Uang Keluar.
      * Replace total data koran lama untuk BR ini. Return ringkasan.
      */
-    public function importStatement(BankReconciliation $br, array $rawRows): array
+    public function importStatement(BankReconciliation $br, array $rawRows, array $header = []): array
     {
         if (!$br->isDraft()) throw new DomainException('Hanya draft yang bisa di-upload rekening koran.');
+
+        // Laporan asli Midtrans (Balance Transaction Report) → ubah ke 4 kolom standar.
+        if ($midtransCols = $this->midtransColumns($header)) {
+            $rawRows = $this->convertMidtransRows($rawRows, $midtransCols);
+        }
 
         $parsed  = [];
         $skipped = [];
@@ -237,8 +242,8 @@ class BankReconciliationService
             $rowNum  = $idx + 2; // +1 header sudah di-strip, +1 supaya 1-indexed
             $rawDate = $row[0] ?? null;
             $desc    = trim((string) ($row[1] ?? ''));
-            $masuk   = (float) clean_number($row[2] ?? 0);
-            $keluar  = (float) clean_number($row[3] ?? 0);
+            $masuk   = $this->statementNumber($row[2] ?? 0);
+            $keluar  = $this->statementNumber($row[3] ?? 0);
 
             // Lewati baris kosong total (biasanya baris petunjuk / spasi)
             if (($rawDate === null || $rawDate === '') && $masuk == 0 && $keluar == 0) continue;
@@ -286,6 +291,65 @@ class BankReconciliationService
             'skipped'       => $skipped,
             'out_of_period' => $outOfPeriod,
         ];
+    }
+
+    /**
+     * Sel yang sudah berupa ANGKA dipakai apa adanya — clean_number() membaca "11.144"
+     * sebagai sebelas ribu, padahal di Excel itu 11,144 (fee Midtrans berdesimal).
+     * Hanya teks yang lewat clean_number() (format Indonesia "1.234.567,89").
+     */
+    private function statementNumber($v): float
+    {
+        if (is_int($v) || is_float($v)) return (float) $v;
+        return (float) clean_number($v);
+    }
+
+    /**
+     * Kenali header laporan Midtrans: Date Created | Order ID | Transaction Type | Channel |
+     * Status | Reference Id | Amount | Total Fee | Notes. Return indeks kolom, atau null.
+     */
+    private function midtransColumns(array $header): ?array
+    {
+        $norm = array_map(fn($h) => strtolower(trim((string) $h)), $header);
+        $want = ['date' => 'date created', 'order' => 'order id', 'type' => 'transaction type',
+                 'channel' => 'channel', 'status' => 'status', 'amount' => 'amount', 'fee' => 'total fee'];
+        $cols = [];
+        foreach ($want as $key => $label) {
+            $i = array_search($label, $norm, true);
+            if ($i === false) return null;
+            $cols[$key] = $i;
+        }
+        return $cols;
+    }
+
+    /**
+     * Satu baris Midtrans = satu mutasi saldo BERSIH (Amount + Total Fee, fee bernilai negatif),
+     * dibulatkan ke rupiah — sama dengan cara ERP mencatat "Penerimaan Kas (Net)" ke Saldo
+     * Midtrans, jadi bisa cocok persis. Withdrawal (pencairan ke bank) jadi uang keluar.
+     */
+    private function convertMidtransRows(array $rows, array $c): array
+    {
+        $skipStatus = ['pending', 'failure', 'failed', 'cancel', 'deny', 'expire'];
+        $out = [];
+        foreach ($rows as $row) {
+            $status = strtolower(trim((string) ($row[$c['status']] ?? '')));
+            if (in_array($status, $skipStatus, true)) continue;
+
+            $amount = $this->statementNumber($row[$c['amount']] ?? 0);
+            $fee    = $this->statementNumber($row[$c['fee']] ?? 0);
+            $net    = round($amount + $fee);
+            $type    = trim((string) ($row[$c['type']] ?? ''));
+            $channel = trim((string) ($row[$c['channel']] ?? ''));
+            $order   = trim((string) ($row[$c['order']] ?? ''));
+
+            $desc = trim("{$type} {$channel} {$order}");
+            if ($fee != 0) {
+                $desc .= ' (bruto ' . number_format($amount, 0, ',', '.')
+                       . ' − fee ' . number_format(abs($fee), 0, ',', '.') . ')';
+            }
+            $out[] = [$row[$c['date']] ?? null, $desc, $net > 0 ? $net : 0, $net < 0 ? -$net : 0];
+        }
+        return $out;
     }
 
     public function clearStatement(BankReconciliation $br): void

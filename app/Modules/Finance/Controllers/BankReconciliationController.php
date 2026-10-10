@@ -272,10 +272,10 @@ class BankReconciliationController extends Controller
         if (count($rows) < 2) {
             return back()->with('error', 'File kosong atau tidak ada baris data (perlu header + minimal 1 data).');
         }
-        array_shift($rows); // buang baris header
+        $header = array_shift($rows); // header dipakai utk mengenali laporan asli Midtrans
 
         try {
-            $res = $this->service->importStatement($br, $rows);
+            $res = $this->service->importStatement($br, $rows, $header ?? []);
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }

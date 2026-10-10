@@ -1059,6 +1059,12 @@ async function submitTransferModal(e) {
                 </div>
             @endif
 
+            <div class="bg-sky-50 border border-sky-200 rounded px-3 py-2 text-xs text-sky-800">
+                <b>Saldo Midtrans:</b> upload langsung file <i>Balance Transaction Report</i> dari dashboard Midtrans
+                (.xlsx, tanpa diubah). Tiap pembayaran otomatis jadi satu baris <b>bersih</b> (nominal − fee) supaya cocok
+                dengan Penerimaan Kas (Net) di ERP; penarikan ke bank jadi uang keluar. Tak perlu lewat AI.
+            </div>
+
             {{-- 1. Konversi PDF → Excel via AI --}}
             <div>
                 <div class="font-semibold text-gray-700 mb-1">1. Ubah PDF rekening koran → Excel pakai AI</div>
@@ -1073,6 +1079,7 @@ Aturan:
 - Uang Masuk: nominal dana yang MASUK ke rekening (angka polos tanpa titik/koma ribuan, tanpa "Rp"). Kosongkan jika bukan transaksi masuk.
 - Uang Keluar: nominal dana yang KELUAR dari rekening (angka polos). Kosongkan jika bukan transaksi keluar.
 - Satu baris untuk satu mutasi. Jangan sertakan baris saldo, subtotal, atau ringkasan.
+- Jika satu transaksi punya baris biaya/fee terpisah, gabungkan jadi SATU baris bernilai bersih (nominal dikurangi fee), dibulatkan ke rupiah.
 - Jangan tambah kolom lain. Keluarkan sebagai file Excel (.xlsx) siap unduh.</textarea>
                 <button type="button" onclick="copyAiPrompt(this)"
                         class="mt-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-2.5 py-1 rounded text-xs font-semibold">📋 Salin Prompt</button>
