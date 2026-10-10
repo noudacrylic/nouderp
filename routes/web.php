@@ -889,6 +889,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::post('/orders/{id}/pickup-date', [SalesOrderController::class, 'updatePickupDate'])->name('orders.pickup-date');
     Route::post('/orders/{id}/update-shipping', [SalesOrderController::class, 'updateShipping'])->name('orders.update-shipping');
     Route::post('/orders/{id}/void', [SalesOrderController::class, 'void'])->name('orders.void');
+    Route::get('/orders/{id}/ganti', [SalesOrderController::class, 'replaceForm'])->name('orders.replace');
     Route::get('/orders/{id}/print', [SalesOrderController::class, 'print'])->name('orders.print');
     Route::get('/orders/{id}/label', [SalesOrderController::class, 'printLabel'])->name('orders.label');
     Route::get('/orders/{id}/pdf', [SalesOrderController::class, 'downloadPdf'])->name('orders.pdf');

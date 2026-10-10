@@ -100,6 +100,18 @@
             </div>
         @endif
 
+        {{-- GANTI PESANAN: sudah ada DP & belum difaktur. Syarat lengkap dicek server
+             (SalesOrderReplacementService::blocker) saat tombol diklik. Detail saja. --}}
+        @if($showText && (float) $so->paid_amount > 0 && $invStatus === 'not_invoiced' && !$so->customer?->is_marketplace)
+            <a href="{{ route('sales.orders.replace', $so->id) }}" title="Ganti item/ukuran: SO baru, DP dipindah, SO ini di-void"
+                class="{{ $btnClass }} bg-orange-500 hover:bg-orange-600 text-white border-none">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>GANTI PESANAN</span>
+            </a>
+        @endif
+
         {{-- VOID BUTTON (hanya tampil bila tidak ada dokumen turunan aktif) --}}
         @if($so->canBeVoided())
             <form action="{{ route('sales.orders.void', $so->id) }}" method="POST" class="m-0" onsubmit="return confirm('Yakin ingin membatalkan (void) SO ini?')">

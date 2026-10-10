@@ -340,6 +340,171 @@ class SalesOrderService
     }
 
     /**
+     * Alasan SO tidak bisa di-void (dokumen turunan masih aktif), atau null bila boleh.
+     * $ignorePayments: dipakai Ganti Pesanan — DP-nya dipindah ke SO pengganti, bukan di-void.
+     */
+    public function voidBlocker(SalesOrder $so, bool $ignorePayments = false): ?string
+    {
+        if ($so->status !== SalesOrderStatus::CONFIRMED->value) {
+            return 'Hanya SO confirmed yang bisa di-void';
+        }
+
+        $activeInvoice = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->first();
+        if ($activeInvoice) {
+            return "SO tidak bisa di-void: masih ada Invoice {$activeInvoice->invoice_number} aktif. Void invoice tersebut terlebih dahulu.";
+        }
+
+        $activeDelivery = \App\Modules\Sales\Models\SalesDelivery::where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->first();
+        if ($activeDelivery) {
+            return "SO tidak bisa di-void: masih ada Surat Jalan {$activeDelivery->delivery_number} aktif. Void surat jalan tersebut terlebih dahulu.";
+        }
+
+        if (!$ignorePayments) {
+            $activePayment = \App\Models\CustomerPaymentAllocation::where('sales_order_id', $so->id)
+                ->whereHas('payment', fn($q) => $q->where('status', 'posted'))
+                ->with('payment')
+                ->first();
+            if ($activePayment) {
+                $payNum = $activePayment->payment->payment_number ?? '#' . $activePayment->customer_payment_id;
+                return "SO tidak bisa di-void: masih ada Payment {$payNum} aktif. Void payment tersebut terlebih dahulu.";
+            }
+        }
+
+        $activeReturn = \App\Modules\Sales\Models\SalesReturn::where('sales_order_id', $so->id)
+            ->whereNotIn('status', ['void', 'cancelled', 'draft'])
+            ->first();
+        if ($activeReturn) {
+            return "SO tidak bisa di-void: masih ada Retur {$activeReturn->return_number} aktif. Void retur tersebut terlebih dahulu.";
+        }
+
+        // Biaya pesanan yang sudah dibayar akan menggantung di 1204 selamanya kalau SO-nya batal.
+        $activeCost = app(SalesOrderCostService::class)->linesForOrder($so->id)->first();
+        if ($activeCost) {
+            $cdNum = $activeCost->disbursement->number ?? '#' . $activeCost->cash_disbursement_id;
+            return "SO tidak bisa di-void: masih ada Biaya Pesanan di Pengeluaran {$cdNum}. Void/hapus pengeluaran tersebut atau lepaskan tautan SO-nya terlebih dahulu.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Void SO confirmed yang sudah lolos voidBlocker(): lepas reservasi stok, batalkan OP
+     * auto-preorder, set status void (PaymentLinkDocumentObserver ikut mematikan tautan
+     * Midtrans-nya), dan kembalikan Penawaran sumber ke draft bila tak dirujuk SO lain.
+     *
+     * @return string[] nomor OP yang TIDAK bisa dibatalkan (sudah dikerjakan).
+     */
+    public function voidConfirmed(SalesOrder $so): array
+    {
+        // Release stock reservations
+        StockReservation::where('sales_order_id', $so->id)
+            ->update(['status' => 'cancelled']);
+        // Mass-update tidak memicu observer reservasi → tandai manual untuk push ke Jubelio.
+        $this->flagJubelioStockPending($so->id);
+
+        $gagalBatal = $this->cancelAutoPreorderProductions($so);
+
+        $so->status = 'void';
+        $so->save();
+
+        // Kalau SO ini berasal dari Quotation, kembalikan status Quotation ke
+        // 'draft' agar bisa di-convert ulang. Skip kalau masih ada SO lain
+        // yang aktif merujuk ke Quotation yang sama.
+        if ($so->quotation_id) {
+            $stillReferenced = SalesOrder::where('quotation_id', $so->quotation_id)
+                ->whereNotIn('status', ['void', 'cancelled'])
+                ->where('id', '!=', $so->id)
+                ->exists();
+            if (!$stillReferenced) {
+                \App\Models\SalesQuotation::where('id', $so->quotation_id)
+                    ->where('status', 'converted')
+                    ->update(['status' => 'draft']);
+            }
+        }
+
+        return $gagalBatal;
+    }
+
+    /**
+     * Tandai produk yang reservasinya berubah karena void/hapus SO agar didorong ulang ke
+     * Jubelio. Dipakai pada jalur mass-update reservasi (yang melewati StockReservationObserver).
+     * Produk komponen bundle ikut dipanggil lewat reservasinya; bundle induk ditandai juga.
+     */
+    public function flagJubelioStockPending(int $salesOrderId): void
+    {
+        $productIds = StockReservation::where('sales_order_id', $salesOrderId)
+            ->pluck('product_id')->unique()->all();
+        if (empty($productIds)) {
+            return;
+        }
+
+        Product::whereIn('id', $productIds)
+            ->where('sync_to_jubelio', true)
+            ->update(['jubelio_sync_pending' => true]);
+
+        $bundleIds = \App\Core\Inventory\BundleComponent::whereIn('component_product_id', $productIds)
+            ->pluck('bundle_product_id');
+        if ($bundleIds->isEmpty()) {
+            $bundleIds = \App\Core\Inventory\ProductBundle::whereIn('component_product_id', $productIds)
+                ->pluck('bundle_product_id');
+        }
+        if ($bundleIds->isNotEmpty()) {
+            Product::whereIn('id', $bundleIds)
+                ->where('sync_to_jubelio', true)
+                ->update(['jubelio_sync_pending' => true]);
+        }
+    }
+
+    /**
+     * Batalkan order produksi auto-preorder milik SO yang di-void.
+     *
+     * @return string[] nomor OP yang TIDAK bisa dibatalkan (sudah dikerjakan / terlibat merge).
+     */
+    public function cancelAutoPreorderProductions(SalesOrder $so): array
+    {
+        $gagal = [];
+
+        $pos = \App\Modules\Production\Models\ProductionOrder::where('sales_order_id', $so->id)
+            ->where('created_via', 'auto_preorder')
+            ->whereNotIn('status', ['cancelled', 'finalized'])
+            ->get();
+
+        foreach ($pos as $po) {
+            // Dulu di sini hanya `status === 'draft'` yang dibatalkan. Padahal OP preorder
+            // LAHIR langsung 'confirmed' (soft-confirm di PreorderAutoProductionService),
+            // jadi cabang itu praktis tak pernah jalan: semua OP jatuh ke else dan cuma
+            // ditulis ke log. Akibatnya OP yang masih antre tetap dikerjakan setelah
+            // pesanannya batal, dan barangnya menumpuk jadi deadstock.
+            //
+            // ProductionOrderService::cancel() sudah punya guard yang benar — menolak OP
+            // yang sudah mulai dikerjakan atau yang terlibat penggabungan, dan mengembalikan
+            // material yang terlanjur dikonsumsi. Yang gagal dibatalkan tetap dicatat, bukan
+            // digagalkan: void SO tidak boleh batal hanya karena produksinya sudah jalan.
+            try {
+                app(\App\Modules\Production\Services\ProductionOrderService::class)->cancel($po->id);
+                $po->forceFill([
+                    'notes' => trim(($po->notes ?? '') . "\n[Auto-cancel: SO {$so->order_number} di-void]"),
+                ])->save();
+            } catch (\Throwable $e) {
+                Log::warning('PO auto_preorder tidak bisa dibatalkan saat SO di-void', [
+                    'production_order_id' => $po->id,
+                    'order_number'        => $po->order_number,
+                    'status'              => $po->status,
+                    'sales_order_id'      => $so->id,
+                    'message'             => $e->getMessage(),
+                ]);
+                $gagal[] = $po->order_number;
+            }
+        }
+
+        return $gagal;
+    }
+
+    /**
      * Booking code Ambil di Toko: 4 angka acak (0000–9999) agar mudah diinput.
      * Retensi 1 tahun — kode hanya dianggap "terpakai" bila ada SO dengan kode
      * sama yang dibuat dalam 12 bulan terakhir; kode lebih lama bebas dipakai lagi.
