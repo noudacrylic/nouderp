@@ -259,6 +259,7 @@ Route::prefix('erp')->group(function () {
         Route::post('/{conversation}/promo', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'promoKeranjang'])->name('inbox.promo');
         // Rincian siap kirim (barang + ongkir + total + tautan bayar).
         Route::post('/{conversation}/pesanan/{order}/rincian', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'rincianPesanan'])->name('inbox.pesanan.rincian');
+        Route::post('/{conversation}/pesanan/{order}/lacak', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lacakPesanan'])->name('inbox.pesanan.lacak');
         Route::post('/{conversation}/pesanan/{order}/tautkan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tautkanPesanan'])->name('inbox.pesanan.tautkan');
         Route::post('/{conversation}/pesanan/{order}/lepas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lepasPesanan'])->name('inbox.pesanan.lepas');
     });

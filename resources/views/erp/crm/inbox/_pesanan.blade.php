@@ -125,6 +125,22 @@
                     <span x-show="!p.ambil && p.ongkir > 0" x-text="rupiah(p.ongkir)"></span>
                 </div>
 
+                {{-- Lacak: pesanan WA & web yang dikirim (kurir/instant). "Lacak"
+                     membuka halaman pembeli untuk dilihat sendiri; "Kirim link"
+                     menyisipkan tautannya ke kotak balasan — tidak langsung
+                     terkirim, karena biasanya perlu kalimat pengantar. --}}
+                <div x-show="p.lacak && !p.selesai" x-cloak class="flex items-center justify-end gap-2 mt-1">
+                    <a :href="p.url_lacak" target="_blank" rel="noopener"
+                       class="text-[11px] font-semibold text-sky-700 border border-sky-300 rounded px-2 py-1 hover:bg-sky-50"
+                       title="Buka halaman lacak pesanan milik pembeli">🔎 Lacak</a>
+                    <button type="button" @click="kirimLacak(p)" :disabled="sibukLacak === p.id"
+                            class="text-[11px] font-semibold text-sky-700 border border-sky-300 rounded px-2 py-1 hover:bg-sky-50 disabled:opacity-60"
+                            title="Sisipkan tautan lacak ke kotak balasan">
+                        <span x-show="sibukLacak !== p.id">Kirim link lacak</span>
+                        <span x-show="sibukLacak === p.id" x-cloak>Menyiapkan…</span>
+                    </button>
+                </div>
+
                 <div class="flex items-center justify-between gap-2 mt-1">
                     <span class="text-[11px] text-gray-400" x-text="p.tanggal"></span>
                     <div class="flex items-center gap-2">
@@ -786,7 +802,7 @@
             // Sidik keranjang saat ongkir dipasang — pembanding untuk tahu
             // tarifnya masih cocok atau sudah untuk berat yang lain.
             ongkirSidik: awal.ongkirSidik ?? '',
-            sibuk: false, galat: '', jamSimpan: null, sibukRincian: null,
+            sibuk: false, galat: '', jamSimpan: null, sibukRincian: null, sibukLacak: null,
 
             // Tautan pesanan ↔ chat (CRM Tahap 3).
             tautCari: '', tautHasil: [], tautSibuk: null, tautInfo: '',
@@ -1520,6 +1536,37 @@
                 // Tinggi iframe dibagi skala supaya SESUDAH diperkecil ia tetap
                 // menutup tinggi bingkai; kalau tidak, ada pita kosong di bawah.
                 this.tinggiPratinjau = Math.round(tinggi / this.skalaPratinjau);
+            },
+
+            async kirimLacak(p) {
+                if (this.sibukLacak) return;
+
+                this.sibukLacak = p.id;
+
+                try {
+                    const url = '{{ $terpilih ? url('/erp/crm/' . $terpilih->id . '/pesanan') : '' }}/'
+                        + p.id + '/lacak';
+
+                    const r = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                        },
+                    });
+                    const d = await r.json().catch(() => ({}));
+
+                    if (!r.ok || !d.teks) {
+                        this.galat = d.error || d.message || 'Gagal menyiapkan tautan lacak.';
+                        return;
+                    }
+
+                    window.dispatchEvent(new CustomEvent('sisip-teks', { detail: { teks: d.teks } }));
+                } catch (e) {
+                    this.galat = 'Jaringan bermasalah — tautan lacak belum siap.';
+                } finally {
+                    this.sibukLacak = null;
+                }
             },
 
             sisipKeChat(p) {

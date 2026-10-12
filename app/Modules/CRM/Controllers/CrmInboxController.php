@@ -1691,6 +1691,43 @@ class CrmInboxController extends Controller
             ->all();
     }
 
+    /** Pesanan WA/web yang dikirim (kurir/instant) — yang punya halaman lacak berguna. */
+    private function bisaDilacak(SalesOrder $so): bool
+    {
+        return $so->status !== 'draft'
+            && $so->delivery_method !== 'ambil_toko'
+            && ! $so->customer?->is_marketplace;
+    }
+
+    /**
+     * Kalimat berisi tautan lacak pesanan, untuk DISISIPKAN ke kotak balasan.
+     *
+     * Disisipkan, bukan langsung dikirim — sama seperti "Rincian": tautan
+     * lacak hampir selalu menjawab "sudah sampai mana", yang perlu pengantar.
+     * Token publiknya baru dibuat di sini (ensurePublicToken), saat memang
+     * ada yang hendak membagikannya.
+     */
+    public function lacakPesanan(CrmConversation $conversation, SalesOrder $order)
+    {
+        $tertaut = app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($conversation);
+
+        // Pesanan milik pelanggan LAIN tidak boleh bocor lewat chat ini.
+        if (! (($conversation->customer_id && $order->customer_id === $conversation->customer_id)
+            || in_array($order->id, $tertaut, true))) {
+            abort(404);
+        }
+
+        if (! $this->bisaDilacak($order->loadMissing('customer:id,is_marketplace'))) {
+            return response()->json(['error' => 'Pesanan ini tidak punya halaman lacak (draft, ambil di toko, atau marketplace).'], 422);
+        }
+
+        $order->ensurePublicToken();
+
+        return response()->json([
+            'teks' => 'Pesanan ' . $order->order_number . ' bisa dipantau di sini kak: ' . $order->publicTrackUrl(),
+        ]);
+    }
+
     /**
      * Rincian pesanan siap kirim: daftar barang, ongkir, total, plus tautan bayar.
      *
@@ -1980,7 +2017,7 @@ class CrmInboxController extends Controller
              * tampak kosong justru saat ada yang perlu ditindaklanjuti.
              */
             ->limit(25)
-            ->with('items.product:id,name,sku')
+            ->with(['items.product:id,name,sku', 'customer:id,is_marketplace'])
             ->get()
             ->map(function (SalesOrder $so) use ($progress, $tertaut) {
                 $p = $progress->for($so);
@@ -2033,6 +2070,15 @@ class CrmInboxController extends Controller
                     // tidak menduplikasi satu pun dari itu — dua tempat yang
                     // sama-sama bisa mengubah pesanan akan berbeda aturannya.
                     'url'     => route('sales.orders.show', $so->id),
+                    /*
+                     * Lacak hanya untuk pesanan WA & web yang DIKIRIM (kurir
+                     * maupun instant). Marketplace dilacak di aplikasinya
+                     * sendiri; ambil di toko tak punya paket; draft belum jadi
+                     * pesanan bagi pembeli. Token halaman lacak dibuat saat
+                     * diklik, bukan di sini — rail ini dirender tiap chat dibuka.
+                     */
+                    'lacak'   => $this->bisaDilacak($so),
+                    'url_lacak' => route('sales.orders.public-tracking', $so->id),
                 ];
             })
             ->all();

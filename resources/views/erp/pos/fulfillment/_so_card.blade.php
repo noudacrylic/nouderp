@@ -172,6 +172,16 @@
         @elseif($mode === 'telah_diproses' && ($r['resi_state'] ?? null) === 'belum_generate')
             <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700">⚙ Belum di-generate</span>
         @endif
+        {{-- Lacak: pesanan WA & web yang DIKIRIM (kurir maupun instant), di tab mana pun.
+             Dulu baru muncul setelah resi terbit, padahal lini masa halaman lacak
+             (pembayaran › produksi › packing › kirim) sudah berguna jauh sebelumnya —
+             justru saat pembeli paling sering bertanya. Marketplace dilacak di
+             aplikasinya sendiri; ambil di toko tak punya paket untuk dilacak. --}}
+        @if(empty($r['is_marketplace']) && empty($r['is_pickup']) && empty($r['is_draft']))
+            <a href="{{ route('sales.orders.public-tracking', $r['id']) }}"
+               class="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50"
+               title="Buka halaman lacak pesanan milik pembeli">🔎 Lacak</a>
+        @endif
         @if($isDone && ($pickupDone || $allDelivered))
             <span class="ml-auto text-xs whitespace-nowrap text-white font-semibold">
                 ✓ {{ $pickupDone ? 'Sudah diambil' : 'Sudah sampai' }}
@@ -611,15 +621,10 @@
                             @if($d->delivery_method !== 'ambil_toko')
                                 @php $isManual = \App\Models\ManualCourier::isManualCode($d->shipping_courier_code); @endphp
                                 @if($d->tracking_number)
-                                    {{-- Sudah ada resi (Biteship) → cetak ulang resi & lacak --}}
+                                    {{-- Sudah ada resi (Biteship) → cetak ulang resi --}}
                                     <a href="{{ route('sales.deliveries.resi', $d->id) }}"
                                        class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🏷️ Cetak Resi</a>
-                                    {{-- Menuju halaman lacak milik PEMBELI, bukan pelacakan Biteship:
-                                         halaman itu merangkum lini masa pesanan, resi, dan posisi
-                                         paket apa pun kurirnya — termasuk Jubelio & marketplace,
-                                         yang di jalur Biteship selalu buntu. --}}
-                                    <a href="{{ route('sales.orders.public-tracking', $r['id']) }}"
-                                       class="px-2.5 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🔎 Lacak</a>
+                                    {{-- Tombol Lacak pindah ke kepala kartu: tampil sejak sebelum resi terbit. --}}
                                 @elseif($isManual)
                                     {{-- Kurir manual → cetak label tanpa resi --}}
                                     <a href="{{ route('sales.deliveries.label', $d->id) }}"
