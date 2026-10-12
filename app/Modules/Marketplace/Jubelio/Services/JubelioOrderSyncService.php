@@ -550,6 +550,9 @@ class JubelioOrderSyncService
 
         $link->save();
 
+        // Rincian potongan marketplace (admin/affiliate/pajak/saldo masuk) untuk kartu di SO.
+        $this->simpanRincianBiaya($detail, $link);
+
         // Push stok SEKETIKA bila SJ BARU terbentuk run ini (stok komponen sudah keluar):
         // bundle terjual → komponen + bundle terkait langsung berkurang di marketplace tanpa
         // menunggu cron 5 menit (menutup celah oversell komponen). Di LUAR transaksi stok inti,
@@ -1942,17 +1945,26 @@ class JubelioOrderSyncService
             return;
         }
 
-        $subtotal   = (float) $so->subtotal;
-        $shipping   = (float) ($detail['shipping_cost'] ?? $so->shipping_cost ?? 0);
-        $grandTotal = (float) ($detail['grand_total'] ?? ($subtotal + $shipping));
-        $fee        = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, (int) $so->customer_id)['fee'];
+        // Rincian potongan dari Jubelio (escrow Shopee: admin, affiliate, pajak, saldo masuk)
+        // dipakai apa adanya: biaya non-pajak ke Beban Admin, pajak ke akun pajak.
+        $rincian = $this->rincianBiaya($detail, $so, true);
+        if ($rincian) {
+            app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice,
+                \App\Modules\Sales\Services\MarketplaceFeeBreakdownService::potonganNonPajak($rincian), null, $rincian['pajak']);
+            $fee = $rincian['admin'] + $rincian['affiliate'] + $rincian['lain'] + $rincian['pajak'];
+        } else {
+            $subtotal   = (float) $so->subtotal;
+            $shipping   = (float) ($detail['shipping_cost'] ?? $so->shipping_cost ?? 0);
+            $grandTotal = (float) ($detail['grand_total'] ?? ($subtotal + $shipping));
+            $fee        = $this->resolveMarketplaceFee($subtotal, $shipping, $grandTotal, (int) $so->customer_id)['fee'];
 
-        // Potongan yang DILAPORKAN Jubelio (kotor − grand_total) adalah total potongan
-        // marketplace, pajak termasuk di dalamnya → pajaknya dipisah dari situ. Taksiran dari
-        // config (% admin) hanya biaya admin → pajaknya ditambahkan di atasnya.
-        $dariJubelio = round($subtotal + $shipping - $grandTotal, 2) > 0;
+            // Potongan yang DILAPORKAN Jubelio (kotor − grand_total) adalah total potongan
+            // marketplace, pajak termasuk di dalamnya → pajaknya dipisah dari situ. Taksiran dari
+            // config (% admin) hanya biaya admin → pajaknya ditambahkan di atasnya.
+            $dariJubelio = round($subtotal + $shipping - $grandTotal, 2) > 0;
 
-        app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice, $fee, null, null, $dariJubelio);
+            app(\App\Modules\Sales\Services\MarketplaceEngineService::class)->handle($invoice, $fee, null, null, $dariJubelio);
+        }
 
         JubelioSyncLog::record(JubelioSyncLog::TYPE_ORDER, JubelioSyncLog::OK, 'Pesanan ' . ($link->jubelio_salesorder_no ?: $link->jubelio_salesorder_id), [
             'reference'             => $link->jubelio_salesorder_no,
@@ -1960,6 +1972,82 @@ class JubelioOrderSyncService
             'message'               => 'Pesanan selesai → saldo ditahan dilepas ke wallet, potongan marketplace ' . number_format((float) $invoice->fresh()->marketplace_fee, 0, ',', '.') . ' dibebankan (admin + pajak).',
             'meta'                  => ['invoice_id' => $invoice->id, 'fee' => $fee],
         ]);
+    }
+
+    // ───────────────────────────── Rincian potongan ─────────────────────────────
+
+    /** Rincian potongan marketplace dari detail Jubelio, atau null bila Jubelio tak membawanya. */
+    private function rincianBiaya(array $detail, SalesOrder $so, bool $selesai): ?array
+    {
+        $cfg = MarketplaceConfig::where('customer_id', $so->customer_id)->where('is_active', true)->first();
+        $svc = app(\App\Modules\Sales\Services\MarketplaceFeeBreakdownService::class);
+
+        return $svc->dariJubelio($detail, (float) $so->grand_total, $selesai, $cfg, $svc->tanggalPesanan($so));
+    }
+
+    /** Simpan rincian potongan untuk kartu di SO. Gagal di sini tak boleh menggagalkan sync. */
+    private function simpanRincianBiaya(array $detail, JubelioOrderLink $link): void
+    {
+        if (!$link->sales_order_id) {
+            return;
+        }
+        try {
+            $so = SalesOrder::find($link->sales_order_id);
+            $rincian = $so ? $this->rincianBiaya($detail, $so, $this->isCompleted($detail)) : null;
+            if ($rincian) {
+                app(\App\Modules\Sales\Services\MarketplaceFeeBreakdownService::class)->simpan($so, $rincian);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Jubelio rincian biaya gagal disimpan', ['link' => $link->id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Ambil ulang rincian potongan satu pesanan dari Jubelio (tombol di SO). Hanya membaca
+     * Jubelio dan memperbarui rincian — status pesanan & jurnal tidak disentuh.
+     */
+    public function ambilRincianBiaya(JubelioOrderLink $link): bool
+    {
+        $resp = $this->client->getOrder((int) $link->jubelio_salesorder_id);
+        if (!$resp['success']) {
+            return false;
+        }
+        $this->simpanRincianBiaya($resp['data'], $link);
+
+        return true;
+    }
+
+    /**
+     * Pesanan yang sudah selesai (≤30 hari) tapi rinciannya belum final — escrow TikTok baru
+     * muncul ±7–10 hari setelah selesai; Shopee kadang sesaat setelah status selesai tersinkron.
+     * Pesanan selesai tak lagi ikut rekonsiliasi pesanan aktif, jadi disapu terpisah di sini.
+     *
+     * @return array{checked:int}
+     */
+    public function segarkanRincianBiaya(int $batas = 30): array
+    {
+        $stats = ['checked' => 0];
+        if (!$this->client->isReady()) {
+            return $stats;
+        }
+
+        $links = JubelioOrderLink::whereNotNull('sales_order_id')
+            ->where('last_status', 'completed')
+            // Shopee: escrow ada begitu selesai. TikTok: baru terisi ±7–10 hari setelah selesai
+            // → sapuan 30 hari, tiap pesanan paling sering 6 jam sekali.
+            ->where('mp_completed_at', '>=', now()->subDays(30))
+            ->where('updated_at', '<', now()->subHours(6))
+            ->whereNotExists(fn ($q) => $q->from('marketplace_order_fees as f')
+                ->whereColumn('f.sales_order_id', 'jubelio_order_links.sales_order_id')->where('f.final', true))
+            ->orderBy('updated_at')->limit($batas)->get();
+
+        foreach ($links as $link) {
+            $this->ambilRincianBiaya($link);
+            $link->touch();
+            $stats['checked']++;
+        }
+
+        return $stats;
     }
 
     // ───────────────────────────── Retur draft ─────────────────────────────

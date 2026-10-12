@@ -198,6 +198,7 @@ class JubelioSettingController extends Controller
             // Pajak marketplace dipisah dari biaya admin supaya terlihat di laba rugi.
             'tax_percent'                => 'nullable|numeric|min:0|max:100',
             'account_tax_id'             => 'nullable|exists:accounts,id',
+            'tax_start_date'             => 'nullable|date',
         ]);
 
         MarketplaceConfig::updateOrCreate(
@@ -210,6 +211,7 @@ class JubelioSettingController extends Controller
                 'account_wallet_id'          => $data['account_wallet_id'],
                 'tax_percent'                => $data['tax_percent'] ?? 0,
                 'account_tax_id'             => $data['account_tax_id'] ?? null,
+                'tax_start_date'             => $data['tax_start_date'] ?? null,
                 'is_active'                  => true,
             ]
         );

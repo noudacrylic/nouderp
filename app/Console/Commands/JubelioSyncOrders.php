@@ -38,6 +38,10 @@ class JubelioSyncOrders extends Command
         $unpaid = $sync->syncUnpaidOrders();
         $this->info("Belum dibayar: pending {$unpaid['pending']} dari {$unpaid['seen']} pesanan, error {$unpaid['errors']}.");
 
+        // Pesanan selesai yang rincian potongannya (escrow) belum final → ambil ulang.
+        $rincian = $sync->segarkanRincianBiaya();
+        $this->info("Rincian potongan: dicek ulang {$rincian['checked']} pesanan selesai.");
+
         return self::SUCCESS;
     }
 }

@@ -1275,6 +1275,22 @@ class SalesOrderController extends Controller
      * Jatuh tempo dihitung dari TANGGAL SO, bukan hari ini, supaya angkanya sama dengan yang
      * muncul di form dan tidak bergeser hanya karena disepakatinya belakangan.
      */
+    /** Ambil ulang rincian potongan marketplace pesanan ini dari Jubelio (hanya membaca Jubelio). */
+    public function ambilBiayaMarketplace($id)
+    {
+        $so = SalesOrder::findOrFail($id);
+        $link = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::where('sales_order_id', $so->id)->first();
+        if (!$link) {
+            return back()->with('error', 'Pesanan ini tidak tertaut ke Jubelio.');
+        }
+
+        $ok = app(\App\Modules\Marketplace\Jubelio\Services\JubelioOrderSyncService::class)->ambilRincianBiaya($link);
+
+        return back()->with($ok ? 'success' : 'error', $ok
+            ? 'Rincian potongan marketplace diambil ulang dari Jubelio.'
+            : 'Gagal menghubungi Jubelio. Coba lagi nanti.');
+    }
+
     public function updateTempo(Request $request, $id)
     {
         $so = SalesOrder::findOrFail($id);

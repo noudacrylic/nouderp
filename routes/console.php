@@ -20,6 +20,10 @@ Schedule::command('period:ensure-current')
 Schedule::command('periode-gaji:ensure-current')
     ->monthlyOn(1, '00:01')->name('ensure-current-payroll-period')->withoutOverlapping();
 
+// Hutang PPh Final UMKM masa bulan lalu (Dr 5012 / Cr 2114). Tombol manual: rincian masa Laporan Pajak.
+Schedule::command('pajak:bukukan-hutang')
+    ->monthlyOn(1, '02:15')->name('pajak-bukukan-hutang')->withoutOverlapping();
+
 // Auto-attendance batch DINONAKTIFKAN (2026-06-17): jam absensi WAJIB 100% dari log
 // fingerprint asli (via AdmsService::mergeIntoAttendance). Auto-inject dulu memfabrikasi
 // jam masuk 08:00 / pulang 16:00 / lembur 20:00 untuk karyawan tanpa scan — termasuk di hari

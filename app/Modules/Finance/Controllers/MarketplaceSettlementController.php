@@ -192,9 +192,20 @@ class MarketplaceSettlementController extends Controller
                 'notes'           => $data['notes'] ?? null,
             ]);
 
+            // Laporan penghasilan TikTok/Tokopedia membawa rincian potongan per pesanan.
+            $rincian = $this->service->simpanRincianLaporan($parsed['rows_per_config']);
+
             $count = count($created);
             $numbers = collect($created)->pluck('number')->implode(', ');
-            $msg = "$count rekonsiliasi draft dibuat ($numbers). Total {$parsed['total_rows']} baris.";
+            $msg = "{$parsed['format']}: $count rekonsiliasi draft dibuat ($numbers). Total {$parsed['total_rows']} pesanan.";
+            if ($rincian > 0) {
+                $msg .= " Rincian potongan (admin, affiliate, PPh 22) $rincian pesanan diperbarui.";
+            }
+            if (!empty($parsed['dilewati'])) {
+                $msg .= ' Dilewati karena bukan per pesanan: ' . collect($parsed['dilewati'])
+                    ->map(fn ($d, $label) => "$label {$d['n']}× (" . number_format($d['jumlah'], 0, ',', '.') . ')')
+                    ->implode(', ') . '.';
+            }
             if (!empty($parsed['unmapped'])) {
                 $msg .= ' ⚠ Marketplace tidak dikenal di-skip: ' . implode(', ', $parsed['unmapped']);
             }

@@ -19,7 +19,8 @@
     'shippingGross' => $so->shipping_gross,
     'shippingDiscount' => max(0, (float) ($so->shipping_gross ?? 0) - (float) ($so->shipping_cost ?? 0)),
     'additionalFee' => $so->additional_fee,
-    'marketplaceFee' => $so->marketplace_fee,
+    // Potongan marketplace tampil di kartu sendiri (partials/marketplace-fees), bukan di sini.
+    'marketplaceFee' => 0,
     'uniqueCode' => (int) ($so->unique_code ?? 0),
     'grandTotal' => $so->grand_total,
     'advancePaid' => $advancePaid,

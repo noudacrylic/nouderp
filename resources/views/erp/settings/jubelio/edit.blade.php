@@ -274,7 +274,7 @@
                                     {{ rtrim(rtrim(number_format($cfg->admin_fee_percent, 2, '.', ''), '0'), '.') }}%
                                     + Rp{{ number_format($cfg->admin_fee_fixed, 0, ',', '.') }}
                                     @if((float) $cfg->tax_percent > 0)
-                                        <span class="text-gray-400">· pajak {{ rtrim(rtrim(number_format($cfg->tax_percent, 2, '.', ''), '0'), '.') }}%</span>
+                                        <span class="text-gray-400">· pajak {{ rtrim(rtrim(number_format($cfg->tax_percent, 2, '.', ''), '0'), '.') }}%@if($cfg->tax_start_date) mulai {{ $cfg->tax_start_date->format('d/m/Y') }}@endif</span>
                                     @endif
                                 @else
                                     <span class="text-amber-500">belum diatur</span>
@@ -317,6 +317,10 @@
                                     <div class="w-24" title="Pajak yang dipotong marketplace atas nilai kotor pesanan (PPh final UMKM). Isi 0,5 saat mulai berlaku.">
                                         <label class="block text-[11px] font-semibold text-gray-500 mb-1">Pajak (%)</label>
                                         <input type="number" step="0.01" min="0" max="100" name="tax_percent" value="{{ $cfg->tax_percent ?? 0 }}" class="w-full border rounded px-2 py-1.5 text-sm">
+                                    </div>
+                                    <div class="w-36" title="Marketplace memotong PPh 22 (saat pesanan selesai) hanya atas pesanan yang MASUK sejak tanggal ini (Shopee/Tokopedia/TikTok/Lazada/Blibli: 2 Okt 2026). Pesanan yang masuk sebelumnya disetor sendiri. Kosongkan bila marketplace ini tidak memungut pajak.">
+                                        <label class="block text-[11px] font-semibold text-gray-500 mb-1">Pungut pajak pesanan mulai</label>
+                                        <input type="date" name="tax_start_date" value="{{ $cfg?->tax_start_date?->format('Y-m-d') }}" class="w-full border rounded px-2 py-1.5 text-sm">
                                     </div>
                                     <div class="min-w-[200px]">
                                         @include('erp.fixed-assets.categories._account_picker', [

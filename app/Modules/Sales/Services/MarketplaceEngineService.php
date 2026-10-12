@@ -139,7 +139,12 @@ class MarketplaceEngineService
                 if ($feeBaru < 0) {
                     $feeBaru = 0.0;
                 }
-                $pajakBaru = max(0.0, round($pajak ?? $config->pajakDari($holdSisa), 2));
+                // Taksiran hanya bila marketplace memang memungut pesanan ini: yang MASUK sebelum
+                // tanggal mulai pungut tetap setor sendiri walau selesainya sesudah tanggal itu.
+                $pajakBaru = max(0.0, round($pajak ?? (
+                    $config->pajakBerlakuPada(MarketplaceConfig::tanggalPesananFaktur($invoice))
+                        ? $config->pajakDari($holdSisa) : 0.0
+                ), 2));
                 if ($pajakBaru > 0 && !$config->account_tax_id) {
                     // Tanpa akun pajak, pajaknya tetap potongan — dilebur ke biaya admin.
                     $feeBaru   = $feeTermasukPajak ? $feeBaru : round($feeBaru + $pajakBaru, 2);

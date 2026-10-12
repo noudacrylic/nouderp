@@ -47,6 +47,12 @@ class MarketplaceSettlementService
         } else {
             $spreadsheet = IOFactory::load($absolutePath);
         }
+        // File ASLI marketplace (laporan penghasilan TikTok, mutasi saldo Shopee) dibaca langsung.
+        $asli = app(MarketplaceReportParser::class)->parse($spreadsheet);
+        if ($asli) {
+            return $this->kelompokkanPerConfig($asli['rows']) + ['format' => $asli['format'], 'dilewati' => $asli['dilewati']];
+        }
+
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray(null, true, false, false); // 0-based
 
@@ -68,6 +74,24 @@ class MarketplaceSettlementService
             );
         }
 
+        $baris = [];
+        for ($i = 1; $i < count($rows); $i++) {
+            $r = $rows[$i];
+            $baris[] = [
+                'marketplace'     => strtolower(trim((string) ($r[$idxMarketplace] ?? ''))),
+                'order_ref'       => trim((string) ($r[$idxOrderRef] ?? '')),
+                'settlement_date' => $idxDate !== null ? $this->toDate($r[$idxDate] ?? null) : null,
+                'net_amount'      => $this->toNumber($r[$idxNet] ?? 0),
+                'raw_row'         => json_encode($r, JSON_UNESCAPED_UNICODE),
+            ];
+        }
+
+        return $this->kelompokkanPerConfig($baris) + ['format' => 'Format baku', 'dilewati' => []];
+    }
+
+    /** Baris [marketplace, order_ref, …] → per config marketplace aktif (lewat kode / alias). */
+    protected function kelompokkanPerConfig(array $baris): array
+    {
         // Pre-load semua marketplace_configs aktif + customer info untuk lookup cepat
         $configs = MarketplaceConfig::with('customer')->where('is_active', 1)->get();
         $codeToConfig = []; // 'shopee' => MarketplaceConfig
@@ -86,11 +110,9 @@ class MarketplaceSettlementService
         $rowsPerConfig = [];
         $unmapped = [];
 
-        for ($i = 1; $i < count($rows); $i++) {
-            $r = $rows[$i];
-            $mpRaw = strtolower(trim((string) ($r[$idxMarketplace] ?? '')));
-            $orderRef = trim((string) ($r[$idxOrderRef] ?? ''));
-            if ($mpRaw === '' || $orderRef === '') continue;
+        foreach ($baris as $r) {
+            $mpRaw = $r['marketplace'];
+            if ($mpRaw === '' || $r['order_ref'] === '') continue;
 
             $cfg = $codeToConfig[$mpRaw] ?? null;
             if (!$cfg) {
@@ -98,12 +120,8 @@ class MarketplaceSettlementService
                 continue;
             }
 
-            $rowsPerConfig[$cfg->id][] = [
-                'order_ref'       => $orderRef,
-                'settlement_date' => $idxDate !== null ? $this->toDate($r[$idxDate] ?? null) : null,
-                'net_amount'      => $this->toNumber($r[$idxNet] ?? 0),
-                'raw_row'         => json_encode($r, JSON_UNESCAPED_UNICODE),
-            ];
+            unset($r['marketplace']);
+            $rowsPerConfig[$cfg->id][] = $r;
         }
 
         return [
@@ -111,6 +129,31 @@ class MarketplaceSettlementService
             'unmapped'        => array_keys($unmapped),
             'total_rows'      => array_sum(array_map('count', $rowsPerConfig)),
         ];
+    }
+
+    /**
+     * Rincian potongan dari laporan penghasilan (TikTok/Tokopedia) → kartu Potongan Marketplace
+     * pesanan yang cocok, plus PPh 22 asli untuk Laporan Pajak. Mengembalikan jumlah pesanan.
+     */
+    public function simpanRincianLaporan(array $rowsPerConfig): int
+    {
+        $svc = app(\App\Modules\Sales\Services\MarketplaceFeeBreakdownService::class);
+        $n = 0;
+        foreach ($rowsPerConfig as $configId => $rows) {
+            $config = MarketplaceConfig::find($configId);
+            if (!$config) continue;
+            $customerIds = $this->relatedCustomerIds($config);
+            foreach ($rows as $r) {
+                if (empty($r['rincian'])) continue;
+                $invoice = $this->matchInvoiceByOrderRef($r['order_ref'], $customerIds);
+                $so = $invoice?->sales_order_id ? \App\Modules\Sales\Models\SalesOrder::find($invoice->sales_order_id) : null;
+                if (!$so) continue;
+                $svc->simpan($so, $svc->dariLaporan($r['rincian'], (float) $so->grand_total));
+                $n++;
+            }
+        }
+
+        return $n;
     }
 
     /**

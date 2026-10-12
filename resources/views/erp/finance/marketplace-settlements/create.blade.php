@@ -77,10 +77,11 @@
     {{-- ============ KANAN: UPLOAD + PROMPT ============ --}}
     <div class="space-y-4">
 
-        {{-- AI Prompt --}}
-        <div class="bg-white rounded shadow p-4">
-            <div class="flex items-center justify-between mb-2">
-                <div class="font-semibold text-sm">🤖 Prompt AI (Universal)</div>
+        {{-- AI Prompt — kini hanya untuk marketplace yang file aslinya belum dikenali (mis. Lazada). --}}
+        <details class="bg-white rounded shadow p-4">
+            <summary class="cursor-pointer text-sm font-semibold">🤖 Marketplace lain (Blibli, dll): ubah dulu lewat prompt AI ke format baku</summary>
+            <div class="flex items-center justify-between mb-2 mt-3">
+                <div class="font-semibold text-sm">Prompt AI (Universal)</div>
                 <button type="button" id="btn_copy_prompt"
                         class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-xs font-semibold">
                     📋 Copy Prompt
@@ -92,11 +93,11 @@
             <textarea id="universal_prompt" readonly rows="8"
                       class="w-full border rounded px-2 py-1.5 text-[11px] font-mono bg-gray-50 resize-y">{{ $universalPrompt }}</textarea>
             <div id="copy_success" class="hidden mt-1.5 text-[11px] text-green-700 font-semibold">✓ Prompt sudah di-copy ke clipboard.</div>
-        </div>
+        </details>
 
         {{-- Upload form --}}
         <div class="bg-white rounded shadow p-4">
-            <div class="font-semibold text-sm mb-3 pb-2 border-b">📤 Upload File Format Baku</div>
+            <div class="font-semibold text-sm mb-3 pb-2 border-b">📤 Upload Laporan Marketplace</div>
 
             <form method="POST" action="{{ route('finance.cash-bank.settlements.store') }}" enctype="multipart/form-data">
                 @csrf
@@ -108,9 +109,14 @@
                     </div>
                 @endif
 
-                <div class="bg-blue-50 border border-blue-100 text-blue-800 px-3 py-2 rounded text-[11px] mb-3">
-                    Format Excel/CSV hasil AI (4 kolom):
-                    <code class="block bg-white rounded px-2 py-1 text-[10px] font-mono mt-1">marketplace | order_ref | settlement_date | net_amount</code>
+                <div class="bg-blue-50 border border-blue-100 text-blue-800 px-3 py-2 rounded text-[11px] mb-3 space-y-1">
+                    <div>Unggah file <b>asli</b> dari marketplace, tanpa diubah — jenisnya dikenali otomatis:</div>
+                    <ul class="list-disc pl-4">
+                        <li><b>TikTok / Tokopedia</b>: Seller Center → Keuangan → Penghasilan → unduh <code>income_….xlsx</code>. Rincian biaya admin, <b>affiliate</b>, dan <b>PPh 22</b> per pesanan ikut tersimpan.</li>
+                        <li><b>Lazada</b>: Keuangan → Laporan Penghasilan → unduh "Income Overview" (.xlsx). Rincian biaya &amp; <b>PPh 22</b> per pesanan ikut tersimpan.</li>
+                        <li><b>Shopee</b>: Saldo Penjual → unduh laporan transaksi <code>my_balance_transaction_report….xlsx</code>.</li>
+                        <li>Lainnya: format baku 4 kolom <code class="font-mono">marketplace | order_ref | settlement_date | net_amount</code> (lihat prompt AI di atas).</li>
+                    </ul>
                 </div>
 
                 <div class="space-y-3 text-sm">
@@ -126,7 +132,7 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">File Excel/CSV Format Baku <span class="text-red-500">*</span></label>
+                        <label class="block text-xs text-gray-500 mb-1">File laporan (Excel/CSV) <span class="text-red-500">*</span></label>
                         <input type="file" name="file" accept=".xlsx,.xls,.csv"
                                class="border rounded px-2 py-1.5 w-full text-sm" required>
                     </div>

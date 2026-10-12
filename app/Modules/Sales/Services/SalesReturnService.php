@@ -437,7 +437,9 @@ class SalesReturnService
             $admin = (!$kompensasi && $holdSisa > 0)
                 ? round($holdSisa * (float) $config->admin_fee_percent / 100 + (float) $config->admin_fee_fixed, 0)
                 : 0.0;
-            $pajak = $config->pajakDari($holdSisa);
+            // Pajak hanya dipotong atas pesanan yang MASUK sejak tanggal mulai pungut marketplace.
+            $pajak = $config->pajakBerlakuPada(\App\Models\MarketplaceConfig::tanggalPesananFaktur($inv))
+                ? $config->pajakDari($holdSisa) : 0.0;
 
             // Biaya Admin SELALU ada (0 untuk kompensasi): di sinilah juga Program Hemat Biaya
             // Kirim / premi asuransi diisi — sama seperti pesanan berhasil, semua potongan

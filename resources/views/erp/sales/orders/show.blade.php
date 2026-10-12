@@ -24,6 +24,8 @@
         </x-slot>
     </x-erp.document-layout>
 
+    @include('erp.sales.orders.partials.marketplace-fees')
+
     @include('erp.sales.orders.partials.pickup')
 
     @include('erp.sales.orders.partials.shipping')

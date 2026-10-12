@@ -640,6 +640,18 @@ Route::prefix('erp/accounting')->group(function () {
     Route::prefix('reports')->name('accounting.reports.')->group(function () {
         Route::get('/balance-sheet', [\App\Http\Controllers\Accounting\FinancialReportController::class, 'balanceSheet'])->name('balance-sheet');
         Route::get('/income-statement', [\App\Http\Controllers\Accounting\FinancialReportController::class, 'incomeStatement'])->name('income-statement');
+
+        // Laporan Pajak — PPh Final UMKM 0,5%
+        Route::prefix('pajak')->name('pajak.')->controller(\App\Http\Controllers\Accounting\TaxReportController::class)->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('/{tahun}/{bulan}', 'masa')->whereNumber('tahun')->whereNumber('bulan')->name('masa');
+            Route::get('/{tahun}/{bulan}/excel', 'excel')->whereNumber('tahun')->whereNumber('bulan')->name('excel');
+            Route::post('/setoran', 'storeSetoran')->name('setoran.store');
+            Route::post('/omzet-luar', 'storeOmzetLuar')->name('omzet-luar.store');
+            Route::post('/setoran/tandai', 'tandaiSetoran')->name('setoran.tandai');
+            Route::delete('/setoran/{payment}', 'destroySetoran')->name('setoran.destroy');
+            Route::post('/{tahun}/{bulan}/bukukan-hutang', 'bukukanHutang')->whereNumber('tahun')->whereNumber('bulan')->name('hutang.bukukan');
+        });
     });
 });
 
@@ -1082,6 +1094,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::post('/orders/{id}/update-notes', [SalesOrderController::class, 'updateNotes'])->name('orders.update-notes');
     Route::post('/orders/{id}/keep-stock', [SalesOrderController::class, 'updateBackorder'])->name('orders.keep-stock');
     Route::post('/orders/{id}/tempo',      [SalesOrderController::class, 'updateTempo'])->name('orders.tempo');
+    Route::post('/orders/{id}/biaya-marketplace', [SalesOrderController::class, 'ambilBiayaMarketplace'])->name('orders.biaya-marketplace');
     Route::post('/quotations/{id}/update-notes', [QuotationController::class, 'updateNotes'])->name('quotations.update-notes');
     Route::post('/invoices/{id}/update-notes', [\App\Http\Controllers\DebugInvoiceController::class, 'updateNotes'])->name('invoices.update-notes');
 
