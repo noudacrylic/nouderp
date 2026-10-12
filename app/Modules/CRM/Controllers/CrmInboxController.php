@@ -157,6 +157,47 @@ class CrmInboxController extends Controller
      * terbaca di sana, satu klik di desktop membuat layar chat HP orang itu
      * tampak kosong tanpa sebab yang terlihat.
      */
+    /** Banyaknya chip label bawaan bagi admin yang belum pernah mengatur. */
+    private const LABEL_TAMPIL_BAWAAN = 5;
+
+    /**
+     * Kode label yang chipnya tampil di kolom kiri untuk admin ini.
+     *
+     * Sisanya tidak hilang — pindah ke dropdown "Lainnya". Null (belum pernah
+     * diatur) = beberapa label teratas menurut urutan master, supaya kepala
+     * kolom tetap ringkas sejak hari pertama tanpa harus diatur dulu.
+     */
+    private function labelTampil(?User $pengguna): array
+    {
+        $pilihan = $pengguna?->crm_label_tampil;
+
+        if (! is_array($pilihan)) {
+            return CrmLabel::terpakai()->take(self::LABEL_TAMPIL_BAWAAN)->pluck('kode')->all();
+        }
+
+        return array_values(array_map('strval', $pilihan));
+    }
+
+    /**
+     * Simpan chip label yang mau ditampilkan admin ini (dropdown "Lainnya").
+     * Boleh kosong: semua label lalu tinggal di dropdown.
+     */
+    public function simpanLabelTampil(Request $request)
+    {
+        $data = $request->validate([
+            'kode'   => 'array',
+            'kode.*' => 'string|max:50',
+        ]);
+
+        $sah = CrmLabel::terpakai()->pluck('kode')->all();
+
+        $request->user()->update([
+            'crm_label_tampil' => array_values(array_intersect($sah, $data['kode'] ?? [])),
+        ]);
+
+        return back();
+    }
+
     private function modeWaAktif(Request $request): bool
     {
         return (bool) $request->session()->get(self::KUNCI_MODE_WA, false);
@@ -233,6 +274,7 @@ class CrmInboxController extends Controller
             'adaLagi'           => $percakapan->total() > $percakapan->count(),
             'jumlah'            => $this->jumlahPerLabel($dasar),
             'labelOpsi'         => CrmLabel::terpakai(),
+            'labelTampil'       => $this->labelTampil($pengguna),
             'jumlahSemua'       => (clone $dasar())->count(),
             'jumlahBelumDibaca' => (clone $dasar())->where('unread_count', '>', 0)->count(),
             'lihatSemua'        => $lihatSemua,

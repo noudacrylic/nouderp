@@ -77,6 +77,10 @@
          * dan yang terlihat oleh orangnya adalah layar yang "menolak diketik".
          */
         function sedangDipakai() {
+            /* Dropdown "Lainnya" terbuka = orang sedang memilih/mengatur label;
+               menukar HTML-nya menutup dropdown di bawah tangannya. */
+            if (wadah.querySelector('details[data-label-lainnya][open]')) return true;
+
             const f = document.activeElement;
 
             return !!f && wadah.contains(f) && (

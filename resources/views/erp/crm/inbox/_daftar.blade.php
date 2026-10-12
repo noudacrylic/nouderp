@@ -196,7 +196,7 @@
         $semuaAktif       = ! $antreanAktif && ! $belumDibacaAktif;
         $chip             = 'px-1.5 py-0.5 rounded border text-[11px] leading-4';
     @endphp
-    <div class="flex flex-wrap gap-1">
+    <div class="relative flex flex-wrap gap-1">
         <a href="{{ $tautanSaring(['antrean' => null, 'belum_dibaca' => null]) }}"
            class="{{ $chip }} {{ $semuaAktif ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
             Semua <span class="{{ $semuaAktif ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlahSemua }}</span>
@@ -209,7 +209,16 @@
             Belum dibaca <span class="{{ $belumDibacaAktif ? 'text-red-100' : '' }}">{{ $jumlahBelumDibaca }}</span>
         </a>
 
-        @foreach($labelOpsi as $l)
+        {{-- Chip label PER ADMIN: yang disematkan tampil di sini, sisanya di
+             dropdown "Lainnya". Tiap admin bekerja dengan label yang berbeda,
+             dan memajang semuanya membuat kepala kolom memakan 5-6 baris. --}}
+        @php
+            $labelTampil = $labelTampil ?? $labelOpsi->pluck('kode')->all();
+            $labelDisemat = $labelOpsi->filter(fn ($l) => in_array($l->kode, $labelTampil, true));
+            $labelLainnya = $labelOpsi->reject(fn ($l) => in_array($l->kode, $labelTampil, true));
+            $aktifDiLainnya = $labelLainnya->firstWhere('kode', $antreanAktif);
+        @endphp
+        @foreach($labelDisemat as $l)
             <a href="{{ $tautanSaring(['antrean' => $l->kode, 'belum_dibaca' => null]) }}"
                class="{{ $chip }} {{ $antreanAktif === $l->kode ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
                 {{ $l->nama }}
@@ -225,6 +234,61 @@
            title="Hanya chat yang sudah Close">
             Close
         </a>
+
+        {{-- <details>, bukan komponen Alpine: penyegar otomatis menukar HTML
+             kolom ini, dan selama dropdown terbuka ia menahan diri (lihat
+             sedangDipakai() di _daftar_segar). Panelnya berlabuh ke baris chip
+             (bukan ke tombolnya) supaya selebar kolom dan tak melar keluar. --}}
+        <details data-label-lainnya class="inline-block"
+                 @click.outside="$el.open = false" @keydown.escape.window="$el.open = false">
+            <summary class="{{ $chip }} list-none cursor-pointer select-none [&::-webkit-details-marker]:hidden
+                            {{ $aktifDiLainnya ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50' }}"
+                     title="Label lain & atur chip yang tampil">
+                @if($aktifDiLainnya)
+                    {{ $aktifDiLainnya->nama }} <span class="text-emerald-100">{{ $jumlah[$aktifDiLainnya->kode] ?? 0 }}</span>
+                @else
+                    Lainnya{{ $labelLainnya->isNotEmpty() ? ' ' . $labelLainnya->count() : '' }}
+                @endif
+                ▾
+            </summary>
+
+            <div class="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-2 text-xs">
+                @if($labelLainnya->isNotEmpty())
+                    <div class="grid grid-cols-2 gap-1">
+                        @foreach($labelLainnya as $l)
+                            <a href="{{ $tautanSaring(['antrean' => $l->kode, 'belum_dibaca' => null]) }}"
+                               class="flex items-center justify-between gap-1 px-2 py-1 rounded border
+                                      {{ $antreanAktif === $l->kode ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 hover:bg-gray-50' }}">
+                                <span class="truncate">{{ $l->nama }}</span>
+                                <span class="shrink-0 {{ $antreanAktif === $l->kode ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlah[$l->kode] ?? 0 }}</span>
+                            </a>
+                        @endforeach
+                    </div>
+                @else
+                    <div class="text-gray-500 px-1">Semua label sudah tampil sebagai chip.</div>
+                @endif
+
+                <details class="mt-2 pt-2 border-t border-gray-100">
+                    <summary class="cursor-pointer text-gray-600 hover:text-gray-800 px-1">⚙ Atur chip yang tampil</summary>
+                    <form method="POST" action="{{ route('crm.inbox.label-tampil') }}" class="mt-2 space-y-2">
+                        @csrf
+                        <div class="text-[11px] text-gray-500 px-1">Centang label yang ingin selalu terlihat. Hanya berlaku untuk akun Anda.</div>
+                        <div class="grid grid-cols-2 gap-x-2 gap-y-1 px-1">
+                            @foreach($labelOpsi as $l)
+                                <label class="flex items-center gap-1.5 min-w-0">
+                                    <input type="checkbox" name="kode[]" value="{{ $l->kode }}" class="rounded"
+                                           @checked(in_array($l->kode, $labelTampil, true))>
+                                    <span class="truncate">{{ $l->nama }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                        <div class="flex justify-end">
+                            <button class="px-3 py-1 rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50">Simpan</button>
+                        </div>
+                    </form>
+                </details>
+            </div>
+        </details>
     </div>
 
     {{-- Pencarian selalu menyisir SEMUA chat (Open & Close, milik siapa pun):

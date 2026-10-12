@@ -13,7 +13,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name', 'username', 'email', 'password',
-        'role', 'is_active', 'karyawan_id', 'last_login_at', 'pwa_crm',
+        'role', 'is_active', 'karyawan_id', 'last_login_at', 'pwa_crm', 'crm_label_tampil',
     ];
 
     protected $hidden = [
@@ -29,6 +29,7 @@ class User extends Authenticatable
             'password'          => 'hashed',
             'is_active'         => 'boolean',
             'pwa_crm'           => 'boolean',
+            'crm_label_tampil'  => 'array',
         ];
     }
 

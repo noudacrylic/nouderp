@@ -132,6 +132,8 @@ Route::prefix('erp')->group(function () {
         Route::post  ('/label/dasar',    [\App\Modules\CRM\Controllers\CrmLabelController::class, 'dasar'])->name('label.dasar');
         Route::post  ('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'update'])->name('label.update');
         Route::delete('/label/{label}',  [\App\Modules\CRM\Controllers\CrmLabelController::class, 'destroy'])->name('label.destroy');
+        // Chip label yang tampil di kolom kiri Inbox — pilihan PER ADMIN.
+        Route::post  ('/label-tampil',   [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanLabelTampil'])->name('inbox.label-tampil');
 
         // Agen AI (Tahap 8). Sama seperti tetangganya, WAJIB berdiri sebelum
         // '/{conversation}' supaya 'agen' tidak ditangkap sebagai id percakapan.
