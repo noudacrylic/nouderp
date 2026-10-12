@@ -124,6 +124,47 @@ class CrmReplyService
     }
 
     /**
+     * MULAI percakapan lewat NOMOR UTAMA (WAHA) dengan pesan yang diketik bebas.
+     *
+     * Jalur self-host tidak mengenal jendela 24 jam maupun template berbayar —
+     * sama seperti CS mengetik dari HP ke nomor mana pun. Percakapannya lahir
+     * (atau dilanjutkan) sebagai thread nomor utama, jadi balasan pelanggan
+     * mendarat di thread yang sama.
+     *
+     * @return array{success:bool, conversation:?CrmConversation, error:?string}
+     */
+    public function mulaiTeks(string $nomor, string $teks, ?int $userId = null): array
+    {
+        $tujuan = PhoneNumber::normalize($nomor);
+        if (! $tujuan) {
+            return ['success' => false, 'conversation' => null, 'error' => 'Nomor tujuan tidak valid.'];
+        }
+        if (trim($teks) === '') {
+            return ['success' => false, 'conversation' => null, 'error' => 'Pesan pembuka masih kosong.'];
+        }
+
+        $percakapan = CrmConversation::findOrCreateFor($tujuan, CrmConversation::KANAL_CERMIN);
+        $baru = $percakapan->wasRecentlyCreated;
+
+        $hasil = $this->balas($percakapan, $teks, $userId);
+        if (! $hasil['success']) {
+            // Thread kosong yang lahir dari kiriman gagal tidak boleh tertinggal di daftar.
+            if ($baru && ! $percakapan->messages()->exists()) {
+                $percakapan->delete();
+            }
+
+            return ['success' => false, 'conversation' => null, 'error' => $hasil['error']];
+        }
+
+        // Kita yang menyapa: bola sekarang di pelanggan.
+        if ($baru) {
+            $percakapan->forceFill(['queue_state' => CrmConversation::QUEUE_PELANGGAN])->save();
+        }
+
+        return ['success' => true, 'conversation' => $percakapan, 'error' => null];
+    }
+
+    /**
      * Ambang (menit) sisa jendela yang membuat pancingan pantas dikirim.
      *
      * Satu jam. Cukup lama untuk sempat dilihat & ditekan sebelum jendelanya

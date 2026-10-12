@@ -218,4 +218,44 @@ class ChatBaruTest extends TestCase
             ->assertSee('uji_sapa')
             ->assertDontSee('masih_ditinjau');
     }
+
+    public function test_pesan_pembuka_diketik_bebas_lewat_nomor_utama(): void
+    {
+        $fake = app(ChatManager::class)->fake();
+
+        $this->actingAs($this->admin())
+            ->post(route('crm.template.mulai'), [
+                'nomor' => '0855-777-4446',
+                'pesan' => 'Halo Kak, kami dari Noud Acrylic, mau konfirmasi pesanan.',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $percakapan = CrmConversation::firstOrFail();
+        $this->assertSame(CrmConversation::KANAL_CERMIN, $percakapan->channel, 'lewat nomor utama, bukan jalur resmi');
+        $this->assertSame('628557774446', $percakapan->contact_key);
+        $this->assertSame(CrmConversation::QUEUE_PELANGGAN, $percakapan->queue_state, 'kita yang menyapa, menunggu pelanggan');
+
+        $pesan = CrmMessage::firstOrFail();
+        $this->assertSame('text', $pesan->message_type);
+        $this->assertSame(CrmMessage::KELUAR, $pesan->direction);
+        $this->assertStringContainsString('Noud Acrylic', (string) $pesan->content);
+
+        $this->assertCount(1, $fake->sent);
+        $this->assertSame('text', $fake->sent[0]['type'] ?? 'text');
+    }
+
+    public function test_pesan_pembuka_ke_thread_nomor_utama_yang_sudah_ada_tidak_bikin_thread_baru(): void
+    {
+        $admin = $this->admin();
+        $ada = CrmConversation::findOrCreateFor('628557774446', CrmConversation::KANAL_CERMIN);
+        $ada->forceFill(['owner_user_id' => $admin->id])->save();   // chat yang ada wajib sudah dioper
+
+        $this->actingAs($admin)
+            ->post(route('crm.template.mulai'), ['nomor' => '0855 777 4446', 'pesan' => 'Kak, barangnya sudah siap diambil.'])
+            ->assertSessionHasNoErrors()->assertSessionMissing('error')
+            ->assertRedirect(route('crm.inbox.show', $ada));
+
+        $this->assertSame(1, CrmConversation::count());
+    }
 }

@@ -262,6 +262,11 @@ class CrmTemplateController extends Controller
 
     public function mulai(Request $request, CrmReplyService $balasan)
     {
+        // Pesan pembuka diketik bebas → lewat nomor utama (WAHA): tanpa template, tanpa biaya Meta.
+        if ($request->filled('pesan')) {
+            return $this->mulaiTeks($request, $balasan);
+        }
+
         $data = $request->validate([
             'nomor'      => 'required|string|max:32',
             'template'   => 'required|integer',
@@ -313,6 +318,35 @@ class CrmTemplateController extends Controller
         return redirect()
             ->route('crm.inbox.show', $hasil['conversation'])
             ->with('success', 'Percakapan dimulai. Jendela 24 jam terbuka setelah pelanggan membalas.');
+    }
+
+    private function mulaiTeks(Request $request, CrmReplyService $balasan)
+    {
+        $data = $request->validate([
+            'nomor' => 'required|string|max:32',
+            'pesan' => 'required|string|max:4000',
+        ]);
+
+        // Hak balas tetap berlaku: chat nomor utama yang dipegang agen lain tidak
+        // boleh disela orang lain lewat pintu "Mulai Chat".
+        $ada = \App\Modules\CRM\Models\CrmConversation::query()
+            ->where('channel', \App\Modules\CRM\Models\CrmConversation::KANAL_CERMIN)
+            ->where('contact_key', \App\Modules\CRM\Support\PhoneNumber::normalize($data['nomor']) ?? $data['nomor'])
+            ->first();
+        if ($ada && ($alasan = $ada->alasanTakBolehDibalas($request->user()))) {
+            return back()->withInput()->with('error', $alasan);
+        }
+
+        $hasil = $balasan->mulaiTeks($data['nomor'], $data['pesan'], $request->user()?->id);
+        if (! $hasil['success']) {
+            return back()->withInput()->with('error', $hasil['error']);
+        }
+
+        $hasil['conversation']->catatDibalasOleh($request->user());
+
+        return redirect()
+            ->route('crm.inbox.show', $hasil['conversation'])
+            ->with('success', 'Pesan pembuka terkirim lewat nomor utama.');
     }
 
     /* ---------------------------------------------------------------- bantuan */

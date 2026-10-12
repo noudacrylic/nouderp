@@ -1,20 +1,15 @@
-{{-- Popup "Mulai Chat" — memulai percakapan dengan template BERBAYAR Meta.
+{{-- Popup "Mulai Chat" — memulai percakapan lewat NOMOR UTAMA (WAHA) dengan pesan
+     yang diketik bebas. Jalur ini tak mengenal jendela 24 jam maupun template
+     berbayar Meta, sama seperti CS mengetik dari HP.
 
      Popup, bukan halaman: dua pintu masuknya (tombol ＋ di kepala daftar, dan
      "Mulai chat" di kotak jendela-tertutup) sama-sama muncul di tengah kerja,
      dan pindah halaman berarti kehilangan thread yang sedang dibaca beserta
      seluruh filter kolom kirinya.
 
-     Yang dikirim tetap POST ke jalur yang sama dengan layar Chat Baru —
-     bunyinya diambil dari basis data, bukan dari form, jadi popup ini tidak
-     membuka jalan mengirim kalimat karangan sendiri sebagai template. --}}
-<div x-data="mulaiChatCrm(@js($templateMeta->map(fn ($t) => [
-        'id'        => $t->id,
-        'nama'      => $t->title,
-        'meta'      => $t->meta_name,
-        'body'      => $t->body,
-        'variables' => $t->jumlahVariabel(),
-     ])->values()), @js(route('crm.kontak.cari')))"
+     Dikirim ke crm.template.mulai dengan field `pesan` (lihat
+     CrmTemplateController::mulaiTeks). --}}
+<div x-data="mulaiChatCrm(@js(route('crm.kontak.cari')))"
      @mulai-chat.window="buka($event.detail)"
      x-cloak>
 
@@ -27,23 +22,14 @@
                 <div>
                     <div class="text-sm font-semibold">Mulai Chat</div>
                     <div class="text-[11px] text-gray-500">
-                        Di luar jendela 24 jam hanya template yang sudah disetujui Meta yang boleh keluar &mdash;
-                        <b>berbayar</b>. Begitu pelanggan membalas, jendelanya terbuka dan Anda bisa mengetik bebas.
+                        Dikirim lewat <b>nomor utama</b> (WhatsApp biasa) &mdash; ketik pesan pembukanya langsung,
+                        tanpa template dan tanpa biaya.
                     </div>
                 </div>
                 <button type="button" @click="tutup()"
                         class="shrink-0 text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
             </div>
 
-            @if($templateMeta->isEmpty())
-                <div class="p-4">
-                    <div class="rounded border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                        <b>Belum ada template yang disetujui Meta.</b>
-                        Buat dulu di <a href="{{ route('crm.template.index') }}" class="text-blue-700 underline">Template Pesan</a>,
-                        centang &ldquo;Daftarkan ke Meta&rdquo;, lalu tekan Ajukan.
-                    </div>
-                </div>
-            @else
                 <form method="POST" action="{{ route('crm.template.mulai') }}" class="p-4 space-y-3">
                     @csrf
 
@@ -103,35 +89,14 @@
 
                     <input type="hidden" name="nomor" :value="nomor">
 
-                    {{-- ---------------------------------------------- template --}}
+                    {{-- ------------------------------------------- pesan pembuka --}}
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">Template pembuka</label>
-                        <select name="template" x-model="pilih" required class="w-full border rounded px-3 py-2 text-sm">
-                            <option value="">&mdash; pilih &mdash;</option>
-                            <template x-for="t in daftar" :key="t.id">
-                                <option :value="t.id" x-text="t.nama + ' · ' + t.meta"></option>
-                            </template>
-                        </select>
-                    </div>
-
-                    {{-- Isian sebanyak variabel template, dan bunyinya ditampilkan
-                         utuh — template tidak bisa ditarik kembali, jadi admin
-                         wajib melihat kalimatnya SEBELUM menekan kirim. --}}
-                    <template x-if="t && t.variables > 0">
-                        <div class="space-y-2">
-                            <template x-for="i in t.variables" :key="i">
-                                <div>
-                                    <label class="block text-[11px] text-gray-500 mb-1" x-text="'Isian ke-' + i"></label>
-                                    <input type="text" :name="'variabel[' + (i - 1) + ']'" required
-                                           class="w-full border rounded px-3 py-2 text-sm">
-                                </div>
-                            </template>
-                        </div>
-                    </template>
-
-                    <div x-show="t">
-                        <div class="text-xs text-gray-500 mb-1">Bunyi template</div>
-                        <div class="rounded border bg-gray-50 px-3 py-2 text-sm whitespace-pre-wrap" x-text="t?.body"></div>
+                        <label class="block text-xs text-gray-500 mb-1">Pesan pembuka</label>
+                        <textarea name="pesan" x-model="teks" x-ref="teks" rows="5" required maxlength="4000"
+                                  @keydown.ctrl.enter.prevent="$el.form.requestSubmit()"
+                                  placeholder="Halo Kak, kami dari Noud Acrylic…"
+                                  class="w-full border rounded px-3 py-2 text-sm"></textarea>
+                        <div class="text-[11px] text-gray-400 mt-0.5">Ctrl+Enter untuk kirim.</div>
                     </div>
 
                     <div class="pt-1 flex justify-end gap-2">
@@ -140,32 +105,27 @@
                         {{-- Dikunci selama nomornya belum ada: tanpa ini tombolnya
                              bisa ditekan lalu ditolak server, dan yang terbaca
                              admin cuma "gagal" tanpa tahu bagian mana. --}}
-                        <button :disabled="! nomor || ! pilih"
+                        <button :disabled="! nomor || ! teks.trim()"
                                 class="px-3 py-1.5 rounded text-sm text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
                             Kirim &amp; Mulai Percakapan
                         </button>
                     </div>
                 </form>
-            @endif
         </div>
     </div>
 </div>
 
 <script>
-function mulaiChatCrm(daftar, urlKontak) {
+function mulaiChatCrm(urlKontak) {
     return {
-        daftar, urlKontak,
+        urlKontak,
         tampil: false,
         terkunci: false,
         nomor: '',
         nama: '',
         cari: '',
         kontak: [],
-        pilih: '',
-
-        get t() {
-            return this.daftar.find(x => String(x.id) === String(this.pilih)) || null;
-        },
+        teks: '',
 
         /*
          * Dibuka dengan nomor (dari kotak jendela-tertutup) berarti tujuannya
@@ -177,10 +137,10 @@ function mulaiChatCrm(daftar, urlKontak) {
             this.terkunci = !! this.nomor;
             this.cari     = '';
             this.kontak   = [];
-            this.pilih    = '';
+            this.teks     = '';
             this.tampil   = true;
 
-            if (! this.terkunci) this.$nextTick(() => this.$refs.cari?.focus());
+            this.$nextTick(() => (this.terkunci ? this.$refs.teks : this.$refs.cari)?.focus());
         },
 
         tutup() {
@@ -223,6 +183,7 @@ function mulaiChatCrm(daftar, urlKontak) {
             this.terkunci = true;
             this.cari     = '';
             this.kontak   = [];
+            this.$nextTick(() => this.$refs.teks?.focus());
         },
     };
 }

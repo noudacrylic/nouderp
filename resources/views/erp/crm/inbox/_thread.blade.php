@@ -645,9 +645,8 @@
                             Mulai chat
                         </button>
                         <span class="text-[11px] text-gray-500 ml-1">
-                            Anda diantar ke template <b>pembuka chat</b> yang sudah disetujui Meta &mdash;
-                            berbayar, tapi satu-satunya yang boleh keluar di luar jendela.
-                            Begitu pelanggan membalas, jendela 24 jamnya terbuka lagi dan Anda bisa mengetik bebas.
+                            Ketik pesan pembuka; dikirim lewat <b>nomor utama</b> (tanpa template, tanpa biaya)
+                            dan percakapannya berlanjut di thread nomor utama.
                         </span>
                     </div>
                 </div>
