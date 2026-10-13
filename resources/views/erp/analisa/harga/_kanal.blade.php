@@ -14,12 +14,21 @@
     // Pindah kanal TIDAK boleh menyeret angka andaian kanal sebelumnya: potongan Shopee
     // yang diandaikan 20% bukan andaian yang sah untuk Tokopedia. Andaiannya sendiri sudah
     // tersimpan di sesi per kanal, jadi tidak ada yang hilang dengan membuangnya dari URL.
-    $keep   = collect(request()->query())->except('kanal', 'page', 'fee_pct', 'fee_rp', 'fee_reset', 'fee_form')->all();
+    $keep   = collect(request()->query())->except('kanal', 'page', 'fee_pct', 'fee_rp', 'fee_po', 'fee_reset', 'fee_form', 'fee_mode')->all();
 
-    // Potongan andaian: tersimpan di sesi per kanal, aslinya tetap dibawa berdampingan.
+    // Tiga sumber potongan (dasar / real / andaian) — dipilih per kanal, tersimpan di sesi.
     $feeAsli    = $channel['fee_actual'] ?? $channel['fee'];
     $feeAndaian = (bool) ($channel['fee_assumed'] ?? false);
-    $keepFee    = collect(request()->query())->except('fee_pct', 'fee_rp', 'fee_reset', 'fee_form', 'page')->all();
+    $feeMode    = $channel['fee_mode'] ?? 'dasar';
+    $feeReal    = $channel['fee_real'] ?? null;
+    $andaian    = $channel['fee_andaian'] ?? null;
+    $keepFee    = collect(request()->query())->except('fee_pct', 'fee_rp', 'fee_po', 'fee_reset', 'fee_form', 'fee_mode', 'page')->all();
+    $angkaK     = fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.');
+    $ringkas    = fn (array $f) => $pctK($f['percent']) . ' + ' . $rpK($f['fixed'])
+                    . (($f['preorder'] ?? 0) > 0 ? ' · PO +' . $pctK($f['preorder']) : '');
+    $warnaMode  = ['dasar' => 'text-rose-600', 'real' => 'text-emerald-700', 'andaian' => 'text-amber-600'];
+    $namaMode   = ['dasar' => 'Dasar', 'real' => 'Real', 'andaian' => 'Andaian'];
+    $svcHarga   = \App\Modules\Analysis\Services\ChannelPricingService::class;
 @endphp
 
 <div class="flex flex-wrap items-center gap-2 mb-4">
@@ -74,18 +83,23 @@
                 </div>
             @endforeach
             <div class="border-l border-slate-100 pl-5">
-                <div class="text-[11px] font-bold uppercase {{ $feeAndaian ? 'text-amber-600' : 'text-slate-400' }}">
-                    {{ $feeAndaian ? 'Total potongan (andaian)' : 'Total potongan' }}
+                <div class="text-[11px] font-bold uppercase {{ $warnaMode[$feeMode] }}">
+                    Total potongan ({{ $namaMode[$feeMode] }})
                 </div>
-                <div class="text-lg font-black {{ $feeAndaian ? 'text-amber-600' : 'text-rose-600' }}">
+                <div class="text-lg font-black {{ $warnaMode[$feeMode] }}">
                     {{ $pctK($channel['fee']['percent']) }}
                     @if($channel['fee']['fixed'] > 0)
                         <span class="text-slate-400 font-bold">+</span> {{ $rpK($channel['fee']['fixed']) }}
                     @endif
                 </div>
-                @if($feeAndaian)
-                    <div class="text-[10px] text-amber-600 font-semibold">
-                        aslinya {{ $pctK($feeAsli['percent']) }} + {{ $rpK($feeAsli['fixed']) }}
+                @if(($channel['fee']['preorder'] ?? 0) > 0)
+                    <div class="text-[11px] font-bold {{ $warnaMode[$feeMode] }}">
+                        + {{ $pctK($channel['fee']['preorder']) }} khusus produk preorder
+                    </div>
+                @endif
+                @if($feeMode !== 'dasar')
+                    <div class="text-[10px] text-slate-500 font-semibold">
+                        dasarnya {{ $pctK($feeAsli['percent']) }} + {{ $rpK($feeAsli['fixed']) }}
                     </div>
                 @elseif($channel['fee_fallback'] ?? false)
                     <div class="text-[10px] text-slate-400">dari potongan akuntansi &mdash; belum diurai jadi penyusun</div>
@@ -96,12 +110,59 @@
         </div>
     </div>
 
-    {{-- Potongan andaian — "kalau potongan marketplace naik jadi sekian, harga saya masih
-         untung?". Terpasang sampai dilepas: menimbang harga butuh bolak-balik mencari,
-         mengurutkan, dan pindah sub-tab, dan andaian yang lenyap di tengah jalan justru
-         paling berbahaya — angkanya kembali ke potongan asli tanpa memberi tahu siapa pun.
-         `fee_form` adalah penanda supaya "kedua kolom dikosongkan" bisa dibedakan dari
-         kunjungan biasa; tanpa itu andaiannya tidak bisa dihapus lewat mengosongkan kolom. --}}
+    {{-- Sumber potongan: DASAR (setingan / integrasi Jubelio), REAL (pesanan yang sudah
+         selesai), ANDAIAN (ketikan sendiri). Pilihannya tersimpan per kanal dan ikut berpindah
+         sub-tab. Andaian tetap tersimpan walau sumbernya dipindah — hilang hanya lewat "Lepas".
+         Lihat ProductPriceController::withFeeAssumption & ChannelPricingService::realFee. --}}
+    @if($channel['kind'] === 'marketplace')
+        @php
+            $pilihan = [
+                'dasar'   => ['Dasar', $ringkas($feeAsli), true],
+                'real'    => ['Real', $feeReal ? $ringkas($feeReal) . ' · ' . $feeReal['orders'] . ' pesanan' : 'belum cukup data', (bool) $feeReal],
+                'andaian' => ['Andaian', $andaian ? $ringkas($andaian) : 'belum diisi', (bool) $andaian],
+            ];
+        @endphp
+        <div class="mt-3 border-t border-slate-100 pt-3 flex flex-wrap items-center gap-2 text-xs">
+            <span class="text-[11px] font-bold text-slate-500 mr-1">Sumber potongan:</span>
+            @foreach($pilihan as $m => [$judul, $isi, $bisa])
+                @if($bisa)
+                    <a href="{{ route($routes[$tab], array_merge($keepFee, ['kanal' => $channel['key'], 'fee_mode' => $m])) }}"
+                       class="px-3 py-1.5 rounded-xl border font-semibold
+                              {{ $feeMode === $m ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50' }}">
+                        {{ $judul }} <span class="font-normal {{ $feeMode === $m ? 'text-slate-300' : 'text-slate-400' }}">{{ $isi }}</span>
+                    </a>
+                @else
+                    <span class="px-3 py-1.5 rounded-xl border border-dashed border-slate-200 text-slate-400 cursor-not-allowed"
+                          title="{{ $m === 'real'
+                                ? 'Butuh minimal ' . $svcHarga::REAL_MIN_PESANAN . ' pesanan selesai dengan rincian potongan final dalam ' . $svcHarga::REAL_HARI . ' hari terakhir.'
+                                : 'Isi andaian di bawah lalu terapkan.' }}">
+                        {{ $judul }} <span class="font-normal">{{ $isi }}</span>
+                    </span>
+                @endif
+            @endforeach
+        </div>
+
+        @if($feeReal)
+            <div class="mt-2 text-[11px] text-slate-500 leading-relaxed">
+                <span class="font-semibold text-emerald-700">Real</span> &mdash; dari {{ $feeReal['orders'] }} pesanan selesai
+                {{ $feeReal['days'] }} hari terakhir (dasar persen = nilai barang):
+                @foreach($feeReal['rincian'] as $r)
+                    {{ $r['label'] }} {{ $r['jenis'] === 'tetap' ? $rpK($r['nilai']) . '/pesanan' : $pctK($r['nilai']) }}{{ !$loop->last ? ' ·' : '' }}
+                @endforeach
+                @if($feeReal['preorder'] !== null)
+                    · <span class="font-semibold">biaya pre-order {{ $pctK($feeReal['preorder']) }}</span>
+                    (selisih {{ $feeReal['orders_preorder'] }} pesanan preorder vs non-preorder)
+                @else
+                    · biaya pre-order belum terbaca ({{ $feeReal['orders_preorder'] }} pesanan preorder, butuh {{ $svcHarga::REAL_MIN_PREORDER }})
+                @endif
+                <span class="text-slate-400">· affiliate &amp; pajak tidak termasuk.</span>
+            </div>
+        @endif
+    @endif
+
+    {{-- Andaian — "kalau potongan marketplace naik jadi sekian, harga saya masih untung?".
+         Menerapkan andaian sekaligus memilihnya sebagai sumber. Angkanya tetap tersimpan saat
+         sumber dipindah ke Dasar/Real, dan hanya dibuang tombol "Lepas". --}}
     <form method="GET" class="mt-3 border-t border-slate-100 pt-3 flex flex-wrap items-end gap-2">
         <input type="hidden" name="fee_form" value="1">
         @foreach($keepFee as $k => $v)
@@ -112,38 +173,49 @@
             @endif
         @endforeach
         <div>
-            <label class="block text-[11px] font-bold {{ $feeAndaian ? 'text-amber-600' : 'text-slate-500' }} mb-1">
+            <label class="block text-[11px] font-bold {{ $andaian ? 'text-amber-600' : 'text-slate-500' }} mb-1">
                 Andaikan potongan (%)
             </label>
             <input type="number" step="0.01" min="0" name="fee_pct"
-                   value="{{ $feeAndaian ? rtrim(rtrim(number_format($channel['fee']['percent'], 2, '.', ''), '0'), '.') : '' }}"
-                   placeholder="{{ rtrim(rtrim(number_format($feeAsli['percent'], 2, '.', ''), '0'), '.') }}"
-                   class="border {{ $feeAndaian ? 'border-amber-300' : 'border-slate-200' }} rounded-xl px-3 py-1.5 text-sm w-28 text-right">
+                   value="{{ $andaian ? $angkaK($andaian['percent']) : '' }}"
+                   placeholder="{{ $angkaK($feeAsli['percent']) }}"
+                   class="border {{ $andaian ? 'border-amber-300' : 'border-slate-200' }} rounded-xl px-3 py-1.5 text-sm w-28 text-right">
         </div>
         <div>
-            <label class="block text-[11px] font-bold {{ $feeAndaian ? 'text-amber-600' : 'text-slate-500' }} mb-1">
+            <label class="block text-[11px] font-bold {{ $andaian ? 'text-amber-600' : 'text-slate-500' }} mb-1">
                 Biaya tetap (Rp)
             </label>
             <input type="text" name="fee_rp"
-                   value="{{ $feeAndaian ? number_format($channel['fee']['fixed'], 0, ',', '.') : '' }}"
+                   value="{{ $andaian ? number_format($andaian['fixed'], 0, ',', '.') : '' }}"
                    placeholder="{{ number_format($feeAsli['fixed'], 0, ',', '.') }}"
-                   class="rupiah-input border {{ $feeAndaian ? 'border-amber-300' : 'border-slate-200' }} rounded-xl px-3 py-1.5 text-sm w-32 text-right">
+                   class="rupiah-input border {{ $andaian ? 'border-amber-300' : 'border-slate-200' }} rounded-xl px-3 py-1.5 text-sm w-32 text-right">
+        </div>
+        {{-- Ditambahkan ke persen potongan HANYA untuk produk berjenis preorder — mis. Layanan
+             Produk Pre-Order Shopee 3% per unit (berlaku 2026). Produk ready tidak terpengaruh. --}}
+        <div>
+            <label class="block text-[11px] font-bold {{ $andaian ? 'text-amber-600' : 'text-slate-500' }} mb-1"
+                   title="Ditambahkan ke potongan khusus produk berjenis preorder">
+                Biaya Pre-Order (%)
+            </label>
+            <input type="number" step="0.01" min="0" name="fee_po"
+                   value="{{ $andaian && $andaian['preorder'] > 0 ? $angkaK($andaian['preorder']) : '' }}"
+                   placeholder="{{ $feeReal && $feeReal['preorder'] !== null ? $angkaK($feeReal['preorder']) : '0' }}"
+                   class="border {{ $andaian ? 'border-amber-300' : 'border-slate-200' }} rounded-xl px-3 py-1.5 text-sm w-28 text-right">
         </div>
         <button class="border border-amber-300 text-amber-700 hover:bg-amber-50 px-3.5 py-1.5 rounded-xl text-xs font-bold">
             Terapkan andaian
         </button>
-        @if($feeAndaian)
+        @if($andaian)
             <a href="{{ route($routes[$tab], array_merge($keepFee, ['kanal' => $channel['key'], 'fee_reset' => 1])) }}"
-               class="text-xs text-amber-700 font-semibold hover:underline py-2">kembali ke potongan asli</a>
+               class="border border-slate-300 text-slate-600 hover:bg-slate-50 px-3.5 py-1.5 rounded-xl text-xs font-bold"
+               title="Buang angka andaian kanal ini">Lepas</a>
         @endif
         <span class="text-[11px] {{ $feeAndaian ? 'text-amber-600' : 'text-slate-400' }} ml-1">
-            @if($feeAndaian)
-                Andaian ini <strong>tetap terpasang</strong> sampai diganti atau dikembalikan &mdash;
-                ikut berpindah sub-tab dan bertahan saat mencari/mengurutkan. Hanya berlaku untuk
-                {{ $channel['label'] }}, dan hanya di layar kamu.
+            @if($andaian)
+                Andaian <strong>tetap tersimpan</strong> walau sumber dipindah ke Dasar/Real &mdash; tekan
+                <strong>Lepas</strong> untuk membuangnya. Hanya untuk {{ $channel['label'] }}, dan hanya di layar kamu.
             @else
-                Kosongkan untuk memakai potongan sebenarnya. Sekali diterapkan, andaiannya tetap
-                terpasang sampai dikembalikan &mdash; per kanal, dan hanya di layar kamu.
+                Sekali diterapkan, andaian tersimpan per kanal sampai dilepas &mdash; hanya di layar kamu.
             @endif
         </span>
     </form>

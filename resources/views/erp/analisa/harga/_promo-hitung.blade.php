@@ -52,16 +52,20 @@
         tr.querySelector('.js-bersih').textContent = rupiah(bersih);
         tr.querySelector('.js-hpp').textContent    = hpp === null ? '—' : rupiah(hpp * qty);
 
-        return { bruto, diskon, bersih, hpp: hpp === null ? null : hpp * qty, hppKosong: hpp === null && qty > 0 && harga > 0 };
+        // Biaya pre-order (andaian) hanya menempel pada produk preorder — persennya dibawa baris.
+        const po = bersih * ((parseFloat(tr.dataset.po || '0') || 0) / 100);
+
+        return { bruto, diskon, bersih, po, hpp: hpp === null ? null : hpp * qty, hppKosong: hpp === null && qty > 0 && harga > 0 };
     }
 
     function hitung() {
-        let subtotal = 0, diskonItem = 0, hpp = 0, adaHppKosong = false;
+        let subtotal = 0, diskonItem = 0, hpp = 0, biayaPo = 0, adaHppKosong = false;
 
         tbody.querySelectorAll('tr').forEach((tr) => {
             const b = baris(tr);
             subtotal   += b.bruto;
             diskonItem += b.diskon;
+            biayaPo    += b.po;
             if (b.hpp === null) { adaHppKosong = adaHppKosong || b.hppKosong; } else { hpp += b.hpp; }
         });
 
@@ -71,7 +75,7 @@
         const adminRp       = angka(document.getElementById('i-admin-rp'));
 
         const pendapatan = Math.max(0, subtotal - diskonItem - diskonBelanja);
-        const admin      = pendapatan > 0 ? pendapatan * (adminPersen / 100) + adminRp : 0;
+        const admin      = pendapatan > 0 ? pendapatan * (adminPersen / 100) + adminRp + biayaPo : 0;
         const untung     = pendapatan - admin - diskonOngkir - hpp;
 
         document.getElementById('v-subtotal').textContent    = rupiah(subtotal);
@@ -150,6 +154,7 @@
         tr.dataset.hpp = tombol.dataset.hpp;
         // Label diambil dari katalog, bukan dari teks tombol yang juga memuat keterangan HPP.
         const p = KATALOG.find((x) => String(x.id) === String(tombol.dataset.id));
+        tr.dataset.po = p ? (p.po || 0) : 0;
         tr.querySelector('.js-produk').value = p ? p.label : '';
 
         tr.querySelector('.js-harga').value = parseInt(tombol.dataset.harga || '0', 10).toLocaleString('id-ID');

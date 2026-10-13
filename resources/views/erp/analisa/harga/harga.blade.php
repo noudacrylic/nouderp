@@ -125,7 +125,7 @@
                 <tbody class="divide-y divide-slate-50">
                     @forelse($rows as $row)
                         @php $pid = $row['product']['id']; $s = $row['satuan']; @endphp
-                        <tr class="hover:bg-blue-50/40 align-top" data-hpp="{{ $row['hpp'] }}">
+                        <tr class="hover:bg-blue-50/40 align-top" data-hpp="{{ $row['hpp'] }}" data-percent="{{ $row['fee_percent'] }}">
                             <td class="px-5 py-3">
                                 <div class="font-semibold text-slate-800">{{ $row['product']['name'] }}</div>
                                 <div class="text-xs font-mono font-semibold text-blue-600">

@@ -238,8 +238,8 @@ class ProductPricePageTest extends TestCase
         $this->actingAs($this->admin())->get(route('analisa.harga.index',
             ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '20']))
             ->assertOk()
-            ->assertSee('Total potongan (andaian)')
-            ->assertSee('aslinya 14% + Rp1.250');
+            ->assertSee('Total potongan (Andaian)')
+            ->assertSee('dasarnya 14% + Rp1.250');
     }
 
     /**
@@ -257,14 +257,14 @@ class ProductPricePageTest extends TestCase
 
         $this->actingAs($admin)->get(route('analisa.harga.index',
             ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '25', 'fee_rp' => '5.000']))
-            ->assertOk()->assertSee('Total potongan (andaian)');
+            ->assertOk()->assertSee('Total potongan (Andaian)');
 
         // Permintaan berikutnya TANPA fee_pct — persis yang dikirim form pencarian.
         $this->actingAs($admin)->get(route('analisa.harga.index',
             ['kanal' => 'shopee', 'search' => 'Frame']))
             ->assertOk()
-            ->assertSee('Total potongan (andaian)')
-            ->assertSee('aslinya 14% + Rp1.850');
+            ->assertSee('Total potongan (Andaian)')
+            ->assertSee('dasarnya 14% + Rp1.850');
     }
 
     public function test_andaian_tidak_menular_ke_kanal_lain(): void
@@ -279,7 +279,7 @@ class ProductPricePageTest extends TestCase
         // Lazada tidak pernah diandaikan apa-apa; potongannya harus tetap apa adanya.
         $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'lazada']))
             ->assertOk()
-            ->assertDontSee('Total potongan (andaian)');
+            ->assertDontSee('Total potongan (Andaian)');
     }
 
     public function test_andaian_bisa_dikembalikan_ke_potongan_asli(): void
@@ -293,11 +293,11 @@ class ProductPricePageTest extends TestCase
 
         $this->actingAs($admin)->get(route('analisa.harga.index',
             ['kanal' => 'shopee', 'fee_reset' => 1]))
-            ->assertOk()->assertDontSee('Total potongan (andaian)');
+            ->assertOk()->assertDontSee('Total potongan (Andaian)');
 
         // Dan tidak bangkit lagi pada kunjungan berikutnya.
         $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'shopee']))
-            ->assertOk()->assertDontSee('Total potongan (andaian)');
+            ->assertOk()->assertDontSee('Total potongan (Andaian)');
     }
 
     /** Mengosongkan kedua kolom lalu menerapkan = memakai potongan sebenarnya lagi. */
@@ -312,7 +312,7 @@ class ProductPricePageTest extends TestCase
 
         $this->actingAs($admin)->get(route('analisa.harga.index',
             ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '', 'fee_rp' => '']))
-            ->assertOk()->assertDontSee('Total potongan (andaian)');
+            ->assertOk()->assertDontSee('Total potongan (Andaian)');
     }
 
     /**
@@ -328,13 +328,13 @@ class ProductPricePageTest extends TestCase
 
         $this->actingAs($admin)->get(route('analisa.harga.index',
             ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '14', 'fee_rp' => '1.850']))
-            ->assertOk()->assertDontSee('Total potongan (andaian)');
+            ->assertOk()->assertDontSee('Total potongan (Andaian)');
 
         PriceChannelFeeComponent::where('channel', 'shopee')
             ->where('label', 'Potongan marketplace')->update(['percent' => 18]);
 
         $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'shopee']))
-            ->assertOk()->assertDontSee('Total potongan (andaian)');
+            ->assertOk()->assertDontSee('Total potongan (Andaian)');
     }
 
     /**
@@ -501,6 +501,90 @@ class ProductPricePageTest extends TestCase
      * @param  array<int,int> $storeIds
      * @return array<int,int>
      */
+    // ───────────── Sumber potongan: dasar / real / andaian (13 Okt 2026) ─────────────
+
+    /** Andaian TETAP tersimpan saat sumber dipindah ke Dasar, dan baru hilang lewat Lepas. */
+    public function test_andaian_tersimpan_saat_pindah_sumber_dan_hilang_lewat_lepas(): void
+    {
+        $this->potonganShopee();
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_pct' => '25']))
+            ->assertOk()->assertSee('Total potongan (Andaian)');
+
+        $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'shopee', 'fee_mode' => 'dasar']))
+            ->assertOk()
+            ->assertSee('Total potongan (Dasar)')
+            ->assertSee('name="fee_pct"' . "\n" . '                   value="25"', false)
+            ->assertSee('>Lepas<', false);
+
+        $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'shopee', 'fee_mode' => 'andaian']))
+            ->assertOk()->assertSee('Total potongan (Andaian)');
+
+        $this->actingAs($admin)->get(route('analisa.harga.index', ['kanal' => 'shopee', 'fee_reset' => 1]))
+            ->assertOk()
+            ->assertSee('Total potongan (Dasar)')
+            ->assertDontSee('>Lepas<', false);
+    }
+
+    /** Biaya pre-order andaian hanya menambah potongan produk berjenis preorder. */
+    public function test_biaya_preorder_hanya_untuk_produk_preorder(): void
+    {
+        $this->potonganShopee();
+        $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $po = $this->produk('TO-8', 'Tempat Obat', 22_000);
+        DB::table('products')->where('id', $po)->update(['sale_type' => 'preorder']);
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index',
+            ['kanal' => 'shopee', 'fee_form' => 1, 'fee_po' => '3']))
+            ->assertOk()
+            ->assertSee('khusus produk preorder')
+            ->assertSee('data-percent="17"', false)   // preorder: 14% + 3%
+            ->assertSee('data-percent="14"', false);  // ready: tetap 14%
+    }
+
+    /**
+     * Sumber REAL dari pesanan selesai: penyusun yang nominalnya sama di semua pesanan jadi
+     * biaya tetap, sisanya persen dari NILAI BARANG.
+     */
+    public function test_potongan_real_dihitung_dari_pesanan_selesai(): void
+    {
+        $this->potonganShopee();
+        $this->petakanTokoShopee([]);
+        $customerId = (int) DB::table('customers')->where('name', 'Shopee')->value('id');
+        $produk = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $gudang = \App\Core\Inventory\Warehouse::firstOrCreate(['name' => 'Gudang Test'], ['is_sellable' => true]);
+
+        // Nilai pesanan bervariasi (seperti aslinya): komisi 10% ikut berubah, biaya proses tidak.
+        foreach (range(1, 12) as $i) {
+            $nilai = 50_000 + $i * 10_000;
+            $so = \App\Modules\Sales\Models\SalesOrder::create([
+                'order_number' => 'SP-REAL-' . $i, 'customer_id' => $customerId,
+                'warehouse_id' => $gudang->id, 'order_date' => now()->subDays($i)->toDateString(),
+                'status' => 'confirmed', 'grand_total' => $nilai, 'paid_amount' => $nilai,
+            ]);
+            \App\Modules\Sales\Models\SalesOrderItem::create([
+                'sales_order_id' => $so->id, 'product_id' => $produk, 'qty' => 1, 'conversion_to_base' => 1,
+                'unit_price' => $nilai, 'net_unit_price' => $nilai, 'line_subtotal' => $nilai,
+                'line_discount' => 0, 'line_total' => $nilai,
+            ]);
+            DB::table('marketplace_order_fees')->insert([
+                'sales_order_id' => $so->id, 'kotor' => $nilai, 'admin' => $nilai / 10 + 1_250,
+                'admin_rincian' => json_encode(['Komisi' => $nilai / 10, 'Biaya proses pesanan' => 1_250]),
+                'saldo_masuk' => $nilai - $nilai / 10 - 1_250, 'final' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index', ['kanal' => 'shopee', 'fee_mode' => 'real']))
+            ->assertOk()
+            ->assertSee('Total potongan (Real)')
+            ->assertSee('10% + Rp1.250 · 12 pesanan')
+            ->assertSee('Biaya proses pesanan Rp1.250/pesanan');
+    }
+
     private function petakanTokoShopee(array $storeIds): array
     {
         $customerId = DB::table('customers')->insertGetId([

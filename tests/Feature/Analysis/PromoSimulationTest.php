@@ -121,8 +121,8 @@ class PromoSimulationTest extends TestCase
             ->assertOk()
             ->assertSee('Rp42.000')
             // Angka aslinya tetap terlihat supaya tidak ada yang mengira ini kenyataan.
-            ->assertSee('Total potongan (andaian)')
-            ->assertSee('kembali ke potongan asli');
+            ->assertSee('Total potongan (Andaian)')
+            ->assertSee('>Lepas<', false);
 
         // Tanpa parameter, andaiannya TETAP terpasang. Dulu ia mati di sini, dan itulah
         // masalahnya: form cari/urut tidak membawa fee_pct, jadi andaiannya lenyap tepat
@@ -131,7 +131,7 @@ class PromoSimulationTest extends TestCase
             ->get(route('analisa.harga.index', ['kanal' => 'shopee']))
             ->assertOk()
             ->assertSee('Rp42.000')
-            ->assertSee('Total potongan (andaian)');
+            ->assertSee('Total potongan (Andaian)');
 
         // Yang mengembalikannya ke potongan sebenarnya (14% → Rp28.000) adalah permintaan
         // yang memang meminta itu.
@@ -139,7 +139,7 @@ class PromoSimulationTest extends TestCase
             ->get(route('analisa.harga.index', ['kanal' => 'shopee', 'fee_reset' => 1]))
             ->assertOk()
             ->assertSee('Rp28.000')
-            ->assertDontSee('Total potongan (andaian)');
+            ->assertDontSee('Total potongan (Andaian)');
     }
 
     private function produk(string $sku, string $nama, float $harga): int

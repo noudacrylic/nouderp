@@ -119,12 +119,15 @@ class ChannelPricingService
         $hppMap  = $this->hppMap($filters);
         $saved   = ProductChannelPrice::where('channel', $channelKey)->get()->keyBy('product_id');
         $master  = $this->masterPrices();
-        $percent = (float) $channel['fee']['percent'];
-        $fixed   = (float) $channel['fee']['fixed'];
-        $isWeb   = $channel['kind'] === 'internal';
+        $percentDasar = (float) $channel['fee']['percent'];
+        $fixed        = (float) $channel['fee']['fixed'];
+        // Persen tambahan khusus produk preorder (andaian "Biaya Pre-Order", mis. Shopee 3%).
+        $preorder     = (float) ($channel['fee']['preorder'] ?? 0);
+        $isWeb        = $channel['kind'] === 'internal';
 
-        return $products->map(function ($p) use ($saved, $master, $hppMap, $percent, $fixed, $isWeb, $channel, $targetMarkup) {
-            $pid  = (int) $p->id;
+        return $products->map(function ($p) use ($saved, $master, $hppMap, $percentDasar, $preorder, $fixed, $isWeb, $channel, $targetMarkup) {
+            $pid     = (int) $p->id;
+            $percent = $percentDasar + ($p->sale_type === 'preorder' ? $preorder : 0.0);
             $row  = $saved->get($pid);
             $hpp  = $hppMap->get($pid);
             $base = $master->get($pid);
@@ -144,6 +147,8 @@ class ChannelPricingService
             return [
                 'product' => ['id' => $pid, 'sku' => $p->sku, 'name' => $p->name, 'sale_type' => $p->sale_type],
                 'hpp'     => $hpp,
+                // Persen potongan yang berlaku untuk BARIS ini — hitung ulang di peramban memakainya.
+                'fee_percent' => $percent,
 
                 'price'        => $price,
                 'price_source' => $source,
@@ -256,6 +261,128 @@ class ChannelPricingService
         return [
             'percent' => (float) $customers->max('percent'),
             'fixed'   => (float) $customers->max('fixed'),
+        ];
+    }
+
+    /** Jendela & ambang potongan real. */
+    public const REAL_HARI        = 90;
+    public const REAL_MIN_PESANAN = 10;
+    public const REAL_MIN_PREORDER = 3;
+
+    /**
+     * Potongan REAL sebuah kanal — dihitung dari rincian potongan pesanan yang sudah SELESAI
+     * (marketplace_order_fees final) dalam REAL_HARI terakhir. Null bila sampelnya terlalu sedikit.
+     *
+     * Dasar persennya NILAI BARANG di SO (Σ line_total), bukan kolom `kotor`: sebagian SO
+     * marketplace sudah diturunkan ke nilai bersih saat DP, sehingga `kotor` kadang sudah
+     * terpotong dan persennya jadi terlalu tinggi.
+     *
+     * Tiap penyusun di `admin_rincian` digolongkan sendiri: yang nominalnya hampir selalu sama
+     * di semua pesanan (mis. Biaya proses pesanan Rp1.250, premi Rp350) = biaya TETAP per
+     * pesanan; sisanya = PERSEN dari nilai barang. Affiliate & pajak tidak ikut — affiliate
+     * punya tab sendiri, PPh final 0,5% juga dibayar untuk penjualan website.
+     *
+     * Biaya pre-order real = persen pesanan berisi produk preorder − persen pesanan tanpa
+     * preorder (tidak pernah negatif). Persen dasarnya dari pesanan tanpa preorder supaya
+     * biaya pre-order tidak ikut menggelembungkan potongan produk ready.
+     *
+     * @return array{percent:float,fixed:float,preorder:?float,orders:int,orders_preorder:int,days:int,rincian:array}|null
+     */
+    public function realFee(array $channel): ?array
+    {
+        $customerIds = collect($channel['customers'] ?? [])->pluck('customer_id')->filter()->all();
+        if (!$customerIds) {
+            return null;
+        }
+
+        $fees = DB::table('marketplace_order_fees as f')
+            ->join('sales_orders as s', 's.id', '=', 'f.sales_order_id')
+            ->where('f.final', true)
+            ->whereIn('s.customer_id', $customerIds)
+            ->whereNotIn('s.status', ['void', 'cancelled'])
+            ->where('s.order_date', '>=', now()->subDays(self::REAL_HARI)->toDateString())
+            ->get(['f.sales_order_id', 'f.admin', 'f.admin_rincian']);
+
+        if ($fees->count() < self::REAL_MIN_PESANAN) {
+            return null;
+        }
+
+        $soIds = $fees->pluck('sales_order_id')->all();
+        $nilai = DB::table('sales_order_items')->whereIn('sales_order_id', $soIds)
+            ->groupBy('sales_order_id')->selectRaw('sales_order_id, SUM(line_total) as v')
+            ->pluck('v', 'sales_order_id');
+        $adaPreorder = DB::table('sales_order_items as i')
+            ->join('products as p', 'p.id', '=', 'i.product_id')
+            ->whereIn('i.sales_order_id', $soIds)->where('p.sale_type', 'preorder')
+            ->distinct()->pluck('i.sales_order_id')->flip();
+
+        // Pesanan → [nilai barang, preorder?, rincian]. Pesanan tanpa nilai barang dibuang.
+        $pesanan = $fees->map(function ($f) use ($nilai, $adaPreorder) {
+            $rincian = json_decode((string) $f->admin_rincian, true) ?: [];
+            if (!$rincian && (float) $f->admin > 0) {
+                $rincian = ['Biaya admin' => (float) $f->admin];
+            }
+
+            return [
+                'nilai'    => (float) ($nilai[$f->sales_order_id] ?? 0),
+                'preorder' => $adaPreorder->has($f->sales_order_id),
+                'rincian'  => array_map('floatval', $rincian),
+            ];
+        })->filter(fn ($p) => $p['nilai'] > 0)->values();
+
+        if ($pesanan->count() < self::REAL_MIN_PESANAN) {
+            return null;
+        }
+
+        // Penyusun TETAP: satu nominal muncul di ≥80% pesanan yang memuatnya, DAN nominal itu
+        // jauh lebih seragam daripada nilai pesanannya. Syarat kedua mencegah salah golong saat
+        // nilai pesanannya sendiri seragam (semua Rp100.000 → komisi 10% pun selalu Rp10.000);
+        // yang tak bisa dibedakan begitu dianggap persen.
+        $bagianModus = fn (Collection $c) => $c->isEmpty() ? 0 : $c->countBy()->max() / $c->count();
+        $tetap = [];
+        foreach ($pesanan->flatMap(fn ($p) => array_keys($p['rincian']))->unique() as $label) {
+            $memuat     = $pesanan->filter(fn ($p) => ($p['rincian'][$label] ?? 0) > 0);
+            $nilaiLabel = $memuat->map(fn ($p) => round($p['rincian'][$label]));
+            $nilaiOrder = $memuat->map(fn ($p) => round($p['nilai']));
+
+            if ($bagianModus($nilaiLabel) >= 0.8 && $bagianModus($nilaiLabel) - $bagianModus($nilaiOrder) >= 0.3) {
+                $tetap[$label] = true;
+            }
+        }
+
+        $persenDari = function (Collection $kumpulan) use ($tetap): ?float {
+            $barang = $kumpulan->sum('nilai');
+            if ($barang <= 0) {
+                return null;
+            }
+            $potong = $kumpulan->sum(fn ($p) => collect($p['rincian'])
+                ->reject(fn ($v, $label) => isset($tetap[$label]))->sum());
+
+            return $potong / $barang * 100;
+        };
+
+        $ready    = $pesanan->where('preorder', false);
+        $po       = $pesanan->where('preorder', true);
+        $persen   = $persenDari($ready->count() >= self::REAL_MIN_PESANAN ? $ready : $pesanan);
+        $persenPo = $po->count() >= self::REAL_MIN_PREORDER ? $persenDari($po) : null;
+
+        $rincian = [];
+        foreach ($pesanan->flatMap(fn ($p) => array_keys($p['rincian']))->unique() as $label) {
+            $total = $pesanan->sum(fn ($p) => $p['rincian'][$label] ?? 0);
+            $rincian[] = isset($tetap[$label])
+                ? ['label' => $label, 'jenis' => 'tetap', 'nilai' => $total / $pesanan->count()]
+                : ['label' => $label, 'jenis' => 'persen', 'nilai' => $total / $pesanan->sum('nilai') * 100];
+        }
+
+        return [
+            'percent'         => round((float) $persen, 2),
+            'fixed'           => round($pesanan->sum(fn ($p) => collect($p['rincian'])
+                                    ->filter(fn ($v, $label) => isset($tetap[$label]))->sum()) / $pesanan->count()),
+            'preorder'        => $persenPo === null ? null : round(max(0, $persenPo - $persen), 2),
+            'orders'          => $pesanan->count(),
+            'orders_preorder' => $po->count(),
+            'days'            => self::REAL_HARI,
+            'rincian'         => $rincian,
         ];
     }
 

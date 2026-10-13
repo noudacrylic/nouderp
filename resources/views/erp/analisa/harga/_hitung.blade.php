@@ -5,7 +5,8 @@
     sebelum disimpan tidak boleh berbeda dengan yang muncul sesudahnya. Kalau salah satunya
     diubah, ubah keduanya. Aturan warnanya pun mengikuti _persen.blade.php.
 
-    Kontrak DOM: tabel membawa data-percent, data-fixed & data-andaian; tiap baris data-hpp;
+    Kontrak DOM: tabel membawa data-percent, data-fixed & data-andaian; tiap baris data-hpp
+    & data-percent (persen baris, menimpa persen tabel — produk preorder + biaya pre-order);
     input .js-harga / .js-grosir / .js-qty / .js-afiliasi; sel .js-potongan,
     .js-potongan-persen, .js-untung, .js-total, serta angka .js-margin & .js-markup yang
     masing-masing berada di dalam pembungkus warnanya sendiri.
@@ -69,7 +70,9 @@
             return;
         }
 
-        const potongan = omzet * ((PERSEN + tambah) / 100) + TETAP;
+        // Persen baris (produk preorder membawa biaya pre-order andaian), jatuh ke persen tabel.
+        const persenBaris = baris.dataset.percent ? parseFloat(baris.dataset.percent) : PERSEN;
+        const potongan = omzet * ((persenBaris + tambah) / 100) + TETAP;
         const untung   = hpp === null ? null : omzet - potongan - hpp * qty;
 
         tulis(baris, '.js-total', rupiah(omzet));

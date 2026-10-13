@@ -95,7 +95,8 @@
                     @forelse($rows as $row)
                         @php $s = $row['setelah']; @endphp
                         <tr class="hover:bg-blue-50/40 align-top"
-                            data-hpp="{{ $row['hpp'] }}" data-harga="{{ (int) ($row['price'] ?? 0) }}">
+                            data-hpp="{{ $row['hpp'] }}" data-harga="{{ (int) ($row['price'] ?? 0) }}"
+                            data-percent="{{ $row['fee_percent'] }}">
                             <td class="px-5 py-3">
                                 <div class="font-semibold text-slate-800">{{ $row['product']['name'] }}</div>
                                 <div class="text-xs font-mono font-semibold text-blue-600">{{ $row['product']['sku'] }}</div>
@@ -194,7 +195,9 @@
 
         if (!harga) return;
 
-        const potongan = net * (PERSEN / 100) + TETAP;
+        // Persen baris: produk preorder membawa biaya pre-order andaian.
+        const persenBaris = baris.dataset.percent ? parseFloat(baris.dataset.percent) : PERSEN;
+        const potongan = net * (persenBaris / 100) + TETAP;
         const untung   = hpp === null ? null : net - potongan - hpp;
 
         baris.querySelector('.js-potongan').textContent = rupiah(potongan);

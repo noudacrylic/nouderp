@@ -75,7 +75,7 @@ class ProductPriceController extends Controller
             'tab'      => 'promo',
             'channels' => $channels,
             'channel'  => $channel,
-            'katalog'  => $this->pricing->rows($key, $this->hppFilters())
+            'katalog'  => $this->pricing->rows($key, $this->hppFilters(), null, $channel['fee'])
                 ->filter(fn ($r) => $r['hpp'] !== null || $r['price'] !== null)
                 ->map(fn ($r) => [
                     'id'    => $r['product']['id'],
@@ -83,6 +83,8 @@ class ProductPriceController extends Controller
                     'nama'  => $r['product']['name'],
                     'hpp'   => $r['hpp'],
                     'harga' => $r['price'],
+                    // Biaya pre-order hanya untuk produk preorder — keranjang menghitungnya per baris.
+                    'po'    => $r['product']['sale_type'] === 'preorder' ? (float) ($channel['fee']['preorder'] ?? 0) : 0.0,
                 ])->values(),
         ]);
     }
@@ -103,11 +105,13 @@ class ProductPriceController extends Controller
         $rows->getCollection()->transform(function ($row) use ($diskon, $percent, $fixed) {
             $harga = $row['price'];
             $net   = $harga === null ? null : $harga * (1 - $diskon / 100);
+            // Produk preorder membawa persen potongannya sendiri (+ biaya pre-order andaian).
+            $pct   = $row['fee_percent'] ?? $percent;
 
             $row['harga_diskon'] = $net;
-            $row['setelah']      = PricingMath::scenario($row['hpp'], $net, $percent, $fixed);
+            $row['setelah']      = PricingMath::scenario($row['hpp'], $net, $pct, $fixed);
             // Batas amannya: didiskon lebih dari ini, transaksinya rugi.
-            $row['diskon_maks']  = PricingMath::maxDiscountPercent($row['hpp'], $harga, $percent, $fixed);
+            $row['diskon_maks']  = PricingMath::maxDiscountPercent($row['hpp'], $harga, $pct, $fixed);
 
             return $row;
         });
@@ -441,6 +445,9 @@ class ProductPriceController extends Controller
     /** Potongan andaian yang sedang terpasang, per kanal, milik satu orang. */
     protected const SESI_ANDAIAN = 'analisa.potongan_andaian';
 
+    /** Sumber potongan yang dipilih per kanal: dasar | real | andaian. */
+    protected const SESI_SUMBER = 'analisa.sumber_potongan';
+
     /**
      * Potongan andaian sebuah kanal — "kalau potongan Shopee naik jadi 16%, masih untung?".
      *
@@ -458,68 +465,106 @@ class ProductPriceController extends Controller
      * SESI, bukan tabel: ini pengandaian SATU orang yang sedang menimbang. Menyimpannya ke
      * basis data membuat rekan yang membuka halaman yang sama melihat angka rekaan sebagai
      * kenyataan, tanpa pernah memintanya.
+     *
+     * Tiga sumber potongan, dipilih per kanal (13 Okt 2026):
+     *   - dasar   : setingan potongan / integrasi Jubelio (potongan asli halaman ini);
+     *   - real    : dari pesanan yang SUDAH SELESAI (ChannelPricingService::realFee);
+     *   - andaian : angka ketikan sendiri.
+     *
+     * Andaian tetap TERSIMPAN walau sumbernya dipindah ke dasar/real — supaya bisa
+     * dibandingkan bolak-balik tanpa mengetik ulang — dan baru hilang lewat tombol "Lepas".
      */
     protected function withFeeAssumption(Request $request, array $channel): array
     {
+        // `preorder` = persen TAMBAHAN yang hanya dikenakan pada produk berjenis preorder
+        // (mis. Layanan Produk Pre-Order Shopee 3%). Di sumber dasar 0: belum ada penyusun
+        // potongan yang bisa dibatasi per jenis produk.
+        $channel['fee']['preorder'] = 0.0;
         $channel['fee_actual']  = $channel['fee'];
         $channel['fee_assumed'] = false;
 
         $kunci     = $channel['key'];
         $tersimpan = (array) $request->session()->get(self::SESI_ANDAIAN, []);
+        $sumber    = (array) $request->session()->get(self::SESI_SUMBER, []);
 
-        // Formnya dikirim dengan kedua kolom kosong = "pakai potongan sebenarnya". Tanpa
-        // penanda `fee_form`, permintaan itu tidak bisa dibedakan dari kunjungan biasa dan
-        // andaiannya akan menolak dihapus.
+        $real = $channel['kind'] === 'marketplace' ? $this->pricing->realFee($channel) : null;
+        $channel['fee_real'] = $real;
+
+        if (in_array($request->input('fee_mode'), ['dasar', 'real', 'andaian'], true)) {
+            $sumber[$kunci] = $request->input('fee_mode');
+        }
+
+        // Lepas = andaiannya dibuang; kalau ia yang sedang dipakai, kembali ke dasar.
+        // Mengosongkan semua kolom lalu menerapkan berarti hal yang sama — `fee_form` penandanya,
+        // tanpa itu permintaannya tak bisa dibedakan dari kunjungan biasa.
         $dikosongkan = $request->has('fee_form')
-            && !$request->filled('fee_pct') && !$request->filled('fee_rp');
+            && !$request->filled('fee_pct') && !$request->filled('fee_rp') && !$request->filled('fee_po');
 
         if ($request->boolean('fee_reset') || $dikosongkan) {
             unset($tersimpan[$kunci]);
-            $request->session()->put(self::SESI_ANDAIAN, $tersimpan);
-
-            return $channel;
+            if (($sumber[$kunci] ?? null) === 'andaian') {
+                $sumber[$kunci] = 'dasar';
+            }
         }
 
-        if ($request->filled('fee_pct') || $request->filled('fee_rp')) {
+        if ($request->filled('fee_pct') || $request->filled('fee_rp') || $request->filled('fee_po')) {
             $percent = $request->filled('fee_pct')
                 ? (float) str_replace(',', '.', (string) $request->input('fee_pct'))
                 : (float) $channel['fee']['percent'];
             $fixed = $request->filled('fee_rp')
                 ? (float) clean_number((string) $request->input('fee_rp'))
                 : (float) $channel['fee']['fixed'];
+            $preorder = $request->filled('fee_po')
+                ? (float) str_replace(',', '.', (string) $request->input('fee_po'))
+                : 0.0;
 
-            $diketik = ['percent' => max(0, $percent), 'fixed' => max(0, $fixed)];
+            $diketik = ['percent' => max(0, $percent), 'fixed' => max(0, $fixed), 'preorder' => max(0, $preorder)];
 
-            // Mengetik angka yang sama persis dengan potongan asli = membatalkan andaian.
-            // Kalau tetap disimpan, ia akan tidur diam-diam lalu bangun jadi "andaian" pada
-            // hari potongan aslinya diubah — kejutan yang tidak pernah diminta siapa pun.
-            if ($this->samaDenganAsli($diketik, $channel['fee_actual'])) {
+            // Mengetik angka yang sama persis dengan potongan dasar = bukan andaian. Kalau tetap
+            // disimpan, ia tidur diam-diam lalu bangun jadi "andaian" pada hari potongan dasarnya
+            // diubah — kejutan yang tidak pernah diminta siapa pun.
+            if ($this->samaDenganDasar($diketik, $channel['fee_actual'])) {
                 unset($tersimpan[$kunci]);
+                $sumber[$kunci] = 'dasar';
             } else {
+                // Menerapkan andaian sekaligus memilihnya sebagai sumber.
                 $tersimpan[$kunci] = $diketik;
+                $sumber[$kunci]    = 'andaian';
             }
-
-            $request->session()->put(self::SESI_ANDAIAN, $tersimpan);
         }
 
-        if (!isset($tersimpan[$kunci])) {
-            return $channel;
-        }
+        $request->session()->put(self::SESI_ANDAIAN, $tersimpan);
+        $request->session()->put(self::SESI_SUMBER, $sumber);
 
-        $channel['fee'] = [
-            'percent' => (float) $tersimpan[$kunci]['percent'],
-            'fixed'   => (float) $tersimpan[$kunci]['fixed'],
-        ];
-        $channel['fee_assumed'] = !$this->samaDenganAsli($channel['fee'], $channel['fee_actual']);
+        $andaian = isset($tersimpan[$kunci]) ? [
+            'percent'  => (float) $tersimpan[$kunci]['percent'],
+            'fixed'    => (float) $tersimpan[$kunci]['fixed'],
+            'preorder' => (float) ($tersimpan[$kunci]['preorder'] ?? 0),
+        ] : null;
+        $channel['fee_andaian'] = $andaian;
+
+        // Sumber yang diminta tapi datanya tak ada (real belum cukup sampel, andaian sudah
+        // dilepas) jatuh ke dasar — dan halaman menyebut sumber yang BENAR-BENAR dipakai.
+        $mode = $sumber[$kunci] ?? 'dasar';
+        if ($mode === 'real' && $real) {
+            $channel['fee'] = ['percent' => $real['percent'], 'fixed' => $real['fixed'], 'preorder' => (float) ($real['preorder'] ?? 0)];
+        } elseif ($mode === 'andaian' && $andaian) {
+            $channel['fee'] = $andaian;
+            $channel['fee_assumed'] = true;
+        } else {
+            $mode = 'dasar';
+        }
+        $channel['fee_mode'] = $mode;
 
         return $channel;
     }
 
     /** Dua potongan dianggap sama bila selisihnya di bawah yang bisa dilihat mata di layar. */
-    protected function samaDenganAsli(array $a, array $b): bool
+    protected function samaDenganDasar(array $a, array $b): bool
     {
         return abs($a['percent'] - $b['percent']) <= 0.001
-            && abs($a['fixed'] - $b['fixed']) <= 0.5;
+            && abs($a['fixed'] - $b['fixed']) <= 0.5
+            && abs(($a['preorder'] ?? 0) - ($b['preorder'] ?? 0)) <= 0.001;
     }
 
     /**
