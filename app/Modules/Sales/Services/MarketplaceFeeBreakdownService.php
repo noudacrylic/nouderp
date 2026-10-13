@@ -166,11 +166,32 @@ class MarketplaceFeeBreakdownService
     /** Rincian untuk ditampilkan: yang tersimpan, atau estimasi setingan. Null = bukan marketplace. */
     public function untukPesanan(SalesOrder $so): ?array
     {
+        // Konvensi LAMA (lihat migrasi add_fee_at_settlement_to_sales_invoices): grand_total SO
+        // sudah BERSIH dan biaya adminnya tercatat di `marketplace_fee`. Nilai pesanan yang
+        // ditampilkan harus dikembalikan ke kotor — kalau tidak, kartu memotong biaya admin dua
+        // kali (sekali sudah di grand_total, sekali lagi di taksiran).
+        //
+        // Konvensi BARU juga mengisi `marketplace_fee` (catatan "sudah dibebankan" saat pesanan
+        // selesai) TANPA menurunkan grand_total. Pembedanya: hanya di konvensi lama biaya itu
+        // benar-benar sudah dikurangkan, yaitu grand_total + marketplace_fee = subtotal + ongkir.
+        $fee           = round((float) ($so->marketplace_fee ?? 0), 2);
+        $kotorAsli     = (float) $so->subtotal + (float) ($so->shipping_cost ?? 0);
+        $sudahDipotong = $fee > 0 && abs((float) $so->grand_total + $fee - $kotorAsli) < 1 ? $fee : 0.0;
+
         $row = MarketplaceOrderFee::where('sales_order_id', $so->id)->first();
         if ($row) {
+            $kotor = (float) $row->kotor;
+            $lain  = (float) $row->lain;
+            // Rincian Jubelio untuk SO lama tersimpan dengan kotor = grand_total bersih, dan
+            // biaya yang sudah dipotong itu muncul sebagai "lain-lain" negatif penyeimbang.
+            if ($sudahDipotong > 0 && abs($kotor - (float) $so->grand_total) < 1) {
+                $kotor += $sudahDipotong;
+                $lain  += $sudahDipotong;
+            }
+
             return [
-                'kotor' => $row->kotor, 'admin' => $row->admin, 'admin_rincian' => $row->admin_rincian ?? [],
-                'affiliate' => $row->affiliate, 'pajak' => $row->pajak, 'lain' => $row->lain,
+                'kotor' => $kotor, 'admin' => $row->admin, 'admin_rincian' => $row->admin_rincian ?? [],
+                'affiliate' => $row->affiliate, 'pajak' => $row->pajak, 'lain' => round($lain, 2),
                 'saldo_masuk' => $row->saldo_masuk, 'sumber' => $row->sumber, 'final' => $row->final,
                 'diambil_at' => $row->diambil_at,
             ];
@@ -179,6 +200,15 @@ class MarketplaceFeeBreakdownService
         $cfg = MarketplaceConfig::where('customer_id', $so->customer_id)->where('is_active', true)->first();
         if (!$cfg) {
             return null;
+        }
+
+        if ($sudahDipotong > 0) {
+            // Biaya admin SUDAH tercatat — tampilkan angka itu, bukan taksiran baru atas nilai bersih.
+            $kotor = (float) $so->grand_total + $sudahDipotong;
+            $pajak = $this->taksiranPajak($cfg, $kotor, $this->tanggalPesanan($so));
+
+            return $this->susun($kotor, ['Biaya admin (tercatat di faktur)' => $sudahDipotong], 0.0, $pajak,
+                $kotor - $sudahDipotong - $pajak, 'setingan', false) + ['diambil_at' => null];
         }
 
         return $this->taksiran($cfg, (float) $so->grand_total, $this->tanggalPesanan($so)) + ['diambil_at' => null];

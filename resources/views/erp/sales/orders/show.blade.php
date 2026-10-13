@@ -32,6 +32,8 @@
 
     @include('erp.sales.orders.partials.order-costs')
 
+    @include('erp.sales.orders.partials.order-profit')
+
     @include('erp.sales._partials.relations-so')
 
     @if($so->status !== 'void')

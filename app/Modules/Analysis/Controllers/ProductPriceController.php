@@ -8,8 +8,6 @@ use App\Modules\Analysis\Models\PriceChannelFeeComponent;
 use App\Modules\Analysis\Models\ProductChannelPrice;
 use App\Modules\Analysis\Services\BasePriceRolloutService;
 use App\Modules\Analysis\Services\ChannelPricingService;
-use App\Modules\Analysis\Services\ProductionCostRateService;
-use App\Modules\Analysis\Services\ProductionTimeAnalysisService;
 use App\Modules\Analysis\Support\PricingMath;
 use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
@@ -647,14 +645,7 @@ class ProductPriceController extends Controller
      */
     protected function hppFilters(): array
     {
-        return [
-            'date_from'      => null,
-            'date_to'        => null,
-            'types'          => ProductionTimeAnalysisService::DEFAULT_TYPES,
-            'include_merged' => false,
-            'months'         => ProductionCostRateService::DEFAULT_PERIOD_MONTHS,
-            'assumption'     => request()->boolean('asumsi'),
-        ];
+        return array_replace(ChannelPricingService::defaultHppFilters(), ['assumption' => request()->boolean('asumsi')]);
     }
 
     /** Input rupiah diketik dengan titik ribuan — `(float)` akan membaca 199.900 sebagai 199. */

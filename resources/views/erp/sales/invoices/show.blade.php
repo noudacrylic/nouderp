@@ -31,6 +31,7 @@
          Setelah pesanan dikirim/selesai, yang dibuka orang adalah fakturnya. --}}
     @if($invoice->salesOrder && $invoice->status !== 'void')
         @include('erp.sales.orders.partials.marketplace-fees', ['so' => $invoice->salesOrder])
+        @include('erp.sales.orders.partials.order-profit', ['so' => $invoice->salesOrder])
     @endif
 
     {{-- Jejak dana: marketplace, retur, jurnal — hanya di layar, tidak dicetak. --}}

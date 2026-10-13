@@ -4,13 +4,7 @@
     // lihat SalesOrderCostService.
     $costLines = app(\App\Modules\Sales\Services\SalesOrderCostService::class)->linesForOrder($so->id);
     $costTotal = (float) $costLines->sum('amount');
-
-    // Laba kotor hanya bisa dihitung dari faktur yang sudah diposting — di situ HPP barang
-    // (FIFO dari Surat Jalan) baru benar-benar diketahui.
-    $postedInvoices = \App\Models\SalesInvoice::where('sales_order_id', $so->id)
-        ->where('status', 'posted')->get();
-    $netSales = (float) $postedInvoices->sum(fn ($i) => (float) $i->subtotal - (float) $i->global_discount_amount);
-    $goodsCogs = (float) $postedInvoices->sum('hpp_total');
+    // Laba pesanan (termasuk biaya ini) ada di kartu tersendiri — partials/order-profit.
     $rp = fn ($n) => 'Rp ' . number_format((float) $n, 0, ',', '.');
 @endphp
 
@@ -77,22 +71,6 @@
                         </tr>
                     </tfoot>
                 </table>
-            </div>
-        @endif
-
-        @if($postedInvoices->isNotEmpty())
-            @php $gross = $netSales - $goodsCogs - $costTotal; @endphp
-            <div class="mt-3 pt-3 border-t border-gray-100 flex gap-x-8 gap-y-2 flex-wrap text-sm">
-                <div><div class="text-[11px] text-gray-400">Penjualan (faktur posted)</div><div class="font-semibold">{{ $rp($netSales) }}</div></div>
-                <div><div class="text-[11px] text-gray-400">HPP barang</div><div class="font-semibold">{{ $rp($goodsCogs) }}</div></div>
-                <div><div class="text-[11px] text-gray-400">Biaya pesanan</div><div class="font-semibold">{{ $rp($costTotal) }}</div></div>
-                <div class="ml-auto text-right">
-                    <div class="text-[11px] text-gray-400">Laba kotor pesanan</div>
-                    <div class="font-bold {{ $gross < 0 ? 'text-red-600' : 'text-green-700' }}">
-                        {{ $rp($gross) }}
-                        @if($netSales > 0)<span class="text-xs font-normal text-gray-500">({{ number_format($gross / $netSales * 100, 1, ',', '.') }}%)</span>@endif
-                    </div>
-                </div>
             </div>
         @endif
     </div>

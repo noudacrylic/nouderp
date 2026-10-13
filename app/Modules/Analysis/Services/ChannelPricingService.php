@@ -177,6 +177,29 @@ class ChannelPricingService
     }
 
     /**
+     * Filter HPP bawaan halaman analisa. Satu sumber, supaya pemakai lain (mis. kartu Laba
+     * Pesanan) membaca CACHE HPP yang sama persis dengan halaman analisa — kunci cache-nya
+     * dibentuk dari isi & urutan filter ini.
+     */
+    public static function defaultHppFilters(): array
+    {
+        return [
+            'date_from'      => null,
+            'date_to'        => null,
+            'types'          => ProductionTimeAnalysisService::DEFAULT_TYPES,
+            'include_merged' => false,
+            'months'         => ProductionCostRateService::DEFAULT_PERIOD_MONTHS,
+            'assumption'     => false,
+        ];
+    }
+
+    /** HPP per unit tiap produk (null = belum terukur), dengan filter bawaan. */
+    public function hppPerUnit(): Collection
+    {
+        return $this->hppMap(self::defaultHppFilters());
+    }
+
+    /**
      * HPP gabungan: produk yang diukur dari OP + paket yang dirakit dari komponennya.
      *
      * `replace()`, BUKAN `merge()`. Kedua koleksi dikunci product_id — kunci integer — dan

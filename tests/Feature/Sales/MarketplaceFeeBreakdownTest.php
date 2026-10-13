@@ -123,6 +123,58 @@ class MarketplaceFeeBreakdownTest extends TestCase
         $this->assertSame(0.0, $sebelum['pajak'], 'pesanan masuk sebelum 2 Okt tidak dipotong pajak');
     }
 
+    /**
+     * SO konvensi LAMA: grand_total sudah bersih, biaya adminnya di `marketplace_fee`. Kartu dulu
+     * menaksir biaya admin LAGI atas nilai bersih itu — terpotong dua kali (SP-260618D4B3ERYX:
+     * 28.999 → 23.834 → taksiran 4.587 lagi).
+     */
+    public function test_so_lama_yang_sudah_dipotong_tidak_dipotong_lagi(): void
+    {
+        $so = $this->so(28_999, '2026-06-18');
+        $so->update(['grand_total' => 23_834, 'marketplace_fee' => 5_165]);
+
+        $b = $this->svc()->untukPesanan($so->fresh());
+
+        $this->assertEqualsWithDelta(28_999, $b['kotor'], 0.01, 'nilai pesanan kembali ke kotor');
+        $this->assertEqualsWithDelta(5_165, $b['admin'], 0.01, 'biaya admin = yang sudah tercatat, bukan taksiran baru');
+        $this->assertEqualsWithDelta(23_834, $b['saldo_masuk'], 0.01);
+        $this->assertEqualsWithDelta(0, $b['lain'], 0.01);
+    }
+
+    /** Rincian Jubelio SO lama tersimpan dengan kotor bersih + "lain-lain" negatif penyeimbang. */
+    public function test_rincian_tersimpan_so_lama_ditampilkan_dengan_nilai_kotor(): void
+    {
+        $so = $this->so(18_999, '2026-09-11');
+        $so->update(['grand_total' => 15_184, 'marketplace_fee' => 3_815]);
+        \App\Models\MarketplaceOrderFee::create([
+            'sales_order_id' => $so->id, 'kotor' => 15_184, 'admin' => 4_165,
+            'admin_rincian' => ['Komisi' => 1_805, 'Biaya layanan' => 760, 'Biaya proses pesanan' => 1_250, 'Premi perlindungan pengiriman' => 350],
+            'affiliate' => 468, 'pajak' => 0, 'lain' => -3_815, 'saldo_masuk' => 14_366,
+            'sumber' => 'jubelio', 'final' => true,
+        ]);
+
+        $b = $this->svc()->untukPesanan($so->fresh());
+
+        $this->assertEqualsWithDelta(18_999, $b['kotor'], 0.01);
+        $this->assertEqualsWithDelta(0, $b['lain'], 0.01, 'penyeimbang negatif hilang');
+        $this->assertEqualsWithDelta(14_366, $b['saldo_masuk'], 0.01);
+    }
+
+    /**
+     * Konvensi BARU juga mengisi marketplace_fee (catatan "sudah dibebankan" saat selesai) tanpa
+     * menurunkan grand_total — nilainya TIDAK boleh ditambahkan lagi ke nilai pesanan.
+     */
+    public function test_so_konvensi_baru_dengan_marketplace_fee_tidak_dianggap_lama(): void
+    {
+        $so = $this->so(55_999);
+        $so->update(['marketplace_fee' => 8_810]);
+
+        $b = $this->svc()->untukPesanan($so->fresh());
+
+        $this->assertEqualsWithDelta(55_999, $b['kotor'], 0.01);
+        $this->assertSame('Biaya admin (setingan)', array_key_first($b['admin_rincian']));
+    }
+
     public function test_settlement_tiktok_gabungan_dipecah_jadi_pajak_taksiran_dan_biaya_lain(): void
     {
         // TP-586214236484043970 — escrow TikTok muncul ±10 hari setelah selesai.
