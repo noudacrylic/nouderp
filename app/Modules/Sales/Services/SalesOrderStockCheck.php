@@ -155,6 +155,8 @@ class SalesOrderStockCheck
 
                 if ($needed > $available) {
                     $kurang[] = [
+                        'product_id' => (int) $productId,
+                        'preorder_umum' => $p->sharesStockAcrossOrders(),
                         'sku' => $p->sku,
                         'name' => $p->name,
                         'needed' => (float) $needed,

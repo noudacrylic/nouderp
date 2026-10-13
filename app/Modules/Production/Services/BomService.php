@@ -251,8 +251,12 @@ class BomService
     }
 
     /**
-     * Untuk produk preorder, output utama harus qty_per_cycle = 1
-     * (1 unit pesanan = 1 siklus produksi pada auto-produksi pre-order).
+     * Produk preorder DIBUAT KHUSUS (CS1, CS2, …): output utama harus qty_per_cycle = 1 —
+     * satu pesanan = satu OP, dan unit lebihnya tak bisa dipakai pesanan lain.
+     *
+     * Preorder umum bebas dari aturan ini (13 Okt 2026): kebutuhannya di-netting global
+     * terhadap stok & OP berjalan (PreorderAutoProductionService::uncoveredDemand), jadi
+     * sisa satu siklus (mis. 52 pcs per lembar) menutup pesanan berikutnya, bukan terbuang.
      */
     private function assertPreorderConstraints(array $outputs): void
     {
@@ -262,15 +266,15 @@ class BomService
         }
 
         $product = Product::find($mainOutput['product_id']);
-        if (!$product || $product->sale_type !== 'preorder') {
+        if (!$product || $product->sale_type !== 'preorder' || $product->sharesStockAcrossOrders()) {
             return;
         }
 
         $qty = (float) ($mainOutput['qty_per_cycle'] ?? 0);
         if (abs($qty - 1.0) > 0.0001) {
             throw new Exception(
-                "Produk preorder ({$product->sku}): output utama qty per siklus harus = 1 (saat ini {$qty}). ".
-                "Untuk preorder, 1 unit pesanan = 1 siklus produksi."
+                "Produk dibuat khusus ({$product->sku}): output utama qty per siklus harus = 1 (saat ini {$qty}). ".
+                "Untuk produk dibuat khusus, 1 unit pesanan = 1 siklus produksi."
             );
         }
     }

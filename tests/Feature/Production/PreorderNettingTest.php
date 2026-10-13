@@ -38,8 +38,8 @@ class PreorderNettingTest extends TestCase
         return Warehouse::firstOrCreate(['name' => 'Gudang Test'], ['is_sellable' => true]);
     }
 
-    /** Produk preorder + BOM auto (syarat pemicu: auto_production & output utama 1/siklus). */
-    private function produk(bool $dibuatKhusus): Product
+    /** Produk preorder + BOM auto (syarat pemicu: auto_production; dibuat khusus wajib 1/siklus). */
+    private function produk(bool $dibuatKhusus, float $perSiklus = 1): Product
     {
         $p = Product::create([
             'sku'           => ($dibuatKhusus ? 'CS-' : 'BC-') . uniqid(),
@@ -57,7 +57,7 @@ class PreorderNettingTest extends TestCase
         ]);
         BomOutput::create([
             'bom_id' => $bom->id, 'product_id' => $p->id,
-            'qty_per_cycle' => 1, 'output_type' => 'main', 'percentage' => 100,
+            'qty_per_cycle' => $perSiklus, 'output_type' => 'main', 'percentage' => 100,
         ]);
 
         return $p;
@@ -198,6 +198,37 @@ class PreorderNettingTest extends TestCase
         $total = (float) ProductionOrder::whereHas('outputs', fn ($q) => $q->where('product_id', $p->id))
             ->where('status', '!=', 'cancelled')->sum('planned_cycles');
         $this->assertEquals(2, $total, 'Dua pesanan tanpa stok = dua unit, tidak lebih.');
+    }
+
+    // ───────────── Hasil banyak per siklus (mis. 52 pcs per lembar) ─────────────
+
+    /**
+     * Preorder umum boleh menghasilkan >1 unit per siklus: siklus = kebutuhan ÷ hasil per
+     * siklus (dibulatkan ke atas), dan sisa satu siklus menutup pesanan berikutnya lewat
+     * netting — bukan memicu OP baru.
+     */
+    public function test_preorder_umum_banyak_per_siklus_sisanya_menutup_pesanan_berikutnya(): void
+    {
+        $p = $this->produk(dibuatKhusus: false, perSiklus: 52);
+
+        $this->picu($this->so($p));
+
+        $op = ProductionOrder::whereHas('outputs', fn ($q) => $q->where('product_id', $p->id))->firstOrFail();
+        $this->assertEquals(1, (int) $op->planned_cycles, '1 unit dipesan = 1 siklus (menghasilkan 52).');
+
+        $this->picu($this->so($p, qty: 3));
+
+        $this->assertSame(1, $this->opCount($p), 'OP pertama (52 unit) sudah menutup pesanan kedua.');
+    }
+
+    public function test_produk_dibuat_khusus_tetap_wajib_satu_per_siklus(): void
+    {
+        $p = $this->produk(dibuatKhusus: true, perSiklus: 52);
+
+        $hasil = $this->picu($this->so($p));
+
+        $this->assertSame(0, $this->opCount($p));
+        $this->assertStringContainsString('qty per siklus harus = 1', $hasil[0]['reason']);
     }
 
     // ───────────── Produk dibuat khusus: perilaku lama ─────────────

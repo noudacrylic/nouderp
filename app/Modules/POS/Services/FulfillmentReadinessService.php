@@ -32,6 +32,9 @@ class FulfillmentReadinessService
     /** Kekurangan stok per sales_order_id — diisi rowsFor(), dibaca buildSoRow(). */
     private array $shortageMap = [];
 
+    /** product_id preorder umum yang kurang stok TANPA BOM auto-produksi (set) — diisi rowsFor(). */
+    private array $tanpaBomAuto = [];
+
     /**
      * Ambil baris untuk satu bucket (SO + garansi tergabung).
      * @param array{channel?:string,courier?:string} $filters  channel: 'marketplace'|'non'; courier: nama kurir
@@ -879,6 +882,19 @@ class FulfillmentReadinessService
             ? app(\App\Modules\Sales\Services\SalesOrderStockCheck::class)->shortagesForFulfillment($orders)
             : [];
 
+        // Preorder umum yang kurang stok tapi tak punya BOM auto-produksi: pemicu DP & sapuan
+        // terjadwal sama-sama melewatinya, jadi kekurangannya tak akan pernah jadi OP sendiri.
+        // Kasus TO-8-M2-2 (13 Okt 2026): 46 dipesan, stok 13, ketahuan saat sudah batas kirim.
+        $kurangPreorder = collect($this->shortageMap)->flatten(1)
+            ->where('preorder_umum', true)->pluck('product_id')->unique()->values()->all();
+        $this->tanpaBomAuto = $kurangPreorder ? array_flip(array_diff($kurangPreorder,
+            \Illuminate\Support\Facades\DB::table('bom_outputs')
+                ->join('boms', 'boms.id', '=', 'bom_outputs.bom_id')
+                ->where('boms.auto_production', true)
+                ->where('bom_outputs.output_type', 'main')
+                ->whereIn('bom_outputs.product_id', $kurangPreorder)
+                ->pluck('bom_outputs.product_id')->all())) : [];
+
         // SO yang ditautkan ke chat CRM — penentu tombol "Chat" untuk pesanan marketplace,
         // yang pelanggannya (Shopee/Tokopedia) bukan orang yang chat.
         $chatTertaut = $soIds ? array_flip(\Illuminate\Support\Facades\DB::table('crm_pesanan_chat')
@@ -1312,6 +1328,12 @@ class FulfillmentReadinessService
                     ->take(2)
                     ->map(fn ($s) => $s['sku'] . ' kurang ' . rtrim(rtrim(number_format($s['short'], 2, ',', '.'), '0'), ','))
                     ->implode(', ') . (count($shortages) > 2 ? ' (+' . (count($shortages) - 2) . ' lagi)' : '');
+
+                $tanpaBom = collect($shortages)->filter(fn ($s) => isset($this->tanpaBomAuto[$s['product_id'] ?? 0]));
+                if ($tanpaBom->isNotEmpty()) {
+                    $reason .= ' · ⚠ ' . $tanpaBom->pluck('sku')->implode(', ')
+                        . ' belum punya BOM auto-produksi — OP tidak dibuat otomatis';
+                }
             } else {
                 $reason = 'Belum siap diproses';
             }

@@ -267,7 +267,7 @@
                                 <span class="block text-sm font-bold text-gray-700">Aktifkan</span>
                                 <span class="block text-[11px] text-gray-500 mt-1 leading-relaxed">
                                     <strong>Produk ready:</strong> saat stok ≤ <em>min stock</em>, sistem otomatis membuat order produksi (siklus = <em>jumlah siklus biasa</em>).<br>
-                                    <strong>Produk preorder:</strong> order produksi otomatis dibuat &amp; dikonfirmasi saat DP/uang muka di-post (bukan saat SO dikonfirmasi), siklus = qty pesanan. Output utama BOM preorder harus <em>qty per siklus = 1</em>.<br>
+                                    <strong>Produk preorder:</strong> order produksi otomatis dibuat &amp; dikonfirmasi saat DP/uang muka di-post (bukan saat SO dikonfirmasi), siklus = kebutuhan yang belum tertutup stok ÷ hasil per siklus (sisanya jadi stok untuk pesanan berikutnya). Produk <em>dibuat khusus</em> (CS1, CS2, …) wajib <em>qty per siklus = 1</em>.<br>
                                     Skor = otomatis. Hanya 1 BOM per produk utama yang boleh aktif.
                                 </span>
                             </span>

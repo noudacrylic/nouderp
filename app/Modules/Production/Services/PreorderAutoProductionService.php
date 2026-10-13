@@ -23,9 +23,9 @@ class PreorderAutoProductionService
      * Berbeda dengan AutoProductionService (ready stock):
      * - Trigger reaktif (saat SO confirmed), bukan scan periodik
      * - Tidak ada cek skip-if-running — tiap pesanan customer berdiri sendiri
-     * - planned_cycles = SISA qty produk yang belum direncanakan di SO ini, 1 siklus = 1 unit
-     *   (BOM wajib qty_per_cycle=1). Dipakai sisa, bukan qty baris, karena 1 produk bisa
-     *   tersebar di beberapa baris SO — lihat runForItem().
+     * - planned_cycles = SISA qty produk yang belum direncanakan di SO ini ÷ hasil per siklus
+     *   (dibuat khusus wajib 1/siklus; preorder umum boleh lebih, sisanya jadi stok). Dipakai
+     *   sisa, bukan qty baris, karena 1 produk bisa tersebar di beberapa baris SO — lihat runForItem().
      *
      * Return: list result per item untuk reporting/logging.
      */
@@ -141,8 +141,12 @@ class PreorderAutoProductionService
             return array_merge($base, ['reason' => "BOM auto tidak ditemukan untuk produk {$product->sku}."]);
         }
 
-        $mainOutput = $bom->outputs->firstWhere('output_type', 'main');
-        if (!$mainOutput || abs((float) $mainOutput->qty_per_cycle - 1.0) > 0.0001) {
+        // Dibuat khusus wajib 1 unit per siklus (lihat BomService::assertPreorderConstraints);
+        // preorder umum boleh lebih — sisanya jadi stok yang menutup pesanan berikutnya.
+        $mainOutput  = $bom->outputs->firstWhere('output_type', 'main');
+        $qtyPerCycle = (float) ($mainOutput?->qty_per_cycle ?? 0);
+        if (!$mainOutput || $qtyPerCycle <= 0
+            || (! $product->sharesStockAcrossOrders() && abs($qtyPerCycle - 1.0) > 0.0001)) {
             Log::error('PreorderAutoProduction: BOM auto preorder dengan qty_per_cycle != 1 (data tidak konsisten)', [
                 'bom_id'         => $bom->id,
                 'bom_number'     => $bom->bom_number,
@@ -207,9 +211,9 @@ class PreorderAutoProductionService
             $remaining = min($remaining, $belumTertutup);
         }
 
-        // 1 siklus = 1 unit (BOM preorder wajib qty_per_cycle = 1, sudah divalidasi di atas).
-        // Dibulatkan ke ATAS supaya qty pecahan tidak menyisakan kekurangan produksi.
-        $cycles = (int) max(1, (int) ceil($remaining - 0.0001));
+        // Siklus = kebutuhan ÷ hasil per siklus, dibulatkan ke ATAS supaya tidak kurang.
+        // Dibuat khusus selalu 1 unit/siklus (divalidasi di atas) → siklus = qty.
+        $cycles = (int) max(1, (int) ceil($remaining / $qtyPerCycle - 0.0001));
 
         $materials = $this->bomService->calculateMaterials($bom->id, $cycles);
         $outputs   = $this->bomService->calculateOutputs($bom->id, $cycles);
