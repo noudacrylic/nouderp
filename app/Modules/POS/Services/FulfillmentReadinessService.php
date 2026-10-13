@@ -879,10 +879,16 @@ class FulfillmentReadinessService
             ? app(\App\Modules\Sales\Services\SalesOrderStockCheck::class)->shortagesForFulfillment($orders)
             : [];
 
-        return $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo) {
+        // SO yang ditautkan ke chat CRM — penentu tombol "Chat" untuk pesanan marketplace,
+        // yang pelanggannya (Shopee/Tokopedia) bukan orang yang chat.
+        $chatTertaut = $soIds ? array_flip(\Illuminate\Support\Facades\DB::table('crm_pesanan_chat')
+            ->whereIn('sales_order_id', $soIds)->pluck('sales_order_id')->all()) : [];
+
+        return $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo, $chatTertaut) {
             $returns = $returnsBySo->get($so->id);
             $retur   = $returns?->firstWhere('status', 'draft') ?? $returns?->first();
             $row = $this->buildSoRow($so, $prodBySo->get($so->id), $linksBySo->get($so->id), $retur);
+            $row['chat_tertaut'] = isset($chatTertaut[$so->id]);
 
             // SO yang sudah di-void tidak punya tempat di alur pemrosesan — beri bucket sendiri
             // supaya kolom Status jujur, bukan meminjam label bucket yang tidak ia tempati.

@@ -12,7 +12,10 @@
      lembar geser yang sudah punya bingkainya sendiri. --}}
 @php $gayaWadah = $gayaWadah ?? 'bg-white border border-gray-200 rounded-lg'; @endphp
 <div class="flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }}"
-     x-data="{ tab: 'produk' }"
+     {{-- Chat terbuka → tab Pesanan duluan (13 Okt 2026): yang pertama perlu
+          diketahui saat membuka chat adalah pesanan apa yang sedang berjalan.
+          Tanpa chat terpilih, Pesanan tak punya isi — Produk tetap bawaannya. --}}
+     x-data="{ tab: @js($terpilih ? 'pesanan' : 'produk') }"
      x-init="$watch('tab', t => window.dispatchEvent(new CustomEvent('tab-rail', { detail: { tab: t } })))"
      @buka-tab.window="tab = $event.detail.tab">
 
@@ -30,7 +33,7 @@
     <div class="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
 
         {{-- ---------------------------------------------------------- produk --}}
-        <div x-show="tab === 'produk'">
+        <div x-show="tab === 'produk'" x-cloak>
             @include('erp.crm.inbox._produk')
         </div>
 

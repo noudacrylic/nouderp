@@ -11,6 +11,9 @@
      CrmTemplateController::mulaiTeks). --}}
 <div x-data="mulaiChatCrm(@js(route('crm.kontak.cari')))"
      @mulai-chat.window="buka($event.detail)"
+     {{-- Pintu ketiga: tombol "Chat" Pemrosesan Pesanan untuk pembeli yang
+          belum pernah chat (CrmInboxController::chatPesanan). --}}
+     @if(session('mulai_chat')) x-init="buka(@js(session('mulai_chat')))" @endif
      x-cloak>
 
     <div x-show="tampil" class="fixed inset-0 z-50 lapis-layar flex items-start justify-center p-4 pt-16 overflow-y-auto"

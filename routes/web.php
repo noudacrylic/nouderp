@@ -219,6 +219,8 @@ Route::prefix('erp')->group(function () {
         // akan menelannya sebagai id percakapan dan membalas 404 yang sunyi.
         Route::get('/daftar-segar', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'daftarSegar'])->name('inbox.daftar-segar');
         Route::get('/pesanan-cari', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariPesananTautan'])->name('inbox.pesanan.cari');
+        // Tombol "Chat" di kartu Pemrosesan Pesanan → chat pembeli pesanan itu.
+        Route::get('/pesanan/{order}/chat', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'chatPesanan'])->name('inbox.chat-pesanan');
         Route::post('/tutup-otomatis', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tutupOtomatis'])->name('inbox.tutup-otomatis');
 
         Route::get('/{conversation}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'show'])->name('inbox.show');

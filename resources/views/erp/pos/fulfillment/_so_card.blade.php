@@ -182,6 +182,14 @@
                class="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50"
                title="Buka halaman lacak pesanan milik pembeli">🔎 Lacak</a>
         @endif
+        {{-- Chat pembeli di CRM. Marketplace hanya bila pesanannya sudah ditautkan ke chat
+             (tab Pesanan CRM) — pelanggannya "Shopee"/"Tokopedia", bukan orang yang chat.
+             Chat mana yang dibuka ditentukan saat diklik: CrmInboxController::chatPesanan. --}}
+        @if(($r['kind'] ?? null) === 'so' && (empty($r['is_marketplace']) || !empty($r['chat_tertaut'])) && user_can_access('crm.inbox'))
+            <a href="{{ route('crm.inbox.chat-pesanan', $r['id']) }}"
+               class="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50"
+               title="{{ !empty($r['chat_tertaut']) ? 'Buka chat yang ditautkan ke pesanan ini' : 'Buka chat pembeli di CRM' }}">💬 Chat</a>
+        @endif
         @if($isDone && ($pickupDone || $allDelivered))
             <span class="ml-auto text-xs whitespace-nowrap text-white font-semibold">
                 ✓ {{ $pickupDone ? 'Sudah diambil' : 'Sudah sampai' }}

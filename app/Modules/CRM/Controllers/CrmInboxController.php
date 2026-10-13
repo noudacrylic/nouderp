@@ -513,7 +513,27 @@ class CrmInboxController extends Controller
                     ->orWhereIn('customer_id', SalesOrder::query()
                         ->where('order_number', 'like', "%{$cari}%")
                         ->whereNotNull('customer_id')
-                        ->select('customer_id')));
+                        // Pelanggan marketplace ("Shopee", "Tokopedia") menampung
+                        // ribuan pesanan orang berbeda — lewat jalur ini satu nomor
+                        // SP- menyeret chat siapa pun yang tertempel ke sana.
+                        ->whereHas('customer', fn ($c) => $c->where('is_marketplace', false))
+                        ->select('customer_id'))
+                    /*
+                     * Pesanan marketplace tidak bisa dicari lewat pelanggannya
+                     * (lihat di atas), jadi yang dipakai TAUTAN chat↔pesanan
+                     * (tab Pesanan). Nomor Jubelio ikut dicari: yang disebut
+                     * pembeli adalah nomor di aplikasinya, bukan nomor SO kita.
+                     */
+                    ->orWhereIn('id', DB::table('crm_pesanan_chat')
+                        ->whereIn('sales_order_id', SalesOrder::query()
+                            ->where('order_number', 'like', "%{$cari}%")
+                            ->orWhere('customer_po_number', 'like', "%{$cari}%")
+                            ->orWhereIn('id', DB::table('jubelio_order_links')
+                                ->where('jubelio_salesorder_no', 'like', "%{$cari}%")
+                                ->whereNotNull('sales_order_id')
+                                ->select('sales_order_id'))
+                            ->select('id'))
+                        ->select('conversation_id')));
             })
             // Yang belum pernah ada pesannya pun harus muncul; ORDER BY kolom
             // nullable menaruhnya di ujung, jadi dipakai created_at sebagai jaring.
@@ -1881,6 +1901,56 @@ class CrmInboxController extends Controller
             'total'     => (float) $so->grand_total,
             'chat'      => isset($tautan[$so->id]) ? (int) $tautan[$so->id] : null,
         ])->all()]);
+    }
+
+    /**
+     * Tombol "Chat" di kartu Pemrosesan Pesanan: buka chat pembeli pesanan ini.
+     *
+     * Urutannya: chat yang DITAUTKAN ke pesanan ini (satu-satunya jalur bagi
+     * pesanan marketplace), lalu chat pelanggannya / nomor tujuannya — yang
+     * paling baru bergerak. Belum pernah chat sama sekali → Inbox dengan popup
+     * Mulai Chat terisi nomornya, supaya yang menekan tombol tidak perlu
+     * menyalin nomor dari kartu.
+     *
+     * Dicari saat diklik, bukan saat kartu dirender: daftar Pemrosesan
+     * Pesanan memuat ratusan kartu, dan kebanyakan tombolnya tak pernah ditekan.
+     */
+    public function chatPesanan(SalesOrder $order)
+    {
+        $tertaut = DB::table('crm_pesanan_chat')
+            ->where('sales_order_id', $order->id)
+            ->value('conversation_id');
+
+        if ($tertaut) {
+            return redirect()->route('crm.inbox.show', $tertaut);
+        }
+
+        $order->loadMissing('customer');
+
+        if ($order->customer?->is_marketplace) {
+            return back()->with('info', "Pesanan {$order->order_number} belum ditautkan ke chat mana pun. Tautkan lewat tab Pesanan di CRM.");
+        }
+
+        $nomor = PhoneNumber::normalize($order->tujuan()?->nomorNotifikasi());
+
+        $chat = CrmConversation::query()
+            ->where(fn ($q) => $q
+                ->when($order->customer_id, fn ($w) => $w->where('customer_id', $order->customer_id))
+                ->when($nomor, fn ($w) => $w->orWhere('contact_key', $nomor)))
+            ->when(! $order->customer_id && ! $nomor, fn ($q) => $q->whereRaw('1 = 0'))
+            ->orderByRaw('COALESCE(last_message_at, created_at) DESC')
+            ->first();
+
+        if ($chat) {
+            return redirect()->route('crm.inbox.show', $chat);
+        }
+
+        if (! $nomor) {
+            return back()->with('error', "Pelanggan pesanan {$order->order_number} belum punya chat dan nomor WhatsApp-nya kosong.");
+        }
+
+        return redirect()->route('crm.inbox.index')
+            ->with('mulai_chat', ['nomor' => $nomor, 'nama' => $order->namaTujuan()]);
     }
 
     /** Tautkan satu pesanan ke chat ini — labelnya langsung ikut tahapan pesanan itu. */
