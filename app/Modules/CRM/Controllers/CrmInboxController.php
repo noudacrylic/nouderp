@@ -912,7 +912,9 @@ class CrmInboxController extends Controller
                 'id'      => $p->id,
                 'nama'    => $p->namaTampil(),
                 'nomor'   => $p->contact_key,
-                'terbuka' => $p->windowIsOpen(),
+                // Thread nomor utama (self-host) tak mengenal jendela 24 jam —
+                // sama dengan penjaga di CrmReplyService::pastikanJendela().
+                'terbuka' => $p->tanpaJendela() || $p->windowIsOpen(),
             ])->all(),
         ]);
     }

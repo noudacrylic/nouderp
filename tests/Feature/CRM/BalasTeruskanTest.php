@@ -386,6 +386,21 @@ class BalasTeruskanTest extends TestCase
         $this->assertFalse($baris['terbuka']);
     }
 
+    public function test_tujuan_nomor_utama_selalu_bisa_diteruskan(): void
+    {
+        $asal   = $this->percakapan();
+        $cermin = $this->percakapan('628777888999', terbuka: false);
+        $cermin->forceFill(['channel' => CrmConversation::KANAL_CERMIN, 'window_expires_at' => null])->save();
+
+        // Jalur self-host tak mengenal jendela 24 jam — tombolnya tak boleh mati.
+        $baris = collect($this->actingAs($this->admin())
+            ->getJson(route('crm.percakapan.cari', ['kecuali' => $asal->id]))
+            ->assertOk()
+            ->json('hasil'))->firstWhere('id', $cermin->id);
+
+        $this->assertTrue($baris['terbuka']);
+    }
+
     public function test_teruskan_butuh_login(): void
     {
         $percakapan = $this->percakapan();
