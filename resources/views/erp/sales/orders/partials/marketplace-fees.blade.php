@@ -26,11 +26,14 @@
     $mpPotongan = $mpFee['admin'] + $mpFee['affiliate'] + $mpFee['pajak'] + $mpFee['lain'];
     $mpSelisih = $mpCairInv ? round((float) $mpCairInv->marketplace_fee - $mpPotongan, 0) : 0;
 @endphp
-<div class="mt-4">
-    <div class="bg-white border border-gray-100 rounded-lg shadow-sm p-4 text-sm">
+{{-- $tersemat: dipasang DI DALAM kartu "Marketplace — perjalanan dana" di halaman faktur
+     (tanpa bingkai kartu sendiri) supaya faktur tidak punya dua kartu marketplace. --}}
+@php $tersemat = $tersemat ?? false; @endphp
+<div class="{{ $tersemat ? 'mt-4 pt-4 border-t border-gray-100' : 'mt-4' }}">
+    <div class="{{ $tersemat ? '' : 'bg-white border border-gray-100 rounded-lg shadow-sm p-4' }} text-sm">
         <div class="flex items-start justify-between gap-3 flex-wrap mb-3">
             <div>
-                <div class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Potongan Marketplace</div>
+                <div class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{{ $tersemat ? 'Rincian potongan' : 'Potongan Marketplace' }}</div>
                 <div class="text-xs text-gray-500 mt-0.5">
                     @if($mpFee['final'] && $mpFee['sumber'] === 'laporan')
                         Angka asli dari laporan penghasilan marketplace yang diunggah di Rekonsiliasi.

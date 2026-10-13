@@ -30,7 +30,11 @@
     {{-- Potongan marketplace pesanan ini (admin, affiliate, pajak, saldo masuk) — sama dengan kartu di SO.
          Setelah pesanan dikirim/selesai, yang dibuka orang adalah fakturnya. --}}
     @if($invoice->salesOrder && $invoice->status !== 'void')
-        @include('erp.sales.orders.partials.marketplace-fees', ['so' => $invoice->salesOrder])
+        {{-- Bila kartu "perjalanan dana" tampil, rinciannya disematkan di sana (jejak-dana) —
+             dua kartu marketplace untuk satu faktur cuma membuat angka yang sama dibaca dua kali. --}}
+        @unless(!empty($jejak['marketplace']) && $invoice->status !== 'draft')
+            @include('erp.sales.orders.partials.marketplace-fees', ['so' => $invoice->salesOrder])
+        @endunless
         @include('erp.sales.orders.partials.order-profit', ['so' => $invoice->salesOrder])
     @endif
 

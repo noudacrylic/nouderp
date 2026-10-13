@@ -235,7 +235,11 @@ class MarketplaceFeeBreakdownTest extends TestCase
         $html = $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]))
             ->get(route('sales.invoices.show', $inv->id))->assertOk()->getContent();
 
-        $this->assertStringContainsString('Potongan Marketplace', $html);
+        // Di faktur rinciannya DISEMATKAN di kartu "perjalanan dana" — bukan kartu kedua.
+        $this->assertStringContainsString('perjalanan dana', $html);
+        $this->assertStringContainsString('Rincian potongan', $html);
+        $this->assertStringNotContainsString('>Potongan Marketplace<', $html);
+        $this->assertGreaterThan(strpos($html, 'perjalanan dana'), strpos($html, 'Rincian potongan'));
         $this->assertStringContainsString('Final · dari Jubelio', $html);
         $this->assertStringContainsString('Biaya affiliate', $html);
         $this->assertStringContainsString('126.751', $html);

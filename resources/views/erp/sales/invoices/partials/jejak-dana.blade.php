@@ -121,6 +121,11 @@
             Belum ada di laporan rekonsiliasi marketplace.
         @endif
     </div>
+
+    {{-- Rincian potongan (komisi, layanan, affiliate, pajak) — dulu kartu terpisah di atas. --}}
+    @if($invoice->salesOrder)
+        @include('erp.sales.orders.partials.marketplace-fees', ['so' => $invoice->salesOrder, 'tersemat' => true])
+    @endif
 </div>
 @endif
 
