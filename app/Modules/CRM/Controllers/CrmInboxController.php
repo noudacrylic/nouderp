@@ -1492,7 +1492,7 @@ class CrmInboxController extends Controller
      */
     public function unduhLampiran(\App\Modules\CRM\Services\CrmMediaStore $media)
     {
-        $tertunda = CrmAttachment::belumTerunduh()->limit(50)->get();
+        $tertunda = CrmAttachment::belumTerunduh()->orderByDesc('id')->limit(50)->get();
 
         if ($tertunda->isEmpty()) {
             return back()->with('success', 'Tidak ada lampiran yang menunggu diunduh.');
@@ -1505,6 +1505,26 @@ class CrmInboxController extends Controller
             $gagal ? 'error' : 'success',
             "{$berhasil} lampiran tersimpan" . ($gagal ? ", {$gagal} gagal — alasannya tertulis di tiap lampiran." : '.')
         );
+    }
+
+    /**
+     * Tombol "Unduh sekarang" di gelembung lampiran: unduh SATU lampiran ini
+     * tanpa menunggu giliran penjadwal. Yang pernah gagal ikut dicoba ulang —
+     * yang menekan tombol sedang melihatnya, jadi URL mati pun langsung ketahuan.
+     */
+    public function unduhSatuLampiran(\App\Modules\CRM\Services\CrmMediaStore $media, CrmAttachment $attachment)
+    {
+        if ($attachment->sudahDisapu()) {
+            return back()->with('error', 'Lampiran ini sudah dihapus otomatis (lewat masa simpan).');
+        }
+
+        if ($attachment->download_error) {
+            $attachment->forceFill(['download_error' => null])->save();
+        }
+
+        return $media->unduh($attachment)
+            ? back()
+            : back()->with('error', 'Lampiran gagal diunduh: ' . ($attachment->fresh()->download_error ?: 'sebab tidak diketahui.'));
     }
 
     /** Simpan template baru lewat jalur pintas (CRUD penuhnya di layar Template Pesan). */

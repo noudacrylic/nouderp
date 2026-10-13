@@ -86,9 +86,18 @@
                                                 Lampiran dihapus otomatis {{ $l->purged_at->translatedFormat('d M Y') }} (lewat masa simpan).
                                             </div>
                                         @elseif(! $l->tersimpanAman())
-                                            <div class="text-xs text-amber-700">
-                                                Lampiran belum tersimpan{{ $l->download_error ? ': ' . $l->download_error : ' — menunggu diunduh.' }}
-                                            </div>
+                                            {{-- Penjadwal menarik lampiran tiap menit; tombol ini untuk
+                                                 yang sedang ditunggu admin sekarang (CrmInboxController::unduhSatuLampiran). --}}
+                                            <form method="POST" action="{{ route('crm.inbox.lampiran.unduh', $l->id) }}"
+                                                  class="text-xs text-amber-700 flex items-center gap-2 flex-wrap">
+                                                @csrf
+                                                <span>Lampiran belum tersimpan{{ $l->download_error ? ': ' . $l->download_error : ' — menunggu diunduh.' }}</span>
+                                                <button type="submit"
+                                                        onclick="this.disabled = true; this.textContent = 'Mengunduh…'; this.form.submit();"
+                                                        class="shrink-0 border border-amber-400 rounded px-2 py-0.5 hover:bg-amber-50">
+                                                    ⬇ {{ $l->download_error ? 'Coba lagi' : 'Unduh sekarang' }}
+                                                </button>
+                                            </form>
                                         @elseif($l->isGambar())
                                             <a href="{{ route('crm.inbox.lampiran', $l->id) }}" target="_blank">
                                                 <img src="{{ route('crm.inbox.lampiran', $l->id) }}" alt="{{ $l->original_name }}"

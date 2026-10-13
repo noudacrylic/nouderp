@@ -32,7 +32,10 @@ class CrmUnduhLampiran extends Command
             ? CrmAttachment::whereNull('downloaded_at')->whereNull('purged_at')->whereNotNull('source_url')
             : CrmAttachment::belumTerunduh();
 
-        $antrean = $query->orderBy('id')->limit((int) $this->option('limit'))->get();
+        // TERBARU dulu: lampiran yang sedang ditunggu admin ada di chat yang baru
+        // masuk. Urut dari yang terlama membuatnya antre di belakang tumpukan lama
+        // (mis. impor riwayat WAHA) — tumpukan itu tetap terkuras, hanya belakangan.
+        $antrean = $query->orderByDesc('id')->limit((int) $this->option('limit'))->get();
 
         if ($antrean->isEmpty()) {
             $this->info('Tidak ada lampiran yang menunggu diunduh.');

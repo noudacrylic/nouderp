@@ -214,6 +214,7 @@ Route::prefix('erp')->group(function () {
 
         // Lampiran disajikan controller (disk privat), bukan lewat /storage.
         Route::get('/lampiran/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lampiran'])->name('inbox.lampiran');
+        Route::post('/lampiran/{attachment}/unduh', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'unduhSatuLampiran'])->name('inbox.lampiran.unduh');
 
         // Penyegar kolom kiri. WAJIB di atas '/{conversation}': wildcard itu
         // akan menelannya sebagai id percakapan dan membalas 404 yang sunyi.
