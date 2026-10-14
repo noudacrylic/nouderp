@@ -409,6 +409,25 @@ class JubelioClient
     }
 
     /**
+     * Teruskan harga yang dipegang Jubelio ke MARKETPLACE untuk sederet item-group —
+     * setara tombol "Sync Harga ke Online" di Katalog ▸ Harga.
+     *
+     * updatePrices() hanya mengubah daftar harga DI DALAM Jubelio; tanpa panggilan ini
+     * harganya berhenti di sana dan lapak tetap memajang harga lama (14 Okt 2026).
+     * Endpoint dipetik dari aplikasi web Jubelio sendiri; jawabannya cuma "permintaan
+     * diterima" — penolakan per toko (mis. produk sedang promo) muncul belakangan di
+     * tab "Gagal Sinkron" Jubelio, bukan di sini.
+     *
+     * @param array<int,int> $groupIds item_group_id Jubelio
+     */
+    public function syncPricesToChannels(array $groupIds): array
+    {
+        $groupIds = array_values(array_unique(array_filter(array_map('intval', $groupIds))));
+
+        return $this->post('marketplace/update-price', ['groupIds' => $groupIds]);
+    }
+
+    /**
      * Harga yang SEDANG dipegang Jubelio untuk sebuah item, dipecah per toko — arah baca
      * dari updatePrices(). Dipakai Analisa ▸ Harga Produk untuk memperlihatkan "harga di
      * marketplace" berdampingan dengan harga yang kita hitung.

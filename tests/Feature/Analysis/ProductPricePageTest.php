@@ -123,6 +123,30 @@ class ProductPricePageTest extends TestCase
     }
 
     /**
+     * Menulis daftar harga Jubelio saja tidak mengubah harga di lapak (14 Okt 2026): harga
+     * berhenti di Jubelio sampai "Sync Harga ke Online" ditekan. Kirim harus memintanya
+     * sekalian, untuk item-group produk itu.
+     */
+    public function test_kirim_meminta_jubelio_meneruskan_harga_ke_marketplace(): void
+    {
+        $this->potonganShopee();
+        $this->petakanTokoShopee([71]);
+        $id = $this->produkJubelio('AM-60', 'Frame Mahar Akrilik', 200_000, 55);
+        ProductChannelPrice::create(['product_id' => $id, 'channel' => 'shopee', 'price' => 250_000]);
+
+        $this->pakaiKlienPalsu([['store_id' => 71, 'price' => 250_000]]);
+        $klien = app(JubelioClient::class);
+        $klien::$sinkron = [];
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->post(route('analisa.harga.push', $id), ['kanal' => 'shopee'])
+            ->assertSessionHas('success');
+
+        $this->assertSame([[550]], $klien::$sinkron, 'item_group_id produk (55 × 10) harus diminta sinkron.');
+    }
+
+    /**
      * Pengecekan yang selalu setuju tidak ada gunanya. Kalau Jubelio ternyata masih
      * memegang harga lama, pengirimannya tidak boleh terbaca "beres" — walau API-nya
      * menjawab ok.
@@ -665,6 +689,16 @@ class ProductPricePageTest extends TestCase
             public function updatePrices(array $items): array
             {
                 return ['success' => true, 'error' => null, 'data' => []];
+            }
+
+            /** @var array<int,array<int,int>> groupIds tiap permintaan sinkron ke marketplace */
+            public static array $sinkron = [];
+
+            public function syncPricesToChannels(array $groupIds): array
+            {
+                static::$sinkron[] = $groupIds;
+
+                return ['success' => true, 'error' => null, 'data' => ['status' => 'ok']];
             }
 
             public function getItem(int $itemId): array

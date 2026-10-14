@@ -257,7 +257,44 @@ class JubelioProductSyncService
             'message'    => 'Harga utama dikirim: ' . number_format($price, 0, ',', '.'),
             'meta'       => ['price' => $price],
         ]);
+        $this->teruskanKeMarketplace($product);
+
         return 'pushed';
+    }
+
+    /**
+     * Minta Jubelio meneruskan harga produk ini ke marketplace ("Sync Harga ke Online").
+     *
+     * Menulis daftar harga Jubelio saja TIDAK mengubah harga di lapak — harganya
+     * berhenti di Jubelio. Kegagalan di sini dicatat tapi tidak membatalkan
+     * pengiriman harganya: harga di Jubelio sudah benar, dan tombol Sync di
+     * Jubelio tetap bisa ditekan manual.
+     *
+     * @return string catatan singkat untuk ditempel ke pesan hasil
+     */
+    private function teruskanKeMarketplace(Product $product): string
+    {
+        $resp = $this->client->syncPricesToChannels([(int) $product->jubelio_item_group_id]);
+
+        if ($resp['success']) {
+            JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::OK, $product->name, [
+                'reference'  => $product->sku,
+                'product_id' => $product->id,
+                'message'    => 'Sinkron harga ke marketplace diminta. Penolakan per toko (mis. sedang promo) muncul di Jubelio ▸ Harga ▸ Gagal Sinkron.',
+            ]);
+
+            return 'Diteruskan ke marketplace.';
+        }
+
+        Log::warning('Jubelio harga: sinkron ke marketplace gagal', ['product' => $product->id, 'error' => $resp['error']]);
+        JubelioSyncLog::record(JubelioSyncLog::TYPE_PRICE, JubelioSyncLog::FAIL, $product->name, [
+            'reference'  => $product->sku,
+            'product_id' => $product->id,
+            'message'    => 'Harga sudah di Jubelio, tapi permintaan sinkron ke marketplace gagal: '
+                . ($resp['error'] ?: 'tanpa keterangan') . '. Tekan "Sync Harga ke Online" di Jubelio.',
+        ]);
+
+        return 'Belum diteruskan ke marketplace — tekan "Sync Harga ke Online" di Jubelio.';
     }
 
     /**
@@ -399,7 +436,7 @@ class JubelioProductSyncService
                 return [
                     'ok'      => true,
                     'message' => 'Harga ' . number_format($price, 0, ',', '.') . ' terkirim ke toko '
-                        . implode(', ', $storeIds) . '. ' . $catatan,
+                        . implode(', ', $storeIds) . '. ' . $catatan . ' ' . $this->teruskanKeMarketplace($product),
                 ];
             }
 
@@ -421,7 +458,8 @@ class JubelioProductSyncService
             'meta'       => ['price' => $price, 'store_ids' => $storeIds],
         ]);
 
-        return ['ok' => true, 'message' => 'Harga ' . number_format($price, 0, ',', '.') . ' terkirim ke toko ' . $stores . '.'];
+        return ['ok' => true, 'message' => 'Harga ' . number_format($price, 0, ',', '.') . ' terkirim ke toko ' . $stores . '. '
+            . $this->teruskanKeMarketplace($product)];
     }
 
     /**
