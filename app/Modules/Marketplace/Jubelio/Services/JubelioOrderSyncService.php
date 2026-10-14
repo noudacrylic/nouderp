@@ -2469,9 +2469,15 @@ class JubelioOrderSyncService
     }
 
     /**
-     * Apakah pesanan memakai instant courier. Utamakan flag eksplisit Jubelio
-     * (is_instant_courier, bisa berupa bool / "true" / 1), fallback deteksi dari
-     * nama kurir (gosend/grab/instant/sameday/sicepat instant).
+     * Apakah pesanan memakai instant courier: flag eksplisit Jubelio
+     * (is_instant_courier, bisa berupa bool / "true" / 1) ATAU nama kurirnya
+     * (gosend/grab/instant/sameday).
+     *
+     * Flag `false` TIDAK dipercaya. Jubelio mengirim false untuk SEMUA pesanan
+     * Shopee — termasuk "SPX Instant" dan "Instant Prioritas" — jadi selama flag
+     * itu diutamakan, tak satu pun pesanan marketplace pernah tertandai instant
+     * (14 Okt 2026: 0 dari ±430). Akibatnya pesanan berbatas kirim 1 jam
+     * mengendap tanpa notifikasi packing & tanpa penanda di Pemrosesan Pesanan.
      */
     private function isInstantCourier(array $detail, ?string $shipper = null): bool
     {
@@ -2484,8 +2490,8 @@ class JubelioOrderSyncService
                 }
             }
         }
-        if ($flag !== null) {
-            return filter_var($flag, FILTER_VALIDATE_BOOLEAN);
+        if ($flag !== null && filter_var($flag, FILTER_VALIDATE_BOOLEAN)) {
+            return true;
         }
 
         $name = strtolower(trim((string) ($shipper ?? $this->extractShipper($detail) ?? '')));

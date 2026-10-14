@@ -65,15 +65,20 @@
     // JubelioFulfillmentService::process menolak memprosesnya lewat jalur mana pun.
     $labelBatal = !empty($r['j_link']) && $r['j_link']->sedangDibatalkan() ? $r['j_link']->labelPembatalan() : null;
     $isFailed   = $isFailed || $labelBatal;
+
+    // Kurir instant yang BELUM diserahkan ke kurir → kartu oranye (batas kirim marketplace
+    // ±1 jam). Merah (gagal/batal) tetap menang: itu perintah berhenti, bukan percepat.
+    $isInstantAktif = (!empty($r['is_instant']) || !empty($r['j_is_instant']))
+        && !$isFailed && !$isFinal && $mode !== 'dikirim';
 @endphp
 <div data-so-number="{{ $r['number'] }}"
-     class="bg-white rounded-xl border shadow-md hover:shadow-lg transition-shadow p-4 {{ $isFailed ? 'border-red-300 border-l-4 border-l-red-500' : 'border-gray-300 border-l-4 border-l-emerald-500' }}">
+     class="bg-white rounded-xl border shadow-md hover:shadow-lg transition-shadow p-4 {{ $isFailed ? 'border-red-300 border-l-4 border-l-red-500' : ($isInstantAktif ? 'border-orange-300 border-l-4 border-l-orange-500 ring-2 ring-orange-300' : 'border-gray-300 border-l-4 border-l-emerald-500') }}">
     {{-- Header: nomor + kurir/ambil-toko + status/batas waktu.
          Latarnya warna pekat supaya batas antar kartu terbaca sekali lihat di daftar panjang.
          Aturan kontras di dalamnya: chip tetap berlatar terang (pastel/putih) dengan tulisan
          gelap, teks lepas memakai putih. JANGAN memakai teks berwarna gelap (text-*-600) di
          sini — hilang tertelan latar. --}}
-    <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 rounded-t-xl border-b {{ $isFailed ? 'bg-red-600 border-red-700' : 'bg-emerald-600 border-emerald-700' }}">
+    <div class="flex items-center gap-2 flex-wrap -mx-4 -mt-4 px-4 py-2.5 rounded-t-xl border-b {{ $isFailed ? 'bg-red-600 border-red-700' : ($isInstantAktif ? 'bg-orange-500 border-orange-600' : 'bg-emerald-600 border-emerald-700') }}">
         @if($mode === 'perlu_diproses')
             <input type="checkbox" class="js-bulk-check w-4 h-4 accent-indigo-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                    @disabled($labelBatal)
@@ -124,7 +129,8 @@
             </span>
         @endif
         @if(!empty($r['is_instant']) || !empty($r['j_is_instant']))
-            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-700 ring-1 ring-orange-300"
+            {{-- Latar putih: di header oranye, chip oranye muda akan tenggelam. --}}
+            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-orange-700 ring-2 ring-orange-200 {{ $isInstantAktif ? 'animate-pulse' : '' }}"
                   title="Pesanan instant courier — proses & serahkan ke kurir segera">⚡ INSTANT</span>
         @endif
         @if(!empty($r['is_draft']))
