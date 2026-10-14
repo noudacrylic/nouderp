@@ -97,6 +97,67 @@
     <div style="height:300px"><canvas id="salesChart"></canvas></div>
 </div>
 
+{{-- ───────── Penjualan per Kanal (default hari ini) ───────── --}}
+@php
+    // Warna khas tiap kanal — Lazada gradasi biru→ungu seperti logonya.
+    $warnaKanal = [
+        'shopee' => 'background:linear-gradient(135deg,#f53d2d,#ff6633)',
+        'lazada' => 'background:linear-gradient(135deg,#1a2fd6,#7b2ff7)',
+        'tiktok' => 'background:linear-gradient(135deg,#000000,#2b2b2b)',
+        'non_mp' => 'background:linear-gradient(135deg,#059669,#22c55e)',
+    ];
+    $barisKanal = [
+        'potensi' => ['judul' => 'Potensi Penjualan', 'sub' => 'SO ber-DP, menurut tanggal pesanan', 'total' => 'totalPotensi', 'warna' => 'text-indigo-700', 'bgTotal' => 'bg-indigo-50 border-indigo-200'],
+        'selesai' => ['judul' => 'Penjualan Selesai', 'sub' => 'menurut tanggal pesanan selesai, sebelum potongan marketplace', 'total' => 'totalSelesai', 'warna' => 'text-emerald-700', 'bgTotal' => 'bg-emerald-50 border-emerald-200'],
+    ];
+@endphp
+<div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-4">
+    <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div>
+            <h2 class="font-semibold text-gray-800">Penjualan per Kanal</h2>
+            <p class="text-xs text-gray-400" id="kanal-range">{{ $kanal['rangeLabel'] }}</p>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+            <select id="kanalMode" class="border rounded px-2 py-1.5 text-sm bg-white">
+                <option value="tanggal" selected>Per tanggal</option>
+                <option value="rentang">Rentang tanggal</option>
+            </select>
+            {{-- Geser sehari mundur/maju — hanya di mode Per tanggal. --}}
+            <button type="button" id="kanalMundur" title="Hari sebelumnya" class="border rounded px-2 py-1.5 text-sm bg-white hover:bg-gray-50 text-gray-600">‹</button>
+            <input type="date" id="kanalStart" value="{{ $kanal['start'] }}" class="border rounded px-2 py-1.5 text-sm bg-white">
+            <span id="kanalSampaiWrap" class="hidden items-center gap-1">
+                <span class="text-gray-400 text-sm">–</span>
+                <input type="date" id="kanalEnd" value="{{ $kanal['end'] }}" class="border rounded px-2 py-1.5 text-sm bg-white">
+            </span>
+            <button type="button" id="kanalMaju" title="Hari berikutnya" class="border rounded px-2 py-1.5 text-sm bg-white hover:bg-gray-50 text-gray-600">›</button>
+            <button type="button" id="kanalHariIni" class="ml-1 border rounded px-3 py-1.5 text-sm bg-white hover:bg-gray-50 text-gray-600">Hari ini</button>
+        </div>
+    </div>
+
+    <div class="space-y-4">
+        @foreach($barisKanal as $kunci => $b)
+            <div>
+                <div class="text-xs text-gray-500 mb-1.5">
+                    <span class="font-semibold text-gray-700">{{ $b['judul'] }}</span>
+                    <span class="text-gray-400">({{ $b['sub'] }})</span>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    @foreach($kanal['kanal'] as $k => $label)
+                        <div class="rounded-lg p-2.5 text-white shadow-sm" style="{{ $warnaKanal[$k] }}">
+                            <div class="text-[11px] font-medium text-white/80">{{ $label }}</div>
+                            <div class="font-bold" data-kanal="{{ $kunci }}.{{ $k }}">{{ $rp($kanal[$kunci][$k]) }}</div>
+                        </div>
+                    @endforeach
+                    <div class="rounded-lg border {{ $b['bgTotal'] }} p-2.5 col-span-2 md:col-span-1">
+                        <div class="text-[11px] text-gray-500">Total</div>
+                        <div class="font-bold {{ $b['warna'] }}" data-kanal="{{ $kunci }}.total">{{ $rp($kanal[$b['total']]) }}</div>
+                    </div>
+                </div>
+            </div>
+        @endforeach
+    </div>
+</div>
+
 {{-- ───────── Baris 1: Laba/Rugi · Beban · Total Aset ───────── --}}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
     {{-- Laba/Rugi tahun ini --}}
@@ -397,6 +458,67 @@
     endDate.addEventListener('change', load);
 
     apply(@json($sales));
+})();
+
+// Kartu Penjualan per Kanal — rentang sendiri, lepas dari pilihan periode grafik.
+(function () {
+    const URL_KANAL = @json(route('dashboard.kanal'));
+    const HARI_INI  = @json(now()->toDateString());
+    const fmtRp = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
+    const mulai   = document.getElementById('kanalStart');
+    const sampai  = document.getElementById('kanalEnd');
+
+    function isi(d) {
+        document.getElementById('kanal-range').textContent = d.rangeLabel;
+        ['potensi', 'selesai'].forEach(baris => {
+            Object.keys(d.kanal).forEach(k => {
+                const el = document.querySelector(`[data-kanal="${baris}.${k}"]`);
+                if (el) el.textContent = fmtRp(d[baris][k]);
+            });
+        });
+        document.querySelector('[data-kanal="potensi.total"]').textContent = fmtRp(d.totalPotensi);
+        document.querySelector('[data-kanal="selesai.total"]').textContent = fmtRp(d.totalSelesai);
+    }
+
+    const mode       = document.getElementById('kanalMode');
+    const sampaiWrap = document.getElementById('kanalSampaiWrap');
+    const tombolGeser = [document.getElementById('kanalMundur'), document.getElementById('kanalMaju')];
+    const perTanggal = () => mode.value === 'tanggal';
+
+    function muat() {
+        if (!mulai.value) return;
+        // Mode Per tanggal: satu hari saja, "sampai" disamakan dengan "dari".
+        const akhir = perTanggal() ? mulai.value : sampai.value;
+        if (!akhir) return;
+        fetch(URL_KANAL + '?start=' + mulai.value + '&end=' + akhir, { headers: { 'Accept': 'application/json' } })
+            .then(r => r.json()).then(isi).catch(() => {});
+    }
+
+    function aturMode() {
+        sampaiWrap.classList.toggle('hidden', perTanggal());
+        sampaiWrap.classList.toggle('flex', !perTanggal());
+        tombolGeser.forEach(b => b.classList.toggle('hidden', !perTanggal()));
+        if (!perTanggal() && (!sampai.value || sampai.value < mulai.value)) sampai.value = mulai.value;
+        muat();
+    }
+
+    // Geser tanggal sehari, dihitung di UTC supaya tak tergelincir zona waktu.
+    function geser(hari) {
+        const d = new Date(mulai.value + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + hari);
+        mulai.value = d.toISOString().slice(0, 10);
+        muat();
+    }
+
+    mode.addEventListener('change', aturMode);
+    mulai.addEventListener('change', muat);
+    sampai.addEventListener('change', muat);
+    document.getElementById('kanalMundur').addEventListener('click', () => geser(-1));
+    document.getElementById('kanalMaju').addEventListener('click', () => geser(1));
+    document.getElementById('kanalHariIni').addEventListener('click', () => {
+        mulai.value = sampai.value = HARI_INI;
+        muat();
+    });
 })();
 </script>
 @endif

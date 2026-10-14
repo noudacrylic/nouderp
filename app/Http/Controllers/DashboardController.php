@@ -38,6 +38,7 @@ class DashboardController extends Controller
         if ($isAdmin) {
             $data += [
                 'sales'      => $this->svc->salesSeries('monthly'),
+                'kanal'      => $this->svc->salesByChannel(),
                 'pl'         => $this->svc->profitLoss(),
                 'expenses'   => $this->svc->expenses(),
                 'totalAsset' => $this->svc->totalAssets(),
@@ -46,6 +47,14 @@ class DashboardController extends Controller
         }
 
         return view('erp.dashboard', $data);
+    }
+
+    /** Potensi & penjualan selesai per kanal untuk rentang tanggal (AJAX). Khusus admin. */
+    public function channelData(Request $request): JsonResponse
+    {
+        abort_unless($this->isAdmin(), 403);
+
+        return response()->json($this->svc->salesByChannel($request->query('start'), $request->query('end')));
     }
 
     /** Data grafik + top produk untuk rentang terpilih (AJAX). Khusus admin (data penjualan sensitif). */

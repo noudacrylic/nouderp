@@ -65,7 +65,8 @@
         .sidebar {
             width: 280px;
             flex-shrink: 0;
-            background: #0d3d2a;
+            /* Gradasi hijau, senada header PWA karyawan (layouts/karyawan). */
+            background: linear-gradient(165deg, #0d3d2a 0%, #10643a 55%, #15803d 100%);
             height: 100vh;
             color: #ffffff;
             padding: 2rem 1rem;
@@ -189,10 +190,10 @@
             line-height: 17px;
             text-align: center;
             font-family: system-ui, sans-serif;
-            /* Cincin sewarna sidebar (#0d3d2a, lihat `.sidebar`): tanpa ini
-               lencana bersinggungan langsung dengan latar ikon yang menyala
-               saat menunya aktif, dan batasnya hilang justru di keadaan itu. */
-            box-shadow: 0 0 0 2px #0d3d2a;
+            /* Cincin sewarna sidebar (titik tengah gradasinya, lihat `.sidebar`):
+               tanpa ini lencana bersinggungan langsung dengan latar ikon yang
+               menyala saat menunya aktif, dan batasnya hilang justru di keadaan itu. */
+            box-shadow: 0 0 0 2px #10643a;
             pointer-events: none;
         }
 

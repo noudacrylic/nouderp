@@ -240,6 +240,79 @@ class DashboardService
         ];
     }
 
+    /** Urutan kolom kartu "Penjualan per Kanal" — kunci dari ekspresiKanal(). */
+    public const KANAL = ['shopee' => 'Shopee', 'lazada' => 'Lazada', 'tiktok' => 'TikTok', 'non_mp' => 'Non-MP'];
+
+    /**
+     * Kanal sebuah dokumen, dibaca dari PELANGGANNYA: pesanan marketplace
+     * selalu bertuan pelanggan marketplace hasil pemetaan toko Jubelio
+     * (Shopee, Lazada, Tiktok Shop, Tokopedia). Tokopedia dilebur ke TikTok
+     * karena memang satu toko sejak merger — sama dengan pencocokan settlement.
+     * Pelanggan marketplace lain yang namanya tak dikenali tetap TIDAK jatuh
+     * ke Non-MP: Non-MP berarti penjualan langsung kita sendiri.
+     */
+    private function ekspresiKanal(string $alias): string
+    {
+        return "CASE
+            WHEN LOWER($alias.name) LIKE '%shopee%' THEN 'shopee'
+            WHEN LOWER($alias.name) LIKE '%lazada%' THEN 'lazada'
+            WHEN LOWER($alias.name) LIKE '%tiktok%' OR LOWER($alias.name) LIKE '%tokopedia%' THEN 'tiktok'
+            WHEN COALESCE($alias.is_marketplace, 0) = 1 THEN 'tiktok'
+            ELSE 'non_mp'
+        END";
+    }
+
+    /**
+     * Potensi & Penjualan selesai per kanal untuk satu rentang tanggal.
+     *
+     * Definisinya sama persis dengan kartu grafik Penjualan (Potensi = SO
+     * ber-DP menurut tanggal pesanan; Selesai = faktur posted menurut tanggal
+     * pesanannya selesai), TAPI Selesai di sini OMZET KOTOR — sebelum potongan
+     * marketplace. Potongan settlement per periode tak bisa dibagi ke kanal,
+     * dan membandingkan Potensi (kotor) dengan Selesai (bersih) per kanal
+     * membuat marketplace tampak selalu "bocor".
+     */
+    public function salesByChannel(?string $startDate = null, ?string $endDate = null): array
+    {
+        [$start, $end] = $this->resolveRange('custom', $startDate ?: Carbon::today()->toDateString(), $endDate ?: Carbon::today()->toDateString());
+
+        $kosong = array_fill_keys(array_keys(self::KANAL), 0.0);
+
+        $potensi = SalesOrder::query()
+            ->from('sales_orders as so')
+            ->leftJoin('customers as c', 'c.id', '=', 'so.customer_id')
+            ->whereNotIn('so.status', ['void', 'cancelled'])
+            ->where('so.paid_amount', '>', 0.01)
+            ->whereBetween('so.order_date', [$start->toDateString(), $end->toDateString()])
+            ->selectRaw($this->ekspresiKanal('c') . ' as k, SUM(so.subtotal - COALESCE(so.global_discount_amount, 0)) as t')
+            ->groupBy('k')
+            ->pluck('t', 'k');
+
+        $selesai = $this->fakturPesananSelesai($start, $end)
+            ->leftJoin('customers as c', 'c.id', '=', 'si.customer_id')
+            ->selectRaw($this->ekspresiKanal('c') . ' as k, SUM(si.subtotal - COALESCE(si.global_discount_amount, 0)) as t')
+            ->groupBy('k')
+            ->pluck('t', 'k');
+
+        $susun = fn ($peta) => collect($kosong)->map(fn ($v, $k) => round((float) ($peta[$k] ?? 0)))->all();
+
+        $p = $susun($potensi);
+        $s = $susun($selesai);
+
+        return [
+            'start'        => $start->toDateString(),
+            'end'          => $end->toDateString(),
+            'rangeLabel'   => $start->equalTo($end)
+                ? $start->isoFormat('dddd, D MMM Y')
+                : $start->isoFormat($start->year !== $end->year ? 'D MMM Y' : 'D MMM') . ' – ' . $end->isoFormat('D MMM Y'),
+            'kanal'        => self::KANAL,
+            'potensi'      => $p,
+            'selesai'      => $s,
+            'totalPotensi' => array_sum($p),
+            'totalSelesai' => array_sum($s),
+        ];
+    }
+
     /**
      * Total fee admin marketplace (contra-revenue, kode di config/income_statement.php)
      * per bucket waktu — dipakai mengurangi deret Penjualan grafik agar selaras Laba Rugi.
