@@ -986,15 +986,16 @@
                 <a href="{{ module_landing_url('crm') }}" class="menu-single {{ request()->is('erp/crm', 'erp/crm/*') ? 'active' : '' }}" data-tip="CRM" style="position:relative;">
                     <span class="menu-icon" style="font-size:20px;display:flex;align-items:center;justify-content:center;position:relative;">
                         💬
-                        @if(($crmBelumDibaca ?? 0) > 0)
-                            {{-- Menempel pada IKON, bukan pada label: sidebar
-                                 paling sering dipakai dalam keadaan menyempit
-                                 (ikon saja), dan lencana yang menempel pada
-                                 tulisan "CRM" ikut hilang bersamanya — persis
-                                 saat ia paling dibutuhkan, karena di keadaan
-                                 itu tak ada petunjuk lain sama sekali. --}}
-                            <span class="crm-lencana">{{ $crmBelumDibaca > 99 ? '99+' : $crmBelumDibaca }}</span>
-                        @endif
+                        {{-- Menempel pada IKON, bukan pada label: sidebar
+                             paling sering dipakai dalam keadaan menyempit
+                             (ikon saja), dan lencana yang menempel pada
+                             tulisan "CRM" ikut hilang bersamanya — persis
+                             saat ia paling dibutuhkan, karena di keadaan
+                             itu tak ada petunjuk lain sama sekali.
+                             Selalu dirender (disembunyikan saat 0) supaya
+                             penanya berkala di bawah bisa menyalakannya. --}}
+                        <span class="crm-lencana" id="crmLencana" data-url="{{ route('crm.lencana') }}"
+                              @if(($crmBelumDibaca ?? 0) <= 0) style="display:none" @endif>{{ ($crmBelumDibaca ?? 0) > 99 ? '99+' : ($crmBelumDibaca ?? 0) }}</span>
                     </span>
                     <span class="menu-label">&nbsp;CRM</span>
                 </a>
@@ -1405,6 +1406,37 @@
 
     @yield('scripts')
     @stack('scripts')
+
+    {{-- Lencana CRM hidup: tanya angka chat belum dibaca tiap 20 detik selama
+         tab terlihat, dan langsung saat tab kembali dibuka. Angkanya juga
+         ditaruh di judul tab — "(3) Noud ERP" — supaya terlihat dari tab lain. --}}
+    <script>
+    (function () {
+        const el = document.getElementById('crmLencana');
+        if (!el) return;
+        const JEDA = 20000;
+        const judulAsli = document.title.replace(/^\(\d+\+?\)\s*/, '');
+
+        function tampilkan(n) {
+            el.textContent = n > 99 ? '99+' : n;
+            el.style.display = n > 0 ? '' : 'none';
+            document.title = (n > 0 ? '(' + (n > 99 ? '99+' : n) + ') ' : '') + judulAsli;
+        }
+
+        // Tetap bertanya saat tab tersembunyi — justru di situ judul tab
+        // "(3) …" berguna. Browser sendiri melambatkannya ke ±1 menit.
+        function tanya() {
+            fetch(el.dataset.url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+                .then(r => r.ok ? r.json() : null)
+                .then(d => { if (d) tampilkan(parseInt(d.belum_dibaca, 10) || 0); })
+                .catch(() => {});
+        }
+
+        tampilkan(parseInt(el.textContent, 10) || 0);
+        setInterval(tanya, JEDA);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) tanya(); });
+    })();
+    </script>
 </body>
 
 </html>

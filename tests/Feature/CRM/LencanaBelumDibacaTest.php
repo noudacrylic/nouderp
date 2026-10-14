@@ -133,8 +133,33 @@ class LencanaBelumDibacaTest extends TestCase
         $admin = $this->admin();
         $this->chat(0);
 
+        // Elemennya tetap ada (untuk dinyalakan penanya berkala), tapi TERSEMBUNYI.
         $this->actingAs($admin)->get('/erp/crm')->assertOk()
-            ->assertDontSee('class="crm-lencana"', false);
+            ->assertSee('id="crmLencana"', false)
+            ->assertSee('style="display:none"', false);
+    }
+
+    /**
+     * Angka lencana bisa ditanya tanpa memuat ulang halaman — supaya chat baru
+     * terlihat saat admin sedang mengerjakan layar lain.
+     */
+    public function test_endpoint_lencana_menjawab_jumlah_terkini(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->getJson(route('crm.lencana'))
+            ->assertOk()->assertJson(['belum_dibaca' => 0]);
+
+        $this->chat(2);
+        $this->chat(1);
+
+        $this->actingAs($admin)->getJson(route('crm.lencana'))
+            ->assertOk()->assertJson(['belum_dibaca' => 2]);
+    }
+
+    public function test_endpoint_lencana_butuh_login(): void
+    {
+        $this->getJson(route('crm.lencana'))->assertUnauthorized();
     }
 
     /* --------------------------------------------- penanda di baris daftar */

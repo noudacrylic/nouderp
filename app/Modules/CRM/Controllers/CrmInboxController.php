@@ -84,6 +84,20 @@ class CrmInboxController extends Controller
      */
     private const KUNCI_MODE_WA = 'crm.mode_wa';
 
+    /**
+     * Angka lencana menu CRM, untuk diperbarui di halaman yang sedang terbuka.
+     *
+     * Dulu angkanya hanya dihitung saat halaman dimuat, jadi admin yang sedang
+     * mengerjakan layar lain baru tahu ada chat masuk setelah berpindah
+     * halaman. Hitungannya sama persis dengan yang dirender sidebar.
+     */
+    public function lencana(Request $request)
+    {
+        return response()->json([
+            'belum_dibaca' => should_show_menu_group('crm') ? \App\Modules\CRM\Support\BelumDibaca::untuk($request->user()) : 0,
+        ]);
+    }
+
     public function index(Request $request)
     {
         return view('erp.crm.inbox.workspace', $this->ruangKerja($request, null, $this->modeWaAktif($request)));

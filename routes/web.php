@@ -112,6 +112,9 @@ Route::prefix('erp')->group(function () {
     // -- CRM: inbox percakapan, triase & notifikasi pesanan --
     Route::prefix('crm')->name('crm.')->group(function () {
         Route::get('/', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'index'])->name('inbox.index');
+        // Angka lencana menu CRM di sidebar — ditanya berkala dari halaman mana pun.
+        Route::get('/lencana', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lencana'])
+            ->middleware('auth')->name('lencana');
 
         Route::get('/notifikasi', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'index'])->name('notifikasi.index');
         Route::post('/notifikasi/kirim', [\App\Modules\CRM\Controllers\CrmNotifikasiController::class, 'kirimSekarang'])->name('notifikasi.kirim');
