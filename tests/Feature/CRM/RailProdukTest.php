@@ -360,6 +360,92 @@ class RailProdukTest extends TestCase
         $this->assertSame(1400, $p->fresh()->weight_gram);
     }
 
+    /**
+     * Produk custom dijual di Shopee lewat harga KHUSUS toko, yang menimpa harga
+     * default — mengirim harga default saja tak mengubah lapak (CS1: default 615rb,
+     * Shopee tetap 5jt). Harga dari CRM wajib ikut ke harga khusus Shopee.
+     */
+    public function test_harga_custom_dari_crm_ikut_ke_harga_khusus_shopee(): void
+    {
+        $kiriman = $this->klienJubelioPerekam();
+        $this->petakanShopee(127331);
+
+        $custom = $this->sku('CS1', 'Custom + Print', ['sale_type' => 'preorder', 'made_to_order' => true, 'unit' => 'pcs']);
+        $custom->forceFill(['jubelio_item_id' => 217, 'jubelio_item_group_id' => 131])->save();
+
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.produk.harga', $custom), ['harga' => 615000, 'kirim_jubelio' => true])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $tokoShopee = collect($kiriman->harga)->flatten(1)->firstWhere('store_id', '127331');
+        $this->assertNotNull($tokoShopee, 'Harga khusus toko Shopee harus ikut dikirim.');
+        $this->assertEquals(615000, $tokoShopee['price']);
+        $this->assertEquals(615000, \App\Modules\Analysis\Models\ProductChannelPrice::where('product_id', $custom->id)
+            ->where('channel', 'shopee')->value('pushed_price'));
+    }
+
+    /** Produk BUKAN custom boleh berharga Shopee beda — harga khususnya tak disentuh. */
+    public function test_harga_produk_biasa_dari_crm_tidak_menimpa_harga_shopee(): void
+    {
+        $kiriman = $this->klienJubelioPerekam();
+        $this->petakanShopee(127331);
+
+        $biasa = $this->sku('AM-60', 'Frame Mahar', ['sale_type' => 'ready', 'unit' => 'pcs']);
+        $biasa->forceFill(['jubelio_item_id' => 55, 'jubelio_item_group_id' => 550])->save();
+
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.produk.harga', $biasa), ['harga' => 200000, 'kirim_jubelio' => true])
+            ->assertOk();
+
+        $this->assertNull(collect($kiriman->harga)->flatten(1)->firstWhere('store_id', '127331'));
+    }
+
+    /** Klien Jubelio palsu yang mencatat setiap kiriman harga. */
+    private function klienJubelioPerekam(): object
+    {
+        $catatan = new class { public array $harga = []; };
+
+        $this->app->bind(\App\Modules\Marketplace\Jubelio\Services\JubelioClient::class, fn () => new class($catatan) extends \App\Modules\Marketplace\Jubelio\Services\JubelioClient {
+            public function __construct(private object $catatan) {}
+
+            public function isReady(): bool { return true; }
+
+            public function updatePrices(array $items): array
+            {
+                $this->catatan->harga[] = array_map(fn ($it) => [
+                    'store_id' => (string) ($it['store_id'] ?? '-1'),
+                    'price'    => (float) $it['price'],
+                ], $items);
+
+                return ['success' => true, 'error' => null, 'data' => []];
+            }
+
+            public function syncPricesToChannels(array $groupIds): array
+            {
+                return ['success' => true, 'error' => null, 'data' => ['status' => 'ok']];
+            }
+
+            public function updateItemWeight(int $itemId, int $itemGroupId, int $grams): array
+            {
+                return ['success' => true, 'error' => null];
+            }
+        });
+
+        return $catatan;
+    }
+
+    private function petakanShopee(int $storeId): void
+    {
+        $customerId = \Illuminate\Support\Facades\DB::table('customers')->insertGetId([
+            'code' => 'C-SHOPEE', 'name' => 'Shopee', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        \App\Models\MarketplaceConfig::create(['customer_id' => $customerId, 'admin_fee_percent' => 14, 'is_active' => true]);
+        \App\Modules\Marketplace\Jubelio\Models\JubelioChannelMap::create([
+            'store' => (string) $storeId, 'customer_id' => $customerId, 'is_active' => true,
+        ]);
+    }
+
     public function test_harga_wajib_angka_tak_negatif(): void
     {
         $p = $this->sku('CS2', 'Custom Sedang', ['sale_type' => 'preorder', 'made_to_order' => true]);

@@ -1204,13 +1204,25 @@ class CrmInboxController extends Controller
             $h = $jubelio->pushPrice($product);
 
             $catatan[] = match ($h) {
-                'pushed'  => 'Harga terkirim ke Jubelio.',
+                'pushed'  => 'Harga terkirim ke Jubelio & diteruskan ke marketplace.',
                 'skipped' => 'Harga TIDAK dikirim ke Jubelio — lihat Riwayat Sinkron.',
                 default   => 'Harga GAGAL dikirim ke Jubelio — lihat Riwayat Sinkron.',
             };
 
             if ($h !== 'failed') {
                 $product->forceFill(['jubelio_price_pending' => false])->save();
+            }
+
+            /*
+             * Produk CUSTOM dijual di Shopee sebagai "wadah bayar" (tautan Kirim
+             * Shopee), dan toko Shopee-nya memegang HARGA KHUSUS yang menimpa harga
+             * default — jadi mengirim harga default saja tak mengubah apa pun di
+             * lapak (14 Okt 2026: CS1 default 615rb, Shopee tetap 5jt). Harga dari
+             * CRM ditulis juga ke harga khusus Shopee. Hanya Shopee, hanya custom:
+             * produk lain sengaja boleh berharga Shopee beda (potongannya beda).
+             */
+            if ($h === 'pushed' && $product->isMadeToOrder()) {
+                $catatan[] = $this->kirimHargaShopeeCustom($product, $harga);
             }
 
             if ($berat !== null && $berat > 0) {
@@ -1225,6 +1237,34 @@ class CrmInboxController extends Controller
             'harga' => (float) $product->display_price,
             'berat' => (int) ($product->weight_gram ?? 0),
         ]);
+    }
+
+    /**
+     * Tulis harga produk custom ke harga KHUSUS toko Shopee di Jubelio (lalu
+     * diteruskan ke lapak), dan catat di Analisa ▸ Harga supaya halaman itu
+     * tidak menampilkan harga Shopee basi.
+     */
+    private function kirimHargaShopeeCustom(Product $product, float $harga): string
+    {
+        $shopee = app(\App\Modules\Analysis\Services\ChannelPricingService::class)->channel('shopee');
+
+        if (! $shopee || empty($shopee['store_ids'])) {
+            return 'Harga khusus Shopee tidak dikirim: toko Shopee belum dipetakan di Pengaturan Jubelio.';
+        }
+
+        $hasil = app(\App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService::class)
+            ->pushStorePrice($product, $shopee['store_ids'], $harga);
+
+        if (! $hasil['ok']) {
+            return 'Harga khusus Shopee GAGAL dikirim: ' . $hasil['message'];
+        }
+
+        \App\Modules\Analysis\Models\ProductChannelPrice::updateOrCreate(
+            ['product_id' => $product->id, 'channel' => 'shopee'],
+            ['price' => $harga]
+        )->forceFill(['pushed_price' => $harga, 'pushed_at' => now()])->save();
+
+        return 'Harga Shopee ikut diganti.';
     }
 
     /**

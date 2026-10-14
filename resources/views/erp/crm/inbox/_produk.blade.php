@@ -329,7 +329,7 @@
                             </div>
                             <button type="button" @click="simpanHarga(p, true)" :disabled="menyimpan"
                                     class="w-full border border-emerald-600 text-emerald-700 hover:bg-emerald-50 rounded px-2 py-1 text-xs disabled:opacity-50">
-                                Simpan &amp; kirim ke Jubelio
+                                Simpan &amp; kirim ke marketplace
                             </button>
                             <p x-show="pesanJubelio" x-cloak class="text-[11px] text-gray-500" x-text="pesanJubelio"></p>
 
