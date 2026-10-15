@@ -10,7 +10,7 @@
 @include('erp._partials.foto-nota-kotak-banner')
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
-    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Faktur / No pemasok / pemasok...'])
+    @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Faktur / No Faktur Pemasok / pemasok...'])
     @include('erp.purchasing._partials.date-range')
     <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
@@ -39,6 +39,7 @@
         <thead class="bg-gray-50 border-b text-gray-600">
             <tr>
                 <th class="px-3 py-2 text-left">No Faktur</th>
+                <th class="px-3 py-2 text-left">No Faktur Pemasok</th>
                 <th class="px-3 py-2 text-left">Tanggal</th>
                 <th class="px-3 py-2 text-left">Pemasok</th>
                 <th class="px-3 py-2 text-left">Gudang</th>
@@ -87,6 +88,14 @@
                         @include('erp._partials.foto-nota-badge', ['doc' => $inv])
                         @if($isPartial)
                             <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase" title="Faktur sebagian dari PO yang dipecah jadi beberapa faktur">Sebagian</span>
+                        @endif
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        @if($inv->supplier_invoice_no)
+                            {{ $inv->supplier_invoice_no }}
+                            @include('erp.purchasing._partials.copy-btn', ['value' => $inv->supplier_invoice_no])
+                        @else
+                            <span class="text-gray-300">—</span>
                         @endif
                     </td>
                     <td class="px-3 py-2">{{ $inv->invoice_date->format('d M Y') }}</td>
@@ -138,7 +147,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada faktur.</td></tr>
+                <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">Belum ada faktur.</td></tr>
             @endforelse
         </tbody>
     </table>

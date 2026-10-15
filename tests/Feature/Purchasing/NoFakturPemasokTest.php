@@ -70,6 +70,18 @@ class NoFakturPemasokTest extends TestCase
         $this->assertSame('2026-10-03', $pi->supplier_invoice_date->format('Y-m-d'));
     }
 
+    public function test_tampil_di_daftar_dan_bisa_dicari(): void
+    {
+        $this->buatFaktur(['supplier_invoice_no' => 'KTA.00500.1026']);
+        $this->buatFaktur(['supplier_invoice_no' => 'SVC-LAIN-01']);
+
+        $this->actingAs($this->admin)->get(route('purchasing.invoices.index'))->assertOk()
+            ->assertSee('No Faktur Pemasok')->assertSee('KTA.00500.1026')->assertSee('SVC-LAIN-01');
+
+        $this->actingAs($this->admin)->get(route('purchasing.invoices.index', ['q' => '00500']))->assertOk()
+            ->assertSee('KTA.00500.1026')->assertDontSee('SVC-LAIN-01');
+    }
+
     public function test_dari_po_field_kosong_memakai_nomor_po(): void
     {
         [$po, $item] = $this->po('INV-SUP-777');
