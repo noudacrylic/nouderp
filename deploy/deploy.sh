@@ -39,6 +39,12 @@ echo "==> [7/8] Bersihkan & cache ulang konfigurasi"
 php artisan optimize:clear
 php artisan optimize        # cache config + route + view
 
+# Intercom: Reverb memuat kode & config saat start — minta ia mulai ulang
+# (supervisor menghidupkannya lagi). Dilewati bila Reverb belum dipasang.
+if grep -qE '^REVERB_APP_KEY=.+' .env; then
+    php artisan reverb:restart || true
+fi
+
 echo "==> [8/8] Maintenance mode OFF"
 php artisan up
 trap - EXIT

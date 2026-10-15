@@ -11,7 +11,11 @@ route/view/console tidak perlu clear cache manual.)
 
 Suara dua arah antar stasiun (Admin, Packing, CNC, Asembling). Suaranya WebRTC langsung antar
 perangkat di Wi-Fi kantor; server hanya meneruskan **sinyal** lewat WebSocket (Laravel Reverb).
-`deploy.sh` sudah menjalankan `composer install` + `migrate` (tabel `intercom_calls`). Yang manual:
+`deploy.sh` sudah menjalankan `composer install` + `migrate` (tabel `intercom_calls`).
+
+**Cara cepat:** semua langkah 1–4 di bawah dikerjakan otomatis oleh
+`sudo bash deploy/setup-reverb.sh` (aman diulang; `.env` & konfigurasi nginx dicadangkan dulu,
+nginx dikembalikan otomatis bila `nginx -t` gagal). Rinciannya, bila ingin manual:
 
 ### 1. `.env` server
 ```bash
