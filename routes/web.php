@@ -109,6 +109,12 @@ Route::get('/crm/media/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxCont
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
 
+    // -- Intercom divisi: layar stasiun + log panggilan (sinyal via Reverb) --
+    Route::prefix('intercom')->name('intercom.')->middleware('auth')->group(function () {
+        Route::get('/', [\App\Http\Controllers\IntercomController::class, 'index'])->name('index');
+        Route::post('/log', [\App\Http\Controllers\IntercomController::class, 'catat'])->name('log');
+    });
+
     // -- CRM: inbox percakapan, triase & notifikasi pesanan --
     Route::prefix('crm')->name('crm.')->group(function () {
         Route::get('/', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'index'])->name('inbox.index');

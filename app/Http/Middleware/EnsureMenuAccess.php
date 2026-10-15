@@ -65,6 +65,15 @@ class EnsureMenuAccess
         }
 
         /*
+         * Intercom divisi: stasiun terikat ke PERANGKAT, bukan ke menu akun.
+         * Siapa pun yang login di perangkat stasiun Packing harus bisa menjawab
+         * dan memanggil, apa pun hak menunya.
+         */
+        if ($request->is('erp/intercom', 'erp/intercom/*')) {
+            return $next($request);
+        }
+
+        /*
          * PWA CRM (`/cs`): layarnya duduk di luar `erp/`, tapi SELURUH isinya —
          * kirim pesan, muat produk, cek ongkir, polling pesan baru — memanggil
          * endpoint `erp/crm/*` yang sama dengan Inbox desktop. Tanpa jalan lewat

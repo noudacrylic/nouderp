@@ -11,6 +11,8 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // Saluran WebSocket (Reverb) — saat ini hanya untuk sinyal Intercom divisi.
+    ->withBroadcasting(__DIR__.'/../routes/channels.php')
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust ngrok / reverse proxy supaya Laravel tahu request asli HTTPS
         // (mencegah mixed-content saat development via ngrok untuk Midtrans).

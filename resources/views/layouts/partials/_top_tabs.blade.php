@@ -74,6 +74,7 @@
          Di halaman tanpa bilah ini ia tetap dirender oleh layout, di posisi
          yang sama — kalau tidak, loncengnya hilang di Dashboard dan orang
          belajar bahwa ia tidak bisa diandalkan. --}}
+    @include('layouts.partials._intercom')
     @include('layouts.partials._lonceng')
 </div>
 

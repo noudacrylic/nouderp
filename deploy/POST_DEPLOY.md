@@ -7,6 +7,82 @@ route/view/console tidak perlu clear cache manual.)
 
 ---
 
+## Rilis 2026-10-15 — Intercom divisi (Laravel Reverb + WebRTC)
+
+Suara dua arah antar stasiun (Admin, Packing, CNC, Asembling). Suaranya WebRTC langsung antar
+perangkat di Wi-Fi kantor; server hanya meneruskan **sinyal** lewat WebSocket (Laravel Reverb).
+`deploy.sh` sudah menjalankan `composer install` + `migrate` (tabel `intercom_calls`). Yang manual:
+
+### 1. `.env` server
+```bash
+php -r 'echo "REVERB_APP_ID=".random_int(100000,999999)."\nREVERB_APP_KEY=".bin2hex(random_bytes(10))."\nREVERB_APP_SECRET=".bin2hex(random_bytes(16))."\n";'
+```
+Tempel hasilnya ke `.env`, lalu tambahkan:
+```
+BROADCAST_CONNECTION=reverb
+REVERB_HOST=<domain ERP, mis. u.noudakrilik.com>
+REVERB_PORT=443
+REVERB_SCHEME=https
+REVERB_SERVER_HOST=127.0.0.1
+REVERB_SERVER_PORT=8080
+```
+`REVERB_HOST/PORT/SCHEME` = alamat **publik** yang dipakai peramban. Reverb sendiri hanya
+mendengar di `127.0.0.1:8080`; Nginx yang meneruskan. Lalu `php artisan config:cache`.
+
+### 2. Jalankan Reverb terus-menerus (supervisor)
+`/etc/supervisor/conf.d/reverb.conf`:
+```ini
+[program:reverb]
+command=php /var/www/noud-erp/artisan reverb:start --host=127.0.0.1 --port=8080
+directory=/var/www/noud-erp
+user=www-data
+autostart=true
+autorestart=true
+stopwaitsecs=10
+stdout_logfile=/var/www/noud-erp/storage/logs/reverb.log
+redirect_stderr=true
+minfds=10000
+```
+```bash
+sudo apt install -y supervisor   # bila belum ada
+sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl status reverb
+```
+**Setiap deploy berikutnya** yang mengubah config/kode Reverb: `sudo supervisorctl restart reverb`
+(atau `php artisan reverb:restart`).
+
+### 3. Nginx — teruskan WebSocket `/app` ke Reverb
+Di blok `server { ... }` ERP, **sebelum** `location /`:
+```nginx
+location /app {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 120s;
+}
+```
+`sudo nginx -t && sudo systemctl reload nginx`. Cloudflare (Tunnel/proxy) meneruskan WebSocket
+tanpa pengaturan tambahan.
+
+### 4. Cek
+- Handshake WebSocket lewat domain (harus `101 Switching Protocols` + `pusher:connection_established`):
+  ```bash
+  curl -s -i -N --max-time 3 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "https://<domain>/app/<REVERB_APP_KEY>?protocol=7" | head -c 300
+  ```
+  (Request HTTP biasa tanpa header Upgrade memang dibalas 500 oleh Reverb — itu normal.)
+- Buka ERP → ikon 📞 di kanan atas → pilih stasiun → titik **hijau** = tersambung ke Reverb.
+
+### 5. Di lapangan (sekali per perangkat)
+- Router/AP kantor: **"AP isolation" / "client isolation" harus MATI** — kalau nyala, sinyal
+  tersambung tapi suara tidak (pesan "Suara tidak bisa tersambung").
+- Tiap perangkat: 📞 → pilih stasiun → **Aktifkan mikrofon** → izinkan.
+- Tablet/HP stasiun: biarkan `/erp/intercom` terbuka di depan, dicolok charger. Bila browser
+  masuk background/layar terkunci, Android memutus koneksinya dan stasiun tidak bisa dipanggil.
+
+---
+
 ## Rilis 2026-08-03 — Metode bayar Midtrans yang ditawarkan bisa diatur
 
 Halaman `/pay` sebelumnya memajang keenam metode apa adanya, termasuk Alfamart dan

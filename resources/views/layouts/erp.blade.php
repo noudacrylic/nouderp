@@ -1156,6 +1156,7 @@
                          kadang tidak akan berhenti dipercaya, dan orang kembali
                          mengandalkan menagih lewat WhatsApp. --}}
                     <div class="lonceng-bar">
+                        @include('layouts.partials._intercom')
                         @include('layouts.partials._lonceng')
                     </div>
                 @endif
@@ -1402,6 +1403,11 @@
     {{-- Web Push notifikasi pesanan (tim packing) — registrasi SW + toggle di user menu --}}
     @auth
         @include('layouts.partials._erp_push')
+    @endauth
+
+    {{-- Intercom divisi (suara 2 arah antar stasiun, WebRTC + Reverb) --}}
+    @auth
+        @include('layouts.partials._intercom_mesin')
     @endauth
 
     @yield('scripts')
