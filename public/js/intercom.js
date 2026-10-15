@@ -681,7 +681,42 @@
             }
         }
 
-        return { mulai, jalankan, gantiStasiun };
+        // Untuk menelusuri keluhan "tidak ada suara": dibaca dari konsol
+        // lewat `await Intercom.diagnosa()` saat panggilan berjalan.
+        async function diagnosa() {
+            const d = {
+                audioEl: audioEl ? { paused: audioEl.paused, muted: audioEl.muted, volume: audioEl.volume,
+                    adaStream: !!audioEl.srcObject } : null,
+                audioCtx: audioCtx ? audioCtx.state : null,
+            };
+            if (!pg) return Object.assign(d, { panggilan: null });
+            d.peran = pg.peran;
+            d.lawan = pg.lawan;
+            d.micLokal = pg.stream ? pg.stream.getAudioTracks().map(t => ({
+                label: t.label, enabled: t.enabled, muted: t.muted, state: t.readyState })) : null;
+            d.trackLawan = pg.streamLawan ? pg.streamLawan.getAudioTracks().map(t => ({
+                enabled: t.enabled, muted: t.muted, state: t.readyState })) : null;
+            if (pg.pc) {
+                d.koneksi = pg.pc.connectionState;
+                d.ice = pg.pc.iceConnectionState;
+                const st = await pg.pc.getStats();
+                st.forEach(r => {
+                    if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+                        d.masuk = { bytes: r.bytesReceived, paket: r.packetsReceived, hilang: r.packetsLost,
+                            level: r.audioLevel, energi: r.totalAudioEnergy };
+                    } else if (r.type === 'outbound-rtp' && r.kind === 'audio') {
+                        d.keluar = { bytes: r.bytesSent, paket: r.packetsSent };
+                    } else if (r.type === 'media-source' && r.kind === 'audio') {
+                        d.levelMicLokal = r.audioLevel;
+                    } else if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+                        d.jalur = r.localCandidateId + ' ↔ ' + r.remoteCandidateId;
+                    }
+                });
+            }
+            return d;
+        }
+
+        return { mulai, jalankan, gantiStasiun, diagnosa };
     }
 
     // ───────────────────────── RENDER ─────────────────────────
@@ -824,7 +859,11 @@
     });
 
     // ───────────────────────── mulai ─────────────────────────
-    window.Intercom = { perintah, keadaan: () => keadaan };
+    window.Intercom = {
+        perintah,
+        keadaan: () => keadaan,
+        diagnosa: () => (sayaMesin && mesin ? mesin.diagnosa() : Promise.resolve({ bukanTabMesin: true })),
+    };
     render();
     if (tabKanal) tabKanal.postMessage({ jenis: 'minta-keadaan' });
     mintaKunci();
