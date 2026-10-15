@@ -129,9 +129,12 @@
 
     // Perintah dari UI: dijalankan langsung bila tab ini mesin, kalau tidak
     // diteruskan ke tab mesin.
-    function perintah(aksi, arg) {
+    async function perintah(aksi, arg) {
         ctx();
         if (aksi === 'stasiun') return aturStasiun(arg);
+        // Klik di tab ini barusan memicu perebutan mesin — tunggu selesai supaya
+        // perintahnya dijalankan di sini, bukan dikirim ke mesin lama yang sedang mundur.
+        if (merebut) await tunggu(() => !merebut, 3000);
         if (sayaMesin && mesin) return mesin.jalankan(aksi, arg);
         if (tabKanal) tabKanal.postMessage({ jenis: 'perintah', aksi, arg });
     }
@@ -163,23 +166,63 @@
 
     // ───────────────────────── pemilihan tab mesin ─────────────────────────
     let sudahMinta = false;
-    function mintaKunci() {
-        if (sudahMinta || !keadaan.stasiun) return;
-        sudahMinta = true;
-        const jadiMesin = () => {
+    // Kunci dipegang selama tab hidup; tutup tab = kunci lepas = tab lain yang
+    // antre otomatis mengambil alih. Tab yang DIKLIK merebut kunci (rebut=true):
+    // suara WebRTC hanya boleh diputar di tab yang pernah disentuh pengguna,
+    // jadi mesin harus pindah ke tab yang sedang dipakai — bukan tetap di tab
+    // lama yang terlupa di jendela lain dan diblokir autoplay (suara satu arah).
+    let merebut = false;
+    function jadiMesin() {
+        if (!sayaMesin) {
             sayaMesin = true;
             mesin = buatMesin();
             mesin.mulai();
-            // Kunci dipegang selama tab hidup; tutup tab = kunci lepas = tab
-            // lain otomatis mengambil alih.
-            return new Promise(() => {});
-        };
-        if (navigator.locks && navigator.locks.request) {
-            navigator.locks.request('intercom-mesin', jadiMesin);
-        } else {
-            jadiMesin(); // peramban lama: tiap tab jadi mesin
         }
+        return new Promise(() => {});
     }
+    function mundur() {
+        if (!sayaMesin) return;
+        sayaMesin = false;          // dulu, supaya berhenti() tak menyiarkan keadaan "putus"
+        if (mesin) mesin.berhenti();
+        mesin = null;
+        if (tabKanal) tabKanal.postMessage({ jenis: 'minta-keadaan' });
+        render();
+        mintaKunci();               // antre lagi, siap mengambil alih bila tab baru ditutup
+    }
+    function mintaKunci(rebut) {
+        if (!keadaan.stasiun) return;
+        if (!(navigator.locks && navigator.locks.request)) {
+            jadiMesin(); // peramban lama: tiap tab jadi mesin
+            return;
+        }
+        if (rebut) {
+            if (sayaMesin || merebut || keadaan.panggilan) return; // jangan pindah di tengah panggilan
+            merebut = true;
+        } else {
+            if (sudahMinta || sayaMesin) return;
+            sudahMinta = true;
+        }
+        navigator.locks.request('intercom-mesin', rebut ? { steal: true } : {}, () => {
+            if (rebut) merebut = false; else sudahMinta = false;
+            return jadiMesin();
+        }).catch(() => {
+            // Kunci kita direbut tab lain.
+            if (rebut) merebut = false; else sudahMinta = false;
+            mundur();
+        });
+    }
+    function tunggu(cek, ms) {
+        return new Promise(res => {
+            const t0 = Date.now();
+            (function ulang() {
+                if (cek() || Date.now() - t0 > ms) return res();
+                setTimeout(ulang, 50);
+            })();
+        });
+    }
+    ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => {
+        if (!sayaMesin && keadaan.stasiun && !keadaan.panggilan) mintaKunci(true);
+    }, { capture: true, passive: true }));
 
     // ───────────────────────── MESIN ─────────────────────────
     function buatMesin() {
@@ -209,12 +252,9 @@
             setKeadaan({ adaMesin: true });
             cekIzinMic();
             if (keadaan.stasiun) sambung();
-            window.addEventListener('pagehide', () => {
-                if (pg) akhiri('tersambung');
-                kirim({ t: 'pergi' });
-            });
+            window.addEventListener('pagehide', saatPergi);
             // Bersihkan stasiun yang sudah lama diam dari daftar online.
-            setInterval(() => {
+            timerBersih = setInterval(() => {
                 const now = Date.now();
                 let ubah = false;
                 for (const k in keadaan.hadir) {
@@ -223,6 +263,23 @@
                 if (ubah) siarkan();
             }, 5000);
             wakeLock();
+        }
+
+        let timerBersih = null;
+        function saatPergi() {
+            if (pg) akhiri('tersambung');
+            kirim({ t: 'pergi' });
+        }
+
+        // Mesin dipindah ke tab lain (kuncinya direbut). TIDAK mengirim "pergi":
+        // perangkatnya sama, tab baru langsung mengumumkan hadir dengan id yang sama.
+        function berhenti() {
+            if (pg) akhiri('tersambung');
+            window.removeEventListener('pagehide', saatPergi);
+            clearInterval(timerBersih);
+            lepasWakeLock();
+            putus();
+            if (audioEl) { audioEl.srcObject = null; audioEl.remove(); audioEl = null; }
         }
 
         function sambung() {
@@ -345,7 +402,12 @@
             if (!keadaan.stasiun) return beriPesan('Pilih dulu stasiun perangkat ini.');
             if (pg) return beriPesan('Masih ada panggilan berjalan.');
             if (!STASIUN[ke] || ke === keadaan.stasiun) return;
-            if (!keadaan.terhubung) return beriPesan('Intercom belum tersambung ke server.');
+            // Mesin yang baru pindah ke tab ini perlu ±1 dtk untuk tersambung,
+            // masuk saluran, lalu mendengar jawaban "siapa" dari stasiun lain.
+            const siap = () => keadaan.terhubung && kanal && kanal.subscribed;
+            if (!siap()) await tunggu(siap, 6000);
+            if (!siap()) return beriPesan('Intercom belum tersambung ke server.');
+            if (!keadaan.hadir[ke]) await tunggu(() => !!keadaan.hadir[ke], 1500);
             if (!keadaan.hadir[ke]) {
                 catat(ke, 'offline', 0);
                 return beriPesan('Stasiun ' + label(ke) + ' sedang offline.');
@@ -655,17 +717,21 @@
 
         // Layar perangkat stasiun jangan mati (tablet/HP).
         let kunciLayar = null;
+        function mintaKunciLayar() {
+            if (document.hidden || kunciLayar) return;
+            navigator.wakeLock.request('screen').then(l => {
+                kunciLayar = l;
+                l.addEventListener('release', () => { kunciLayar = null; });
+            }).catch(() => {});
+        }
         function wakeLock() {
             if (!('wakeLock' in navigator)) return;
-            const minta = () => {
-                if (document.hidden || kunciLayar) return;
-                navigator.wakeLock.request('screen').then(l => {
-                    kunciLayar = l;
-                    l.addEventListener('release', () => { kunciLayar = null; });
-                }).catch(() => {});
-            };
-            minta();
-            document.addEventListener('visibilitychange', minta);
+            mintaKunciLayar();
+            document.addEventListener('visibilitychange', mintaKunciLayar);
+        }
+        function lepasWakeLock() {
+            document.removeEventListener('visibilitychange', mintaKunciLayar);
+            if (kunciLayar) { kunciLayar.release().catch(() => {}); kunciLayar = null; }
         }
 
         function jalankan(aksi, arg) {
@@ -716,7 +782,7 @@
             return d;
         }
 
-        return { mulai, jalankan, gantiStasiun, diagnosa };
+        return { mulai, berhenti, jalankan, gantiStasiun, diagnosa };
     }
 
     // ───────────────────────── RENDER ─────────────────────────
