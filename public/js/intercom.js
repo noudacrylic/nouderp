@@ -108,6 +108,7 @@
         pesan: null,            // pesan singkat untuk pengguna
         mic: 'unknown',         // izin mikrofon: granted | denied | prompt | unknown
         perluKetuk: false,      // suara diblok autoplay → minta ketukan
+        tesMic: null,           // {label} selama tes mikrofon berjalan
     };
 
     const tabKanal = ('BroadcastChannel' in window) ? new BroadcastChannel('intercom-tab') : null;
@@ -677,6 +678,51 @@
 
         // Klik "Aktifkan": buka kunci suara + minta izin mikrofon sekali,
         // supaya panggilan masuk nanti bisa langsung tersambung tanpa dialog.
+        // Tes mikrofon 8 detik dengan indikator level. Lawan bicara yang
+        // "tidak terdengar" hampir selalu mic yang salah pilih / tak tercolok
+        // di perangkatnya — ini supaya tiap stasiun bisa memeriksa sendiri.
+        async function tesMic() {
+            if (pg || keadaan.tesMic) return;
+            ctx();
+            let s;
+            try { s = await ambilMic(); } catch (e) {
+                return beriPesan('Mikrofon tidak bisa dibuka: ' + (e.message || e.name), 10000);
+            }
+            const track = s.getAudioTracks()[0];
+            setKeadaan({ tesMic: { label: track ? track.label : '' } });
+            const c = ctx();
+            let puncak = 0, timer = null;
+            if (c) {
+                const a = c.createAnalyser();
+                a.fftSize = 512;
+                c.createMediaStreamSource(s).connect(a);
+                const buf = new Float32Array(512);
+                timer = setInterval(() => {
+                    a.getFloatTimeDomainData(buf);
+                    let jml = 0;
+                    for (let i = 0; i < buf.length; i++) jml += buf[i] * buf[i];
+                    const rms = Math.sqrt(jml / buf.length);
+                    puncak = Math.max(puncak, rms);
+                    const lebar = Math.min(100, Math.round(rms * 400)) + '%';
+                    document.querySelectorAll('.ic-meter i').forEach(el => { el.style.width = lebar; });
+                }, 100);
+            }
+            setTimeout(() => {
+                clearInterval(timer);
+                s.getTracks().forEach(t => t.stop());
+                setKeadaan({ tesMic: null });
+                if (!c || c.state !== 'running') {
+                    beriPesan('Klik sekali di halaman lalu ulangi tes (suara halaman belum aktif).', 8000);
+                } else if (puncak < 0.02) {
+                    beriPesan('⚠ Mikrofon "' + (track ? track.label : '') + '" TIDAK menangkap suara. Pastikan mic '
+                        + 'tercolok & tidak di-mute di Windows (Pengaturan → Suara → Input), atau pilih mic lain '
+                        + 'lewat ikon gembok di bilah alamat Chrome.', 15000);
+                } else {
+                    beriPesan('✅ Mikrofon berfungsi — suara tertangkap dengan baik.', 6000);
+                }
+            }, 8000);
+        }
+
         async function aktifkan() {
             ctx();
             try {
@@ -743,6 +789,7 @@
                 case 'bisu': return bisu();
                 case 'dnd': return aturDnd(arg);
                 case 'aktifkan': return aktifkan();
+                case 'tesmic': return tesMic();
                 case 'ketuk': return bunyikanUlang();
             }
         }
@@ -826,6 +873,11 @@
             + esc(label(k)) + '. Ubah salah satunya.</div>';
         if (keadaan.mic !== 'granted') {
             h += '<button type="button" class="ic-aktif" data-ic-aksi="aktifkan">🎙️ Aktifkan mikrofon</button>';
+        } else if (keadaan.tesMic) {
+            h += '<div class="ic-tes"><div>🎙️ ' + esc(keadaan.tesMic.label || 'Mikrofon') + ' — bicaralah…</div>'
+                + '<div class="ic-meter"><i></i></div></div>';
+        } else if (!keadaan.panggilan) {
+            h += '<button type="button" class="ic-tesb" data-ic-aksi="tesmic">🎚️ Tes mikrofon</button>';
         }
         h += '</div>';
         return h;

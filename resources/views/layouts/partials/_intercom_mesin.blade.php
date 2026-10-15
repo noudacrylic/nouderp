@@ -85,6 +85,14 @@
         border: 1px solid #10b981; background: #ecfdf5; color: #047857; border-radius: 8px;
         padding: 6px; font-weight: 600; cursor: pointer;
     }
+    .ic-tesb {
+        border: 1px solid #e5e7eb; background: #fff; color: #374151; border-radius: 8px;
+        padding: 6px; font-weight: 600; cursor: pointer;
+    }
+    .ic-tesb:hover { background: #f9fafb; }
+    .ic-tes { display: grid; gap: 5px; }
+    .ic-meter { height: 10px; border-radius: 5px; background: #e5e7eb; overflow: hidden; }
+    .ic-meter i { display: block; height: 100%; width: 0; background: #16a34a; transition: width .1s; }
     .ic-pilih { padding: 12px; display: grid; gap: 6px; font-size: 12px; }
     .ic-pilih p { margin: 0 0 2px; font-weight: 600; color: #1f2937; }
     .ic-pilih small { color: #9ca3af; }
