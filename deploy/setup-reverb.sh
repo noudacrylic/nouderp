@@ -55,8 +55,11 @@ set_env REVERB_SERVER_HOST 127.0.0.1
 set_env REVERB_SERVER_PORT "$PORT"
 echo "== .env diperbarui (cadangan: $ENV_FILE.bak-reverb-*)"
 
-sudo -u "$APP_USER" "$PHP_BIN" "$APP_DIR/artisan" config:cache >/dev/null
-echo "== config:cache selesai"
+# Sebagai pemilik storage/bootstrap-cache (www-data) — user deploy biasa tak
+# bisa menulis ke sana. Cache route ikut dibangun ulang supaya route baru aktif.
+sudo -u "$APP_USER" "$PHP_BIN" "$APP_DIR/artisan" optimize:clear >/dev/null
+sudo -u "$APP_USER" "$PHP_BIN" "$APP_DIR/artisan" optimize >/dev/null
+echo "== optimize (config/route/view cache) selesai"
 
 # ───────────── 2. supervisor ─────────────
 if ! command -v supervisorctl >/dev/null; then
