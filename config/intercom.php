@@ -20,6 +20,7 @@ return [
     'enabled' => env('INTERCOM_ENABLED', true) && filled(env('REVERB_APP_KEY')),
 
     'stasiun' => [
+        'burhan'    => ['label' => 'Burhan',    'ikon' => '👤'],
         'admin'     => ['label' => 'Admin',     'ikon' => '🗂️'],
         'packing'   => ['label' => 'Packing',   'ikon' => '📦'],
         'cnc'       => ['label' => 'CNC',       'ikon' => '⚙️'],
