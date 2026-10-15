@@ -3,11 +3,16 @@
 namespace App\Modules\Finance\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\PunyaFotoNota;
 use App\Core\Accounting\Account;
 use App\Models\Customer;
 
 class CashDisbursement extends Model
 {
+    use PunyaFotoNota;
+
+    public const FOTO_NOTA_JENIS = 'cash_disbursement';
+
     protected $fillable = [
         'number',
         'date',

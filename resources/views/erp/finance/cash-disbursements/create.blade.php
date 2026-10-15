@@ -5,7 +5,7 @@
     <h1 class="text-lg font-semibold">Pengeluaran Baru</h1>
 </div>
 
-<form method="POST" action="{{ route('finance.cash-bank.disbursements.store') }}">
+<form method="POST" action="{{ route('finance.cash-bank.disbursements.store') }}" enctype="multipart/form-data">
     @csrf
     @include('erp.finance.cash-disbursements._form')
 </form>

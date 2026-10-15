@@ -3,11 +3,16 @@
 namespace App\Modules\Purchasing\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\PunyaFotoNota;
 use App\Models\Supplier;
 use App\Core\Accounting\Account;
 
 class SupplierPayment extends Model
 {
+    use PunyaFotoNota;
+
+    public const FOTO_NOTA_JENIS = 'supplier_payment';
+
     protected $fillable = [
         'payment_number',
         'payment_date',

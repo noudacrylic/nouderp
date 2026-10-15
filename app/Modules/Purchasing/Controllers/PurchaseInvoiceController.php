@@ -57,6 +57,9 @@ class PurchaseInvoiceController extends Controller
             })
             ->when($request->supplier_id, fn($q, $sid) => $q->where('supplier_id', $sid))
             ->when($request->date_from, fn($q, $d) => $q->whereDate('invoice_date', '>=', $d))
+            ->withCount('fotoNota')
+            ->when($request->nota === 'belum', fn($q) => $q->doesntHave('fotoNota'))
+            ->when($request->nota === 'ada', fn($q) => $q->has('fotoNota'))
             ->when($request->date_to,   fn($q, $d) => $q->whereDate('invoice_date', '<=', $d))
             ->when($request->q, function ($q, $term) {
                 $q->where(function ($w) use ($term) {
@@ -93,6 +96,7 @@ class PurchaseInvoiceController extends Controller
 
     public function store(Request $request)
     {
+        $request->validate(\App\Services\FotoNotaService::rules(), \App\Services\FotoNotaService::messages());
         $data = $request->validate([
             'supplier_id' => 'required|exists:suppliers,id',
             'warehouse_id' => 'required|exists:warehouses,id',
@@ -127,6 +131,7 @@ class PurchaseInvoiceController extends Controller
         $action = $request->input('_after_save', '');
         try {
             $invoice = $this->service->createDraft($data);
+            app(\App\Services\FotoNotaService::class)->simpanDariRequest('purchase_invoice', $invoice, $request);
             if ($action === 'post' || $action === 'print') {
                 $this->postingService->post($invoice->refresh());
             }
@@ -189,6 +194,7 @@ class PurchaseInvoiceController extends Controller
     public function update(Request $request, $id)
     {
         $invoice = PurchaseInvoice::findOrFail($id);
+        $request->validate(\App\Services\FotoNotaService::rules(), \App\Services\FotoNotaService::messages());
         $data = $request->validate([
             'supplier_id' => 'required|exists:suppliers,id',
             'warehouse_id' => 'required|exists:warehouses,id',
@@ -222,6 +228,7 @@ class PurchaseInvoiceController extends Controller
         $action = $request->input('_after_save', '');
         try {
             $this->service->update($invoice, $data);
+            app(\App\Services\FotoNotaService::class)->simpanDariRequest('purchase_invoice', $invoice, $request);
             if ($action === 'post' || $action === 'print') {
                 $this->postingService->post($invoice->refresh());
             }

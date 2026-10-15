@@ -105,6 +105,8 @@
     </div>
 @endif
 
+<div class="mt-4">@include('erp._partials.foto-nota', ['jenis' => 'supplier_payment', 'doc' => $payment])</div>
+
 @include('erp.purchasing._partials.relations-payment', ['payment' => $payment])
 
 @if(request('print'))

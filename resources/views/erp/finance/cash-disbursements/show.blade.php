@@ -176,4 +176,6 @@
         </table>
     </div>
 @endif
+
+@include('erp._partials.foto-nota', ['jenis' => 'cash_disbursement', 'doc' => $cd])
 @endsection

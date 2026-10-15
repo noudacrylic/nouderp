@@ -204,6 +204,8 @@
     </div>
 </div>
 
+@include('erp._partials.foto-nota-input')
+
 <div class="flex gap-2 justify-end">
     <a href="{{ route('purchasing.invoices.index') }}" class="px-4 py-2 border rounded text-sm font-bold text-gray-600 hover:bg-gray-50 transition">Batal</a>
     <button type="submit" name="_after_save" value=""

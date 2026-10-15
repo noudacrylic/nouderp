@@ -48,6 +48,9 @@ class CashDisbursementController extends Controller
             ->where('type', $type)
             ->when($request->status, fn($q, $s) => $q->where('status', $s))
             ->when($request->date_from, fn($q, $d) => $q->whereDate('date', '>=', $d))
+            ->withCount('fotoNota')
+            ->when($request->nota === 'belum', fn($q) => $q->doesntHave('fotoNota'))
+            ->when($request->nota === 'ada', fn($q) => $q->has('fotoNota'))
             ->when($request->date_to, fn($q, $d) => $q->whereDate('date', '<=', $d))
             ->when($request->q, function ($q, $term) {
                 $q->where(function ($w) use ($term) {
@@ -90,9 +93,11 @@ class CashDisbursementController extends Controller
 
     public function store(Request $request)
     {
+        $request->validate(\App\Services\FotoNotaService::rules(), \App\Services\FotoNotaService::messages());
         $data = $this->validateData($request);
         try {
             $cd = $this->service->createDraft($data);
+            app(\App\Services\FotoNotaService::class)->simpanDariRequest('cash_disbursement', $cd, $request);
             $action = $request->input('_after_save', '');
             if ($action === 'post') {
                 $this->service->post($cd);
@@ -125,9 +130,11 @@ class CashDisbursementController extends Controller
     public function update(Request $request, $id)
     {
         $cd = CashDisbursement::findOrFail($id);
+        $request->validate(\App\Services\FotoNotaService::rules(), \App\Services\FotoNotaService::messages());
         $data = $this->validateData($request);
         try {
             $this->service->update($cd, $data);
+            app(\App\Services\FotoNotaService::class)->simpanDariRequest('cash_disbursement', $cd, $request);
             $action = $request->input('_after_save', '');
             if ($action === 'post') {
                 $this->service->post($cd->refresh());

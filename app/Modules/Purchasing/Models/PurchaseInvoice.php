@@ -3,11 +3,16 @@
 namespace App\Modules\Purchasing\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\PunyaFotoNota;
 use App\Models\Supplier;
 use App\Core\Inventory\Warehouse;
 
 class PurchaseInvoice extends Model
 {
+    use PunyaFotoNota;
+
+    public const FOTO_NOTA_JENIS = 'purchase_invoice';
+
     protected $fillable = [
         'invoice_number',
         'supplier_invoice_no',

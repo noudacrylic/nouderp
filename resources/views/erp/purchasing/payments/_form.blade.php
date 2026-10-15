@@ -140,6 +140,8 @@
                 placeholder="Misal: Pembayaran via transfer BCA...">{{ old('notes', $payment->notes ?? '') }}</textarea>
         </div>
 
+        @include('erp._partials.foto-nota-input')
+
         <div class="pt-6 border-t">
             <div class="flex gap-2 mb-3">
                 <button type="submit" name="_after_save" value=""

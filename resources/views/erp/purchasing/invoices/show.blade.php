@@ -175,6 +175,8 @@
     </div>
 @endif
 
+<div class="mt-4">@include('erp._partials.foto-nota', ['jenis' => 'purchase_invoice', 'doc' => $invoice])</div>
+
 @include('erp.purchasing._partials.relations-invoice', ['invoice' => $invoice])
 
 @if(request('print'))

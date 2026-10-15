@@ -4,7 +4,7 @@
 <h1 class="text-lg font-semibold mb-4">Edit Pembayaran — {{ $payment->payment_number }}</h1>
 
 
-<form method="POST" action="{{ route('purchasing.payments.update', $payment->id) }}">
+<form method="POST" action="{{ route('purchasing.payments.update', $payment->id) }}" enctype="multipart/form-data">
     @method('PUT')
     @include('erp.purchasing.payments._form')
 </form>

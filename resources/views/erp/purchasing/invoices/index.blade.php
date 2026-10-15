@@ -29,6 +29,7 @@
             @endforeach
         </select>
     </div>
+    @include('erp._partials.foto-nota-filter', ['auto' => true])
 </form>
 
 <div class="bg-white rounded shadow overflow-x-auto">
@@ -81,6 +82,7 @@
                     <td class="px-3 py-2 font-medium whitespace-nowrap">
                         {{ $inv->invoice_number }}
                         @include('erp.purchasing._partials.copy-btn', ['value' => $inv->invoice_number])
+                        @include('erp._partials.foto-nota-badge', ['doc' => $inv])
                         @if($isPartial)
                             <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 uppercase" title="Faktur sebagian dari PO yang dipecah jadi beberapa faktur">Sebagian</span>
                         @endif

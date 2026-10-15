@@ -4,7 +4,7 @@
 <h1 class="text-lg font-semibold mb-4">Tambah Pembayaran Pemasok</h1>
 
 
-<form method="POST" action="{{ route('purchasing.payments.store') }}">
+<form method="POST" action="{{ route('purchasing.payments.store') }}" enctype="multipart/form-data">
     @include('erp.purchasing.payments._form')
 </form>
 @endsection

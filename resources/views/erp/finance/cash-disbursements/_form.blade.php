@@ -222,6 +222,8 @@
         <textarea name="notes" rows="2" class="border rounded px-2 py-1.5 w-full">{{ $defaults['notes'] }}</textarea>
     </div>
 
+    @include('erp._partials.foto-nota-input')
+
     <div id="freightSubmitError" class="hidden bg-red-100 border border-red-300 text-red-700 px-3 py-2 rounded text-sm"></div>
 
     <div class="flex justify-between border-t pt-3">

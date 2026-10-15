@@ -1273,6 +1273,13 @@ Route::prefix('erp/purchasing')->name('purchasing.')->group(function () {
     Route::delete('payments/{id}', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'destroy'])->whereNumber('id')->name('payments.destroy');
     Route::post('payments/{id}/post', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'post'])->whereNumber('id')->name('payments.post');
     Route::post('payments/{id}/void', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'void'])->whereNumber('id')->name('payments.void');
+
+    // Foto nota (faktur & pembayaran) — tetap bisa ditambah setelah POST. Lihat FotoNotaController.
+    foreach (['invoices' => 'purchase_invoice', 'payments' => 'supplier_payment'] as $seg => $jenis) {
+        Route::post("$seg/{id}/nota", [\App\Http\Controllers\FotoNotaController::class, 'store'])->whereNumber('id')->defaults('jenis', $jenis)->name("$seg.nota.store");
+        Route::get("$seg/{id}/nota/{lampiran}", [\App\Http\Controllers\FotoNotaController::class, 'lihat'])->whereNumber(['id', 'lampiran'])->defaults('jenis', $jenis)->name("$seg.nota.lihat");
+        Route::delete("$seg/{id}/nota/{lampiran}", [\App\Http\Controllers\FotoNotaController::class, 'destroy'])->whereNumber(['id', 'lampiran'])->defaults('jenis', $jenis)->name("$seg.nota.destroy");
+    }
     Route::get('payments/{id}/print', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'print'])->whereNumber('id')->name('payments.print');
     Route::get('payments/{id}/pdf', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'downloadPdf'])->whereNumber('id')->name('payments.pdf');
 

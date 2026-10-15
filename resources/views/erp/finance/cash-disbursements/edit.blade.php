@@ -5,7 +5,7 @@
     <h1 class="text-lg font-semibold">Edit Pengeluaran {{ $cd->number }}</h1>
 </div>
 
-<form method="POST" action="{{ route('finance.cash-bank.disbursements.update', $cd->id) }}">
+<form method="POST" action="{{ route('finance.cash-bank.disbursements.update', $cd->id) }}" enctype="multipart/form-data">
     @csrf
     @method('PUT')
     @include('erp.finance.cash-disbursements._form')

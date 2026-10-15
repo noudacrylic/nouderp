@@ -22,6 +22,7 @@
             <option value="void" @selected(request('status')=='void')>Void</option>
         </select>
     </div>
+    @include('erp._partials.foto-nota-filter')
     <div>
         <label class="block text-xs text-gray-500 mb-1">Dari</label>
         <input type="date" name="date_from" value="{{ request('date_from') }}" class="border rounded px-2 py-1.5">
@@ -60,7 +61,7 @@
                     };
                 @endphp
                 <tr class="border-b hover:bg-blue-50 cursor-pointer" data-href="{{ route('finance.cash-bank.disbursements.show', $cd->id) }}">
-                    <td class="px-3 py-2 font-medium whitespace-nowrap">{{ $cd->number }}</td>
+                    <td class="px-3 py-2 font-medium whitespace-nowrap">{{ $cd->number }}@include('erp._partials.foto-nota-badge', ['doc' => $cd])</td>
                     <td class="px-3 py-2">{{ $cd->date->format('d M Y') }}</td>
                     <td class="px-3 py-2">{{ $cd->payee ?: '-' }}</td>
                     <td class="px-3 py-2">{{ $cd->cashAccount->code ?? '' }} {{ $cd->cashAccount->name ?? '' }}</td>

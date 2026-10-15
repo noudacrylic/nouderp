@@ -19,6 +19,7 @@
             @endforeach
         </select>
     </div>
+    @include('erp._partials.foto-nota-filter', ['auto' => true])
 </form>
 
 <div class="bg-white rounded shadow overflow-x-auto">
@@ -64,6 +65,7 @@
                     <td class="px-3 py-2 font-medium">
                         {{ $p->payment_number }}
                         @include('erp.purchasing._partials.copy-btn', ['value' => $p->payment_number])
+                        @include('erp._partials.foto-nota-badge', ['doc' => $p])
                     </td>
                     <td class="px-3 py-2">{{ $p->payment_date->format('d M Y') }}</td>
                     <td class="px-3 py-2">{{ $p->supplier->name }}</td>
