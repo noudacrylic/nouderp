@@ -73,7 +73,7 @@ tanpa pengaturan tambahan.
 ### 4. Cek
 - Handshake WebSocket lewat domain (harus `101 Switching Protocols` + `pusher:connection_established`):
   ```bash
-  curl -s -i -N --max-time 3 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "https://<domain>/app/<REVERB_APP_KEY>?protocol=7" | head -c 300
+  curl --http1.1 -s -i -N --max-time 3 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "https://<domain>/app/<REVERB_APP_KEY>?protocol=7" | head -c 300
   ```
   (Request HTTP biasa tanpa header Upgrade memang dibalas 500 oleh Reverb — itu normal.)
 - Buka ERP → ikon 📞 di kanan atas → pilih stasiun → titik **hijau** = tersambung ke Reverb.
