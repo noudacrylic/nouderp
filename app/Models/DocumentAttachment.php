@@ -14,11 +14,13 @@ class DocumentAttachment extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'doc_type', 'doc_id', 'disk', 'path', 'original_name', 'mime', 'size_bytes', 'uploaded_by', 'deleted_by',
+        'doc_type', 'doc_id', 'disk', 'path', 'original_name', 'mime', 'size_bytes', 'catatan',
+        'uploaded_by', 'ditempel_at', 'ditempel_by', 'deleted_by',
     ];
 
     protected $casts = [
-        'size_bytes' => 'integer',
+        'size_bytes'  => 'integer',
+        'ditempel_at' => 'datetime',
     ];
 
     public function uploader(): BelongsTo

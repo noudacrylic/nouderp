@@ -7,6 +7,8 @@
        class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Pengeluaran Umum</a>
 </div>
 
+@include('erp._partials.foto-nota-kotak-banner')
+
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     <div>
         <label class="block text-xs text-gray-500 mb-1">Cari</label>

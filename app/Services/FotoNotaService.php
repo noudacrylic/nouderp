@@ -26,15 +26,43 @@ use Illuminate\Support\Facades\Storage;
  *
  * Foto ponsel 3-5 MB diperkecil ke sisi 1600 px (±200-400 KB) — teks nota tetap
  * terbaca, dan sepuluh tahun nota tidak menghabiskan disk server.
+ *
+ * KOTAK NOTA: foto dari PWA HP (/cs/nota) masuk tanpa dokumen (doc_type
+ * kosong) — nota sering difoto di toko, sebelum fakturnya diinput. Di PC
+ * fotonya ditempel ke dokumen lewat tombol "Ambil dari HP" di kartu Foto Nota.
  */
 class FotoNotaService
 {
-    /** jenis => [kelas model, prefix nama route dokumen, label]. */
+    /** jenis => [kelas model, prefix nama route dokumen, label, kolom nomor, kunci menu]. */
     public const JENIS = [
-        'purchase_invoice'  => [PurchaseInvoice::class,  'purchasing.invoices',              'Faktur Pembelian'],
-        'supplier_payment'  => [SupplierPayment::class,  'purchasing.payments',              'Pembayaran Supplier'],
-        'cash_disbursement' => [CashDisbursement::class, 'finance.cash-bank.disbursements',  'Pengeluaran'],
+        'purchase_invoice'  => [PurchaseInvoice::class,  'purchasing.invoices',             'Faktur Pembelian',    'invoice_number', 'purchasing.invoices'],
+        'supplier_payment'  => [SupplierPayment::class,  'purchasing.payments',             'Pembayaran Supplier', 'payment_number', 'purchasing.payments'],
+        'cash_disbursement' => [CashDisbursement::class, 'finance.cash-bank.disbursements', 'Pengeluaran',         'number',         'cash-bank.disbursements'],
     ];
+
+    /** Boleh memakai foto nota (menu Nota di PWA, Kotak Nota)? = punya akses salah satu dokumennya. */
+    public static function bolehNota(): bool
+    {
+        foreach (self::JENIS as $j) {
+            if (user_can_access($j[4])) return true;
+        }
+        return false;
+    }
+
+    /** Foto di Kotak Nota yang belum ditempel, terbaru dulu. */
+    public static function kotak()
+    {
+        return DocumentAttachment::whereNull('doc_type')->latest('id');
+    }
+
+    /** "Faktur Pembelian FAK/2026/10/0012" untuk foto yang sudah ditempel, atau null. */
+    public static function labelDokumen(DocumentAttachment $att): ?string
+    {
+        if (!$att->doc_type || !isset(self::JENIS[$att->doc_type])) return null;
+        [$kelas, , $label, $kolom] = self::JENIS[$att->doc_type];
+        $nomor = $kelas::whereKey($att->doc_id)->value($kolom);
+        return trim($label . ' ' . ($nomor ?? '#' . $att->doc_id));
+    }
 
     public const MAKS_BERKAS = 10;
 
@@ -83,6 +111,33 @@ class FotoNotaService
     public function simpan(string $jenis, Model $doc, array $files, ?int $userId = null): int
     {
         self::modelUntuk($jenis);
+        return $this->simpanBerkas($jenis, $doc->getKey(), $files, $userId, null);
+    }
+
+    /** Foto dari PWA HP → Kotak Nota (belum menempel ke dokumen). */
+    public function simpanKeKotak(array $files, ?int $userId, ?string $catatan = null): int
+    {
+        $catatan = $catatan !== null ? mb_substr(trim($catatan), 0, 190) : null;
+        return $this->simpanBerkas(null, null, $files, $userId, $catatan ?: null);
+    }
+
+    /** Tempel foto dari Kotak Nota ke dokumen. */
+    public function tempel(DocumentAttachment $att, string $jenis, Model $doc, ?int $userId = null): void
+    {
+        self::modelUntuk($jenis);
+        if ($att->doc_type !== null) {
+            throw new \DomainException('Foto ini sudah ditempel ke dokumen lain.');
+        }
+        $att->update([
+            'doc_type'    => $jenis,
+            'doc_id'      => $doc->getKey(),
+            'ditempel_at' => now(),
+            'ditempel_by' => $userId,
+        ]);
+    }
+
+    private function simpanBerkas(?string $jenis, ?int $docId, array $files, ?int $userId, ?string $catatan): int
+    {
         $tersimpan = 0;
 
         foreach ($files as $file) {
@@ -95,7 +150,8 @@ class FotoNotaService
                 // Baris dulu → id dipakai sebagai nama berkas.
                 $att = DocumentAttachment::create([
                     'doc_type'      => $jenis,
-                    'doc_id'        => $doc->getKey(),
+                    'doc_id'        => $docId,
+                    'catatan'       => $catatan,
                     'disk'          => 'local',
                     'original_name' => mb_substr($file->getClientOriginalName() ?: ('nota.' . $ext), 0, 190),
                     'mime'          => $mime,
@@ -111,12 +167,23 @@ class FotoNotaService
                 $tersimpan++;
             } catch (\Throwable $e) {
                 // Satu foto gagal tidak boleh menggagalkan dokumen yang sudah tersimpan.
-                Log::warning('[foto-nota] gagal menyimpan', ['jenis' => $jenis, 'doc' => $doc->getKey(), 'error' => $e->getMessage()]);
+                Log::warning('[foto-nota] gagal menyimpan', ['jenis' => $jenis, 'doc' => $docId, 'error' => $e->getMessage()]);
                 $att?->forceDelete();
             }
         }
 
         return $tersimpan;
+    }
+
+    /** Respons berkas (inline) — dipakai semua route penampil foto nota. */
+    public static function respon(DocumentAttachment $att)
+    {
+        abort_unless($att->path && Storage::disk($att->disk)->exists($att->path), 404);
+        $nama = $att->original_name ?: basename($att->path);
+        return Storage::disk($att->disk)->response($att->path, $nama, [
+            'Content-Type'  => $att->mime ?: 'application/octet-stream',
+            'Cache-Control' => 'private, max-age=86400',
+        ], 'inline');
     }
 
     public function arsipkan(DocumentAttachment $att, ?int $userId = null): void

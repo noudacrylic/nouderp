@@ -7,6 +7,8 @@
 </div>
 
 
+@include('erp._partials.foto-nota-kotak-banner')
+
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
     @include('erp.purchasing._partials.search-input', ['placeholder' => 'Cari No Faktur / No pemasok / pemasok...'])
     @include('erp.purchasing._partials.date-range')

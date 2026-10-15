@@ -43,6 +43,7 @@ Route::prefix('erp/finance/cash-bank')->name('finance.cash-bank.')->group(functi
         Route::post('/{id}/nota', [\App\Http\Controllers\FotoNotaController::class, 'store'])->whereNumber('id')->defaults('jenis', 'cash_disbursement')->name('nota.store');
         Route::get('/{id}/nota/{lampiran}', [\App\Http\Controllers\FotoNotaController::class, 'lihat'])->whereNumber(['id', 'lampiran'])->defaults('jenis', 'cash_disbursement')->name('nota.lihat');
         Route::delete('/{id}/nota/{lampiran}', [\App\Http\Controllers\FotoNotaController::class, 'destroy'])->whereNumber(['id', 'lampiran'])->defaults('jenis', 'cash_disbursement')->name('nota.destroy');
+        Route::post('/{id}/nota/tempel', [\App\Http\Controllers\FotoNotaController::class, 'tempel'])->whereNumber('id')->defaults('jenis', 'cash_disbursement')->name('nota.tempel');
 
         Route::get('/{id}', [CashDisbursementController::class, 'show'])->whereNumber('id')->name('show');
     });

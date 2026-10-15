@@ -6,7 +6,6 @@ use App\Models\DocumentAttachment;
 use App\Services\FotoNotaService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * Foto nota di dokumen. Satu controller untuk semua jenis dokumen; jenisnya
@@ -41,14 +40,24 @@ class FotoNotaController extends Controller
 
     public function lihat(Request $request, $id, $lampiran)
     {
-        $att = $this->lampiran($request->route('jenis'), $id, $lampiran);
-        abort_unless($att->path && Storage::disk($att->disk)->exists($att->path), 404);
+        return FotoNotaService::respon($this->lampiran($request->route('jenis'), $id, $lampiran));
+    }
 
-        $nama = $att->original_name ?: basename($att->path);
-        return Storage::disk($att->disk)->response($att->path, $nama, [
-            'Content-Type'  => $att->mime ?: 'application/octet-stream',
-            'Cache-Control' => 'private, max-age=86400',
-        ], 'inline');
+    /** Tempel foto dari Kotak Nota (kiriman PWA HP) ke dokumen ini. */
+    public function tempel(Request $request, $id)
+    {
+        $jenis = $request->route('jenis');
+        $doc   = $this->dokumen($jenis, $id);
+        $request->validate(['lampiran_id' => 'required|integer']);
+
+        $att = FotoNotaService::kotak()->findOrFail($request->integer('lampiran_id'));
+        try {
+            $this->service->tempel($att, $jenis, $doc, $request->user()?->id);
+        } catch (\DomainException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', 'Foto dari HP ditempel ke dokumen ini.');
     }
 
     public function destroy(Request $request, $id, $lampiran)

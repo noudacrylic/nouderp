@@ -6,9 +6,11 @@
     $notaPrefix = \App\Services\FotoNotaService::routePrefix($jenis);
     $notaList   = $doc->fotoNota()->with('uploader:id,name')->orderBy('id')->get();
     $notaGambar = $notaList->filter->isImage()->values();
+    // Kiriman PWA HP yang belum ditempel ke dokumen mana pun (Kotak Nota).
+    $notaKotak  = \App\Services\FotoNotaService::kotak()->with('uploader:id,name')->limit(30)->get();
 @endphp
 <div class="bg-white rounded shadow p-4 mb-4"
-     x-data="{ lihat: null, daftar: @js($notaGambar->map(fn ($a) => route($notaPrefix . '.nota.lihat', [$doc->id, $a->id]))->values()) }"
+     x-data="{ lihat: null, hp: false, daftar: @js($notaGambar->map(fn ($a) => route($notaPrefix . '.nota.lihat', [$doc->id, $a->id]))->values()) }"
      @keydown.escape.window="lihat = null"
      @keydown.arrow-right.window="if (lihat !== null) lihat = (lihat + 1) % daftar.length"
      @keydown.arrow-left.window="if (lihat !== null) lihat = (lihat - 1 + daftar.length) % daftar.length">
@@ -35,8 +37,55 @@
                 <input type="file" name="nota[]" accept="image/*,application/pdf" multiple
                        data-foto-nota data-auto-submit class="hidden">
             </label>
+            <button type="button" @click="hp = !hp"
+                    class="border border-teal-300 hover:bg-teal-50 text-teal-700 px-3 py-2 rounded text-sm font-semibold">
+                📱 Ambil dari HP
+                @if ($notaKotak->count())
+                    <span class="ml-0.5 bg-teal-600 text-white rounded-full px-1.5 text-[11px]">{{ $notaKotak->count() }}</span>
+                @endif
+            </button>
             <span data-foto-nota-info class="text-xs text-gray-500"></span>
         </form>
+    </div>
+
+    {{-- Kotak Nota: foto dari menu Nota di PWA HP. Klik "Tempel" → pindah ke dokumen ini. --}}
+    <div x-show="hp" x-cloak class="mb-4 border border-teal-200 bg-teal-50/50 rounded p-3">
+        <div class="flex items-center justify-between mb-2">
+            <p class="text-sm font-semibold text-teal-800">Foto dari HP yang belum ditempel</p>
+            <a href="{{ route('nota-kotak.index') }}" class="text-xs text-teal-700 underline">Kelola Kotak Nota</a>
+        </div>
+        @if ($notaKotak->isEmpty())
+            <p class="text-sm text-gray-500">
+                Kosong. Foto nota dari HP lewat PWA (<b>/cs</b> → menu <b>Nota</b>), lalu tempel di sini.
+            </p>
+        @else
+            <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                @foreach ($notaKotak as $k)
+                    <div class="bg-white border border-gray-200 rounded overflow-hidden flex flex-col">
+                        <a href="{{ route('nota-kotak.gambar', $k->id) }}" target="_blank" rel="noopener" class="block bg-gray-50">
+                            @if ($k->isImage())
+                                <img src="{{ route('nota-kotak.gambar', $k->id) }}" alt="Foto nota" loading="lazy" class="w-full h-28 object-cover">
+                            @else
+                                <span class="flex items-center justify-center h-28 text-3xl">📄</span>
+                            @endif
+                        </a>
+                        <div class="px-1.5 py-1 text-[10px] text-gray-500 leading-tight flex-1">
+                            {{ $k->created_at?->format('d/m H:i') }}{{ $k->uploader ? ' · ' . $k->uploader->name : '' }}
+                            @if ($k->catatan)
+                                <div class="text-[11px] text-gray-800 font-semibold truncate" title="{{ $k->catatan }}">{{ $k->catatan }}</div>
+                            @endif
+                        </div>
+                        <form method="POST" action="{{ route($notaPrefix . '.nota.tempel', $doc->id) }}">
+                            @csrf
+                            <input type="hidden" name="lampiran_id" value="{{ $k->id }}">
+                            <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold py-1.5">
+                                Tempel ke sini
+                            </button>
+                        </form>
+                    </div>
+                @endforeach
+            </div>
+        @endif
     </div>
 
     @if ($notaList->isEmpty())

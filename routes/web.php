@@ -109,6 +109,13 @@ Route::get('/crm/media/{attachment}', [\App\Modules\CRM\Controllers\CrmInboxCont
 Route::prefix('erp')->group(function () {
     Route::view('/health', 'erp.health');
 
+    // -- Kotak Nota: foto nota kiriman PWA HP yang belum ditempel ke dokumen --
+    Route::prefix('nota-kotak')->name('nota-kotak.')->middleware('auth')->group(function () {
+        Route::get('/', [\App\Http\Controllers\KotakNotaController::class, 'index'])->name('index');
+        Route::get('/{lampiran}/gambar', [\App\Http\Controllers\KotakNotaController::class, 'gambar'])->whereNumber('lampiran')->name('gambar');
+        Route::delete('/{lampiran}', [\App\Http\Controllers\KotakNotaController::class, 'destroy'])->whereNumber('lampiran')->name('destroy');
+    });
+
     // -- Intercom divisi: layar stasiun + log panggilan (sinyal via Reverb) --
     Route::prefix('intercom')->name('intercom.')->middleware('auth')->group(function () {
         Route::get('/', [\App\Http\Controllers\IntercomController::class, 'index'])->name('index');
@@ -1279,6 +1286,7 @@ Route::prefix('erp/purchasing')->name('purchasing.')->group(function () {
         Route::post("$seg/{id}/nota", [\App\Http\Controllers\FotoNotaController::class, 'store'])->whereNumber('id')->defaults('jenis', $jenis)->name("$seg.nota.store");
         Route::get("$seg/{id}/nota/{lampiran}", [\App\Http\Controllers\FotoNotaController::class, 'lihat'])->whereNumber(['id', 'lampiran'])->defaults('jenis', $jenis)->name("$seg.nota.lihat");
         Route::delete("$seg/{id}/nota/{lampiran}", [\App\Http\Controllers\FotoNotaController::class, 'destroy'])->whereNumber(['id', 'lampiran'])->defaults('jenis', $jenis)->name("$seg.nota.destroy");
+        Route::post("$seg/{id}/nota/tempel", [\App\Http\Controllers\FotoNotaController::class, 'tempel'])->whereNumber('id')->defaults('jenis', $jenis)->name("$seg.nota.tempel");
     }
     Route::get('payments/{id}/print', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'print'])->whereNumber('id')->name('payments.print');
     Route::get('payments/{id}/pdf', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'downloadPdf'])->whereNumber('id')->name('payments.pdf');
@@ -1706,6 +1714,12 @@ Route::prefix('cs')->name('cs.')->group(function () {
     Route::middleware('crm.pwa')->group(function () {
         Route::get('/notifikasi', [\App\Http\Controllers\Cs\ShellController::class, 'notifikasi'])->name('notifikasi');
         Route::get('/profil',     [\App\Http\Controllers\Cs\ShellController::class, 'profil'])->name('profil');
+
+        // Foto nota → Kotak Nota di ERP (hanya akun ber-akses Pembelian/Pengeluaran).
+        Route::get('/nota',                [\App\Http\Controllers\KotakNotaController::class, 'pwaIndex'])->name('nota');
+        Route::post('/nota',               [\App\Http\Controllers\KotakNotaController::class, 'pwaStore'])->name('nota.store');
+        Route::get('/nota/{lampiran}',     [\App\Http\Controllers\KotakNotaController::class, 'pwaGambar'])->whereNumber('lampiran')->name('nota.gambar');
+        Route::delete('/nota/{lampiran}',  [\App\Http\Controllers\KotakNotaController::class, 'pwaDestroy'])->whereNumber('lampiran')->name('nota.destroy');
 
         // Daftar chat & satu percakapan: datanya dari CrmInboxController yang
         // sama dengan Inbox desktop, hanya viewnya yang berbeda.

@@ -74,6 +74,15 @@ class EnsureMenuAccess
         }
 
         /*
+         * Kotak Nota: bukan menu sendiri — penjaganya FotoNotaService::bolehNota()
+         * di controller (punya akses Faktur Pembelian / Pembayaran Supplier /
+         * Pengeluaran mana pun).
+         */
+        if ($request->is('erp/nota-kotak', 'erp/nota-kotak/*')) {
+            return $next($request);
+        }
+
+        /*
          * PWA CRM (`/cs`): layarnya duduk di luar `erp/`, tapi SELURUH isinya —
          * kirim pesan, muat produk, cek ongkir, polling pesan baru — memanggil
          * endpoint `erp/crm/*` yang sama dengan Inbox desktop. Tanpa jalan lewat
