@@ -85,6 +85,10 @@
         border: 1px solid #10b981; background: #ecfdf5; color: #047857; border-radius: 8px;
         padding: 6px; font-weight: 600; cursor: pointer;
     }
+    .ic-vol { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .ic-vol input { flex: 1; min-width: 80px; accent-color: #16a34a; }
+    .ic-vol span { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+    .ic-kartu .ic-vol { margin-right: auto; color: #fff; }
     .ic-tesb {
         border: 1px solid #e5e7eb; background: #fff; color: #374151; border-radius: 8px;
         padding: 6px; font-weight: 600; cursor: pointer;

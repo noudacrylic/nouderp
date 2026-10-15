@@ -28,6 +28,7 @@
         stasiun: 'intercom.stasiun',
         dev: 'intercom.dev',
         dnd: 'intercom.dnd',
+        volume: 'intercom.volume',
     };
 
     // ───────────────────────── util ─────────────────────────
@@ -100,6 +101,9 @@
     let keadaan = {
         stasiun: baca(SIMPAN.stasiun) || null,
         dnd: baca(SIMPAN.dnd) === '1',
+        // Penguat suara lawan bicara (1 = 100%). <audio>.volume mentok di 100%,
+        // jadi di atas itu suara dilewatkan GainNode Web Audio.
+        volume: Math.min(4, Math.max(1, parseFloat(baca(SIMPAN.volume)) || 2)),
         terhubung: false,       // WebSocket ke Reverb
         adaMesin: false,        // ada tab mesin yang aktif
         hadir: {},              // { stasiun: {dev, dnd, sibuk, t} }
@@ -578,6 +582,7 @@
             }).then(s => { setKeadaan({ mic: 'granted' }); return s; });
         }
 
+        let penguat = null;     // {sumber, gain, kompresor} selama panggilan
         function putarSuara(stream) {
             if (!audioEl) {
                 audioEl = document.createElement('audio');
@@ -587,13 +592,50 @@
             }
             audioEl.srcObject = stream;
             if (pg) pg.streamLawan = stream;
+            pasangPenguat(stream);
             const p = audioEl.play();
             if (p && p.catch) p.then(() => setKeadaan({ perluKetuk: false }))
                 .catch(() => setKeadaan({ perluKetuk: true }));
         }
 
+        // Suara lawan: sumber → gain (volume) → kompresor (cegah pecah) → speaker.
+        // <audio> tetap diputar tapi dibisukan — Chrome baru mengalirkan stream
+        // WebRTC ke Web Audio bila stream itu juga terpasang di elemen media.
+        function pasangPenguat(stream) {
+            lepasPenguat();
+            const c = ctx();
+            if (!c || c.state !== 'running') { audioEl.muted = false; return; }
+            try {
+                const sumber = c.createMediaStreamSource(stream);
+                const gain = c.createGain();
+                gain.gain.value = keadaan.volume;
+                const kompresor = c.createDynamicsCompressor();
+                kompresor.threshold.value = -12;
+                kompresor.knee.value = 6;
+                kompresor.ratio.value = 8;
+                sumber.connect(gain).connect(kompresor).connect(c.destination);
+                penguat = { sumber, gain, kompresor };
+                audioEl.muted = true;
+            } catch (e) {
+                audioEl.muted = false;
+            }
+        }
+        function lepasPenguat() {
+            if (!penguat) return;
+            try { penguat.sumber.disconnect(); penguat.gain.disconnect(); penguat.kompresor.disconnect(); } catch (e) {}
+            penguat = null;
+        }
+        function aturVolume(v) {
+            v = Math.min(4, Math.max(1, parseFloat(v) || 1));
+            tulis(SIMPAN.volume, String(v));
+            if (penguat) penguat.gain.gain.value = v;
+            setKeadaan({ volume: v });
+        }
+
         function bunyikanUlang() {
             ctx();
+            // Ketukan juga membuka AudioContext → sekarang penguat bisa dipasang.
+            if (audioEl && audioEl.srcObject && !penguat) pasangPenguat(audioEl.srcObject);
             if (audioEl) audioEl.play().then(() => setKeadaan({ perluKetuk: false })).catch(() => {});
         }
 
@@ -641,6 +683,7 @@
             deringBerhenti();
             if (p.stream) p.stream.getTracks().forEach(t => t.stop());
             if (p.pc) { try { p.pc.close(); } catch (e) {} }
+            lepasPenguat();
             if (audioEl) audioEl.srcObject = null;
             if (p.tersambungAt || p.diangkat || p.peran === 'pemanggil') nadaTutup();
             if (p.peran === 'pemanggil') {
@@ -790,6 +833,7 @@
                 case 'dnd': return aturDnd(arg);
                 case 'aktifkan': return aktifkan();
                 case 'tesmic': return tesMic();
+                case 'volume': return aturVolume(arg);
                 case 'ketuk': return bunyikanUlang();
             }
         }
@@ -851,6 +895,13 @@
         }).join('');
     }
 
+    function htmlVolume() {
+        const v = keadaan.volume || 1;
+        return '<label class="ic-vol" title="Volume suara lawan bicara">🔊 '
+            + '<input type="range" min="1" max="4" step="0.25" value="' + v + '" data-ic-aksi="volume">'
+            + '<span data-ic-vol-teks>' + Math.round(v * 100) + '%</span></label>';
+    }
+
     function htmlPilihStasiun() {
         return '<div class="ic-pilih">'
             + '<p>Perangkat ini stasiun divisi apa?</p>'
@@ -868,6 +919,7 @@
             + '<a href="#" data-ic-aksi="stasiun" data-ic-arg="">ubah</a></div>';
         h += '<label class="ic-dnd"><input type="checkbox" data-ic-aksi="dnd"' + (keadaan.dnd ? ' checked' : '') + '>'
             + ' Jangan Ganggu <small>(berdering, angkat manual)</small></label>';
+        h += htmlVolume();
         if (!keadaan.terhubung) h += '<div class="ic-warn">⚠ Belum tersambung ke server intercom…</div>';
         if (keadaan.konflik) h += '<div class="ic-warn">⚠ Ada perangkat lain yang juga memakai stasiun '
             + esc(label(k)) + '. Ubah salah satunya.</div>';
@@ -883,7 +935,18 @@
         return h;
     }
 
+    // Selama slider volume digeser, jangan render ulang (innerHTML baru akan
+    // mencabut slider dari bawah jari). Render menyusul saat dilepas.
+    let sedangGeser = false;
+    document.addEventListener('pointerdown', (e) => {
+        if (e.target.closest && e.target.closest('input[data-ic-aksi="volume"]')) sedangGeser = true;
+    }, true);
+    ['pointerup', 'pointercancel'].forEach(ev => document.addEventListener(ev, () => {
+        if (sedangGeser) { sedangGeser = false; render(); }
+    }, true));
+
     function render() {
+        if (sedangGeser) return;
         // Tombol topbar
         document.querySelectorAll('.ic-tombol').forEach(b => {
             const titik = b.querySelector('.ic-titik');
@@ -922,7 +985,7 @@
             if (p.status === 'tersambung') {
                 judul = '<span class="ic-live">● TERSAMBUNG</span> ' + nama
                     + ' <span class="ic-jam" data-ic-jam="' + p.tersambungAt + '">' + durasi(Date.now() - p.tersambungAt) + '</span>';
-                tombol = '<button type="button" data-ic-aksi="bisu" class="ic-b ' + (p.bisu ? 'ic-b-on' : '') + '">'
+                tombol = htmlVolume() + '<button type="button" data-ic-aksi="bisu" class="ic-b ' + (p.bisu ? 'ic-b-on' : '') + '">'
                     + (p.bisu ? '🔇 Bisu' : '🎙️ Bisu') + '</button>';
             } else if (p.peran === 'penerima' && p.status === 'berdering') {
                 judul = '📞 ' + nama + ' memanggil…';
@@ -965,6 +1028,12 @@
     document.addEventListener('change', (e) => {
         const t = e.target.closest('input[data-ic-aksi="dnd"]');
         if (t) perintah('dnd', t.checked);
+    });
+    document.addEventListener('input', (e) => {
+        const t = e.target.closest('input[data-ic-aksi="volume"]');
+        if (!t) return;
+        document.querySelectorAll('[data-ic-vol-teks]').forEach(el => { el.textContent = Math.round(t.value * 100) + '%'; });
+        perintah('volume', t.value);
     });
 
     // Dropdown topbar
