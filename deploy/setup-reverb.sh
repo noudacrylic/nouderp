@@ -14,7 +14,8 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$APP_DIR/.env"
-PORT=8080
+# 8080 di server produksi sudah dipakai aplikasi lain (Kestrel) — pakai 6001.
+PORT="${REVERB_LOCAL_PORT:-6001}"
 
 if [[ $EUID -ne 0 ]]; then
     echo "Jalankan dengan sudo: sudo bash deploy/setup-reverb.sh" >&2
@@ -94,7 +95,28 @@ if [[ -z "$NGINX_CONF" ]]; then
 else
     NGINX_CONF="$(readlink -f "$NGINX_CONF")"
     if grep -q 'location /app' "$NGINX_CONF"; then
-        echo "== nginx: blok location /app sudah ada di $NGINX_CONF"
+        # Blok sudah ada (mis. dari jalankan sebelumnya) — pastikan port-nya sama.
+        BAK="$NGINX_CONF.bak-reverb-$(date +%Y%m%d%H%M%S)"
+        cp "$NGINX_CONF" "$BAK"
+        awk -v port="$PORT" '
+            /location \/app[[:space:]]*\{/ { dalam = 1 }
+            dalam && /proxy_pass http:\/\/127\.0\.0\.1:[0-9]+;/ {
+                sub(/127\.0\.0\.1:[0-9]+;/, "127.0.0.1:" port ";")
+            }
+            dalam && /\}/ { dalam = 0 }
+            { print }
+        ' "$BAK" > "$NGINX_CONF"
+        if cmp -s "$BAK" "$NGINX_CONF"; then
+            rm -f "$BAK"
+            echo "== nginx: blok location /app sudah ada dan port-nya sudah $PORT"
+        elif nginx -t 2>/dev/null; then
+            systemctl reload nginx
+            echo "== nginx: port blok location /app diubah ke $PORT (cadangan: $BAK)"
+        else
+            cp "$BAK" "$NGINX_CONF"
+            echo "!! nginx -t gagal — konfigurasi dikembalikan dari cadangan." >&2
+            nginx -t || true
+        fi
     else
         BAK="$NGINX_CONF.bak-reverb-$(date +%Y%m%d%H%M%S)"
         cp "$NGINX_CONF" "$BAK"

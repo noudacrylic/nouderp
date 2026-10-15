@@ -28,16 +28,16 @@ REVERB_HOST=<domain ERP, mis. u.noudakrilik.com>
 REVERB_PORT=443
 REVERB_SCHEME=https
 REVERB_SERVER_HOST=127.0.0.1
-REVERB_SERVER_PORT=8080
+REVERB_SERVER_PORT=6001
 ```
 `REVERB_HOST/PORT/SCHEME` = alamat **publik** yang dipakai peramban. Reverb sendiri hanya
-mendengar di `127.0.0.1:8080`; Nginx yang meneruskan. Lalu `php artisan config:cache`.
+mendengar di `127.0.0.1:6001`; Nginx yang meneruskan. Lalu `php artisan config:cache`.
 
 ### 2. Jalankan Reverb terus-menerus (supervisor)
 `/etc/supervisor/conf.d/reverb.conf`:
 ```ini
 [program:reverb]
-command=php /var/www/noud-erp/artisan reverb:start --host=127.0.0.1 --port=8080
+command=php /var/www/noud-erp/artisan reverb:start --host=127.0.0.1 --port=6001
 directory=/var/www/noud-erp
 user=www-data
 autostart=true
@@ -58,7 +58,7 @@ sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl sta
 Di blok `server { ... }` ERP, **sebelum** `location /`:
 ```nginx
 location /app {
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://127.0.0.1:6001;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "Upgrade";
