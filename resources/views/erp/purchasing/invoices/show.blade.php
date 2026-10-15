@@ -63,9 +63,37 @@
             <div class="text-gray-500">Gudang</div><div>{{ $invoice->warehouse->name ?? '-' }}</div>
             <div class="text-gray-500">Tgl Faktur</div><div>{{ $invoice->invoice_date->format('d M Y') }}</div>
             <div class="text-gray-500">Jatuh Tempo</div><div>{{ $invoice->due_date ? $invoice->due_date->format('d M Y') : '-' }}</div>
-            <div class="text-gray-500">No Faktur Pemasok</div><div>{{ $invoice->supplier_invoice_no ?? '-' }}</div>
+            <div class="text-gray-500">No Faktur Pemasok</div>
+            <div>
+                {{ $invoice->supplier_invoice_no ?? '-' }}
+                @if($invoice->status !== 'void')
+                    <button type="button" onclick="document.getElementById('formRefPemasok').classList.toggle('hidden')"
+                            class="ml-1 text-xs text-blue-600 hover:underline" title="Ubah No/Tgl Faktur Pemasok">✏️ ubah</button>
+                @endif
+            </div>
             <div class="text-gray-500">Tgl Faktur Pemasok</div><div>{{ $invoice->supplier_invoice_date ? $invoice->supplier_invoice_date->format('d M Y') : '-' }}</div>
         </div>
+        {{-- Hanya keterangan, tidak menyentuh angka/jurnal → boleh diubah walau sudah POSTED. --}}
+        @if($invoice->status !== 'void')
+            <form id="formRefPemasok" method="POST" action="{{ route('purchasing.invoices.supplier-ref', $invoice->id) }}"
+                  class="{{ $errors->has('supplier_invoice_no') || $errors->has('supplier_invoice_date') ? '' : 'hidden' }} mt-3 border-t pt-3 flex flex-wrap items-end gap-2">
+                @csrf
+                @method('PATCH')
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">No Faktur Pemasok</label>
+                    <input type="text" name="supplier_invoice_no" maxlength="100" class="border rounded px-2 py-1.5 text-sm"
+                           value="{{ old('supplier_invoice_no', $invoice->supplier_invoice_no) }}">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Tgl Faktur Pemasok</label>
+                    <input type="date" name="supplier_invoice_date" class="border rounded px-2 py-1.5 text-sm"
+                           value="{{ old('supplier_invoice_date', $invoice->supplier_invoice_date?->format('Y-m-d')) }}">
+                </div>
+                <button type="submit" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">Simpan</button>
+                @error('supplier_invoice_no') <p class="w-full text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('supplier_invoice_date') <p class="w-full text-xs text-red-600">{{ $message }}</p> @enderror
+            </form>
+        @endif
     </div>
     <div class="bg-white rounded shadow p-4 text-sm">
         <h3 class="font-semibold mb-2">Ringkasan</h3>

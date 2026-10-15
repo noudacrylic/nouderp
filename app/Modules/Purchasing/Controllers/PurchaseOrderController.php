@@ -328,6 +328,7 @@ class PurchaseOrderController extends Controller
             'po' => [
                 'id' => $po->id,
                 'po_number' => $po->po_number,
+                'supplier_invoice_no' => $po->supplier_invoice_no,
                 'supplier_id' => $po->supplier_id,
                 'warehouse_id' => $po->warehouse_id,
                 'ppn_percent' => $po->ppn_percent,

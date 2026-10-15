@@ -60,7 +60,7 @@
         {{-- Baris 2 --}}
         <div>
             <label class="block text-sm mb-1">No. Faktur Pemasok</label>
-            <input type="text" name="supplier_invoice_no" class="border rounded px-3 py-2 w-full" value="{{ old('supplier_invoice_no', $invoice->supplier_invoice_no ?? '') }}">
+            <input type="text" name="supplier_invoice_no" class="border rounded px-3 py-2 w-full" value="{{ old('supplier_invoice_no', $invoice->supplier_invoice_no ?? ($po->supplier_invoice_no ?? '')) }}">
         </div>
         <div>
             <label class="block text-sm mb-1">Tgl Faktur Pemasok</label>
@@ -464,6 +464,10 @@
             const res = await fetch(`/erp/purchasing/api/po/${p.id}/items`);
             const data = await res.json();
             if (data.po){
+                // No. Faktur Pemasok biasanya sudah diisi di PO — bawa ke faktur
+                // (hanya bila field faktur masih kosong, jangan timpa ketikan).
+                const noFak = document.querySelector('[name="supplier_invoice_no"]');
+                if (noFak && !noFak.value.trim() && data.po.supplier_invoice_no) noFak.value = data.po.supplier_invoice_no;
                 if (data.po.warehouse_id) warehouseSel.value = data.po.warehouse_id;
                 if (data.po.ppn_percent != null) ppnInput.value = data.po.ppn_percent;
                 // Diskon Global dari PO

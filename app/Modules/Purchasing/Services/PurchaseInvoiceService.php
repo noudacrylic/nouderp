@@ -67,7 +67,7 @@ class PurchaseInvoiceService
 
             $invoice = PurchaseInvoice::create([
                 'invoice_number' => $data['invoice_number'] ?? $this->generateNumber(),
-                'supplier_invoice_no' => $data['supplier_invoice_no'] ?? null,
+                'supplier_invoice_no' => $this->noFakturPemasok($data, $items),
                 'supplier_invoice_date' => $data['supplier_invoice_date'] ?? null,
                 'supplier_id' => $data['supplier_id'],
                 'warehouse_id' => $data['warehouse_id'],
@@ -162,7 +162,7 @@ class PurchaseInvoiceService
             );
 
             $invoice->update([
-                'supplier_invoice_no' => $data['supplier_invoice_no'] ?? null,
+                'supplier_invoice_no' => $this->noFakturPemasok($data, $items),
                 'supplier_invoice_date' => $data['supplier_invoice_date'] ?? null,
                 'supplier_id' => $data['supplier_id'],
                 'warehouse_id' => $data['warehouse_id'],
@@ -271,6 +271,29 @@ class PurchaseInvoiceService
     /**
      * Validate items against PO remaining qty.
      */
+    /**
+     * No. Faktur Pemasok: yang diketik di form, atau — bila kosong — milik PO
+     * sumbernya. Nomor itu lazim sudah diisi di PO; dulu tidak ikut terbawa saat
+     * PO dijadikan faktur, sehingga faktur tampil "-" walau PO-nya punya nomor.
+     */
+    private function noFakturPemasok(array $data, array $items): ?string
+    {
+        $ketik = trim((string) ($data['supplier_invoice_no'] ?? ''));
+        if ($ketik !== '') return $ketik;
+
+        $poId = $data['purchase_order_id'] ?? null;
+        if (!$poId) {
+            $poItemIds = collect($items)->pluck('purchase_order_item_id')->filter()->values();
+            if ($poItemIds->isNotEmpty()) {
+                $poId = \App\Modules\Purchasing\Models\PurchaseOrderItem::whereIn('id', $poItemIds)->value('purchase_order_id');
+            }
+        }
+        if (!$poId) return null;
+
+        $dariPo = trim((string) \App\Modules\Purchasing\Models\PurchaseOrder::whereKey($poId)->value('supplier_invoice_no'));
+        return $dariPo !== '' ? $dariPo : null;
+    }
+
     protected function validateAgainstPO(int $poId, array $items, ?int $excludeInvoiceId = null): void
     {
         $po = PurchaseOrder::with('items')->find($poId);

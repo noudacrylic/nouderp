@@ -287,6 +287,28 @@ class PurchaseInvoiceController extends Controller
         }
     }
 
+    /**
+     * Ubah No/Tgl Faktur Pemasok — juga untuk faktur POSTED. Keduanya hanya
+     * keterangan (tidak masuk perhitungan/jurnal), jadi tidak ikut terkunci
+     * seperti angka faktur; sering baru diketahui setelah faktur di-POST.
+     */
+    public function updateSupplierRef(Request $request, $id)
+    {
+        $invoice = PurchaseInvoice::findOrFail($id);
+        if ($invoice->status === 'void') {
+            return back()->with('error', 'Faktur void tidak bisa diubah.');
+        }
+        $data = $request->validate([
+            'supplier_invoice_no'   => 'nullable|string|max:100',
+            'supplier_invoice_date' => 'nullable|date',
+        ]);
+        $invoice->update([
+            'supplier_invoice_no'   => trim((string) ($data['supplier_invoice_no'] ?? '')) ?: null,
+            'supplier_invoice_date' => $data['supplier_invoice_date'] ?? null,
+        ]);
+        return back()->with('success', 'No/Tgl Faktur Pemasok diperbarui.');
+    }
+
     public function destroy($id)
     {
         $invoice = PurchaseInvoice::findOrFail($id);
