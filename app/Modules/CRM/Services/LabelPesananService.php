@@ -107,6 +107,92 @@ class LabelPesananService
         return $chatIds->count() === 1 ? (int) $chatIds->first() : null;
     }
 
+    /**
+     * Pesanan pelanggan yang lahir SEBELUM chat-nya dikenali — pembeli web yang
+     * checkout dulu, baru menyapa lewat WA. Saat SO dibuat, chat itu belum
+     * tertaut ke pelanggan (atau belum ada sama sekali), jadi tautkanOtomatis()
+     * pulang tangan kosong dan SO-nya tak pernah dicoba lagi.
+     *
+     * Dipanggil begitu chat mendapat customer_id. Hanya pesanan 30 hari terakhir:
+     * pelanggan lama yang baru pertama chat tidak perlu menyeret riwayat
+     * bertahun-tahun ke kolom Pesanan.
+     *
+     * @return int[] id SO yang baru ditautkan
+     */
+    public function tautkanPesananTerbuka(CrmConversation $chat): array
+    {
+        if (! $chat->customer_id) {
+            return [];
+        }
+
+        $tertaut = [];
+
+        SalesOrder::where('customer_id', $chat->customer_id)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->where('created_at', '>=', now()->subDays(30))
+            ->whereNotExists(fn ($q) => $q->from('crm_pesanan_chat')->whereColumn('crm_pesanan_chat.sales_order_id', 'sales_orders.id'))
+            ->orderBy('id')
+            ->get()
+            ->each(function (SalesOrder $so) use ($chat, &$tertaut) {
+                // Aturan "tepat satu chat" tetap berlaku — pelanggan dengan dua
+                // nomor WA dibiarkan dipilih manusia.
+                if ($this->chatUntukTautanOtomatis($so) === $chat->id) {
+                    $this->tautkan($chat, $so);
+                    $tertaut[] = $so->id;
+                }
+            });
+
+        return $tertaut;
+    }
+
+    /**
+     * Nomor pesanan web ('2610-1181750') di pesan masuk → tautkan SO itu ke chat.
+     *
+     * Menutup kasus yang tak bisa dipecahkan lewat nomor HP: pembeli mengetik
+     * nomor lain di checkout (nomor kantor, nomor keluarga) lalu chat dari WA
+     * pribadinya (16 Okt 2026, Damaris). Nomor pesanan yang ia kirim sendiri
+     * adalah bukti paling kuat bahwa pesanan itu miliknya.
+     *
+     * Hanya SO yang belum tertaut ke chat MANA PUN — tautan yang sudah ada
+     * (otomatis atau pilihan admin) tidak pernah dirampas oleh pesan yang
+     * kebetulan menyebut nomor pesanan orang lain.
+     *
+     * @return int[] id SO yang baru ditautkan
+     */
+    public function tautkanDariTeks(CrmConversation $chat, ?string $teks): array
+    {
+        // Format NumberGeneratorService::webOrderNumber(): ym-7 digit.
+        if (! $teks || ! preg_match_all('/(?<!\d)(\d{4})\s*-\s*(\d{7})(?!\d)/', $teks, $m, PREG_SET_ORDER)) {
+            return [];
+        }
+
+        $nomor = collect($m)->map(fn ($x) => $x[1] . '-' . $x[2])->unique()->take(5);
+        $tertaut = [];
+
+        SalesOrder::whereIn('order_number', $nomor)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->whereNotExists(fn ($q) => $q->from('crm_pesanan_chat')->whereColumn('crm_pesanan_chat.sales_order_id', 'sales_orders.id'))
+            ->get()
+            ->each(function (SalesOrder $so) use ($chat, &$tertaut) {
+                $this->tautkan($chat, $so);
+                $tertaut[] = $so->id;
+
+                // Chat yang masih Lead sekalian dikenali sebagai pembeli ini —
+                // riwayat & pesanan berikutnya ikut tampil tanpa ditautkan lagi.
+                if (! $chat->customer_id && $so->customer_id) {
+                    $pelanggan = DB::table('customers')->where('id', $so->customer_id)->first(['is_marketplace', 'code']);
+
+                    if ($pelanggan && ! $pelanggan->is_marketplace && $pelanggan->code !== 'UMUM') {
+                        // save(), bukan saveQuietly(): observer chat ikut menautkan
+                        // pesanan terbuka lain milik pelanggan yang sama.
+                        $chat->forceFill(['customer_id' => $so->customer_id])->save();
+                    }
+                }
+            });
+
+        return $tertaut;
+    }
+
     public function lepas(CrmConversation $chat, SalesOrder $so): void
     {
         DB::table('crm_pesanan_chat')

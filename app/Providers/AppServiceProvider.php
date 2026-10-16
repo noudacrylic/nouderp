@@ -109,6 +109,10 @@ class AppServiceProvider extends ServiceProvider
             $model::observe(\App\Modules\CRM\Observers\CrmLabelPesananObserver::class);
         }
 
+        // Tautan pesanan dari sisi chat: chat baru dikenali / pesan menyebut nomor pesanan.
+        \App\Modules\CRM\Models\CrmConversation::observe(\App\Modules\CRM\Observers\CrmTautanPesananObserver::class);
+        \App\Modules\CRM\Models\CrmMessage::observe(\App\Modules\CRM\Observers\CrmTautanPesananObserver::class);
+
         // Chat Lead langsung tertaut begitu nomornya disimpan di master pelanggan.
         \App\Models\Customer::observe(\App\Modules\CRM\Observers\CrmCustomerObserver::class);
         // Nomor + nama sama dengan pelanggan lama → langsung digabung (CustomerMergeService).
