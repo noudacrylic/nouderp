@@ -555,6 +555,49 @@ class JubelioShipmentProvider implements ShippingProvider
         ];
     }
 
+    /**
+     * Data halaman lacak publik Jubelio (yang dibuka lewat `tracking_url` jube.co
+     * di payload webhook) — TANPA kredensial.
+     *
+     * Dipakai karena isinya lebih kaya dari `track()` untuk kurir instant:
+     * keterangan berbahasa Indonesia per baris ("Driver Found (Telah mendapatkan
+     * driver)"), `live_tracking_url` Gojek/Grab, `driver_info` {name, phone}, dan
+     * URL foto ambil/terkirim. Diteliti 16 Okt 2026: untuk GoSend/Grab yang sudah
+     * terkirim, `driver_info` & foto selalu null — kemungkinan hanya terisi
+     * selama pengiriman berjalan.
+     *
+     * Token diambil dari pengalihan tautan pendek; hasilnya disimpan selamanya
+     * karena satu tautan tidak pernah berganti tujuan.
+     */
+    public function publicTracking(string $trackingUrl): ?array
+    {
+        $token = Cache::rememberForever('jubelio-shipment:pub-token:' . md5($trackingUrl), function () use ($trackingUrl) {
+            try {
+                $res = Http::timeout(8)->withoutRedirecting()->get($trackingUrl);
+                $loc = (string) $res->header('Location');
+            } catch (\Throwable) {
+                return null;
+            }
+
+            // https://shipment.jubelio.com/s/<token>
+            return preg_match('~/s/([A-Za-z0-9]+)~', $loc, $m) ? $m[1] : null;
+        });
+
+        if (! $token) {
+            Cache::forget('jubelio-shipment:pub-token:' . md5($trackingUrl));
+
+            return null;
+        }
+
+        try {
+            $res = Http::timeout(8)->acceptJson()->get(self::PRODUCTION_BASE_URL . '/tracking/' . $token);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $res->ok() && is_array($res->json()) ? $res->json() : null;
+    }
+
     /** $orderId = nomor resi. Alasan pembatalan wajib menurut kontrak. */
     public function cancel(string $orderId, string $reason = 'Barang belum siap'): array
     {

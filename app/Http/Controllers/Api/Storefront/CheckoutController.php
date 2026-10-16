@@ -930,7 +930,16 @@ class CheckoutController extends Controller
             'status_label'    => $progress['payment']['label'],
             'paid'            => $paid,
             'open'            => $so->status !== 'void',
-            'stage'           => 0,
+            // Dulu selalu 0: kotak status menulis "Sedang Diproses" untuk pesanan yang
+            // lini masanya sudah Selesai, dan halaman tak pernah berhenti memuat ulang.
+            'stage'           => match ($progress['current'] ?? null) {
+                null              => 0,
+                'bayar'           => 1,
+                'produksi', 'packing' => 3,
+                'kirim', 'ambil'  => 4,
+                'selesai'         => 5,
+                default           => 3,
+            },
             'courier'         => $progress['courier'] ?? null,
             'tracking_number' => $progress['tracking_number'] ?? null,
             'grand_total'     => (float) $so->grand_total,
@@ -1021,10 +1030,25 @@ class CheckoutController extends Controller
             return response()->json(['data' => $cached + ['stale' => false]]);
         }
 
-        // Provider yang MEMBOOKING resi ini, bukan yang kebetulan aktif sekarang:
-        // resi lama tetap harus bisa dilacak setelah agregatornya diganti.
+        // Payload webhook Jubelio Shipment terakhir: membawa tautan lacak publik,
+        // tautan live Gojek/Grab, dan foto terkirim (J&T Cargo mengisinya).
+        $hook = is_array($delivery->shipping_raw) ? $delivery->shipping_raw : (json_decode((string) $delivery->shipping_raw, true) ?: []);
         $provider = $shipping->provider($delivery->shipping_provider ?: 'jubelio_shipment');
-        $res = $provider ? $provider->track($awb) : ['success' => false, 'error' => 'Kurir tidak dikenal.'];
+
+        // Halaman lacak publik Jubelio lebih kaya untuk kurir instant (keterangan
+        // Indonesia, driver, foto) — dipakai lebih dulu bila tautannya ada.
+        $pub = null;
+        if (filled($hook['tracking_url'] ?? null) && $provider instanceof \App\Modules\Shipping\Providers\JubelioShipmentProvider) {
+            $pub = $provider->publicTracking($hook['tracking_url']);
+        }
+
+        if ($pub && ! empty($pub['history'])) {
+            $res = ['success' => true, 'status' => $pub['latest_status'] ?? null, 'history' => $pub['history']];
+        } else {
+            // Provider yang MEMBOOKING resi ini, bukan yang kebetulan aktif sekarang:
+            // resi lama tetap harus bisa dilacak setelah agregatornya diganti.
+            $res = $provider ? $provider->track($awb) : ['success' => false, 'error' => 'Kurir tidak dikenal.'];
+        }
 
         if (! ($res['success'] ?? false)) {
             return response()->json(['data' => [
@@ -1037,16 +1061,44 @@ class CheckoutController extends Controller
             ]]);
         }
 
+        $status    = $res['status'] ?? $delivery->shipping_status;
+        $delivered = $delivery->delivered_at !== null
+            || in_array(strtoupper((string) $status), ['DELIVERED', 'COMPLETED'], true);
+
+        // Driver: hanya selama pengiriman berjalan — nomor driver yang sudah selesai
+        // tugas tidak pantas terus dipajang di halaman pembeli.
+        $driver = null;
+        $di = $pub['driver_info'] ?? null;
+        if (! $delivered && is_array($di) && (filled($di['name'] ?? null) || filled($di['phone'] ?? null))) {
+            $driver = ['name' => $di['name'] ?? null, 'phone' => $di['phone'] ?? null];
+        }
+
+        $photos = collect([
+            ['label' => 'Foto saat diambil kurir', 'url' => $pub['shipment_pick_url'] ?? null],
+            ['label' => 'Foto paket',              'url' => $pub['shipment_photo_url'] ?? null],
+            ['label' => 'Foto saat diterima',      'url' => ($pub['delivered_img_url'] ?? null) ?: ($hook['delivered_img_url'] ?? null)],
+            ['label' => 'Tanda tangan penerima',   'url' => $hook['sign_img_url'] ?? null],
+        ])->filter(fn ($p) => filled($p['url']))->values()->all();
+
+        $liveUrl = ($pub['live_tracking_url'] ?? null) ?: ($hook['live_tracking_url'] ?? null);
+
         $payload = [
             'tracking_number' => $awb,
             'courier'         => $courier,
-            'status'          => $res['status'] ?? $delivery->shipping_status,
+            'status'          => $status,
+            'delivered'       => $delivered,
+            // Peta Gojek/Grab hanya berguna selama paket di jalan.
+            'live_url'        => $delivered ? null : $liveUrl,
+            'driver'          => $driver,
+            'photos'          => $photos,
             'history'         => $this->trackingHistory($res['history'] ?? []),
             'checked_at'      => now()->toIso8601String(),
             'message'         => null,
         ];
 
-        \Illuminate\Support\Facades\Cache::put($cacheKey, $payload, now()->addMinutes(10));
+        // Kurir instant bergerak dalam hitungan menit — simpanan sepuluh menit
+        // membuat "Perbarui" tampak macet tepat saat pembeli menunggu driver.
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $payload, now()->addMinutes(filled($liveUrl) && ! $delivered ? 1 : 10));
 
         return response()->json(['data' => $payload + ['stale' => false]]);
     }
@@ -1072,6 +1124,7 @@ class CheckoutController extends Controller
             }
             return null;
         };
+        $prev = null;
 
         return collect(is_array($raw) ? $raw : [])
             ->map(function ($row) use ($pick) {
@@ -1087,14 +1140,50 @@ class CheckoutController extends Controller
                 return [
                     'time'   => $time ? optional(rescue(fn () => \Illuminate\Support\Carbon::parse($time), null, false))?->toIso8601String() : null,
                     'status' => $stat,
-                    'note'   => $note ?: $stat,
+                    // Grab mengisi keterangan dengan kode status itu sendiri
+                    // ("COMPLETED"), jadi kode di kolom mana pun ikut diterjemahkan.
+                    'note'   => self::TRACK_STATUS_LABEL[strtoupper((string) ($note ?: $stat))] ?? ($note ?: $stat),
                 ];
             })
             ->filter()
+            // Urutan dari kurir tidak dijamin kronologis (J&T lewat halaman publik
+            // Jubelio menyelipkan "Resi dibuat" di tengah). Baris tanpa waktu di awal.
+            ->sortBy(fn ($row) => $row['time'] ?? '')
+            // Kurir instant mengirim status yang sama berkali-kali dalam semenit
+            // (Grab: IN_DELIVERY ×3). Baris kembar berturut-turut cuma menambah
+            // gulir tanpa kabar baru.
+            ->reject(function ($row, $i) use (&$prev) {
+                $dup = $prev !== null && $prev === $row['note'];
+                $prev = $row['note'];
+
+                return $dup;
+            })
             ->reverse()
             ->values()
             ->all();
     }
+
+    /**
+     * Kode status mentah kurir yang datang TANPA keterangan (Grab Express lewat
+     * Jubelio). Tanpa terjemahan pembeli membaca "PICKING_UP".
+     */
+    private const TRACK_STATUS_LABEL = [
+        'WAITING'          => 'Resi dibuat — menunggu kurir',
+        'ALLOCATING'       => 'Mencari driver',
+        'CONFIRMED'        => 'Pesanan kurir diterima',
+        'ALLOCATED'        => 'Driver ditemukan',
+        'PICKING_UP'       => 'Driver menuju lokasi penjemputan',
+        'OUT_FOR_PICKUP'   => 'Driver menuju lokasi penjemputan',
+        'PICKED'           => 'Paket sudah diambil driver',
+        'PICKED_UP'        => 'Paket sudah diambil driver',
+        'IN_DELIVERY'      => 'Paket dalam pengantaran',
+        'OUT_FOR_DELIVERY' => 'Paket dalam pengantaran',
+        'ON_DELIVERY'      => 'Paket dalam perjalanan',
+        'COMPLETED'        => 'Paket sudah sampai',
+        'DELIVERED'        => 'Paket sudah sampai',
+        'CANCELLED'        => 'Pengiriman dibatalkan',
+        'RETURNED'         => 'Paket dikembalikan',
+    ];
 
     /** Instruksi/status pembayaran untuk etalase (tanpa data internal akun kas). */
     private function instructions(WebPayment $wp, PaymentSetting $setting): array
