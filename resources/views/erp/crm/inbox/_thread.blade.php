@@ -108,7 +108,7 @@
     {{-- Kepala percakapan: siapa yang sedang dibalas, selalu terlihat walau
          thread digulir jauh ke atas. Tanpa ini admin yang membuka beberapa
          chat berturut-turut kehilangan jejak sedang bicara dengan siapa. --}}
-    <div class="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 bg-white"
+    <div class="shrink-0 flex items-center {{ $modePwa ? 'gap-2 px-2 py-2' : 'gap-3 px-4 py-2.5' }} border-b border-gray-200 bg-white"
          x-data="{ menu: false, catatan: false, nama: false }">
         @if($modePwa)
             {{-- Tautan sungguhan, bukan history.back(): chat sering dibuka
@@ -124,32 +124,47 @@
         <div class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-semibold shrink-0">
             {{ mb_strtoupper(mb_substr($terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key, 0, 1)) }}
         </div>
-        <div class="min-w-0">
-            <div class="flex items-center gap-1.5 min-w-0">
-                <span class="font-semibold leading-tight truncate text-gray-800">
+        {{-- flex-1: tanpa ini kolom teks hanya selebar sisa setelah chip
+             shrink-0 dan tombol kanan, dan di HP namanya terpotong habis. --}}
+        <div class="min-w-0 flex-1">
+            @php
+                $chipLabel = \App\Modules\CRM\Models\CrmLabel::kelas($terpilih->queue_state);
+                $namaLabel = \App\Modules\CRM\Models\CrmLabel::nama($terpilih->queue_state);
+            @endphp
+            @if($modePwa)
+                {{-- HP: nama satu baris sendiri supaya selalu terbaca; chip
+                     label & pemilik turun ke baris kedua bersama nomor. --}}
+                <div class="font-semibold leading-tight truncate text-gray-800 text-sm">
                     {{ $terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key }}
-                </span>
-                {{-- Label & pemilik WAJIB terlihat di sini: begitu chat diambil
-                     atau dioper, ia keluar dari tab "Belum dioper", dan tanpa
-                     chip ini hasil oper (termasuk label dasar yang baru
-                     terpasang) tak terlihat di mana pun di layar. --}}
-                <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] {{ \App\Modules\CRM\Models\CrmLabel::kelas($terpilih->queue_state) }}"
-                      title="Label">{{ \App\Modules\CRM\Models\CrmLabel::nama($terpilih->queue_state) }}</span>
-                @if($terpilih->owner)
-                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600"
-                          title="Pemegang chat">{{ $terpilih->owner->name }}</span>
-                @endif
-            </div>
-            <div class="text-[11px] text-gray-500 truncate">
-                {{ $terpilih->contact_key }}
-                @if($terbuka)
-                    &middot; jendela terbuka {{ $terpilih->windowHoursLeft() }} jam lagi
-                @else
-                    &middot; jendela tertutup
-                @endif
-            </div>
+                </div>
+                <div class="mt-0.5 flex items-center gap-1 min-w-0 text-[11px] text-gray-500">
+                    <span class="shrink-0 px-1.5 rounded text-[10px] leading-4 {{ $chipLabel }}" title="Label">{{ $namaLabel }}</span>
+                    @if($terpilih->owner)
+                        <span class="shrink-0 max-w-[5rem] truncate px-1.5 rounded text-[10px] leading-4 bg-gray-100 text-gray-600"
+                              title="Pemegang chat">{{ $terpilih->owner->name }}</span>
+                    @endif
+                    <span class="truncate">{{ $terpilih->contact_key }}</span>
+                </div>
+            @else
+                <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="font-semibold leading-tight truncate text-gray-800">
+                        {{ $terpilih->customer->name ?? $terpilih->display_name ?? $terpilih->contact_key }}
+                    </span>
+                    {{-- Label & pemilik WAJIB terlihat di sini: begitu chat diambil
+                         atau dioper, ia keluar dari tab "Belum dioper", dan tanpa
+                         chip ini hasil oper (termasuk label dasar yang baru
+                         terpasang) tak terlihat di mana pun di layar. --}}
+                    <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] {{ $chipLabel }}"
+                          title="Label">{{ $namaLabel }}</span>
+                    @if($terpilih->owner)
+                        <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600"
+                              title="Pemegang chat">{{ $terpilih->owner->name }}</span>
+                    @endif
+                </div>
+                <div class="text-[11px] text-gray-500 truncate">{{ $terpilih->contact_key }}</div>
+            @endif
         </div>
-        <div class="ml-auto shrink-0 flex items-center gap-2">
+        <div class="ml-auto shrink-0 flex items-center {{ $modePwa ? 'gap-1' : 'gap-2' }}">
             {{-- Close di kepala chat, bukan di menu: chat promo cukup satu
                  ketukan untuk disingkirkan (disepakati 8 Okt 2026). --}}
             <form method="POST" action="{{ route('crm.inbox.arsip', $terpilih->id) }}">
@@ -164,7 +179,8 @@
             @if($terpilih->customer_id)
                 <a href="{{ url('/erp/master/customers/' . $terpilih->customer_id . '/edit') }}"
                    class="text-[11px] px-2 py-1 rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50">Pelanggan</a>
-            @else
+            @elseif(! $modePwa)
+                {{-- Di HP lebar kepala terlalu mahal untuk penanda pasif ini. --}}
                 <span class="text-[11px] px-2 py-1 rounded bg-slate-100 text-slate-600" title="Belum tertaut pelanggan mana pun di ERP">Lead</span>
             @endif
 
