@@ -24,7 +24,15 @@
                 <span>Tanggal: <strong class="text-gray-700">{{ $order->production_date->format('d/m/Y') }}</strong></span>
                 <span>Gudang: <strong class="text-gray-700">{{ $order->warehouse?->name ?? '-' }}</strong></span>
                 @if($order->salesOrder)
-                    <span>SO: <a href="{{ route('sales.orders.show', $order->sales_order_id) }}" class="text-blue-600 font-bold hover:underline">{{ $order->salesOrder->order_number }}</a></span>
+                    <span>SO: <a href="{{ route('sales.orders.show', $order->sales_order_id) }}" class="text-blue-600 font-bold hover:underline">{{ $order->salesOrder->order_number }}</a>
+                        @if(in_array($order->salesOrder->status, ['void', 'cancelled'], true))
+                            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-black uppercase">{{ $order->salesOrder->status === 'void' ? 'Void' : 'Batal' }}</span>
+                        @endif
+                        @if($bolehGantiSo)
+                            <button type="button" @click="$dispatch('buka-ganti-so')"
+                                    class="ml-1 text-xs border border-blue-200 text-blue-700 hover:bg-blue-50 px-2 py-0.5 rounded-lg font-semibold">Ganti SO</button>
+                        @endif
+                    </span>
                 @endif
                 @if(!empty($repairSource) && $repairSource['number'])
                     <span>{{ $repairSource['label'] }}:
@@ -39,6 +47,87 @@
         </div>
         <a href="{{ route('production.orders.index') }}" class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Kembali</a>
     </div>
+
+    @if($soChanges->isNotEmpty())
+        <div class="mb-5 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 text-xs text-blue-800 space-y-1">
+            @foreach($soChanges as $c)
+                <div>🔁 SO diganti <strong>{{ $c->from_number ?? '—' }}</strong> → <strong>{{ $c->to_number }}</strong>
+                    · {{ \Carbon\Carbon::parse($c->created_at)->format('d/m/Y H:i') }}{{ $c->user_name ? ' · ' . $c->user_name : '' }}
+                    · <span class="italic">{{ $c->reason }}</span></div>
+            @endforeach
+        </div>
+    @endif
+
+    @if($bolehGantiSo)
+        <div x-data="gantiSo()" @buka-ganti-so.window="buka()" x-show="open" x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <form method="POST" action="{{ route('production.orders.ganti-so', $order->id) }}" @click.outside="open = false"
+                  class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-5 space-y-4">
+                @csrf
+                <div>
+                    <h3 class="font-bold text-gray-800">Ganti SO</h3>
+                    <p class="text-xs text-gray-500 mt-1">SO {{ $order->salesOrder->order_number }} sudah dibatalkan. Pindahkan order produksi ini ke SO pengganti
+                        (mis. pelanggan pesan ulang lewat jalur manual). Stok hasil yang sudah difinalisasi ikut pindah.</p>
+                </div>
+
+                <div class="relative">
+                    <label class="text-xs font-semibold text-gray-600">SO pengganti</label>
+                    <template x-if="pilihan">
+                        <div class="mt-1 flex items-center justify-between border border-blue-200 bg-blue-50 rounded-xl px-3 py-2 text-sm">
+                            <span><strong x-text="pilihan.customer_name"></strong> · <span class="text-blue-700 font-semibold" x-text="pilihan.order_number"></span></span>
+                            <button type="button" class="text-xs text-blue-700 hover:underline" @click="pilihan = null">ganti</button>
+                        </div>
+                    </template>
+                    <template x-if="!pilihan">
+                        <div>
+                            <input type="text" x-model="q" @input.debounce.300ms="cari()" @focus="cari()"
+                                   placeholder="Cari nama customer, nomor SO, SKU, atau nama produk..."
+                                   class="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm">
+                            <div x-show="hasil.length" class="absolute z-10 mt-1 w-full bg-white border border-gray-100 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                                <template x-for="so in hasil" :key="so.id">
+                                    <button type="button" @click="pilihan = so; hasil = []" class="block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50">
+                                        <div class="flex items-baseline justify-between gap-2">
+                                            <span class="text-sm font-black text-gray-800 truncate" x-text="so.customer_name"></span>
+                                            <span class="text-[11px] text-gray-400 shrink-0" x-text="so.order_date"></span>
+                                        </div>
+                                        <div class="text-xs font-bold text-blue-600" x-text="so.order_number"></div>
+                                        <div class="text-[11px] text-gray-400" x-text="so.items.map(i => i.sku + ' ' + i.qty_remaining + '/' + i.qty_ordered).join(' · ')"></div>
+                                    </button>
+                                </template>
+                            </div>
+                            <p x-show="kosong" class="text-xs text-gray-400 mt-1">Tidak ada SO yang cocok.</p>
+                        </div>
+                    </template>
+                    <input type="hidden" name="sales_order_id" :value="pilihan ? pilihan.id : ''">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-gray-600">Alasan <span class="text-red-500">*</span></label>
+                    <input type="text" name="reason" required maxlength="255"
+                           placeholder="mis. Pesanan Shopee dibatalkan, pelanggan pindah ke pesanan manual"
+                           class="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm">
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" @click="open = false" class="border border-gray-200 text-gray-600 px-4 py-2 rounded-xl text-sm font-semibold">Batal</button>
+                    <button type="submit" :disabled="!pilihan" class="bg-blue-600 disabled:opacity-40 text-white px-4 py-2 rounded-xl text-sm font-semibold">Ganti SO</button>
+                </div>
+            </form>
+        </div>
+        <script>
+            function gantiSo() {
+                return {
+                    open: false, q: '', hasil: [], kosong: false, pilihan: null,
+                    buka() { this.open = true; this.pilihan = null; this.q = ''; this.hasil = []; this.kosong = false; },
+                    async cari() {
+                        const res = await fetch(`/erp/production/ajax/sales-orders?q=${encodeURIComponent(this.q.trim())}`);
+                        this.hasil  = await res.json();
+                        this.kosong = this.hasil.length === 0;
+                    },
+                };
+            }
+        </script>
+    @endif
 
 
     <div class="grid grid-cols-12 gap-5">

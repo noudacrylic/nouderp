@@ -1445,6 +1445,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('orders/{id}/partial', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'partial'])->name('process.partial');
     Route::post('orders/{id}/finalizations/{batchId}/void', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'voidBatch'])->name('orders.finalizations.void');
     Route::post('orders/{id}/revise-target', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'reviseTarget'])->name('orders.revise-target');
+    Route::post('orders/{id}/ganti-so', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'gantiSo'])->name('orders.ganti-so');
     Route::post('orders/{id}/void', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'void'])->name('orders.void');
     Route::post('orders/{id}/edit-finalize', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'editFinalize'])->name('orders.edit-finalize');
     Route::post('orders/{id}/steps', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'storeStep'])->name('orders.steps.store');

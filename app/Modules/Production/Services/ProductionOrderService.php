@@ -2347,6 +2347,74 @@ class ProductionOrderService
     }
 
     /**
+     * GANTI SO: pindahkan order produksi dari SO yang sudah void/batal ke SO pengganti.
+     *
+     * Kasus asalnya: pelanggan pesan lewat Shopee, produksi sudah jalan, lalu pindah ke
+     * pesanan manual (lebih murah) sehingga pesanan Shopee dibatalkan. Barang yang sedang
+     * dibuat tetap untuk orang yang sama — tanpa ini OP-nya yatim di SO void dan SO baru
+     * tampak belum diproduksi sama sekali.
+     *
+     * Sengaja hanya untuk SO lama yang SUDAH void/batal: memindah OP dari pesanan yang
+     * masih hidup akan meninggalkan pesanan itu tanpa barang tanpa ada yang sadar.
+     * Stok hasil yang sudah difinalisasi (FIFO layer bertanda SO lama) ikut dipindah,
+     * supaya barang custom tetap terikat ke pesanan yang benar.
+     */
+    public function gantiSalesOrder(int $orderId, int $newSalesOrderId, string $reason, ?int $userId = null): void
+    {
+        DB::transaction(function () use ($orderId, $newSalesOrderId, $reason, $userId) {
+            $order = ProductionOrder::with(['outputs', 'salesOrder'])->lockForUpdate()->findOrFail($orderId);
+
+            if (in_array($order->status, ['cancelled', 'merged'], true)
+                || $order->merged_into_id !== null || $order->mergedChildren()->exists()) {
+                throw new Exception('Order produksi yang dibatalkan atau terkait penggabungan task tidak bisa diganti SO-nya.');
+            }
+
+            $oldSo = $order->salesOrder;
+            if (!$oldSo) {
+                throw new Exception('Order produksi ini tidak terkait SO.');
+            }
+            if (!in_array($oldSo->status, ['void', 'cancelled'], true)) {
+                throw new Exception("SO {$oldSo->order_number} masih aktif — Ganti SO hanya untuk SO yang sudah void/batal.");
+            }
+
+            $newSo = \App\Modules\Sales\Models\SalesOrder::with('items')->findOrFail($newSalesOrderId);
+            if ($newSo->id === $order->sales_order_id) {
+                throw new Exception('SO pengganti sama dengan SO saat ini.');
+            }
+            if ($newSo->status !== 'confirmed') {
+                throw new Exception("SO {$newSo->order_number} belum dikonfirmasi.");
+            }
+            if ($newSo->invoices()->where('status', '!=', 'void')->exists()) {
+                throw new Exception("SO {$newSo->order_number} sudah punya faktur.");
+            }
+
+            $outputProducts = $order->outputs->pluck('product_id')->all();
+            if (!$newSo->items->contains(fn ($i) => in_array($i->product_id, $outputProducts, true))) {
+                throw new Exception("SO {$newSo->order_number} tidak memuat produk hasil order produksi ini.");
+            }
+
+            $order->update(['sales_order_id' => $newSo->id]);
+
+            $batchIds = $order->finalizations()->pluck('id');
+            if ($batchIds->isNotEmpty()) {
+                StockLayer::whereIn('production_finalization_id', $batchIds)
+                    ->where('sales_order_id', $oldSo->id)
+                    ->update(['sales_order_id' => $newSo->id]);
+            }
+
+            DB::table('production_order_so_changes')->insert([
+                'production_order_id' => $order->id,
+                'from_sales_order_id' => $oldSo->id,
+                'to_sales_order_id'   => $newSo->id,
+                'reason'              => $reason,
+                'user_id'             => $userId,
+                'created_at'          => now(),
+                'updated_at'          => now(),
+            ]);
+        });
+    }
+
+    /**
      * Batalkan order produksi.
      *  • Draft        → tandai cancelled (belum ada konsumsi stok).
      *  • Dikonfirmasi → hanya bila BELUM dikerjakan (semua langkah masih antre).

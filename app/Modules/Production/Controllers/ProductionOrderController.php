@@ -488,9 +488,23 @@ class ProductionOrderController extends Controller
         $wip          = $service->wipSummary($id);
         $wipBreakdown = $service->wipBreakdown($id);
 
+        $soChanges = DB::table('production_order_so_changes as c')
+            ->leftJoin('sales_orders as f', 'f.id', '=', 'c.from_sales_order_id')
+            ->join('sales_orders as t', 't.id', '=', 'c.to_sales_order_id')
+            ->leftJoin('users as u', 'u.id', '=', 'c.user_id')
+            ->where('c.production_order_id', $order->id)
+            ->orderByDesc('c.id')
+            ->get(['f.order_number as from_number', 't.order_number as to_number', 'c.reason', 'u.name as user_name', 'c.created_at']);
+
+        // Ganti SO hanya ditawarkan bila SO lama sudah void/batal (aturan di service).
+        $bolehGantiSo = $order->salesOrder
+            && in_array($order->salesOrder->status, ['void', 'cancelled'], true)
+            && !in_array($order->status, ['cancelled', 'merged'], true)
+            && $order->merged_into_id === null;
+
         return view('erp.production.orders.show', compact(
             'order', 'departments', 'materialStock', 'repairSource', 'batches', 'lastActiveBatch',
-            'wip', 'wipBreakdown'
+            'wip', 'wipBreakdown', 'soChanges', 'bolehGantiSo'
         ));
     }
 
@@ -663,6 +677,21 @@ class ProductionOrderController extends Controller
         try {
             $service->reviseTarget($id, $request->only(['planned_cycles', 'planned_qty', 'reason', 'outputs']));
             return back()->with('success', 'Target produksi direvisi. Pengambilan berikutnya memakai target baru sebagai pembagi biaya.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function gantiSo(Request $request, int $id, ProductionOrderService $service)
+    {
+        $request->validate([
+            'sales_order_id' => 'required|integer|exists:sales_orders,id',
+            'reason'         => 'required|string|max:255',
+        ]);
+
+        try {
+            $service->gantiSalesOrder($id, (int) $request->sales_order_id, $request->reason, auth()->id());
+            return back()->with('success', 'SO order produksi diganti. Riwayat penggantian tercatat.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }
