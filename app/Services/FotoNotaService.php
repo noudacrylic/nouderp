@@ -121,6 +121,52 @@ class FotoNotaService
         return $this->simpanBerkas(null, null, $files, $userId, $catatan ?: null);
     }
 
+    /**
+     * Lampiran chat CRM (nota supplier yang dikirim lewat WA) → Kotak Nota, tanpa
+     * unduh-lalu-unggah. Berkasnya DISALIN ke penyimpanan nota: masa simpan
+     * lampiran chat berbeda (bisa disapu), sedangkan nota harus bertahan.
+     *
+     * @return string 'ok' | 'sudah' (sudah pernah dimasukkan) | 'tak_didukung' | 'gagal'
+     */
+    public function simpanDariChat(\App\Modules\CRM\Models\CrmAttachment $lampiran, ?int $userId, ?string $catatan): string
+    {
+        if (DocumentAttachment::where('crm_attachment_id', $lampiran->id)->exists()) {
+            return 'sudah';
+        }
+
+        if (!self::lampiranChatBisaNota($lampiran)) {
+            return 'tak_didukung';
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'nota');
+        try {
+            file_put_contents($tmp, Storage::disk($lampiran->disk)->get($lampiran->path));
+            $nama = $lampiran->original_name ?: basename($lampiran->path);
+            $file = new UploadedFile($tmp, $nama, $lampiran->mime, null, true);
+
+            $catatan = $catatan !== null ? mb_substr(trim($catatan), 0, 190) : null;
+            $n = $this->simpanBerkas(null, null, [$file], $userId, $catatan ?: null, ['crm_attachment_id' => $lampiran->id]);
+
+            return $n ? 'ok' : 'gagal';
+        } catch (\Throwable $e) {
+            Log::warning('[foto-nota] gagal menyalin lampiran chat', ['lampiran' => $lampiran->id, 'error' => $e->getMessage()]);
+            return 'gagal';
+        } finally {
+            @unlink($tmp);
+        }
+    }
+
+    /** Lampiran chat yang bisa jadi nota: tersimpan di server kita, foto/PDF, ≤ 20 MB. */
+    public static function lampiranChatBisaNota(\App\Modules\CRM\Models\CrmAttachment $lampiran): bool
+    {
+        $mime = (string) $lampiran->mime;
+
+        return $lampiran->tersimpanAman()
+            && !$lampiran->sudahDisapu()
+            && (str_starts_with($mime, 'image/') || $mime === 'application/pdf')
+            && (int) $lampiran->size_bytes <= 20480 * 1024;
+    }
+
     /** Tempel foto dari Kotak Nota ke dokumen. */
     public function tempel(DocumentAttachment $att, string $jenis, Model $doc, ?int $userId = null): void
     {
@@ -136,7 +182,7 @@ class FotoNotaService
         ]);
     }
 
-    private function simpanBerkas(?string $jenis, ?int $docId, array $files, ?int $userId, ?string $catatan): int
+    private function simpanBerkas(?string $jenis, ?int $docId, array $files, ?int $userId, ?string $catatan, array $tambahan = []): int
     {
         $tersimpan = 0;
 
@@ -157,7 +203,7 @@ class FotoNotaService
                     'mime'          => $mime,
                     'size_bytes'    => (int) $file->getSize(),
                     'uploaded_by'   => $userId,
-                ]);
+                ] + $tambahan);
 
                 $dir  = 'nota/' . now()->format('Y/m');
                 $path = Storage::disk('local')->putFileAs($dir, $file, $att->id . '.' . $ext);

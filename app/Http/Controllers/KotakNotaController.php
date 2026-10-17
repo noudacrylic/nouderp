@@ -43,6 +43,35 @@ class KotakNotaController extends Controller
         return back()->with('success', 'Foto nota dihapus dari kotak (diarsipkan).');
     }
 
+    // ───────────── Dari chat CRM ─────────────
+
+    /**
+     * Nota yang dikirim pemasok lewat WA → Kotak Nota langsung dari menu pesan,
+     * tanpa unduh lalu unggah ulang. Semua lampiran foto/PDF pesan itu ikut.
+     */
+    public function dariChat(Request $request, \App\Modules\CRM\Models\CrmMessage $message)
+    {
+        $this->jaga();
+
+        $chat    = $message->conversation;
+        $catatan = 'Dari chat ' . ($chat?->display_name ?: $chat?->contact_key ?: '—')
+            . ' · ' . optional($message->created_at)->format('d/m/Y H:i');
+
+        $hasil = $message->attachments->map(fn ($a) => $this->service->simpanDariChat($a, $request->user()->id, $catatan));
+
+        $ok    = $hasil->filter(fn ($h) => $h === 'ok')->count();
+        $sudah = $hasil->filter(fn ($h) => $h === 'sudah')->count();
+
+        if ($ok) {
+            return response()->json(['success' => true,
+                'pesan' => $ok . ' berkas masuk Kotak Nota. Tempel ke fakturnya lewat tombol "Ambil dari HP".']);
+        }
+
+        return response()->json(['success' => false, 'pesan' => $sudah
+            ? 'Berkas ini sudah ada di Kotak Nota (atau sudah ditempel ke dokumen).'
+            : 'Tidak ada foto/PDF yang bisa dijadikan nota di pesan ini.'], 422);
+    }
+
     // ───────────── PWA HP (/cs/nota) ─────────────
 
     public function pwaIndex(Request $request)

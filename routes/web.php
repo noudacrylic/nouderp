@@ -222,6 +222,8 @@ Route::prefix('erp')->group(function () {
         // Sama seperti tetangganya, WAJIB berdiri sebelum '/{conversation}'.
         Route::get ('/kontak',               [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariKontak'])->name('kontak.cari');
         Route::post('/pesan/{message}/teruskan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'teruskan'])->name('pesan.teruskan');
+        // Lampiran pesan (nota pemasok via WA) → Kotak Nota; dijaga FotoNotaService::bolehNota().
+        Route::post('/pesan/{message}/kotak-nota', [\App\Http\Controllers\KotakNotaController::class, 'dariChat'])->name('pesan.kotak-nota');
         // Tambah/hapus template kilat dari rail kanan. Layar Template Pesan
         // punya CRUD penuh; ini jalur pintas untuk kalimat yang baru saja
         // diketik dan ternyata akan dipakai lagi.

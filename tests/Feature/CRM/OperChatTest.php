@@ -68,6 +68,27 @@ class OperChatTest extends TestCase
         $this->assertGreaterThan(0, $chat->fresh()->unread_count);
     }
 
+    /** Dari PWA /cs: kembali ke daftar chat PWA, bukan Inbox web (17 Okt 2026). */
+    public function test_oper_dari_pwa_kembali_ke_daftar_pwa(): void
+    {
+        $chat = $this->chat();
+
+        $this->actingAs($this->agen('Sari'))
+            ->post(route('crm.inbox.oper', $chat), ['owner_user_id' => $this->agen('Burhan')->id, 'aplikasi' => 'cs'])
+            ->assertRedirect(route('cs.chat'));
+    }
+
+    public function test_form_oper_di_layar_pwa_membawa_penanda_aplikasi(): void
+    {
+        $chat = $this->chat();
+
+        $this->actingAs($this->agen('Sari'))->get(route('cs.thread', $chat))
+            ->assertOk()->assertSee('name="aplikasi" value="cs"', false);
+
+        $this->actingAs($this->agen('Sari'))->get(route('crm.inbox.show', $chat))
+            ->assertOk()->assertDontSee('name="aplikasi" value="cs"', false);
+    }
+
     /** Melepas kepemilikan juga pekerjaan baru — bagi siapa pun yang memungutnya. */
     public function test_melepas_kepemilikan_juga_menandai_belum_dibaca(): void
     {

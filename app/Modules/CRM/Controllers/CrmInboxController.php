@@ -2645,7 +2645,11 @@ class CrmInboxController extends Controller
              */
             $kueri = (string) $request->getQueryString();
 
-            return redirect()->to(route('crm.inbox.index') . ($kueri ? '?' . $kueri : ''))
+            // Dari PWA /cs: daftar chat PWA. Dulu selalu ke Inbox web, sehingga
+            // agen di HP terlempar keluar dari aplikasi setelah mengoper (17 Okt 2026).
+            $daftar = $request->input('aplikasi') === 'cs' ? route('cs.chat') : route('crm.inbox.index');
+
+            return redirect()->to($daftar . ($kueri ? '?' . $kueri : ''))
                 ->with('success', $pesan);
         }
 

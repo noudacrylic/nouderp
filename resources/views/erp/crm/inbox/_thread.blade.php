@@ -374,6 +374,7 @@
                     <div class="mt-2 flex flex-wrap items-center gap-2">
                         <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}">
                             @csrf
+                            @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif
                             <input type="hidden" name="owner_user_id" value="{{ auth()->id() }}">
                             <button class="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
                                 Ambil chat ini
@@ -382,6 +383,8 @@
                         @if($agenOper->isNotEmpty())
                             <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}" class="flex items-center gap-1">
                                 @csrf
+                                {{-- PWA /cs: kembali ke daftar chat PWA, bukan Inbox web. --}}
+                                @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif
                                 <select name="owner_user_id" required
                                         class="border border-amber-300 rounded px-2 py-1.5 text-sm bg-white">
                                     <option value="">Oper ke…</option>
@@ -685,7 +688,16 @@
                 @endif
                 <button type="button" x-show="menuAksi.bisaTerus" @click="bukaTeruskan()"
                         class="w-full text-left px-3 py-2 hover:bg-gray-50">Teruskan</button>
+                <button type="button" x-show="menuAksi.bisaNota" @click="keKotakNota()"
+                        title="Salin lampiran ini ke Kotak Nota untuk ditempel ke faktur/pengeluaran"
+                        class="w-full text-left px-3 py-2 hover:bg-gray-50">🧾 Ke Kotak Nota</button>
             </div>
+
+            {{-- Kabar hasil "Ke Kotak Nota". --}}
+            <div x-show="kabarNota.teks" x-cloak
+                 class="absolute z-40 left-1/2 -translate-x-1/2 bottom-24 max-w-sm px-3 py-2 rounded-lg shadow-lg text-sm text-white"
+                 :class="kabarNota.ok ? 'bg-emerald-600' : 'bg-red-600'"
+                 x-text="kabarNota.teks"></div>
 
             {{-- --------------------------------------------------- dialog teruskan --}}
             <div x-show="teruskan.tampil" x-cloak
@@ -824,8 +836,11 @@
                             menuAksi: {
                                 tampil: false, x: 0, y: 0,
                                 mid: null, pmid: '', nama: '', ringkas: '',
-                                masuk: false, bisaKutip: false, bisaTerus: false,
+                                masuk: false, bisaKutip: false, bisaTerus: false, bisaNota: false,
                             },
+
+                            /* Kabar singkat hasil "Ke Kotak Nota". */
+                            kabarNota: { teks: '', ok: true },
 
                             teruskan: {
                                 tampil: false, mid: null, nama: '', ringkas: '',
@@ -969,7 +984,7 @@
                                 // jadi pengukuran hidup selalu menjawab 0 dan menunya
                                 // tersangkut di tepi bawah.
                                 const lebar = 160;
-                                const tinggi = 84;
+                                const tinggi = 120;
 
                                 let x = rt.right - rw.left - lebar;
                                 let y = rt.bottom - rw.top + 4;
@@ -989,10 +1004,35 @@
                                     masuk: baris.dataset.masuk === '1',
                                     bisaKutip: baris.dataset.bisaKutip === '1',
                                     bisaTerus: baris.dataset.bisaTerus === '1',
+                                    bisaNota: baris.dataset.bisaNota === '1',
                                 };
                             },
 
                             tutupMenu() { this.menuAksi.tampil = false; },
+
+                            /* ------------------------------------------ ke kotak nota */
+
+                            async keKotakNota() {
+                                const mid = this.menuAksi.mid;
+                                this.tutupMenu();
+
+                                let d = {};
+                                try {
+                                    const r = await fetch('/erp/crm/pesan/' + mid + '/kotak-nota', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Accept': 'application/json',
+                                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                                        },
+                                    });
+                                    d = await r.json().catch(() => ({}));
+                                } catch (e) {
+                                    d = { success: false, pesan: 'Gagal mengirim ke Kotak Nota — periksa koneksi.' };
+                                }
+
+                                this.kabarNota = { teks: d.pesan || 'Gagal mengirim ke Kotak Nota.', ok: !!d.success };
+                                setTimeout(() => { this.kabarNota.teks = ''; }, 5000);
+                            },
 
                             mulaiKutip() {
                                 this.kutipan = {

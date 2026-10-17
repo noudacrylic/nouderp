@@ -15,7 +15,7 @@ class DocumentAttachment extends Model
 
     protected $fillable = [
         'doc_type', 'doc_id', 'disk', 'path', 'original_name', 'mime', 'size_bytes', 'catatan',
-        'uploaded_by', 'ditempel_at', 'ditempel_by', 'deleted_by',
+        'uploaded_by', 'ditempel_at', 'ditempel_by', 'deleted_by', 'crm_attachment_id',
     ];
 
     protected $casts = [

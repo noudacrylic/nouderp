@@ -1,6 +1,7 @@
 {{-- Satu gelembung pesan. Dipisah karena dipakai DUA jalur: render awal
      halaman, dan penambahan lewat fetch (kirim & pesan masuk). Kalau
      markupnya digandakan, gelembung baru cepat berbeda dari yang lama. --}}
+@php $aksesNota = \App\Services\FotoNotaService::bolehNota(); @endphp
 @foreach($pesan as $m)
                 @php
                     $masuk = $m->isInbound();
@@ -13,7 +14,10 @@
                      */
                     $bisaDikutip     = $m->bisaDikutip();
                     $bisaDiteruskan  = trim((string) $m->content) !== '' || $m->attachments->isNotEmpty();
-                    $adaAksi         = $bisaDikutip || $bisaDiteruskan;
+                    // Nota pemasok via WA → Kotak Nota, khusus akun yang boleh melihat nota.
+                    $bisaNota        = $aksesNota && $m->attachments->contains(
+                        fn ($a) => \App\Services\FotoNotaService::lampiranChatBisaNota($a));
+                    $adaAksi         = $bisaDikutip || $bisaDiteruskan || $bisaNota;
                 @endphp
                 {{-- data-mid: pegangan buat menaikkan centang jadi dua/biru saat
                      webhook 'delivered'/'read' datang, tanpa menggambar ulang
@@ -29,7 +33,8 @@
                      data-nama="{{ $m->labelPengirim() }}"
                      data-ringkas="{{ $m->ringkas() }}"
                      data-bisa-kutip="{{ $bisaDikutip ? 1 : 0 }}"
-                     data-bisa-terus="{{ $bisaDiteruskan ? 1 : 0 }}">
+                     data-bisa-terus="{{ $bisaDiteruskan ? 1 : 0 }}"
+                     data-bisa-nota="{{ $bisaNota ? 1 : 0 }}">
                     {{-- Ruang kanan disisakan saat tombolnya ada (pr-8), bukan padding
                          seragam: chevron melayang di atas isi gelembung, dan pada
                          pesan yang baris pertamanya panjang huruf-hurufnya masuk ke
