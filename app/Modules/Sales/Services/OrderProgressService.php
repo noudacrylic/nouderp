@@ -44,11 +44,27 @@ class OrderProgressService
             ->where('status', '!=', 'cancelled')
             ->get(['id', 'status']);
 
-        $hasProduction   = $production->isNotEmpty();
-        $productionDone  = $hasProduction && $production->every(fn ($p) => $p->status === 'finalized');
-        $productionMoving = $hasProduction && $production->contains(fn ($p) => $p->status === 'in_progress');
-
         $deliveries = $so->deliveries()->where('status', '!=', 'void')->latest('id')->get();
+
+        /*
+         * Barang custom (preorder + made_to_order) tetap melewati Produksi walau OP-nya
+         * BELUM dibuat. Dulu tahap ini hanya muncul kalau OP sudah ada, sehingga pesanan
+         * custom yang baru DP langsung tampil "Packing" di lacak & CRM padahal barangnya
+         * belum dikerjakan (SO/2026/09/00012, 17 Okt 2026). Definisi custom sama dengan
+         * gerbang "Produksi belum selesai" di Pemrosesan Pesanan.
+         *
+         * Pengecualian: waiver produksi (barang sudah ada tanpa lewat produksi ERP) dan
+         * pesanan yang sudah ber-surat jalan tanpa OP (diambil dari stok).
+         */
+        $waived   = (bool) $so->production_waived_at;
+        $isCustom = $so->items()->whereHas('product', fn ($q) => $q->where('sale_type', 'preorder')
+            ->where('made_to_order', true))->exists();
+
+        $hasProduction    = $production->isNotEmpty()
+            || ($isCustom && ! $waived && $deliveries->isEmpty());
+        $productionDone   = $production->isNotEmpty()
+            && ($waived || $production->every(fn ($p) => $p->status === 'finalized'));
+        $productionMoving = $production->contains(fn ($p) => $p->status === 'in_progress');
         $delivery = $deliveries->first();
         $shipped  = (bool) ($delivery?->tracking_number) || in_array($delivery?->shipping_status, ['in_transit', 'delivered'], true)
             || $this->diserahkanManual($so, $delivery);

@@ -961,9 +961,15 @@ class ProductionOrderController extends Controller
     {
         $q = trim((string) $request->get('q', ''));
 
-        $salesOrders = SalesOrder::with(['customer', 'items.product'])
+        // Batas 25 dulu lalu disaring di PHP membuat SO lama yang masih menunggu OP tak
+        // pernah tampil: 25 SO terbaru kebanyakan sudah berfaktur / sudah diproduksi, sisa
+        // tayangnya cuma 2 (SO/2026/09/00012, 17 Okt 2026). Faktur kini disaring di SQL dan
+        // kandidat dipindai per halaman sampai 25 hasil terkumpul.
+        $base = SalesOrder::with(['customer', 'items.product'])
             ->where('status', 'confirmed')
             ->whereHas('items.product', fn($qp) => $qp->where('sale_type', 'preorder'))
+            // SO yang sudah punya faktur (selain void) dianggap selesai → jangan ditampilkan.
+            ->whereDoesntHave('invoices', fn($qi) => $qi->where('status', '!=', 'void'))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
                     $w->where('order_number', 'LIKE', "%{$q}%")
@@ -976,13 +982,26 @@ class ProductionOrderController extends Controller
                 });
             })
             ->latest('order_date')
-            ->limit(25)
-            ->get();
+            ->orderByDesc('id');
 
-        if ($salesOrders->isEmpty()) {
-            return response()->json([]);
+        $results = collect();
+        for ($page = 1; $page <= 20 && $results->count() < 25; $page++) {
+            $salesOrders = (clone $base)->forPage($page, 50)->get();
+            if ($salesOrders->isEmpty()) {
+                break;
+            }
+            $results = $results->concat($this->salesOrderCandidates($salesOrders));
         }
 
+        return response()->json($results->take(25)->values());
+    }
+
+    /**
+     * Bentuk baris hasil pencarian SO untuk Buat Order Produksi, hanya SO yang masih
+     * punya item preorder dengan sisa qty yang belum direncanakan produksinya.
+     */
+    private function salesOrderCandidates(\Illuminate\Support\Collection $salesOrders): \Illuminate\Support\Collection
+    {
         $soIds = $salesOrders->pluck('id')->all();
         $plannedByPair = DB::table('production_order_outputs as poo')
             ->join('production_orders as po', 'poo.production_order_id', '=', 'po.id')
@@ -993,13 +1012,7 @@ class ProductionOrderController extends Controller
             ->get()
             ->keyBy(fn($r) => $r->so_id . '-' . $r->product_id);
 
-        // SO yang sudah punya faktur (selain void) dianggap selesai → jangan ditampilkan.
-        $invoicedSoIds = SalesInvoice::whereIn('sales_order_id', $soIds)
-            ->whereNotIn('status', ['void'])
-            ->pluck('sales_order_id')
-            ->flip();
-
-        $results = $salesOrders->map(function ($so) use ($plannedByPair) {
+        return $salesOrders->map(function ($so) use ($plannedByPair) {
             // Gabung per product_id: produk custom bisa muncul di beberapa baris SO dgn nama beda
             // tapi 1 product_id. Produksi dilacak per product_id, jadi qty & sisa harus diakumulasi
             // per produk (kalau tidak, produksi sebagian salah hitung / SO salah disembunyikan).
@@ -1034,13 +1047,10 @@ class ProductionOrderController extends Controller
                 'items'         => $items,
             ];
         })
-        // Sembunyikan SO yang sudah ada fakturnya, atau sudah selesai diproduksi
+        // Sembunyikan SO yang sudah selesai diproduksi
         // (tidak ada item preorder dengan sisa qty yang belum diproduksi).
-        ->filter(fn($so) => ! $invoicedSoIds->has($so['id']))
         ->filter(fn($so) => collect($so['items'])->contains(fn($i) => $i['qty_remaining'] > 0))
         ->values();
-
-        return response()->json($results);
     }
 
     public function getRepairSources(Request $request): \Illuminate\Http\JsonResponse
