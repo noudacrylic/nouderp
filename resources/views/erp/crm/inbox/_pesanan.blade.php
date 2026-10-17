@@ -98,6 +98,12 @@
                           x-text="p.status"></span>
                     <span class="text-[11px] text-gray-500 truncate text-right" x-text="p.catatan"></span>
                 </div>
+                {{-- Tanggal bayar = patokan estimasi waktu kerja. --}}
+                <div x-show="p.bayar" x-cloak class="text-[11px] text-gray-600 mt-0.5">
+                    💳 <span x-text="p.bayar && (p.bayar.label + ' ' + p.bayar.tanggal)"></span>
+                    <span class="text-gray-400" x-text="p.bayar && ('· ' + (p.bayar.hari === 0 ? 'hari ini' : p.bayar.hari + ' hari lalu'))"></span>
+                    <span x-show="p.bayar && p.bayar.lunas" class="text-gray-500" x-text="p.bayar && ('· Lunas ' + p.bayar.lunas)"></span>
+                </div>
                 {{-- Barangnya ikut terlihat, gaya kartu pesanan marketplace:
                      pertanyaan lewat chat hampir selalu menyebut BARANGNYA
                      ("rak bolpoin saya gimana"), bukan nomor SO. --}}

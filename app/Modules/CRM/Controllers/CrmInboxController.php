@@ -2170,7 +2170,22 @@ class CrmInboxController extends Controller
 
                 $tahap = collect($p['steps'])->firstWhere('key', $p['current']);
 
+                // Tanggal bayar pertama = patokan estimasi waktu kerja ("sudah
+                // berapa hari sejak DP?"). Tanggal lunas ikut bila pembayarannya
+                // lebih dari sekali.
+                $bayar = $so->advances()->where('status', 'posted')
+                    ->orderBy('advance_date')->orderBy('id')->pluck('advance_date');
+                $bayarPertama = $bayar->first() ? \Illuminate\Support\Carbon::parse($bayar->first()) : null;
+                $lunasPada = ($p['payment']['state'] ?? null) === 'paid' && $bayar->count() > 1
+                    ? \Illuminate\Support\Carbon::parse($bayar->last()) : null;
+
                 return [
+                    'bayar' => $bayarPertama ? [
+                        'label'   => ($p['payment']['state'] ?? null) === 'paid' && ! $lunasPada ? 'Dibayar' : 'DP',
+                        'tanggal' => $bayarPertama->translatedFormat('d M Y'),
+                        'hari'    => (int) $bayarPertama->copy()->startOfDay()->diffInDays(now()->startOfDay()),
+                        'lunas'   => $lunasPada?->translatedFormat('d M Y'),
+                    ] : null,
                     /*
                      * Barangnya ikut ditampilkan, bukan cuma nomor & total —
                      * gaya kartu pesanan marketplace. Pertanyaan lewat chat
