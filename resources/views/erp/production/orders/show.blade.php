@@ -45,7 +45,10 @@
                 @endif
             </div>
         </div>
-        <a href="{{ route('production.orders.index') }}" class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Kembali</a>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('production.orders.create') }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition">+ Buat Order Produksi</a>
+            <a href="{{ route('production.orders.index') }}" class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">← Kembali</a>
+        </div>
     </div>
 
     @if($soChanges->isNotEmpty())
