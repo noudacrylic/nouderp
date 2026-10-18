@@ -279,9 +279,13 @@
                                 <span class="text-gray-500 font-medium">Total Refund</span>
                                 <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(summary.total)"></span></span>
                             </div>
+                            <div class="flex justify-between items-center text-sm" x-show="returnType === 'invoice'">
+                                <span class="text-gray-500 font-medium">Hutang faktur berkurang</span>
+                                <span class="font-bold text-blue-700">Rp <span x-text="formatNumber(summary.apReduction)"></span></span>
+                            </div>
                             <div class="border-t border-gray-100 pt-3 flex justify-between items-center">
                                 <span class="font-black text-gray-800">Saldo Piutang naik</span>
-                                <span class="font-black text-purple-600 text-lg">Rp <span x-text="formatNumber(summary.total)"></span></span>
+                                <span class="font-black text-purple-600 text-lg">Rp <span x-text="formatNumber(summary.overpay)"></span></span>
                             </div>
                         </div>
 
@@ -551,7 +555,16 @@ function returForm(initialData = null) {
                 this.poRefundError = refund > this.dpBalance + 0.01 ? `Melebihi saldo DP (Rp ${this.formatNumber(this.dpBalance)})` : null;
                 total = refund > 0 ? refund : 0;
             }
-            this.summary = { total: Math.round(total * 100) / 100 };
+            total = Math.round(total * 100) / 100;
+            // Sama dengan PurchaseReturnService::postInvoiceReturn: kurangi sisa hutang
+            // faktur (2101) dulu, kelebihannya (porsi yang sudah dibayar/DP) ke 1108.
+            let apReduction = 0;
+            if (this.returnType === 'invoice') {
+                const outstanding = parseFloat(this.selectedDoc?.outstanding_amount || 0);
+                apReduction = Math.round(Math.min(outstanding, total) * 100) / 100;
+            }
+            const overpay = Math.round((total - apReduction) * 100) / 100;
+            this.summary = { total, apReduction, overpay };
             this.journalPreview = this.buildJournalPreview();
         },
 
@@ -565,10 +578,15 @@ function returForm(initialData = null) {
                 ];
             }
             // Invoice
-            return [
-                { label: 'Dr. 2101 / 1108 (AP / Piutang Lebih Bayar)', amount: total, cssClass: 'text-purple-700 font-bold', indent: false },
-                { label: 'Cr. 1130 Persediaan', amount: total, cssClass: 'text-gray-500 italic', indent: true },
-            ];
+            const lines = [];
+            if (this.summary.apReduction > 0) {
+                lines.push({ label: 'Dr. 2101 Hutang Usaha', amount: this.summary.apReduction, cssClass: 'text-blue-700 font-bold', indent: false });
+            }
+            if (this.summary.overpay > 0) {
+                lines.push({ label: 'Dr. 1108 Piutang Lebih Bayar Pemasok', amount: this.summary.overpay, cssClass: 'text-purple-700 font-bold', indent: false });
+            }
+            lines.push({ label: 'Cr. 1130 Persediaan', amount: total, cssClass: 'text-gray-500 italic', indent: true });
+            return lines;
         },
 
         canSubmit() {
