@@ -11,6 +11,7 @@ use App\Modules\Purchasing\Models\SupplierPayment;
 use App\Modules\Purchasing\Models\SupplierOverpayment;
 use App\Core\Inventory\StockLayer;
 use App\Core\Inventory\InventoryEngine;
+use App\Core\Inventory\FifoService;
 use App\Core\Journal\Journal;
 use App\Core\Journal\JournalLine;
 use App\Core\Period\AccountingPeriod;
@@ -51,6 +52,8 @@ class PurchaseReturnService
             'dp_supplier'      => '1107',
             'overpay_supplier' => '1108',
             'loss_return'      => '6105', // Beban Kerugian Retur (residual landed cost)
+            'stock_diff_gain'  => '4100', // Pendapatan Selisih Stok (layer pengganti lebih murah)
+            'stock_diff_loss'  => '5200', // Beban Selisih Stok (layer pengganti lebih mahal)
             default => throw new \Exception("Account mapping not found: $key"),
         };
     }
@@ -274,6 +277,7 @@ class PurchaseReturnService
         $engine = app(InventoryEngine::class);
         $invCreditTotal = 0;   // total kredit ke 1130 (akumulasi proporsional + residual)
         $residualLoss   = 0;   // total ke 6105 kalau layer habis tapi masih sisa landed
+        $stockDiff      = 0;   // HPP layer pengganti − nilai refund porsi itu (+ beban, − pendapatan)
 
         // 1. Stock OUT + repricing layer
         foreach ($return->items as $item) {
@@ -283,7 +287,7 @@ class PurchaseReturnService
             $conv    = $this->conversionToBase($item->product_id, $invItem?->unit);
             $baseQty = (float) $item->qty * $conv;
 
-            $invCreditLayer = $this->consumeInvoiceLayer(
+            $consumed = $this->consumeInvoiceLayer(
                 $invoice->id,
                 $item->product_id,
                 $return->warehouse_id,
@@ -291,9 +295,9 @@ class PurchaseReturnService
                 (float) $item->subtotal,   // refund value yang akan dikurangi dari layer
                 $return->id
             );
-            // jika layer habis tapi masih ada landed residual, $invCreditLayer > $item->subtotal
-            $invCreditTotal += $invCreditLayer;
-            $residualLoss   += round($invCreditLayer - (float) $item->subtotal, 2);
+            $invCreditTotal += $consumed['credit'];
+            $residualLoss   += $consumed['residual'];
+            $stockDiff      += $consumed['stock_diff'];
 
             $engine->ledger(
                 $item->product_id,
@@ -334,8 +338,15 @@ class PurchaseReturnService
         if ($residualLoss > 0) {
             $this->createLine($journal, $return, $this->getAccountIdByCode($this->account('loss_return')), 'debit', $residualLoss, 'Sisa landed cost layer habis');
         }
+        $stockDiff = round($stockDiff, 2);
+        if ($stockDiff > 0) {
+            $this->createLine($journal, $return, $this->getAccountIdByCode($this->account('stock_diff_loss')), 'debit', $stockDiff, 'Selisih HPP stok pengganti (retur)');
+        }
         if ($invCreditTotal > 0) {
-            $this->createLine($journal, $return, $this->getAccountIdByCode($this->account('inventory')), 'credit', $invCreditTotal, 'Pengurangan persediaan (retur)');
+            $this->createLine($journal, $return, $this->getAccountIdByCode($this->account('inventory')), 'credit', round($invCreditTotal, 2), 'Pengurangan persediaan (retur)');
+        }
+        if ($stockDiff < 0) {
+            $this->createLine($journal, $return, $this->getAccountIdByCode($this->account('stock_diff_gain')), 'credit', abs($stockDiff), 'Selisih HPP stok pengganti (retur)');
         }
 
         // 3. Update invoice outstanding
@@ -450,7 +461,17 @@ class PurchaseReturnService
         return $conv && (float) $conv > 0 ? (float) $conv : 1.0;
     }
 
-    protected function consumeInvoiceLayer(int $invoiceId, int $productId, ?int $warehouseId, float $qtyReturn, float $refundValue, int $returnId): float
+    /**
+     * Keluarkan stok retur. Utamakan layer FIFO dari invoice asal; kalau layer itu
+     * sudah habis/kurang (mis. barang tak pernah datang tapi stok hantunya sudah
+     * terpakai FIFO), sisanya diambil FIFO dari layer lain produk yang sama.
+     *
+     * @return array{credit: float, residual: float, stock_diff: float}
+     *   credit     = total kredit ke Persediaan
+     *   residual   = sisa landed cost layer asal yang habis (ke 6105)
+     *   stock_diff = HPP layer pengganti − porsi refund-nya (+ beban 5200, − pendapatan 4100)
+     */
+    protected function consumeInvoiceLayer(int $invoiceId, int $productId, ?int $warehouseId, float $qtyReturn, float $refundValue, int $returnId): array
     {
         $layer = StockLayer::where('product_id', $productId)
             ->where('source_type', 'purchase')
@@ -461,32 +482,53 @@ class PurchaseReturnService
             ->lockForUpdate()
             ->first();
 
-        if (!$layer) {
-            throw new DomainException("Layer FIFO untuk produk ID {$productId} dari invoice ini tidak ditemukan / habis. Tidak bisa retur.");
-        }
-        if ($qtyReturn > (float) $layer->qty_remaining + 0.0001) {
-            throw new DomainException("Stok dari invoice asal sudah dipakai (terjual). Sisa qty: {$layer->qty_remaining}, retur diminta: {$qtyReturn}.");
+        $fromLayer = $layer ? min($qtyReturn, (float) $layer->qty_remaining) : 0.0;
+        $shortfall = round($qtyReturn - $fromLayer, 4);
+
+        $layerRefund = $qtyReturn > 0 ? round($refundValue * $fromLayer / $qtyReturn, 2) : 0.0;
+        $shortRefund = round($refundValue - $layerRefund, 2);
+
+        $credit   = 0.0;
+        $residual = 0.0;
+
+        if ($layer && $fromLayer > 0) {
+            $oldQty   = (float) $layer->qty_remaining;
+            $oldTotal = round($oldQty * (float) $layer->unit_cost, 2);
+            $newQty   = round($oldQty - $fromLayer, 4);
+
+            if ($newQty > 0.0001) {
+                // Partial: kurangi stok senilai refund. Sisanya menyerap landed.
+                $newTotal = round($oldTotal - $layerRefund, 2);
+                if ($newTotal < 0) $newTotal = 0; // safety
+                $layer->qty_remaining = $newQty;
+                $layer->unit_cost     = round($newTotal / $newQty, 4);
+                $layer->save();
+                $credit = $layerRefund;
+            } else {
+                // Full retur layer: kurangi stok senilai full layer total, residual = total - refund
+                $layer->qty_remaining = 0;
+                $layer->save();
+                $credit   = $oldTotal;
+                $residual = round($oldTotal - $layerRefund, 2);
+            }
         }
 
-        $oldQty   = (float) $layer->qty_remaining;
-        $oldCost  = (float) $layer->unit_cost;
-        $oldTotal = round($oldQty * $oldCost, 2);
-        $newQty   = round($oldQty - $qtyReturn, 4);
-
-        if ($newQty > 0.0001) {
-            // Partial: kurangi stok senilai refund. Sisanya menyerap landed.
-            $newTotal = round($oldTotal - $refundValue, 2);
-            if ($newTotal < 0) $newTotal = 0; // safety
-            $layer->qty_remaining = $newQty;
-            $layer->unit_cost     = round($newTotal / $newQty, 4);
-            $layer->save();
-            return $refundValue;
+        $stockDiff = 0.0;
+        if ($shortfall > 0.0001) {
+            $wh = $warehouseId ?? $layer?->warehouse_id;
+            $available = (float) StockLayer::where('product_id', $productId)
+                ->when($wh, fn($q) => $q->where('warehouse_id', $wh))
+                ->where('qty_remaining', '>', 0)
+                ->sum('qty_remaining');
+            if ($shortfall > $available + 0.0001) {
+                throw new DomainException("Stok produk ID {$productId} tidak cukup untuk retur. Tersedia: {$available}, retur diminta: {$qtyReturn}.");
+            }
+            $cost = round((float) app(FifoService::class)->consume($productId, $wh, $shortfall, 'purchase_return', $returnId), 2);
+            $credit   += $cost;
+            $stockDiff = round($cost - $shortRefund, 2);
         }
 
-        // Full retur layer: kurangi stok senilai full layer total, residual = total - refund
-        $layer->qty_remaining = 0;
-        $layer->save();
-        return $oldTotal;
+        return ['credit' => round($credit, 2), 'residual' => $residual, 'stock_diff' => $stockDiff];
     }
 
     // ──────────────────────────────────────────────────────────
