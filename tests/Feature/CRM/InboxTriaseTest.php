@@ -257,6 +257,55 @@ class InboxTriaseTest extends TestCase
             ->assertStatus(410);
     }
 
+    /** Isi lampiran tak berubah: peramban boleh memakai salinannya, tak perlu unduh ulang. */
+    public function test_lampiran_boleh_disimpan_peramban(): void
+    {
+        $lampiran = $this->lampiran();
+
+        $res = $this->actingAs($this->admin())->get(route('crm.inbox.lampiran', $lampiran->id))->assertOk();
+
+        $this->assertStringContainsString('max-age=31536000', $res->headers->get('Cache-Control'));
+        $this->assertStringContainsString('private', $res->headers->get('Cache-Control'));
+    }
+
+    /** PWA: PDF dibuka di penampil dalam aplikasi, berkasnya dari rute di dalam cakupan /cs/. */
+    public function test_pwa_penampil_pdf_dan_berkasnya(): void
+    {
+        $lampiran = $this->lampiran();
+        $lampiran->forceFill(['original_name' => 'mockup.pdf', 'mime' => 'application/pdf'])->save();
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->get(route('cs.lampiran', $lampiran->id))
+            ->assertOk()
+            ->assertSee('mockup.pdf')
+            ->assertSee(route('cs.lampiran.berkas', $lampiran->id), false);
+
+        $this->actingAs($admin)->get(route('cs.lampiran.berkas', $lampiran->id))
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+    }
+
+    public function test_pwa_penampil_pdf_butuh_login(): void
+    {
+        $lampiran = $this->lampiran();
+
+        $this->get(route('cs.lampiran.berkas', $lampiran->id))->assertRedirect();
+    }
+
+    /** Gelembung PDF ditandai supaya PWA bisa membelokkannya ke penampil. */
+    public function test_gelembung_pdf_bertanda_untuk_pwa(): void
+    {
+        $lampiran = $this->lampiran();
+        $lampiran->forceFill(['original_name' => 'mockup.pdf', 'mime' => 'application/pdf'])->save();
+        $pesan = CrmMessage::find($lampiran->message_id);
+        $pesan->forceFill(['message_type' => 'document'])->save();
+
+        $this->actingAs($this->admin())
+            ->get(route('cs.thread', $pesan->conversation_id))
+            ->assertOk()
+            ->assertSee('data-lampiran-pdf="' . $lampiran->id . '"', false);
+    }
+
     private function lampiran(): CrmAttachment
     {
         $p = $this->percakapan();

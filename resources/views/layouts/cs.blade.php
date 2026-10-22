@@ -126,6 +126,18 @@
         })();
     </script>
 
+    {{-- PDF lampiran chat dibuka di penampil PWA, bukan diunduh Chrome tiap
+         kali ditekan. Lewat delegasi supaya gelembung yang dimuat ulang
+         belakangan (polling chat) ikut terbelokkan. --}}
+    <script>
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest && e.target.closest('a[data-lampiran-pdf]');
+            if (! a) return;
+            e.preventDefault();
+            window.location.href = '/cs/lampiran/' + a.getAttribute('data-lampiran-pdf');
+        });
+    </script>
+
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     {{-- Service worker (Add to Home Screen / installable). Scope /cs/ terpisah

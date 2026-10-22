@@ -109,7 +109,10 @@
                                                      class="rounded border max-h-56">
                                             </a>
                                         @else
+                                            {{-- data-lampiran-pdf: di PWA /cs tautan ini dibelokkan ke penampil
+                                                 di dalam aplikasi (layouts/cs), bukan diunduh Chrome. --}}
                                             <a href="{{ route('crm.inbox.lampiran', $l->id) }}"
+                                               @if($l->mime === 'application/pdf' || str_ends_with(strtolower((string) $l->original_name), '.pdf')) data-lampiran-pdf="{{ $l->id }}" @endif
                                                class="inline-block border border-gray-300 rounded px-2 py-1 text-xs hover:bg-gray-50">
                                                 ⬇ {{ $l->original_name ?: 'Unduh lampiran' }}
                                             </a>

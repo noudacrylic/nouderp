@@ -10,6 +10,35 @@
 const CACHE = 'noud-cs-v1';
 const OFFLINE_URL = '/cs/offline';
 
+/*
+ * Lampiran PDF yang pernah dibuka disimpan di HP. Berbeda dengan isi chat,
+ * berkas lampiran TIDAK PERNAH berubah setelah tersimpan, jadi salinan lama
+ * tidak mungkin basi — dan membukanya lagi tidak perlu mengunduh ulang.
+ * Dibatasi jumlahnya supaya memori HP tidak habis oleh PDF lama.
+ */
+const CACHE_LAMPIRAN = 'noud-cs-lampiran-v1';
+const MAKS_LAMPIRAN = 40;
+const POLA_LAMPIRAN = /^\/cs\/lampiran\/\d+\/berkas$/;
+// pdf.js penampil ikut disimpan supaya PDF tetap terbuka saat sinyal hilang.
+const POLA_PDFJS = /^https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/pdf\.js\//;
+
+async function ambilDariSimpanan(req) {
+    const cache = await caches.open(CACHE_LAMPIRAN);
+    const ada = await cache.match(req);
+    if (ada) return ada;
+
+    const res = await fetch(req);
+    if (res.ok) {
+        await cache.put(req, res.clone());
+        const kunci = await cache.keys();
+        // Urutan keys() = urutan masuk: yang paling lama dibuang lebih dulu.
+        for (let i = 0; i < kunci.length - MAKS_LAMPIRAN; i++) {
+            await cache.delete(kunci[i]);
+        }
+    }
+    return res;
+}
+
 self.addEventListener('install', () => {
     self.skipWaiting();
 });
@@ -17,7 +46,7 @@ self.addEventListener('install', () => {
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys()
-            .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+            .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== CACHE_LAMPIRAN).map((k) => caches.delete(k))))
             .then(() => self.clients.claim())
     );
 });
@@ -25,6 +54,12 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const req = event.request;
     if (req.method !== 'GET') return;
+
+    const url = new URL(req.url);
+    if ((url.origin === self.location.origin && POLA_LAMPIRAN.test(url.pathname)) || POLA_PDFJS.test(req.url)) {
+        event.respondWith(ambilDariSimpanan(req));
+        return;
+    }
 
     if (req.mode === 'navigate') {
         event.respondWith(

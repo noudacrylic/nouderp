@@ -1725,6 +1725,10 @@ Route::prefix('cs')->name('cs.')->group(function () {
         Route::get('/nota/{lampiran}',     [\App\Http\Controllers\KotakNotaController::class, 'pwaGambar'])->whereNumber('lampiran')->name('nota.gambar');
         Route::delete('/nota/{lampiran}',  [\App\Http\Controllers\KotakNotaController::class, 'pwaDestroy'])->whereNumber('lampiran')->name('nota.destroy');
 
+        // Penampil PDF lampiran chat; berkasnya disimpan service worker di HP.
+        Route::get('/lampiran/{attachment}',        [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pwaLampiran'])->whereNumber('attachment')->name('lampiran');
+        Route::get('/lampiran/{attachment}/berkas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pwaLampiranBerkas'])->whereNumber('attachment')->name('lampiran.berkas');
+
         // Daftar chat & satu percakapan: datanya dari CrmInboxController yang
         // sama dengan Inbox desktop, hanya viewnya yang berbeda.
         Route::get('/', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pwaDaftar'])->name('chat');

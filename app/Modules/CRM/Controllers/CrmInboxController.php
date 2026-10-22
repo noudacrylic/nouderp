@@ -2851,8 +2851,36 @@ class CrmInboxController extends Controller
         return $disk->response(
             $attachment->path,
             $attachment->original_name ?: basename($attachment->path),
-            ['Content-Type' => $attachment->mime ?: 'application/octet-stream']
+            [
+                'Content-Type'  => $attachment->mime ?: 'application/octet-stream',
+                // Isi lampiran tak pernah berubah setelah tersimpan: peramban boleh
+                // memakai salinannya sendiri, tidak mengunduh ulang tiap dibuka.
+                'Cache-Control' => 'private, max-age=31536000, immutable',
+            ]
         );
+    }
+
+    /**
+     * PWA CRM — penampil PDF di dalam aplikasi.
+     *
+     * Tautan lampiran biasa (/erp/crm/lampiran/…) berada di luar cakupan PWA,
+     * jadi Android melemparnya ke Chrome yang langsung MENGUNDUH PDF — dan
+     * mengunduhnya lagi tiap kali dibuka. Di sini PDF digambar oleh pdf.js, dan
+     * berkasnya diambil dari pwaLampiranBerkas() yang disimpan service worker
+     * di HP: pembukaan kedua tidak menyentuh jaringan sama sekali.
+     */
+    public function pwaLampiran(CrmAttachment $attachment)
+    {
+        abort_if($attachment->sudahDisapu(), 410, 'Lampiran sudah dihapus otomatis karena lewat masa simpan.');
+        abort_unless($attachment->tersimpanAman(), 404, 'Lampiran belum tersimpan di penyimpanan kita.');
+
+        return view('cs.lampiran', ['lampiran' => $attachment]);
+    }
+
+    /** Isi berkas untuk penampil PWA — sama dengan lampiran(), tapi di dalam cakupan /cs/. */
+    public function pwaLampiranBerkas(CrmAttachment $attachment)
+    {
+        return $this->lampiran($attachment);
     }
 
     /**
