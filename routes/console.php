@@ -67,11 +67,12 @@ Schedule::command('crm:kirim-notifikasi')->everyFiveMinutes()->name('crm-kirim-n
 // (impor, koreksi langsung, perintah yang mematikan event model).
 Schedule::command('crm:cek-stok-titipan')->everyFifteenMinutes()->name('crm-cek-stok-titipan')->withoutOverlapping(60);
 
-// Pesanan Ambil di Toko yang barangnya sudah siap. Kesiapan tidak punya peristiwa
-// yang bisa diamati — ia disimpulkan dari stok, pembayaran & order produksi yang
-// bergerak sendiri-sendiri — jadi pemindaian berkala inilah jalur otomatisnya.
-// Pesannya sendiri tetap tunduk pada jam buka toko (OrderNotificationService).
-Schedule::command('pos:pindai-siap-diambil')->everyFifteenMinutes()->name('pos-pindai-siap-diambil')->withoutOverlapping(60);
+// Pesanan Ambil di Toko yang barangnya sudah siap: pemindaian otomatis DIMATIKAN
+// 22 Okt 2026. Barang stok siap langsung masuk bucket Siap Proses/Belum Lunas begitu
+// dibayar, sehingga pemindaian ini menandai "Siap Diambil" (dan mengabari pembeli)
+// sebelum ada yang menyiapkan barangnya. Kini hanya tombol "Tandai Siap Diambil" di
+// Pemrosesan Pesanan; command `pos:pindai-siap-diambil` tetap ada untuk dijalankan manual.
+// Schedule::command('pos:pindai-siap-diambil')->everyFifteenMinutes()->name('pos-pindai-siap-diambil')->withoutOverlapping(60);
 // Kabari pembeli pesanan kirim yang barangnya siap tapi belum lunas (tanpa tautan bayar).
 Schedule::command('pos:pindai-pelunasan')->everyFifteenMinutes()->name('pos-pindai-pelunasan')->withoutOverlapping(60);
 

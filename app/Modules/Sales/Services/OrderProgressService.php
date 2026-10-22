@@ -123,8 +123,12 @@ class OrderProgressService
             if ($hasProduction && ! $productionDone) {
                 $current = 'produksi';
             } elseif ($pickup) {
-                if ($pickedUp)                          $current = 'selesai';
-                elseif ($so->pickup_status === 'pending') $current = 'ambil';
+                // Siap Diambil = sudah ditandai siap di Pemrosesan Pesanan (`ready_at`).
+                // Dulu dipicu pickup_status 'pending', padahal kolom itu terisi begitu
+                // pesanan dibayar — pembeli yang baru transfer langsung melihat "Siap
+                // Diambil" sebelum barangnya disiapkan (SO/2026/10/00027, 22 Okt 2026).
+                if ($pickedUp)                     $current = 'selesai';
+                elseif ($so->ready_at !== null)    $current = 'ambil';
             } else {
                 if ($arrived)      $current = 'selesai';
                 elseif ($shipped)  $current = 'kirim';
