@@ -109,7 +109,7 @@
          thread digulir jauh ke atas. Tanpa ini admin yang membuka beberapa
          chat berturut-turut kehilangan jejak sedang bicara dengan siapa. --}}
     <div class="shrink-0 flex items-center {{ $modePwa ? 'gap-2 px-2 py-2' : 'gap-3 px-4 py-2.5' }} border-b border-gray-200 bg-white"
-         x-data="{ menu: false, catatan: false, nama: false }">
+         x-data="{ menu: false, catatan: false, nama: false, oper: false }">
         @if($modePwa)
             {{-- Tautan sungguhan, bukan history.back(): chat sering dibuka
                  langsung dari notifikasi push, dan di situ tidak ada halaman
@@ -169,8 +169,12 @@
         <div class="ml-auto shrink-0 flex items-center {{ $modePwa ? 'gap-1' : 'gap-2' }}">
             {{-- Close di kepala chat, bukan di menu: chat promo cukup satu
                  ketukan untuk disingkirkan (disepakati 8 Okt 2026). --}}
-            <form method="POST" action="{{ route('crm.inbox.arsip', $terpilih->id) }}">
+            {{-- PWA: Close langsung kembali ke inbox (data-ke-daftar, lihat cs/thread);
+                 Open lagi tetap di chat ini. --}}
+            <form method="POST" action="{{ route('crm.inbox.arsip', $terpilih->id) }}"
+                  @if($modePwa && $terpilih->terbuka()) data-ke-daftar @endif>
                 @csrf
+                @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif
                 <button class="text-[11px] px-2 py-1 rounded border {{ $terpilih->terbuka()
                         ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
                         : 'border-gray-700 bg-gray-700 text-white hover:bg-gray-800' }}"
@@ -200,6 +204,21 @@
 
                     <button type="button" @click="menu = false; nama = true; $nextTick(() => $refs.inputNamaThread?.select())"
                             class="w-full text-left px-3 py-2 hover:bg-gray-50">Nama kontak…</button>
+
+                    {{-- Baca dulu, lalu tandai belum dibaca supaya tetap jadi
+                         pengingat. Sesudahnya kembali ke daftar: kalau tetap di
+                         chat ini, membukanya ulang langsung menghapus tandanya. --}}
+                    <form method="POST" action="{{ route('crm.inbox.belum-dibaca', $terpilih->id) }}"
+                          @if($modePwa) data-ke-daftar @endif>
+                        @csrf
+                        <input type="hidden" name="terbuka" value="{{ $terpilih->id }}">
+                        @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif
+                        <button class="w-full text-left px-3 py-2 hover:bg-gray-50">Tandai belum dibaca</button>
+                    </form>
+
+                    {{-- Oper tanpa harus kembali ke daftar dulu (22 Okt 2026). --}}
+                    <button type="button" @click="menu = false; oper = true"
+                            class="w-full text-left px-3 py-2 hover:bg-gray-50">Oper chat…</button>
 
                     <button type="button" @click="menu = false; catatan = true"
                             class="w-full text-left px-3 py-2 hover:bg-gray-50">
@@ -280,6 +299,44 @@
                     @csrf
                     <input type="hidden" name="ambil_wa" value="1">
                 </form>
+            </div>
+        </div>
+
+        {{-- Oper chat dari menu titik tiga. Ke diri sendiri = ambil, tetap di chat
+             ini; ke orang lain / dilepas = pekerjaannya pindah tangan, jadi kembali
+             ke daftar (server melakukannya, PWA lewat data-ke-daftar). --}}
+        @php $agenMenu = \App\Models\User::bisaChatCrm()->orderBy('name')->get(['id', 'name']); @endphp
+        <div x-show="oper" x-cloak class="fixed inset-0 z-50 lapis-layar flex items-center justify-center p-4"
+             @keydown.escape.window="oper = false">
+            <div class="absolute inset-0 bg-black/40" @click="oper = false"></div>
+            <div class="relative bg-white rounded-lg shadow-xl w-full max-w-sm py-2 max-h-[80vh] overflow-y-auto">
+                <div class="px-4 pt-1 pb-2 text-sm font-semibold">Oper chat ke…</div>
+                <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}" @if($modePwa) data-ke-daftar @endif>
+                    @csrf
+                    @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif
+                    <input type="hidden" name="owner_user_id" value="">
+                    <button class="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-2 text-gray-500">
+                        <span class="w-4 text-emerald-600">{{ ! $terpilih->owner_user_id ? '✓' : '' }}</span>
+                        — belum dioper —
+                    </button>
+                </form>
+                @foreach($agenMenu as $u)
+                    @php $diriSendiri = $u->id === auth()->id(); @endphp
+                    <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}"
+                          @if($modePwa && ! $diriSendiri) data-ke-daftar @endif>
+                        @csrf
+                        @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif
+                        <input type="hidden" name="owner_user_id" value="{{ $u->id }}">
+                        <button class="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-2">
+                            <span class="w-4 text-emerald-600">{{ (int) $terpilih->owner_user_id === $u->id ? '✓' : '' }}</span>
+                            <span class="truncate">{{ $u->name }}{{ $diriSendiri ? ' (saya)' : '' }}</span>
+                        </button>
+                    </form>
+                @endforeach
+                <div class="px-4 pt-2 flex justify-end">
+                    <button type="button" @click="oper = false"
+                            class="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50">Batal</button>
+                </div>
             </div>
         </div>
 
@@ -383,7 +440,8 @@
                             </button>
                         </form>
                         @if($agenOper->isNotEmpty())
-                            <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}" class="flex items-center gap-1">
+                            <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}" class="flex items-center gap-1"
+                                  @if($modePwa) data-ke-daftar @endif>
                                 @csrf
                                 {{-- PWA /cs: kembali ke daftar chat PWA, bukan Inbox web. --}}
                                 @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif

@@ -89,6 +89,70 @@ class OperChatTest extends TestCase
             ->assertOk()->assertDontSee('name="aplikasi" value="cs"', false);
     }
 
+    /** Menu oper di baris DAFTAR chat PWA juga membawa penandanya (22 Okt 2026). */
+    public function test_menu_oper_di_daftar_pwa_membawa_penanda_aplikasi(): void
+    {
+        $this->chat();
+
+        $this->actingAs($this->agen('Sari'))->get(route('cs.chat'))
+            ->assertOk()->assertSee('name="aplikasi" value="cs"', false);
+
+        $this->actingAs($this->agen('Sari'))->get(route('crm.inbox.index'))
+            ->assertOk()->assertDontSee('name="aplikasi" value="cs"', false);
+    }
+
+    /** Menu titik tiga di layar chat punya "Oper chat…"; di PWA operan ke orang lain kembali ke inbox. */
+    public function test_menu_titik_tiga_punya_oper_chat(): void
+    {
+        $chat = $this->chat();
+
+        $this->actingAs($this->agen('Sari'))->get(route('cs.thread', $chat))
+            ->assertOk()
+            ->assertSee('Oper chat…')
+            ->assertSee('data-ke-daftar', false);
+
+        $this->actingAs($this->agen('Sari'))->get(route('crm.inbox.show', $chat))
+            ->assertOk()
+            ->assertSee('Oper chat…')
+            ->assertDontSee('data-ke-daftar', false);
+    }
+
+    /** Close dari PWA kembali ke inbox PWA; Open lagi tetap di chatnya. */
+    public function test_close_dari_pwa_kembali_ke_inbox_pwa(): void
+    {
+        $chat = $this->chat();
+        $sari = $this->agen('Sari');
+
+        $this->actingAs($sari)
+            ->post(route('crm.inbox.arsip', $chat), ['aplikasi' => 'cs'])
+            ->assertRedirect(route('cs.chat'));
+
+        $this->assertFalse($chat->fresh()->terbuka());
+
+        $this->actingAs($sari)->from(route('cs.thread', $chat))
+            ->post(route('crm.inbox.arsip', $chat), ['aplikasi' => 'cs'])
+            ->assertRedirect(route('cs.thread', $chat));
+    }
+
+    /** Tandai belum dibaca dari layar chat: tandanya bertahan dan kembali ke daftar yang tepat. */
+    public function test_tandai_belum_dibaca_dari_layar_chat(): void
+    {
+        $chat = $this->chat();
+        $sari = $this->agen('Sari');
+
+        $this->actingAs($sari)->get(route('cs.thread', $chat))
+            ->assertOk()->assertSee('Tandai belum dibaca');
+
+        $this->actingAs($sari)
+            ->post(route('crm.inbox.belum-dibaca', $chat), ['terbuka' => $chat->id, 'aplikasi' => 'cs'])
+            ->assertRedirect(route('cs.chat'));
+        $this->assertSame(1, (int) $chat->fresh()->unread_count);
+
+        $this->actingAs($sari)
+            ->post(route('crm.inbox.belum-dibaca', $chat), ['terbuka' => $chat->id])
+            ->assertRedirect(route('crm.inbox.index'));
+    }
+
     /** Melepas kepemilikan juga pekerjaan baru — bagi siapa pun yang memungutnya. */
     public function test_melepas_kepemilikan_juga_menandai_belum_dibaca(): void
     {

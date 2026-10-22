@@ -2688,7 +2688,7 @@ class CrmInboxController extends Controller
      * ditutup sudah diputuskan, dan lencana yang tetap menyala untuk chat
      * yang tak terlihat di tab mana pun hanya membuat angka sidebar bohong.
      */
-    public function arsip(CrmConversation $conversation)
+    public function arsip(Request $request, CrmConversation $conversation)
     {
         $tutup = $conversation->terbuka();
 
@@ -2696,6 +2696,12 @@ class CrmInboxController extends Controller
             ? CrmConversation::nilaiTutup() + ['unread_count' => 0]
             : ['status' => CrmConversation::STATUS_AKTIF, 'closed_at' => null]
         )->save();
+
+        // PWA: chat yang ditutup selesai dikerjakan — kembali ke daftar chat,
+        // bukan tinggal di chat yang baru saja disingkirkan (22 Okt 2026).
+        if ($tutup && $request->input('aplikasi') === 'cs') {
+            return redirect()->route('cs.chat')->with('success', 'Chat ditutup (Close).');
+        }
 
         return back()->with('success', $tutup ? 'Chat ditutup (Close).' : 'Chat dibuka lagi (Open).');
     }
@@ -2788,7 +2794,10 @@ class CrmInboxController extends Controller
         if ((int) $request->input('terbuka') === $conversation->id) {
             $kueri = (string) $request->getQueryString();
 
-            return redirect()->to(route('crm.inbox.index') . ($kueri ? '?' . $kueri : ''))
+            // Dari PWA /cs: daftar chat PWA, bukan Inbox web.
+            $daftar = $request->input('aplikasi') === 'cs' ? route('cs.chat') : route('crm.inbox.index');
+
+            return redirect()->to($daftar . ($kueri ? '?' . $kueri : ''))
                 ->with('success', 'Ditandai belum dibaca.');
         }
 

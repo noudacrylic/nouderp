@@ -571,6 +571,8 @@
                     <div>
                         <form :action="aksi('oper')" method="POST">
                             @csrf
+                            {{-- PWA /cs: operan ke orang lain kembali ke daftar chat PWA, bukan Inbox web. --}}
+                            @if($rutaChat === 'cs.thread')<input type="hidden" name="aplikasi" value="cs">@endif
                             <input type="hidden" name="owner_user_id" value="">
                             <button class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center gap-2 text-gray-500">
                                 <span class="w-3 text-emerald-600" x-text="! chat.pemilik ? '✓' : ''"></span>
@@ -580,6 +582,7 @@
                         @foreach($pemilikOpsi as $u)
                             <form :action="aksi('oper')" method="POST">
                                 @csrf
+                                @if($rutaChat === 'cs.thread')<input type="hidden" name="aplikasi" value="cs">@endif
                                 <input type="hidden" name="owner_user_id" value="{{ $u->id }}">
                                 <button class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center gap-2">
                                     <span class="w-3 text-emerald-600" x-text="chat.pemilik === {{ $u->id }} ? '✓' : ''"></span>

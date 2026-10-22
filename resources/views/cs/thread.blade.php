@@ -71,6 +71,39 @@
                 if (e.state && e.state.csDaftarSemu) location.replace(DAFTAR);
             });
 
+            function keDaftar() {
+                history.back();
+                var cadangan = setTimeout(function () { location.href = DAFTAR; }, 600);
+                // Halaman ini masuk bfcache saat mundur: timernya jangan sampai
+                // menyala belakangan kalau halaman ini dihidupkan lagi.
+                window.addEventListener('pagehide', function () { clearTimeout(cadangan); }, { once: true });
+            }
+
+            /*
+             * Close & oper ke orang lain: sesudahnya kembali ke inbox. Dikirim
+             * lewat fetch lalu MUNDUR ke inbox, bukan form biasa yang dialihkan
+             * server ke /cs — itu menumpuk inbox baru di atas chat ini, dan back
+             * HP sesudahnya berjalan ke layar lama. Inbox yang dicapai dimuat
+             * ulang sendiri (cs/chat), jadi perubahan ini langsung terlihat.
+             * Jaringan gagal → kirim form biasa; server tetap mengarahkan ke /cs.
+             */
+            document.addEventListener('submit', function (e) {
+                var f = e.target;
+                if (! f || ! f.hasAttribute || ! f.hasAttribute('data-ke-daftar') || e.defaultPrevented) return;
+                e.preventDefault();
+                if (f.dataset.terkirim) return;
+                f.dataset.terkirim = '1';
+                f.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+
+                fetch(f.action, { method: 'POST', body: new FormData(f), credentials: 'same-origin',
+                                  headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(function (r) {
+                        if (! r.ok) throw new Error('HTTP ' + r.status);
+                        keDaftar();
+                    })
+                    .catch(function () { HTMLFormElement.prototype.submit.call(f); });
+            });
+
             /* Tombol ← = tombol back HP. Dulu ← membuka inbox BARU dan
                menumpuknya di riwayat, sehingga back HP sesudahnya berjalan ke
                layar lama yang beku. Cadangan: kalau mundur tidak berpindah
@@ -79,11 +112,7 @@
                 var a = e.target.closest && e.target.closest('a[data-kembali-daftar]');
                 if (! a) return;
                 e.preventDefault();
-                history.back();
-                var cadangan = setTimeout(function () { location.href = DAFTAR; }, 600);
-                // Halaman ini masuk bfcache saat mundur: timernya jangan sampai
-                // menyala belakangan kalau halaman ini dihidupkan lagi.
-                window.addEventListener('pagehide', function () { clearTimeout(cadangan); }, { once: true });
+                keDaftar();
             });
         })();
     </script>
