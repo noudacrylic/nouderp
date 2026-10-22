@@ -114,7 +114,9 @@
             {{-- Tautan sungguhan, bukan history.back(): chat sering dibuka
                  langsung dari notifikasi push, dan di situ tidak ada halaman
                  sebelumnya untuk dikembalikan. --}}
-            <a href="{{ route('cs.chat') }}" aria-label="Kembali ke daftar chat"
+            {{-- data-kembali-daftar: di PWA dicegat cs/thread supaya sama dengan
+                 tombol back HP (mundur di riwayat, bukan menumpuk inbox baru). --}}
+            <a href="{{ route('cs.chat') }}" aria-label="Kembali ke daftar chat" data-kembali-daftar
                class="-ml-1 shrink-0 w-8 h-8 flex items-center justify-center rounded text-gray-500 active:bg-gray-100">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>

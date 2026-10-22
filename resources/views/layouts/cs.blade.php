@@ -138,6 +138,34 @@
         });
     </script>
 
+    {{-- Aksi form (ganti label, oper, catatan, …) memuat ulang chat yang SAMA
+         sebagai entri riwayat baru. Tanpa ini tombol back HP berjalan dulu ke
+         salinan chat lama itu satu per satu sebelum sampai ke inbox. Entri yang
+         ditinggal lewat kiriman form ditandai, dan bila dicapai lagi lewat back
+         langsung dilewati. Hanya layar chat: daftar inbox (form Mulai Chat)
+         justru tujuan back, tak boleh ikut dilewati. --}}
+    <script>
+        document.addEventListener('submit', function (e) {
+            var f = e.target;
+            if (! document.querySelector('[data-kembali-daftar]')) return;
+            if (! f || (f.method || '').toLowerCase() !== 'post' || f.target) return;
+            // Diperiksa SETELAH semua pendengar selesai: form yang ternyata
+            // dikirim lewat fetch (preventDefault belakangan) tidak berpindah
+            // halaman, jadi entrinya bukan salinan usang.
+            setTimeout(function () {
+                if (e.defaultPrevented) return;
+                history.replaceState(Object.assign({}, history.state || {}, { csDigantikan: true }), '');
+            }, 0);
+        });
+
+        window.addEventListener('pageshow', function () {
+            if (history.state && history.state.csDigantikan) {
+                document.documentElement.style.opacity = '0';
+                history.back();
+            }
+        });
+    </script>
+
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     {{-- Service worker (Add to Home Screen / installable). Scope /cs/ terpisah

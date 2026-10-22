@@ -46,3 +46,45 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+    <script>
+        (function () {
+            var DAFTAR = @json(route('cs.chat'));
+            var adaDaftar = false;
+            try { adaDaftar = sessionStorage.getItem('cs-ada-daftar') === '1'; } catch (e) {}
+
+            /*
+             * Chat yang dibuka langsung dari notifikasi tidak punya inbox di
+             * belakangnya — tombol back HP akan menutup aplikasi. Sisipkan satu
+             * entri "inbox" di bawah chat ini; saat entri itu dicapai, inbox
+             * dimuat sungguhan.
+             */
+            if (! adaDaftar && ! (history.state && history.state.csChat)) {
+                var sini = location.href;
+                history.replaceState({ csDaftarSemu: true }, '', DAFTAR);
+                history.pushState({ csChat: true }, '', sini);
+                try { sessionStorage.setItem('cs-ada-daftar', '1'); } catch (e) {}
+            }
+
+            window.addEventListener('popstate', function (e) {
+                if (e.state && e.state.csDaftarSemu) location.replace(DAFTAR);
+            });
+
+            /* Tombol ← = tombol back HP. Dulu ← membuka inbox BARU dan
+               menumpuknya di riwayat, sehingga back HP sesudahnya berjalan ke
+               layar lama yang beku. Cadangan: kalau mundur tidak berpindah
+               halaman (riwayat kosong), buka inbox biasa. */
+            document.addEventListener('click', function (e) {
+                var a = e.target.closest && e.target.closest('a[data-kembali-daftar]');
+                if (! a) return;
+                e.preventDefault();
+                history.back();
+                var cadangan = setTimeout(function () { location.href = DAFTAR; }, 600);
+                // Halaman ini masuk bfcache saat mundur: timernya jangan sampai
+                // menyala belakangan kalau halaman ini dihidupkan lagi.
+                window.addEventListener('pagehide', function () { clearTimeout(cadangan); }, { once: true });
+            });
+        })();
+    </script>
+@endpush

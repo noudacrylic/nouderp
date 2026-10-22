@@ -31,3 +31,27 @@
          tombolnya ada tapi diam saja saat ditekan. --}}
     @include('erp.crm.inbox._mulai_chat')
 @endsection
+
+@push('scripts')
+    <script>
+        (function () {
+            /* Penanda bagi layar chat: ada daftar di belakangnya, jadi tombol ←
+               cukup mundur di riwayat — sama persis dengan tombol back HP. */
+            try { sessionStorage.setItem('cs-ada-daftar', '1'); } catch (e) {}
+
+            /*
+             * Kembali ke sini (tombol back HP maupun ← chat) menghidupkan halaman
+             * dari bfcache: tampilannya beku seperti SEBELUM chat dibuka — chat
+             * yang baru dibaca masih tebal, pesan baru belum ada. Muat ulang
+             * penuh supaya hasilnya sama dengan membuka inbox dari awal; layar
+             * lama disembunyikan saat ditinggal supaya tidak sempat terlihat.
+             */
+            window.addEventListener('pagehide', function (e) {
+                if (e.persisted) document.documentElement.style.opacity = '0';
+            });
+            window.addEventListener('pageshow', function (e) {
+                if (e.persisted) location.reload();
+            });
+        })();
+    </script>
+@endpush
