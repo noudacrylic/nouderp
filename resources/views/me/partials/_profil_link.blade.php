@@ -3,6 +3,7 @@
         'emerald' => 'bg-emerald-100 text-emerald-700',
         'indigo'  => 'bg-indigo-100 text-indigo-700',
         'green'   => 'bg-green-100 text-green-700',
+        'amber'   => 'bg-amber-100 text-amber-700',
     ];
     $iconCls = $tones[$tone ?? 'emerald'] ?? $tones['emerald'];
 @endphp

@@ -4,7 +4,7 @@
         ['route' => 'me.absensi', 'label' => 'Absensi', 'icon' => 'calendar', 'match' => ['me.absensi']],
         ['route' => 'me.izin',    'label' => 'Izin',    'icon' => 'pencil',   'match' => ['me.izin', 'me.izin.*']],
         // Profil = hub Data Pribadi + Cuti/SP + Slip → tetap aktif saat di sub-halaman tsb.
-        ['route' => 'me.profil',  'label' => 'Profil',  'icon' => 'user',     'match' => ['me.profil', 'me.profil.*', 'me.cuti', 'me.slip', 'me.slip.*']],
+        ['route' => 'me.profil',  'label' => 'Profil',  'icon' => 'user',     'match' => ['me.profil', 'me.profil.*', 'me.cuti', 'me.slip', 'me.slip.*', 'me.peraturan']],
     ];
     $icons = [
         'home'      => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-6h4v6h3a1 1 0 001-1V10"/>',

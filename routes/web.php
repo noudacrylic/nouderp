@@ -1771,6 +1771,7 @@ Route::prefix('me')->name('me.')->group(function () {
         Route::get ('/profil',      [\App\Http\Controllers\Me\ProfileController::class, 'index'])->name('profil');
         Route::get ('/profil/edit', [\App\Http\Controllers\Me\ProfileController::class, 'edit'])->name('profil.edit');
         Route::post('/profil',      [\App\Http\Controllers\Me\ProfileController::class, 'update'])->name('profil.update');
+        Route::view('/peraturan',   'me.peraturan')->name('peraturan');
 
         // Web Push (notifikasi PWA)
         Route::post('/push/subscribe',   [\App\Http\Controllers\Me\PushSubscriptionController::class, 'store'])->name('push.subscribe');
