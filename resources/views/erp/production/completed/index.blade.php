@@ -3,28 +3,61 @@
 @section('content')
 @php
     // Data per order utk modal Edit Finalisasi (qty/%/keterangan output yg bisa dikoreksi).
-    $editData = $finalized->mapWithKeys(fn($o) => [$o->id => [
+    // editFinalization() hanya membalik & mengulang batch TERAKHIR, jadi isian modal harus
+    // qty batch itu — bukan qty_produced (akumulasi semua batch). Kalau akumulasi yang
+    // ditampilkan, batch sebelumnya ikut terhitung ulang dan stok menggelembung.
+    $editData = $finalized->mapWithKeys(function ($o) {
+        $batches = $o->activeFinalizations;
+        $last    = $batches->last();
+        $earlier = $batches->slice(0, max(0, $batches->count() - 1));
+
+        return [$o->id => [
         'id'           => $o->id,
         'order_number' => $o->order_number,
+        'batch_label'  => $last && $earlier->isNotEmpty() ? $last->label() : null,
         'action'       => route('production.orders.edit-finalize', $o->id),
         'warehouse_id' => (int) $o->warehouse_id,
         // % cost bisa di-override manual hanya utk order TANPA BOM & bukan Perbaikan.
         'pct_manual'   => is_null($o->bom_id) && !in_array($o->type, ['repair','perbaikan','garansi'], true),
         // OP Perbaikan: tiap unit berhasil ATAU gagal (gagal → beban, tidak masuk stok).
         'is_perbaikan' => $o->type === 'perbaikan',
-        'outputs'      => $o->outputs->map(fn($out) => [
-            'output_id'      => $out->id,
-            'name'           => $out->product?->name ?? '—',
-            'sku'            => $out->product?->sku ?? '',
-            'output_type'    => $out->output_type,
-            'qty_planned'    => (float) $out->qty_planned,
-            'qty_produced'   => (float) ($out->qty_produced ?? 0),
-            'qty_failed'     => (float) ($out->qty_failed ?? 0),
-            'percentage'     => (float) $out->percentage,
-            'variance_notes' => $out->variance_notes ?? '',
-            'allocations'    => is_array($out->warehouse_allocations) ? $out->warehouse_allocations : null,
-        ])->values(),
-    ]]);
+        'outputs'      => $o->outputs->map(function ($out) use ($last, $earlier) {
+            // Order lama tanpa batch: finalisasi tunggal, akumulasi = qty finalisasi itu.
+            if (!$last) {
+                return [
+                    'output_id'      => $out->id,
+                    'name'           => $out->product?->name ?? '—',
+                    'sku'            => $out->product?->sku ?? '',
+                    'output_type'    => $out->output_type,
+                    'qty_planned'    => (float) $out->qty_planned,
+                    'qty_before'     => 0.0,
+                    'qty_produced'   => (float) ($out->qty_produced ?? 0),
+                    'qty_failed'     => (float) ($out->qty_failed ?? 0),
+                    'percentage'     => (float) $out->percentage,
+                    'variance_notes' => $out->variance_notes ?? '',
+                    'allocations'    => is_array($out->warehouse_allocations) ? $out->warehouse_allocations : null,
+                ];
+            }
+
+            $item   = $last->items->firstWhere('production_order_output_id', $out->id);
+            $before = (float) $earlier->flatMap->items->where('production_order_output_id', $out->id)->sum('qty');
+
+            return [
+                'output_id'      => $out->id,
+                'name'           => $out->product?->name ?? '—',
+                'sku'            => $out->product?->sku ?? '',
+                'output_type'    => $out->output_type,
+                'qty_planned'    => (float) $out->qty_planned,
+                'qty_before'     => $before,
+                'qty_produced'   => (float) ($item?->qty ?? 0),
+                'qty_failed'     => (float) ($item?->qty_failed ?? 0),
+                'percentage'     => (float) ($item?->percentage ?? $out->percentage),
+                'variance_notes' => $item?->variance_notes ?? ($out->variance_notes ?? ''),
+                'allocations'    => is_array($item?->warehouse_allocations) ? $item->warehouse_allocations : null,
+            ];
+        })->values(),
+    ]];
+    });
 @endphp
 <div class="w-full px-6 py-4" x-data="finalizeEditor()">
 
@@ -242,6 +275,10 @@
                                 <span class="font-bold text-blue-600" x-text="current.order_number"></span>
                                 · koreksi qty output — stok (FIFO) &amp; jurnal otomatis disesuaikan
                             </p>
+                            <p x-show="current.batch_label" class="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 mt-2">
+                                Hasil diambil bertahap — yang diedit hanya pengambilan terakhir
+                                (<b x-text="current.batch_label"></b>). Pengambilan sebelumnya tidak berubah.
+                            </p>
                         </div>
                         <button type="button" @click="close()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
                     </div>
@@ -267,10 +304,17 @@
                                              x-text="Number(o.qty_planned).toFixed(2)"></div>
                                     </div>
                                     <div>
-                                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Qty Aktual *</label>
+                                        <label class="block text-[10px] font-bold text-gray-500 mb-1"
+                                               x-text="o.qty_before > 0 ? 'Qty ' + current.batch_label + ' *' : 'Qty Aktual *'"></label>
                                         <input type="number" :name="`outputs[${idx}][qty_produced]`"
                                                x-model="o.qty_produced" @input="syncSingleAlloc(o)" step="0.01" min="0" required
                                                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white text-right">
+                                        <p x-show="o.qty_before > 0" class="text-[10px] text-gray-400 mt-1 text-right">
+                                            Sudah diambil sebelumnya:
+                                            <b x-text="Number(o.qty_before).toLocaleString('id-ID', {maximumFractionDigits: 2})"></b>
+                                            · total jadi
+                                            <b x-text="(Number(o.qty_before) + (parseFloat(o.qty_produced) || 0)).toLocaleString('id-ID', {maximumFractionDigits: 2})"></b>
+                                        </p>
                                     </div>
                                     <div x-show="current.is_perbaikan">
                                         <label class="block text-[10px] font-bold text-red-500 mb-1">Gagal diperbaiki</label>

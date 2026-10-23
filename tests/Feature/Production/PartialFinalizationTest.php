@@ -425,6 +425,34 @@ class PartialFinalizationTest extends TestCase
         $this->assertSame(0, StockLayer::where('production_finalization_id', $last->id)->count());
     }
 
+    /**
+     * Regresi OP/2026/10/00059: modal Edit di halaman Finalisasi Produksi mengisi qty dengan
+     * AKUMULASI semua batch, padahal editFinalization() hanya mengulang batch terakhir —
+     * menyimpan tanpa mengubah apa pun menggelembungkan stok sebesar batch sebelumnya.
+     */
+    public function test_modal_edit_finalisasi_berisi_qty_batch_terakhir_bukan_akumulasi(): void
+    {
+        $order = $this->makeOrder(wip: 2_800_000, byproductQty: null);
+        $mainId = $this->mainOutput($order)->id;
+
+        $this->service->finalizePartial($order->id, [['output_id' => $mainId, 'qty_produced' => 10]]);
+        $this->service->finalize($order->id, [['output_id' => $mainId, 'qty_produced' => 54]]);
+
+        $admin = \App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $html  = $this->actingAs($admin)->get(route('production.completed.index'))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression('/window\.__finalizeEdit = (\{.*?\});\n/s', $html);
+        preg_match('/window\.__finalizeEdit = (\{.*?\});\n/s', $html, $m);
+        $out = json_decode($m[1], true)[$order->id]['outputs'][0];
+
+        $this->assertEqualsWithDelta(54, $out['qty_produced'], 0.001, 'isian = qty batch penutup');
+        $this->assertEqualsWithDelta(10, $out['qty_before'], 0.001, 'partial sebelumnya ditampilkan terpisah');
+
+        // Simpan tanpa perubahan → total tetap 64, bukan 64 + 10.
+        $this->service->editFinalization($order->id, [['output_id' => $mainId, 'qty_produced' => $out['qty_produced']]]);
+        $this->assertEqualsWithDelta(64, (float) StockLayer::where('product_id', $this->mainProductId)->sum('qty_in'), 0.001);
+    }
+
     public function test_membatalkan_batch_terakhir_mengembalikan_status_produksi(): void
     {
         $order = $this->makeOrder(wip: 2_800_000, byproductQty: null);

@@ -900,6 +900,8 @@ class ProductionOrderController extends Controller
         $query = ProductionOrder::with([
                 'bom', 'salesOrder', 'outputs.product', 'steps.department',
                 'steps.executors.karyawan', 'steps.executor.karyawan', 'steps.timeLogs',
+                // Modal Edit mengoreksi batch TERAKHIR saja — butuh rincian per batch.
+                'activeFinalizations.items',
             ])
             ->where('status', 'finalized')
             // Task hasil penggabungan ikut berstatus Selesai mengikuti induknya, tapi tidak
