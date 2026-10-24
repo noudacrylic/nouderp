@@ -931,6 +931,7 @@
                     $svgPurchasing = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.4"/><circle cx="19" cy="20" r="1.4"/><path d="M2 3h3l2.5 12.3a2 2 0 0 0 2 1.7h8.4a2 2 0 0 0 2-1.6L21.5 7H6.2"/></svg>';
                     $svgAsset      = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h0M9 12h0M9 15h0M9 18h0"/></svg>';
                     $svgSDM        = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.5"/><path d="M22 20v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+                    $svgKaryawanVirtual = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4"/><circle cx="12" cy="3" r="1"/><circle cx="9" cy="14" r="1.2"/><circle cx="15" cy="14" r="1.2"/><path d="M2 13v3M22 13v3"/></svg>';
                     $svgProduction = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V8l-6 5z"/><path d="M6 18h0M11 18h0M16 18h0"/></svg>';
                     $svgAnalisa    = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 4-6"/><circle cx="7" cy="15" r="1"/><circle cx="18" cy="7" r="1"/></svg>';
                     $svgCashBank   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9h0M18 15h0"/></svg>';
@@ -1020,6 +1021,17 @@
                 @php $isSDM = request()->routeIs('sdm.*') || request()->routeIs('production.departments.*'); @endphp
                 <a href="{{ module_landing_url('sdm') }}" class="menu-single {{ $isSDM ? 'active' : '' }}" data-tip="SDM">
                     <span class="menu-icon">{!! $svgSDM !!}</span><span class="menu-label">&nbsp;SDM</span>
+                </a>
+                @endif
+
+                {{-- ================= KARYAWAN VIRTUAL ================= --}}
+                @php
+                    $kvService = app(\App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::class);
+                    $bolehKv = collect(array_keys($kvService->semua()))->contains(fn ($k) => $kvService->bolehLihat($k));
+                @endphp
+                @if($bolehKv)
+                <a href="{{ route('karyawan-virtual.index') }}" class="menu-single {{ request()->routeIs('karyawan-virtual.*') ? 'active' : '' }}" data-tip="Karyawan Virtual">
+                    <span class="menu-icon">{!! $svgKaryawanVirtual !!}</span><span class="menu-label">&nbsp;Karyawan Virtual</span>
                 </a>
                 @endif
 

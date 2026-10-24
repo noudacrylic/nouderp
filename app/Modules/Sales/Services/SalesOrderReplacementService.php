@@ -120,8 +120,15 @@ class SalesOrderReplacementService
             // tidak memicunya, jadi OP preorder SO baru dibuat manual di sini.
             if ($moved > 0) {
                 try {
-                    app(PreorderAutoProductionService::class)
+                    $hasil = app(PreorderAutoProductionService::class)
                         ->runForSalesOrder($new->fresh(['items.product', 'customer']));
+                    app(\App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::class)->catat(
+                        'produksi.op-preorder',
+                        array_map(fn ($r) => $r + ['sales_order_number' => $new->order_number], $hasil),
+                        \App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::PEMICU_PERISTIWA,
+                        "Ganti Pesanan {$old->order_number} → {$new->order_number}",
+                        auth()->id(),
+                    );
                 } catch (\Throwable $e) {
                     Log::error('PreorderAutoProduction (Ganti Pesanan) gagal', [
                         'sales_order_id' => $new->id, 'error' => $e->getMessage(),

@@ -23,8 +23,11 @@ class AutoProductionService
      *
      * Return: list result per BOM untuk reporting/logging.
      *   [['bom_id' => X, 'bom_number' => 'BOM/...', 'created' => bool, 'order_number' => 'OP/...', 'reason' => '...'], ...]
+     *
+     * $simulasi = true → semua pemeriksaan jalan, tapi OP TIDAK dibuat; BOM yang akan dibuatkan
+     * OP ditandai 'simulasi' => true. Dipakai mode Bayangan skill Karyawan Virtual.
      */
-    public function runAll(): array
+    public function runAll(bool $simulasi = false): array
     {
         $boms = Bom::with(['outputs.product'])
             ->where('auto_production', true)
@@ -33,7 +36,7 @@ class AutoProductionService
         $results = [];
 
         foreach ($boms as $bom) {
-            $results[] = $this->runForBom($bom);
+            $results[] = $this->runForBom($bom, $simulasi);
         }
 
         return $results;
@@ -42,7 +45,7 @@ class AutoProductionService
     /**
      * Evaluasi 1 BOM: jika low stock + tidak ada produksi aktif, buat order otomatis.
      */
-    public function runForBom(Bom $bom): array
+    public function runForBom(Bom $bom, bool $simulasi = false): array
     {
         $base = [
             'bom_id'     => $bom->id,
@@ -51,6 +54,7 @@ class AutoProductionService
             'created'    => false,
             'order_number' => null,
             'reason'     => null,
+            'simulasi'   => false,
         ];
 
         if (!$bom->auto_production) {
@@ -147,6 +151,13 @@ class AutoProductionService
             $qtyOnHand == 0 => 'stok habis',
             default         => "stok {$qtyOnHand} <= min {$minStock}",
         };
+
+        if ($simulasi) {
+            return array_merge($base, [
+                'simulasi' => true,
+                'reason'   => "Akan membuat order produksi: {$cycles} siklus ({$triggerLabel}).",
+            ]);
+        }
 
         try {
             $order = DB::transaction(function () use ($bom, $cycles, $warehouse, $materials, $outputs, $steps, $product, $triggerLabel) {

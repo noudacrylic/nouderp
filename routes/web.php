@@ -117,6 +117,16 @@ Route::prefix('erp')->group(function () {
         Route::delete('/{lampiran}', [\App\Http\Controllers\KotakNotaController::class, 'destroy'])->whereNumber('lampiran')->name('destroy');
     });
 
+    // -- Karyawan Virtual: otomasi berbentuk karyawan (skill + jurnal kerja). Akses per
+    //    karyawan ikut menu divisinya — dijaga di controller, bukan EnsureMenuAccess. --
+    Route::prefix('karyawan-virtual')->name('karyawan-virtual.')->middleware('auth')->group(function () {
+        $c = \App\Modules\KaryawanVirtual\Controllers\KaryawanVirtualController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::get('/{kode}', [$c, 'show'])->name('show');
+        Route::post('/{kode}/skill/{skill}/mode', [$c, 'ubahMode'])->name('mode');
+        Route::post('/{kode}/skill/{skill}/jalankan', [$c, 'jalankan'])->name('jalankan');
+    });
+
     // -- Intercom divisi: layar stasiun + log panggilan (sinyal via Reverb) --
     Route::prefix('intercom')->name('intercom.')->middleware('auth')->group(function () {
         Route::get('/', [\App\Http\Controllers\IntercomController::class, 'index'])->name('index');

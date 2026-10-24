@@ -83,6 +83,14 @@ class EnsureMenuAccess
         }
 
         /*
+         * Karyawan Virtual: bukan menu sendiri — tiap karyawan dibuka oleh pemegang
+         * akses menu divisinya (KaryawanVirtualService::bolehLihat di controller).
+         */
+        if ($request->is('erp/karyawan-virtual', 'erp/karyawan-virtual/*')) {
+            return $next($request);
+        }
+
+        /*
          * PWA CRM (`/cs`): layarnya duduk di luar `erp/`, tapi SELURUH isinya —
          * kirim pesan, muat produk, cek ongkir, polling pesan baru — memanggil
          * endpoint `erp/crm/*` yang sama dengan Inbox desktop. Tanpa jalan lewat

@@ -8,8 +8,7 @@ use App\Modules\Production\Models\Bom;
 use App\Modules\Production\Models\Department;
 use App\Modules\Production\Services\BomService;
 use App\Modules\Production\Services\BomScoreService;
-use App\Modules\Production\Services\AutoProductionService;
-use App\Modules\Production\Services\PreorderAutoProductionService;
+use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
 use App\Models\ProductionSetting;
 use App\Modules\Production\Models\ProductionByproduct;
 use App\Modules\Production\Models\ProductionRawMaterial;
@@ -79,17 +78,27 @@ class BomController extends Controller
      * Tanpa nomor 2, tombol ini tidak akan pernah bisa membuat OP untuk pesanan pre-order yang
      * menggantung, dan satu-satunya jalan adalah bikin OP manual.
      */
-    public function runAuto(AutoProductionService $auto, PreorderAutoProductionService $preorder)
+    public function runAuto(KaryawanVirtualService $kv)
     {
-        $stockResults    = $auto->runAll();
-        $preorderResults = $preorder->sweepPendingSalesOrders();
+        // Dikerjakan Karyawan Virtual "Manager Produksi": mode skill berlaku juga untuk tombol
+        // ini (Bayangan → hanya dicatat), dan hasilnya masuk jurnal kerjanya.
+        $ket = 'Tombol "Jalankan Auto Produksi" (halaman BOM)';
+        $stok            = $kv->jalankan('produksi.op-stok-menipis', $kv::PEMICU_MANUAL, $ket, auth()->id());
+        $stockResults    = $stok['hasil'];
+        $preorderResults = $kv->jalankan('produksi.op-preorder', $kv::PEMICU_MANUAL, $ket, auth()->id())['hasil'];
+        $catatanMode     = match ($stok['mode']) {
+            'nonaktif' => ' Skill "Buat OP saat stok menipis" sedang NONAKTIF — BOM stok tidak diperiksa.',
+            'otomatis' => '',
+            default    => ' Skill "Buat OP saat stok menipis" mode ' . strtoupper($stok['mode'])
+                . ': ' . collect($stockResults)->where('simulasi', true)->count() . ' OP stok hanya dicatat di jurnal, tidak dibuat.',
+        };
 
         $createdStock    = collect($stockResults)->where('created', true);
         $createdPreorder = collect($preorderResults)->where('created', true);
         $createdCount    = $createdStock->count() + $createdPreorder->count();
 
         if ($stockResults === [] && $preorderResults === []) {
-            return back()->with('info', 'Belum ada BOM dengan auto-produksi aktif, dan tidak ada pesanan pre-order yang menunggu produksi.');
+            return back()->with('info', 'Belum ada BOM dengan auto-produksi aktif, dan tidak ada pesanan pre-order yang menunggu produksi.' . $catatanMode);
         }
 
         $bomDiperiksa = count($stockResults);
@@ -103,14 +112,14 @@ class BomController extends Controller
                 ->merge(collect($preorderResults)->where('created', false)->take(2)->pluck('reason'))
                 ->filter()->join(' · ');
 
-            return back()->with('info', "Tidak ada order baru. Diperiksa {$bomDiperiksa} BOM stok + {$soDiperiksa} pesanan pre-order. " . $alasan);
+            return back()->with('info', "Tidak ada order baru. Diperiksa {$bomDiperiksa} BOM stok + {$soDiperiksa} pesanan pre-order. " . $alasan . $catatanMode);
         }
 
         $list = $createdStock->map(fn($r) => "{$r['order_number']} ({$r['bom_number']})")
             ->merge($createdPreorder->map(fn($r) => "{$r['order_number']} (pre-order {$r['sales_order_number']})"))
             ->join(', ');
 
-        return back()->with('success', "{$createdCount} order otomatis dibuat: {$list}. Diperiksa {$bomDiperiksa} BOM stok + {$soDiperiksa} pesanan pre-order.");
+        return back()->with('success', "{$createdCount} order otomatis dibuat: {$list}. Diperiksa {$bomDiperiksa} BOM stok + {$soDiperiksa} pesanan pre-order." . $catatanMode);
     }
 
     public function create()

@@ -3,8 +3,7 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use App\Modules\Production\Services\AutoProductionService;
-use App\Modules\Production\Services\PreorderAutoProductionService;
+use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
 
 /**
  * Kembaran tombol "Jalankan Auto Produksi" (BomController::runAuto): DUA mesin.
@@ -15,22 +14,33 @@ use App\Modules\Production\Services\PreorderAutoProductionService;
  * kasus TO-8-M2-2: 46 dipesan, stok 13, tanpa OP sampai batas kirim. Syarat buat/lewati
  * tetap milik PreorderAutoProductionService, jadi jadwal ini tak pernah membuat OP yang
  * tidak akan dibuat pemicu DP.
+ *
+ * Sejak 24 Okt 2026 dijalankan lewat Karyawan Virtual "Manager Produksi" (skill
+ * produksi.op-stok-menipis & produksi.op-preorder): mode skill menentukan boleh bertindak
+ * atau hanya mencatat, dan hasilnya masuk jurnal kerjanya.
  */
 class RunAutoProduction extends Command
 {
     protected $signature = 'production:run-auto';
     protected $description = 'Auto-produksi: BOM ready stock yang menipis + sapuan pesanan pre-order yang belum punya OP';
 
-    public function handle(AutoProductionService $auto, PreorderAutoProductionService $preorder): int
+    public function handle(KaryawanVirtualService $kv): int
     {
-        $results = $auto->runAll();
+        $stok    = $kv->jalankan('produksi.op-stok-menipis', KaryawanVirtualService::PEMICU_JADWAL);
+        $results = $stok['hasil'];
 
-        if ($results === []) {
+        if (!$stok['dijalankan']) {
+            $this->warn('Skill "Buat OP saat stok menipis" nonaktif — dilewati.');
+        } elseif ($stok['mode'] !== 'otomatis') {
+            $this->warn("Skill \"Buat OP saat stok menipis\" mode {$stok['mode']} — OP tidak dibuat, hanya dicatat.");
+        }
+
+        if ($stok['dijalankan'] && $results === []) {
             $this->info('Tidak ada BOM dengan auto-produksi aktif.');
         }
 
         foreach ($results as $r) {
-            $tag = $r['created'] ? '<info>CREATED</info>' : '<comment>SKIPPED</comment>';
+            $tag = $r['created'] ? '<info>CREATED</info>' : (($r['simulasi'] ?? false) ? '<info>AKAN</info>' : '<comment>SKIPPED</comment>');
             $line = "  {$tag}  {$r['bom_number']} ({$r['bom_name']})";
             if ($r['created']) {
                 $line .= " → {$r['order_number']}";
@@ -39,7 +49,7 @@ class RunAutoProduction extends Command
             $this->line($line);
         }
 
-        $preorderResults = $preorder->sweepPendingSalesOrders();
+        $preorderResults = $kv->jalankan('produksi.op-preorder', KaryawanVirtualService::PEMICU_JADWAL)['hasil'];
 
         foreach ($preorderResults as $r) {
             if ($r['created'] || ! str_contains((string) $r['reason'], 'Bukan produk preorder')) {

@@ -41,7 +41,14 @@ class SalesAdvanceObserver
         try {
             $so = SalesOrder::with(['items.product', 'customer'])->find($advance->sales_order_id);
             if ($so) {
-                app(PreorderAutoProductionService::class)->runForSalesOrder($so);
+                $hasil = app(PreorderAutoProductionService::class)->runForSalesOrder($so);
+                app(\App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::class)->catat(
+                    'produksi.op-preorder',
+                    array_map(fn ($r) => $r + ['sales_order_number' => $so->order_number], $hasil),
+                    \App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::PEMICU_PERISTIWA,
+                    "DP diposting untuk {$so->order_number}",
+                    auth()->id(),
+                );
             }
         } catch (\Throwable $e) {
             Log::error('PreorderAutoProduction (via SalesAdvance observer) gagal', [
