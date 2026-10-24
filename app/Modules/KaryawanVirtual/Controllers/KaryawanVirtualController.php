@@ -4,7 +4,9 @@ namespace App\Modules\KaryawanVirtual\Controllers;
 
 use App\Modules\KaryawanVirtual\Contracts\Skill;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualJurnal;
+use App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan;
 use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
+use App\Modules\KaryawanVirtual\Services\UsulanService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
@@ -32,6 +34,7 @@ class KaryawanVirtualController extends Controller
                     'kode'          => $kode,
                     'daftar_skill'  => $skills,
                     'jurnal_terbaru' => KaryawanVirtualJurnal::where('karyawan', $kode)->latest('id')->first(),
+                    'usulan_menunggu' => KaryawanVirtualUsulan::menunggu()->where('karyawan', $kode)->count(),
                 ];
             });
 
@@ -57,12 +60,21 @@ class KaryawanVirtualController extends Controller
         $jurnal = KaryawanVirtualJurnal::with('user:id,name')
             ->where('karyawan', $kode)
             ->when($request->filled('skill'), fn ($q) => $q->where('skill', $request->string('skill')))
-            ->when($request->input('tampil') !== 'semua', fn ($q) => $q->where('jumlah_tindakan', '>', 0))
+            // Keputusan atas usulan (termasuk penolakan, yang tanpa tindakan) selalu tampil.
+            ->when($request->input('tampil') !== 'semua', fn ($q) => $q->where(fn ($w) => $w
+                ->where('jumlah_tindakan', '>', 0)
+                ->orWhere('pemicu', KaryawanVirtualService::PEMICU_PERSETUJUAN)))
             ->latest('id')
             ->paginate(per_page_size())
             ->withQueryString();
 
         $labelSkill = $skills->mapWithKeys(fn ($s) => [$s['key'] => $s['skill']->label()]);
+
+        $usulanMenunggu = KaryawanVirtualUsulan::menunggu()->where('karyawan', $kode)->latest('id')->get();
+        $usulanRiwayat  = KaryawanVirtualUsulan::with('pemutus:id,name')
+            ->where('karyawan', $kode)
+            ->where('status', '!=', KaryawanVirtualUsulan::MENUNGGU)
+            ->latest('updated_at')->limit(10)->get();
 
         return view('erp.karyawan-virtual.show', [
             'kode'       => $kode,
@@ -71,6 +83,8 @@ class KaryawanVirtualController extends Controller
             'jurnal'     => $jurnal,
             'labelSkill' => $labelSkill,
             'labelMode'  => KaryawanVirtualService::LABEL_MODE,
+            'usulanMenunggu' => $usulanMenunggu,
+            'usulanRiwayat'  => $usulanRiwayat,
             'bolehAtur'  => $request->user()?->role === 'super_admin',
         ]);
     }
@@ -104,9 +118,26 @@ class KaryawanVirtualController extends Controller
         }
 
         $ringkasan = $this->kv->ringkas($hasil['rincian'], $this->kv->skill($skill)->satuan());
-        $bayangan  = $hasil['mode'] !== Skill::OTOMATIS ? ' (mode Bayangan — tidak ada yang dibuat)' : '';
+        $catatan   = match ($hasil['mode']) {
+            Skill::OTOMATIS    => '',
+            Skill::PERSETUJUAN => ' (mode Minta persetujuan — tidak ada yang dibuat sebelum usulan disetujui)',
+            default            => ' (mode Bayangan — tidak ada yang dibuat)',
+        };
 
-        return back()->with('success', $ringkasan . $bayangan);
+        return back()->with('success', $ringkasan . $catatan);
+    }
+
+    /** Setujui / tolak usulan dari halaman web — penjagaan sama dengan tombol Telegram. */
+    public function putuskan(Request $request, string $kode, int $usulan)
+    {
+        $this->karyawan($kode);
+        abort_unless(KaryawanVirtualUsulan::whereKey($usulan)->where('karyawan', $kode)->exists(), 404);
+        $request->validate(['keputusan' => 'required|in:setuju,tolak']);
+
+        $hasil = app(UsulanService::class)->putuskan($usulan, $request->input('keputusan') === 'setuju',
+            $request->user(), UsulanService::LEWAT_WEB);
+
+        return back()->with($hasil['ok'] ? 'success' : 'error', $hasil['pesan']);
     }
 
     private function karyawan(string $kode, ?string $skill = null): array

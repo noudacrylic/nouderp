@@ -31,6 +31,10 @@ class RunAutoProduction extends Command
 
         if (!$stok['dijalankan']) {
             $this->warn('Skill "Buat OP saat stok menipis" nonaktif — dilewati.');
+        } elseif ($stok['mode'] === 'persetujuan') {
+            $baru = collect($stok['usulan'])->where('baru', true)->count();
+            $this->warn("Skill \"Buat OP saat stok menipis\" mode persetujuan — {$baru} usulan baru, "
+                . (count($stok['usulan']) - $baru) . ' masih menunggu.');
         } elseif ($stok['mode'] !== 'otomatis') {
             $this->warn("Skill \"Buat OP saat stok menipis\" mode {$stok['mode']} — OP tidak dibuat, hanya dicatat.");
         }

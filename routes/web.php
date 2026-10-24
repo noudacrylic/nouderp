@@ -125,6 +125,7 @@ Route::prefix('erp')->group(function () {
         Route::get('/{kode}', [$c, 'show'])->name('show');
         Route::post('/{kode}/skill/{skill}/mode', [$c, 'ubahMode'])->name('mode');
         Route::post('/{kode}/skill/{skill}/jalankan', [$c, 'jalankan'])->name('jalankan');
+        Route::post('/{kode}/usulan/{usulan}', [$c, 'putuskan'])->whereNumber('usulan')->name('usulan.putuskan');
     });
 
     // -- Intercom divisi: layar stasiun + log panggilan (sinyal via Reverb) --

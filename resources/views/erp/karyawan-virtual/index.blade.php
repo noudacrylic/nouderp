@@ -31,6 +31,11 @@
                     </div>
                 </div>
                 <p class="text-xs text-slate-600 mb-3">{{ $k['deskripsi'] }}</p>
+                @if ($k['usulan_menunggu'] > 0)
+                    <div class="mb-3 rounded bg-blue-50 text-blue-800 text-xs font-semibold px-2 py-1">
+                        🙋 {{ $k['usulan_menunggu'] }} usulan menunggu persetujuan
+                    </div>
+                @endif
                 <div class="space-y-1 mb-3">
                     @foreach ($k['daftar_skill'] as $s)
                         <div class="flex items-center justify-between gap-2 text-xs">

@@ -41,6 +41,8 @@ class AuthController extends Controller
             'username'  => $login,
             'password'  => $data['password'],
             'is_active' => true,
+            // Akun karyawan virtual (Manager Produksi, dst.) hanya untuk mencatat pembuat dokumen.
+            'is_virtual' => false,
         ], remember: (bool) $request->boolean('remember'));
 
         if (!$attempt) {

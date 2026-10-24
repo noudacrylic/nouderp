@@ -17,7 +17,8 @@
 | Mode skill (lihat Contracts\Skill::MODE_*):
 |   nonaktif    → tidak dijalankan
 |   bayangan    → jalan di data asli, HANYA mencatat "seandainya aktif"
-|   persetujuan → membuat usulan untuk disetujui (tahap 2)
+|   persetujuan → membuat usulan; dikerjakan setelah disetujui (Telegram/web)
+|                 — hanya skill yang mengimplementasikan Contracts\BisaDiusulkan
 |   otomatis    → langsung bertindak
 | Skill baru: lolos tes → Bayangan 1-2 minggu → baru naik. Ganti mode: super_admin.
 |

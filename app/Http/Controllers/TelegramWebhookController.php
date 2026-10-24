@@ -111,6 +111,12 @@ class TelegramWebhookController extends Controller
         $messageId  = (int) data_get($callback, 'message.message_id');
         $data       = (string) data_get($callback, 'data');
 
+        // Usulan Karyawan Virtual punya penjaga sendiri (akses menu divisi, bukan admin).
+        if (str_starts_with($data, 'kv:')) {
+            $this->handleUsulanCallback($telegram, $callback);
+            return;
+        }
+
         $user = User::where('telegram_chat_id', $chatId)->first();
         if (! $user || ! $user->canManageUsers()) {
             $telegram->answerCallback($callbackId, '⛔ Hanya admin/pemilik yang bisa mengonfirmasi.', true);
@@ -166,6 +172,34 @@ class TelegramWebhookController extends Controller
         $telegram->answerCallback($callbackId, 'Tersimpan.');
         $telegram->editMessageText($chatId, $messageId, $result,
             ['reply_markup' => json_encode(['inline_keyboard' => []])]);
+    }
+
+    /**
+     * Tombol ✅ Setujui / ❌ Tolak usulan Karyawan Virtual. callback_data: "kv:ok:{id}" | "kv:no:{id}".
+     * Pengeklik dikenali dari from.id (bukan chat.id) supaya tetap benar bila pesan ada di grup;
+     * hak memutus, kedaluwarsa, dan anti dobel klik dijaga UsulanService::putuskan.
+     */
+    private function handleUsulanCallback(TelegramNotifier $telegram, array $callback): void
+    {
+        $callbackId = (string) data_get($callback, 'id');
+        $fromId     = (string) data_get($callback, 'from.id');
+
+        if (! preg_match('/^kv:(ok|no):(\d+)$/', (string) data_get($callback, 'data'), $m)) {
+            $telegram->answerCallback($callbackId);
+            return;
+        }
+
+        $user = $fromId !== '' ? User::where('telegram_chat_id', $fromId)->where('is_active', true)->first() : null;
+        if (! $user) {
+            $telegram->answerCallback($callbackId, '⛔ Akun Telegram ini belum terhubung ke Noud ERP.', true);
+            return;
+        }
+
+        $hasil = app(\App\Modules\KaryawanVirtual\Services\UsulanService::class)->putuskan(
+            (int) $m[2], $m[1] === 'ok', $user, \App\Modules\KaryawanVirtual\Services\UsulanService::LEWAT_TELEGRAM);
+
+        // Pesan (semua penerima) sudah diperbarui oleh putuskan(); di sini cukup jawab klik-nya.
+        $telegram->answerCallback($callbackId, mb_substr($hasil['pesan'], 0, 190), ! $hasil['ok']);
     }
 
     private function handleStart(TelegramNotifier $telegram, string $chatId, string $text): void

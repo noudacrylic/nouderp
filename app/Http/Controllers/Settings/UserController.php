@@ -26,7 +26,9 @@ class UserController extends Controller
     {
         $authUser = auth()->user();
 
+        // Akun karyawan virtual bukan orang — diatur di menu Karyawan Virtual, bukan di sini.
         $query = User::with('karyawan:id,name,staf_code')
+            ->where('is_virtual', false)
             ->withCount('menuPermissions');
 
         // Admin tidak boleh lihat super_admin atau admin lain (selain dirinya)

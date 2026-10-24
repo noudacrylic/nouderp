@@ -11,16 +11,28 @@
     $penjelasanMode = [
         'nonaktif'    => 'Tidak dijalankan.',
         'bayangan'    => 'Jalan di data asli tapi tidak bertindak — hanya mencatat apa yang AKAN dikerjakan.',
-        'persetujuan' => 'Membuat usulan untuk disetujui dulu.',
+        'persetujuan' => 'Membuat usulan; dikerjakan setelah disetujui lewat Telegram atau halaman ini.',
         'otomatis'    => 'Langsung bertindak.',
     ];
     $status = [
         'dibuat'      => ['✅', 'Dibuat',              'text-green-700'],
         'akan_dibuat' => ['👻', 'Akan dibuat (bayangan)', 'text-amber-700'],
         'gagal'       => ['⚠️', 'Gagal',               'text-red-700'],
+        'diusulkan'   => ['🙋', 'Diusulkan',           'text-blue-700'],
+        'menunggu'    => ['⏳', 'Menunggu persetujuan', 'text-blue-600'],
+        'ditolak'     => ['❌', 'Ditolak',             'text-red-700'],
         'dilewati'    => ['➖', 'Dilewati',            'text-gray-500'],
     ];
-    $labelPemicu = ['jadwal' => '⏱ Jadwal', 'manual' => '👆 Manual', 'peristiwa' => '⚡ Peristiwa'];
+    $labelPemicu = ['jadwal' => '⏱ Jadwal', 'manual' => '👆 Manual', 'peristiwa' => '⚡ Peristiwa', 'persetujuan' => '🙋 Persetujuan'];
+    $warnaUsulan = [
+        'disetujui'   => 'bg-green-100 text-green-800',
+        'ditolak'     => 'bg-red-100 text-red-800',
+        'gagal'       => 'bg-red-100 text-red-800',
+        'kedaluwarsa' => 'bg-gray-100 text-gray-500',
+        'batal'       => 'bg-gray-100 text-gray-500',
+        'diproses'    => 'bg-amber-100 text-amber-800',
+    ];
+    $labelUsulan = \App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan::LABEL_STATUS;
 @endphp
 <div class="w-full px-6 py-4 max-w-6xl">
     <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
@@ -34,6 +46,34 @@
         </div>
         <a href="{{ route('karyawan-virtual.index') }}" class="border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded text-sm">Kembali</a>
     </div>
+
+    {{-- Usulan menunggu persetujuan --}}
+    @if ($usulanMenunggu->isNotEmpty())
+        <h2 class="font-semibold text-slate-800 mb-2">Menunggu persetujuan ({{ $usulanMenunggu->count() }})</h2>
+        <div class="bg-white rounded shadow divide-y divide-gray-100 mb-6 border-l-4 border-blue-400">
+            @foreach ($usulanMenunggu as $u)
+                <div class="p-3 flex flex-wrap items-start justify-between gap-3">
+                    <div class="text-sm min-w-0">
+                        <div class="font-semibold text-slate-800">{{ $u->judul }}</div>
+                        @if ($u->alasan)<div class="text-xs text-slate-600">{{ $u->alasan }}</div>@endif
+                        <div class="text-[11px] text-slate-400 mt-0.5">
+                            Usulan #{{ $u->id }} · {{ $labelSkill[$u->skill] ?? $u->skill }} · diajukan {{ $u->created_at->format('d/m H:i') }}
+                            · berlaku sampai {{ $u->kedaluwarsa_at->format('d/m H:i') }}
+                        </div>
+                    </div>
+                    <form method="POST" action="{{ route('karyawan-virtual.usulan.putuskan', [$kode, $u->id]) }}" class="flex gap-2 shrink-0 ml-auto">
+                        @csrf
+                        <button type="submit" name="keputusan" value="tolak"
+                                onclick="return confirm('Tolak usulan ini?')"
+                                class="border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded text-xs">Tolak</button>
+                        <button type="submit" name="keputusan" value="setuju"
+                                onclick="return confirm('Setujui? Syaratnya diperiksa ulang dulu, lalu langsung dikerjakan.')"
+                                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-semibold">Setujui</button>
+                    </form>
+                </div>
+            @endforeach
+        </div>
+    @endif
 
     {{-- Skill --}}
     <h2 class="font-semibold text-slate-800 mb-2">Skill</h2>
@@ -110,6 +150,41 @@
         @endforeach
     </div>
 
+    {{-- Riwayat usulan --}}
+    @if ($usulanRiwayat->isNotEmpty())
+        <h2 class="font-semibold text-slate-800 mb-2">Usulan terakhir diputus</h2>
+        <div class="bg-white rounded shadow overflow-x-auto mb-6">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-xs uppercase text-gray-500">
+                    <tr>
+                        <th class="text-left px-3 py-2">Diputus</th>
+                        <th class="text-left px-3 py-2">Usulan</th>
+                        <th class="text-left px-3 py-2">Status</th>
+                        <th class="text-left px-3 py-2">Hasil</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach ($usulanRiwayat as $u)
+                        <tr class="border-t border-gray-100 align-top">
+                            <td class="px-3 py-2 whitespace-nowrap text-xs text-gray-600">
+                                {{ ($u->diputus_at ?? $u->updated_at)->format('d/m/Y H:i') }}
+                                <div class="text-gray-400">{{ $u->pemutus?->name ?? 'Sistem' }}@if ($u->diputus_lewat && $u->diputus_lewat !== 'sistem') · {{ $u->diputus_lewat === 'telegram' ? 'Telegram' : 'web' }}@endif</div>
+                            </td>
+                            <td class="px-3 py-2">#{{ $u->id }} {{ $u->judul }}</td>
+                            <td class="px-3 py-2"><span class="rounded px-1.5 py-0.5 text-xs font-semibold {{ $warnaUsulan[$u->status] ?? '' }}">{{ $labelUsulan[$u->status] ?? $u->status }}</span></td>
+                            <td class="px-3 py-2 text-xs text-slate-600">
+                                {{ $u->catatan_hasil }}
+                                @if ($u->tautan)
+                                    <a href="{{ $u->tautan }}" class="text-blue-600 underline">{{ $u->dokumen }}</a>
+                                @endif
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
+
     {{-- Jurnal kerja --}}
     <h2 class="font-semibold text-slate-800 mb-2">Jurnal Kerja</h2>
     <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex flex-wrap items-end gap-3 text-sm">
@@ -125,7 +200,7 @@
         <div>
             <label class="block text-xs text-gray-500 mb-1">Tampilkan</label>
             <select name="tampil" class="filter-auto border rounded px-2 py-1.5">
-                <option value="">Yang ada tindakannya</option>
+                <option value="">Yang ada tindakannya / keputusan</option>
                 <option value="semua" @selected(request('tampil') === 'semua')>Semua (termasuk jalan manual tanpa tindakan)</option>
             </select>
         </div>

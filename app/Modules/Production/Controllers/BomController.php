@@ -89,6 +89,8 @@ class BomController extends Controller
         $catatanMode     = match ($stok['mode']) {
             'nonaktif' => ' Skill "Buat OP saat stok menipis" sedang NONAKTIF — BOM stok tidak diperiksa.',
             'otomatis' => '',
+            'persetujuan' => ' Skill "Buat OP saat stok menipis" mode MINTA PERSETUJUAN: '
+                . count($stok['usulan']) . ' OP stok diusulkan / menunggu persetujuan (Telegram atau halaman Karyawan Virtual).',
             default    => ' Skill "Buat OP saat stok menipis" mode ' . strtoupper($stok['mode'])
                 . ': ' . collect($stockResults)->where('simulasi', true)->count() . ' OP stok hanya dicatat di jurnal, tidak dibuat.',
         };

@@ -20,6 +20,10 @@ interface Skill
     public const AKAN_DIBUAT = 'akan_dibuat';
     public const DILEWATI    = 'dilewati';
     public const GAGAL       = 'gagal';
+    /** Mode persetujuan: usulan baru diajukan / usulan lama masih menunggu / usulan ditolak. */
+    public const DIUSULKAN   = 'diusulkan';
+    public const MENUNGGU    = 'menunggu';
+    public const DITOLAK     = 'ditolak';
 
     public function label(): string;
 

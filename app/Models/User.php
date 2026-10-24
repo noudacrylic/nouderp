@@ -28,6 +28,7 @@ class User extends Authenticatable
             'last_login_at'     => 'datetime',
             'password'          => 'hashed',
             'is_active'         => 'boolean',
+            'is_virtual'        => 'boolean',
             'pwa_crm'           => 'boolean',
             'crm_label_tampil'  => 'array',
         ];
