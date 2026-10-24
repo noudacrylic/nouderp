@@ -7,10 +7,42 @@
     $notaList   = $doc->fotoNota()->with('uploader:id,name')->orderBy('id')->get();
     $notaGambar = $notaList->filter->isImage()->values();
     // Kiriman PWA HP yang belum ditempel ke dokumen mana pun (Kotak Nota).
-    $notaKotak  = \App\Services\FotoNotaService::kotak()->with('uploader:id,name')->limit(30)->get();
+    // Dimuat ulang (fetch) tiap panel dibuka — foto baru dari HP muncul tanpa reload.
+    $notaKotak  = \App\Services\FotoNotaService::kotakUntukPanel();
+    // url ber-versi (?v=updated_at) → setelah diputar, browser tidak memakai cache lama.
+    $notaFoto   = $notaGambar->map(fn ($a) => [
+        'url'   => \App\Services\FotoNotaService::urlLihat($jenis, $a),
+        'putar' => route($notaPrefix . '.nota.putar', [$doc->id, $a->id]),
+    ])->values();
 @endphp
 <div class="bg-white rounded shadow p-4 mb-4"
-     x-data="{ lihat: null, hp: false, daftar: @js($notaGambar->map(fn ($a) => route($notaPrefix . '.nota.lihat', [$doc->id, $a->id]))->values()) }"
+     x-data="{
+        lihat: null, hp: false, kotak: @js($notaKotak), memuatHp: false, memutar: false,
+        daftar: @js($notaFoto),
+        async muatHp() {
+            this.memuatHp = true;
+            try {
+                const r = await fetch(@js(route('nota-kotak.daftar')), { headers: { Accept: 'application/json' } });
+                if (r.ok) this.kotak = await r.json();
+            } catch (e) {} finally { this.memuatHp = false; }
+        },
+        async putar(i, arah) {
+            if (this.memutar) return;
+            this.memutar = true;
+            try {
+                const r = await fetch(this.daftar[i].putar, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()) },
+                    body: JSON.stringify({ arah }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (r.ok && d.url) this.daftar[i].url = d.url;
+                else alert(d.pesan || 'Foto gagal diputar.');
+            } catch (e) { alert('Foto gagal diputar. Coba lagi.'); }
+            finally { this.memutar = false; }
+        },
+     }"
+     @focus.window="hp && muatHp()"
      @keydown.escape.window="lihat = null"
      @keydown.arrow-right.window="if (lihat !== null) lihat = (lihat + 1) % daftar.length"
      @keydown.arrow-left.window="if (lihat !== null) lihat = (lihat - 1 + daftar.length) % daftar.length">
@@ -37,12 +69,11 @@
                 <input type="file" name="nota[]" accept="image/*,application/pdf" multiple
                        data-foto-nota data-auto-submit class="hidden">
             </label>
-            <button type="button" @click="hp = !hp"
+            <button type="button" @click="hp = !hp; if (hp) muatHp()"
                     class="border border-teal-300 hover:bg-teal-50 text-teal-700 px-3 py-2 rounded text-sm font-semibold">
                 📱 Ambil dari HP
-                @if ($notaKotak->count())
-                    <span class="ml-0.5 bg-teal-600 text-white rounded-full px-1.5 text-[11px]">{{ $notaKotak->count() }}</span>
-                @endif
+                <span x-show="kotak.length" x-text="kotak.length" @if ($notaKotak->isEmpty()) x-cloak @endif
+                      class="ml-0.5 bg-teal-600 text-white rounded-full px-1.5 text-[11px]">{{ $notaKotak->count() }}</span>
             </button>
             <span data-foto-nota-info class="text-xs text-gray-500"></span>
         </form>
@@ -54,38 +85,36 @@
             <p class="text-sm font-semibold text-teal-800">Foto dari HP yang belum ditempel</p>
             <a href="{{ route('nota-kotak.index') }}" class="text-xs text-teal-700 underline">Kelola Kotak Nota</a>
         </div>
-        @if ($notaKotak->isEmpty())
-            <p class="text-sm text-gray-500">
-                Kosong. Foto nota dari HP lewat PWA (<b>/cs</b> → menu <b>Nota</b>), lalu tempel di sini.
-            </p>
-        @else
-            <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                @foreach ($notaKotak as $k)
-                    <div class="bg-white border border-gray-200 rounded overflow-hidden flex flex-col">
-                        <a href="{{ route('nota-kotak.gambar', $k->id) }}" target="_blank" rel="noopener" class="block bg-gray-50">
-                            @if ($k->isImage())
-                                <img src="{{ route('nota-kotak.gambar', $k->id) }}" alt="Foto nota" loading="lazy" class="w-full h-28 object-cover">
-                            @else
-                                <span class="flex items-center justify-center h-28 text-3xl">📄</span>
-                            @endif
-                        </a>
-                        <div class="px-1.5 py-1 text-[10px] text-gray-500 leading-tight flex-1">
-                            {{ $k->created_at?->format('d/m H:i') }}{{ $k->uploader ? ' · ' . $k->uploader->name : '' }}
-                            @if ($k->catatan)
-                                <div class="text-[11px] text-gray-800 font-semibold truncate" title="{{ $k->catatan }}">{{ $k->catatan }}</div>
-                            @endif
-                        </div>
-                        <form method="POST" action="{{ route($notaPrefix . '.nota.tempel', $doc->id) }}">
-                            @csrf
-                            <input type="hidden" name="lampiran_id" value="{{ $k->id }}">
-                            <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold py-1.5">
-                                Tempel ke sini
-                            </button>
-                        </form>
+        <p x-show="!kotak.length" class="text-sm text-gray-500">
+            <span x-show="memuatHp">Memuat…</span>
+            <span x-show="!memuatHp">Kosong. Foto nota dari HP lewat PWA (<b>/cs</b> → menu <b>Nota</b>), lalu tempel di sini.</span>
+        </p>
+        <div x-show="kotak.length" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+            <template x-for="k in kotak" :key="k.id">
+                <div class="bg-white border border-gray-200 rounded overflow-hidden flex flex-col">
+                    <a :href="k.url" target="_blank" rel="noopener" class="block bg-gray-50">
+                        <template x-if="k.gambar">
+                            <img :src="k.url" alt="Foto nota" loading="lazy" class="w-full h-28 object-cover">
+                        </template>
+                        <template x-if="!k.gambar">
+                            <span class="flex items-center justify-center h-28 text-3xl">📄</span>
+                        </template>
+                    </a>
+                    <div class="px-1.5 py-1 text-[10px] text-gray-500 leading-tight flex-1">
+                        <span x-text="k.waktu"></span>
+                        <div x-show="k.catatan" x-text="k.catatan" :title="k.catatan"
+                             class="text-[11px] text-gray-800 font-semibold truncate"></div>
                     </div>
-                @endforeach
-            </div>
-        @endif
+                    <form method="POST" action="{{ route($notaPrefix . '.nota.tempel', $doc->id) }}">
+                        @csrf
+                        <input type="hidden" name="lampiran_id" :value="k.id">
+                        <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold py-1.5">
+                            Tempel ke sini
+                        </button>
+                    </form>
+                </div>
+            </template>
+        </div>
     </div>
 
     @if ($notaList->isEmpty())
@@ -96,13 +125,21 @@
     @else
         <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
             @foreach ($notaList as $a)
-                @php $url = route($notaPrefix . '.nota.lihat', [$doc->id, $a->id]); @endphp
+                @php
+                    $url = \App\Services\FotoNotaService::urlLihat($jenis, $a);
+                    $i   = $notaGambar->search(fn ($g) => $g->id === $a->id);
+                @endphp
                 <div class="relative group border border-gray-200 rounded overflow-hidden bg-gray-50">
                     @if ($a->isImage())
-                        <button type="button" class="block w-full"
-                                @click="lihat = {{ $notaGambar->search(fn ($g) => $g->id === $a->id) }}">
-                            <img src="{{ $url }}" alt="Foto nota" loading="lazy" class="w-full h-28 object-cover">
+                        <button type="button" class="block w-full" @click="lihat = {{ $i }}">
+                            <img src="{{ $url }}" :src="daftar[{{ $i }}].url" alt="Foto nota" loading="lazy" class="w-full h-28 object-cover">
                         </button>
+                        <div class="absolute top-1 left-1 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
+                            <button type="button" title="Putar ke kiri" @click="putar({{ $i }}, 'kiri')" :disabled="memutar"
+                                    class="bg-white/90 hover:bg-gray-800 hover:text-white text-gray-700 rounded w-7 h-7 text-sm shadow">⟲</button>
+                            <button type="button" title="Putar ke kanan" @click="putar({{ $i }}, 'kanan')" :disabled="memutar"
+                                    class="bg-white/90 hover:bg-gray-800 hover:text-white text-gray-700 rounded w-7 h-7 text-sm shadow">⟳</button>
+                        </div>
                     @else
                         <a href="{{ $url }}" target="_blank" rel="noopener"
                            class="flex flex-col items-center justify-center h-28 text-gray-600 text-xs p-2 text-center">
@@ -130,8 +167,8 @@
     <template x-teleport="body">
         <div x-show="lihat !== null" x-cloak @click.self="lihat = null"
              class="fixed inset-0 z-[9998] bg-black/85 flex items-center justify-center p-4">
-            <img :src="lihat !== null ? daftar[lihat] : ''" alt="Foto nota"
-                 class="max-w-full max-h-full object-contain rounded shadow-2xl">
+            <img :src="lihat !== null ? daftar[lihat].url : ''" alt="Foto nota"
+                 class="max-w-full max-h-full object-contain rounded shadow-2xl" :class="memutar && 'opacity-50'">
             <button type="button" @click="lihat = null"
                     class="absolute top-4 right-4 text-white text-3xl leading-none">&times;</button>
             <template x-if="daftar.length > 1">
@@ -142,7 +179,13 @@
                             class="absolute right-3 top-1/2 -translate-y-1/2 text-white text-4xl px-2">&rsaquo;</button>
                 </div>
             </template>
-            <a :href="lihat !== null ? daftar[lihat] : '#'" target="_blank" rel="noopener"
+            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+                <button type="button" @click="putar(lihat, 'kiri')" :disabled="memutar"
+                        class="bg-white/15 hover:bg-white/30 text-white rounded px-3 py-1.5 text-sm">⟲ Putar kiri</button>
+                <button type="button" @click="putar(lihat, 'kanan')" :disabled="memutar"
+                        class="bg-white/15 hover:bg-white/30 text-white rounded px-3 py-1.5 text-sm">Putar kanan ⟳</button>
+            </div>
+            <a :href="lihat !== null ? daftar[lihat].url : '#'" target="_blank" rel="noopener"
                class="absolute bottom-4 right-4 text-white/80 hover:text-white text-sm underline">Buka ukuran asli</a>
         </div>
     </template>

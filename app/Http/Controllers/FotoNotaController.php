@@ -60,6 +60,22 @@ class FotoNotaController extends Controller
         return back()->with('success', 'Foto dari HP ditempel ke dokumen ini.');
     }
 
+    /** Putar foto 90°. Dipanggil fetch dari kartu foto nota → JSON berisi URL versi baru. */
+    public function putar(Request $request, $id, $lampiran)
+    {
+        $jenis = $request->route('jenis');
+        $att   = $this->lampiran($jenis, $id, $lampiran);
+        $request->validate(['arah' => 'required|in:kiri,kanan']);
+
+        try {
+            $this->service->putar($att, $request->input('arah'));
+        } catch (\DomainException $e) {
+            return response()->json(['success' => false, 'pesan' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['success' => true, 'url' => FotoNotaService::urlLihat($jenis, $att)]);
+    }
+
     public function destroy(Request $request, $id, $lampiran)
     {
         $att = $this->lampiran($request->route('jenis'), $id, $lampiran);

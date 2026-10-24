@@ -232,6 +232,36 @@ class FotoNotaService
         ], 'inline');
     }
 
+    /** Putar foto 90° (kanan = searah jarum jam). Berkas di disk ditimpa. */
+    public function putar(DocumentAttachment $att, string $arah): void
+    {
+        $disk = Storage::disk($att->disk);
+        if (!$att->isImage() || !$att->path || !$disk->exists($att->path)
+            || !$this->downscaler->rotate($disk->path($att->path), $arah === 'kiri' ? 270 : 90)) {
+            throw new \DomainException('Foto ini tidak bisa diputar (format tidak didukung).');
+        }
+        $att->size_bytes = (int) $disk->size($att->path);
+        $att->touch(); // updated_at = versi gambar di URL, supaya cache browser tidak menampilkan yang lama
+    }
+
+    /** URL penampil foto nota + versi (updated_at) — foto yang diputar berganti URL. */
+    public static function urlLihat(string $jenis, DocumentAttachment $att): string
+    {
+        return route(self::routePrefix($jenis) . '.nota.lihat', [$att->doc_id, $att->id, 'v' => $att->updated_at?->timestamp]);
+    }
+
+    /** Isi panel "Ambil dari HP" (kartu foto nota) — dimuat ulang tiap panel dibuka. */
+    public static function kotakUntukPanel()
+    {
+        return self::kotak()->with('uploader:id,name')->limit(30)->get()->map(fn (DocumentAttachment $k) => [
+            'id'      => $k->id,
+            'url'     => route('nota-kotak.gambar', $k->id),
+            'gambar'  => $k->isImage(),
+            'waktu'   => $k->created_at?->format('d/m H:i') . ($k->uploader ? ' · ' . $k->uploader->name : ''),
+            'catatan' => $k->catatan,
+        ])->values();
+    }
+
     public function arsipkan(DocumentAttachment $att, ?int $userId = null): void
     {
         $att->update(['deleted_by' => $userId]);

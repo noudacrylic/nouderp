@@ -93,9 +93,12 @@ class KotakNotaTest extends TestCase
         $cd   = $this->pengeluaran('CD-0001');
         $lain = $this->pengeluaran('CD-0002');
 
-        // Muncul di panel "Ambil dari HP" halaman dokumen.
+        // Muncul di panel "Ambil dari HP" halaman dokumen — dan lewat JSON yang
+        // dimuat ulang tiap panel dibuka (kiriman HP baru tampil tanpa reload).
         $this->actingAs($u)->get(route('finance.cash-bank.disbursements.show', $cd->id))
-            ->assertOk()->assertSee('Ambil dari HP')->assertSee(route('nota-kotak.gambar', $att->id), false);
+            ->assertOk()->assertSee('Ambil dari HP')->assertSee('Toko Lem 25rb');
+        $this->actingAs($u)->getJson(route('nota-kotak.daftar'))
+            ->assertOk()->assertJsonPath('0.id', $att->id)->assertJsonPath('0.url', route('nota-kotak.gambar', $att->id));
 
         $this->actingAs($u)->post(route('finance.cash-bank.disbursements.nota.tempel', $cd->id), ['lampiran_id' => $att->id])
             ->assertSessionHas('success');

@@ -135,6 +135,52 @@ class ImageDownscaler
         return new UploadedFile($tmp, $name, null, null, true);
     }
 
+    /**
+     * Putar berkas gambar di tempat, searah jarum jam (90/180/270). Orientasi
+     * EXIF dibakar dulu ke piksel — berkas hasilnya tanpa EXIF, jadi kalau tidak,
+     * putaran yang terlihat di browser meleset dari yang diminta.
+     *
+     * @return bool false bila formatnya tak bisa diputar GD (HEIC, GIF, rusak).
+     */
+    public function rotate(string $path, int $clockwise): bool
+    {
+        $info = @getimagesize($path);
+        $type = $info[2] ?? null;
+        if (!in_array($type, [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) return false;
+
+        $src = match ($type) {
+            IMAGETYPE_JPEG => @imagecreatefromjpeg($path),
+            IMAGETYPE_PNG  => @imagecreatefrompng($path),
+            IMAGETYPE_WEBP => @imagecreatefromwebp($path),
+        };
+        if (!$src) return false;
+
+        if ($type === IMAGETYPE_JPEG) {
+            $src = $this->applyExifOrientation($src, $path);
+        }
+
+        // imagerotate berputar berlawanan arah jarum jam.
+        $transparent = $type === IMAGETYPE_JPEG ? 0 : imagecolorallocatealpha($src, 0, 0, 0, 127);
+        $dst = imagerotate($src, -$clockwise, $transparent);
+        imagedestroy($src);
+        if (!$dst) return false;
+
+        if ($type !== IMAGETYPE_JPEG) {
+            imagealphablending($dst, false);
+            imagesavealpha($dst, true);
+        }
+
+        $ok = match ($type) {
+            IMAGETYPE_JPEG => imagejpeg($dst, $path, self::QUALITY),
+            IMAGETYPE_PNG  => imagepng($dst, $path, 8),
+            IMAGETYPE_WEBP => imagewebp($dst, $path, self::QUALITY),
+        };
+        imagedestroy($dst);
+        clearstatcache(true, $path);
+
+        return $ok;
+    }
+
     private function applyExifOrientation(\GdImage $img, string $path): \GdImage
     {
         if (!function_exists('exif_read_data')) return $img;

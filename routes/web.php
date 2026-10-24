@@ -112,6 +112,7 @@ Route::prefix('erp')->group(function () {
     // -- Kotak Nota: foto nota kiriman PWA HP yang belum ditempel ke dokumen --
     Route::prefix('nota-kotak')->name('nota-kotak.')->middleware('auth')->group(function () {
         Route::get('/', [\App\Http\Controllers\KotakNotaController::class, 'index'])->name('index');
+        Route::get('/daftar', [\App\Http\Controllers\KotakNotaController::class, 'daftar'])->name('daftar');
         Route::get('/{lampiran}/gambar', [\App\Http\Controllers\KotakNotaController::class, 'gambar'])->whereNumber('lampiran')->name('gambar');
         Route::delete('/{lampiran}', [\App\Http\Controllers\KotakNotaController::class, 'destroy'])->whereNumber('lampiran')->name('destroy');
     });
@@ -1290,6 +1291,7 @@ Route::prefix('erp/purchasing')->name('purchasing.')->group(function () {
         Route::get("$seg/{id}/nota/{lampiran}", [\App\Http\Controllers\FotoNotaController::class, 'lihat'])->whereNumber(['id', 'lampiran'])->defaults('jenis', $jenis)->name("$seg.nota.lihat");
         Route::delete("$seg/{id}/nota/{lampiran}", [\App\Http\Controllers\FotoNotaController::class, 'destroy'])->whereNumber(['id', 'lampiran'])->defaults('jenis', $jenis)->name("$seg.nota.destroy");
         Route::post("$seg/{id}/nota/tempel", [\App\Http\Controllers\FotoNotaController::class, 'tempel'])->whereNumber('id')->defaults('jenis', $jenis)->name("$seg.nota.tempel");
+        Route::post("$seg/{id}/nota/{lampiran}/putar", [\App\Http\Controllers\FotoNotaController::class, 'putar'])->whereNumber(['id', 'lampiran'])->defaults('jenis', $jenis)->name("$seg.nota.putar");
     }
     Route::get('payments/{id}/print', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'print'])->whereNumber('id')->name('payments.print');
     Route::get('payments/{id}/pdf', [\App\Modules\Purchasing\Controllers\SupplierPaymentController::class, 'downloadPdf'])->whereNumber('id')->name('payments.pdf');

@@ -130,6 +130,37 @@ class FotoNotaTest extends TestCase
         Storage::disk('local')->assertExists($arsip->path);
     }
 
+    public function test_foto_bisa_diputar_dan_urlnya_berganti_versi(): void
+    {
+        $cd = $this->pengeluaran();
+        $this->actingAs($this->admin)->post(route('finance.cash-bank.disbursements.nota.store', $cd->id), [
+            'nota' => [
+                UploadedFile::fake()->image('nota.jpg', 300, 200),
+                UploadedFile::fake()->create('bukti.pdf', 50, 'application/pdf'),
+            ],
+        ]);
+        [$foto, $pdf] = $cd->fotoNota()->orderBy('id')->get();
+        $this->travel(5)->seconds();
+
+        $url = $this->actingAs($this->admin)
+            ->postJson(route('finance.cash-bank.disbursements.nota.putar', [$cd->id, $foto->id]), ['arah' => 'kanan'])
+            ->assertOk()->json('url');
+
+        [$lebar, $tinggi] = getimagesize(Storage::disk('local')->path($foto->path));
+        $this->assertSame([200, 300], [$lebar, $tinggi], 'Diputar 90° → lebar & tinggi bertukar');
+        $this->assertNotSame(\App\Services\FotoNotaService::urlLihat('cash_disbursement', $foto), $url, 'URL versi baru supaya cache browser tidak dipakai');
+        $this->assertSame(\App\Services\FotoNotaService::urlLihat('cash_disbursement', $foto->fresh()), $url);
+
+        // PDF tidak bisa diputar; lampiran dokumen lain → 404.
+        $this->actingAs($this->admin)
+            ->postJson(route('finance.cash-bank.disbursements.nota.putar', [$cd->id, $pdf->id]), ['arah' => 'kiri'])
+            ->assertStatus(422);
+        $lain = $this->pengeluaran('posted', 'CD-0002');
+        $this->actingAs($this->admin)
+            ->postJson(route('finance.cash-bank.disbursements.nota.putar', [$lain->id, $foto->id]), ['arah' => 'kiri'])
+            ->assertNotFound();
+    }
+
     public function test_draft_dihapus_fotonya_ikut_diarsipkan(): void
     {
         $cd = $this->pengeluaran('draft');

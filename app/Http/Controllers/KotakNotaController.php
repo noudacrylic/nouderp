@@ -30,6 +30,13 @@ class KotakNotaController extends Controller
         return view('erp.nota-kotak.index', compact('kotak'));
     }
 
+    /** JSON isi kotak untuk panel "Ambil dari HP" — supaya kiriman HP terbaru muncul tanpa reload. */
+    public function daftar()
+    {
+        $this->jaga();
+        return response()->json(FotoNotaService::kotakUntukPanel());
+    }
+
     public function gambar($lampiran)
     {
         $this->jaga();
