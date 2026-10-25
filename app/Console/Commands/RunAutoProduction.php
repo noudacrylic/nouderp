@@ -53,6 +53,19 @@ class RunAutoProduction extends Command
             $this->line($line);
         }
 
+        // NM dari BNM sesudah stok menipis: BOM NM yang auto-produksinya aktif diserahkan ke skill itu.
+        $nm = $kv->jalankan('produksi.op-nm-dari-bnm', KaryawanVirtualService::PEMICU_JADWAL);
+        foreach ($nm['hasil'] as $r) {
+            if ($r['created'] || ($r['simulasi'] ?? false)) {
+                $this->line('  ' . ($r['created'] ? '<info>CREATED</info>' : '<info>AKAN</info>')
+                    . "  NM {$r['sku']}" . ($r['created'] ? " → {$r['order_number']}" : '') . " — {$r['reason']}");
+            }
+        }
+        if ($nm['mode'] === 'persetujuan' && $nm['usulan']) {
+            $this->warn('Skill "Buat OP Nama Meja dari BNM" mode persetujuan — '
+                . collect($nm['usulan'])->where('baru', true)->count() . ' usulan baru.');
+        }
+
         $preorderResults = $kv->jalankan('produksi.op-preorder', KaryawanVirtualService::PEMICU_JADWAL)['hasil'];
 
         foreach ($preorderResults as $r) {
@@ -64,7 +77,8 @@ class RunAutoProduction extends Command
         }
 
         $created = collect($results)->where('created', true)->count()
-            + collect($preorderResults)->where('created', true)->count();
+            + collect($preorderResults)->where('created', true)->count()
+            + collect($nm['hasil'])->where('created', true)->count();
         $this->newLine();
         $this->info("Selesai. {$created} order dibuat dari " . count($results) . ' BOM stok + '
             . collect($preorderResults)->pluck('sales_order_id')->unique()->count() . ' pesanan pre-order yang diperiksa.');

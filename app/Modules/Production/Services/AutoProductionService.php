@@ -77,24 +77,7 @@ class AutoProductionService
             return array_merge($base, ['reason' => "Produk {$product->sku} preorder — OP dibuat saat ada pesanan (DP), bukan dari stok menipis."]);
         }
 
-        // Hanya hitung stok di gudang jual (is_sellable = 1). Gudang non-jual seperti
-        // "Cadangan" sengaja DIKECUALIKAN: isinya buffer untuk saat pesanan rame dan
-        // tidak boleh menutupi kondisi menipis di gudang operasional. Dengan begitu auto
-        // tetap jalan begitu gudang jual menipis, sementara stok cadangan tetap tersimpan.
-        //
-        // Pakai stok TERSEDIA, bukan on-hand mentah, agar SELARAS dengan kartu "Stok
-        // Menipis" di dashboard & kolom "Tersedia" di halaman Stok:
-        //   tersedia = Σ on_hand gudang sellable − reservasi aktif + stok preorder.
-        // Tanpa mengurangi reservasi, unit yang sudah di-booking pesanan (akan keluar)
-        // menutupi kondisi menipis sehingga OP otomatis tak pernah terbentuk walau
-        // dashboard sudah menandai produk itu menipis.
-        $onHand = (float) ProductStock::where('product_id', $product->id)
-            ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', 1))
-            ->sum('qty_on_hand');
-        $reserved = (float) \App\Core\Inventory\StockReservation::where('product_id', $product->id)
-            ->where('status', 'active')
-            ->sum('qty');
-        $qtyOnHand = $onHand - $reserved + (float) ($product->preorder_stock ?? 0);
+        $qtyOnHand = $this->stokTersedia($product);
         $minStock  = $product->min_stock !== null ? (float) $product->min_stock : null;
 
         // Trigger jika: stok habis/minus (apa pun nilai min_stock), atau menipis (qty <= min_stock yang valid).
@@ -108,33 +91,13 @@ class AutoProductionService
             return array_merge($base, ['reason' => "Stok {$product->sku} ({$qtyOnHand}) masih aman ({$minLabel})."]);
         }
 
-        // Anti-duplikat: cek produksi aktif untuk produk utama yang sama.
-        // KECUALIKAN tipe 'repair' (Perbaikan): OP perbaikan hanya memulihkan 1 unit
-        // retur/garansi (bukan mengisi ulang stok jual), jadi tidak boleh menghalangi
-        // auto-produksi. Hanya produksi asli (ready_stock/custom) yang menambah stok
-        // jual yang dianggap duplikat.
-        //
-        // KECUALIKAN juga status 'merged': task itu sudah diserap ke task induk dan tidak
-        // dikerjakan sendiri lagi — induknyalah yang (kalau memang masih jalan) muncul di
-        // pengecekan ini. Tanpa pengecualian ini satu task gabungan memblokir auto-produksi
-        // produknya SELAMANYA, sehingga stok habis tapi tidak ada OP baru yang terbentuk.
-        $hasActive = ProductionOrder::whereNotIn('status', ['finalized', 'cancelled', 'merged'])
-            ->whereNotIn('type', ProductionOrder::REPAIR_TYPES)
-            ->whereHas('outputs', function ($q) use ($product) {
-                $q->where('product_id', $product->id)
-                  ->where('output_type', 'main');
-            })
-            ->exists();
+        $hasActive = $this->adaProduksiAktif($product);
 
         if ($hasActive) {
             return array_merge($base, ['reason' => "Sudah ada produksi aktif untuk produk {$product->sku}."]);
         }
 
-        $warehouse = Warehouse::query()
-            ->where('is_active', 1)
-            ->orderByRaw("CASE WHEN LOWER(name) LIKE '%utama%' THEN 0 ELSE 1 END")
-            ->orderBy('id')
-            ->first();
+        $warehouse = $this->gudangProduksi();
 
         if (!$warehouse) {
             return array_merge($base, ['reason' => 'Tidak ada gudang aktif untuk dipakai.']);
@@ -211,5 +174,64 @@ class AutoProductionService
             ]);
             return array_merge($base, ['reason' => 'Gagal membuat order: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Stok tersedia produk jadi — dasar pemicu "stok menipis" (dipakai juga skill NM dari BNM).
+     */
+    public function stokTersedia(Product $product): float
+    {
+        // Hanya hitung stok di gudang jual (is_sellable = 1). Gudang non-jual seperti
+        // "Cadangan" sengaja DIKECUALIKAN: isinya buffer untuk saat pesanan rame dan
+        // tidak boleh menutupi kondisi menipis di gudang operasional. Dengan begitu auto
+        // tetap jalan begitu gudang jual menipis, sementara stok cadangan tetap tersimpan.
+        //
+        // Pakai stok TERSEDIA, bukan on-hand mentah, agar SELARAS dengan kartu "Stok
+        // Menipis" di dashboard & kolom "Tersedia" di halaman Stok:
+        //   tersedia = Σ on_hand gudang sellable − reservasi aktif + stok preorder.
+        // Tanpa mengurangi reservasi, unit yang sudah di-booking pesanan (akan keluar)
+        // menutupi kondisi menipis sehingga OP otomatis tak pernah terbentuk walau
+        // dashboard sudah menandai produk itu menipis.
+        $onHand = (float) ProductStock::where('product_id', $product->id)
+            ->whereHas('warehouse', fn ($q) => $q->where('is_sellable', 1))
+            ->sum('qty_on_hand');
+        $reserved = (float) \App\Core\Inventory\StockReservation::where('product_id', $product->id)
+            ->where('status', 'active')
+            ->sum('qty');
+        return $onHand - $reserved + (float) ($product->preorder_stock ?? 0);
+    }
+
+    /**
+     * Sudah ada OP berjalan yang menghasilkan produk ini sebagai output utama?
+     */
+    public function adaProduksiAktif(Product $product): bool
+    {
+        // Anti-duplikat: cek produksi aktif untuk produk utama yang sama.
+        // KECUALIKAN tipe 'repair' (Perbaikan): OP perbaikan hanya memulihkan 1 unit
+        // retur/garansi (bukan mengisi ulang stok jual), jadi tidak boleh menghalangi
+        // auto-produksi. Hanya produksi asli (ready_stock/custom) yang menambah stok
+        // jual yang dianggap duplikat.
+        //
+        // KECUALIKAN juga status 'merged': task itu sudah diserap ke task induk dan tidak
+        // dikerjakan sendiri lagi — induknyalah yang (kalau memang masih jalan) muncul di
+        // pengecekan ini. Tanpa pengecualian ini satu task gabungan memblokir auto-produksi
+        // produknya SELAMANYA, sehingga stok habis tapi tidak ada OP baru yang terbentuk.
+        return ProductionOrder::whereNotIn('status', ['finalized', 'cancelled', 'merged'])
+            ->whereNotIn('type', ProductionOrder::REPAIR_TYPES)
+            ->whereHas('outputs', function ($q) use ($product) {
+                $q->where('product_id', $product->id)
+                  ->where('output_type', 'main');
+            })
+            ->exists();
+    }
+
+    /** Gudang tempat OP otomatis dibuat (dan bahannya diambil saat konfirmasi). */
+    public function gudangProduksi(): ?Warehouse
+    {
+        return Warehouse::query()
+            ->where('is_active', 1)
+            ->orderByRaw("CASE WHEN LOWER(name) LIKE '%utama%' THEN 0 ELSE 1 END")
+            ->orderBy('id')
+            ->first();
     }
 }

@@ -30,12 +30,16 @@ return [
         'nama'      => 'Manager Produksi',
         'ikon'      => '🏭',
         'divisi'    => 'Produksi',
-        'deskripsi' => 'Menjaga stok produk ready tidak kosong dan memastikan setiap pesanan pre-order punya order produksi.',
+        'deskripsi' => 'Menjaga stok produk ready tidak kosong (termasuk Nama Meja dari BNM) dan memastikan setiap pesanan pre-order punya order produksi.',
         'akses'     => 'production.orders',
         'skills'    => [
             'produksi.op-stok-menipis' => \App\Modules\KaryawanVirtual\Skills\Produksi\OpStokMenipis::class,
             'produksi.op-preorder'     => \App\Modules\KaryawanVirtual\Skills\Produksi\OpPreorder::class,
+            'produksi.op-nm-dari-bnm'  => \App\Modules\KaryawanVirtual\Skills\Produksi\OpNmDariBnm::class,
         ],
+        // Skill yang masih diuji: diberi label "Dalam percobaan" di halaman & pesan Telegram.
+        // Hapus dari daftar ini setelah hasilnya dipercaya (biasanya bersamaan naik ke Otomatis).
+        'percobaan' => ['produksi.op-nm-dari-bnm'],
     ],
 
 ];

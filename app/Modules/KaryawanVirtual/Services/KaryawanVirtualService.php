@@ -67,6 +67,12 @@ class KaryawanVirtualService
         return app($this->semua()[$this->pemilik($skillKey)]['skills'][$skillKey]);
     }
 
+    /** Skill masih diuji (daftar 'percobaan' karyawannya) → diberi label di halaman & Telegram. */
+    public function dalamPercobaan(string $skillKey): bool
+    {
+        return in_array($skillKey, $this->semua()[$this->pemilik($skillKey)]['percobaan'] ?? [], true);
+    }
+
     /** Boleh membuka halaman karyawan ini? = punya akses menu divisinya. */
     public function bolehLihat(string $kode): bool
     {

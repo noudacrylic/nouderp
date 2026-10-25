@@ -82,7 +82,12 @@
             @php $skill = $s['skill']; $state = $s['state']; @endphp
             <div class="bg-white rounded shadow p-4 flex flex-col" x-data="{ rinci: false }">
                 <div class="flex items-start justify-between gap-2 mb-1">
-                    <div class="font-semibold text-slate-800">{{ $skill->label() }}</div>
+                    <div class="font-semibold text-slate-800">
+                        {{ $skill->label() }}
+                        @if ($s['percobaan'] ?? false)
+                            <span class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title="Skill baru masih diuji; naik ke Otomatis setelah hasilnya dipercaya.">🧪 Dalam percobaan</span>
+                        @endif
+                    </div>
                     <span class="shrink-0 rounded px-2 py-0.5 text-xs font-semibold {{ $warnaMode[$s['mode']] ?? '' }}">{{ $labelMode[$s['mode']] ?? $s['mode'] }}</span>
                 </div>
                 <p class="text-xs text-slate-600 mb-1">{{ $skill->deskripsi() }}</p>

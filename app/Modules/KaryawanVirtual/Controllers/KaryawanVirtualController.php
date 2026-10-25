@@ -54,6 +54,7 @@ class KaryawanVirtualController extends Controller
                 'skill'    => $skill,
                 'mode'     => $this->kv->mode($key),
                 'state'    => $this->kv->state($key)->load('pengubahMode:id,name'),
+                'percobaan' => $this->kv->dalamPercobaan($key),
             ];
         });
 

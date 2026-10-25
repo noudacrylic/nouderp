@@ -275,6 +275,7 @@ class UsulanService
             . '<b>' . e($usulan->judul) . "</b>\n"
             . ($usulan->alasan ? e($usulan->alasan) . "\n" : '')
             . "\nSkill: " . e($skill->label()) . " · usulan #{$usulan->id}"
+            . ($this->kv->dalamPercobaan($usulan->skill) ? "\n🧪 Skill dalam percobaan — periksa usulannya sebelum menyetujui." : '')
             . ($denganBatas ? "\nBerlaku sampai " . $usulan->kedaluwarsa_at->format('d/m H:i') : '')
             . "\n<a href=\"" . e(route('karyawan-virtual.show', $usulan->karyawan)) . '">Buka jurnal kerja</a>';
     }
