@@ -41,7 +41,7 @@ class InvoiceTrailService
         $jurnal = Journal::with('lines.account:id,code,name,type')
             ->where(fn ($w) => $w
                 ->where(fn ($q) => $q->where('reference_type', 'customer_payment')->whereIn('reference_id', $bayarIds ?: [0]))
-                ->orWhere(fn ($q) => $q->whereIn('reference_type', ['sales_invoice', 'sales_invoice_settlement'])->where('reference_id', $inv->id))
+                ->orWhere(fn ($q) => $q->whereIn('reference_type', ['sales_invoice', 'sales_invoice_settlement', MarketplaceEngineService::REF_KOREKSI])->where('reference_id', $inv->id))
                 ->orWhere(fn ($q) => $q->where('reference_type', 'sales_return')->whereIn('reference_id', $retur->pluck('id')->all() ?: [0])))
             ->orderBy('date')->orderBy('id')
             ->get();
@@ -53,6 +53,7 @@ class InvoiceTrailService
                 'customer_payment'         => 'Pembayaran pembeli (uang muka)',
                 'sales_invoice'            => 'Faktur terbit',
                 'sales_invoice_settlement' => $this->dariRetur($j, $retur) ? 'Penyelesaian pesanan (lewat retur)' : 'Pencairan dana marketplace',
+                MarketplaceEngineService::REF_KOREKSI => 'Koreksi potongan marketplace (rincian final)',
                 'sales_return'             => 'Retur ' . ($returById->get($j->reference_id)?->return_number ?? ''),
                 default                    => $j->reference_type,
             },
@@ -83,7 +84,7 @@ class InvoiceTrailService
 
     private function ringkasMarketplace(SalesInvoice $inv, MarketplaceConfig $config, Collection $jurnal, Collection $retur): array
     {
-        $cair = $jurnal->where('reference_type', 'sales_invoice_settlement')->where('status', '!=', 'void');
+        $cair = $jurnal->whereIn('reference_type', ['sales_invoice_settlement', MarketplaceEngineService::REF_KOREKSI])->where('status', '!=', 'void');
         $mutasi = function (?int $akun, string $sisi = 'debit') use ($cair): float {
             if (!$akun) {
                 return 0.0;
@@ -101,7 +102,7 @@ class InvoiceTrailService
 
         // Faktur gaya LAMA: biaya admin sudah dipotong di jurnal fakturnya sendiri.
         if (!$inv->fee_at_settlement) {
-            $admin = round((float) $inv->marketplace_fee, 2);
+            $admin = round((float) $inv->marketplace_fee + (float) $inv->mp_fee_koreksi, 2);
         }
 
         $rekon = MarketplaceSettlementLine::with('settlement:id,number,status')

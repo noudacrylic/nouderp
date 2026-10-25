@@ -668,9 +668,10 @@ class SalesInvoiceService
 
             // 2b. Void jurnal MARKETPLACE (fee + settlement) dari MarketplaceEngineService,
             //     dan reset flag agar invoice bisa diproses ulang bila di-post lagi.
-            \App\Core\Journal\Journal::whereIn('reference_type', ['sales_invoice_fee', 'sales_invoice_settlement'])
+            \App\Core\Journal\Journal::whereIn('reference_type', ['sales_invoice_fee', 'sales_invoice_settlement', \App\Modules\Sales\Services\MarketplaceEngineService::REF_KOREKSI])
                 ->where('reference_id', $invoice->id)
                 ->update(['status' => 'void', 'voided_at' => now()]);
+            $invoice->mp_fee_koreksi = 0;
             if (\Illuminate\Support\Facades\Schema::hasColumn($invoice->getTable(), 'marketplace_processed')) {
                 $invoice->marketplace_processed = false;
             }

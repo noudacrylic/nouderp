@@ -160,6 +160,23 @@ class MarketplaceFeeBreakdownService
                 ->update(['mp_tax_withheld' => $b['pajak'], 'mp_tax_source' => $b['sumber'], 'updated_at' => now()]);
         }
 
+        // Rincian final bisa tiba SETELAH pesanan dicairkan dengan rincian yang belum lengkap
+        // (affiliate/premi menyusul) → samakan dana masuk wallet dengan saldo masuk aktual.
+        if ($row->final && $row->sumber === 'jubelio') {
+            $engine = app(MarketplaceEngineService::class);
+            SalesInvoice::where('sales_order_id', $so->id)->where('status', '!=', 'void')
+                ->where('marketplace_processed', true)->get()
+                ->each(function (SalesInvoice $inv) use ($engine, $row) {
+                    try {
+                        $engine->koreksiKeRincianFinal($inv, $row);
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('Koreksi potongan marketplace gagal', [
+                            'invoice' => $inv->id, 'error' => $e->getMessage(),
+                        ]);
+                    }
+                });
+        }
+
         return $row;
     }
 

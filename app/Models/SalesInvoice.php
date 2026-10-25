@@ -46,6 +46,7 @@ class SalesInvoice extends Model
         'additional_fee',
         'marketplace_fee',
         'fee_at_settlement',
+        'mp_fee_koreksi',
         'subtotal',
         'discount_total',
         'dpp',

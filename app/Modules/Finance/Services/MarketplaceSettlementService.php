@@ -616,6 +616,9 @@ class MarketplaceSettlementService
             $gross = $invoice->fee_at_settlement
                 ? round((float) $invoice->grand_total, 2)
                 : round((float) $invoice->grand_total + $prebooked, 2);
+            // Potongan susulan (MarketplaceEngineService::koreksiKeRincianFinal) juga sudah
+            // dibukukan — tapi bukan bagian nilai kotor, jadi ditambahkan SETELAH gross.
+            $prebooked = round($prebooked + (float) ($invoice->mp_fee_koreksi ?? 0), 2);
             $gross = round($gross - $this->postedReturnReversal($invoice), 2);
             if ($gross < 0) $gross = 0.0;
             return [$gross, $prebooked];

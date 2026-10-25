@@ -4,6 +4,7 @@ namespace App\Modules\Sales\Services;
 
 use App\Enums\AccountCodeEnum;
 use App\Models\MarketplaceConfig;
+use App\Models\MarketplaceOrderFee;
 use App\Modules\Sales\Models\SalesAdvance;
 use App\Core\Journal\Journal;
 use App\Core\Journal\JournalPostingService;
@@ -14,6 +15,9 @@ use Illuminate\Support\Facades\Log;
 
 class MarketplaceEngineService
 {
+    /** Jurnal koreksi potongan susulan — lihat koreksiKeRincianFinal(). */
+    public const REF_KOREKSI = 'marketplace_fee_koreksi';
+
     /**
      * @param float|null $feeAktual Biaya admin marketplace yang dibebankan SEKARANG. Hanya
      *   dipakai faktur gaya baru (`fee_at_settlement`), yang terbit saat pengiriman tanpa fee
@@ -297,6 +301,124 @@ class MarketplaceEngineService
         }
 
         return ['journal' => $this->handle($invoice, $admin, $tanggal), 'admin' => $admin, 'sudah_cair' => false];
+    }
+
+    /**
+     * Samakan dana masuk wallet faktur ini dengan saldo masuk FINAL dari marketplace.
+     *
+     * Saat pesanan selesai, escrow Shopee di Jubelio kadang belum lengkap: komisi affiliate,
+     * premi perlindungan & premi pengiriman menyusul beberapa jam kemudian. Pencairan sudah
+     * terlanjur menjurnal dana masuk terlalu besar, dan tanpa koreksi ini Saldo Penjualan ERP
+     * terus menggelembung dibanding Saldo Penjual asli. Faktur gaya lama sama saja: dana
+     * masuknya = grand_total, padahal premi & affiliate belum termasuk biaya yang dipotong.
+     *
+     * Selisihnya dibukukan sebagai potongan marketplace: Dr Beban Admin / Cr Wallet (atau
+     * kebalikannya bila potongan final lebih kecil), dan dicatat di `mp_fee_koreksi` supaya
+     * rekonsiliasi menganggapnya sudah dibukukan.
+     *
+     * Dilewati — diserahkan ke alurnya masing-masing:
+     *  - rincian belum final / bersumber laporan (laporan = rekonsiliasi, sudah membukukan sendiri);
+     *  - pesanan dengan retur posted (retur ikut menggeser wallet, perhitungannya milik retur);
+     *  - pesanan berfaktur lebih dari satu (saldo masuk per pesanan tak bisa dibagi per faktur);
+     *  - faktur yang sudah masuk rekonsiliasi (draft maupun posted) — selisihnya dibukukan di sana.
+     */
+    public function koreksiKeRincianFinal($invoice, MarketplaceOrderFee $rincian): ?Journal
+    {
+        if (!$rincian->final || $rincian->sumber !== 'jubelio') {
+            return null;
+        }
+        $status = $invoice->status instanceof \BackedEnum ? $invoice->status->value : $invoice->status;
+        if (!$invoice->marketplace_processed || $status === 'void') {
+            return null;
+        }
+
+        $config = MarketplaceConfig::where('customer_id', $invoice->customer_id)->where('is_active', true)->first();
+        if (!$config || !$config->account_wallet_id || !$config->account_fee_id) {
+            return null;
+        }
+
+        // Saldo masuk dicatat per PESANAN; pengiriman bertahap memecahnya ke beberapa faktur.
+        if ($invoice->sales_order_id && \App\Models\SalesInvoice::where('sales_order_id', $invoice->sales_order_id)
+            ->where('status', '!=', 'void')->count() > 1) {
+            return null;
+        }
+
+        $adaRetur = \App\Modules\Sales\Models\SalesReturn::where('status', 'posted')
+            ->where(fn ($w) => $w->where('invoice_id', $invoice->id)
+                ->when($invoice->sales_order_id, fn ($q) => $q->orWhere('sales_order_id', $invoice->sales_order_id)))
+            ->exists();
+        if ($adaRetur) {
+            return null;
+        }
+
+        $sudahRekon = DB::table('marketplace_settlement_lines as sl')
+            ->join('marketplace_settlements as s', 's.id', '=', 'sl.marketplace_settlement_id')
+            ->where('sl.sales_invoice_id', $invoice->id)
+            ->where('sl.is_matched', true)
+            ->whereIn('s.status', ['draft', 'posted'])
+            ->exists();
+        if ($sudahRekon) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($invoice, $rincian, $config) {
+            $jurnal = Journal::whereIn('reference_type', ['sales_invoice_settlement', self::REF_KOREKSI])
+                ->where('reference_id', $invoice->id)
+                ->where('status', '!=', 'void')
+                ->lockForUpdate()
+                ->get(['id', 'date', 'reference_type']);
+
+            $cair = $jurnal->where('reference_type', 'sales_invoice_settlement')->sortBy('date')->first();
+            if (!$cair) {
+                return null;
+            }
+
+            $tercatat = (float) DB::table('journal_lines')
+                ->whereIn('journal_id', $jurnal->pluck('id'))
+                ->where('account_id', $config->account_wallet_id)
+                ->selectRaw('COALESCE(SUM(debit - credit), 0) v')->value('v');
+
+            $selisih = round($tercatat - (float) $rincian->saldo_masuk, 2);
+            if (abs($selisih) < 1) {
+                return null;
+            }
+
+            // Ikut bulan pencairan; bila bulan itu sudah ditutup, bukukan hari ini.
+            $tanggal = \Carbon\Carbon::parse($cair->date);
+            $tutup = \App\Core\Period\AccountingPeriod::where('year', $tanggal->year)
+                ->where('month', $tanggal->month)->where('status', 'closed')->exists();
+            if ($tutup) {
+                $tanggal = now();
+            }
+
+            $n = abs($selisih);
+            $lines = $selisih > 0
+                ? [
+                    new JournalLineDTO(account_id: (int) $config->account_fee_id, debit: $n, credit: 0,
+                        description: 'Potongan marketplace susulan (affiliate/premi) dari rincian final'),
+                    new JournalLineDTO(account_id: (int) $config->account_wallet_id, debit: 0, credit: $n,
+                        description: 'Penyesuaian wallet ke saldo masuk aktual'),
+                ]
+                : [
+                    new JournalLineDTO(account_id: (int) $config->account_wallet_id, debit: $n, credit: 0,
+                        description: 'Penyesuaian wallet ke saldo masuk aktual'),
+                    new JournalLineDTO(account_id: (int) $config->account_fee_id, debit: 0, credit: $n,
+                        description: 'Koreksi potongan marketplace (rincian final lebih kecil)'),
+                ];
+
+            $journal = app(JournalPostingService::class)->post(new JournalEntryDTO(
+                date: $tanggal->toDateString(),
+                reference_type: self::REF_KOREKSI,
+                reference_id: $invoice->id,
+                description: 'Koreksi potongan marketplace - ' . $invoice->invoice_number,
+                lines: $lines,
+                allow_repeat: true,
+            ));
+
+            $invoice->update(['mp_fee_koreksi' => round((float) $invoice->mp_fee_koreksi + $selisih, 2)]);
+
+            return $journal;
+        });
     }
 
     public function cocokkanUlangRekonsiliasi($invoice): void
