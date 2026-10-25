@@ -257,6 +257,7 @@ class KaryawanVirtualService
         $n = collect($rincian)->countBy('status');
         $bagian = array_filter([
             ($n[Skill::DIBUAT] ?? 0)      ? $n[Skill::DIBUAT] . ' dibuat' : null,
+            ($n[Skill::DIUBAH] ?? 0)      ? $n[Skill::DIUBAH] . ' diubah' : null,
             ($n[Skill::AKAN_DIBUAT] ?? 0) ? $n[Skill::AKAN_DIBUAT] . ' akan dibuat (bayangan)' : null,
             ($n[Skill::DIUSULKAN] ?? 0)   ? $n[Skill::DIUSULKAN] . ' diusulkan' : null,
             ($n[Skill::MENUNGGU] ?? 0)    ? $n[Skill::MENUNGGU] . ' menunggu persetujuan' : null,

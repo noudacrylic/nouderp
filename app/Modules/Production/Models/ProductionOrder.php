@@ -133,7 +133,13 @@ class ProductionOrder extends Model
             };
         }
 
-        $bomScore = (float) ($this->bom?->score ?? 0);
+        // Tanpa BOM (mis. NM dirakit dari BNM) tak ada skor BOM — pakai bobot stok hasil
+        // utamanya (minus 400 / habis 200 / menipis 100 / aman 0), supaya "Otomatis" tetap
+        // naik saat stoknya menipis. Diingat per instance: accessor ini dipanggil berulang
+        // oleh comparator pengurutan antrean.
+        $bomScore = $this->bom_id
+            ? (float) ($this->bom?->score ?? 0)
+            : ($this->skorStokTanpaBom ??= $this->hitungSkorStokTanpaBom());
 
         // Order custom/preorder selalu prioritas teratas (floor 300), selaras dengan
         // bobot preorder 300 di BomScoreService. Berlaku walau order tidak punya BOM.
@@ -142,6 +148,15 @@ class ProductionOrder extends Model
         }
 
         return $bomScore;
+    }
+
+    private ?float $skorStokTanpaBom = null;
+
+    private function hitungSkorStokTanpaBom(): float
+    {
+        $utama = $this->outputs->firstWhere('output_type', 'main')?->product;
+
+        return $utama ? app(\App\Modules\Production\Services\BomScoreService::class)->getStockBobot($utama) : 0.0;
     }
 
     public function getPriorityLabelAttribute(): string

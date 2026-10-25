@@ -119,7 +119,7 @@ class BomScoreService
         return $total;
     }
 
-    private function getStockBobot(Product $product): float
+    public function getStockBobot(Product $product): float
     {
         if ($product->sale_type === 'preorder') {
             return 300;

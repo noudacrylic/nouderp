@@ -19,6 +19,8 @@ interface Skill
     public const DIBUAT      = 'dibuat';
     public const AKAN_DIBUAT = 'akan_dibuat';
     public const DILEWATI    = 'dilewati';
+    /** Dokumen yang sudah ada diubah (mis. skor antrean OP dinaikkan). */
+    public const DIUBAH      = 'diubah';
     public const GAGAL       = 'gagal';
     /** Mode persetujuan: usulan baru diajukan / usulan lama masih menunggu / usulan ditolak. */
     public const DIUSULKAN   = 'diusulkan';

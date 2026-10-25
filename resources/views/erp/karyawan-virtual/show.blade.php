@@ -16,6 +16,7 @@
     ];
     $status = [
         'dibuat'      => ['✅', 'Dibuat',              'text-green-700'],
+        'diubah'      => ['✏️', 'Diubah',              'text-green-700'],
         'akan_dibuat' => ['👻', 'Akan dibuat (bayangan)', 'text-amber-700'],
         'gagal'       => ['⚠️', 'Gagal',               'text-red-700'],
         'diusulkan'   => ['🙋', 'Diusulkan',           'text-blue-700'],
