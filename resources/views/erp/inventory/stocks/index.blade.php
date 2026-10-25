@@ -99,7 +99,7 @@
                                     . $n1($stock->per_hari * 30) . ' pcs ÷ 30 = ' . $n1($stock->per_hari) . '/hari. '
                                     . 'Tersedia ' . $n1($stock->available) . ' ÷ ' . $n1($stock->per_hari) . ' = ' . number_format($stock->hari_cukup, 1, ',', '.') . ' hari.';
                             @endphp
-                            <span title="{{ $rumus }}" class="cursor-help underline decoration-dotted {{ $stock->hari_cukup <= 3 ? 'text-red-600 font-semibold' : ($stock->hari_cukup <= 10 ? 'text-amber-600 font-semibold' : 'text-gray-600') }}">
+                            <span title="{{ $rumus }}" class="cursor-help {{ $stock->hari_cukup <= 3 ? 'text-red-600 font-semibold' : ($stock->hari_cukup <= 10 ? 'text-amber-600 font-semibold' : 'text-gray-600') }}">
                                 {{ number_format($stock->hari_cukup, $stock->hari_cukup < 10 ? 1 : 0, ',', '.') }} hari
                             </span>
                         @endif
