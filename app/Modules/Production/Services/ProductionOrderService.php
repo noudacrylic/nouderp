@@ -60,6 +60,7 @@ class ProductionOrderService
                 'production_date' => $data['production_date'],
                 'status'      => 'draft',
                 'created_via' => $data['created_via'] ?? 'manual',
+                'kv_skill'    => $data['kv_skill'] ?? null,
                 'notes'       => $data['notes'] ?? null,
                 'description' => $data['description'] ?? null,
                 'image_paths' => isset($data['image_paths']) ? json_encode($data['image_paths']) : null,

@@ -9,7 +9,6 @@ use App\Core\Inventory\Warehouse;
 use App\Modules\Production\Models\Bom;
 use App\Modules\Production\Models\Department;
 use App\Modules\Production\Models\ProductionOrder;
-use App\Modules\Production\Models\ProductionOrderStep;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -38,15 +37,14 @@ class NmDariBnmService
 
     /** Pengisi antrean: BNM di bawah ini tidak dibuatkan OP (hindari OP 3 pcs). */
     public const PENGISI_MIN_BNM = 10;
-    /** Jam kerja pengisi: Senin–Sabtu 08:00–16:00 (malam/libur antrean pasti kosong). */
-    public const JAM_KERJA_HARI    = [1, 2, 3, 4, 5, 6];
-    public const JAM_KERJA_MULAI   = '08:00';
-    public const JAM_KERJA_SELESAI = '16:00';
+    /** Penanda OP pengisi antrean Assembling (production_orders.kv_skill). */
+    public const SKILL_PENGISI = 'produksi.isi-antrean-rakit';
 
     public function __construct(
         private AutoProductionService $auto,
         private BomService $bomService,
         private ProductionOrderService $orderService,
+        private AntreanProduksiService $antrean,
     ) {}
 
     /** Semua NM ready yang punya pasangan BNM. */
@@ -287,7 +285,7 @@ class NmDariBnmService
     public function isiAntreanRakitUntuk(Product $nm): array
     {
         $rakit = $this->departemenRakit();
-        if ($rakit && ($n = $this->jumlahAntrean($rakit)) > 0) {
+        if ($rakit && ($n = $this->antrean->jumlah($rakit)) > 0) {
             return array_merge($this->barisBuat($nm), ['reason' => "Antrean Assembling sudah berisi {$n} pekerjaan."]);
         }
         $bnm = Product::where('sku', 'B' . $nm->sku)->first();
@@ -301,14 +299,14 @@ class NmDariBnmService
     /** null = antrean kosong & boleh diisi; selain itu alasan dilewati. */
     private function alasanTakPerluPengisi(Carbon $saat): ?string
     {
-        if (!$this->jamKerja($saat)) {
+        if (!$this->antrean->jamKerja($saat)) {
             return 'Di luar jam kerja (' . $saat->translatedFormat('l H:i') . ') — antrean tidak diisi.';
         }
         $rakit = $this->departemenRakit();
         if (!$rakit) {
             return 'Departemen "Assembling" tidak ditemukan.';
         }
-        if (($n = $this->jumlahAntrean($rakit)) > 0) {
+        if (($n = $this->antrean->jumlah($rakit)) > 0) {
             return "Antrean Assembling masih berisi {$n} pekerjaan.";
         }
         // Pengisi yang gagal dikonfirmasi tetap draft & tak tampil di antrean — tanpa rem ini
@@ -319,33 +317,6 @@ class NmDariBnmService
         }
 
         return null;
-    }
-
-    public function jamKerja(Carbon $saat): bool
-    {
-        return in_array($saat->dayOfWeekIso, self::JAM_KERJA_HARI, true)
-            && $saat->format('H:i') >= self::JAM_KERJA_MULAI
-            && $saat->format('H:i') < self::JAM_KERJA_SELESAI;
-    }
-
-    /**
-     * Jumlah pekerjaan di antrean divisi, definisi sama dengan halaman Proses Produksi
-     * (ProductionProcessController::index): langkah pending yang langkah sebelumnya
-     * sudah selesai, sedang dikerjakan, atau dijeda — di OP confirmed/in_progress/partial.
-     */
-    public function jumlahAntrean(Department $dept): int
-    {
-        return ProductionOrderStep::with('productionOrder.steps')
-            ->where('department_id', $dept->id)
-            ->whereIn('status', ['pending', 'in_progress', 'paused'])
-            ->whereHas('productionOrder', fn ($q) => $q->whereIn('status', ['confirmed', 'in_progress', 'partial']))
-            ->get()
-            ->filter(function ($step) {
-                if ($step->status !== 'pending') return true;
-                $prev = $step->productionOrder->steps->firstWhere('step_number', $step->step_number - 1);
-                return $prev === null || $prev->status === 'completed';
-            })
-            ->count();
     }
 
     /** NM berstok tersedia terendah yang BNM-nya ≥ PENGISI_MIN_BNM dan belum punya OP berjalan. */
@@ -397,6 +368,7 @@ class NmDariBnmService
             'score_type'      => 'priority',
             'priority_level'  => 'low',
             'created_via'     => 'auto',
+            'kv_skill'        => self::SKILL_PENGISI,
             'notes'           => "Pengisi antrean Assembling: {$ringkas}. Prioritas rendah; naik ke Otomatis bila {$nm->sku} menipis.",
             'materials'       => [['product_id' => $bnm->id, 'qty_required' => $qty, 'unit' => $bnm->base_unit]],
             'outputs'         => [['product_id' => $nm->id, 'qty_planned' => $qty, 'output_type' => 'main', 'percentage' => 100]],
@@ -429,19 +401,19 @@ class NmDariBnmService
     }
 
     /**
-     * OP pengisi = OP otomatis berprioritas Rendah. Hanya pengisi antrean yang membuat
-     * kombinasi ini; kalau manusia mengubah skornya, OP itu tak lagi diurus di sini.
+     * OP pengisi Assembling yang skornya masih Prioritas Rendah. Kalau manusia mengubah
+     * skornya, OP itu tak lagi diurus di sini.
      */
     private function pengisiQuery()
     {
-        return ProductionOrder::where('created_via', 'auto')
+        return ProductionOrder::where('kv_skill', self::SKILL_PENGISI)
             ->where('score_type', 'priority')
             ->where('priority_level', 'low');
     }
 
     private function departemenRakit(): ?Department
     {
-        return Department::where('name', 'like', 'Assembl%')->where('is_active', true)->first();
+        return $this->antrean->departemen('Assembl');
     }
 
     private function barisBuat(Product $nm): array

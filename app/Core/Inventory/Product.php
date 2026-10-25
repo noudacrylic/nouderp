@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Product extends Model
 {
     protected $fillable = [
+        'produk_andalan',
         'sku',
         'name',
         'sale_type',
@@ -45,6 +46,7 @@ class Product extends Model
     protected $casts = [
         'needs_printing' => 'boolean',
         'is_active' => 'boolean',
+        'produk_andalan' => 'boolean',
         'is_sellable' => 'boolean',
         'tampil_di_kasir' => 'boolean',
         'made_to_order' => 'boolean',

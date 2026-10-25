@@ -277,7 +277,33 @@ class BomController extends Controller
         $setting = ProductionSetting::first() ?? new ProductionSetting(['score_sales_period' => 1]);
         $byproducts = ProductionByproduct::with(['product', 'rawMaterial'])->get();
         $rawMaterials = ProductionRawMaterial::with('product')->get();
-        return view('erp.production.settings', compact('setting', 'byproducts', 'rawMaterials'));
+        $produkAndalan = Product::where('produk_andalan', true)->orderBy('sku')->get(['id', 'sku', 'name']);
+        return view('erp.production.settings', compact('setting', 'byproducts', 'rawMaterials', 'produkAndalan'));
+    }
+
+    /**
+     * Produk andalan = Tingkat 1 skill "Isi antrean CNC" (Karyawan Virtual): dibuatkan OP
+     * saat CNC kosong walau stok masih banyak. Hanya produk ready.
+     */
+    public function updateProdukAndalan(Request $request)
+    {
+        $request->validate([
+            'product_ids'   => 'nullable|array',
+            'product_ids.*' => 'integer|exists:products,id',
+        ]);
+        $ids = collect($request->input('product_ids', []))->map(fn ($id) => (int) $id)->filter()->unique();
+
+        $bukanReady = Product::whereIn('id', $ids)->where('sale_type', '!=', 'ready')->pluck('sku');
+        if ($bukanReady->isNotEmpty()) {
+            return back()->with('error', 'Produk andalan harus produk ready stok: ' . $bukanReady->implode(', ') . '.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($ids) {
+            Product::where('produk_andalan', true)->whereNotIn('id', $ids)->update(['produk_andalan' => false]);
+            Product::whereIn('id', $ids)->update(['produk_andalan' => true]);
+        });
+
+        return back()->with('success', 'Produk andalan disimpan (' . $ids->count() . ' produk).');
     }
 
     /**

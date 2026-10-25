@@ -1430,6 +1430,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('settings', [\App\Modules\Production\Controllers\BomController::class, 'updateSettings'])->name('settings.update');
     Route::post('settings/byproducts', [\App\Modules\Production\Controllers\BomController::class, 'updateByproductSettings'])->name('settings.byproducts.update');
     Route::post('settings/raw-materials', [\App\Modules\Production\Controllers\BomController::class, 'updateRawMaterialSettings'])->name('settings.raw-materials.update');
+    Route::post('settings/produk-andalan', [\App\Modules\Production\Controllers\BomController::class, 'updateProdukAndalan'])->name('settings.produk-andalan.update');
     Route::post('settings/testing-mode', [\App\Modules\Production\Controllers\BomController::class, 'updateTestingMode'])->name('settings.testing.update');
 
     // Production Orders

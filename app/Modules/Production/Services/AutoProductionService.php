@@ -206,6 +206,12 @@ class AutoProductionService
      */
     public function adaProduksiAktif(Product $product): bool
     {
+        return $this->jumlahProduksiAktif($product) > 0;
+    }
+
+    /** Berapa OP berjalan yang menghasilkan produk ini sebagai output utama. */
+    public function jumlahProduksiAktif(Product $product): int
+    {
         // Anti-duplikat: cek produksi aktif untuk produk utama yang sama.
         // KECUALIKAN tipe 'repair' (Perbaikan): OP perbaikan hanya memulihkan 1 unit
         // retur/garansi (bukan mengisi ulang stok jual), jadi tidak boleh menghalangi
@@ -222,7 +228,7 @@ class AutoProductionService
                 $q->where('product_id', $product->id)
                   ->where('output_type', 'main');
             })
-            ->exists();
+            ->count();
     }
 
     /** Gudang tempat OP otomatis dibuat (dan bahannya diambil saat konfirmasi). */

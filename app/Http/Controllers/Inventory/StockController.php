@@ -189,6 +189,17 @@ class StockController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
+        // Laku/hari & cukup berapa hari — angka yang sama dipakai Manager Produksi memilih
+        // OP pengisi antrean CNC (LajuJualService). Hanya untuk baris di halaman ini.
+        // Bundle tidak dihitung: lakunya tercatat di komponennya.
+        $laju = app(\App\Core\Inventory\Services\LajuJualService::class)
+            ->perHari($stocks->getCollection()->where('type', '!=', 'bundle')->pluck('id'));
+        $stocks->getCollection()->each(function ($s) use ($laju) {
+            $s->per_hari   = $s->type === 'bundle' ? null : ($laju[$s->id] ?? 0);
+            $s->hari_cukup = $s->per_hari === null ? null
+                : \App\Core\Inventory\Services\LajuJualService::hariCukup((float) $s->available, $s->per_hari);
+        });
+
         return view('erp.inventory.stocks.index', compact('stocks'));
     }
 

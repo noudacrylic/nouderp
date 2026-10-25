@@ -44,6 +44,8 @@
                 <th class="px-3 py-2 text-right">Dipesan</th>
                 <th class="px-3 py-2 text-right">Dikirim</th>
                 <th class="px-3 py-2 text-right">Tersedia</th>
+                <th class="px-3 py-2 text-right" title="Rata-rata keluar terjual per hari, 30 hari terakhir (dari kartu stok — termasuk yang laku lewat bundel)">Laku/hari</th>
+                <th class="px-3 py-2 text-right" title="Stok tersedia cukup untuk berapa hari dengan laju jual 30 hari terakhir">Cukup</th>
                 <th class="px-3 py-2 text-center">Min Stok / Status</th>
             </tr>
         </thead>
@@ -82,6 +84,26 @@
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right text-green-600 font-semibold">{{ format_qty($stock->available) }}</td>
+                    <td class="px-3 py-2 text-right text-gray-600 whitespace-nowrap">
+                        {{ $stock->per_hari === null ? '—' : ($stock->per_hari > 0 ? rtrim(rtrim(number_format($stock->per_hari, 1, ',', '.'), '0'), ',') : '0') }}
+                    </td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap">
+                        @if ($stock->per_hari === null)
+                            <span class="text-gray-400">—</span>
+                        @elseif ($stock->hari_cukup === null)
+                            <span class="text-gray-400" title="Tidak terjual 30 hari terakhir">∞</span>
+                        @else
+                            @php
+                                $n1 = fn ($v) => rtrim(rtrim(number_format($v, 1, ',', '.'), '0'), ',');
+                                $rumus = 'Terjual ' . now()->subDays(30)->format('d/m') . '–' . now()->format('d/m') . ' (30 hari): '
+                                    . $n1($stock->per_hari * 30) . ' pcs ÷ 30 = ' . $n1($stock->per_hari) . '/hari. '
+                                    . 'Tersedia ' . $n1($stock->available) . ' ÷ ' . $n1($stock->per_hari) . ' = ' . number_format($stock->hari_cukup, 1, ',', '.') . ' hari.';
+                            @endphp
+                            <span title="{{ $rumus }}" class="cursor-help underline decoration-dotted {{ $stock->hari_cukup <= 3 ? 'text-red-600 font-semibold' : ($stock->hari_cukup <= 10 ? 'text-amber-600 font-semibold' : 'text-gray-600') }}">
+                                {{ number_format($stock->hari_cukup, $stock->hari_cukup < 10 ? 1 : 0, ',', '.') }} hari
+                            </span>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
                         <div class="flex items-center justify-center gap-1"
                              x-data="minStockEditor({{ $stock->id }}, {{ $stock->min_stock ?? 'null' }}, {{ $stock->available }}, '{{ $stock->type }}')">
@@ -106,7 +128,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="9" class="px-3 py-6 text-center text-gray-400">Tidak ada produk ditemukan.</td></tr>
+                <tr><td colspan="11" class="px-3 py-6 text-center text-gray-400">Tidak ada produk ditemukan.</td></tr>
             @endforelse
         </tbody>
     </table>

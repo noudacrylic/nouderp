@@ -37,10 +37,11 @@ return [
             'produksi.op-preorder'     => \App\Modules\KaryawanVirtual\Skills\Produksi\OpPreorder::class,
             'produksi.op-nm-dari-bnm'  => \App\Modules\KaryawanVirtual\Skills\Produksi\OpNmDariBnm::class,
             'produksi.isi-antrean-rakit' => \App\Modules\KaryawanVirtual\Skills\Produksi\OpIsiAntreanRakit::class,
+            'produksi.isi-antrean-cnc'   => \App\Modules\KaryawanVirtual\Skills\Produksi\OpIsiAntreanCnc::class,
         ],
         // Skill yang masih diuji: diberi label "Dalam percobaan" di halaman & pesan Telegram.
         // Hapus dari daftar ini setelah hasilnya dipercaya (biasanya bersamaan naik ke Otomatis).
-        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit'],
+        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc'],
     ],
 
 ];

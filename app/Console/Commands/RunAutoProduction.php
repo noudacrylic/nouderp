@@ -76,9 +76,10 @@ class RunAutoProduction extends Command
             }
         }
 
-        // Pengisi antrean paling akhir: OP dari mesin lain di atas bisa jadi sudah mengisi Assembling.
+        // Pengisi antrean paling akhir: OP dari mesin lain di atas bisa jadi sudah mengisi antreannya.
         $isi = $kv->jalankan('produksi.isi-antrean-rakit', KaryawanVirtualService::PEMICU_JADWAL);
-        foreach ($isi['hasil'] as $r) {
+        $cnc = $kv->jalankan('produksi.isi-antrean-cnc', KaryawanVirtualService::PEMICU_JADWAL);
+        foreach ([...$isi['hasil'], ...$cnc['hasil']] as $r) {
             $tag = match (true) {
                 $r['created']               => '<info>CREATED</info>',
                 $r['diubah'] ?? false       => '<info>DIUBAH</info>',
@@ -91,7 +92,8 @@ class RunAutoProduction extends Command
         $created = collect($results)->where('created', true)->count()
             + collect($preorderResults)->where('created', true)->count()
             + collect($nm['hasil'])->where('created', true)->count()
-            + collect($isi['hasil'])->where('created', true)->count();
+            + collect($isi['hasil'])->where('created', true)->count()
+            + collect($cnc['hasil'])->where('created', true)->count();
         $this->newLine();
         $this->info("Selesai. {$created} order dibuat dari " . count($results) . ' BOM stok + '
             . collect($preorderResults)->pluck('sales_order_id')->unique()->count() . ' pesanan pre-order yang diperiksa.');

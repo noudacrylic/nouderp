@@ -11,7 +11,7 @@ class ProductionOrder extends Model
         'planned_cycles', 'planned_qty', 'production_date',
         'repair_source_type', 'repair_source_ref', 'repair_source_id',
         'score_type', 'priority_level',
-        'status', 'created_via', 'merged_into_id', 'finalized_at', 'notes', 'description', 'image_paths',
+        'status', 'created_via', 'kv_skill', 'merged_into_id', 'finalized_at', 'notes', 'description', 'image_paths',
     ];
 
     protected $casts = [
