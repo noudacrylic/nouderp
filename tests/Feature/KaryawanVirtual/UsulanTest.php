@@ -256,7 +256,7 @@ class UsulanTest extends TestCase
 
         // Penolakan (tanpa tindakan) tetap tampil di jurnal bawaan halaman.
         $this->actingAs($kepala)->get(route('karyawan-virtual.show', 'manager-produksi'))
-            ->assertOk()->assertSee('Usulan ditolak');
+            ->assertOk()->assertSee('❌ Ditolak')->assertSee($u->judul);
     }
 
     public function test_hanya_yang_berhak_divisinya_boleh_memutus(): void
@@ -294,6 +294,24 @@ class UsulanTest extends TestCase
             ->assertOk()->assertSee('Menunggu persetujuan (1)')->assertSee($u->judul);
         $this->actingAs($kepala)->get(route('karyawan-virtual.index'))
             ->assertOk()->assertSee('1 usulan menunggu persetujuan');
+    }
+
+    public function test_jurnal_menampilkan_hasil_keputusan_dan_status_usulan_terkini(): void
+    {
+        $kepala = $this->kepalaProduksi();
+        [, $u] = $this->siapkanUsulan();
+        $this->actingAs($kepala)->get(route('karyawan-virtual.show', 'manager-produksi'))
+            ->assertSee("Usulan #{$u->id}:")->assertSee('Menunggu');
+
+        $this->actingAs($kepala)->post(route('karyawan-virtual.usulan.putuskan', ['manager-produksi', $u->id]), ['keputusan' => 'setuju']);
+        $op = ProductionOrder::sole();
+
+        $this->actingAs($kepala)->get(route('karyawan-virtual.show', 'manager-produksi'))
+            ->assertOk()
+            ->assertSee('✅ Disetujui')
+            ->assertSee($op->order_number)
+            ->assertSee("Usulan #{$u->id}:")
+            ->assertDontSee('1 pemeriksaan diperiksa: 1 dibuat');
     }
 
     // ───────────── Telegram ─────────────

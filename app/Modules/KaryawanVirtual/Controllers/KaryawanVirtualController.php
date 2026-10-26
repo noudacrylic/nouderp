@@ -71,6 +71,12 @@ class KaryawanVirtualController extends Controller
 
         $labelSkill = $skills->mapWithKeys(fn ($s) => [$s['key'] => $s['skill']->label()]);
 
+        // Status terkini usulan yang disebut di jurnal halaman ini — catatan "diusulkan" ikut
+        // menunjukkan apakah usulannya sudah disetujui/ditolak, tanpa harus mencari catatan lain.
+        $idUsulan = $jurnal->getCollection()
+            ->flatMap(fn ($j) => collect($j->rincian)->pluck('usulan_id'))->filter()->unique();
+        $statusUsulan = KaryawanVirtualUsulan::with('pemutus:id,name')->whereIn('id', $idUsulan)->get()->keyBy('id');
+
         $usulanMenunggu = KaryawanVirtualUsulan::menunggu()->where('karyawan', $kode)->latest('id')->get();
         $usulanRiwayat  = KaryawanVirtualUsulan::with('pemutus:id,name')
             ->where('karyawan', $kode)
@@ -86,6 +92,7 @@ class KaryawanVirtualController extends Controller
             'labelMode'  => KaryawanVirtualService::LABEL_MODE,
             'usulanMenunggu' => $usulanMenunggu,
             'usulanRiwayat'  => $usulanRiwayat,
+            'statusUsulan'   => $statusUsulan,
             'bolehAtur'  => $request->user()?->role === 'super_admin',
         ]);
     }

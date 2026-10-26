@@ -32,6 +32,7 @@
         'kedaluwarsa' => 'bg-gray-100 text-gray-500',
         'batal'       => 'bg-gray-100 text-gray-500',
         'diproses'    => 'bg-amber-100 text-amber-800',
+        'menunggu'    => 'bg-blue-100 text-blue-800',
     ];
     $labelUsulan = \App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan::LABEL_STATUS;
 @endphp
@@ -227,22 +228,61 @@
 
     <div class="bg-white rounded shadow divide-y divide-gray-100 xl:overflow-y-auto xl:min-h-0">
         @forelse ($jurnal as $j)
+            @php
+                // Catatan keputusan atas satu usulan: tampil sebagai hasil keputusannya, bukan "N diperiksa".
+                $keputusan = null;
+                if ($j->pemicu === 'persetujuan') {
+                    $r0 = $j->rincian[0] ?? [];
+                    $keputusan = $r0 + ['lencana' => match ($r0['status'] ?? null) {
+                        'dibuat', 'diubah' => ['✅ Disetujui', 'bg-green-100 text-green-800'],
+                        'ditolak'          => ['❌ Ditolak', 'bg-red-100 text-red-800'],
+                        'gagal'            => ['⚠️ Gagal', 'bg-red-100 text-red-800'],
+                        default            => ['➖ Tidak jadi', 'bg-gray-100 text-gray-600'],
+                    }];
+                }
+                $usulanDisebut = collect($j->rincian)->pluck('usulan_id')->filter()->unique()
+                    ->map(fn ($id) => $statusUsulan[$id] ?? null)->filter();
+            @endphp
             <div x-data="{ buka: false }" class="text-sm">
                 <div class="px-3 py-2 hover:bg-gray-50 cursor-pointer" @click="buka = !buka">
                     <div class="flex items-center justify-between gap-2 text-xs">
                         <span class="text-gray-500 whitespace-nowrap">
                             {{ $j->created_at->format('d/m/Y H:i') }} · {{ $labelPemicu[$j->pemicu] ?? $j->pemicu }}
                         </span>
-                        <span class="shrink-0 rounded px-1.5 py-0.5 font-semibold {{ $warnaMode[$j->mode] ?? '' }}">{{ $labelMode[$j->mode] ?? $j->mode }}</span>
+                        @if ($keputusan)
+                            <span class="shrink-0 rounded px-1.5 py-0.5 font-semibold {{ $keputusan['lencana'][1] }}">{{ $keputusan['lencana'][0] }}</span>
+                        @else
+                            <span class="shrink-0 rounded px-1.5 py-0.5 font-semibold {{ $warnaMode[$j->mode] ?? '' }}">{{ $labelMode[$j->mode] ?? $j->mode }}</span>
+                        @endif
                     </div>
                     <div class="font-semibold text-slate-800 mt-0.5">{{ $labelSkill[$j->skill] ?? $j->skill }}</div>
                     <div class="text-slate-600">
-                        {{ $j->ringkasan }}
+                        @if ($keputusan)
+                            {{ $keputusan['judul'] ?? $j->ringkasan }}
+                            @if ($keputusan['tautan'] ?? null)
+                                → <a href="{{ $keputusan['tautan'] }}" class="text-blue-600 underline font-semibold" @click.stop>{{ $keputusan['dokumen'] }}</a>
+                            @elseif (!in_array($keputusan['status'] ?? null, ['dibuat', 'diubah', 'ditolak'], true) && ($keputusan['alasan'] ?? null))
+                                <div class="text-xs text-slate-500">{{ $keputusan['alasan'] }}</div>
+                            @endif
+                        @else
+                            {{ $j->ringkasan }}
+                        @endif
                         <span class="text-xs text-blue-600 ml-1" x-text="buka ? '▲' : '▼'">▼</span>
                     </div>
-                    @if ($j->keterangan_pemicu || $j->user)
+                    @foreach ($usulanDisebut as $u)
+                        @continue($keputusan)
+                        <div class="text-xs mt-0.5">
+                            Usulan #{{ $u->id }}:
+                            <span class="rounded px-1.5 py-0.5 font-semibold {{ $warnaUsulan[$u->status] ?? '' }}">{{ $labelUsulan[$u->status] ?? $u->status }}</span>
+                            @if ($u->pemutus)<span class="text-gray-400">{{ $u->pemutus->name }}{{ $u->diputus_at ? ', ' . $u->diputus_at->format('d/m H:i') : '' }}</span>@endif
+                            @if ($u->tautan)
+                                → <a href="{{ $u->tautan }}" class="text-blue-600 underline" @click.stop>{{ $u->dokumen }}</a>
+                            @endif
+                        </div>
+                    @endforeach
+                    @if ($j->keterangan_pemicu || ($j->user && !$keputusan))
                         <div class="text-[11px] text-gray-400">
-                            {{ $j->keterangan_pemicu }}@if ($j->keterangan_pemicu && $j->user) · @endif @if ($j->user)oleh {{ $j->user->name }}@endif
+                            {{ $j->keterangan_pemicu }}@if (!$keputusan && $j->keterangan_pemicu && $j->user) · @endif @if ($j->user && !$keputusan)oleh {{ $j->user->name }}@endif
                         </div>
                     @endif
                 </div>
