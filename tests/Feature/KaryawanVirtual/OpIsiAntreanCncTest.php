@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * Skill "Isi antrean CNC yang kosong": Tingkat 1 andalan → 2 hampir menipis → 3 cadangan.
+ * Skill "Isi antrean CNC yang hampir habis": Tingkat 1 andalan → 2 hampir menipis → 3 cadangan.
  */
 class OpIsiAntreanCncTest extends TestCase
 {
@@ -120,7 +120,8 @@ class OpIsiAntreanCncTest extends TestCase
         $this->isi();
         $ops = $this->pengisi();
 
-        $this->assertCount(1, $ops, 'Satu OP sekali jalan.');
+        // Mesin 2 & 3 diisi 2 OP: andalan (Tingkat 1) dulu, lalu yang hampir menipis.
+        $this->assertCount(2, $ops);
         $this->assertSame($p->id, $this->utamaDari($ops[0])->product_id);
         $this->assertSame(IsiAntreanCncService::penanda(1), $ops[0]->kv_skill);
         $this->assertSame('auto', $ops[0]->score_type);
@@ -218,11 +219,13 @@ class OpIsiAntreanCncTest extends TestCase
         app(IsiAntreanCncService::class)->jalankan(false, true, Carbon::parse('2026-10-25 10:00')); // Minggu
         $this->assertCount(0, $this->pengisi());
 
-        // Pekerjaan berjalan untuk produk Mesin 2 & 3: hanya kelompok Mesin 1 yang diisi.
+        // Antrean Mesin 2 & 3 masih 2 pekerjaan (> sisa 1) → belum diisi.
         $this->opLain(null, [[$this->cnc, 'in_progress']]);
+        $this->opLain(null, [[$this->cnc, 'pending']]);
         $hasil = $this->isi();
         $this->assertCount(0, $this->pengisi());
-        $this->assertStringContainsString('Antrean CNC berisi 1 pekerjaan, tak satu pun produk Mesin 1', $hasil[0]['reason']);
+        $this->assertStringContainsString('Antrean Mesin 2 & 3 masih 2 pekerjaan', collect($hasil)
+            ->first(fn ($r) => $r['jenis'] === 'antrean' && $r['kelompok'] === IsiAntreanCncService::TUNGGAL)['reason']);
     }
 
     public function test_bahan_kurang_produk_dilewati_dan_dicatat(): void

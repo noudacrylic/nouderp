@@ -10,7 +10,7 @@ use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Production\Services\IsiAntreanCncService as Svc;
 
 /**
- * Isi antrean CNC yang kosong — 3 tingkatan berjenjang (andalan → hampir menipis →
+ * Isi antrean CNC yang hampir habis — 3 tingkatan berjenjang (andalan → hampir menipis →
  * stok cadangan). Pembungkus IsiAntreanCncService; semua syarat milik service itu.
  *
  * Mode "Minta persetujuan": satu usulan per (tingkat, produk); saat disetujui antrean
@@ -25,7 +25,7 @@ class OpIsiAntreanCnc implements BisaDiusulkan, PunyaPengaturan
 
     public function label(): string
     {
-        return 'Isi antrean CNC yang kosong';
+        return 'Isi antrean CNC yang hampir habis';
     }
 
     public function urlPengaturan(string $kode): string
@@ -35,8 +35,9 @@ class OpIsiAntreanCnc implements BisaDiusulkan, PunyaPengaturan
 
     public function deskripsi(): string
     {
-        return 'Di jam kerja, bila antrean CNC tak berisi satu pun produk Mesin 1 (double head), membuat satu OP '
-            . 'produk Mesin 1; bila antrean CNC kosong total, dua OP (Mesin 1 dan Mesin 2 & 3). Calon dipilih berjenjang. '
+        return 'Di jam kerja, bila antrean CNC sebuah kelompok mesin tinggal ' . Svc::SISA_ANTREAN . ' pekerjaan atau kurang, '
+            . 'membuat OP untuk kelompok itu: Mesin 1 (double head) ' . Svc::OP_PER_KELOMPOK[Svc::GANDA] . ' OP, '
+            . 'Mesin 2 & 3 ' . Svc::OP_PER_KELOMPOK[Svc::TUNGGAL] . ' OP (satu per mesin). Calon dipilih berjenjang, produk berbeda per OP. '
             . 'Tingkat 1: produk andalan walau stok masih banyak — maks ' . Svc::MAKS_OP_ANDALAN
             . ' OP, OP kedua Prioritas Rendah lalu Otomatis setelah OP pertama selesai. '
             . 'Tingkat 2: stok di atas minimum tapi cukup ≤ ' . Svc::T2_MAKS_HARI . ' hari penjualan. '

@@ -24,7 +24,7 @@ use Tests\TestCase;
 
 /**
  * Skill "Isi antrean CNC" per kelompok mesin: Mesin 1 (double head, products.cnc_kepala_ganda)
- * dipantau tersendiri; antrean kosong total → 2 OP (Mesin 1 + Mesin 2 & 3).
+ * dan Mesin 2 & 3 dipantau masing-masing; antrean tinggal 1 → 1 OP Mesin 1 / 2 OP Mesin 2 & 3.
  */
 class KelompokMesinCncTest extends TestCase
 {
@@ -89,56 +89,90 @@ class KelompokMesinCncTest extends TestCase
             ->map(fn ($op) => $op->outputs->firstWhere('output_type', 'main')->product->sku)->all();
     }
 
-    public function test_antrean_hanya_mesin_2_3_diisi_satu_op_mesin_1(): void
+    public function test_antrean_mesin_1_tinggal_satu_diisi_satu_op(): void
     {
         $this->andalan('TBKD-A', true);
-        $this->andalan('BC-A', false);
-        $this->antre(false);
+        $this->andalan('TBKD-B', true);
+        $this->antre(true);                       // Mesin 1 tinggal 1
+        $this->antre(false); $this->antre(false); // Mesin 2 & 3 masih 2
 
-        $hasil = $this->isi();
+        $this->isi();
 
-        $this->assertSame(['TBKD-A'], $this->hasilPengisi());
-        $this->assertStringContainsString('tak satu pun produk Mesin 1', collect($hasil)->firstWhere('jenis', 'antrean')['reason']);
+        $this->assertSame(['TBKD-A'], $this->hasilPengisi(), 'Mesin 1: satu OP saja.');
     }
 
-    public function test_antrean_masih_ada_produk_mesin_1_tidak_diisi(): void
+    public function test_antrean_mesin_1_masih_dua_tidak_diisi(): void
     {
         $this->andalan('TBKD-A', true);
-        $this->antre(true);
+        $this->antre(true); $this->antre(true);
+        $this->antre(false); $this->antre(false);
 
         $hasil = $this->isi();
 
         $this->assertSame([], $this->hasilPengisi());
-        $this->assertStringContainsString('1 di antaranya produk Mesin 1', $hasil[0]['reason']);
+        $this->assertStringContainsString('Antrean Mesin 1 masih 2 pekerjaan', collect($hasil)
+            ->first(fn ($r) => $r['jenis'] === 'antrean' && $r['kelompok'] === IsiAntreanCncService::GANDA)['reason']);
     }
 
-    public function test_antrean_kosong_total_dua_op_tiap_kelompok(): void
+    public function test_antrean_mesin_2_3_tinggal_satu_diisi_dua_op_produk_berbeda(): void
     {
-        $this->andalan('TBKD-A', true);
         $this->andalan('BC-A', false);
+        $this->andalan('BC-B', false);
+        $this->andalan('TBKD-A', true);
+        $this->antre(false);                    // Mesin 2 & 3 tinggal 1
+        $this->antre(true); $this->antre(true); // Mesin 1 masih 2
 
         $this->isi();
 
-        $this->assertSame(['TBKD-A', 'BC-A'], $this->hasilPengisi());
+        $this->assertSame(['BC-A', 'BC-B'], $this->hasilPengisi());
+    }
+
+    public function test_antrean_kosong_total_mesin_1_satu_op_mesin_2_3_dua_op(): void
+    {
+        $this->andalan('TBKD-A', true);
+        $this->andalan('BC-A', false);
+        $this->andalan('BC-B', false);
+
+        $this->isi();
+
+        $this->assertSame(['TBKD-A', 'BC-A', 'BC-B'], $this->hasilPengisi());
         $this->assertStringContainsString('(Mesin 1)', ProductionOrder::where('kv_skill', 'like', self::SKILL . ':%')->first()->notes);
     }
 
-    public function test_dua_usulan_antrean_kosong_bisa_disetujui_berurutan(): void
+    public function test_op_pengisi_yang_cnc_nya_belum_sampai_antrean_tetap_dihitung(): void
+    {
+        $this->andalan('TBKD-A', true);
+        $this->andalan('TBKD-B', true);
+        $this->antre(true);
+        $this->isi();
+        $this->assertSame(['TBKD-A'], $this->hasilPengisi());
+
+        // OP pengisi tadi dijeda di langkah sebelum CNC (tak tampil di antrean CNC) → tetap dihitung.
+        $op = ProductionOrder::where('kv_skill', 'like', self::SKILL . ':%')->sole();
+        ProductionOrderStep::where('production_order_id', $op->id)->update(['step_number' => 2]);
+        ProductionOrderStep::create(['production_order_id' => $op->id, 'step_number' => 1, 'department_id' => Department::create(['code' => 'DSN', 'name' => 'Desain', 'type' => 'produksi', 'is_active' => true])->id, 'name' => 'Desain', 'status' => 'pending']);
+        $this->isi();
+
+        $this->assertSame(['TBKD-A'], $this->hasilPengisi(), 'Tidak lahir OP Mesin 1 baru.');
+    }
+
+    public function test_usulan_mesin_2_3_bisa_disetujui_keduanya(): void
     {
         Carbon::setTestNow($this->senin);
-        $this->andalan('TBKD-A', true);
         $this->andalan('BC-A', false);
+        $this->andalan('BC-B', false);
+        $this->antre(true); $this->antre(true);
         $kv = app(KaryawanVirtualService::class);
 
         $kv->jalankan(self::SKILL, KaryawanVirtualService::PEMICU_JADWAL);
         $usulan = KaryawanVirtualUsulan::where('skill', self::SKILL)->orderBy('id')->get();
         $this->assertCount(2, $usulan);
-        $this->assertStringContainsString('Isi antrean CNC Mesin 1', $usulan[0]->judul);
+        $this->assertStringContainsString('Isi antrean CNC Mesin 2 & 3', $usulan[0]->judul);
 
         foreach ($usulan as $u) {
             $this->assertTrue($kv->skill(self::SKILL)->kerjakanUsulan($u->data)[0]['created']);
         }
-        $this->assertSame(['TBKD-A', 'BC-A'], $this->hasilPengisi());
+        $this->assertSame(['BC-A', 'BC-B'], $this->hasilPengisi());
         Carbon::setTestNow();
     }
 
