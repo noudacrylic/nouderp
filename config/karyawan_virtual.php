@@ -38,6 +38,7 @@ return [
             'produksi.op-nm-dari-bnm'  => \App\Modules\KaryawanVirtual\Skills\Produksi\OpNmDariBnm::class,
             'produksi.isi-antrean-rakit' => \App\Modules\KaryawanVirtual\Skills\Produksi\OpIsiAntreanRakit::class,
             'produksi.isi-antrean-cnc'   => \App\Modules\KaryawanVirtual\Skills\Produksi\OpIsiAntreanCnc::class,
+            'produksi.coret-sampel-mesin' => \App\Modules\KaryawanVirtual\Skills\Produksi\CoretSampelMesin::class,
         ],
         // Skill yang masih diuji: diberi label "Dalam percobaan" di halaman & pesan Telegram.
         // Hapus dari daftar ini setelah hasilnya dipercaya (biasanya bersamaan naik ke Otomatis).

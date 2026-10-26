@@ -89,6 +89,12 @@ class RunAutoProduction extends Command
             $this->line("  {$tag}  pengisi {$r['sku']}" . ($r['order_number'] ? " → {$r['order_number']}" : '') . " — {$r['reason']}");
         }
 
+        // Rapikan sampel Waktu Produksi: CNC di mesin lain kelompok dicoret.
+        $sampel = $kv->jalankan('produksi.coret-sampel-mesin', KaryawanVirtualService::PEMICU_JADWAL);
+        foreach ($sampel['hasil'] as $r) {
+            $this->line('  ' . ($r['dicoret'] ? '<info>DICORET</info>' : '<info>AKAN</info>') . "  sampel {$r['order_number']} — {$r['reason']}");
+        }
+
         $created = collect($results)->where('created', true)->count()
             + collect($preorderResults)->where('created', true)->count()
             + collect($nm['hasil'])->where('created', true)->count()

@@ -318,10 +318,11 @@ class ProductionTimeAnalysisService
 
         // Mesin CNC tak sesuai kelompok produk: double head (Mesin 1) jauh lebih cepat dari
         // single head, jadi sampel TB di Mesin 2/3 (atau BC di Mesin 1) merusak rata-rata.
-        // Selalu dicoret, tanpa bisa dicentang ulang (keputusan user 26 Okt 2026).
-        if ($mesin = $this->mesinTakSesuai($doneSteps, (bool) $mains->first()->product?->cnc_kepala_ganda)) {
-            $flags[]  = 'mesin_tak_sesuai';
-            $eligible = false;
+        // Hanya ditandai di sini; yang mencoretnya skill Manager Produksi "Coret sampel waktu
+        // yang mesinnya tak sesuai" (SampelMesinService) lewat tabel pengecualian, supaya
+        // tampil di tabel Sampel beserta alasannya dan tercatat di jurnal kerja.
+        if ($mesin = self::mesinTakSesuai($doneSteps, (bool) $mains->first()->product?->cnc_kepala_ganda)) {
+            $flags[] = 'mesin_tak_sesuai';
         }
 
         $isMergedChild  = $order->merged_into_id !== null;
@@ -374,7 +375,7 @@ class ProductionTimeAnalysisService
      * Nama mesin CNC yang tak sesuai kelompok produk, atau null bila sesuai/bukan CNC.
      * Mesin = eksekutor ber-induk (operator penaung tak dihitung) di langkah divisi CNC.
      */
-    protected function mesinTakSesuai(Collection $steps, bool $produkKepalaGanda): ?string
+    public static function mesinTakSesuai(Collection $steps, bool $produkKepalaGanda): ?string
     {
         $salah = [];
         foreach ($steps as $step) {
