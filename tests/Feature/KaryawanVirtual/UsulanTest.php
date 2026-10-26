@@ -254,8 +254,10 @@ class UsulanTest extends TestCase
         $j = KaryawanVirtualJurnal::find($u->jurnal_id);
         $this->assertSame('ditolak', $j->rincian[0]['status']);
 
-        // Penolakan (tanpa tindakan) tetap tampil di jurnal bawaan halaman.
+        // Penolakan terbaca di catatan usulannya; catatan keputusannya sendiri di "Semua".
         $this->actingAs($kepala)->get(route('karyawan-virtual.show', 'manager-produksi'))
+            ->assertOk()->assertSee("Usulan #{$u->id}:")->assertSee('Ditolak')->assertDontSee('❌ Ditolak');
+        $this->actingAs($kepala)->get(route('karyawan-virtual.show', ['manager-produksi', 'tampil' => 'semua']))
             ->assertOk()->assertSee('❌ Ditolak')->assertSee($u->judul);
     }
 
@@ -306,11 +308,17 @@ class UsulanTest extends TestCase
         $this->actingAs($kepala)->post(route('karyawan-virtual.usulan.putuskan', ['manager-produksi', $u->id]), ['keputusan' => 'setuju']);
         $op = ProductionOrder::sole();
 
+        // Satu usulan = satu catatan di tampilan bawaan; tabel "Usulan terakhir diputus" tak ada lagi.
         $this->actingAs($kepala)->get(route('karyawan-virtual.show', 'manager-produksi'))
             ->assertOk()
-            ->assertSee('✅ Disetujui')
-            ->assertSee($op->order_number)
             ->assertSee("Usulan #{$u->id}:")
+            ->assertSee('Disetujui')
+            ->assertSee($op->order_number)
+            ->assertDontSee('✅ Disetujui')
+            ->assertDontSee('Usulan terakhir diputus');
+        $this->actingAs($kepala)->get(route('karyawan-virtual.show', ['manager-produksi', 'tampil' => 'semua']))
+            ->assertOk()
+            ->assertSee('✅ Disetujui')
             ->assertDontSee('1 pemeriksaan diperiksa: 1 dibuat');
     }
 

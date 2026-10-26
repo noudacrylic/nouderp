@@ -166,40 +166,6 @@
         @endforeach
     </div>
 
-    {{-- Riwayat usulan --}}
-    @if ($usulanRiwayat->isNotEmpty())
-        <h2 class="font-semibold text-slate-800 mb-2">Usulan terakhir diputus</h2>
-        <div class="bg-white rounded shadow overflow-x-auto mb-6">
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 text-xs uppercase text-gray-500">
-                    <tr>
-                        <th class="text-left px-3 py-2">Diputus</th>
-                        <th class="text-left px-3 py-2">Usulan</th>
-                        <th class="text-left px-3 py-2">Status</th>
-                        <th class="text-left px-3 py-2">Hasil</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($usulanRiwayat as $u)
-                        <tr class="border-t border-gray-100 align-top">
-                            <td class="px-3 py-2 whitespace-nowrap text-xs text-gray-600">
-                                {{ ($u->diputus_at ?? $u->updated_at)->format('d/m/Y H:i') }}
-                                <div class="text-gray-400">{{ $u->pemutus?->name ?? 'Sistem' }}@if ($u->diputus_lewat && $u->diputus_lewat !== 'sistem') · {{ $u->diputus_lewat === 'telegram' ? 'Telegram' : 'web' }}@endif</div>
-                            </td>
-                            <td class="px-3 py-2">#{{ $u->id }} {{ $u->judul }}</td>
-                            <td class="px-3 py-2"><span class="rounded px-1.5 py-0.5 text-xs font-semibold {{ $warnaUsulan[$u->status] ?? '' }}">{{ $labelUsulan[$u->status] ?? $u->status }}</span></td>
-                            <td class="px-3 py-2 text-xs text-slate-600">
-                                {{ $u->catatan_hasil }}
-                                @if ($u->tautan)
-                                    <a href="{{ $u->tautan }}" class="text-blue-600 underline">{{ $u->dokumen }}</a>
-                                @endif
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-    @endif
 
     </div>{{-- /kiri --}}
 
@@ -219,8 +185,8 @@
         <div>
             <label class="block text-xs text-gray-500 mb-1">Tampilkan</label>
             <select name="tampil" class="filter-auto border rounded px-2 py-1.5 w-full">
-                <option value="">Ada tindakan / keputusan</option>
-                <option value="semua" @selected(request('tampil') === 'semua')>Semua (termasuk jalan manual tanpa tindakan)</option>
+                <option value="">Ada tindakan</option>
+                <option value="semua" @selected(request('tampil') === 'semua')>Semua (termasuk keputusan &amp; jalan manual tanpa tindakan)</option>
             </select>
         </div>
         @include('erp._partials.per-page-select')
@@ -277,6 +243,8 @@
                             @if ($u->pemutus)<span class="text-gray-400">{{ $u->pemutus->name }}{{ $u->diputus_at ? ', ' . $u->diputus_at->format('d/m H:i') : '' }}</span>@endif
                             @if ($u->tautan)
                                 → <a href="{{ $u->tautan }}" class="text-blue-600 underline" @click.stop>{{ $u->dokumen }}</a>
+                            @elseif (in_array($u->status, ['batal', 'gagal', 'kedaluwarsa'], true) && $u->catatan_hasil)
+                                <div class="text-[11px] text-gray-500">{{ \Illuminate\Support\Str::limit($u->catatan_hasil, 160) }}</div>
                             @endif
                         </div>
                     @endforeach
