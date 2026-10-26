@@ -218,10 +218,11 @@ class OpIsiAntreanCncTest extends TestCase
         app(IsiAntreanCncService::class)->jalankan(false, true, Carbon::parse('2026-10-25 10:00')); // Minggu
         $this->assertCount(0, $this->pengisi());
 
+        // Pekerjaan berjalan untuk produk Mesin 2 & 3: hanya kelompok Mesin 1 yang diisi.
         $this->opLain(null, [[$this->cnc, 'in_progress']]);
         $hasil = $this->isi();
         $this->assertCount(0, $this->pengisi());
-        $this->assertStringContainsString('Antrean CNC masih berisi 1', $hasil[0]['reason']);
+        $this->assertStringContainsString('Antrean CNC berisi 1 pekerjaan, tak satu pun produk Mesin 1', $hasil[0]['reason']);
     }
 
     public function test_bahan_kurang_produk_dilewati_dan_dicatat(): void
@@ -236,7 +237,8 @@ class OpIsiAntreanCncTest extends TestCase
         ProductStock::where('product_id', $this->lembar->id)->update(['qty_on_hand' => 0]);
         ProductionOrder::query()->update(['status' => 'finalized']);
         $hasil = $this->isi();
-        $this->assertStringContainsString('Bahan kurang', collect($hasil)->firstWhere('tingkat', 1)['reason']);
+        $this->assertStringContainsString('Bahan kurang', collect($hasil)
+            ->first(fn ($r) => $r['tingkat'] === 1 && $r['kelompok'] === IsiAntreanCncService::TUNGGAL)['reason']);
     }
 
     public function test_skill_bawaan_minta_persetujuan_lalu_disetujui(): void
@@ -268,19 +270,5 @@ class OpIsiAntreanCncTest extends TestCase
             ->assertOk()
             ->assertSee('Laku/hari')
             ->assertSee('5,0 hari');
-    }
-
-    public function test_simpan_produk_andalan_dari_pengaturan_produksi(): void
-    {
-        $a = $this->produk('RP-3x5', 50, 300);
-        $b = $this->produk('RP-2x5', 50, 300, andalan: true);
-        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
-
-        $this->actingAs($admin)->get(route('production.settings'))->assertOk()->assertSee('Produk Andalan');
-        $this->actingAs($admin)->post(route('production.settings.produk-andalan.update'), ['product_ids' => [$a->id]])
-            ->assertSessionHas('success');
-
-        $this->assertTrue($a->fresh()->produk_andalan);
-        $this->assertFalse($b->fresh()->produk_andalan);
     }
 }

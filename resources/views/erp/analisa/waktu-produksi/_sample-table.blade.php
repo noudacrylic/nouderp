@@ -9,6 +9,7 @@
         'unfinished_steps' => ['Ada langkah belum selesai', 'bg-amber-50 text-amber-700 border-amber-200'],
         'zero_division'    => ['Ada divisi 0 detik', 'bg-amber-50 text-amber-700 border-amber-200'],
         'no_bom'           => ['Tanpa BOM', 'bg-gray-100 text-gray-500 border-gray-200'],
+        'mesin_tak_sesuai' => ['Mesin tak sesuai kelompok', 'bg-red-50 text-red-700 border-red-200'],
     ];
 @endphp
 
@@ -49,7 +50,8 @@
                             @endif
                             @foreach($s['flags'] as $flag)
                                 @if(isset($flagLabels[$flag]))
-                                    <span class="text-xs font-semibold border rounded px-1.5 py-0.5 {{ $flagLabels[$flag][1] }}">{{ $flagLabels[$flag][0] }}</span>
+                                    <span class="text-xs font-semibold border rounded px-1.5 py-0.5 {{ $flagLabels[$flag][1] }}"
+                                          @if($flag === 'mesin_tak_sesuai') title="Mesin 1 double head jauh lebih cepat dari Mesin 2 & 3 — sampel selalu dicoret. Kelompok mesin diatur di Karyawan Virtual › Manager Produksi › Isi antrean CNC › Pengaturan." @endif>{{ $flagLabels[$flag][0] }}@if($flag === 'mesin_tak_sesuai' && !empty($s['mesin_tak_sesuai'])): {{ $s['mesin_tak_sesuai'] }}@endif</span>
                                 @endif
                             @endforeach
                         </div>

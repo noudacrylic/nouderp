@@ -108,7 +108,12 @@
                                     {{ $labelMode[$m] ?? $m }}
                                 </button>
                             @endforeach
+                            @if ($skill instanceof \App\Modules\KaryawanVirtual\Contracts\PunyaPengaturan)
+                                <a href="{{ $skill->urlPengaturan($kode) }}" class="text-xs px-2 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">⚙ Pengaturan</a>
+                            @endif
                         </form>
+                    @elseif ($skill instanceof \App\Modules\KaryawanVirtual\Contracts\PunyaPengaturan)
+                        <div class="mb-1"><a href="{{ $skill->urlPengaturan($kode) }}" class="text-xs px-2 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">⚙ Pengaturan</a></div>
                     @endif
                     <p class="text-[11px] text-slate-500 mb-3">
                         {{ $penjelasanMode[$s['mode']] ?? '' }}

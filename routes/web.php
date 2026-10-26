@@ -126,6 +126,9 @@ Route::prefix('erp')->group(function () {
         Route::post('/{kode}/skill/{skill}/mode', [$c, 'ubahMode'])->name('mode');
         Route::post('/{kode}/skill/{skill}/jalankan', [$c, 'jalankan'])->name('jalankan');
         Route::post('/{kode}/usulan/{usulan}', [$c, 'putuskan'])->whereNumber('usulan')->name('usulan.putuskan');
+        $cnc = \App\Modules\KaryawanVirtual\Controllers\PengaturanCncController::class;
+        Route::get('/{kode}/pengaturan-cnc', [$cnc, 'show'])->name('cnc.pengaturan');
+        Route::post('/{kode}/pengaturan-cnc', [$cnc, 'simpan'])->name('cnc.pengaturan.simpan');
     });
 
     // -- Intercom divisi: layar stasiun + log panggilan (sinyal via Reverb) --
@@ -1430,7 +1433,6 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('settings', [\App\Modules\Production\Controllers\BomController::class, 'updateSettings'])->name('settings.update');
     Route::post('settings/byproducts', [\App\Modules\Production\Controllers\BomController::class, 'updateByproductSettings'])->name('settings.byproducts.update');
     Route::post('settings/raw-materials', [\App\Modules\Production\Controllers\BomController::class, 'updateRawMaterialSettings'])->name('settings.raw-materials.update');
-    Route::post('settings/produk-andalan', [\App\Modules\Production\Controllers\BomController::class, 'updateProdukAndalan'])->name('settings.produk-andalan.update');
     Route::post('settings/testing-mode', [\App\Modules\Production\Controllers\BomController::class, 'updateTestingMode'])->name('settings.testing.update');
 
     // Production Orders

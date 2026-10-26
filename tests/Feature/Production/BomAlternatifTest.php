@@ -181,6 +181,7 @@ class BomAlternatifTest extends TestCase
         $hasil = app(IsiAntreanCncService::class)->jalankan(false, true, Carbon::parse('2026-10-26 10:00'));
 
         $this->assertSame(0, ProductionOrder::count());
-        $this->assertStringContainsString('bahan semua BOM alternatif kurang', collect($hasil)->firstWhere('tingkat', 1)['reason']);
+        $this->assertStringContainsString('bahan semua BOM alternatif kurang', collect($hasil)
+            ->first(fn ($r) => $r['tingkat'] === 1 && $r['kelompok'] === IsiAntreanCncService::TUNGGAL)['reason']);
     }
 }

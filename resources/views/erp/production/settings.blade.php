@@ -146,19 +146,6 @@
                 'results'      => [],
                 'showDrop'     => false,
             ])->values()->all();
-            $lajuAndalan = app(\App\Core\Inventory\Services\LajuJualService::class)->perHari(($produkAndalan ?? collect())->pluck('id'));
-            $tersediaAndalan = app(\App\Core\Inventory\Services\StokTersediaService::class)->untuk(($produkAndalan ?? collect())->pluck('id'));
-            $initAndalan = ($produkAndalan ?? collect())->map(function ($p) use ($lajuAndalan, $tersediaAndalan) {
-                $perHari = $lajuAndalan[$p->id] ?? 0;
-                $cukup   = \App\Core\Inventory\Services\LajuJualService::hariCukup($tersediaAndalan[$p->id] ?? 0, $perHari);
-                return [
-                    'product_id'   => $p->id,
-                    'productQuery' => $p->sku . ' - ' . $p->name,
-                    'info'         => number_format($perHari, 1, ',', '.') . '/hari · ' . ($cukup === null ? '∞' : number_format($cukup, 1, ',', '.') . ' hari'),
-                    'results'      => [],
-                    'showDrop'     => false,
-                ];
-            })->values()->all();
             $initByproducts = ($byproducts ?? collect())->map(fn($b) => [
                 'product_id'   => $b->product_id,
                 'productQuery' => ($b->product?->sku ? $b->product->sku . ' - ' : '') . ($b->product?->name ?? '—'),
@@ -174,56 +161,15 @@
             ])->values()->all();
         @endphp
 
-        {{-- Produk andalan — Tingkat 1 skill "Isi antrean CNC" (Karyawan Virtual) --}}
-        <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6"
-             x-data="produkAndalanSettings({{ Js::from($initAndalan) }})">
-            <div class="flex justify-between items-center mb-1">
-                <h3 class="font-bold text-gray-700 text-sm">Produk Andalan</h3>
-                <button type="button" @click="addRow()"
-                        class="text-xs text-blue-600 font-bold hover:text-blue-700">+ Tambah</button>
-            </div>
-            <p class="text-xs text-gray-400 mb-4">
-                Produk <b>ready stok</b> paling laris yang stoknya sering habis. Saat antrean <b>CNC kosong</b>,
-                Manager Produksi membuatkan OP-nya walau stok masih banyak (maks. 2 OP berjalan per produk;
-                OP kedua berprioritas rendah sampai OP pertama selesai). Laku/hari = rata-rata 30 hari dari kartu stok.
+        {{-- Produk andalan & kelompok mesin CNC pindah ke halaman pengaturan skill (26 Okt 2026) --}}
+        <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+            <h3 class="font-bold text-gray-700 text-sm mb-1">Produk Andalan &amp; Mesin CNC</h3>
+            <p class="text-xs text-gray-400 mb-3">
+                Produk andalan dan kelompok mesin (Mesin 1 double head / Mesin 2 &amp; 3) kini diatur di
+                pengaturan skill <b>Isi antrean CNC</b> milik Manager Produksi.
             </p>
-            <form action="{{ route('production.settings.produk-andalan.update') }}" method="POST">
-                @csrf
-                <div class="space-y-2">
-                    <template x-for="(r, idx) in rows" :key="idx">
-                        <div class="flex gap-2 items-center">
-                            <div class="flex-1 relative" @click.outside="r.showDrop = false">
-                                <input type="text" x-model="r.productQuery"
-                                       @input.debounce.300ms="search(idx)"
-                                       @focus="r.showDrop = true"
-                                       placeholder="Cari produk ready stok..."
-                                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
-                                <input type="hidden" name="product_ids[]" :value="r.product_id">
-                                <div x-show="r.showDrop && r.results.length > 0"
-                                     class="absolute bg-white border border-gray-200 w-full mt-1 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
-                                    <template x-for="p in r.results" :key="p.id">
-                                        <div @click="select(idx, p)"
-                                             class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
-                                            <span class="font-bold text-blue-600" x-text="p.sku"></span>
-                                            <span class="text-gray-600 ml-1" x-text="p.name"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                            <span class="w-32 text-right text-[11px] text-gray-500" x-text="r.info"></span>
-                            <button type="button" @click="rows.splice(idx, 1)"
-                                    class="p-2 text-red-400 hover:text-red-600 rounded-lg transition">✕</button>
-                        </div>
-                    </template>
-                    <div x-show="rows.length === 0" class="text-xs text-gray-400 text-center py-4">
-                        Belum ada produk andalan. Klik "+ Tambah" untuk mendaftarkan.
-                    </div>
-                </div>
-                <button type="submit"
-                        class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-bold transition">
-                    Simpan Produk Andalan
-                </button>
-            </form>
+            <a href="{{ route('karyawan-virtual.cnc.pengaturan', 'manager-produksi') }}"
+               class="inline-block text-sm font-bold text-blue-600 hover:text-blue-700">⚙ Buka Pengaturan Isi antrean CNC →</a>
         </div>
 
         {{-- Bahan Baku (lembaran) + ukuran PxL — untuk Kalkulator Produk Custom --}}
@@ -417,31 +363,6 @@ function byproductSettings(init) {
             r.rawQuery = (p.sku ? p.sku + ' - ' : '') + p.name;
             r.rawResults = [];
             r.rawDrop = false;
-        },
-    };
-}
-
-function produkAndalanSettings(init) {
-    return {
-        rows: init || [],
-        addRow() {
-            this.rows.push({ product_id: '', productQuery: '', info: '', results: [], showDrop: false });
-        },
-        search(idx) {
-            const r = this.rows[idx];
-            const q = (r.productQuery || '').trim();
-            if (q.length < 1) { r.results = []; return; }
-            fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}&ready_only=1`)
-                .then(res => res.json())
-                .then(data => { r.results = data; r.showDrop = true; });
-        },
-        select(idx, p) {
-            const r = this.rows[idx];
-            r.product_id = p.id;
-            r.productQuery = (p.sku ? p.sku + ' - ' : '') + p.name;
-            r.info = '';
-            r.results = [];
-            r.showDrop = false;
         },
     };
 }

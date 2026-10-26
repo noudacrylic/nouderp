@@ -4,6 +4,7 @@ namespace App\Modules\KaryawanVirtual\Skills\Produksi;
 
 use App\Core\Inventory\Product;
 use App\Modules\KaryawanVirtual\Contracts\BisaDiusulkan;
+use App\Modules\KaryawanVirtual\Contracts\PunyaPengaturan;
 use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
 use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Production\Services\IsiAntreanCncService as Svc;
@@ -16,7 +17,7 @@ use App\Modules\Production\Services\IsiAntreanCncService as Svc;
  * & syarat tingkatnya diperiksa ulang. Penyesuaian OP yang sudah ada (naikkan skor,
  * alihkan hasil cadangan ke gudang jual) tidak diusulkan — langsung, kecuali Bayangan.
  */
-class OpIsiAntreanCnc implements BisaDiusulkan
+class OpIsiAntreanCnc implements BisaDiusulkan, PunyaPengaturan
 {
     public const KEY = Svc::SKILL;
 
@@ -27,10 +28,16 @@ class OpIsiAntreanCnc implements BisaDiusulkan
         return 'Isi antrean CNC yang kosong';
     }
 
+    public function urlPengaturan(string $kode): string
+    {
+        return route('karyawan-virtual.cnc.pengaturan', $kode);
+    }
+
     public function deskripsi(): string
     {
-        return 'Di jam kerja, bila antrean CNC kosong, membuat satu OP berjenjang. '
-            . 'Tingkat 1: produk andalan (Pengaturan Produksi) walau stok masih banyak — maks ' . Svc::MAKS_OP_ANDALAN
+        return 'Di jam kerja, bila antrean CNC tak berisi satu pun produk Mesin 1 (double head), membuat satu OP '
+            . 'produk Mesin 1; bila antrean CNC kosong total, dua OP (Mesin 1 dan Mesin 2 & 3). Calon dipilih berjenjang. '
+            . 'Tingkat 1: produk andalan walau stok masih banyak — maks ' . Svc::MAKS_OP_ANDALAN
             . ' OP, OP kedua Prioritas Rendah lalu Otomatis setelah OP pertama selesai. '
             . 'Tingkat 2: stok di atas minimum tapi cukup ≤ ' . Svc::T2_MAKS_HARI . ' hari penjualan. '
             . 'Tingkat 3: ' . Svc::T3_POLA_SKU . '* laris yang stok jualnya cukup ≥ ' . Svc::T3_MIN_HARI_JUAL
@@ -79,7 +86,7 @@ class OpIsiAntreanCnc implements BisaDiusulkan
             if ($r['jenis'] !== 'buat' || !$r['simulasi']) continue;
             $usulan[$i] = [
                 'kunci'  => "cnc:{$r['tingkat']}:{$r['product_id']}",
-                'judul'  => "Isi antrean CNC (Tingkat {$r['tingkat']}): OP {$r['sku']} — {$r['nama']}",
+                'judul'  => "Isi antrean CNC " . Svc::labelKelompok($r['kelompok'] ?? Svc::TUNGGAL) . " (Tingkat {$r['tingkat']}): OP {$r['sku']} — {$r['nama']}",
                 'alasan' => $r['reason'],
                 'data'   => ['product_id' => $r['product_id'], 'tingkat' => $r['tingkat']],
             ];

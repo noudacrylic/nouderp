@@ -8,6 +8,7 @@ class Product extends Model
 {
     protected $fillable = [
         'produk_andalan',
+        'cnc_kepala_ganda',
         'sku',
         'name',
         'sale_type',
@@ -47,6 +48,7 @@ class Product extends Model
         'needs_printing' => 'boolean',
         'is_active' => 'boolean',
         'produk_andalan' => 'boolean',
+        'cnc_kepala_ganda' => 'boolean',
         'is_sellable' => 'boolean',
         'tampil_di_kasir' => 'boolean',
         'made_to_order' => 'boolean',

@@ -223,9 +223,9 @@ class ProductionTimeAnalysisService
                 // Siapa yang mengerjakan tiap langkah. Sumbernya pivot, BUKAN kolom
                 // `executor_id` yang lama: semua langkah yang punya kolom itu juga ada
                 // di pivot, sedangkan pivot menampung langkah bertangan banyak.
-                'steps.executors:id,name',
+                'steps.executors:id,name,parent_executor_id,kepala_ganda',
                 'outputs'              => fn ($q) => $q->where('output_type', 'main'),
-                'outputs.product:id,sku,name,base_unit',
+                'outputs.product:id,sku,name,base_unit,cnc_kepala_ganda',
                 'bom:id,bom_number,name',
                 'bom.outputs'          => fn ($q) => $q->where('output_type', 'main'),
                 'mergedChildren:id,merged_into_id',
@@ -316,6 +316,14 @@ class ProductionTimeAnalysisService
             $flags[] = 'zero_division';
         }
 
+        // Mesin CNC tak sesuai kelompok produk: double head (Mesin 1) jauh lebih cepat dari
+        // single head, jadi sampel TB di Mesin 2/3 (atau BC di Mesin 1) merusak rata-rata.
+        // Selalu dicoret, tanpa bisa dicentang ulang (keputusan user 26 Okt 2026).
+        if ($mesin = $this->mesinTakSesuai($doneSteps, (bool) $mains->first()->product?->cnc_kepala_ganda)) {
+            $flags[]  = 'mesin_tak_sesuai';
+            $eligible = false;
+        }
+
         $isMergedChild  = $order->merged_into_id !== null;
         $isMergedParent = $order->mergedChildren->isNotEmpty();
         if ($isMergedChild)  { $flags[] = 'merged_child';  $eligible = false; }
@@ -356,9 +364,28 @@ class ProductionTimeAnalysisService
             'excluded'            => $excluded,
             'exclusion_reason'    => $excluded ? $exclusions[$order->id] : null,
             'flags'               => $flags,
+            'mesin_tak_sesuai'    => $mesin,
             'is_eligible'         => $eligible,
             'is_outlier'          => false, // diisi di aggregate()
         ];
+    }
+
+    /**
+     * Nama mesin CNC yang tak sesuai kelompok produk, atau null bila sesuai/bukan CNC.
+     * Mesin = eksekutor ber-induk (operator penaung tak dihitung) di langkah divisi CNC.
+     */
+    protected function mesinTakSesuai(Collection $steps, bool $produkKepalaGanda): ?string
+    {
+        $salah = [];
+        foreach ($steps as $step) {
+            if (!str_starts_with(strtoupper((string) $step->department?->name), 'CNC')) continue;
+            foreach ($step->executors as $ex) {
+                if ($ex->parent_executor_id && (bool) $ex->kepala_ganda !== $produkKepalaGanda) {
+                    $salah[$ex->id] = $ex->name;
+                }
+            }
+        }
+        return $salah ? implode(', ', $salah) : null;
     }
 
     /** Agregasi sampel-sampel satu produk menjadi baris hasil. */

@@ -37,7 +37,18 @@ class AntreanProduksiService
      */
     public function jumlah(Department $dept): int
     {
-        return ProductionOrderStep::with('productionOrder.steps')
+        return $this->pekerjaan($dept)->count();
+    }
+
+    /**
+     * Langkah-langkah di antrean divisi (definisi sama dengan jumlah()), beserta produk utama
+     * OP-nya — dipakai memilah antrean CNC per kelompok mesin.
+     *
+     * @return \Illuminate\Support\Collection<int, ProductionOrderStep>
+     */
+    public function pekerjaan(Department $dept)
+    {
+        return ProductionOrderStep::with(['productionOrder.steps', 'productionOrder.outputs.product'])
             ->where('department_id', $dept->id)
             ->whereIn('status', ['pending', 'in_progress', 'paused'])
             ->whereHas('productionOrder', fn ($q) => $q->whereIn('status', ['confirmed', 'in_progress', 'partial']))
@@ -47,6 +58,6 @@ class AntreanProduksiService
                 $prev = $step->productionOrder->steps->firstWhere('step_number', $step->step_number - 1);
                 return $prev === null || $prev->status === 'completed';
             })
-            ->count();
+            ->values();
     }
 }

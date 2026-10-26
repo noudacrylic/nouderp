@@ -5,7 +5,6 @@ namespace App\Modules\Production\Services;
 use App\Core\Inventory\Product;
 use App\Core\Inventory\ProductStock;
 use App\Core\Inventory\Services\LajuJualService;
-use App\Core\Inventory\StockReservation;
 use App\Core\Inventory\Warehouse;
 use App\Modules\Production\Models\Bom;
 use App\Modules\Production\Models\ProductionOrder;
@@ -14,7 +13,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Isi antrean CNC yang kosong (jam kerja), satu OP sekali jalan, berjenjang:
+ * Isi antrean CNC (jam kerja) per kelompok mesin — Mesin 1 double head untuk produk
+ * products.cnc_kepala_ganda (knockdown), Mesin 2 & 3 single head untuk sisanya:
+ *   - antrean tanpa satu pun pekerjaan kelompok Mesin 1 → 1 OP kelompok Mesin 1;
+ *   - antrean CNC kosong total → 2 OP: satu Mesin 1, satu Mesin 2 & 3.
+ * (Antrean Mesin 2 & 3 sendiri belum dipantau — keputusan user 26 Okt 2026.)
+ * Per kelompok, calon dipilih berjenjang:
  *
  *   Tingkat 1 — produk andalan (products.produk_andalan): OP walau stok masih banyak.
  *               Belum ada OP → skor Otomatis; sudah 1 OP → OP kedua Prioritas Rendah,
@@ -42,6 +46,10 @@ class IsiAntreanCncService
     public const T3_MIN_LAKU_30HR      = 100;
     public const T3_POLA_SKU           = 'TBKD-';
 
+    /** Kelompok mesin CNC. */
+    public const GANDA   = 'ganda';
+    public const TUNGGAL = 'tunggal';
+
     public function __construct(
         private AutoProductionService $auto,
         private BomService $bomService,
@@ -53,6 +61,16 @@ class IsiAntreanCncService
     public static function penanda(int $tingkat): string
     {
         return self::SKILL . ':' . $tingkat;
+    }
+
+    public static function labelKelompok(string $kelompok): string
+    {
+        return $kelompok === self::GANDA ? 'Mesin 1' : 'Mesin 2 & 3';
+    }
+
+    public static function kelompokProduk(?Product $p): string
+    {
+        return $p?->cnc_kepala_ganda ? self::GANDA : self::TUNGGAL;
     }
 
     /**
@@ -69,25 +87,46 @@ class IsiAntreanCncService
             return [...$hasil, $this->baris('antrean', 0, null, ['reason' => $lewati])];
         }
 
-        foreach ([1, 2, 3] as $t) {
-            [$calon, $catatan] = $this->calon($t);
-            if ($calon) {
-                return [...$hasil, $this->buat($t, $calon[0], $simulasi)];
+        $isi   = $this->isiAntrean();
+        $total = array_sum($isi);
+        if ($isi[self::GANDA] > 0) {
+            return [...$hasil, $this->baris('antrean', 0, null, [
+                'reason' => "Antrean CNC berisi {$total} pekerjaan, {$isi[self::GANDA]} di antaranya produk Mesin 1 — tidak perlu diisi.",
+            ])];
+        }
+        if ($total > 0) {
+            $hasil[] = $this->baris('antrean', 0, null, [
+                'reason' => "Antrean CNC berisi {$total} pekerjaan, tak satu pun produk Mesin 1 — diisi untuk Mesin 1.",
+            ]);
+        }
+
+        // Antrean kosong total → isi kedua kelompok sekaligus (keputusan diambil sebelum OP pertama dibuat).
+        foreach ($total === 0 ? [self::GANDA, self::TUNGGAL] : [self::GANDA] as $k) {
+            $label = self::labelKelompok($k);
+            foreach ([1, 2, 3] as $t) {
+                [$calon, $catatan] = $this->calon($t, $k);
+                if ($calon) {
+                    $hasil[] = $this->buat($t, $calon[0], $simulasi);
+                    continue 2;
+                }
+                $hasil[] = $this->baris('tingkat', $t, null, ['kelompok' => $k, 'reason' => "{$label}: Tingkat {$t} dilewati: {$catatan}"]);
             }
-            $hasil[] = $this->baris('tingkat', $t, null, ['reason' => "Tingkat {$t} dilewati: {$catatan}"]);
         }
 
         return $hasil;
     }
 
-    /** Usulan disetujui: periksa ulang antrean & syarat tingkatnya untuk produk ini. */
+    /**
+     * Usulan disetujui: periksa ulang antrean kelompok mesin produk ini & syarat tingkatnya.
+     * Per kelompok (bukan total) supaya dua usulan dari antrean kosong bisa disetujui berurutan.
+     */
     public function kerjakanUntuk(Product $produk, int $tingkat): array
     {
-        $cnc = $this->antrean->departemen('CNC');
-        if ($cnc && ($n = $this->antrean->jumlah($cnc)) > 0) {
-            return $this->baris('buat', $tingkat, $produk, ['reason' => "Antrean CNC sudah berisi {$n} pekerjaan."]);
+        $k = self::kelompokProduk($produk);
+        if (($n = $this->isiAntrean()[$k]) > 0) {
+            return $this->baris('buat', $tingkat, $produk, ['reason' => "Antrean CNC sudah berisi {$n} pekerjaan " . self::labelKelompok($k) . '.']);
         }
-        [$calon, $catatan] = $this->calon($tingkat);
+        [$calon, $catatan] = $this->calon($tingkat, $k);
         $pilih = collect($calon)->first(fn ($c) => $c['produk']->id === $produk->id);
         if (!$pilih) {
             return $this->baris('buat', $tingkat, $produk, ['reason' => "Tidak lagi memenuhi syarat Tingkat {$tingkat}. {$catatan}"]);
@@ -105,9 +144,6 @@ class IsiAntreanCncService
         if (!$cnc) {
             return 'Departemen "CNC" tidak ditemukan.';
         }
-        if (($n = $this->antrean->jumlah($cnc)) > 0) {
-            return "Antrean CNC masih berisi {$n} pekerjaan.";
-        }
         // OP pengisi yang gagal dikonfirmasi tak tampil di antrean — tanpa rem ini tiap 30 menit
         // lahir OP baru untuk produk berikutnya.
         $draft = ProductionOrder::where('kv_skill', 'like', self::SKILL . ':%')->where('status', 'draft')->value('order_number');
@@ -121,14 +157,14 @@ class IsiAntreanCncService
     }
 
     /**
-     * Calon tingkat $t, terurut prioritas, beserta catatan bila kosong.
+     * Calon tingkat $t untuk kelompok mesin $kelompok, terurut prioritas, beserta catatan bila kosong.
      *
      * @return array{0: array<int, array>, 1: string}
      */
-    public function calon(int $t): array
+    public function calon(int $t, string $kelompok = self::GANDA): array
     {
         $gudang  = $this->auto->gudangProduksi();
-        $semua   = $this->produkCnc();
+        $semua   = array_values(array_filter($this->produkCnc(), fn ($x) => self::kelompokProduk($x['produk']) === $kelompok));
         $laju    = $this->laju->perHari(array_column($semua, 'id'));
         $calon   = [];
         $bahan   = [];
@@ -208,7 +244,7 @@ class IsiAntreanCncService
         } . " (laku {$fmt($c['perHari'])}/hari)"
             . (($c['catatan_bom'] ?? null) ? "; BOM: {$c['catatan_bom']}" : '');
         $skor = $rendah ? 'Prioritas Rendah' : 'Otomatis';
-        $ringkas = "Tingkat {$t} — {$siklus} siklus {$bom->bom_number}, {$alasan}, skor {$skor}"
+        $ringkas = "Tingkat {$t} (" . self::labelKelompok(self::kelompokProduk($p)) . ") — {$siklus} siklus {$bom->bom_number}, {$alasan}, skor {$skor}"
             . ($t === 3 ? ', hasil ke gudang Cadangan' : '');
 
         $base = $this->baris('buat', $t, $p);
@@ -357,6 +393,22 @@ class IsiAntreanCncService
             ->where('name', 'like', '%cadangan%')->orderBy('id')->first();
     }
 
+    /**
+     * Jumlah pekerjaan antrean CNC per kelompok mesin produk utamanya.
+     *
+     * @return array{ganda: int, tunggal: int}
+     */
+    private function isiAntrean(): array
+    {
+        $isi = [self::GANDA => 0, self::TUNGGAL => 0];
+        $cnc = $this->antrean->departemen('CNC');
+        if (!$cnc) return $isi;
+        foreach ($this->antrean->pekerjaan($cnc) as $step) {
+            $isi[self::kelompokProduk($step->productionOrder->outputs->firstWhere('output_type', 'main')?->product)]++;
+        }
+        return $isi;
+    }
+
     private function stokDi(Product $p, Warehouse $w): float
     {
         return (float) ProductStock::where('product_id', $p->id)->where('warehouse_id', $w->id)->sum('qty_on_hand');
@@ -365,7 +417,7 @@ class IsiAntreanCncService
     private function baris(string $jenis, int $tingkat, ?Product $p, array $isi = []): array
     {
         return array_merge([
-            'jenis' => $jenis, 'tingkat' => $tingkat,
+            'jenis' => $jenis, 'tingkat' => $tingkat, 'kelompok' => $p ? self::kelompokProduk($p) : null,
             'product_id' => $p?->id, 'sku' => $p?->sku ?? ($tingkat ? "Tingkat {$tingkat}" : 'Antrean CNC'), 'nama' => $p?->name ?? '',
             'created' => false, 'simulasi' => false, 'diubah' => false, 'order_number' => null, 'reason' => null,
         ], $isi);
