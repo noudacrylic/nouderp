@@ -162,11 +162,12 @@ class IsiAntreanCncService
             };
             if (!$lolos) continue;
 
-            if ($kurang = $this->bahanKurang($x['bom'], $gudang)) {
-                $bahan[] = "{$p->sku} ({$kurang})";
+            [$bom, $catatanBom, $cukupBahan] = $this->auto->pilihBom($x['bom'], $gudang);
+            if (!$cukupBahan) {
+                $bahan[] = "{$p->sku} (" . ($catatanBom ?? $this->auto->bahanKurang($bom, $gudang)) . ')';
                 continue;
             }
-            $calon[] = $x + $info;
+            $calon[] = ['bom' => $bom, 'catatan_bom' => $catatanBom] + $x + $info;
         }
 
         usort($calon, fn ($a, $b) => match ($t) {
@@ -204,7 +205,8 @@ class IsiAntreanCncService
             1 => "produk andalan, OP berjalan {$c['aktif']}",
             2 => "hampir menipis: stok {$fmt($c['tersedia'])} cukup {$fmt($c['cukup'])} hari",
             3 => "stok cadangan: stok jual cukup {$fmt($c['cukup'])} hari, cadangan {$fmt($c['cadangan'])} pcs",
-        } . " (laku {$fmt($c['perHari'])}/hari)";
+        } . " (laku {$fmt($c['perHari'])}/hari)"
+            . (($c['catatan_bom'] ?? null) ? "; BOM: {$c['catatan_bom']}" : '');
         $skor = $rendah ? 'Prioritas Rendah' : 'Otomatis';
         $ringkas = "Tingkat {$t} — {$siklus} siklus {$bom->bom_number}, {$alasan}, skor {$skor}"
             . ($t === 3 ? ', hasil ke gudang Cadangan' : '');
@@ -325,7 +327,8 @@ class IsiAntreanCncService
     }
 
     /**
-     * Produk ready aktif yang punya BOM berlangkah CNC (BOM pertama per produk).
+     * Produk ready aktif yang punya BOM berlangkah CNC (BOM pertama per produk; BOM alternatifnya
+     * dipilih di calon() lewat AutoProductionService::pilihBom).
      *
      * @return array<int, array{id: int, produk: Product, bom: Bom}>
      */
@@ -346,20 +349,6 @@ class IsiAntreanCncService
             $hasil[$p->id] = ['id' => $p->id, 'produk' => $p, 'bom' => $bom];
         }
         return array_values($hasil);
-    }
-
-    /** null = bahan cukup; selain itu ringkasan yang kurang (stok gudang OP − reservasi). */
-    private function bahanKurang(Bom $bom, Warehouse $gudang): ?string
-    {
-        $kurang = [];
-        foreach ($this->bomService->calculateMaterials($bom->id, max(1, (int) ($bom->typical_cycles ?? 1))) as $m) {
-            $ada = (float) ProductStock::where('product_id', $m['product_id'])->where('warehouse_id', $gudang->id)->sum('qty_on_hand')
-                - (float) StockReservation::where('product_id', $m['product_id'])->where('warehouse_id', $gudang->id)->where('status', 'active')->sum('qty');
-            if ($ada + 1e-9 < (float) $m['qty_required']) {
-                $kurang[] = "{$m['product_sku']} butuh " . (float) $m['qty_required'] . ', ada ' . max(0, $ada);
-            }
-        }
-        return $kurang ? implode('; ', $kurang) : null;
     }
 
     public function gudangCadangan(): ?Warehouse

@@ -45,7 +45,12 @@
                         {{ $bom->bom_number }}
                         @include('erp.purchasing._partials.copy-btn', ['value' => $bom->bom_number])
                     </td>
-                    <td class="px-3 py-2">{{ $bom->name }}</td>
+                    <td class="px-3 py-2">
+                        {{ $bom->name }}
+                        @if($bom->urutan_pakai)
+                            <span class="ml-1 text-[10px] font-bold bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded" title="BOM alternatif — Manager Produksi memakai urutan terkecil yang bahannya cukup">Alternatif #{{ $bom->urutan_pakai }}</span>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-center">{{ $bom->materials_count }}</td>
                     <td class="px-3 py-2 text-center">{{ $bom->outputs_count }}</td>
                     <td class="px-3 py-2 text-center">{{ $bom->steps_count }}</td>

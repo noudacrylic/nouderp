@@ -29,7 +29,9 @@ class OpStokMenipis implements BisaDiusulkan
     {
         return 'Memeriksa semua BOM yang auto-produksinya aktif. Bila stok tersedia produk utamanya '
             . 'habis atau di bawah stok minimum dan belum ada produksi berjalan, membuat order produksi '
-            . 'lalu mengonfirmasinya.';
+            . 'lalu mengonfirmasinya. Bila produknya punya BOM alternatif (Urutan pakai di BOM), '
+            . 'dipakai urutan terkecil yang bahannya cukup — mis. BOM "pakai stok tutup" saat tutup cukup, '
+            . 'selain itu BOM "tutup sisa".';
     }
 
     public function jadwal(): string

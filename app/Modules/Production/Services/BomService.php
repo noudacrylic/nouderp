@@ -36,6 +36,7 @@ class BomService
                 'description'    => $data['description'] ?? null,
                 'typical_cycles' => $data['typical_cycles'] ?? null,
                 'auto_production' => $autoProduction,
+                'urutan_pakai'   => ($data['urutan_pakai'] ?? null) ?: null,
                 'score'          => 0,
             ]);
 
@@ -68,6 +69,7 @@ class BomService
                 'description'    => $data['description'] ?? null,
                 'typical_cycles' => $data['typical_cycles'] ?? null,
                 'auto_production' => $autoProduction,
+                'urutan_pakai'   => ($data['urutan_pakai'] ?? null) ?: null,
             ]);
 
             $this->syncMaterials($bom, $data['materials'] ?? []);

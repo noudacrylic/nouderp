@@ -103,11 +103,20 @@ class AutoProductionService
             return array_merge($base, ['reason' => 'Tidak ada gudang aktif untuk dipakai.']);
         }
 
-        $cycles = (int) max(1, (int) ($bom->typical_cycles ?? 1));
+        // BOM alternatif (urutan_pakai): yang dipakai bisa berbeda dari BOM auto yang diperiksa.
+        // bom_id hasil tetap BOM auto — kunci usulan & cek ulang saat disetujui memilih lagi.
+        [$pakai, $catatanBom] = $this->pilihBom($bom, $warehouse);
+        if ($catatanBom) {
+            $base['bom_number'] = $pakai->bom_number;
+            $base['bom_name']   = $pakai->name;
+        }
+        $bomNote = $catatanBom ? " BOM: {$catatanBom}." : '';
 
-        $materials = $this->bomService->calculateMaterials($bom->id, $cycles);
-        $outputs   = $this->bomService->calculateOutputs($bom->id, $cycles);
-        $steps     = $this->bomService->getSteps($bom->id);
+        $cycles = (int) max(1, (int) ($pakai->typical_cycles ?? 1));
+
+        $materials = $this->bomService->calculateMaterials($pakai->id, $cycles);
+        $outputs   = $this->bomService->calculateOutputs($pakai->id, $cycles);
+        $steps     = $this->bomService->getSteps($pakai->id);
 
         $triggerLabel = match(true) {
             $qtyOnHand < 0  => "stok minus {$qtyOnHand}",
@@ -118,22 +127,22 @@ class AutoProductionService
         if ($simulasi) {
             return array_merge($base, [
                 'simulasi' => true,
-                'reason'   => "Akan membuat order produksi: {$cycles} siklus ({$triggerLabel}).",
+                'reason'   => "Akan membuat order produksi: {$cycles} siklus ({$triggerLabel}).{$bomNote}",
             ]);
         }
 
         try {
-            $order = DB::transaction(function () use ($bom, $cycles, $warehouse, $materials, $outputs, $steps, $product, $triggerLabel) {
+            $order = DB::transaction(function () use ($pakai, $cycles, $warehouse, $materials, $outputs, $steps, $product, $triggerLabel, $bomNote) {
                 return $this->orderService->create([
                     'type'            => 'ready_stock',
-                    'bom_id'          => $bom->id,
+                    'bom_id'          => $pakai->id,
                     'warehouse_id'    => $warehouse->id,
                     'production_date' => now()->format('Y-m-d'),
                     'planned_cycles'  => $cycles,
                     'score_type'      => 'auto',
                     'created_via'     => 'auto',
-                    'description'     => $bom->description,
-                    'notes'           => "Order otomatis dari BOM {$bom->bom_number} ({$product->sku}: {$triggerLabel}).",
+                    'description'     => $pakai->description,
+                    'notes'           => "Order otomatis dari BOM {$pakai->bom_number} ({$product->sku}: {$triggerLabel}).{$bomNote}",
                     'materials'       => array_map(fn($m) => [
                         'product_id'   => $m['product_id'],
                         'qty_required' => $m['qty_required'],
@@ -165,7 +174,7 @@ class AutoProductionService
             return array_merge($base, [
                 'created'      => true,
                 'order_number' => $order->order_number,
-                'reason'       => "Order produksi dibuat: {$cycles} siklus ({$triggerLabel}) — {$statusNote}.",
+                'reason'       => "Order produksi dibuat: {$cycles} siklus ({$triggerLabel}) — {$statusNote}.{$bomNote}",
             ]);
         } catch (\Throwable $e) {
             Log::error('AutoProductionService gagal membuat order', [
@@ -229,6 +238,57 @@ class AutoProductionService
                   ->where('output_type', 'main');
             })
             ->count();
+    }
+
+    /**
+     * Pilih BOM yang dipakai dari BOM alternatif produk utamanya: urutan_pakai terkecil yang
+     * bahannya cukup di gudang produksi. Alternatif = BOM berproduk utama sama yang urutan
+     * pakainya diisi, ditambah $bom sendiri. Tanpa alternatif → $bom apa adanya (perilaku lama).
+     * Bila semua alternatif kekurangan bahan → urutan pertama (pemanggil memutuskan lanjut/lewat).
+     *
+     * @return array{0: Bom, 1: ?string, 2: bool}  [BOM terpilih, catatan pilihan (null bila tanpa alternatif), bahan cukup]
+     */
+    public function pilihBom(Bom $bom, Warehouse $gudang): array
+    {
+        $utamaId = $bom->outputs()->where('output_type', 'main')->value('product_id');
+        $calon = Bom::with('outputs.product')
+            ->where(fn ($q) => $q->whereNotNull('urutan_pakai')->orWhere('id', $bom->id))
+            ->whereHas('outputs', fn ($q) => $q->where('output_type', 'main')->where('product_id', $utamaId))
+            ->get()
+            ->sortBy(fn (Bom $b) => [$b->urutan_pakai ?? PHP_INT_MAX, $b->id])
+            ->values();
+
+        if ($calon->count() <= 1) {
+            return [$bom, null, $this->bahanKurang($bom, $gudang) === null];
+        }
+
+        $lewat = [];
+        foreach ($calon as $b) {
+            $kurang = $this->bahanKurang($b, $gudang);
+            if ($kurang === null) {
+                $catatan = "pakai {$b->bom_number}" . ($b->urutan_pakai ? " (urutan {$b->urutan_pakai})" : '')
+                    . ($lewat ? ' — ' . implode('; ', $lewat) : ', bahan cukup');
+                return [$b, $catatan, true];
+            }
+            $lewat[] = "{$b->bom_number} dilewati: {$kurang}";
+        }
+
+        $b = $calon->first();
+        return [$b, "bahan semua BOM alternatif kurang — {$b->bom_number} tetap dipakai (" . implode('; ', $lewat) . ')', false];
+    }
+
+    /** null = bahan cukup; selain itu ringkasan yang kurang (stok gudang produksi − reservasi). */
+    public function bahanKurang(Bom $bom, Warehouse $gudang): ?string
+    {
+        $kurang = [];
+        foreach ($this->bomService->calculateMaterials($bom->id, max(1, (int) ($bom->typical_cycles ?? 1))) as $m) {
+            $ada = (float) ProductStock::where('product_id', $m['product_id'])->where('warehouse_id', $gudang->id)->sum('qty_on_hand')
+                - (float) \App\Core\Inventory\StockReservation::where('product_id', $m['product_id'])->where('warehouse_id', $gudang->id)->where('status', 'active')->sum('qty');
+            if ($ada + 1e-9 < (float) $m['qty_required']) {
+                $kurang[] = "{$m['product_sku']} butuh " . (float) $m['qty_required'] . ', ada ' . max(0, $ada);
+            }
+        }
+        return $kurang ? implode('; ', $kurang) : null;
     }
 
     /** Gudang tempat OP otomatis dibuat (dan bahannya diambil saat konfirmasi). */

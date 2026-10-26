@@ -7,13 +7,14 @@ use Illuminate\Database\Eloquent\Model;
 class Bom extends Model
 {
     protected $fillable = [
-        'bom_number', 'name', 'description', 'cycles_description', 'typical_cycles', 'score', 'auto_production',
+        'bom_number', 'name', 'description', 'cycles_description', 'typical_cycles', 'score', 'auto_production', 'urutan_pakai',
     ];
 
     protected $casts = [
         'score'           => 'float',
         'typical_cycles'  => 'integer',
         'auto_production' => 'boolean',
+        'urutan_pakai'    => 'integer',
     ];
 
     public function materials()

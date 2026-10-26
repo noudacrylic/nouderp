@@ -272,6 +272,19 @@
                                 </span>
                             </span>
                         </label>
+
+                        <div class="mt-4 pt-4 border-t border-gray-100">
+                            <label for="urutan_pakai" class="block text-sm font-bold text-gray-700">Urutan pakai <span class="font-normal text-gray-400">(BOM alternatif)</span></label>
+                            <input type="number" id="urutan_pakai" name="urutan_pakai" min="1" max="99"
+                                   value="{{ old('urutan_pakai', $bom->urutan_pakai ?? '') }}" placeholder="kosong"
+                                   class="mt-1 w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+                            <span class="block text-[11px] text-gray-500 mt-1 leading-relaxed">
+                                Isi bila produk utama ini punya lebih dari satu BOM. Saat Manager Produksi membuat OP,
+                                ia memakai BOM dengan <strong>urutan terkecil yang bahannya cukup</strong> di gudang produksi.
+                                Contoh: urutan 1 = "pakai stok tutup", urutan 2 = "tutup sisa jadi sampingan".
+                                Isi di semua BOM alternatifnya; kosong = BOM ini tidak ikut dipilih.
+                            </span>
+                        </div>
                     </div>
 
                     {{-- Simpan --}}

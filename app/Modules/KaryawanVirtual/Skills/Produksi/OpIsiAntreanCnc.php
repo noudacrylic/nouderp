@@ -35,7 +35,8 @@ class OpIsiAntreanCnc implements BisaDiusulkan
             . 'Tingkat 2: stok di atas minimum tapi cukup ≤ ' . Svc::T2_MAKS_HARI . ' hari penjualan. '
             . 'Tingkat 3: ' . Svc::T3_POLA_SKU . '* laris yang stok jualnya cukup ≥ ' . Svc::T3_MIN_HARI_JUAL
             . ' hari → hasil ke gudang Cadangan (sampai ' . Svc::T3_CADANGAN_HARI . ' hari penjualan); bila stok jual '
-            . 'keburu diborong, hasilnya dialihkan ke gudang jual. Bahan harus cukup.';
+            . 'keburu diborong, hasilnya dialihkan ke gudang jual. Bahan harus cukup. '
+            . 'Produk dengan BOM alternatif (Urutan pakai) memakai urutan terkecil yang bahannya cukup.';
     }
 
     public function jadwal(): string
