@@ -20,7 +20,7 @@ class ShopeeClientTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const HOST = 'https://partner.test-stable.shopeemobile.com';
+    private const HOST = 'https://openplatform.sandbox.test-stable.shopee.sg';
 
     protected function setUp(): void
     {

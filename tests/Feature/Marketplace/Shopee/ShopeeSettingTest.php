@@ -117,7 +117,7 @@ class ShopeeSettingTest extends TestCase
         Http::assertSent(function ($r) {
             parse_str(parse_url($r->url(), PHP_URL_QUERY), $q);
 
-            return str_starts_with($r->url(), 'https://partner.test-stable.shopeemobile.com/api/v2/public/get_shops_by_partner?')
+            return str_starts_with($r->url(), 'https://openplatform.sandbox.test-stable.shopee.sg/api/v2/public/get_shops_by_partner?')
                 && $q['sign'] === hash_hmac('sha256', '1250096/api/v2/public/get_shops_by_partner' . $q['timestamp'], 'shpkBENAR');
         });
     }

@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Http;
 class ShopeeClient
 {
     public const HOST = [
-        'test' => 'https://partner.test-stable.shopeemobile.com',
+        'test' => 'https://openplatform.sandbox.test-stable.shopee.sg',
         'live' => 'https://partner.shopeemobile.com',
     ];
 
