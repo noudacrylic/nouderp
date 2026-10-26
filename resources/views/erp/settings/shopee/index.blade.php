@@ -19,27 +19,57 @@
         </div>
 
         {{-- Kunci app --}}
-        <div class="mt-5 rounded border {{ $siap ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50' }} p-4 text-sm">
-            @if ($siap)
-                <div class="font-semibold text-green-800">✅ Kunci app terbaca dari .env server</div>
-                <div class="text-xs text-green-700 mt-1">Host API: <span class="font-mono">{{ $host }}</span></div>
-            @else
-                <div class="font-semibold text-amber-800">Kunci app belum diisi</div>
-                <ol class="text-xs text-amber-800 mt-2 list-decimal ml-4 space-y-1">
-                    <li>Buka Shopee Open Platform › App Management › app <b>Seller In House System</b>, salin <b>Partner ID</b> &amp; <b>Partner Key</b> (Test dulu).</li>
-                    <li>Tambahkan ke <span class="font-mono">.env</span> server (jangan dikirim lewat chat):
-                        <pre class="mt-1 bg-white border rounded p-2 font-mono text-[11px] text-gray-700">SHOPEE_PARTNER_ID=...
-SHOPEE_PARTNER_KEY=...
-SHOPEE_ENV=test</pre>
-                    </li>
-                    <li>Jalankan <span class="font-mono">php artisan config:cache</span> (atau <span class="font-mono">optimize</span>), lalu muat ulang halaman ini.</li>
-                </ol>
-            @endif
-            <div class="text-xs text-gray-500 mt-3">
-                Redirect URL Domain di app Shopee: <span class="font-mono">{{ parse_url($callback, PHP_URL_SCHEME) . '://' . parse_url($callback, PHP_URL_HOST) }}</span>
-                · alamat kembali lengkap: <span class="font-mono">{{ $callback }}</span>
+        <form method="POST" action="{{ route('settings.integrations.shopee.update') }}" class="mt-5 rounded border {{ $siap ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50' }} p-4 text-sm">
+            @csrf @method('PUT')
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="font-semibold {{ $siap ? 'text-green-800' : 'text-amber-800' }}">
+                    {{ $siap ? '✅ Kunci app ' . strtoupper($env) . ' siap' : 'Kunci app ' . strtoupper($env) . ' belum diisi' }}
+                </div>
+                <label class="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                    Lingkungan aktif
+                    <select name="env" class="border rounded px-2 py-1 text-sm">
+                        <option value="test" @selected(old('env', $setting->envAktif()) === 'test')>Test (sandbox)</option>
+                        <option value="live" @selected(old('env', $setting->envAktif()) === 'live')>Live</option>
+                    </select>
+                </label>
             </div>
-        </div>
+            <p class="text-xs text-gray-600 mt-1">
+                Salin dari Shopee Open Platform › App Management › app <b>Seller In House System</b>. Kunci Test hanya untuk toko sandbox (Test Account), kunci Live untuk toko asli.
+                Host API aktif: <span class="font-mono">{{ $host }}</span>
+            </p>
+
+            <div class="grid md:grid-cols-2 gap-4 mt-3">
+                @foreach (['test' => 'Test', 'live' => 'Live'] as $e => $label)
+                    <div class="bg-white border rounded p-3 {{ $env === $e ? 'ring-2 ring-orange-300' : '' }}">
+                        <div class="font-semibold text-gray-800 mb-2">{{ $label }}
+                            @if ($env === $e)<span class="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">AKTIF</span>@endif
+                        </div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Partner ID</label>
+                        <input type="text" inputmode="numeric" name="{{ $e }}_partner_id" value="{{ old($e . '_partner_id', $setting->{$e . '_partner_id'}) }}"
+                               class="w-full border rounded px-3 py-2 text-sm font-mono" placeholder="mis. 1250096">
+                        <label class="block text-xs font-semibold text-gray-700 mt-2 mb-1">Partner Key</label>
+                        <input type="password" name="{{ $e }}_partner_key" value="" autocomplete="new-password"
+                               class="w-full border rounded px-3 py-2 text-sm font-mono" placeholder="{{ $setting->safeAttr($e . '_partner_key') ? '•••••••• (tersimpan)' : 'Partner Key ' . $label }}">
+                        <p class="text-[11px] text-gray-400 mt-1">Kosongkan bila tidak ingin mengubah kunci tersimpan.</p>
+                        @if ($setting->safeAttr($e . '_partner_key'))
+                            <label class="inline-flex items-center gap-1 text-[11px] text-red-600 mt-1">
+                                <input type="checkbox" name="hapus_{{ $e }}_key" value="1"> Hapus kunci tersimpan
+                            </label>
+                        @elseif ($setting->siap($e))
+                            <p class="text-[11px] text-amber-700 mt-1">Saat ini memakai cadangan dari .env server.</p>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+
+            <div class="flex items-center justify-between gap-3 flex-wrap mt-3">
+                <div class="text-xs text-gray-500">
+                    Redirect URL Domain di app Shopee: <span class="font-mono">{{ parse_url($callback, PHP_URL_SCHEME) . '://' . parse_url($callback, PHP_URL_HOST) }}</span>
+                    · alamat kembali lengkap: <span class="font-mono">{{ $callback }}</span>
+                </div>
+                <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">Simpan</button>
+            </div>
+        </form>
 
         {{-- Toko --}}
         <div class="mt-6 flex items-center justify-between">

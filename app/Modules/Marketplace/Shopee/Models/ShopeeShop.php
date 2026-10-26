@@ -36,7 +36,7 @@ class ShopeeShop extends Model
     /** Toko aktif untuk lingkungan (test/live) yang sedang dipakai. */
     public static function aktif(): ?self
     {
-        return static::where('env', config('services.shopee.env', 'test'))->latest('terhubung_at')->first();
+        return static::where('env', ShopeeSetting::singleton()->envAktif())->latest('terhubung_at')->first();
     }
 
     /** Refresh token kedaluwarsa → toko harus dihubungkan ulang dari halaman Integrasi. */

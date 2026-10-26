@@ -138,7 +138,7 @@ class ShopeeClientTest extends TestCase
     public function test_halaman_pengaturan_hanya_super_admin(): void
     {
         $this->actingAs(User::factory()->create(['role' => 'super_admin', 'is_active' => true]))
-            ->get(route('settings.integrations.shopee.index'))->assertOk()->assertSee('Kunci app terbaca')->assertDontSee('kunci-rahasia-uji');
+            ->get(route('settings.integrations.shopee.index'))->assertOk()->assertSee('Kunci app TEST siap')->assertDontSee('kunci-rahasia-uji');
         $this->actingAs(User::factory()->create(['role' => 'admin', 'is_active' => true]))
             ->get(route('settings.integrations.shopee.index'))->assertForbidden();
     }

@@ -3,6 +3,7 @@
 namespace App\Modules\Marketplace\Shopee\Services;
 
 use App\Modules\Marketplace\Shopee\Models\ShopeeApiLog;
+use App\Modules\Marketplace\Shopee\Models\ShopeeSetting;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use Illuminate\Support\Facades\Http;
 
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Http;
  * Token: access_token berlaku ±4 jam, refresh_token 30 hari dan BERGANTI tiap diperbarui —
  * selalu simpan pasangan baru. Panggilan level toko memperbarui sendiri bila access_token
  * tinggal < 5 menit. Tiap panggilan dicatat di shopee_api_logs (tanpa token/kunci).
+ * Kunci app & lingkungan (test/live) dari ShopeeSetting (Pengaturan › Integrasi › Shopee).
  */
 class ShopeeClient
 {
@@ -25,14 +27,21 @@ class ShopeeClient
 
     public const MASA_REFRESH_HARI = 30;
 
+    private ?ShopeeSetting $setting = null;
+
+    public function setting(): ShopeeSetting
+    {
+        return $this->setting ??= ShopeeSetting::singleton();
+    }
+
     public function siap(): bool
     {
-        return (bool) config('services.shopee.partner_id') && (bool) config('services.shopee.partner_key');
+        return $this->setting()->siap();
     }
 
     public function env(): string
     {
-        return config('services.shopee.env') === 'live' ? 'live' : 'test';
+        return $this->setting()->envAktif();
     }
 
     public function host(): string
@@ -42,12 +51,12 @@ class ShopeeClient
 
     private function partnerId(): int
     {
-        return (int) config('services.shopee.partner_id');
+        return $this->setting()->partnerId();
     }
 
     public function tandaTangan(string $dasar): string
     {
-        return hash_hmac('sha256', $dasar, (string) config('services.shopee.partner_key'));
+        return hash_hmac('sha256', $dasar, $this->setting()->partnerKey());
     }
 
     /** Tautan halaman otorisasi toko di Shopee; setelah login Shopee kembali ke $redirect?code=&shop_id=. */
@@ -137,7 +146,7 @@ class ShopeeClient
     private function panggilPublik(string $path, array $body, ?int $shopId): array
     {
         if (!$this->siap()) {
-            throw new ShopeeException('belum_dikonfigurasi', 'SHOPEE_PARTNER_ID / SHOPEE_PARTNER_KEY belum diisi di .env server.');
+            throw new ShopeeException('belum_dikonfigurasi', 'Partner ID / Partner Key ' . strtoupper($this->env()) . ' belum diisi di Pengaturan › Integrasi › Shopee.');
         }
         $ts  = time();
         $url = $this->host() . $path . '?' . http_build_query([

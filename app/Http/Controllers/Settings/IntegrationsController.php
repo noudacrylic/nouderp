@@ -121,7 +121,7 @@ class IntegrationsController extends Controller
                 'icon'        => '🧡',
                 'active'      => app(\App\Modules\Marketplace\Shopee\Services\ShopeeClient::class)->siap()
                     && \App\Modules\Marketplace\Shopee\Models\ShopeeShop::aktif() !== null,
-                'mode'        => config('services.shopee.env') === 'live' ? 'Live' : 'Test',
+                'mode'        => \App\Modules\Marketplace\Shopee\Models\ShopeeSetting::singleton()->envAktif() === 'live' ? 'Live' : 'Test',
                 'url'         => route('settings.integrations.shopee.index'),
             ],
             [

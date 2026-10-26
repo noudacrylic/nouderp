@@ -53,6 +53,7 @@ return [
 
     // Shopee Open Platform (API v2) — app "Seller In House System". Kunci HANYA di .env,
     // tidak pernah di database / log. env: test (sandbox) | live.
+    // Cadangan saja — kunci Shopee diisi di Pengaturan › Integrasi › Shopee (tabel shopee_settings).
     'shopee' => [
         'partner_id'  => env('SHOPEE_PARTNER_ID'),
         'partner_key' => env('SHOPEE_PARTNER_KEY'),

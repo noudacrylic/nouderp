@@ -4,13 +4,14 @@ namespace App\Modules\Marketplace\Shopee\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Marketplace\Shopee\Models\ShopeeApiLog;
+use App\Modules\Marketplace\Shopee\Models\ShopeeSetting;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
 use App\Modules\Marketplace\Shopee\Services\ShopeeException;
 use Illuminate\Http\Request;
 
 /**
- * Pengaturan › Integrasi › Shopee Open Platform: status kunci app (.env), hubungkan toko
+ * Pengaturan › Integrasi › Shopee Open Platform: kunci app Test/Live, hubungkan toko
  * (OAuth), uji koneksi, dan log panggilan API. Hanya super admin — otorisasi toko memberi
  * akses penuh ke pesanan & saldo.
  */
@@ -23,6 +24,7 @@ class ShopeeSettingController extends Controller
         $this->superAdmin($request);
 
         return view('erp.settings.shopee.index', [
+            'setting' => $this->client->setting(),
             'siap'  => $this->client->siap(),
             'env'   => $this->client->env(),
             'host'  => $this->client->host(),
@@ -32,12 +34,46 @@ class ShopeeSettingController extends Controller
         ]);
     }
 
+    /**
+     * Simpan kunci app. Partner Key dikosongkan = kunci tersimpan tidak diubah (seperti
+     * password Jubelio); centang "hapus" untuk mengosongkannya.
+     */
+    public function simpan(Request $request)
+    {
+        $this->superAdmin($request);
+        $data = $request->validate([
+            'env'              => 'required|in:' . implode(',', ShopeeSetting::ENVS),
+            'test_partner_id'  => 'nullable|integer|min:1',
+            'test_partner_key' => 'nullable|string|max:255',
+            'live_partner_id'  => 'nullable|integer|min:1',
+            'live_partner_key' => 'nullable|string|max:255',
+            'hapus_test_key'   => 'nullable|boolean',
+            'hapus_live_key'   => 'nullable|boolean',
+        ]);
+
+        $setting = ShopeeSetting::singleton();
+        $setting->env = $data['env'];
+        foreach (ShopeeSetting::ENVS as $env) {
+            $setting->{$env . '_partner_id'} = $data[$env . '_partner_id'] ?? null;
+            $kunci = trim((string) ($data[$env . '_partner_key'] ?? ''));
+            if ($kunci !== '') {
+                $setting->{$env . '_partner_key'} = $kunci;
+            } elseif (!empty($data['hapus_' . $env . '_key'])) {
+                $setting->{$env . '_partner_key'} = null;
+            }
+        }
+        $setting->save();
+
+        return redirect()->route('settings.integrations.shopee.index')
+            ->with('success', 'Pengaturan Shopee disimpan — lingkungan aktif ' . strtoupper($setting->envAktif()) . '.');
+    }
+
     /** Arahkan ke halaman izin Shopee; Shopee kembali ke callback dengan code & shop_id. */
     public function hubungkan(Request $request)
     {
         $this->superAdmin($request);
         if (!$this->client->siap()) {
-            return back()->with('error', 'Isi SHOPEE_PARTNER_ID dan SHOPEE_PARTNER_KEY di .env server dulu.');
+            return back()->with('error', 'Isi Partner ID & Partner Key ' . strtoupper($this->client->env()) . ' di halaman ini dulu.');
         }
 
         return redirect()->away($this->client->urlOtorisasi(route('settings.integrations.shopee.callback')));
