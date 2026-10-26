@@ -35,7 +35,7 @@
     ];
     $labelUsulan = \App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan::LABEL_STATUS;
 @endphp
-<div class="w-full px-6 py-4 max-w-6xl">
+<div class="w-full px-6 py-4">
     <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
         <div class="flex items-center gap-3">
             <span class="text-4xl">{{ $karyawan['ikon'] }}</span>
@@ -47,6 +47,10 @@
         </div>
         <a href="{{ route('karyawan-virtual.index') }}" class="border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded text-sm">Kembali</a>
     </div>
+
+    {{-- Kiri: usulan + skill; kanan (layar lebar): jurnal kerja menempel saat digulir. --}}
+    <div class="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-6 items-start">
+    <div class="min-w-0">
 
     {{-- Usulan menunggu persetujuan --}}
     @if ($usulanMenunggu->isNotEmpty())
@@ -191,12 +195,15 @@
         </div>
     @endif
 
+    </div>{{-- /kiri --}}
+
     {{-- Jurnal kerja --}}
+    <aside class="min-w-0 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:flex xl:flex-col">
     <h2 class="font-semibold text-slate-800 mb-2">Jurnal Kerja</h2>
-    <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex flex-wrap items-end gap-3 text-sm">
-        <div>
+    <form method="GET" class="bg-white rounded shadow p-3 mb-3 grid grid-cols-2 gap-2 text-sm">
+        <div class="col-span-2">
             <label class="block text-xs text-gray-500 mb-1">Skill</label>
-            <select name="skill" class="filter-auto border rounded px-2 py-1.5">
+            <select name="skill" class="filter-auto border rounded px-2 py-1.5 w-full">
                 <option value="">Semua skill</option>
                 @foreach ($labelSkill as $key => $label)
                     <option value="{{ $key }}" @selected(request('skill') === $key)>{{ $label }}</option>
@@ -205,65 +212,54 @@
         </div>
         <div>
             <label class="block text-xs text-gray-500 mb-1">Tampilkan</label>
-            <select name="tampil" class="filter-auto border rounded px-2 py-1.5">
-                <option value="">Yang ada tindakannya / keputusan</option>
+            <select name="tampil" class="filter-auto border rounded px-2 py-1.5 w-full">
+                <option value="">Ada tindakan / keputusan</option>
                 <option value="semua" @selected(request('tampil') === 'semua')>Semua (termasuk jalan manual tanpa tindakan)</option>
             </select>
         </div>
         @include('erp._partials.per-page-select')
     </form>
 
-    <div class="bg-white rounded shadow overflow-x-auto">
-        <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-xs uppercase text-gray-500">
-                <tr>
-                    <th class="text-left px-3 py-2">Waktu</th>
-                    <th class="text-left px-3 py-2">Skill</th>
-                    <th class="text-left px-3 py-2">Pemicu</th>
-                    <th class="text-left px-3 py-2">Mode</th>
-                    <th class="text-left px-3 py-2">Ringkasan</th>
-                </tr>
-            </thead>
-            @forelse ($jurnal as $j)
-                <tbody x-data="{ buka: false }" class="border-t border-gray-100">
-                    <tr class="hover:bg-gray-50 cursor-pointer align-top" @click="buka = !buka">
-                        <td class="px-3 py-2 whitespace-nowrap text-gray-600">{{ $j->created_at->format('d/m/Y H:i') }}</td>
-                        <td class="px-3 py-2">{{ $labelSkill[$j->skill] ?? $j->skill }}</td>
-                        <td class="px-3 py-2 text-xs text-gray-600">
-                            {{ $labelPemicu[$j->pemicu] ?? $j->pemicu }}
-                            @if ($j->keterangan_pemicu)<div class="text-gray-400">{{ $j->keterangan_pemicu }}</div>@endif
-                            @if ($j->user)<div class="text-gray-400">oleh {{ $j->user->name }}</div>@endif
-                        </td>
-                        <td class="px-3 py-2"><span class="rounded px-1.5 py-0.5 text-xs font-semibold {{ $warnaMode[$j->mode] ?? '' }}">{{ $labelMode[$j->mode] ?? $j->mode }}</span></td>
-                        <td class="px-3 py-2">
-                            {{ $j->ringkasan }}
-                            <span class="text-xs text-blue-600 ml-1" x-text="buka ? '▲' : '▼'">▼</span>
-                        </td>
-                    </tr>
-                    <tr x-show="buka" x-cloak>
-                        <td colspan="5" class="px-3 pb-3">
-                            <ul class="text-xs space-y-1 bg-gray-50 rounded p-2">
-                                @foreach ($j->rincian as $r)
-                                    @php [$ikon, $label, $warna] = $status[$r['status']] ?? ['•', $r['status'], '']; @endphp
-                                    <li class="{{ $warna }}" title="{{ $label }}">
-                                        {{ $ikon }} <b>{{ $r['judul'] }}</b>
-                                        <span class="text-slate-500">— {{ $r['alasan'] }}</span>
-                                        @if ($r['tautan'] ?? null)
-                                            <a href="{{ $r['tautan'] }}" class="text-blue-600 underline" @click.stop>{{ $r['dokumen'] }}</a>
-                                        @endif
-                                    </li>
-                                @endforeach
-                            </ul>
-                        </td>
-                    </tr>
-                </tbody>
-            @empty
-                <tbody>
-                    <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">Belum ada jurnal kerja.</td></tr>
-                </tbody>
-            @endforelse
-        </table>
+    <div class="bg-white rounded shadow divide-y divide-gray-100 xl:overflow-y-auto xl:min-h-0">
+        @forelse ($jurnal as $j)
+            <div x-data="{ buka: false }" class="text-sm">
+                <div class="px-3 py-2 hover:bg-gray-50 cursor-pointer" @click="buka = !buka">
+                    <div class="flex items-center justify-between gap-2 text-xs">
+                        <span class="text-gray-500 whitespace-nowrap">
+                            {{ $j->created_at->format('d/m/Y H:i') }} · {{ $labelPemicu[$j->pemicu] ?? $j->pemicu }}
+                        </span>
+                        <span class="shrink-0 rounded px-1.5 py-0.5 font-semibold {{ $warnaMode[$j->mode] ?? '' }}">{{ $labelMode[$j->mode] ?? $j->mode }}</span>
+                    </div>
+                    <div class="font-semibold text-slate-800 mt-0.5">{{ $labelSkill[$j->skill] ?? $j->skill }}</div>
+                    <div class="text-slate-600">
+                        {{ $j->ringkasan }}
+                        <span class="text-xs text-blue-600 ml-1" x-text="buka ? '▲' : '▼'">▼</span>
+                    </div>
+                    @if ($j->keterangan_pemicu || $j->user)
+                        <div class="text-[11px] text-gray-400">
+                            {{ $j->keterangan_pemicu }}@if ($j->keterangan_pemicu && $j->user) · @endif @if ($j->user)oleh {{ $j->user->name }}@endif
+                        </div>
+                    @endif
+                </div>
+                <ul x-show="buka" x-cloak class="text-xs space-y-1 bg-gray-50 rounded mx-3 mb-2 p-2">
+                    @foreach ($j->rincian as $r)
+                        @php [$ikon, $label, $warna] = $status[$r['status']] ?? ['•', $r['status'], '']; @endphp
+                        <li class="{{ $warna }}" title="{{ $label }}">
+                            {{ $ikon }} <b>{{ $r['judul'] }}</b>
+                            <span class="text-slate-500">— {{ $r['alasan'] }}</span>
+                            @if ($r['tautan'] ?? null)
+                                <a href="{{ $r['tautan'] }}" class="text-blue-600 underline">{{ $r['dokumen'] }}</a>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @empty
+            <div class="px-3 py-6 text-center text-gray-400 text-sm">Belum ada jurnal kerja.</div>
+        @endforelse
     </div>
     <div class="mt-3">{{ $jurnal->links() }}</div>
+    </aside>
+    </div>{{-- /grid --}}
 </div>
 @endsection
