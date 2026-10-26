@@ -70,6 +70,11 @@
                 <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">Simpan</button>
             </div>
         </form>
+        @if ($siap)
+            <form method="POST" action="{{ route('settings.integrations.shopee.cek-kunci') }}" class="mt-2 text-right">@csrf
+                <button class="border border-orange-300 text-orange-700 hover:bg-orange-50 px-3 py-1.5 rounded text-xs font-semibold">Cek kunci {{ strtoupper($env) }} ke Shopee</button>
+            </form>
+        @endif
 
         {{-- Toko --}}
         <div class="mt-6 flex items-center justify-between">

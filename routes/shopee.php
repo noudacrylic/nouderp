@@ -14,6 +14,7 @@ Route::middleware('auth')->group(function () {
     Route::prefix('erp/settings/shopee')->name('settings.integrations.shopee.')->group(function () {
         Route::get('/', [ShopeeSettingController::class, 'index'])->name('index');
         Route::put('/', [ShopeeSettingController::class, 'simpan'])->name('update');
+        Route::post('/cek-kunci', [ShopeeSettingController::class, 'cekKunci'])->name('cek-kunci');
         Route::get('/hubungkan', [ShopeeSettingController::class, 'hubungkan'])->name('hubungkan');
         Route::post('/{id}/uji', [ShopeeSettingController::class, 'uji'])->whereNumber('id')->name('uji');
         Route::delete('/{id}', [ShopeeSettingController::class, 'putuskan'])->whereNumber('id')->name('putuskan');

@@ -143,6 +143,28 @@ class ShopeeClient
         return $json['response'] ?? $json;
     }
 
+    /**
+     * Cek pasangan Partner ID + Key tanpa toko: panggilan publik get_shops_by_partner.
+     * Shopee membalas error_sign bila key tak cocok dengan partner_id di lingkungan ini.
+     */
+    public function cekKunci(): array
+    {
+        if (!$this->siap()) {
+            throw new ShopeeException('belum_dikonfigurasi', 'Partner ID / Partner Key ' . strtoupper($this->env()) . ' belum diisi.');
+        }
+        $path = '/api/v2/public/get_shops_by_partner';
+        $ts   = time();
+        $url  = $this->host() . $path . '?' . http_build_query([
+            'partner_id' => $this->partnerId(),
+            'timestamp'  => $ts,
+            'sign'       => $this->tandaTangan($this->partnerId() . $path . $ts),
+            'page_size'  => 100,
+            'page_no'    => 1,
+        ]);
+
+        return $this->kirim('GET', $url, null, $path, null);
+    }
+
     private function panggilPublik(string $path, array $body, ?int $shopId): array
     {
         if (!$this->siap()) {

@@ -7,6 +7,7 @@ use App\Modules\Marketplace\Shopee\Models\ShopeeSetting;
 use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -95,5 +96,29 @@ class ShopeeSettingTest extends TestCase
 
         $this->actingAs($this->superAdmin())->get(route('settings.integrations.shopee.index'))
             ->assertOk()->assertSee('1250096')->assertSee('(tersimpan)')->assertDontSee('kunci-rahasia-xyz');
+    }
+
+    public function test_cek_kunci_melaporkan_wrong_sign(): void
+    {
+        ShopeeSetting::singleton()->update(['test_partner_id' => 1250096, 'test_partner_key' => 'shpkSALAH']);
+        Http::fake(['*/api/v2/public/get_shops_by_partner*' => Http::response(['error' => 'error_sign', 'message' => 'Wrong sign.', 'request_id' => 'r1'], 403)]);
+
+        $this->actingAs($this->superAdmin())->post(route('settings.integrations.shopee.cek-kunci'))
+            ->assertSessionHas('error', fn ($m) => str_contains($m, 'tidak cocok') && str_contains($m, '9 karakter') && !str_contains($m, 'shpkSALAH'));
+    }
+
+    public function test_cek_kunci_diterima(): void
+    {
+        ShopeeSetting::singleton()->update(['test_partner_id' => 1250096, 'test_partner_key' => 'shpkBENAR']);
+        Http::fake(['*/api/v2/public/get_shops_by_partner*' => Http::response(['authed_shop_list' => [['shop_id' => 777]], 'request_id' => 'r2'])]);
+
+        $this->actingAs($this->superAdmin())->post(route('settings.integrations.shopee.cek-kunci'))
+            ->assertSessionHas('success', fn ($m) => str_contains($m, 'diterima') && str_contains($m, '777'));
+        Http::assertSent(function ($r) {
+            parse_str(parse_url($r->url(), PHP_URL_QUERY), $q);
+
+            return str_starts_with($r->url(), 'https://partner.test-stable.shopeemobile.com/api/v2/public/get_shops_by_partner?')
+                && $q['sign'] === hash_hmac('sha256', '1250096/api/v2/public/get_shops_by_partner' . $q['timestamp'], 'shpkBENAR');
+        });
     }
 }

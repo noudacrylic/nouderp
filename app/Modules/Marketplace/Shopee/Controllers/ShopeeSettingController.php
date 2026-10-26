@@ -68,6 +68,30 @@ class ShopeeSettingController extends Controller
             ->with('success', 'Pengaturan Shopee disimpan — lingkungan aktif ' . strtoupper($setting->envAktif()) . '.');
     }
 
+    /** Uji pasangan Partner ID + Key lingkungan aktif sebelum menghubungkan toko. */
+    public function cekKunci(Request $request)
+    {
+        $this->superAdmin($request);
+        $key   = $this->client->setting()->partnerKey();
+        $ciri  = 'Partner ID ' . $this->client->setting()->partnerId() . ', key ' . strlen($key) . ' karakter'
+            . (str_starts_with($key, 'shpk') ? ' berawalan "shpk"' : ' TIDAK berawalan "shpk"');
+
+        try {
+            $data = $this->client->cekKunci();
+        } catch (ShopeeException $e) {
+            $saran = $e->kode === 'error_sign'
+                ? ' — Partner Key tidak cocok dengan Partner ID ini. Salin ulang Partner Key ' . strtoupper($this->client->env()) . ' dari Console (bukan Live/Test yang lain).'
+                : '';
+
+            return back()->with('error', 'Kunci ' . strtoupper($this->client->env()) . ' ditolak Shopee: ' . $e->getMessage() . $saran . ' (' . $ciri . ')');
+        }
+
+        $toko = collect($data['authed_shop_list'] ?? [])->pluck('shop_id')->implode(', ');
+
+        return back()->with('success', 'Kunci ' . strtoupper($this->client->env()) . ' diterima Shopee (' . $ciri . ').'
+            . ($toko !== '' ? ' Toko yang sudah memberi izin: ' . $toko . '.' : ' Belum ada toko yang memberi izin.'));
+    }
+
     /** Arahkan ke halaman izin Shopee; Shopee kembali ke callback dengan code & shop_id. */
     public function hubungkan(Request $request)
     {
