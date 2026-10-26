@@ -13,6 +13,14 @@
     $totalNilai = $menunggu->sum('nilai');
     $belumKel   = $menunggu->sum('tersedia');
     $hppUnit    = $menunggu->pluck('hpp_unit', 'product_id');
+    // Judul kolom yang bisa diklik untuk mengurutkan; klik kedua membalik arah.
+    $sortTh = function (string $kolom, string $label) use ($sort, $dir) {
+        $aktif = $sort === $kolom;
+        $url   = request()->fullUrlWithQuery(['sort' => $kolom, 'dir' => $aktif && $dir === 'asc' ? 'desc' : 'asc']);
+        $panah = $aktif ? ($dir === 'asc' ? '▲' : '▼') : '⇅';
+        return '<a href="' . e($url) . '" class="inline-flex items-center gap-1 hover:text-gray-700 ' . ($aktif ? 'text-blue-600' : '') . '">'
+            . e($label) . '<span class="' . ($aktif ? '' : 'text-gray-300') . '">' . $panah . '</span></a>';
+    };
 @endphp
 <div class="w-full px-6 py-4">
 
@@ -27,6 +35,10 @@
         </div>
         @if($tab === 'antrean')
             <form method="GET" class="flex items-center gap-2">
+                @if($sort)
+                    <input type="hidden" name="sort" value="{{ $sort }}">
+                    <input type="hidden" name="dir" value="{{ $dir }}">
+                @endif
                 <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari SKU / nama produk…"
                        class="border rounded-lg px-3 py-1.5 text-sm w-64">
                 <button class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold">Cari</button>
@@ -100,12 +112,12 @@
                 <tr>
                     <th class="px-4 py-2 w-10"></th>
                     <th class="px-4 py-2 text-left">Produk</th>
-                    <th class="px-4 py-2 text-right w-16">Qty</th>
-                    <th class="px-4 py-2 text-right w-32">Belum dikelompokkan</th>
-                    <th class="px-4 py-2 text-right w-24">HPP / unit</th>
-                    <th class="px-4 py-2 text-right w-28">Nilai HPP</th>
+                    <th class="px-4 py-2 text-right w-16">{!! $sortTh('qty', 'Qty') !!}</th>
+                    <th class="px-4 py-2 text-right w-32">{!! $sortTh('tersedia', 'Belum dikelompokkan') !!}</th>
+                    <th class="px-4 py-2 text-right w-24">{!! $sortTh('hpp_unit', 'HPP / unit') !!}</th>
+                    <th class="px-4 py-2 text-right w-28">{!! $sortTh('nilai', 'Nilai HPP') !!}</th>
                     <th class="px-4 py-2 text-left">Asal</th>
-                    <th class="px-4 py-2 text-right w-24">Menunggu</th>
+                    <th class="px-4 py-2 text-right w-24">{!! $sortTh('umur_hari', 'Menunggu') !!}</th>
                     <th class="px-4 py-2 text-right w-28">Qty ke kelompok</th>
                 </tr>
             </thead>

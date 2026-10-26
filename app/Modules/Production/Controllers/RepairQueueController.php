@@ -19,6 +19,16 @@ class RepairQueueController extends Controller
         $tab = $request->tab === 'kelompok' ? 'kelompok' : 'antrean';
 
         $data = $svc->data($request->q);
+
+        // Urutan antrean: klik judul kolom (qty / hpp_unit / nilai / umur_hari), klik lagi membalik arah.
+        $sort = in_array($request->sort, ['qty', 'tersedia', 'hpp_unit', 'nilai', 'umur_hari'], true) ? $request->sort : null;
+        $dir  = $request->dir === 'desc' ? 'desc' : 'asc';
+        if ($sort) {
+            $data['menunggu'] = $data['menunggu']->sortBy(fn ($m) => (float) ($m[$sort] ?? 0), SORT_REGULAR, $dir === 'desc')->values();
+        }
+        $data['sort'] = $sort;
+        $data['dir']  = $dir;
+
         $data['tab']        = $tab;
         $data['kelompok']   = $tab === 'kelompok' ? $svc->kelompok($request->status) : null;
         $data['jmlTerbuka'] = RepairGroup::where('status', RepairGroup::TERBUKA)->count();
