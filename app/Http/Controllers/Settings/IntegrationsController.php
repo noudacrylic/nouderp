@@ -115,6 +115,16 @@ class IntegrationsController extends Controller
                 'url'         => route('settings.jubelio.edit'),
             ],
             [
+                'name'        => 'Shopee Open Platform',
+                'category'    => 'Marketplace / Omnichannel',
+                'description' => 'Koneksi langsung ke Shopee (API v2) — bertahap menggantikan Jubelio, dimulai dari keuangan (Mutasi Saldo Shopee).',
+                'icon'        => '🧡',
+                'active'      => app(\App\Modules\Marketplace\Shopee\Services\ShopeeClient::class)->siap()
+                    && \App\Modules\Marketplace\Shopee\Models\ShopeeShop::aktif() !== null,
+                'mode'        => config('services.shopee.env') === 'live' ? 'Live' : 'Test',
+                'url'         => route('settings.integrations.shopee.index'),
+            ],
+            [
                 'name'        => 'Telegram',
                 'category'    => 'Notifikasi',
                 'description' => 'Noud Bot — notifikasi pengajuan izin (approver) & status approval (karyawan) via Telegram.',

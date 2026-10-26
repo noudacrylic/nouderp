@@ -1572,6 +1572,9 @@ Route::get('/debug/journal', function () {
 // =============== FINANCE / KAS & BANK ===============
 require __DIR__ . '/finance.php';
 
+// =============== SHOPEE OPEN PLATFORM ===============
+require __DIR__ . '/shopee.php';
+
 // =============== TASK MANAGER ===============
 Route::prefix('erp/tasks')->name('tasks.')->group(function () {
     // Kategori (lebih dulu — supaya tidak ke-shadow oleh {task} param)

@@ -43,6 +43,8 @@ Schedule::command('sdm:send-attendance-reminders')
 // (reboot 28/9 05:12) meninggalkan kunci → tugas berhenti diam-diam seharian. Tugas sering diberi
 // batas 60 menit (≫ durasi run terlama; sync-orders ±12–20 menit).
 // Jubelio — sinkron pesanan tiap 5 menit, retur tiap 15 menit (andalan localhost; webhook akselerator).
+// Shopee Open Platform: jaga access token hidup (refresh token ikut bergeser 30 hari).
+Schedule::command('shopee:perbarui-token')->hourly()->name('shopee-perbarui-token')->withoutOverlapping(30);
 Schedule::command('jubelio:sync-orders')->everyFiveMinutes()->name('jubelio-sync-orders')->withoutOverlapping(60);
 Schedule::command('jubelio:sync-returns')->everyFifteenMinutes()->name('jubelio-sync-returns')->withoutOverlapping(60);
 // Jubelio stok — push perubahan tiap 5 menit (near-realtime), rekonsiliasi penuh tiap 2 jam.

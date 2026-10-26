@@ -13,6 +13,7 @@
 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
     <h1 class="text-lg font-semibold">Rekonsiliasi Marketplace</h1>
     <div class="flex gap-2 flex-wrap">
+        <a href="{{ route('finance.cash-bank.settlements.mutasi-shopee.index') }}" class="bg-orange-500 text-white px-3 py-2 rounded text-sm">🧡 Mutasi Saldo Shopee</a>
         <a href="{{ route('settings.jubelio.edit') }}" class="bg-gray-600 text-white px-3 py-2 rounded text-sm">⚙ Marketplace Config</a>
         <a href="{{ route('finance.cash-bank.settlements.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Upload Rekonsiliasi</a>
     </div>

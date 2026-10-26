@@ -51,6 +51,14 @@ return [
         'api_key'  => env('BITESHIP_API_KEY'),
     ],
 
+    // Shopee Open Platform (API v2) — app "Seller In House System". Kunci HANYA di .env,
+    // tidak pernah di database / log. env: test (sandbox) | live.
+    'shopee' => [
+        'partner_id'  => env('SHOPEE_PARTNER_ID'),
+        'partner_key' => env('SHOPEE_PARTNER_KEY'),
+        'env'         => env('SHOPEE_ENV', 'test'),
+    ],
+
     // "Noud Bot" Telegram — notifikasi keluar (sendMessage) tidak butuh Tunnel.
     // Tanpa token, TelegramNotifier no-op aman. admin_chat_id = grup/akun penampung
     // notifikasi approval bila per-user telegram_chat_id belum di-link.
