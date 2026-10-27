@@ -26,14 +26,20 @@ class ProductionTimerSync
         $now = Carbon::parse($log->scan_at);
         $karyawanId = (int) $log->karyawan_id;
 
-        switch ($log->verify_type) {
+        $jenis = $this->resolver->jenisScan($karyawanId, $now, $log->verify_type);
+
+        switch ($jenis) {
             case 'check_in':
             case 'overtime_in':
-                $this->activateExecutorsForKaryawan($karyawanId, $now, $log->verify_type);
+                $this->activateExecutorsForKaryawan($karyawanId, $now, $jenis);
                 break;
 
             case 'check_out':
                 $this->pauseExecutorsForKaryawan($karyawanId, $now, 'Scan pulang');
+                break;
+
+            case 'overtime_out':
+                $this->pauseExecutorsForKaryawan($karyawanId, $now, 'Scan pulang lembur');
                 break;
         }
     }

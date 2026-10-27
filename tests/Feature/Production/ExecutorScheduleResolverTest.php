@@ -111,18 +111,75 @@ class ExecutorScheduleResolverTest extends TestCase
             ->where('karyawan_id', $this->karyawanId)->where('day_of_week', 5)->value('is_off'));
     }
 
-    private function scan(string $waktu): void
+    public function test_scan_pagi_bertombol_lembur_tetap_dihitung_masuk(): void
     {
-        $machineId = DB::table('sdm_fingerprint_machines')->insertGetId([
-            'code' => 'FP-01', 'name' => 'Mesin Absen', 'created_at' => now(), 'updated_at' => now(),
+        // 27 Okt 2026: tombol status mesin tertahan di "Lembur Masuk" sejak sore sebelumnya.
+        // Semua scan pagi terekam overtime_in → timer menganggap belum check-in dan mem-pause
+        // semua task tiap menit, walau operator menekan Resume berkali-kali.
+        $this->pakaiJadwalLembur();
+        $this->scan(self::SELASA . ' 07:38:30', 'overtime_in');
+
+        $hari = Carbon::parse(self::SELASA . ' 09:00:00');
+
+        $this->assertSame(self::SELASA . ' 07:38:30', $this->resolver->hasCheckedIn($this->karyawanId, $hari)?->format('Y-m-d H:i:s'));
+        $this->assertNull($this->resolver->hasOvertimeIn($this->karyawanId, $hari), 'Scan pagi tidak boleh membuka lembur malam nanti.');
+    }
+
+    public function test_jenis_scan_sore_ditentukan_jendela_jadwal(): void
+    {
+        $this->pakaiJadwalLembur();
+        $this->scan(self::SELASA . ' 07:30:00');
+        $this->scan(self::SELASA . ' 16:02:00', 'overtime_in');  // pulang, tombol mesin diabaikan
+        $this->scan(self::SELASA . ' 16:03:00');                 // tap ulang → tetap pulang
+        $this->scan(self::SELASA . ' 16:20:00');                 // lembur (sudah ada scan pulang)
+        $this->scan(self::SELASA . ' 19:55:00');                 // pulang lembur
+
+        $jenis = fn ($jam) => $this->resolver->jenisScan($this->karyawanId, Carbon::parse(self::SELASA . " $jam"));
+
+        $this->assertSame('check_in', $jenis('07:30:00'));
+        $this->assertSame('check_out', $jenis('16:02:00'));
+        $this->assertSame('check_out', $jenis('16:03:00'));
+        $this->assertSame('overtime_in', $jenis('16:20:00'));
+        $this->assertSame('overtime_out', $jenis('19:55:00'));
+        $this->assertSame(self::SELASA . ' 19:55:00', $this->resolver->hasCheckedOut($this->karyawanId, Carbon::parse(self::SELASA))?->format('Y-m-d H:i:s'));
+    }
+
+    public function test_scan_lewat_1615_tanpa_scan_pulang_adalah_pulang_bukan_lembur(): void
+    {
+        $this->pakaiJadwalLembur();
+        $this->scan(self::SELASA . ' 07:30:00');
+        $this->scan(self::SELASA . ' 16:20:00');
+
+        $hari = Carbon::parse(self::SELASA);
+
+        $this->assertSame('check_out', $this->resolver->jenisScan($this->karyawanId, Carbon::parse(self::SELASA . ' 16:20:00')));
+        $this->assertNull($this->resolver->hasOvertimeIn($this->karyawanId, $hari));
+    }
+
+    /** Jadwal seperti di layar Karyawan: pulang 16:00 (awal 120, akhir 15), lembur 16:30 (awal 15, akhir 120). */
+    private function pakaiJadwalLembur(): void
+    {
+        DB::table('sdm_karyawan_schedule')->where('karyawan_id', $this->karyawanId)->where('is_off', 0)->update([
+            'awal_absen_pulang' => 120, 'akhir_absen_pulang' => 15,
+            'has_lembur' => 1, 'jam_masuk_lembur' => '16:30:00',
+            'awal_absen_lembur_masuk' => 15, 'akhir_absen_lembur_masuk' => 120,
+            'jam_pulang_lembur' => '20:00:00',
         ]);
+    }
+
+    private function scan(string $waktu, string $jenis = 'check_in'): void
+    {
+        $machineId = DB::table('sdm_fingerprint_machines')->where('code', 'FP-01')->value('id')
+            ?? DB::table('sdm_fingerprint_machines')->insertGetId([
+                'code' => 'FP-01', 'name' => 'Mesin Absen', 'created_at' => now(), 'updated_at' => now(),
+            ]);
 
         DB::table('sdm_fingerprint_logs')->insert([
             'machine_id'          => $machineId,
             'karyawan_id'         => $this->karyawanId,
             'user_id_fingerprint' => '1',
             'scan_at'             => $waktu,
-            'verify_type'         => 'check_in',
+            'verify_type'         => $jenis,
             'created_at'          => now(), 'updated_at' => now(),
         ]);
     }

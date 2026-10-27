@@ -183,40 +183,101 @@ class ExecutorScheduleResolver
         return $this->forKaryawan($karyawanId, $date);
     }
 
-    public function hasCheckedIn(int $karyawanId, Carbon $date): ?Carbon
+    /** Tap beruntun (jari diulang karena gagal terbaca) dianggap satu scan yang sama. */
+    private const JEDA_TAP_ULANG_MENIT = 5;
+
+    /**
+     * Jenis scan menurut ERP dari jendela absen di jadwal — tombol status mesin diabaikan.
+     *
+     * Mesin hanya merekam; tombolnya pernah tertahan di "Lembur Masuk" (27 Okt 2026: semua
+     * scan pagi terekam overtime_in → tak ada check_in → semua task CNC di-pause tiap menit).
+     * Contoh jadwal pulang 16:00 (awal 120, akhir 15), lembur masuk 16:30 (awal 15, akhir 120):
+     *   < 14:00            → check_in
+     *   14:00 – 16:15      → check_out (pulang)
+     *   16:15 – 18:30      → overtime_in, HANYA bila sudah ada scan pulang; belum ada → pulang
+     *   sesudah lembur     → overtime_out (pulang lembur)
+     * Mesin tanpa jadwal → jenis mentah dari mesin.
+     */
+    public function jenisScan(int $karyawanId, Carbon $scanAt, ?string $mentah = null): ?string
     {
-        return $this->ingatScan('check_in', $karyawanId, $date, function () use ($karyawanId, $date) {
-            $scan = FingerprintLog::where('karyawan_id', $karyawanId)
-                ->where('verify_type', 'check_in')
+        $cocok = $this->scanHari($karyawanId, $scanAt)->first(fn ($s) => $s['at']->eq($scanAt));
+
+        return $cocok['jenis'] ?? $mentah;
+    }
+
+    /** Scan satu orang pada satu tanggal, urut waktu, dengan jenis menurut ERP. */
+    private function scanHari(int $karyawanId, Carbon $date)
+    {
+        return $this->ingatScan('hari', $karyawanId, $date, function () use ($karyawanId, $date) {
+            $scans = FingerprintLog::where('karyawan_id', $karyawanId)
                 ->whereDate('scan_at', $date->toDateString())
                 ->orderBy('scan_at')
-                ->first();
-            return $scan ? Carbon::parse($scan->scan_at) : null;
+                ->get(['scan_at', 'verify_type']);
+
+            $sched = $this->forKaryawan($karyawanId, $date);
+            $jamPulang = $sched && !$sched->is_off ? $this->norm($sched->jam_pulang) : null;
+            if (!$jamPulang) {
+                return $scans->map(fn ($s) => ['at' => Carbon::parse($s->scan_at), 'jenis' => $s->verify_type]);
+            }
+
+            $tgl = $date->toDateString();
+            $pulang = Carbon::parse("$tgl $jamPulang");
+            $awalPulang  = $pulang->copy()->subMinutes((int) ($sched->awal_absen_pulang ?? 120));
+            $akhirPulang = $pulang->copy()->addMinutes((int) ($sched->akhir_absen_pulang ?? 15));
+
+            $jamLembur = $sched->has_lembur ? $this->norm($sched->jam_masuk_lembur) : null;
+            $lembur = $jamLembur ? Carbon::parse("$tgl $jamLembur") : null;
+            $awalLembur  = $lembur?->copy()->subMinutes((int) ($sched->awal_absen_lembur_masuk ?? 15));
+            $akhirLembur = $lembur?->copy()->addMinutes((int) ($sched->akhir_absen_lembur_masuk ?? 120));
+
+            $hasil = collect();
+            $sebelum = null;
+            $sudahPulang = false;
+            $sedangLembur = false;
+
+            foreach ($scans as $s) {
+                $at = Carbon::parse($s->scan_at);
+
+                if ($sebelum && $sebelum['at']->diffInMinutes($at) < self::JEDA_TAP_ULANG_MENIT) {
+                    $jenis = $sebelum['jenis'];
+                } elseif ($at->lt($awalPulang)) {
+                    $jenis = 'check_in';
+                } elseif ($sedangLembur) {
+                    $jenis = 'overtime_out';
+                } elseif ($at->lt($akhirPulang)) {
+                    $jenis = 'check_out';
+                } elseif ($sudahPulang && $lembur && $at->gte($awalLembur) && $at->lte($akhirLembur)) {
+                    $jenis = 'overtime_in';
+                } else {
+                    // Lewat jendela pulang tanpa scan pulang → ini scan pulang yang telat.
+                    $jenis = 'check_out';
+                }
+
+                $sudahPulang  = $sudahPulang || $jenis === 'check_out';
+                $sedangLembur = $sedangLembur || $jenis === 'overtime_in';
+
+                $hasil->push($sebelum = ['at' => $at, 'jenis' => $jenis]);
+            }
+
+            return $hasil;
         });
     }
 
+    public function hasCheckedIn(int $karyawanId, Carbon $date): ?Carbon
+    {
+        return $this->scanHari($karyawanId, $date)->firstWhere('jenis', 'check_in')['at'] ?? null;
+    }
+
+    /** Scan pulang terakhir — pulang reguler ATAU pulang lembur. */
     public function hasCheckedOut(int $karyawanId, Carbon $date): ?Carbon
     {
-        return $this->ingatScan('check_out', $karyawanId, $date, function () use ($karyawanId, $date) {
-            $scan = FingerprintLog::where('karyawan_id', $karyawanId)
-                ->where('verify_type', 'check_out')
-                ->whereDate('scan_at', $date->toDateString())
-                ->orderByDesc('scan_at')
-                ->first();
-            return $scan ? Carbon::parse($scan->scan_at) : null;
-        });
+        return $this->scanHari($karyawanId, $date)
+            ->whereIn('jenis', ['check_out', 'overtime_out'])->last()['at'] ?? null;
     }
 
     public function hasOvertimeIn(int $karyawanId, Carbon $date): ?Carbon
     {
-        return $this->ingatScan('overtime_in', $karyawanId, $date, function () use ($karyawanId, $date) {
-            $scan = FingerprintLog::where('karyawan_id', $karyawanId)
-                ->where('verify_type', 'overtime_in')
-                ->whereDate('scan_at', $date->toDateString())
-                ->orderBy('scan_at')
-                ->first();
-            return $scan ? Carbon::parse($scan->scan_at) : null;
-        });
+        return $this->scanHari($karyawanId, $date)->firstWhere('jenis', 'overtime_in')['at'] ?? null;
     }
 
     /**
