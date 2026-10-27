@@ -320,16 +320,23 @@ class IsiAntreanCncService
 
     /**
      * Penyesuaian OP pengisi yang masih berjalan:
-     *  - Tingkat 1 Prioritas Rendah yang kini satu-satunya OP produknya → Otomatis.
+     *  - Tingkat 1 atau OP manual Prioritas Rendah yang tak lagi punya OP lebih lama untuk
+     *    produknya → Otomatis.
      *  - Tingkat 3 yang stok jual produknya tinggal ≤ T2_MAKS_HARI hari (atau ≤ min/habis)
      *    → hasil dialihkan ke gudang jual (alokasi Cadangan dihapus) + skor Otomatis.
      */
     public function sesuaikanOpBerjalan(): array
     {
         $hasil = [];
+        // OP manual (kv_skill null) Prioritas Rendah ikut diurus seperti Tingkat 1: OP AM-40x30x6
+        // 00100 dibuat manual 22 Okt 2026 sebagai "OP kedua" Rendah, tapi tak pernah naik walau
+        // OP di depannya sudah selesai — dan malah menahan OP pengisi 00120 tetap Rendah.
         $ops = ProductionOrder::with('outputs.product')
-            ->whereIn('kv_skill', [self::penanda(1), self::penanda(3)])
+            ->where(fn ($q) => $q->whereIn('kv_skill', [self::penanda(1), self::penanda(3)])
+                ->orWhere(fn ($m) => $m->whereNull('kv_skill')->where('score_type', 'priority')->where('priority_level', 'low')))
+            ->whereNotIn('type', ProductionOrder::REPAIR_TYPES)
             ->whereIn('status', ['draft', 'confirmed', 'in_progress', 'partial'])
+            ->orderBy('id')
             ->get();
 
         foreach ($ops as $op) {
@@ -337,13 +344,14 @@ class IsiAntreanCncService
             $p     = $utama?->product;
             if (!$p) continue;
 
-            if ($op->kv_skill === self::penanda(1)) {
+            if ($op->kv_skill !== self::penanda(3)) {
                 if ($op->score_type !== 'priority' || $op->priority_level !== 'low') continue;
-                if ($this->auto->jumlahProduksiAktif($p) > 1) continue;
+                if ($this->adaOpLebihLama($op, $p)) continue;
                 $op->update(['score_type' => 'auto', 'priority_level' => null]);
                 $hasil[] = $this->baris('naikkan', 1, $p, [
                     'diubah' => true, 'order_number' => $op->order_number,
-                    'reason' => "OP andalan sebelumnya sudah selesai — skor OP ini dinaikkan dari Prioritas Rendah ke Otomatis.",
+                    'reason' => 'Tidak ada lagi OP ' . $p->sku . ' yang lebih dulu masih berjalan — skor OP '
+                        . ($op->kv_skill ? 'ini' : 'manual ini') . ' dinaikkan dari Prioritas Rendah ke Otomatis.',
                 ]);
                 continue;
             }
@@ -369,6 +377,16 @@ class IsiAntreanCncService
         }
 
         return $hasil;
+    }
+
+    /** Masih ada OP produk ini (bukan perbaikan) yang dibuat lebih dulu & belum selesai? */
+    private function adaOpLebihLama(ProductionOrder $op, Product $p): bool
+    {
+        return ProductionOrder::whereNotIn('status', ['finalized', 'cancelled', 'merged'])
+            ->whereNotIn('type', ProductionOrder::REPAIR_TYPES)
+            ->where('id', '<', $op->id)
+            ->whereHas('outputs', fn ($q) => $q->where('product_id', $p->id)->where('output_type', 'main'))
+            ->exists();
     }
 
     /**

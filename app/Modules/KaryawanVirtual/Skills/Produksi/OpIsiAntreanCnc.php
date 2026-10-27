@@ -39,7 +39,8 @@ class OpIsiAntreanCnc implements BisaDiusulkan, PunyaPengaturan
             . 'membuat OP untuk kelompok itu: Mesin 1 (double head) ' . Svc::OP_PER_KELOMPOK[Svc::GANDA] . ' OP, '
             . 'Mesin 2 & 3 ' . Svc::OP_PER_KELOMPOK[Svc::TUNGGAL] . ' OP (satu per mesin). Calon dipilih berjenjang, produk berbeda per OP. '
             . 'Tingkat 1: produk andalan walau stok masih banyak — maks ' . Svc::MAKS_OP_ANDALAN
-            . ' OP, OP kedua Prioritas Rendah lalu Otomatis setelah OP pertama selesai. '
+            . ' OP, OP kedua Prioritas Rendah lalu Otomatis setelah OP pertama selesai '
+            . '(OP manual Prioritas Rendah ikut dinaikkan dengan aturan yang sama). '
             . 'Tingkat 2: stok di atas minimum tapi cukup ≤ ' . Svc::T2_MAKS_HARI . ' hari penjualan. '
             . 'Tingkat 3: ' . Svc::T3_POLA_SKU . '* laris yang stok jualnya cukup ≥ ' . Svc::T3_MIN_HARI_JUAL
             . ' hari → hasil ke gudang Cadangan (sampai ' . Svc::T3_CADANGAN_HARI . ' hari penjualan); bila stok jual '

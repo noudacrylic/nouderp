@@ -147,6 +147,37 @@ class OpIsiAntreanCncTest extends TestCase
         $this->assertTrue($hasil[0]['diubah']);
     }
 
+    public function test_op_manual_rendah_dinaikkan_bila_tak_ada_op_lebih_lama_dan_menahan_op_sesudahnya(): void
+    {
+        // Kasus AM-40x30x6 27 Okt 2026: OP manual 00100 Rendah, OP pengisi 00120 Rendah.
+        $p = $this->produk('AM-40x30x6', 500, 300, andalan: true);
+        $lama   = $this->opLain($p, [[$this->rakit, 'completed']], 'finalized');
+        $manual = $this->opLain($p, [[$this->rakit, 'pending']], 'in_progress');
+        $manual->update(['score_type' => 'priority', 'priority_level' => 'low']);
+        $pengisi = $this->opLain($p, [[$this->rakit, 'pending']], 'in_progress');
+        $pengisi->update(['score_type' => 'priority', 'priority_level' => 'low', 'kv_skill' => IsiAntreanCncService::penanda(1)]);
+
+        $hasil = app(IsiAntreanCncService::class)->sesuaikanOpBerjalan();
+
+        $this->assertSame('auto', $manual->fresh()->score_type, 'OP di depannya sudah selesai → manual Rendah naik.');
+        $this->assertSame('low', $pengisi->fresh()->priority_level, 'Masih ada OP lebih lama (manual) → pengisi tetap Rendah.');
+        $this->assertCount(1, $hasil);
+
+        $manual->update(['status' => 'finalized']);
+        app(IsiAntreanCncService::class)->sesuaikanOpBerjalan();
+        $this->assertSame('auto', $pengisi->fresh()->score_type);
+    }
+
+    public function test_op_manual_prioritas_lain_tidak_disentuh(): void
+    {
+        $p = $this->produk('AM-40x30x6', 500, 300, andalan: true);
+        $op = $this->opLain($p, [[$this->rakit, 'pending']], 'in_progress');
+        $op->update(['score_type' => 'priority', 'priority_level' => 'high']);
+
+        $this->assertSame([], app(IsiAntreanCncService::class)->sesuaikanOpBerjalan());
+        $this->assertSame('high', $op->fresh()->priority_level);
+    }
+
     public function test_tingkat1_maksimal_dua_op_lalu_turun_ke_tingkat2(): void
     {
         $andalan = $this->produk('RP-3x5', 500, 300, andalan: true);
