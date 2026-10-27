@@ -340,7 +340,7 @@ class InventoryEngine
             $this->ledger($product, $warehouse, 0, $qty, 'sale', $reference, null, $deliveryId);
 
             // FIFO consume
-            $cogs = app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId, $soId ? (int) $soId : null);
+            $cogs = app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId, $soId ? (int) $soId : null, $this->khususPesanan($product, $soId));
 
             // Shipment log
             StockShipment::create([
@@ -445,7 +445,30 @@ class InventoryEngine
      */
     public function settleShipmentCogs($product, $warehouse, $qty, $deliveryId, ?int $soId = null): float
     {
-        return app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId, $soId);
+        return app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId, $soId, $this->khususPesanan($product, $soId));
+    }
+
+    /**
+     * Produk "Dibuat khusus per pesanan" dikirim untuk SO → HPP wajib dari lapisan OP milik
+     * SO itu. Produk stok bersama (BC-*, ready) tetap FIFO biasa.
+     */
+    public function khususPesanan($product, $soId): bool
+    {
+        return $soId && (bool) \App\Core\Inventory\Product::find($product)?->isMadeToOrder();
+    }
+
+    /**
+     * Stok yang boleh dipakai Surat Jalan: produk khusus pesanan → sisa hasil OP milik SO-nya
+     * (bila SO punya OP); selebihnya stok fisik gudang.
+     */
+    public function tersediaUntukKirim($product, $warehouse, $soId): float
+    {
+        if ($this->khususPesanan($product, $soId)) {
+            $milik = app(FifoService::class)->sisaMilikSo((int) $product, (int) $warehouse, (int) $soId);
+            if ($milik !== null) return $milik;
+        }
+
+        return (float) $this->onHand($product, $warehouse);
     }
 
     /*

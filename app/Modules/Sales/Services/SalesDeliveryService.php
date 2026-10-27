@@ -450,7 +450,9 @@ class SalesDeliveryService
                 }
 
                 $isBundle = ($product->sale_type === 'bundle');
-                $onHand = $isBundle ? null : $this->inventory->onHand($item->product_id, $delivery->warehouse_id);
+                // Produk khusus pesanan: yang dihitung hanya hasil OP milik SO ini, bukan
+                // stok CS* milik pesanan lain yang kebetulan ada di gudang.
+                $onHand = $isBundle ? null : $this->inventory->tersediaUntukKirim($item->product_id, $delivery->warehouse_id, $delivery->sales_order_id);
 
                 if (!$isBundle && $onHand < (float) $item->qty) {
                     // Stok belum cukup (barang preorder belum selesai produksi):

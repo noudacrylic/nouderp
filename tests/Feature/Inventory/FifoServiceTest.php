@@ -55,30 +55,66 @@ class FifoServiceTest extends TestCase
         $this->assertEqualsWithDelta(10.0, $b->refresh()->qty_remaining, 0.001, 'layer termuda belum tersentuh');
     }
 
-    public function test_consume_dengan_so_mengambil_lapisan_op_milik_so_itu_dulu(): void
+    /** OP custom ber-SO tanpa memerlukan baris SO (FK dimatikan sebentar). */
+    private function opUntukSo(int $soId, ?int $mergedInto = null): int
+    {
+        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        $id = \Illuminate\Support\Facades\DB::table('production_orders')->insertGetId([
+            'order_number' => 'OP-TES-' . uniqid(), 'type' => 'custom', 'sales_order_id' => $soId,
+            'merged_into_id' => $mergedInto, 'warehouse_id' => 1, 'status' => 'finalized',
+            'production_date' => '2026-10-20', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1');
+        return $id;
+    }
+
+    public function test_khusus_pesanan_hanya_mengambil_lapisan_op_milik_so(): void
     {
         // SO 7920 (Adi Mulyadi): CS3 hasil OP/2026/10/00083 Rp1,61 jt, tapi Surat Jalan
         // mengambil lapisan tertua milik pesanan lain Rp17 rb.
-        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        $opId = \Illuminate\Support\Facades\DB::table('production_orders')->insertGetId([
-            'order_number' => 'OP-TES-1', 'type' => 'custom', 'sales_order_id' => 7920,
-            'warehouse_id' => 1, 'status' => 'finalized', 'production_date' => '2026-10-20',
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
-        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1');
-
         $lain  = $this->layer(20, 17140.74, '2026-09-26 00:00:00');
         $milik = $this->layer(1, 1611076.76, '2026-10-20 00:00:00');
-        $milik->update(['source_type' => 'production_order', 'source_id' => $opId]);
+        $milik->update(['source_type' => 'production_order', 'source_id' => $this->opUntukSo(7920)]);
 
-        $cogs = $this->fifo->consume(1, 1, 1, 'sales', 99, 7920);
+        $this->assertEqualsWithDelta(1.0, $this->fifo->sisaMilikSo(1, 1, 7920), 0.001);
+
+        $cogs = $this->fifo->consume(1, 1, 1, 'sales', 99, 7920, true);
 
         $this->assertEqualsWithDelta(1611076.76, $cogs, 0.01);
-        $this->assertEqualsWithDelta(0.0, $milik->refresh()->qty_remaining, 0.001);
         $this->assertEqualsWithDelta(20.0, $lain->refresh()->qty_remaining, 0.001, 'Lapisan pesanan lain tak tersentuh.');
 
-        // Lebih dari hasil OP-nya → sisanya FIFO biasa.
-        $this->assertEqualsWithDelta(2 * 17140.74, $this->fifo->consume(1, 1, 2, 'sales', 100, 7920), 0.01);
+        // Hasil OP-nya sudah habis → TIDAK boleh mengambil stok pesanan lain.
+        $this->expectException(\Exception::class);
+        $this->fifo->consume(1, 1, 1, 'sales', 100, 7920, true);
+    }
+
+    public function test_khusus_pesanan_ikut_lapisan_op_induk_bila_digabung(): void
+    {
+        $induk = $this->opUntukSo(500);
+        $this->opUntukSo(7920, $induk);
+        $l = $this->layer(2, 50000, '2026-10-20 00:00:00');
+        $l->update(['source_type' => 'production_order', 'source_id' => $induk]);
+        $this->layer(5, 1000, '2026-01-01 00:00:00');
+
+        $this->assertEqualsWithDelta(50000.0, $this->fifo->consume(1, 1, 1, 'sales', 99, 7920, true), 0.01);
+    }
+
+    public function test_khusus_pesanan_tanpa_op_sama_sekali_jatuh_ke_fifo(): void
+    {
+        $this->layer(5, 1000, '2026-01-01 00:00:00');
+        $this->layer(5, 9000, '2026-02-01 00:00:00');
+
+        $this->assertNull($this->fifo->sisaMilikSo(1, 1, 4242));
+        $this->assertEqualsWithDelta(1000.0, $this->fifo->consume(1, 1, 1, 'sales', 99, 4242, true), 0.01);
+    }
+
+    public function test_produk_stok_bersama_tetap_fifo_murni_walau_ada_op_milik_so(): void
+    {
+        $this->layer(5, 1000, '2026-01-01 00:00:00');
+        $milik = $this->layer(1, 9000, '2026-02-01 00:00:00');
+        $milik->update(['source_type' => 'production_order', 'source_id' => $this->opUntukSo(7920)]);
+
+        $this->assertEqualsWithDelta(1000.0, $this->fifo->consume(1, 1, 1, 'sales', 99, 7920), 0.01);
     }
 
     public function test_consume_lintas_layer_cogs_berbobot(): void

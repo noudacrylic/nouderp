@@ -32,29 +32,49 @@ class FifoService
     }
 
     /**
-     * $salesOrderId: lapisan hasil OP milik SO itu diambil DULUAN, baru sisanya FIFO biasa.
-     * SKU custom bersama (CS1–CS6, BC-*) dipakai banyak pesanan; FIFO murni membuat Surat
-     * Jalan mengambil lapisan pesanan lain — SO 7920 (OP/2026/10/00083, biaya Rp1,61 jt)
-     * tercatat HPP Rp17 rb karena yang terambil lapisan OP 537. Per 27 Okt 2026, 80 dari
-     * 261 OP ber-SO kena hal yang sama.
+     * OP yang hasilnya milik SO ini: OP ber-sales_order_id = SO, plus induknya bila OP itu
+     * digabung (hasil dilepas atas nama induk). Kosong = SO ini tak punya OP sama sekali.
      */
-    public function consume($productId, $warehouseId, $qty, $referenceType = 'consume', $referenceId = 0, ?int $salesOrderId = null)
+    public function opMilikSo(int $salesOrderId): array
+    {
+        $ops = \App\Modules\Production\Models\ProductionOrder::where('sales_order_id', $salesOrderId)
+            ->get(['id', 'merged_into_id']);
+
+        return $ops->pluck('id')->merge($ops->pluck('merged_into_id')->filter())
+            ->map(fn ($id) => (int) $id)->unique()->values()->all();
+    }
+
+    /** Sisa lapisan hasil OP milik SO di gudang ini; null bila SO tak punya OP. */
+    public function sisaMilikSo(int $productId, int $warehouseId, int $salesOrderId): ?float
+    {
+        $ops = $this->opMilikSo($salesOrderId);
+        if (!$ops) return null;
+
+        return (float) StockLayer::where(['product_id' => $productId, 'warehouse_id' => $warehouseId])
+            ->where('source_type', 'production_order')->whereIn('source_id', $ops)
+            ->sum('qty_remaining');
+    }
+
+    /**
+     * $hanyaMilikSo (produk "Dibuat khusus per pesanan"): HANYA lapisan hasil OP milik SO
+     * itu yang boleh diambil — SKU custom (CS1–CS6) cuma wadah, unit di bawahnya barang
+     * pesanan orang lain. FIFO murni membuat SO 7920 (OP/2026/10/00083, biaya Rp1,61 jt)
+     * tercatat HPP Rp17 rb karena yang terambil lapisan OP 537 (27 Okt 2026). SO yang tak
+     * punya OP sama sekali (data lama) jatuh ke FIFO supaya fakturnya tidak macet selamanya.
+     */
+    public function consume($productId, $warehouseId, $qty, $referenceType = 'consume', $referenceId = 0, ?int $salesOrderId = null, bool $hanyaMilikSo = false)
     {
         $remaining = $qty;
         $totalCost = 0;
 
-        $opMilikSo = $salesOrderId
-            ? \App\Modules\Production\Models\ProductionOrder::where('sales_order_id', $salesOrderId)->pluck('id')->all()
-            : [];
+        $opMilikSo = ($hanyaMilikSo && $salesOrderId) ? $this->opMilikSo($salesOrderId) : [];
 
         $layers = StockLayer::where([
             'product_id' => $productId,
             'warehouse_id' => $warehouseId
         ])
             ->where('qty_remaining', '>', 0)
-            ->when($opMilikSo, fn ($q) => $q->orderByRaw(
-                "CASE WHEN source_type = 'production_order' AND source_id IN (" . implode(',', array_map('intval', $opMilikSo)) . ") THEN 0 ELSE 1 END"
-            ))
+            ->when($opMilikSo, fn ($q) => $q->where('source_type', 'production_order')->whereIn('source_id', $opMilikSo))
             ->orderBy('created_at')
             ->orderBy('id')
             ->lockForUpdate()
