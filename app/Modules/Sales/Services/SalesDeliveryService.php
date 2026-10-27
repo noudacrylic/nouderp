@@ -512,7 +512,8 @@ class SalesDeliveryService
                         $item->product_id,
                         $delivery->warehouse_id,
                         (float) $item->qty,
-                        $delivery->id
+                        $delivery->id,
+                        $delivery->sales_order_id ? (int) $delivery->sales_order_id : null
                     );
                 } catch (\Throwable $e) {
                     throw new Exception(

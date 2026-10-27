@@ -31,16 +31,30 @@ class FifoService
         ]);
     }
 
-    public function consume($productId, $warehouseId, $qty, $referenceType = 'consume', $referenceId = 0)
+    /**
+     * $salesOrderId: lapisan hasil OP milik SO itu diambil DULUAN, baru sisanya FIFO biasa.
+     * SKU custom bersama (CS1–CS6, BC-*) dipakai banyak pesanan; FIFO murni membuat Surat
+     * Jalan mengambil lapisan pesanan lain — SO 7920 (OP/2026/10/00083, biaya Rp1,61 jt)
+     * tercatat HPP Rp17 rb karena yang terambil lapisan OP 537. Per 27 Okt 2026, 80 dari
+     * 261 OP ber-SO kena hal yang sama.
+     */
+    public function consume($productId, $warehouseId, $qty, $referenceType = 'consume', $referenceId = 0, ?int $salesOrderId = null)
     {
         $remaining = $qty;
         $totalCost = 0;
+
+        $opMilikSo = $salesOrderId
+            ? \App\Modules\Production\Models\ProductionOrder::where('sales_order_id', $salesOrderId)->pluck('id')->all()
+            : [];
 
         $layers = StockLayer::where([
             'product_id' => $productId,
             'warehouse_id' => $warehouseId
         ])
             ->where('qty_remaining', '>', 0)
+            ->when($opMilikSo, fn ($q) => $q->orderByRaw(
+                "CASE WHEN source_type = 'production_order' AND source_id IN (" . implode(',', array_map('intval', $opMilikSo)) . ") THEN 0 ELSE 1 END"
+            ))
             ->orderBy('created_at')
             ->orderBy('id')
             ->lockForUpdate()

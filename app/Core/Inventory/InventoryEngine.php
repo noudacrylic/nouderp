@@ -340,7 +340,7 @@ class InventoryEngine
             $this->ledger($product, $warehouse, 0, $qty, 'sale', $reference, null, $deliveryId);
 
             // FIFO consume
-            $cogs = app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId);
+            $cogs = app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId, $soId ? (int) $soId : null);
 
             // Shipment log
             StockShipment::create([
@@ -443,9 +443,9 @@ class InventoryEngine
      * layer aktual (tanpa menyentuh ledger — ledger sudah dikurangi saat shipDeferred).
      * Melempar bila layer belum cukup (= produksi belum selesai) → guard blok invoice.
      */
-    public function settleShipmentCogs($product, $warehouse, $qty, $deliveryId): float
+    public function settleShipmentCogs($product, $warehouse, $qty, $deliveryId, ?int $soId = null): float
     {
-        return app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId);
+        return app(FifoService::class)->consume($product, $warehouse, $qty, 'sales', $deliveryId, $soId);
     }
 
     /*
