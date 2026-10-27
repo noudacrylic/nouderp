@@ -205,6 +205,17 @@ class ExecutorScheduleResolver
         return $cocok['jenis'] ?? $mentah;
     }
 
+    /**
+     * Sama dengan jenisScan(), tapi null bila hari itu tak ada jadwal untuk memilah — dipakai
+     * absensi SDM (AdmsService) yang punya aturan cadangannya sendiri.
+     */
+    public function jenisScanJadwal(int $karyawanId, Carbon $scanAt): ?string
+    {
+        $cocok = $this->scanHari($karyawanId, $scanAt)->first(fn ($s) => $s['at']->eq($scanAt));
+
+        return ($cocok['dariJadwal'] ?? false) ? $cocok['jenis'] : null;
+    }
+
     /** Scan satu orang pada satu tanggal, urut waktu, dengan jenis menurut ERP. */
     private function scanHari(int $karyawanId, Carbon $date)
     {
@@ -217,7 +228,7 @@ class ExecutorScheduleResolver
             $sched = $this->forKaryawan($karyawanId, $date);
             $jamPulang = $sched && !$sched->is_off ? $this->norm($sched->jam_pulang) : null;
             if (!$jamPulang) {
-                return $scans->map(fn ($s) => ['at' => Carbon::parse($s->scan_at), 'jenis' => $s->verify_type]);
+                return $scans->map(fn ($s) => ['at' => Carbon::parse($s->scan_at), 'jenis' => $s->verify_type, 'dariJadwal' => false]);
             }
 
             $tgl = $date->toDateString();
@@ -256,7 +267,7 @@ class ExecutorScheduleResolver
                 $sudahPulang  = $sudahPulang || $jenis === 'check_out';
                 $sedangLembur = $sedangLembur || $jenis === 'overtime_in';
 
-                $hasil->push($sebelum = ['at' => $at, 'jenis' => $jenis]);
+                $hasil->push($sebelum = ['at' => $at, 'jenis' => $jenis, 'dariJadwal' => true]);
             }
 
             return $hasil;

@@ -218,8 +218,35 @@ class AdmsService
                 ->format('H:i:s');
         }
 
+        // Jenis scan dari jendela jadwal — SAMA dengan timer produksi, tombol status mesin
+        // diabaikan. Pulang 14:00–16:15; lembur 16:15–18:30 HANYA bila sudah scan pulang
+        // (belum → pulang telat, bukan lembur); scan sesudah lembur masuk = pulang lembur.
+        // Dulu: semua scan ≥ 16:30 = lembur, jadi pulang telat 16:39 ikut dibayar lembur
+        // 1 jam (19 Okt 2026) dan scan lembur 16:21 malah tercatat sebagai jam pulang.
+        $jenis = app(\App\Modules\Production\Services\ExecutorScheduleResolver::class)
+            ->jenisScanJadwal((int) $log->karyawan_id, $log->scan_at);
+
         // Penempatan slot.
-        if ($time >= '16:30:00') {
+        if ($jenis === 'overtime_in') {
+            if (! $att->on_work2 || $time < $att->on_work2) {
+                $att->on_work2 = $time;
+            }
+        } elseif ($jenis === 'overtime_out') {
+            if (! $att->off_work2 || $time > $att->off_work2) {
+                $att->off_work2 = $time;
+            }
+        } elseif ($jenis === 'check_out') {
+            if (! $att->off_work1 || $time > $att->off_work1) {
+                $att->off_work1 = $time;
+            }
+        } elseif ($jenis === 'check_in') {
+            // Masuk tengah hari (≥ 11:30) tetap tidak diberi slot — lihat cabang "terlalu
+            // awal untuk absen pulang" di bawah: setengah hari pagi cukup absen masuk saja.
+            if ($time < '11:30:00' && (! $att->on_work1 || $time < $att->on_work1)) {
+                $att->on_work1 = $time;
+            }
+        } elseif ($time >= '16:30:00') {
+            // Tanpa jadwal untuk memilah → aturan jam lama.
             // Lembur
             if (! $att->off_work2 || $time > $att->off_work2) {
                 $att->off_work2 = $time;
