@@ -45,6 +45,9 @@ Schedule::command('sdm:send-attendance-reminders')
 // Jubelio — sinkron pesanan tiap 5 menit, retur tiap 15 menit (andalan localhost; webhook akselerator).
 // Shopee Open Platform: jaga access token hidup (refresh token ikut bergeser 30 hari).
 Schedule::command('shopee:perbarui-token')->hourly()->name('shopee-perbarui-token')->withoutOverlapping(30);
+// Shopee tahap 2 (bayangan, baca saja): pesanan tiap 15 menit, katalog/peta SKU sekali sehari.
+Schedule::command('shopee:tarik-bayangan --jam=1')->everyFifteenMinutes()->name('shopee-tarik-bayangan')->withoutOverlapping(30);
+Schedule::command('shopee:tarik-bayangan --katalog --jam=1')->dailyAt('05:40')->name('shopee-tarik-katalog')->withoutOverlapping(60);
 Schedule::command('jubelio:sync-orders')->everyFiveMinutes()->name('jubelio-sync-orders')->withoutOverlapping(60);
 Schedule::command('jubelio:sync-returns')->everyFifteenMinutes()->name('jubelio-sync-returns')->withoutOverlapping(60);
 // Jubelio stok — push perubahan tiap 5 menit (near-realtime), rekonsiliasi penuh tiap 2 jam.

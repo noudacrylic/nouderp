@@ -10,7 +10,9 @@
                 <h2 class="text-xl font-bold text-gray-800 mb-1">Shopee Open Platform</h2>
                 <p class="text-sm text-gray-500 max-w-2xl">
                     Koneksi langsung ERP ke Shopee (API v2), bertahap menggantikan Jubelio. Tahap sekarang:
-                    koneksi toko + <a href="{{ route('finance.cash-bank.settlements.mutasi-shopee.index') }}" class="text-blue-600 hover:underline">Mutasi Saldo Shopee</a>.
+                    koneksi toko + <a href="{{ route('finance.cash-bank.settlements.mutasi-shopee.index') }}" class="text-blue-600 hover:underline">Mutasi Saldo Shopee</a>
+                    + bayangan (baca saja): <a href="{{ route('settings.integrations.shopee.peta-sku') }}" class="text-blue-600 hover:underline">Peta SKU</a>
+                    · <a href="{{ route('settings.integrations.shopee.pesanan') }}" class="text-blue-600 hover:underline">Pesanan Bayangan</a>.
                 </p>
             </div>
             <span class="rounded px-2 py-1 text-xs font-bold {{ $env === 'live' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800' }}">

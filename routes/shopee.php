@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Marketplace\Shopee\Controllers\MutasiShopeeController;
+use App\Modules\Marketplace\Shopee\Controllers\ShopeeBayanganController;
 use App\Modules\Marketplace\Shopee\Controllers\ShopeeSettingController;
 use Illuminate\Support\Facades\Route;
 
@@ -18,6 +19,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/hubungkan', [ShopeeSettingController::class, 'hubungkan'])->name('hubungkan');
         Route::post('/{id}/uji', [ShopeeSettingController::class, 'uji'])->whereNumber('id')->name('uji');
         Route::delete('/{id}', [ShopeeSettingController::class, 'putuskan'])->whereNumber('id')->name('putuskan');
+
+        // Tahap 2 — bayangan (baca saja)
+        Route::get('/peta-sku', [ShopeeBayanganController::class, 'petaSku'])->name('peta-sku');
+        Route::put('/peta-sku/{id}', [ShopeeBayanganController::class, 'simpanPeta'])->whereNumber('id')->name('peta-sku.simpan');
+        Route::post('/peta-sku/tarik', [ShopeeBayanganController::class, 'tarikKatalog'])->name('peta-sku.tarik');
+        Route::get('/pesanan', [ShopeeBayanganController::class, 'pesanan'])->name('pesanan');
+        Route::post('/pesanan/tarik', [ShopeeBayanganController::class, 'tarikPesanan'])->name('pesanan.tarik');
+        Route::post('/pesanan/banding-ulang', [ShopeeBayanganController::class, 'bandingUlang'])->name('pesanan.banding-ulang');
     });
     // Alamat kembali dari halaman izin Shopee (domainnya didaftarkan di app Shopee).
     Route::get('erp/integrasi/shopee/callback', [ShopeeSettingController::class, 'callback'])
