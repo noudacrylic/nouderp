@@ -40,6 +40,8 @@ return [
         'label' => 'Task Manager',
         'icon' => '✅',
         'children' => [
+            // Tiap orang punya meja sendiri (isi dibatasi di controller) → selalu terlihat.
+            'tasks.meja'       => ['label' => 'Meja Kerja',      'url' => '/erp/tasks/meja',      'route_patterns' => ['tasks.meja.*'], 'always_visible' => true],
             'tasks.board'      => ['label' => 'Board',           'url' => '/erp/tasks',           'route_patterns' => ['tasks.index', 'tasks.move', 'tasks.status', 'tasks.create', 'tasks.store', 'tasks.show', 'tasks.edit', 'tasks.update', 'tasks.destroy', 'tasks.subtasks.*', 'tasks.visible_categories.*', 'tasks.assignee', 'tasks.priority', 'tasks.description', 'tasks.json', 'tasks.links.*', 'tasks.categories.store', 'tasks.categories.create', 'tasks.categories.edit', 'tasks.categories.update']],
             'tasks.list'       => ['label' => 'Daftar',          'url' => '/erp/tasks/list',      'route_patterns' => ['tasks.list']],
             'tasks.automation' => ['label' => 'Otomasi',         'url' => '/erp/tasks/schedules', 'route_patterns' => ['tasks.schedules.*', 'tasks.automation.*']],

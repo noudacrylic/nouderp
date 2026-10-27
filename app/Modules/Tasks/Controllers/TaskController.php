@@ -40,7 +40,9 @@ class TaskController extends Controller
             ->map(fn($v) => (int) $v)
             ->all();
 
+        // Task dari Skill Admin (±puluhan per hari) tinggal di Meja Kerja, bukan di Board.
         $q = Task::with(['assignee:id,name', 'subtasks:id,task_id,is_done,title,sort_order'])
+            ->whereNull('skill')
             ->orderByRaw("FIELD(priority, 'high', 'normal', 'low')")
             ->orderBy('position')
             ->orderBy('id');
@@ -171,6 +173,7 @@ class TaskController extends Controller
         $userId = auth()->id();
 
         $q = Task::with(['category', 'assignee:id,name', 'creator:id,name'])
+            ->when(!$request->boolean('skill'), fn ($x) => $x->whereNull('skill'))
             ->orderByDesc('id');
 
         $search = trim((string) $request->get('search', ''));

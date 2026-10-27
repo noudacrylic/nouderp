@@ -16,12 +16,20 @@ class Task extends Model
         'taskable_type', 'taskable_id',
         'source', 'schedule_id',
         'position',
+        // Meja Kerja (lihat App\Modules\Tasks\MejaKerja)
+        'skill', 'peran', 'kunci_sumber', 'mulai_at', 'tenggat_at',
+        'pending_alasan', 'pending_sejak', 'pending_detik', 'meta',
     ];
 
     protected $casts = [
-        'due_date' => 'date',
-        'done_at'  => 'datetime',
-        'position' => 'integer',
+        'due_date'      => 'date',
+        'done_at'       => 'datetime',
+        'position'      => 'integer',
+        'mulai_at'      => 'datetime',
+        'tenggat_at'    => 'datetime',
+        'pending_sejak' => 'datetime',
+        'pending_detik' => 'integer',
+        'meta'          => 'array',
     ];
 
     public function category()
@@ -66,7 +74,7 @@ class Task extends Model
 
     public function scopeOpen($q)
     {
-        return $q->whereIn('status', ['open', 'in_progress']);
+        return $q->whereIn('status', ['open', 'in_progress', 'pending']);
     }
 
     public function scopeForUser($q, int $userId)
@@ -143,6 +151,7 @@ class Task extends Model
         return match ($this->status) {
             'open'        => ['label' => 'Open',         'class' => 'bg-yellow-100 text-yellow-700'],
             'in_progress' => ['label' => 'In Progress',  'class' => 'bg-indigo-100 text-indigo-700'],
+            'pending'     => ['label' => 'Pending',      'class' => 'bg-orange-100 text-orange-700'],
             'done'        => ['label' => 'Selesai',      'class' => 'bg-green-100 text-green-700'],
             'cancelled'   => ['label' => 'Dibatalkan',   'class' => 'bg-gray-200 text-gray-600'],
             default       => ['label' => ucfirst($this->status), 'class' => 'bg-gray-100 text-gray-600'],

@@ -1575,6 +1575,9 @@ require __DIR__ . '/finance.php';
 // =============== SHOPEE OPEN PLATFORM ===============
 require __DIR__ . '/shopee.php';
 
+// =============== MEJA KERJA ADMIN (sebelum grup erp/tasks — hindari {task}) ===============
+require __DIR__ . '/meja-kerja.php';
+
 // =============== TASK MANAGER ===============
 Route::prefix('erp/tasks')->name('tasks.')->group(function () {
     // Kategori (lebih dulu — supaya tidak ke-shadow oleh {task} param)
