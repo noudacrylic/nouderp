@@ -3,6 +3,7 @@
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan as Usulan;
+use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
 use App\Modules\Tasks\Models\Task;
 use Carbon\Carbon;
@@ -14,6 +15,8 @@ use Carbon\Carbon;
  */
 class PersetujuanUsulanSkill implements SkillAdmin
 {
+    use JadiSkillManajer;
+
     public function key(): string { return 'persetujuan-usulan'; }
 
     public function label(): string { return 'Persetujuan usulan Karyawan Virtual'; }

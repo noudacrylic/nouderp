@@ -3,6 +3,7 @@
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
 use App\Modules\Sales\Models\SalesOrder;
+use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
 use App\Modules\Tasks\Models\Task;
 use Carbon\Carbon;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\DB;
  */
 class DesainSkill implements SkillAdmin
 {
+    use JadiSkillManajer;
+
     /** Pola SKU (LIKE) produk yang selalu didesain. */
     public const POLA_SKU = ['KS-%', 'BC-%', 'NM-%TXT', 'FF-%Foto%'];
 

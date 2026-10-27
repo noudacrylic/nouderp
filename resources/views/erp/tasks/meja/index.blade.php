@@ -36,7 +36,7 @@
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
                     <button class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Sinkron sekarang</button>
                 </form>
-                <a href="{{ route('tasks.meja.pengaturan') }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Pengaturan</a>
+                <a href="{{ route('karyawan-virtual.show', \App\Modules\Tasks\MejaKerja\MejaKerjaService::KARYAWAN) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm" title="Skill, peran & jurnal pembagian kerja">🗂️ Manajer Admin</a>
             @endif
             <form method="POST" action="{{ route('tasks.meja.ambil') }}">@csrf
                 <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold"
@@ -102,6 +102,14 @@
                                     @if (!$skill || $skill->selesaiManual())
                                         <form method="POST" action="{{ route('tasks.meja.selesai', $t->id) }}">@csrf
                                             <button class="bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">✓ Selesai</button>
+                                        </form>
+                                    @endif
+                                    @if ($skill instanceof \App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban && ($jawaban = $skill->jawaban($t)))
+                                        <form method="POST" action="{{ route('tasks.meja.jawab', $t->id) }}" class="flex flex-wrap gap-1 w-full mb-1">@csrf
+                                            @foreach ($jawaban as $j)
+                                                <button name="jawaban" value="{{ $j['kunci'] }}"
+                                                        class="px-2 py-1 rounded text-xs font-semibold {{ !empty($j['utama']) ? 'bg-green-600 text-white' : 'border border-green-300 text-green-800 hover:bg-green-50' }}">{{ $j['label'] }}</button>
+                                            @endforeach
                                         </form>
                                     @endif
                                     <details class="relative">

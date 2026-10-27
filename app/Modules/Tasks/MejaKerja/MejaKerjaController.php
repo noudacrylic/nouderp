@@ -4,14 +4,14 @@ namespace App\Modules\Tasks\MejaKerja;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\Models\Task;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Meja Kerja Admin: tempat kerja admin & owner — Antre / Dikerjakan / Pending / Selesai hari
- * ini, tombol "Ambil berikutnya", dan pengaturan peran & skill (super admin).
+ * ini, tombol "Ambil berikutnya". Peran & skill diatur di karyawan virtual Manajer Admin.
  */
 class MejaKerjaController extends Controller
 {
@@ -101,59 +101,24 @@ class MejaKerjaController extends Controller
         return back()->with('success', 'Selesai: ' . $task->title);
     }
 
+    /** Jawaban pilihan task (mis. hasil cek persediaan) — skill PunyaJawaban. */
+    public function jawab(Request $request, Task $task)
+    {
+        $u = $request->user();
+        $this->bolehPegang($u, $task);
+        $skill = $this->meja->skill($task->skill);
+        abort_unless($skill instanceof PunyaJawaban, 422, 'Task ini tidak memakai jawaban.');
+        abort_unless(in_array($task->status, ['in_progress', 'pending'], true), 422, 'Mulai dulu task-nya.');
+        $kunci = (string) $request->input('jawaban');
+        abort_unless(collect($skill->jawaban($task))->contains('kunci', $kunci), 422, 'Jawaban tidak berlaku untuk task ini.');
+
+        return back()->with('success', $skill->jawab($task, $kunci, $u));
+    }
+
     public function sinkron(Request $request)
     {
         $h = $this->meja->sinkron();
         return back()->with('success', "Disinkron: {$h['dibuat']} baru, {$h['selesai']} selesai otomatis, {$h['batal']} batal, {$h['lanjut']} dilanjutkan, {$h['alih']} dialihkan.");
-    }
-
-    public function pengaturan(Request $request)
-    {
-        $this->superAdmin($request);
-        $skills = collect($this->meja->skills())->map(fn ($s) => ['skill' => $s, 'atur' => $this->meja->pengaturan($s)]);
-
-        return view('erp.tasks.meja.pengaturan', [
-            'skills' => $skills,
-            'peran'  => MejaKerjaPeran::with('user:id,name')->orderBy('urutan')->get()->groupBy('peran'),
-            'users'  => User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'role']),
-        ]);
-    }
-
-    public function simpanPengaturan(Request $request)
-    {
-        $this->superAdmin($request);
-        $data = $request->validate([
-            'peran'               => 'array',
-            'peran.*'             => 'array',
-            'peran.*.*'           => 'nullable|integer|exists:users,id',
-            'skill'               => 'array',
-            'skill.*.peran'       => 'required|in:' . implode(',', array_keys(MejaKerjaPeran::PERAN)),
-            'skill.*.bobot'       => 'required|integer|min:1|max:10',
-            'skill.*.sla_menit'   => 'required|integer|min:5|max:10080',
-            'skill.*.aktif'       => 'nullable|boolean',
-        ]);
-
-        DB::transaction(function () use ($data) {
-            foreach (array_keys(MejaKerjaPeran::PERAN) as $p) {
-                MejaKerjaPeran::where('peran', $p)->delete();
-                foreach (array_values(array_unique(array_filter($data['peran'][$p] ?? []))) as $i => $uid) {
-                    MejaKerjaPeran::create(['peran' => $p, 'user_id' => $uid, 'urutan' => $i + 1]);
-                }
-            }
-            foreach ($this->meja->skills() as $key => $s) {
-                $isi = $data['skill'][$key] ?? null;
-                if (!$isi) continue;
-                $atur = $this->meja->pengaturan($s);
-                $aktif = !empty($isi['aktif']);
-                $atur->update([
-                    'peran' => $isi['peran'], 'bobot' => $isi['bobot'], 'sla_menit' => $isi['sla_menit'], 'aktif' => $aktif,
-                    // Dinyalakan → hanya pekerjaan sejak saat ini; pekerjaan lama tidak membanjiri meja.
-                    'aktif_sejak' => $aktif ? ($atur->aktif ? $atur->aktif_sejak : now()) : $atur->aktif_sejak,
-                ]);
-            }
-        });
-
-        return redirect()->route('tasks.meja.pengaturan')->with('success', 'Pengaturan Meja Kerja disimpan.');
     }
 
     private function penuh(User $u): bool
@@ -168,10 +133,5 @@ class MejaKerjaController extends Controller
             || (int) $t->assignee_user_id === (int) $u->id
             || ($t->peran && in_array($t->peran, $this->meja->peranUser($u->id), true));
         abort_unless($ok, 403, 'Task ini milik peran lain.');
-    }
-
-    private function superAdmin(Request $request): void
-    {
-        abort_unless($request->user()?->role === 'super_admin', 403, 'Hanya super admin yang boleh mengatur Meja Kerja.');
     }
 }

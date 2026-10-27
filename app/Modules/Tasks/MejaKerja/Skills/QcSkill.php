@@ -3,6 +3,7 @@
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
 use App\Modules\Production\Models\ProductionOrder;
+use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
 use App\Modules\Tasks\Models\Task;
 use Carbon\Carbon;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Schema;
  */
 class QcSkill implements SkillAdmin
 {
+    use JadiSkillManajer;
+
     /** Sama dengan QcService::STATUS_BOLEH_TIMBANG. */
     private const STATUS_OP = ['in_progress', 'partial', 'completed', 'pending'];
 

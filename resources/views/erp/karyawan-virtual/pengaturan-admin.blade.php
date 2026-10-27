@@ -1,11 +1,14 @@
 @extends('layouts.erp')
 
 @section('content')
-@php $peranLabel = \App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran::PERAN; @endphp
+@php
+    $peranLabel = \App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran::PERAN;
+    $warnaMode = ['nonaktif' => 'bg-gray-100 text-gray-500', 'bayangan' => 'bg-amber-100 text-amber-800', 'otomatis' => 'bg-green-100 text-green-800'];
+@endphp
 <div class="max-w-5xl mx-auto">
-    <a href="{{ route('tasks.meja.index') }}" class="inline-block text-xs text-blue-600 hover:underline mb-3">← Meja Kerja</a>
+    <a href="{{ route('karyawan-virtual.show', $kode) }}" class="inline-block text-xs text-blue-600 hover:underline mb-3">← {{ $karyawan['ikon'] }} {{ $karyawan['nama'] }}</a>
 
-    <form method="POST" action="{{ route('tasks.meja.pengaturan.simpan') }}" class="space-y-4">
+    <form method="POST" action="{{ route('karyawan-virtual.admin.pengaturan.simpan', $kode) }}" class="space-y-4">
         @csrf @method('PUT')
 
         <div class="bg-white shadow rounded-lg border p-6">
@@ -32,24 +35,26 @@
         </div>
 
         <div class="bg-white shadow rounded-lg border p-6">
-            <h2 class="text-xl font-bold text-gray-800 mb-1">Skill Admin</h2>
+            <h2 class="text-xl font-bold text-gray-800 mb-1">Skill</h2>
             <p class="text-sm text-gray-500 mb-4">
-                Skill membuat task sendiri dari pekerjaan yang muncul di ERP. Saat dinyalakan, hanya pekerjaan <b>sejak saat itu</b> yang masuk —
-                pekerjaan lama tidak membanjiri meja. Bobot 1–10 menentukan urutan (dikali urgensi tenggat).
+                Nyalakan skill lewat mode di kartu skill halaman {{ $karyawan['nama'] }}: <b>Bayangan</b> hanya mencatat task yang akan dibuat,
+                <b>Otomatis</b> benar-benar membuatnya — hanya pekerjaan <b>sejak mode diganti</b> yang masuk. Bobot 1–10 menentukan urutan (dikali urgensi tenggat).
             </p>
             <div class="divide-y border rounded">
                 @foreach ($skills as $key => $row)
                     @php $s = $row['skill']; $a = $row['atur']; @endphp
-                    <div class="p-3 grid md:grid-cols-12 gap-3 items-center text-sm">
+                    <div id="skill-{{ $key }}" class="p-3 grid md:grid-cols-12 gap-3 items-center text-sm scroll-mt-20">
                         <div class="md:col-span-5">
-                            <label class="inline-flex items-center gap-2 font-semibold text-gray-800">
-                                <input type="hidden" name="skill[{{ $key }}][aktif]" value="0">
-                                <input type="checkbox" name="skill[{{ $key }}][aktif]" value="1" @checked($a->aktif) @disabled(!$s->tersedia())>
+                            <div class="font-semibold text-gray-800">
                                 {{ $s->label() }}
-                            </label>
+                                <span class="ml-1 rounded px-1.5 py-0.5 text-[11px] font-semibold {{ $warnaMode[$row['mode']] ?? '' }}">{{ $labelMode[$row['mode']] ?? $row['mode'] }}</span>
+                            </div>
                             <div class="text-xs text-gray-500 mt-0.5">{{ $s->deskripsi() }}</div>
                             @unless ($s->tersedia())<div class="text-xs text-amber-700 mt-0.5">Modul pendukungnya belum terpasang di server.</div>@endunless
-                            @if ($a->aktif && $a->aktif_sejak)<div class="text-[11px] text-green-700 mt-0.5">Aktif sejak {{ $a->aktif_sejak->format('d/m/Y H:i') }}</div>@endif
+                            @if ($key === 'purchasing-ready')
+                                <a href="{{ $s->urlPengaturan($kode) }}" class="inline-block text-xs text-blue-600 hover:underline mt-0.5">Atur min stok bahan (saran otomatis) →</a>
+                                <div class="text-[11px] text-gray-500">Selama Otomatis, aturan Task Otomasi jenis stok tidak membuat task lagi.</div>
+                            @endif
                         </div>
                         <div class="md:col-span-3">
                             <label class="block text-[11px] text-gray-500">Peran</label>

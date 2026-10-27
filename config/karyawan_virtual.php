@@ -45,4 +45,26 @@ return [
         'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc'],
     ],
 
+    // Membagi kerja ke manusia: tiap skill memindai pekerjaan terbuka di ERP lalu menaruhnya
+    // sebagai task di Meja Kerja peran yang tepat (lihat Tasks\MejaKerja). Peran & bobot
+    // diatur di 'pengaturan'.
+    'manajer-admin' => [
+        'nama'       => 'Manajer Admin',
+        'ikon'       => '🗂️',
+        'divisi'     => 'Admin',
+        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang), membagikannya ke Meja Kerja orang yang tepat, dan mengalihkan pekerjaan saat yang bertugas belum hadir.',
+        'akses'      => 'tasks.board',
+        'pengaturan' => 'karyawan-virtual.admin.pengaturan',
+        'skills'     => [
+            'admin.desain'             => \App\Modules\Tasks\MejaKerja\Skills\DesainSkill::class,
+            'admin.qc'                 => \App\Modules\Tasks\MejaKerja\Skills\QcSkill::class,
+            'admin.persetujuan-usulan' => \App\Modules\Tasks\MejaKerja\Skills\PersetujuanUsulanSkill::class,
+            'admin.purchasing-ready'   => \App\Modules\Tasks\MejaKerja\Skills\PurchasingReadySkill::class,
+            'admin.purchasing-nonstok' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingNonStokSkill::class,
+            'admin.kedatangan'         => \App\Modules\Tasks\MejaKerja\Skills\KedatanganSkill::class,
+            'admin.penugasan'          => \App\Modules\Tasks\MejaKerja\Skills\PenugasanSkill::class,
+        ],
+        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.kedatangan'],
+    ],
+
 ];

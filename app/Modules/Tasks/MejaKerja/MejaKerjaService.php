@@ -4,40 +4,43 @@ namespace App\Modules\Tasks\MejaKerja;
 
 use App\Models\User;
 use App\Modules\CRM\Models\CrmConversation;
+use App\Modules\KaryawanVirtual\Contracts\Skill;
+use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
 use App\Modules\Production\Services\ExecutorScheduleResolver;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
-use App\Modules\Tasks\MejaKerja\Skills\DesainSkill;
-use App\Modules\Tasks\MejaKerja\Skills\PersetujuanUsulanSkill;
-use App\Modules\Tasks\MejaKerja\Skills\QcSkill;
 use App\Modules\Tasks\Models\Task;
 use App\Modules\Tasks\Models\TaskHistory;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Mesin Meja Kerja Admin: daftar Skill Admin, sinkron (buat task dari pekerjaan terbuka,
- * tutup/batalkan task yang sumbernya beres), penugasan per peran (utama → cadangan bila tak
- * absen masuk), perpindahan status, dan skor urutan kerja.
+ * Mesin Meja Kerja Admin. Yang memutuskan KAPAN bekerja adalah karyawan virtual Manajer
+ * Admin (mode tiap skill, jurnal); service ini yang mengerjakan: buat task dari pekerjaan
+ * terbuka, tutup/batalkan task yang sumbernya beres, penugasan per peran (utama → cadangan
+ * bila tak absen masuk), perpindahan status, dan skor urutan kerja.
  *
  * Status: open = Antre, in_progress = Dikerjakan, pending = menunggu (wajib alasan),
  * done / cancelled.
  */
 class MejaKerjaService
 {
-    public const SKILL = [DesainSkill::class, QcSkill::class, PersetujuanUsulanSkill::class];
+    /** Kode karyawan virtual pemilik skill admin (config/karyawan_virtual.php). */
+    public const KARYAWAN = 'manajer-admin';
 
     /** Batas task yang dipegang bersamaan per orang. */
     public const MAKS_DIKERJAKAN = 3;
 
-    /** @return array<string, SkillAdmin> */
+    public function __construct(private KaryawanVirtualService $kv) {}
+
+    /** @return array<string, SkillAdmin> key pendek => skill */
     public function skills(): array
     {
         $out = [];
-        foreach (self::SKILL as $kelas) {
+        foreach ($this->kv->karyawan(self::KARYAWAN)['skills'] ?? [] as $kelas) {
             $s = app($kelas);
-            $out[$s->key()] = $s;
+            if ($s instanceof SkillAdmin) $out[$s->key()] = $s;
         }
         return $out;
     }
@@ -47,61 +50,121 @@ class MejaKerjaService
         return $key ? ($this->skills()[$key] ?? null) : null;
     }
 
-    /** Pengaturan skill; baris dibuat dengan nilai bawaan (nonaktif) bila belum ada. */
+    public static function kunciKv(SkillAdmin $s): string
+    {
+        return 'admin.' . $s->key();
+    }
+
+    /** Pengaturan peran/bobot/tenggat skill; dibuat dengan nilai bawaan bila belum ada. */
     public function pengaturan(SkillAdmin $s): MejaKerjaSkill
     {
         return MejaKerjaSkill::firstOrCreate(['skill' => $s->key()], [
-            'aktif' => false, 'peran' => $s->peranBawaan(), 'bobot' => $s->bobotBawaan(), 'sla_menit' => $s->slaMenitBawaan(),
+            'peran' => $s->peranBawaan(), 'bobot' => $s->bobotBawaan(), 'sla_menit' => $s->slaMenitBawaan(),
         ]);
     }
 
-    /** @return array{dibuat: int, selesai: int, batal: int, lanjut: int, alih: int} */
+    /** Skill sedang Otomatis (benar-benar membuat task)? */
+    public function aktif(string $key): bool
+    {
+        $s = $this->skill($key);
+        return $s !== null && $this->kv->mode(self::kunciKv($s)) === Skill::OTOMATIS;
+    }
+
+    /**
+     * Semua skill Manajer Admin dijalankan sesuai modenya (jadwal tiap 2 menit & tombol
+     * Sinkron di Meja Kerja). Satu skill gagal tidak menghentikan yang lain.
+     *
+     * @return array{dibuat: int, selesai: int, batal: int, lanjut: int, alih: int}
+     */
     public function sinkron(): array
     {
         $hasil = ['dibuat' => 0, 'selesai' => 0, 'batal' => 0, 'lanjut' => 0, 'alih' => 0];
 
-        foreach ($this->skills() as $key => $skill) {
-            $atur = $this->pengaturan($skill);
-            if (!$atur->aktif || !$skill->tersedia()) continue;
-
+        foreach (array_keys($this->kv->karyawan(self::KARYAWAN)['skills'] ?? []) as $key) {
             try {
-                $hasil = $this->tutupYangBeres($skill, $hasil);
-                foreach ($skill->pindai($atur->aktif_sejak ?? now()) as $kerja) {
-                    if (Task::where('kunci_sumber', $kerja['kunci'])->exists()) continue;
-                    $this->buat($skill, $atur, $kerja);
-                    $hasil['dibuat']++;
+                $jalan = $this->kv->jalankan($key, KaryawanVirtualService::PEMICU_JADWAL);
+                foreach ($jalan['hasil'] as $r) {
+                    if (isset($r['jenis'], $hasil[$r['jenis']])) $hasil[$r['jenis']]++;
                 }
             } catch (\Throwable $e) {
                 Log::warning('MejaKerja: skill gagal disinkron', ['skill' => $key, 'error' => $e->getMessage()]);
             }
         }
 
-        $hasil['lanjut'] = $this->lanjutkanYangDibalas();
-        $hasil['alih']   = $this->alihkanAntreKeYangHadir();
-
         return $hasil;
     }
 
-    private function tutupYangBeres(SkillAdmin $skill, array $hasil): array
+    /**
+     * Satu kali kerja sebuah skill → rincian jurnal karyawan virtual. Bayangan ($simulasi):
+     * hanya mencatat task yang AKAN dibuat; yang sudah tercatat di jalan sebelumnya ditandai
+     * dilewati supaya jurnal tidak berulang tiap 2 menit.
+     *
+     * @return array<int, array{status: string, judul: string, alasan: ?string, tautan: ?string, dokumen: ?string, jenis?: ?string, kunci?: string}>
+     */
+    public function kerjakan(SkillAdmin $skill, bool $simulasi): array
     {
+        if (!$skill->tersedia()) return [];
+
+        $atur  = $this->pengaturan($skill);
+        $state = $this->kv->state(self::kunciKv($skill));
+        $sejak = $state->mode_diubah_at ?? now();
+        $rows  = $simulasi ? [] : $this->tutupYangBeres($skill);
+
+        $sudahDicatat = $simulasi ? collect($state->rincian_terakhir ?? [])->pluck('kunci')->filter()->flip() : collect();
+        $peranLabel = MejaKerjaPeran::PERAN[$atur->peran] ?? $atur->peran;
+
+        foreach ($skill->pindai($sejak) as $kerja) {
+            if (Task::where('kunci_sumber', $kerja['kunci'])->exists()) continue;
+
+            $task = $simulasi ? $this->calon($skill, $atur, $kerja) : $this->buat($skill, $atur, $kerja);
+            $ulang = isset($sudahDicatat[$kerja['kunci']]);
+            $pelaksana = $task->assignee_user_id ? User::whereKey($task->assignee_user_id)->value('name') : null;
+            $rows[] = [
+                'status'  => !$simulasi ? Skill::DIBUAT : ($ulang ? Skill::DILEWATI : Skill::AKAN_DIBUAT),
+                'judul'   => $task->title,
+                'alasan'  => $ulang ? 'Sudah tercatat di jalan sebelumnya.' : "Untuk $peranLabel" . ($pelaksana ? " → $pelaksana" : ' (belum ada orangnya)') . '.',
+                'tautan'  => collect($skill->aksi($task))->firstWhere('utama')['url'] ?? null,
+                'dokumen' => null,
+                'jenis'   => $simulasi ? null : 'dibuat',
+                'kunci'   => $kerja['kunci'],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /** Task Pending yang dibalas dilanjutkan & Antre dialihkan — skill Atur penugasan. */
+    public function aturPenugasan(): array
+    {
+        return [...$this->lanjutkanYangDibalas(), ...$this->alihkanAntreKeYangHadir()];
+    }
+
+    private function tutupYangBeres(SkillAdmin $skill): array
+    {
+        $rows = [];
         Task::where('skill', $skill->key())->whereIn('status', ['open', 'in_progress', 'pending'])->get()
-            ->each(function (Task $t) use ($skill, &$hasil) {
+            ->each(function (Task $t) use ($skill, &$rows) {
                 if (!($k = $skill->keadaan($t))) return;
                 [$status, $catatan] = $k;
                 $this->ubahStatus($t, $status, null, $catatan);
-                $hasil[$status === 'done' ? 'selesai' : 'batal']++;
+                $rows[] = [
+                    'status' => Skill::DIUBAH, 'judul' => $t->title,
+                    'alasan' => ($status === 'done' ? 'Selesai otomatis: ' : 'Dibatalkan: ') . $catatan,
+                    'tautan' => null, 'dokumen' => null, 'jenis' => $status === 'done' ? 'selesai' : 'batal',
+                ];
             });
 
-        return $hasil;
+        return $rows;
     }
 
-    private function buat(SkillAdmin $skill, MejaKerjaSkill $atur, array $k): Task
+    /** @return array{0: \Carbon\Carbon, 1: array} saat lahir + atribut task baru */
+    private function atribut(SkillAdmin $skill, MejaKerjaSkill $atur, array $k): array
     {
         $lahir = $k['dibuat_at'] ?? now();
-        $task = Task::create([
+        return [$lahir, [
             'title'            => mb_substr($k['judul'], 0, 255),
             'description'      => $k['deskripsi'] ?? null,
-            'creator_user_id'  => $this->pemilikSistem(),
+            'creator_user_id'  => $this->kv->akun(self::KARYAWAN)->id,
             'assignee_user_id' => $this->pelaksana($atur->peran)?->id,
             'status'           => 'open',
             'priority'         => 'normal',
@@ -113,9 +176,21 @@ class MejaKerjaService
             'kunci_sumber'     => $k['kunci'],
             'tenggat_at'       => $lahir->copy()->addMinutes($atur->sla_menit),
             'meta'             => $k['meta'] ?? null,
-        ]);
+        ]];
+    }
+
+    /** Task bayangan: tidak disimpan, hanya untuk judul & tombol di jurnal. */
+    private function calon(SkillAdmin $skill, MejaKerjaSkill $atur, array $k): Task
+    {
+        return new Task($this->atribut($skill, $atur, $k)[1]);
+    }
+
+    private function buat(SkillAdmin $skill, MejaKerjaSkill $atur, array $k): Task
+    {
+        [$lahir, $isi] = $this->atribut($skill, $atur, $k);
+        $task = Task::create($isi);
         $task->forceFill(['created_at' => $lahir])->saveQuietly();
-        $this->catat($task, null, 'dibuat', 'Dibuat oleh skill ' . $skill->label());
+        $this->catat($task, null, 'dibuat', 'Dibuat oleh Manajer Admin — ' . $skill->label());
 
         return $task;
     }
@@ -150,23 +225,24 @@ class MejaKerjaService
     }
 
     /** Task Antre milik orang yang tidak hadir dipindah ke rekan seperan yang hadir. */
-    private function alihkanAntreKeYangHadir(): int
+    private function alihkanAntreKeYangHadir(): array
     {
-        $n = 0;
+        $rows = [];
         Task::whereNotNull('peran')->where('status', 'open')->get()->groupBy('peran')
-            ->each(function ($tasks, $peran) use (&$n) {
+            ->each(function ($tasks, $peran) use (&$rows) {
                 $ganti = $this->pelaksana($peran);
                 if (!$ganti) return;
                 foreach ($tasks as $t) {
                     $pemegang = $t->assignee_user_id ? User::find($t->assignee_user_id) : null;
                     if ($pemegang && ($pemegang->id === $ganti->id || $this->hadir($pemegang))) continue;
                     $t->update(['assignee_user_id' => $ganti->id]);
-                    $this->catat($t, null, 'dialihkan', "Dialihkan ke {$ganti->name}" . ($pemegang ? " ({$pemegang->name} belum hadir)" : ''));
-                    $n++;
+                    $catatan = "Dialihkan ke {$ganti->name}" . ($pemegang ? " ({$pemegang->name} belum hadir)" : '');
+                    $this->catat($t, null, 'dialihkan', $catatan);
+                    $rows[] = ['status' => Skill::DIUBAH, 'judul' => $t->title, 'alasan' => $catatan . '.', 'tautan' => null, 'dokumen' => null, 'jenis' => 'alih'];
                 }
             });
 
-        return $n;
+        return $rows;
     }
 
     // ── Perpindahan status ─────────────────────────────────────────────────────
@@ -224,20 +300,20 @@ class MejaKerjaService
     }
 
     /** Pending menunggu pelanggan: begitu pelanggan membalas chat WA tertaut → kembali Dikerjakan. */
-    private function lanjutkanYangDibalas(): int
+    private function lanjutkanYangDibalas(): array
     {
-        $n = 0;
-        Task::where('status', 'pending')->whereNotNull('meta')->get()->each(function (Task $t) use (&$n) {
+        $rows = [];
+        Task::where('status', 'pending')->whereNotNull('meta')->get()->each(function (Task $t) use (&$rows) {
             $cid = $t->meta['crm_conversation_id'] ?? null;
             if (!$cid || !$t->pending_sejak) return;
             $masuk = CrmConversation::where('id', $cid)->value('last_inbound_at');
             if ($masuk && $t->pending_sejak->lt($masuk)) {
                 $this->ubahStatus($t, 'in_progress', null, 'Pelanggan membalas chat — dilanjutkan');
-                $n++;
+                $rows[] = ['status' => Skill::DIUBAH, 'judul' => $t->title, 'alasan' => 'Pelanggan membalas chat — kembali Dikerjakan.', 'tautan' => null, 'dokumen' => null, 'jenis' => 'lanjut'];
             }
         });
 
-        return $n;
+        return $rows;
     }
 
     // ── Skor ───────────────────────────────────────────────────────────────────
@@ -266,12 +342,5 @@ class MejaKerjaService
     private function catat(Task $t, ?User $u, string $aksi, string $ringkas): void
     {
         TaskHistory::create(['task_id' => $t->id, 'user_id' => $u?->id, 'action' => mb_substr($aksi, 0, 50), 'summary' => mb_substr($ringkas, 0, 255), 'created_at' => now()]);
-    }
-
-    /** creator_user_id task skill: owner pertama, lalu super admin pertama. */
-    private function pemilikSistem(): int
-    {
-        return (int) (MejaKerjaPeran::where('peran', 'owner')->orderBy('urutan')->value('user_id')
-            ?? User::where('role', 'super_admin')->orderBy('id')->value('id'));
     }
 }

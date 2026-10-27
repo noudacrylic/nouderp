@@ -46,7 +46,12 @@
                 <p class="text-sm text-slate-600 mt-1 max-w-3xl">{{ $karyawan['deskripsi'] }}</p>
             </div>
         </div>
-        <a href="{{ route('karyawan-virtual.index') }}" class="border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded text-sm">Kembali</a>
+        <div class="flex gap-2">
+            @if (!empty($karyawan['pengaturan']) && $bolehAtur)
+                <a href="{{ route($karyawan['pengaturan'], $kode) }}" class="border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-3 py-2 rounded text-sm font-semibold">⚙ Peran & Pengaturan</a>
+            @endif
+            <a href="{{ route('karyawan-virtual.index') }}" class="border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded text-sm">Kembali</a>
+        </div>
     </div>
 
     {{-- Kiri: usulan + skill; kanan (layar lebar): jurnal kerja menempel saat digulir. --}}

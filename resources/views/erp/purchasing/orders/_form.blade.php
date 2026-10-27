@@ -22,8 +22,8 @@
             <div class="flex gap-1">
                 <div class="relative flex-1">
                     <input type="text" id="supplierSearch" class="border rounded px-3 py-2 w-full" placeholder="Ketik nama / kode pemasok..." autocomplete="off"
-                           value="{{ old('supplier_id') ? '' : (isset($po) && $po->supplier ? $po->supplier->name . ' (' . $po->supplier->code . ')' : '') }}" required>
-                    <input type="hidden" name="supplier_id" id="supplierId" value="{{ old('supplier_id', $po->supplier_id ?? '') }}">
+                           value="{{ old('supplier_id') ? '' : (isset($po) && $po->supplier ? $po->supplier->name . ' (' . $po->supplier->code . ')' : ($isian['supplier_label'] ?? '')) }}" required>
+                    <input type="hidden" name="supplier_id" id="supplierId" value="{{ old('supplier_id', $po->supplier_id ?? ($isian['supplier_id'] ?? '')) }}">
                     <div id="supplierResults" class="hidden absolute z-30 left-0 right-0 mt-1 bg-white border rounded shadow max-h-60 overflow-y-auto text-sm"></div>
                 </div>
                 <button type="button" id="btnNewSupplier" class="bg-green-600 text-white px-3 rounded text-sm" title="Tambah pemasok baru">+</button>
@@ -800,6 +800,8 @@
                 });
             @endforeach
         @endif
+    @elseif(!empty($isian))
+        addItem(@json($isian['item']));
     @else
         addItem();
     @endif

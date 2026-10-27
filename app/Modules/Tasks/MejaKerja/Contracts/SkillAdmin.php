@@ -2,24 +2,25 @@
 
 namespace App\Modules\Tasks\MejaKerja\Contracts;
 
+use App\Modules\KaryawanVirtual\Contracts\PunyaPengaturan;
+use App\Modules\KaryawanVirtual\Contracts\Skill;
 use App\Modules\Tasks\Models\Task;
 use Carbon\Carbon;
 
 /**
- * Skill Admin — pola Karyawan Virtual, tapi yang mengerjakan manusia. Skill memindai
- * pekerjaan yang terbuka di ERP (pindai), menentukan kapan task-nya selesai/batal dengan
- * sendirinya (keadaan), dan memberi tombol menuju tempat kerjanya (aksi).
+ * Skill Admin — skill karyawan virtual Manajer Admin: memindai pekerjaan yang terbuka di
+ * ERP (pindai) lalu membagikannya sebagai task ke manusia di Meja Kerja, menentukan kapan
+ * task-nya selesai/batal dengan sendirinya (keadaan), dan memberi tombol menuju tempat
+ * kerjanya (aksi). Bagian karyawan virtualnya (mode, jalankan, rincian jurnal) disediakan
+ * trait JadiSkillManajer.
  *
  * Prinsip: task selesai saat pekerjaan NYATA selesai di ERP (QC tersimpan, usulan diputus),
  * bukan karena dicentang — supaya data kinerja jujur.
  */
-interface SkillAdmin
+interface SkillAdmin extends Skill, PunyaPengaturan
 {
+    /** Kunci pendek di tasks.skill & meja_kerja_skill; kunci karyawan virtual = "admin.<key>". */
     public function key(): string;
-
-    public function label(): string;
-
-    public function deskripsi(): string;
 
     /** Kunci MejaKerjaPeran::PERAN */
     public function peranBawaan(): string;

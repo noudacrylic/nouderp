@@ -175,6 +175,7 @@ class TaskAutomationService
      */
     public function handleStockChange(int $productId): int
     {
+        if ($this->digantiSkillRestok()) return 0;
         $rules = TaskAutomationRule::active()->stock()->where('product_id', $productId)->get();
         if ($rules->isEmpty()) return 0;
 
@@ -200,6 +201,7 @@ class TaskAutomationService
      */
     public function runStockCheck(): int
     {
+        if ($this->digantiSkillRestok()) return 0;
         $rules = TaskAutomationRule::active()->stock()->with('product')->get();
         if ($rules->isEmpty()) return 0;
         $created = 0;
@@ -222,6 +224,12 @@ class TaskAutomationService
         }
 
         return $created;
+    }
+
+    /** Skill Purchasing ready stok (Manajer Admin) Otomatis → aturan stok lama diam supaya tak ada task ganda. */
+    private function digantiSkillRestok(): bool
+    {
+        return app(\App\Modules\Tasks\MejaKerja\MejaKerjaService::class)->aktif('purchasing-ready');
     }
 
     /**

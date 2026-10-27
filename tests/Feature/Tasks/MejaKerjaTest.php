@@ -7,6 +7,8 @@ use App\Core\Inventory\Warehouse;
 use App\Models\Customer;
 use App\Models\User;
 use App\Modules\CRM\Models\CrmConversation;
+use App\Modules\KaryawanVirtual\Models\KaryawanVirtualJurnal;
+use App\Modules\KaryawanVirtual\Models\KaryawanVirtualSkill;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan as Usulan;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesOrderItem;
@@ -43,9 +45,10 @@ class MejaKerjaTest extends TestCase
         MejaKerjaPeran::create(['peran' => 'desain', 'user_id' => $this->desainer->id, 'urutan' => 1]);
     }
 
-    private function nyalakan(string $skill, string $peran): void
+    private function nyalakan(string $skill, string $peran, string $mode = 'otomatis', $sejak = null): void
     {
-        MejaKerjaSkill::updateOrCreate(['skill' => $skill], ['aktif' => true, 'peran' => $peran, 'bobot' => 8, 'sla_menit' => 120, 'aktif_sejak' => now()->subDay()]);
+        MejaKerjaSkill::updateOrCreate(['skill' => $skill], ['peran' => $peran, 'bobot' => 8, 'sla_menit' => 120]);
+        KaryawanVirtualSkill::updateOrCreate(['skill' => "admin.$skill"], ['mode' => $mode, 'mode_diubah_at' => $sejak ?? now()->subDay()]);
     }
 
     private function soKs(): SalesOrder
@@ -83,7 +86,7 @@ class MejaKerjaTest extends TestCase
         $this->soKs();
         $this->assertSame(0, app(MejaKerjaService::class)->sinkron()['dibuat'], 'Skill bawaan nonaktif.');
 
-        MejaKerjaSkill::updateOrCreate(['skill' => 'desain'], ['aktif' => true, 'peran' => 'desain', 'bobot' => 8, 'sla_menit' => 120, 'aktif_sejak' => now()->addMinute()]);
+        $this->nyalakan('desain', 'desain', 'otomatis', now()->addMinute());
         $this->assertSame(0, app(MejaKerjaService::class)->sinkron()['dibuat'], 'Pesanan sebelum skill dinyalakan tidak masuk.');
     }
 
@@ -175,8 +178,44 @@ class MejaKerjaTest extends TestCase
         app(MejaKerjaService::class)->sinkron();
 
         $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertOk()->assertSee('Meja Kerja')->assertSee('Chat di Seller Centre');
-        $this->actingAs($this->owner)->get(route('tasks.meja.pengaturan'))->assertOk()->assertSee('Skill Admin');
-        $this->actingAs($this->desainer)->get(route('tasks.meja.pengaturan'))->assertForbidden();
+        $this->actingAs($this->owner)->get(route('tasks.meja.pengaturan'))->assertRedirect(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'));
+        $this->actingAs($this->owner)->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertOk()->assertSee('Desain pesanan')->assertSee('Otomatis');
+        $this->actingAs($this->desainer)->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertForbidden();
+        $this->actingAs($this->owner)->get(route('karyawan-virtual.show', 'manajer-admin'))->assertOk()->assertSee('Purchasing ready stok')->assertSee('Peran & Pengaturan', false);
         $this->actingAs($this->owner)->get(route('tasks.index'))->assertOk()->assertDontSee('Desain SO-1');
+
+        $this->actingAs($this->owner)->put(route('karyawan-virtual.admin.pengaturan.simpan', 'manajer-admin'), [
+            'peran' => ['desain' => [$this->owner->id, $this->desainer->id]],
+            'skill' => ['desain' => ['peran' => 'desain', 'bobot' => 9, 'sla_menit' => 60]],
+        ])->assertRedirect();
+        $this->assertSame([$this->owner->id, $this->desainer->id], MejaKerjaPeran::where('peran', 'desain')->orderBy('urutan')->pluck('user_id')->all());
+        $this->assertSame(9, MejaKerjaSkill::where('skill', 'desain')->value('bobot'));
+    }
+
+    public function test_dibuat_atas_nama_manajer_admin_dan_tercatat_di_jurnal(): void
+    {
+        $this->nyalakan('desain', 'desain');
+        $this->soKs();
+        app(MejaKerjaService::class)->sinkron();
+
+        $t = Task::where('skill', 'desain')->first();
+        $this->assertSame('Manajer Admin', User::find($t->creator_user_id)->name);
+        $j = KaryawanVirtualJurnal::where('skill', 'admin.desain')->first();
+        $this->assertSame('manajer-admin', $j->karyawan);
+        $this->assertSame(1, $j->jumlah_tindakan);
+    }
+
+    public function test_bayangan_tidak_membuat_task_dan_tidak_mencatat_ulang(): void
+    {
+        $this->nyalakan('desain', 'desain', 'bayangan');
+        $this->soKs();
+        $meja = app(MejaKerjaService::class);
+
+        $this->assertSame(0, $meja->sinkron()['dibuat']);
+        $this->assertSame(0, Task::where('skill', 'desain')->count());
+        $this->assertSame(1, KaryawanVirtualJurnal::where('skill', 'admin.desain')->count(), 'Bayangan mencatat yang AKAN dibuat.');
+
+        $meja->sinkron();
+        $this->assertSame(1, KaryawanVirtualJurnal::where('skill', 'admin.desain')->count(), 'Jalan berikutnya tidak menulis jurnal yang sama.');
     }
 }
