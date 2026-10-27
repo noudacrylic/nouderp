@@ -500,6 +500,13 @@ class ProductionOrderService
 
         $nextNumber = (int) ($order->steps()->max('step_number') ?? 0) + 1;
 
+        // QC Timbang selalu paling akhir: langkah tambahan masuk sebelum QC.
+        $qcStep = $order->steps()->where('is_qc', true)->where('status', '!=', 'completed')->first();
+        if ($qcStep) {
+            $nextNumber = (int) $qcStep->step_number;
+            $qcStep->update(['step_number' => $nextNumber + 1]);
+        }
+
         return ProductionOrderStep::create([
             'production_order_id' => $order->id,
             'step_number'         => $nextNumber,
@@ -832,6 +839,10 @@ class ProductionOrderService
             }
 
             $order->update(['status' => 'in_progress']);
+
+            // OP yang hasilnya wajib QC mendapat langkah "QC Timbang" di ujung begitu mulai
+            // dikerjakan, supaya langkah produksi terakhir tidak lagi dianggap penutup.
+            app(QcService::class)->pastikanLangkahQc($order);
         });
     }
 
@@ -850,13 +861,24 @@ class ProductionOrderService
             $step = ProductionOrderStep::with('productionOrder')->lockForUpdate()->findOrFail($stepId);
             $order = $step->productionOrder;
 
-            if ($step->status !== 'in_progress') {
+            // Langkah QC yang dijeda setelah QC sebagian boleh langsung ditutup.
+            if ($step->status !== 'in_progress' && !($step->is_qc && $step->status === 'paused')) {
                 throw new Exception('Langkah belum dimulai.');
+            }
+
+            $qc = app(QcService::class);
+            if ($step->is_qc) {
+                // Dicek di depan: kalau baru ketahuan saat auto-finalize, langkahnya sudah
+                // tertutup dan OP tersangkut di "Menunggu Finalisasi".
+                $qc->assertBolehSelesaiQc($order, $actualOutputs);
+            } else {
+                $qc->pastikanLangkahQc($order);
             }
 
             $step->update([
                 'status'       => 'completed',
                 'completed_at' => now(),
+                'paused_at'    => null,
                 'executor_id'  => $executorId,
                 'notes'        => $notes,
             ]);
@@ -869,7 +891,11 @@ class ProductionOrderService
 
             $nextStep = $order->steps()->where('step_number', $step->step_number + 1)->first();
             if ($nextStep) {
-                $nextStep->update(['status' => 'pending']);
+                // Langkah QC bisa sudah berjalan duluan (QC sebagian selagi Assembling jalan) —
+                // jangan dikembalikan ke antre.
+                if (!in_array($nextStep->status, ['in_progress', 'paused', 'completed'], true)) {
+                    $nextStep->update(['status' => 'pending']);
+                }
                 return false;
             }
 
@@ -926,6 +952,114 @@ class ProductionOrderService
                 'occurred_at'              => now(),
             ]);
         });
+    }
+
+    /**
+     * Timer langkah QC Timbang berjalan dari penimbangan, tanpa tombol Mulai: belum mulai →
+     * mulai, dijeda → lanjut, penimbang baru → ikut tercatat.
+     *
+     * Penimbang yang masih tercatat mengerjakan langkah lain (mis. Assembling OP yang sama
+     * saat QC sebagian) — langkah itu dijeda supaya satu jam tidak terhitung dua kali.
+     *
+     * @return string[] keterangan langkah yang dijeda otomatis
+     */
+    public function runQcTimer(int $stepId, array $executorIds): array
+    {
+        return DB::transaction(function () use ($stepId, $executorIds) {
+            $step = ProductionOrderStep::with('executors')->lockForUpdate()->findOrFail($stepId);
+            if (!$step->is_qc || $step->status === 'completed') {
+                return [];
+            }
+
+            $executorIds = array_values(array_unique(array_map('intval', $executorIds)));
+            if ($step->status === 'pending' && empty($executorIds)) {
+                throw new Exception('Pilih penimbang dulu.');
+            }
+            $baru = array_values(array_diff($executorIds, $step->executors->pluck('id')->all()));
+            if ($step->status === 'in_progress' && empty($baru)) {
+                return [];
+            }
+
+            $pesan = [];
+            if ($executorIds) {
+                foreach ($this->assertQcExecutors($executorIds, $step) as $lain) {
+                    $this->pauseStep($lain->id);
+                    $pesan[] = "{$lain->name} {$lain->productionOrder->order_number} dijeda — lanjutkan lagi setelah QC.";
+                }
+            }
+
+            if ($step->status === 'pending') {
+                $step->update([
+                    'status'               => 'in_progress',
+                    'started_at'           => now(),
+                    'started_effective_at' => now(),
+                    'executor_id'          => $executorIds[0],
+                ]);
+                ProductionStepTimeLog::create([
+                    'production_order_step_id' => $step->id,
+                    'event_type'               => 'started',
+                    'occurred_at'              => now(),
+                    'notes'                    => 'Mulai otomatis: penimbangan QC pertama',
+                ]);
+            } elseif ($step->status === 'paused') {
+                $step->update(['status' => 'in_progress', 'paused_at' => null]);
+                ProductionStepExecutorStatus::where('step_id', $step->id)->update([
+                    'is_active' => true, 'paused_at' => null, 'paused_reason' => null,
+                ]);
+                ProductionStepTimeLog::create([
+                    'production_order_step_id' => $step->id,
+                    'event_type'               => 'resumed',
+                    'occurred_at'              => now(),
+                    'notes'                    => 'Lanjut otomatis: penimbangan QC',
+                ]);
+            }
+
+            foreach ($baru as $eid) {
+                $step->executors()->attach($eid, ['joined_at' => now()->toDateTimeString()]);
+                ProductionStepExecutorStatus::updateOrCreate(
+                    ['step_id' => $step->id, 'executor_id' => $eid],
+                    [
+                        'karyawan_id'   => DepartmentExecutor::find($eid)?->effectiveKaryawanId(),
+                        'is_active'     => true,
+                        'paused_at'     => null,
+                        'paused_reason' => null,
+                    ]
+                );
+            }
+
+            return $pesan;
+        });
+    }
+
+    /** Jeda timer QC — setelah hasil QC sebagian masuk stok. */
+    public function pauseQcTimer(int $orderId): void
+    {
+        $step = ProductionOrderStep::where('production_order_id', $orderId)
+            ->where('is_qc', true)->where('status', 'in_progress')->first();
+        if ($step) {
+            $this->pauseStep($step->id);
+        }
+    }
+
+    /**
+     * Penimbang QC harus eksekutor yang siap kerja (mode longgar seperti resume manual).
+     * Mengembalikan langkah LAIN yang sedang mereka kerjakan.
+     */
+    private function assertQcExecutors(array $executorIds, ProductionOrderStep $qcStep)
+    {
+        $supervisors = DepartmentExecutor::whereIn('id', $executorIds)->whereHas('children')->pluck('name');
+        if ($supervisors->isNotEmpty()) {
+            throw new Exception($supervisors->join(', ') . ' adalah operator penaung mesin, bukan penimbang.');
+        }
+
+        $this->assertExecutorsReady($executorIds, strict: false,
+            bypassReady: \App\Models\ProductionSetting::isTestingMode());
+
+        return ProductionOrderStep::with('productionOrder:id,order_number')
+            ->where('status', 'in_progress')
+            ->where('id', '!=', $qcStep->id)
+            ->whereHas('executors', fn ($q) => $q->whereIn('production_department_executors.id', $executorIds))
+            ->get();
     }
 
     /**
@@ -1232,6 +1366,9 @@ class ProductionOrderService
     public function finalizePartial(int $orderId, array $actualOutputs): void
     {
         $this->releaseOutputs($orderId, $actualOutputs, closing: false);
+
+        // Hasil QC sudah masuk stok → timer QC berhenti sampai penimbangan berikutnya.
+        $this->pauseQcTimer($orderId);
     }
 
     /**
@@ -1359,6 +1496,9 @@ class ProductionOrderService
             if ($rows === []) {
                 throw new Exception('Qty output harus lebih dari 0.');
             }
+
+            // QC Timbang: produk ber-profil QC hanya boleh dilepas sebanyak bungkus yang lulus.
+            app(QcService::class)->assertBolehFinalisasi($order, $rows, $closing);
 
             $tallies = $this->releasedTallies($orderId);
 
@@ -1574,7 +1714,9 @@ class ProductionOrderService
         }
 
         $before = $steps->slice(0, $steps->count() - 1);
-        if ($before->contains(fn($s) => $s->status !== 'completed')) {
+        // QC sebagian: bungkus yang sudah jadi ditimbang & masuk stok selagi Assembling
+        // masih mengerjakan sisanya.
+        if (!$last->is_qc && $before->contains(fn($s) => $s->status !== 'completed')) {
             throw new Exception('Masih ada langkah sebelum langkah terakhir yang belum selesai — penyelesaian sebagian hanya di akhir proses.');
         }
     }

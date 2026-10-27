@@ -25,6 +25,10 @@
                      o.qty_released = released;
                      o.qty_sisa     = Math.max(0, Math.round((planned - released) * 10000) / 10000);
                      o.qty_produced = o.qty_sisa;
+                     // Langkah QC: yang masuk stok hanya bungkus yang lulus timbang.
+                     if (o.qc_boleh !== null && o.qc_boleh !== undefined) {
+                         o.qty_produced = Math.min(o.qty_sisa, parseFloat(o.qc_boleh) || 0);
+                     }
                      if (o.calc_percentage === undefined) o.calc_percentage = parseFloat(o.percentage) || 0;
                      // Seed alokasi gudang: pakai yang tersimpan (retry), kalau tidak ada → semua ke gudang order.
                      if (Array.isArray(o.allocations) && o.allocations.length) {
@@ -498,6 +502,9 @@
                                         <p class="text-[10px] text-gray-400 mt-1 leading-tight"
                                            x-show="(out.qty_released || 0) > 0"
                                            x-text="'sisa ' + Number(out.qty_sisa || 0).toLocaleString('id-ID', {maximumFractionDigits: 2})"></p>
+                                        <p class="text-[10px] text-emerald-600 mt-1 leading-tight font-semibold"
+                                           x-show="out.qc_boleh !== null && out.qc_boleh !== undefined"
+                                           x-text="'maks ' + Number(out.qc_boleh || 0).toLocaleString('id-ID', {maximumFractionDigits: 2}) + ' lulus QC'"></p>
                                     </div>
                                     <div class="w-24">
                                         <label class="block text-[10px] font-bold text-gray-500 mb-1">

@@ -1445,6 +1445,19 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::put('perbaikan/kelompok/{id}', [\App\Modules\Production\Controllers\RepairQueueController::class, 'updateGroup'])->name('perbaikan.kelompok.update');
     Route::post('perbaikan/kelompok/{id}/batal', [\App\Modules\Production\Controllers\RepairQueueController::class, 'cancelGroup'])->name('perbaikan.kelompok.cancel');
     Route::get('ajax/sales-orders',   [\App\Modules\Production\Controllers\ProductionOrderController::class, 'searchSalesOrders'])->name('ajax.sales-orders');
+
+    // QC Timbang — layar timbang (petugas QC) & acuan/toleransi (admin, role_gate di menu).
+    Route::get ('qc',                    [\App\Modules\Production\Controllers\QcController::class, 'index'])->name('qc.index');
+    Route::post('qc/timbang',            [\App\Modules\Production\Controllers\QcController::class, 'timbang'])->name('qc.timbang');
+    Route::post('qc/lepas',              [\App\Modules\Production\Controllers\QcController::class, 'lepas'])->name('qc.lepas');
+    Route::get ('qc/acuan',              [\App\Modules\Production\Controllers\QcAcuanController::class, 'index'])->name('qc-acuan.index');
+    Route::get ('qc/acuan/baru',         [\App\Modules\Production\Controllers\QcAcuanController::class, 'create'])->name('qc-acuan.create');
+    Route::get ('qc/acuan/produk',       [\App\Modules\Production\Controllers\QcAcuanController::class, 'produk'])->name('qc-acuan.produk');
+    Route::post('qc/acuan',              [\App\Modules\Production\Controllers\QcAcuanController::class, 'store'])->name('qc-acuan.store');
+    Route::get ('qc/acuan/{id}/edit',    [\App\Modules\Production\Controllers\QcAcuanController::class, 'edit'])->whereNumber('id')->name('qc-acuan.edit');
+    Route::put ('qc/acuan/{id}',         [\App\Modules\Production\Controllers\QcAcuanController::class, 'update'])->whereNumber('id')->name('qc-acuan.update');
+    Route::get ('qc/toleransi',          [\App\Modules\Production\Controllers\QcAcuanController::class, 'toleransi'])->name('qc-acuan.toleransi');
+    Route::post('qc/toleransi',          [\App\Modules\Production\Controllers\QcAcuanController::class, 'simpanToleransi'])->name('qc-acuan.toleransi.save');
     Route::get('orders', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'index'])->name('orders.index');
     Route::get('orders/create', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'create'])->name('orders.create');
     Route::post('orders', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'store'])->name('orders.store');

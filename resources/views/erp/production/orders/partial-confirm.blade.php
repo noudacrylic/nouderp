@@ -51,12 +51,15 @@
                             $sisaQty   = max(0, $target - $released - $failedDone);
                             $savedAlloc = null;
                             $defWh     = (int) ($defaultWarehouseId ?: $order->warehouse_id);
+                            // Datang dari layar QC: isi dengan jumlah bungkus yang lulus.
+                            $qtyAwal   = (int) request('qc_produk') === (int) $out->product_id
+                                ? min($sisaQty, max(0, (float) request('qc_qty', 0))) : 0;
                         @endphp
                         <input type="hidden" name="outputs[{{ $i }}][output_id]" value="{{ $out->id }}">
 
                         <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50"
                              x-data="{
-                                 qty: {{ $sisaQty > 0 ? 0 : 0 }},
+                                 qty: {{ $qtyAwal }},
                                  sisa: {{ $sisaQty }},
                                  whs: {{ Js::from($warehouses) }},
                                  defWh: {{ $defWh }},

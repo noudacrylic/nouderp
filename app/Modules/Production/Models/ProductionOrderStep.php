@@ -7,13 +7,14 @@ use Illuminate\Database\Eloquent\Model;
 class ProductionOrderStep extends Model
 {
     protected $fillable = [
-        'production_order_id', 'bom_step_id', 'step_number', 'department_id',
+        'production_order_id', 'bom_step_id', 'step_number', 'department_id', 'is_qc',
         'name', 'description', 'status', 'executor_id',
         'started_at', 'started_effective_at', 'paused_at', 'completed_at', 'notes',
     ];
 
     protected $casts = [
         'step_number'           => 'integer',
+        'is_qc'                 => 'boolean',
         'started_at'            => 'datetime',
         'started_effective_at'  => 'datetime',
         'paused_at'             => 'datetime',

@@ -86,6 +86,13 @@
     $totalSteps = $order->steps->count();
     $isLastStep = (int) $step->step_number === (int) $totalSteps;
 
+    // QC Timbang = langkah terakhir OP yang hasilnya wajib QC. Qty penutup dibatasi bungkus lulus.
+    $qcStep    = $order->steps->firstWhere('is_qc', true);
+    $qcUrl     = $qcStep ? route('production.qc.index', ['op' => $order->id]) : null;
+    $qcSvc     = $step->is_qc ? app(\App\Modules\Production\Services\QcService::class) : null;
+    $qcBoleh   = fn ($o) => $qcSvc && $qcSvc->wajibQc($order, (int) $o->product_id)
+        ? $qcSvc->ringkasan($order, (int) $o->product_id)['boleh'] : null;
+
     $selesaiPayload = [
         'step_id'        => $step->id,
         'action_url'     => route('production.process.steps.complete', $step->id),
@@ -96,7 +103,7 @@
         // Operator boleh override % sampingan hanya bila order TANPA BOM & bukan Perbaikan
         // (ukuran material beda → % beda). Selain itu % otomatis/terkunci.
         'pct_manual'     => $order->bom_id === null && $order->type !== 'repair',
-        'outputs'      => $isLastStep ? $order->outputs->map(function ($o) {
+        'outputs'      => $isLastStep ? $order->outputs->map(function ($o) use ($qcBoleh) {
             $pct = (float) $o->percentage;
             return [
                 'id'              => $o->id,
@@ -113,6 +120,8 @@
                 'variance_notes'  => $o->variance_notes ?? '',
                 // Alokasi gudang tersimpan (bila ada) untuk pre-fill saat retry finalisasi.
                 'allocations'     => is_array($o->warehouse_allocations) ? $o->warehouse_allocations : null,
+                // Langkah QC: bungkus lulus QC yang belum masuk stok (null = produk tanpa QC).
+                'qc_boleh'        => $qcBoleh($o),
             ];
         })->values()->toArray() : [],
     ];
@@ -286,13 +295,26 @@
     </div>
 
     {{-- Action buttons --}}
-    <div class="flex items-center gap-1.5 flex-wrap">
+    <div class="flex items-center gap-1.5 flex-wrap"
+         @if($step->is_qc && (int) request('selesai') === $step->id && $panel !== 'pending')
+             x-init="setTimeout(() => $dispatch('open-selesai', selesaiData), 50)"
+         @endif>
+        @if($step->is_qc)
+            {{-- QC Timbang: tidak ada tombol Mulai — timer jalan sejak bungkus pertama ditimbang. --}}
+            <a href="{{ $qcUrl }}"
+               class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition">
+                ⚖ Timbang QC
+            </a>
+        @endif
+
         @if($panel === 'pending')
-            <button type="button"
-                    @click="$dispatch('open-mulai', mulaiData)"
-                    class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition">
-                ▶ Mulai
-            </button>
+            @unless($step->is_qc)
+                <button type="button"
+                        @click="$dispatch('open-mulai', mulaiData)"
+                        class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition">
+                    ▶ Mulai
+                </button>
+            @endunless
 
             @php
                 $prevStep = (int) $step->step_number > 1
@@ -324,7 +346,7 @@
                 Selesai
             </button>
 
-            @if($isLastStep)
+            @if($isLastStep && !$step->is_qc)
                 {{-- Ambil sebagian hasil tanpa menutup langkah — timer tetap berjalan. --}}
                 <a href="{{ route('production.process.partial-confirm', $order->id) }}"
                    class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
@@ -333,20 +355,38 @@
             @endif
 
         @elseif($panel === 'paused')
-            <form action="{{ route('production.process.steps.resume', $step->id) }}" method="POST" class="inline">
-                @csrf
-                <button type="submit"
-                        class="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-lg transition">
-                    Resume
+            @if($step->is_qc)
+                {{-- Timer QC lanjut sendiri saat menimbang lagi; QC yang sudah beres boleh langsung ditutup. --}}
+                <button type="button"
+                        @click="$dispatch('open-selesai', selesaiData)"
+                        class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition">
+                    Selesai
                 </button>
-            </form>
+            @else
+                <form action="{{ route('production.process.steps.resume', $step->id) }}" method="POST" class="inline">
+                    @csrf
+                    <button type="submit"
+                            class="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-lg transition">
+                        Resume
+                    </button>
+                </form>
+            @endif
 
-            @if($isLastStep)
+            @if($isLastStep && !$step->is_qc)
                 <a href="{{ route('production.process.partial-confirm', $order->id) }}"
                    class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
                     Ambil Sebagian
                 </a>
             @endif
+        @endif
+
+        @if(!$step->is_qc && $qcStep && $qcStep->status !== 'completed'
+            && (int) $qcStep->step_number === (int) $step->step_number + 1 && in_array($panel, ['in_progress', 'paused'], true))
+            {{-- Hasil yang sudah jadi bisa di-QC & masuk stok duluan selagi sisanya dikerjakan. --}}
+            <a href="{{ $qcUrl }}"
+               class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
+                ⚖ QC Sebagian
+            </a>
         @endif
 
         <a href="{{ route('production.material-additions.create', array_filter(['department_id' => $step->department_id, 'step_id' => $step->id])) }}"
