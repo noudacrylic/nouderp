@@ -19,6 +19,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/hubungkan', [ShopeeSettingController::class, 'hubungkan'])->name('hubungkan');
         Route::post('/{id}/uji', [ShopeeSettingController::class, 'uji'])->whereNumber('id')->name('uji');
         Route::delete('/{id}', [ShopeeSettingController::class, 'putuskan'])->whereNumber('id')->name('putuskan');
+        Route::put('/chat', [ShopeeSettingController::class, 'simpanChat'])->name('chat');
 
         // Tahap 2 — bayangan (baca saja)
         Route::get('/peta-sku', [ShopeeBayanganController::class, 'petaSku'])->name('peta-sku');

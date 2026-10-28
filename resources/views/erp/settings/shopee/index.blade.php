@@ -131,6 +131,44 @@
                 <div class="p-4 text-sm text-gray-400 text-center">Belum ada toko terhubung.</div>
             @endforelse
         </div>
+
+        {{-- Chat Shopee → CRM (Tahap A, baca saja) --}}
+        @php($tokoAktif = $shops->firstWhere('env', $env))
+        <div class="mt-6 rounded border border-orange-200 bg-orange-50 p-4 text-sm">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 class="font-semibold text-gray-800">Chat Shopee → CRM <span class="text-xs font-normal text-gray-500">(baca saja)</span></h3>
+                    <p class="text-xs text-gray-600 mt-1 max-w-xl">
+                        Chat Shopee disalin ke <a href="{{ route('crm.inbox.index') }}" class="text-blue-600 hover:underline">Inbox CRM</a> tiap menit.
+                        Percakapan yang hanya dilayani AI Shopee disembunyikan sampai pembeli meminta penjual. Balas tetap lewat Seller Centre.
+                    </p>
+                    <p class="text-xs text-gray-600 mt-1">
+                        Tampil di CRM: <b>{{ number_format($chat['tampil'], 0, ',', '.') }}</b> percakapan ·
+                        disembunyikan (AI saja): <b>{{ number_format($chat['tersembunyi'], 0, ',', '.') }}</b> ·
+                        riwayat lama:
+                        @if ($tokoAktif?->chat_riwayat_selesai_at)
+                            <b>selesai</b> {{ $tokoAktif->chat_riwayat_selesai_at->format('d/m/Y H:i') }}
+                        @elseif ($tokoAktif?->chat_riwayat_kursor)
+                            <b>berjalan</b> — sudah sampai {{ date('d/m/Y', (int) substr($tokoAktif->chat_riwayat_kursor, 0, -9)) }}
+                        @else
+                            <b>belum ditarik</b>
+                        @endif
+                    </p>
+                </div>
+                <form method="POST" action="{{ route('settings.integrations.shopee.chat') }}" class="flex items-end gap-2">
+                    @csrf @method('PUT')
+                    <label class="block text-xs font-semibold text-gray-700">Pemilik awal chat Shopee
+                        <select name="chat_owner_user_id" class="mt-1 block border rounded px-2 py-1.5 text-sm bg-white">
+                            <option value="">— Belum dioper —</option>
+                            @foreach ($agenChat as $u)
+                                <option value="{{ $u->id }}" @selected($setting->chat_owner_user_id === $u->id)>{{ $u->name }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-semibold">Simpan</button>
+                </form>
+            </div>
+        </div>
     </div>
 
     {{-- Log --}}

@@ -354,10 +354,13 @@
                         <div class="min-w-0">
                             <div class="flex items-center gap-1 min-w-0">
                                 <span class="truncate {{ $belum ? 'font-bold text-gray-900' : 'font-medium' }}">{{ $namaTampil }}</span>
-                                @unless($p->customer_id)
+                                @if($p->shopee())
+                                    <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 uppercase"
+                                          title="Chat Shopee (baca saja — balas lewat Seller Centre)">Shopee</span>
+                                @elseif(! $p->customer_id)
                                     <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 uppercase"
                                           title="Belum tertaut pelanggan mana pun di ERP">Lead</span>
-                                @endunless
+                                @endif
                             </div>
                             <div class="text-xs truncate {{ $belum ? 'text-gray-800 font-semibold' : 'text-gray-500' }}">
                                 @if($p->pesanTerakhir)

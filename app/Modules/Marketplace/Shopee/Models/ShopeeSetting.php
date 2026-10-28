@@ -16,7 +16,7 @@ class ShopeeSetting extends Model
 
     public const ENVS = ['test', 'live'];
 
-    protected $fillable = ['env', 'test_partner_id', 'test_partner_key', 'live_partner_id', 'live_partner_key', 'live_key_expires_at'];
+    protected $fillable = ['env', 'test_partner_id', 'test_partner_key', 'live_partner_id', 'live_partner_key', 'live_key_expires_at', 'chat_owner_user_id'];
 
     protected $hidden = ['test_partner_key', 'live_partner_key'];
 
@@ -26,6 +26,7 @@ class ShopeeSetting extends Model
         'live_partner_id'  => 'integer',
         'live_partner_key' => 'encrypted',
         'live_key_expires_at' => 'date',
+        'chat_owner_user_id'  => 'integer',
     ];
 
     public static function singleton(): self

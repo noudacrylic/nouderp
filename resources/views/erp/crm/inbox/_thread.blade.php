@@ -145,7 +145,7 @@
                         <span class="shrink-0 max-w-[5rem] truncate px-1.5 rounded text-[10px] leading-4 bg-gray-100 text-gray-600"
                               title="Pemegang chat">{{ $terpilih->owner->name }}</span>
                     @endif
-                    <span class="truncate">{{ $terpilih->contact_key }}</span>
+                    <span class="truncate">{{ $terpilih->shopee() ? 'Shopee · ' . $terpilih->display_name : $terpilih->contact_key }}</span>
                 </div>
             @else
                 <div class="flex items-center gap-1.5 min-w-0">
@@ -163,7 +163,7 @@
                               title="Pemegang chat">{{ $terpilih->owner->name }}</span>
                     @endif
                 </div>
-                <div class="text-[11px] text-gray-500 truncate">{{ $terpilih->contact_key }}</div>
+                <div class="text-[11px] text-gray-500 truncate">{{ $terpilih->shopee() ? 'Shopee · ' . $terpilih->display_name : $terpilih->contact_key }}</div>
             @endif
         </div>
         <div class="ml-auto shrink-0 flex items-center {{ $modePwa ? 'gap-1' : 'gap-2' }}">
@@ -465,6 +465,15 @@
                 <div class="rounded border border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700">
                     Chat ini dipegang <b>{{ $terpilih->owner->name ?? 'agen lain' }}</b> — Anda hanya bisa membacanya.
                     Minta dioper lewat chip pemilik di daftar kalau perlu membalas.
+                </div>
+            @elseif($terpilih->shopee())
+                {{-- Chat Shopee Tahap A: baca saja. Kotak "jendela tertutup" di bawah TIDAK boleh
+                     tampil di sini — tombol "Mulai chat"-nya mengirim WhatsApp ke contact_key,
+                     yang untuk chat Shopee berisi user id Shopee, bukan nomor. --}}
+                <div class="rounded border border-orange-300 bg-orange-50 px-3 py-3 text-sm text-orange-900">
+                    <b>Chat Shopee — baca saja untuk sementara.</b> Balas lewat
+                    <a href="https://seller.shopee.co.id/webchat/conversations" target="_blank" rel="noopener" class="underline font-medium">Seller Centre</a>;
+                    balasannya ikut tampil di sini dalam ±1 menit.
                 </div>
             @elseif($terbuka)
                 {{-- Peringatan dini. Jendela yang tinggal sebentar tidak

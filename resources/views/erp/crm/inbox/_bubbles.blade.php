@@ -215,6 +215,11 @@
                                      penugasan, catatan, maupun antrean di layar ini. --}}
                                 <span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Dibalas langsung dari aplikasi WhatsApp, bukan dari ERP">dari HP</span>
                             @endif
+                            @if($m->source === \App\Modules\CRM\Models\CrmMessage::SOURCE_SELLER_CENTRE)
+                                <span class="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800" title="Dibalas dari Seller Centre Shopee">Seller Centre</span>
+                            @elseif($m->source === \App\Modules\CRM\Models\CrmMessage::SOURCE_SHOPEE_OTOMATIS)
+                                <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600" title="Pesan otomatis Shopee (sambutan / balasan di luar jam) — bukan balasan admin">Otomatis Shopee</span>
+                            @endif
                             @if($m->status === 'failed')
                                 <span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700" title="{{ $m->error }}">gagal</span>
                             @elseif($m->status === \App\Modules\CRM\Models\CrmMessage::STATUS_TIDAK_DIKIRIM)

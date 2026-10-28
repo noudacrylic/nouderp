@@ -15,6 +15,7 @@ class ShopeeShop extends Model
     protected $fillable = [
         'shop_id', 'env', 'nama', 'access_token', 'refresh_token', 'access_expires_at',
         'refresh_expires_at', 'terhubung_oleh', 'terhubung_at', 'galat_terakhir',
+        'chat_nano_terakhir', 'chat_riwayat_kursor', 'chat_riwayat_selesai_at',
     ];
 
     protected $hidden = ['access_token', 'refresh_token'];
@@ -26,6 +27,7 @@ class ShopeeShop extends Model
         'access_expires_at'  => 'datetime',
         'refresh_expires_at' => 'datetime',
         'terhubung_at'       => 'datetime',
+        'chat_riwayat_selesai_at' => 'datetime',
     ];
 
     public function penghubung(): BelongsTo

@@ -3,7 +3,9 @@
 namespace App\Modules\Marketplace\Shopee\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Modules\Marketplace\Shopee\Models\ShopeeApiLog;
+use App\Modules\Marketplace\Shopee\Models\ShopeeChat;
 use App\Modules\Marketplace\Shopee\Models\ShopeeSetting;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
@@ -30,6 +32,11 @@ class ShopeeSettingController extends Controller
             'host'  => $this->client->host(),
             'shops' => ShopeeShop::with('penghubung:id,name')->orderByDesc('terhubung_at')->get(),
             'logs'  => ShopeeApiLog::latest('id')->limit(30)->get(),
+            'agenChat' => User::bisaChatCrm()->orderBy('name')->get(['id', 'name']),
+            'chat'     => [
+                'tampil'      => ShopeeChat::where('env', $this->client->env())->where('tampil', true)->count(),
+                'tersembunyi' => ShopeeChat::where('env', $this->client->env())->where('tampil', false)->count(),
+            ],
             'callback' => route('settings.integrations.shopee.callback'),
         ]);
     }
@@ -68,6 +75,17 @@ class ShopeeSettingController extends Controller
 
         return redirect()->route('settings.integrations.shopee.index')
             ->with('success', 'Pengaturan Shopee disimpan — lingkungan aktif ' . strtoupper($setting->envAktif()) . '.');
+    }
+
+    /** Pemilik awal chat Shopee yang masuk ke CRM (null = masuk tanpa pemilik, harus dioper). */
+    public function simpanChat(Request $request)
+    {
+        $this->superAdmin($request);
+        $data = $request->validate(['chat_owner_user_id' => 'nullable|integer|exists:users,id']);
+
+        ShopeeSetting::singleton()->forceFill(['chat_owner_user_id' => $data['chat_owner_user_id'] ?? null])->save();
+
+        return redirect()->route('settings.integrations.shopee.index')->with('success', 'Pemilik awal chat Shopee disimpan.');
     }
 
     /** Uji pasangan Partner ID + Key lingkungan aktif sebelum menghubungkan toko. */
