@@ -2,6 +2,7 @@
 
 use App\Modules\KaryawanVirtual\Controllers\MinStokController;
 use App\Modules\KaryawanVirtual\Controllers\PengaturanAdminController;
+use App\Modules\KaryawanVirtual\Controllers\ProdukDesainController;
 use App\Modules\Purchasing\Controllers\LaporStokController;
 use App\Modules\Tasks\MejaKerja\MejaKerjaController;
 use Illuminate\Support\Facades\Route;
@@ -25,13 +26,16 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
 
 /*
 | Pengaturan karyawan virtual Manajer Admin (pemilik skill Meja Kerja): peran & parameter
-| skill, serta min stok bahan untuk skill Purchasing ready stok. Satu awalan dengan menu Karyawan Virtual.
+| skill, min stok bahan untuk skill Purchasing ready stok, dan produk butuh desain untuk skill Desain pesanan. Satu awalan dengan menu Karyawan Virtual.
 */
 Route::middleware('auth')->prefix('erp/karyawan-virtual/{kode}')->name('karyawan-virtual.admin.')->group(function () {
     Route::get('/pengaturan-admin', [PengaturanAdminController::class, 'show'])->name('pengaturan');
     Route::put('/pengaturan-admin', [PengaturanAdminController::class, 'simpan'])->name('pengaturan.simpan');
     Route::get('/min-stok', [MinStokController::class, 'index'])->name('min-stok');
     Route::post('/min-stok', [MinStokController::class, 'simpan'])->name('min-stok.simpan');
+    Route::get('/produk-desain', [ProdukDesainController::class, 'index'])->name('produk-desain');
+    Route::post('/produk-desain', [ProdukDesainController::class, 'tambah'])->name('produk-desain.tambah');
+    Route::delete('/produk-desain', [ProdukDesainController::class, 'hapus'])->name('produk-desain.hapus');
 });
 
 /*

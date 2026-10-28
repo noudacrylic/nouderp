@@ -210,6 +210,24 @@ class MejaKerjaTest extends TestCase
             ->assertSee('Admin Baru Zz')->assertSee($this->desainer->name)->assertDontSee('Akun CNC Zz');
     }
 
+    public function test_daftar_produk_desain_diatur_admin(): void
+    {
+        $this->nyalakan('desain', 'desain');
+        $url = route('karyawan-virtual.admin.produk-desain', 'manajer-admin');
+        $tambah = route('karyawan-virtual.admin.produk-desain.tambah', 'manajer-admin');
+        Product::create(['sku' => 'GK-A5', 'name' => 'Gantungan Kunci', 'sale_type' => 'ready', 'base_unit' => 'pcs', 'base_price' => 1, 'is_active' => true]);
+
+        $this->actingAs($this->owner)->get($url)->assertOk()->assertSee('KS-*');
+        $this->actingAs($this->owner)->post($tambah, ['pola' => 'gk-*'])->assertSessionHas('success');
+        $this->actingAs($this->owner)->post($tambah, ['pola' => 'XX-TYPO'])->assertSessionHas('error');
+        $this->actingAs($this->owner)->delete(route('karyawan-virtual.admin.produk-desain.hapus', 'manajer-admin'), ['pola' => 'KS-%'])->assertSessionHas('success');
+        $this->assertSame(['BC-%', 'NM-%TXT', 'FF-%Foto%', 'GK-%'], app(MejaKerjaService::class)->skill('desain')->polaSku());
+
+        $this->soKs();
+        $this->assertSame(0, app(MejaKerjaService::class)->sinkron()['dibuat'], 'KS-* dihapus dari daftar.');
+        $this->actingAs($this->desainer)->get($url)->assertForbidden();
+    }
+
     public function test_meja_peran_diatur_dari_form_user(): void
     {
         $ubah = fn (array $isi) => $this->actingAs($this->owner)->put(route('settings.users.update', $this->desainer->id), [

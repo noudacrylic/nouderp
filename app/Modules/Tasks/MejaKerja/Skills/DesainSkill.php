@@ -5,13 +5,15 @@ namespace App\Modules\Tasks\MejaKerja\Skills;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
+use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
 use App\Modules\Tasks\Models\Task;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Desain pesanan: tiap SO berisi produk yang PASTI butuh desain (semua KS & BC, NM cetak,
- * FF cetak foto) → satu task desain. ±12–16 per hari (data Jul–Okt 2026), 97% marketplace.
+ * Desain pesanan: tiap SO berisi produk yang PASTI butuh desain → satu task desain. Daftar
+ * produknya = pola SKU yang diatur admin di halaman Pengaturan skill (bawaan: semua KS & BC,
+ * NM cetak, FF cetak foto). ±12–16 per hari (data Jul–Okt 2026), 97% marketplace.
  *
  * Selesai ditandai admin (desain disetujui pembeli). Otomatis selesai bila pesanan sudah
  * dikirim, batal bila SO di-void.
@@ -20,7 +22,7 @@ class DesainSkill implements SkillAdmin
 {
     use JadiSkillManajer;
 
-    /** Pola SKU (LIKE) produk yang selalu didesain. */
+    /** Pola SKU (LIKE) bawaan sebelum admin mengubahnya. */
     public const POLA_SKU = ['KS-%', 'BC-%', 'NM-%TXT', 'FF-%Foto%'];
 
     public function key(): string { return 'desain'; }
@@ -29,7 +31,20 @@ class DesainSkill implements SkillAdmin
 
     public function deskripsi(): string
     {
-        return 'Pesanan berisi Kotak Saran, Box Charger, Nama Meja cetak, atau Frame Foto cetak → task desain dengan tombol ke chat pembeli.';
+        return 'Pesanan berisi produk yang butuh desain (daftarnya di Pengaturan: Kotak Saran, Box Charger, Nama Meja cetak, Frame Foto cetak, …) → task desain dengan tombol ke chat pembeli.';
+    }
+
+    /** @return string[] pola SKU (LIKE) yang berlaku sekarang */
+    public function polaSku(): array
+    {
+        $opsi = MejaKerjaSkill::where('skill', $this->key())->value('opsi');
+        $opsi = is_string($opsi) ? json_decode($opsi, true) : $opsi;
+        return $opsi['pola_sku'] ?? self::POLA_SKU;
+    }
+
+    public function urlPengaturan(string $kode): string
+    {
+        return route('karyawan-virtual.admin.produk-desain', $kode);
     }
 
     public function peranBawaan(): string { return 'desain'; }
@@ -42,12 +57,15 @@ class DesainSkill implements SkillAdmin
 
     public function pindai(Carbon $sejak): iterable
     {
+        $pola = $this->polaSku();
+        if (!$pola) return;
+
         $rows = DB::table('sales_orders as s')
             ->join('sales_order_items as i', 'i.sales_order_id', '=', 's.id')
             ->join('products as p', 'p.id', '=', 'i.product_id')
             ->where('s.status', 'confirmed')
             ->where('s.created_at', '>=', $sejak)
-            ->where(fn ($w) => collect(self::POLA_SKU)->each(fn ($pola) => $w->orWhere('p.sku', 'like', $pola)))
+            ->where(fn ($w) => collect($pola)->each(fn ($p) => $w->orWhere('p.sku', 'like', $p)))
             ->whereNotExists(fn ($q) => $q->from('sales_deliveries as d')->whereColumn('d.sales_order_id', 's.id')->where('d.status', 'posted'))
             ->select('s.id', 's.order_number', 's.customer_po_number', 's.notes', 's.created_at', 'p.sku', 'i.qty')
             ->orderBy('s.id')

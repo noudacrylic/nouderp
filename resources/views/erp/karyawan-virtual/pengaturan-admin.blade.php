@@ -55,6 +55,9 @@
                             </div>
                             <div class="text-xs text-gray-500 mt-0.5">{{ $s->deskripsi() }}</div>
                             @unless ($s->tersedia())<div class="text-xs text-amber-700 mt-0.5">Modul pendukungnya belum terpasang di server.</div>@endunless
+                            @if ($key === 'desain')
+                                <a href="{{ $s->urlPengaturan($kode) }}" class="inline-block text-xs text-blue-600 hover:underline mt-0.5">Atur produk yang butuh desain →</a>
+                            @endif
                             @if ($key === 'purchasing-ready')
                                 <a href="{{ $s->urlPengaturan($kode) }}" class="inline-block text-xs text-blue-600 hover:underline mt-0.5">Atur min stok bahan (saran otomatis) →</a>
                                 <div class="text-[11px] text-gray-500">Selama Otomatis, aturan Task Otomasi jenis stok tidak membuat task lagi.</div>
