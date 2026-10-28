@@ -61,10 +61,11 @@ return [
             'admin.persetujuan-usulan' => \App\Modules\Tasks\MejaKerja\Skills\PersetujuanUsulanSkill::class,
             'admin.purchasing-ready'   => \App\Modules\Tasks\MejaKerja\Skills\PurchasingReadySkill::class,
             'admin.purchasing-nonstok' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingNonStokSkill::class,
+            'admin.purchasing-laporan' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingLaporanSkill::class,
             'admin.kedatangan'         => \App\Modules\Tasks\MejaKerja\Skills\KedatanganSkill::class,
             'admin.penugasan'          => \App\Modules\Tasks\MejaKerja\Skills\PenugasanSkill::class,
         ],
-        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.kedatangan'],
+        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.kedatangan'],
     ],
 
 ];

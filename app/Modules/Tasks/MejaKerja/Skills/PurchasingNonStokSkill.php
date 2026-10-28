@@ -118,10 +118,7 @@ class PurchasingNonStokSkill implements SkillAdmin, PunyaJawaban
         $meja = app(MejaKerjaService::class);
 
         if ($kunci === 'beli') {
-            $task->meta = array_merge($task->meta ?? [], ['tahap' => 'beli', 'beli_sejak' => now()->toDateTimeString(), 'jawaban' => 'perlu_beli']);
-            $task->title = mb_substr(preg_replace('/^Cek persediaan /', 'Beli ', $task->title), 0, 255);
-            $task->save();
-            TaskHistory::create(['task_id' => $task->id, 'user_id' => $u->id, 'action' => 'perlu_beli', 'summary' => 'Hasil cek: perlu beli', 'created_at' => now()]);
+            $this->naikkanKeBeli($task, $u, 'Hasil cek: perlu beli');
             return 'Dicatat: perlu beli. Task ini selesai sendiri saat PO dibuat.';
         }
 
@@ -131,5 +128,14 @@ class PurchasingNonStokSkill implements SkillAdmin, PunyaJawaban
         $meja->ubahStatus($task, 'done', $u, "Hasil cek: masih ada ±$hari hari");
 
         return "Dicatat: masih ada. Dicek lagi " . today()->addDays($hari)->format('d/m') . '.';
+    }
+
+    /** Tahap cek → Beli: dari jawaban "Perlu beli", atau laporan habis dari divisi (Lapor Stok). */
+    public function naikkanKeBeli(Task $task, ?User $u, string $catatan): void
+    {
+        $task->meta = array_merge($task->meta ?? [], ['tahap' => 'beli', 'beli_sejak' => now()->toDateTimeString(), 'jawaban' => 'perlu_beli']);
+        $task->title = mb_substr(preg_replace('/^Cek persediaan /', 'Beli ', $task->title), 0, 255);
+        $task->save();
+        TaskHistory::create(['task_id' => $task->id, 'user_id' => $u?->id, 'action' => 'perlu_beli', 'summary' => mb_substr($catatan, 0, 255), 'created_at' => now()]);
     }
 }

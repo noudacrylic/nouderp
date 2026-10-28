@@ -14,13 +14,17 @@
         <h1 class="text-lg font-semibold">{{ $judul[0] }}</h1>
         <p class="text-xs text-gray-500">{{ $judul[1] }}</p>
     </div>
-    {{-- Tarik manual pesanan marketplace terbaru (tanpa menunggu sinkron terjadwal). --}}
-    <form method="POST" action="{{ route('pos.fulfillment.sync-marketplace') }}">
-        @csrf
-        <button type="submit" class="text-xs px-3 py-2 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">
-            🔄 Tarik Pesanan Baru
-        </button>
-    </form>
+    <div class="flex items-center gap-2">
+        {{-- Lakban, kardus, dsb. habis → laporkan ke Purchasing dari sini. --}}
+        @include('erp.purchasing.lapor-stok._tombol', ['divisi' => 'Packing'])
+        {{-- Tarik manual pesanan marketplace terbaru (tanpa menunggu sinkron terjadwal). --}}
+        <form method="POST" action="{{ route('pos.fulfillment.sync-marketplace') }}">
+            @csrf
+            <button type="submit" class="text-xs px-3 py-2 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold">
+                🔄 Tarik Pesanan Baru
+            </button>
+        </form>
+    </div>
 </div>
 
 @include('erp.pos.fulfillment._subtabs', ['items' => [

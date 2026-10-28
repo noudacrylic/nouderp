@@ -72,6 +72,14 @@ class EnsureMenuAccess
         if ($request->is('erp/intercom', 'erp/intercom/*')) {
             return $next($request);
         }
+        /*
+         * Lapor Stok: tombol di layar kerja divisi (Proses Produksi, Pemrosesan
+         * Pesanan) — siapa pun yang bekerja di sana boleh melaporkan barang habis
+         * ke Purchasing, apa pun hak menunya.
+         */
+        if ($request->is('erp/lapor-stok', 'erp/lapor-stok/*')) {
+            return $next($request);
+        }
 
         /*
          * Kotak Nota: bukan menu sendiri — penjaganya FotoNotaService::bolehNota()

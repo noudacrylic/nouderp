@@ -167,14 +167,18 @@
                 @endif
             </p>
         </div>
-        {{-- Operator divisi tidak memegang menu Order Produksi — tombolnya disembunyikan, bukan
-             dibiarkan mengantar ke layar "akses ditolak". --}}
-        @if(user_can_access('production.orders'))
-            <a href="{{ route('production.orders.index') }}"
-               class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">
-                ← Order Produksi
-            </a>
-        @endif
+        <div class="flex items-center gap-2">
+            {{-- Barang habis (lem, sekrup, bahan) dilaporkan langsung dari layar kerja ke Purchasing. --}}
+            @include('erp.purchasing.lapor-stok._tombol', ['divisi' => $selectedDepartment->name ?? 'Produksi'])
+            {{-- Operator divisi tidak memegang menu Order Produksi — tombolnya disembunyikan, bukan
+                 dibiarkan mengantar ke layar "akses ditolak". --}}
+            @if(user_can_access('production.orders'))
+                <a href="{{ route('production.orders.index') }}"
+                   class="border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-semibold transition">
+                    ← Order Produksi
+                </a>
+            @endif
+        </div>
     </div>
 
     @if(!empty($testingMode))

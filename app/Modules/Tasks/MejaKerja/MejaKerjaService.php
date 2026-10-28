@@ -174,7 +174,8 @@ class MejaKerjaService
             'skill'            => $skill->key(),
             'peran'            => $atur->peran,
             'kunci_sumber'     => $k['kunci'],
-            'tenggat_at'       => $lahir->copy()->addMinutes($atur->sla_menit),
+            // sla_faktor: pekerjaan yang lebih mendesak dari biasanya (mis. laporan barang sudah habis).
+            'tenggat_at'       => $lahir->copy()->addMinutes((int) round($atur->sla_menit * ($k['sla_faktor'] ?? 1))),
             'meta'             => $k['meta'] ?? null,
         ]];
     }
@@ -191,6 +192,8 @@ class MejaKerjaService
         $task = Task::create($isi);
         $task->forceFill(['created_at' => $lahir])->saveQuietly();
         $this->catat($task, null, 'dibuat', 'Dibuat oleh Manajer Admin — ' . $skill->label());
+        // Skill yang perlu menautkan sumbernya ke task (mis. laporan Lapor Stok → task_id).
+        if (method_exists($skill, 'setelahDibuat')) $skill->setelahDibuat($task, $k);
 
         return $task;
     }

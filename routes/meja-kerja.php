@@ -2,6 +2,7 @@
 
 use App\Modules\KaryawanVirtual\Controllers\MinStokController;
 use App\Modules\KaryawanVirtual\Controllers\PengaturanAdminController;
+use App\Modules\Purchasing\Controllers\LaporStokController;
 use App\Modules\Tasks\MejaKerja\MejaKerjaController;
 use Illuminate\Support\Facades\Route;
 
@@ -31,4 +32,13 @@ Route::middleware('auth')->prefix('erp/karyawan-virtual/{kode}')->name('karyawan
     Route::put('/pengaturan-admin', [PengaturanAdminController::class, 'simpan'])->name('pengaturan.simpan');
     Route::get('/min-stok', [MinStokController::class, 'index'])->name('min-stok');
     Route::post('/min-stok', [MinStokController::class, 'simpan'])->name('min-stok.simpan');
+});
+
+/*
+| Lapor Stok — pintu masuk laporan barang habis dari layar kerja divisi ke Purchasing
+| (skill "Purchasing — laporan divisi"). Hanya butuh login.
+*/
+Route::middleware('auth')->prefix('erp/lapor-stok')->name('lapor-stok.')->group(function () {
+    Route::get('/pilihan', [LaporStokController::class, 'pilihan'])->name('pilihan');
+    Route::post('/', [LaporStokController::class, 'simpan'])->name('simpan');
 });
