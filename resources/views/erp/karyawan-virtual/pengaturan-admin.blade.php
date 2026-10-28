@@ -17,6 +17,7 @@
                 Task skill masuk ke <b>meja peran</b>-nya (lihat kolom Peran di bawah) — tetap menumpuk di sana walau anggotanya belum ada.
                 Anggota = akun yang membuka meja itu di Meja Kerja dan mengambil task-nya; siapa yang menekan Mulai, dialah pengerjanya.
                 Super admin bisa membuka semua meja. Boleh kosong.
+                Yang tampil: super admin/admin, divisi Admin, dan user yang diberi menu Meja Kerja (Pengaturan › User).
             </p>
             <div class="grid md:grid-cols-3 gap-4">
                 @foreach ($peranLabel as $p => $label)

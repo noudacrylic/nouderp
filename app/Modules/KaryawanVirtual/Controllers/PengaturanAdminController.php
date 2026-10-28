@@ -34,8 +34,23 @@ class PengaturanAdminController extends Controller
             'skills'    => $skills,
             'labelMode' => KaryawanVirtualService::LABEL_MODE,
             'peran'     => MejaKerjaPeran::with('user:id,name')->orderBy('urutan')->get()->groupBy('peran'),
-            'users'     => User::where('is_active', true)->where('is_virtual', false)->orderBy('name')->get(['id', 'name', 'role']),
+            'users'     => $this->calonAnggota(),
         ]);
+    }
+
+    /**
+     * Calon anggota meja: super admin/admin, karyawan divisi Admin, user bermenu Meja Kerja, dan
+     * anggota yang sudah ada. Akun divisi produksi/packing & akun PWA absensi tidak ditawarkan.
+     */
+    private function calonAnggota()
+    {
+        return User::where('is_active', true)->where('is_virtual', false)->where('role', '!=', 'karyawan')
+            ->where(fn ($q) => $q->whereIn('role', ['super_admin', 'admin'])
+                ->orWhereHas('menuPermissions', fn ($m) => $m->where('menu_key', 'tasks.meja'))
+                ->orWhereIn('id', MejaKerjaPeran::select('user_id'))
+                ->orWhereIn('karyawan_id', DB::table('sdm_karyawan as k')->join('production_departments as d', 'd.id', '=', 'k.department_id')
+                    ->where('d.name', 'Admin')->select('k.id')))
+            ->orderBy('name')->get(['id', 'name', 'role']);
     }
 
     public function simpan(Request $request, string $kode)

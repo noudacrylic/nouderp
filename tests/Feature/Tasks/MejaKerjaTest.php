@@ -200,6 +200,16 @@ class MejaKerjaTest extends TestCase
         $this->assertSame(9, MejaKerjaSkill::where('skill', 'desain')->value('bobot'));
     }
 
+    public function test_calon_anggota_meja_hanya_admin_dan_bermenu_meja_kerja(): void
+    {
+        $cnc = User::factory()->create(['name' => 'Akun CNC Zz', 'role' => 'user', 'is_active' => true]);
+        $admin = User::factory()->create(['name' => 'Admin Baru Zz', 'role' => 'user', 'is_active' => true]);
+        $admin->menuPermissions()->create(['menu_key' => 'tasks.meja']);
+
+        $this->actingAs($this->owner)->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertOk()
+            ->assertSee('Admin Baru Zz')->assertSee($this->desainer->name)->assertDontSee('Akun CNC Zz');
+    }
+
     public function test_meja_peran_diatur_dari_form_user(): void
     {
         $ubah = fn (array $isi) => $this->actingAs($this->owner)->put(route('settings.users.update', $this->desainer->id), [
