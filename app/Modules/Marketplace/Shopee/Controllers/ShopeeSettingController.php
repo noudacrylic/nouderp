@@ -49,6 +49,7 @@ class ShopeeSettingController extends Controller
             'live_partner_key' => 'nullable|string|max:255',
             'hapus_test_key'   => 'nullable|boolean',
             'hapus_live_key'   => 'nullable|boolean',
+            'live_key_expires_at' => 'nullable|date',
         ]);
 
         $setting = ShopeeSetting::singleton();
@@ -62,6 +63,7 @@ class ShopeeSettingController extends Controller
                 $setting->{$env . '_partner_key'} = null;
             }
         }
+        $setting->live_key_expires_at = $data['live_key_expires_at'] ?? null;
         $setting->save();
 
         return redirect()->route('settings.integrations.shopee.index')

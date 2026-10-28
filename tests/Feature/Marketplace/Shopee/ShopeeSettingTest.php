@@ -121,4 +121,24 @@ class ShopeeSettingTest extends TestCase
                 && $q['sign'] === hash_hmac('sha256', '1250096/api/v2/public/get_shops_by_partner' . $q['timestamp'], 'shpkBENAR');
         });
     }
+
+    public function test_pengingat_kunci_live_dikirim_pada_hari_ingat_saja(): void
+    {
+        config(['services.telegram.token' => 'tok', 'services.telegram.admin_chat_id' => '-100']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+
+        $this->actingAs($this->superAdmin())->put(route('settings.integrations.shopee.update'), [
+            'env' => 'live', 'live_partner_id' => '2050666', 'live_partner_key' => 'kunci-live',
+            'live_key_expires_at' => now()->addDays(7)->format('Y-m-d'),
+        ]);
+        $this->assertSame(7, ShopeeSetting::singleton()->sisaHariKunciLive());
+
+        $this->artisan('shopee:ingatkan-kedaluwarsa')->assertSuccessful();
+        Http::assertSent(fn ($r) => str_contains($r['text'] ?? '', 'kedaluwarsa 7 hari lagi'));
+
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        ShopeeSetting::singleton()->update(['live_key_expires_at' => now()->addDays(10)]);
+        $this->artisan('shopee:ingatkan-kedaluwarsa')->assertSuccessful();
+        Http::assertNothingSent();
+    }
 }

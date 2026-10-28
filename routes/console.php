@@ -45,6 +45,8 @@ Schedule::command('sdm:send-attendance-reminders')
 // Jubelio — sinkron pesanan tiap 5 menit, retur tiap 15 menit (andalan localhost; webhook akselerator).
 // Shopee Open Platform: jaga access token hidup (refresh token ikut bergeser 30 hari).
 Schedule::command('shopee:perbarui-token')->hourly()->name('shopee-perbarui-token')->withoutOverlapping(30);
+// Ingatkan (Telegram) sebelum Live Partner Key Shopee kedaluwarsa / bila toko Live perlu dihubungkan ulang.
+Schedule::command('shopee:ingatkan-kedaluwarsa')->dailyAt('08:00')->name('shopee-ingatkan-kedaluwarsa');
 // Meja Kerja Admin: Skill Admin → task (QC, desain, persetujuan owner) + tutup otomatis.
 Schedule::command('meja-kerja:sinkron')->everyTwoMinutes()->name('meja-kerja-sinkron')->withoutOverlapping(10);
 // Shopee tahap 2 (bayangan, baca saja): pesanan tiap 15 menit, katalog/peta SKU sekali sehari.

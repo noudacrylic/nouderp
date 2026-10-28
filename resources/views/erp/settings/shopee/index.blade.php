@@ -20,6 +20,14 @@
             </span>
         </div>
 
+        @php($sisaKunci = $setting->sisaHariKunciLive())
+        @if ($sisaKunci !== null && $sisaKunci <= 30)
+            <div class="mt-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                ⚠️ Live API Partner Key {{ $sisaKunci < 0 ? 'SUDAH kedaluwarsa sejak' : ($sisaKunci === 0 ? 'kedaluwarsa HARI INI' : 'kedaluwarsa ' . $sisaKunci . ' hari lagi —') }}
+                {{ $setting->live_key_expires_at->format('d/m/Y') }}. Perbarui kunci di Shopee Open Platform › App, lalu isi kunci & tanggal barunya di bawah.
+            </div>
+        @endif
+
         {{-- Kunci app --}}
         <form method="POST" action="{{ route('settings.integrations.shopee.update') }}" class="mt-5 rounded border {{ $siap ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50' }} p-4 text-sm">
             @csrf @method('PUT')
@@ -59,6 +67,12 @@
                             </label>
                         @elseif ($setting->siap($e))
                             <p class="text-[11px] text-amber-700 mt-1">Saat ini memakai cadangan dari .env server.</p>
+                        @endif
+                        @if ($e === 'live')
+                            <label class="block text-xs font-semibold text-gray-700 mt-2 mb-1">Kunci Live berlaku s/d</label>
+                            <input type="date" name="live_key_expires_at" value="{{ old('live_key_expires_at', $setting->live_key_expires_at?->format('Y-m-d')) }}"
+                                   class="w-full border rounded px-3 py-2 text-sm">
+                            <p class="text-[11px] text-gray-400 mt-1">Lihat "Live API Partner Key Expire Time" di Console. Pengingat Telegram dikirim H-30, H-14, H-7, H-3 lalu tiap hari.</p>
                         @endif
                     </div>
                 @endforeach

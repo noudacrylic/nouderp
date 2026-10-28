@@ -16,7 +16,7 @@ class ShopeeSetting extends Model
 
     public const ENVS = ['test', 'live'];
 
-    protected $fillable = ['env', 'test_partner_id', 'test_partner_key', 'live_partner_id', 'live_partner_key'];
+    protected $fillable = ['env', 'test_partner_id', 'test_partner_key', 'live_partner_id', 'live_partner_key', 'live_key_expires_at'];
 
     protected $hidden = ['test_partner_key', 'live_partner_key'];
 
@@ -25,6 +25,7 @@ class ShopeeSetting extends Model
         'test_partner_key' => 'encrypted',
         'live_partner_id'  => 'integer',
         'live_partner_key' => 'encrypted',
+        'live_key_expires_at' => 'date',
     ];
 
     public static function singleton(): self
@@ -59,6 +60,14 @@ class ShopeeSetting extends Model
     public function siap(?string $env = null): bool
     {
         return $this->partnerId($env) > 0 && $this->partnerKey($env) !== '';
+    }
+
+    /** Sisa hari sampai Live Partner Key kedaluwarsa (negatif = sudah lewat); null bila tanggal belum diisi. */
+    public function sisaHariKunciLive(): ?int
+    {
+        return $this->live_key_expires_at
+            ? (int) now()->startOfDay()->diffInDays($this->live_key_expires_at->copy()->startOfDay(), false)
+            : null;
     }
 
     /** Kunci tersimpan di DB (bukan cadangan .env)? Untuk keterangan di halaman pengaturan. */
