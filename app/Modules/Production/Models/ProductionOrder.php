@@ -133,6 +133,14 @@ class ProductionOrder extends Model
             };
         }
 
+        // Order custom/preorder skor Otomatis: FLAT 300, tanpa skor BOM (demand dsb). Semua
+        // pre-order setara, sehingga urutan ditentukan pembanding antrean: OP yang lahir lebih
+        // dulu (= DP masuk lebih dulu) dikerjakan lebih dulu. Dulu max(300, skor BOM) —
+        // produk yang banyak dipesan menyalip pesanan lain yang datang lebih awal.
+        if ($this->type === 'custom') {
+            return 300.0;
+        }
+
         // Tanpa BOM (mis. NM dirakit dari BNM) tak ada skor BOM — pakai bobot stok hasil
         // utamanya (minus 400 / habis 200 / menipis 100 / aman 0), supaya "Otomatis" tetap
         // naik saat stoknya menipis. Diingat per instance: accessor ini dipanggil berulang
@@ -140,12 +148,6 @@ class ProductionOrder extends Model
         $bomScore = $this->bom_id
             ? (float) ($this->bom?->score ?? 0)
             : ($this->skorStokTanpaBom ??= $this->hitungSkorStokTanpaBom());
-
-        // Order custom/preorder selalu prioritas teratas (floor 300), selaras dengan
-        // bobot preorder 300 di BomScoreService. Berlaku walau order tidak punya BOM.
-        if ($this->type === 'custom') {
-            return max(300.0, $bomScore);
-        }
 
         return $bomScore;
     }
