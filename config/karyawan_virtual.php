@@ -54,7 +54,7 @@ return [
         'nama'       => 'Manajer Admin',
         'ikon'       => '🗂️',
         'divisi'     => 'Admin',
-        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP), membagikannya ke Meja Kerja orang yang tepat, dan mengalihkan pekerjaan saat yang bertugas belum hadir.',
+        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain, Owner).',
         'akses'      => 'tasks.board',
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [

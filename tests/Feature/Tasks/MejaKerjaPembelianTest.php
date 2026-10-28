@@ -80,7 +80,8 @@ class MejaKerjaPembelianTest extends TestCase
         $this->assertSame(0, $meja->sinkron()['dibuat'], 'Satu bahan tidak membuat task kembar.');
 
         $t = Task::where('skill', 'purchasing-ready')->first();
-        $this->assertSame($this->admin->id, $t->assignee_user_id);
+        $this->assertSame('layanan', $t->peran);
+        $this->assertNull($t->assignee_user_id);
         $this->assertStringContainsString('AKR-3', $t->title);
         $this->assertStringContainsString('Kranindo', $t->description);
 

@@ -11,7 +11,8 @@ use Illuminate\Http\Request;
 
 /**
  * Meja Kerja Admin: tempat kerja admin & owner — Antre / Dikerjakan / Pending / Selesai hari
- * ini, tombol "Ambil berikutnya". Peran & skill diatur di karyawan virtual Manajer Admin.
+ * ini, tombol "Ambil berikutnya". Tab = meja peran (Layanan, Desain, Owner): anggota meja
+ * melihat mejanya sendiri, super admin semua meja. Skill & anggota diatur di Manajer Admin.
  */
 class MejaKerjaController extends Controller
 {
@@ -22,8 +23,9 @@ class MejaKerjaController extends Controller
         $u = $request->user();
         $peranSaya = $this->meja->peranUser($u->id);
         $bolehSemua = $u->role === 'super_admin';
+        $tabPeran = $this->tabPeran($u);
         $lihat = $request->input('lihat', 'saya');
-        if ($lihat !== 'saya' && !($bolehSemua && ($lihat === 'semua' || isset(MejaKerjaPeran::PERAN[$lihat])))) $lihat = 'saya';
+        if ($lihat !== 'saya' && !($lihat === 'semua' ? $bolehSemua : isset($tabPeran[$lihat]))) $lihat = 'saya';
 
         $q = Task::with('assignee:id,name');
         if ($lihat === 'saya') {
@@ -49,7 +51,9 @@ class MejaKerjaController extends Controller
 
         return view('erp.tasks.meja.index', [
             'kolom' => $kolom, 'skor' => $skor, 'skills' => $this->meja->skills(), 'lihat' => $lihat,
-            'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua,
+            'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua, 'tabPeran' => $tabPeran,
+            'jumlahAntre' => Task::where('status', 'open')->whereIn('peran', array_keys($tabPeran))
+                ->groupBy('peran')->selectRaw('peran, COUNT(*) n')->pluck('n', 'peran'),
             'dikerjakanSaya' => Task::where('assignee_user_id', $u->id)->where('status', 'in_progress')->count(),
         ]);
     }
@@ -59,7 +63,9 @@ class MejaKerjaController extends Controller
         $u = $request->user();
         if ($this->penuh($u)) return back()->with('error', 'Selesaikan atau pending-kan dulu task yang sedang dikerjakan (maks ' . MejaKerjaService::MAKS_DIKERJAKAN . ').');
 
-        $t = $this->meja->ambilBerikutnya($u);
+        // Dari meja yang sedang dibuka; "Meja saya" = semua meja tempat user jadi anggota.
+        $lihat = (string) $request->input('lihat');
+        $t = $this->meja->ambilBerikutnya($u, isset($this->tabPeran($u)[$lihat]) ? [$lihat] : null);
         return back()->with($t ? 'success' : 'info', $t ? "Dikerjakan: {$t->title}" : 'Antre kosong — tidak ada pekerjaan untuk diambil.');
     }
 
@@ -118,7 +124,15 @@ class MejaKerjaController extends Controller
     public function sinkron(Request $request)
     {
         $h = $this->meja->sinkron();
-        return back()->with('success', "Disinkron: {$h['dibuat']} baru, {$h['selesai']} selesai otomatis, {$h['batal']} batal, {$h['lanjut']} dilanjutkan, {$h['alih']} dialihkan.");
+        return back()->with('success', "Disinkron: {$h['dibuat']} baru, {$h['selesai']} selesai otomatis, {$h['batal']} batal, {$h['lanjut']} dilanjutkan.");
+    }
+
+    /** @return array<string, string> meja peran yang boleh dibuka user: super admin semua, lainnya meja tempat ia anggota. */
+    private function tabPeran(User $u): array
+    {
+        return $u->role === 'super_admin'
+            ? MejaKerjaPeran::PERAN
+            : array_intersect_key(MejaKerjaPeran::PERAN, array_flip($this->meja->peranUser($u->id)));
     }
 
     private function penuh(User $u): bool
@@ -126,7 +140,7 @@ class MejaKerjaController extends Controller
         return Task::where('assignee_user_id', $u->id)->where('status', 'in_progress')->count() >= MejaKerjaService::MAKS_DIKERJAKAN;
     }
 
-    /** Pemegang, rekan seperan (task belum dipegang), atau super admin. */
+    /** Pemegang, anggota meja peran task, atau super admin. */
     private function bolehPegang(User $u, Task $t): void
     {
         $ok = $u->role === 'super_admin'

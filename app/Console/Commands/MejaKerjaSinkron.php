@@ -5,7 +5,7 @@ namespace App\Console\Commands;
 use App\Modules\Tasks\MejaKerja\MejaKerjaService;
 use Illuminate\Console\Command;
 
-/** Meja Kerja: buat task dari pekerjaan baru, tutup yang beres, lanjutkan yang dibalas, alihkan yang tak hadir. */
+/** Meja Kerja: buat task dari pekerjaan baru, tutup yang beres, lanjutkan yang dibalas. */
 class MejaKerjaSinkron extends Command
 {
     protected $signature = 'meja-kerja:sinkron';
@@ -15,7 +15,7 @@ class MejaKerjaSinkron extends Command
     public function handle(MejaKerjaService $meja): int
     {
         $h = $meja->sinkron();
-        $this->info("baru {$h['dibuat']}, selesai {$h['selesai']}, batal {$h['batal']}, dilanjutkan {$h['lanjut']}, dialihkan {$h['alih']}");
+        $this->info("baru {$h['dibuat']}, selesai {$h['selesai']}, batal {$h['batal']}, dilanjutkan {$h['lanjut']}");
 
         return self::SUCCESS;
     }

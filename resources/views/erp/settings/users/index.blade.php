@@ -78,6 +78,7 @@
                                 'is_active' => (bool) $user->is_active,
                                 'pwa_crm' => (bool) $user->pwa_crm,
                                 'permissions' => $user->menuPermissions->pluck('menu_key')->all(),
+                                'meja_peran' => $mejaPeran[$user->id] ?? [],
                             ];
                         @endphp
                         <tr class="border-t">
@@ -298,6 +299,19 @@
                                                     <span class="text-[10px] text-gray-400 font-mono ml-auto">{{ $childKey }}</span>
                                                 </label>
 
+                                                {{-- Meja peran: Meja Kerja langsung membuka task meja ini untuk user. --}}
+                                                @if($childKey === 'tasks.meja')
+                                                    <div x-show="form.permissions.includes('tasks.meja')" class="ml-6 pl-3 border-l-2 border-gray-100 space-y-1 mt-1 mb-2">
+                                                        <div class="text-[11px] text-gray-400 italic">Meja peran — task meja ini muncul di Meja Kerja user:</div>
+                                                        @foreach(\App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran::PERAN as $pKey => $pLabel)
+                                                            <label class="flex items-center gap-2 text-xs text-gray-600 py-0.5">
+                                                                <input type="checkbox" name="meja_peran[]" value="{{ $pKey }}" x-model="form.meja_peran" class="rounded">
+                                                                <span>↳ Meja {{ $pLabel }}</span>
+                                                            </label>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
+
                                                 {{-- Sub-children (mis. departments di bawah Proses Produksi) --}}
                                                 @if(!empty($childCfg['children']))
                                                     <div class="ml-6 pl-3 border-l-2 border-gray-100 space-y-1 mt-1 mb-2">
@@ -342,10 +356,10 @@ function userManager() {
     return {
         modalOpen: false,
         tab: 'profile',
-        form: { id: null, username: '', name: '', email: '', password: '', role: 'user', karyawan_id: '', is_active: true, pwa_crm: false, permissions: [] },
+        form: { id: null, username: '', name: '', email: '', password: '', role: 'user', karyawan_id: '', is_active: true, pwa_crm: false, permissions: [], meja_peran: [] },
 
         openCreate() {
-            this.form = { id: null, username: '', name: '', email: '', password: '', role: 'user', karyawan_id: '', is_active: true, permissions: [] };
+            this.form = { id: null, username: '', name: '', email: '', password: '', role: 'user', karyawan_id: '', is_active: true, permissions: [], meja_peran: [] };
             this.tab = 'profile';
             this.modalOpen = true;
         },
@@ -361,6 +375,7 @@ function userManager() {
                 is_active: !!data.is_active,
                 pwa_crm: !!data.pwa_crm,
                 permissions: Array.isArray(data.permissions) ? [...data.permissions] : [],
+                meja_peran: Array.isArray(data.meja_peran) ? [...data.meja_peran] : [],
             };
             this.tab = 'profile';
             this.modalOpen = true;

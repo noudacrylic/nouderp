@@ -11,8 +11,8 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Pengaturan Manajer Admin: siapa memegang tiap peran (utama + cadangan) dan, per skill,
- * peran pelaksana, bobot urutan kerja, dan tenggat. Nyala/mati skill = mode di kartu skill.
+ * Pengaturan Manajer Admin: anggota tiap meja peran dan, per skill, meja tujuan task,
+ * bobot urutan kerja, dan tenggat. Nyala/mati skill = mode di kartu skill.
  * Super admin saja — menugaskan orang adalah keputusan pemilik.
  */
 class PengaturanAdminController extends Controller

@@ -6,20 +6,20 @@ use App\Models\User;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\KaryawanVirtual\Contracts\Skill;
 use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
-use App\Modules\Production\Services\ExecutorScheduleResolver;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
 use App\Modules\Tasks\Models\Task;
 use App\Modules\Tasks\Models\TaskHistory;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Mesin Meja Kerja Admin. Yang memutuskan KAPAN bekerja adalah karyawan virtual Manajer
  * Admin (mode tiap skill, jurnal); service ini yang mengerjakan: buat task dari pekerjaan
- * terbuka, tutup/batalkan task yang sumbernya beres, penugasan per peran (utama → cadangan
- * bila tak absen masuk), perpindahan status, dan skor urutan kerja.
+ * terbuka, tutup/batalkan task yang sumbernya beres, perpindahan status, dan skor urutan kerja.
+ *
+ * Task skill masuk ke MEJA PERAN (Desain, Layanan, Owner) tanpa pemilik; yang menekan Mulai /
+ * Ambil berikutnya menjadi pengerjanya. Meja peran tetap terisi walau orangnya belum ada.
  *
  * Status: open = Antre, in_progress = Dikerjakan, pending = menunggu (wajib alasan),
  * done / cancelled.
@@ -74,11 +74,11 @@ class MejaKerjaService
      * Semua skill Manajer Admin dijalankan sesuai modenya (jadwal tiap 2 menit & tombol
      * Sinkron di Meja Kerja). Satu skill gagal tidak menghentikan yang lain.
      *
-     * @return array{dibuat: int, selesai: int, batal: int, lanjut: int, alih: int}
+     * @return array{dibuat: int, selesai: int, batal: int, lanjut: int}
      */
     public function sinkron(): array
     {
-        $hasil = ['dibuat' => 0, 'selesai' => 0, 'batal' => 0, 'lanjut' => 0, 'alih' => 0];
+        $hasil = ['dibuat' => 0, 'selesai' => 0, 'batal' => 0, 'lanjut' => 0];
 
         foreach (array_keys($this->kv->karyawan(self::KARYAWAN)['skills'] ?? []) as $key) {
             try {
@@ -118,11 +118,10 @@ class MejaKerjaService
 
             $task = $simulasi ? $this->calon($skill, $atur, $kerja) : $this->buat($skill, $atur, $kerja);
             $ulang = isset($sudahDicatat[$kerja['kunci']]);
-            $pelaksana = $task->assignee_user_id ? User::whereKey($task->assignee_user_id)->value('name') : null;
             $rows[] = [
                 'status'  => !$simulasi ? Skill::DIBUAT : ($ulang ? Skill::DILEWATI : Skill::AKAN_DIBUAT),
                 'judul'   => $task->title,
-                'alasan'  => $ulang ? 'Sudah tercatat di jalan sebelumnya.' : "Untuk $peranLabel" . ($pelaksana ? " → $pelaksana" : ' (belum ada orangnya)') . '.',
+                'alasan'  => $ulang ? 'Sudah tercatat di jalan sebelumnya.' : "Masuk Meja $peranLabel.",
                 'tautan'  => collect($skill->aksi($task))->firstWhere('utama')['url'] ?? null,
                 'dokumen' => null,
                 'jenis'   => $simulasi ? null : 'dibuat',
@@ -133,10 +132,10 @@ class MejaKerjaService
         return $rows;
     }
 
-    /** Task Pending yang dibalas dilanjutkan & Antre dialihkan — skill Atur penugasan. */
+    /** Task Pending yang dibalas pelanggan dilanjutkan — skill Atur penugasan. */
     public function aturPenugasan(): array
     {
-        return [...$this->lanjutkanYangDibalas(), ...$this->alihkanAntreKeYangHadir()];
+        return $this->lanjutkanYangDibalas();
     }
 
     private function tutupYangBeres(SkillAdmin $skill): array
@@ -165,7 +164,7 @@ class MejaKerjaService
             'title'            => mb_substr($k['judul'], 0, 255),
             'description'      => $k['deskripsi'] ?? null,
             'creator_user_id'  => $this->kv->akun(self::KARYAWAN)->id,
-            'assignee_user_id' => $this->pelaksana($atur->peran)?->id,
+            'assignee_user_id' => null,
             'status'           => 'open',
             'priority'         => 'normal',
             'taskable_type'    => $k['taskable_type'] ?? null,
@@ -198,54 +197,12 @@ class MejaKerjaService
         return $task;
     }
 
-    // ── Penugasan ───────────────────────────────────────────────────────────────
+    // ── Anggota meja ───────────────────────────────────────────────────────────
 
-    /** Orang peran ini yang hadir hari ini (urutan terkecil); tak ada yang hadir → yang utama. */
-    public function pelaksana(string $peran): ?User
-    {
-        $orang = $this->orangPeran($peran);
-        return $orang->first(fn (User $u) => $this->hadir($u)) ?? $orang->first();
-    }
-
-    /** @return Collection<int, User> */
-    public function orangPeran(string $peran): Collection
-    {
-        return MejaKerjaPeran::with('user')->where('peran', $peran)->orderBy('urutan')->get()
-            ->pluck('user')->filter(fn ($u) => $u && $u->is_active)->values();
-    }
-
-    /** @return string[] peran milik user */
+    /** @return string[] meja peran tempat user jadi anggota */
     public function peranUser(int $userId): array
     {
         return MejaKerjaPeran::where('user_id', $userId)->pluck('peran')->all();
-    }
-
-    /** Hadir = sudah scan masuk hari ini; user tanpa data karyawan (owner) selalu dianggap hadir. */
-    public function hadir(User $u): bool
-    {
-        if (!$u->karyawan_id) return true;
-        return (bool) app(ExecutorScheduleResolver::class)->hasCheckedIn((int) $u->karyawan_id, now());
-    }
-
-    /** Task Antre milik orang yang tidak hadir dipindah ke rekan seperan yang hadir. */
-    private function alihkanAntreKeYangHadir(): array
-    {
-        $rows = [];
-        Task::whereNotNull('peran')->where('status', 'open')->get()->groupBy('peran')
-            ->each(function ($tasks, $peran) use (&$rows) {
-                $ganti = $this->pelaksana($peran);
-                if (!$ganti) return;
-                foreach ($tasks as $t) {
-                    $pemegang = $t->assignee_user_id ? User::find($t->assignee_user_id) : null;
-                    if ($pemegang && ($pemegang->id === $ganti->id || $this->hadir($pemegang))) continue;
-                    $t->update(['assignee_user_id' => $ganti->id]);
-                    $catatan = "Dialihkan ke {$ganti->name}" . ($pemegang ? " ({$pemegang->name} belum hadir)" : '');
-                    $this->catat($t, null, 'dialihkan', $catatan);
-                    $rows[] = ['status' => Skill::DIUBAH, 'judul' => $t->title, 'alasan' => $catatan . '.', 'tautan' => null, 'dokumen' => null, 'jenis' => 'alih'];
-                }
-            });
-
-        return $rows;
     }
 
     // ── Perpindahan status ─────────────────────────────────────────────────────
@@ -256,10 +213,13 @@ class MejaKerjaService
         $this->ubahStatus($t, 'in_progress', $u, $t->status === 'pending' ? 'Dilanjutkan' : 'Mulai dikerjakan');
     }
 
-    /** Task Antre dengan skor tertinggi di peran user → langsung dikerjakan. */
-    public function ambilBerikutnya(User $u): ?Task
+    /**
+     * Task Antre dengan skor tertinggi → langsung dikerjakan. $peran = meja yang sedang dibuka;
+     * null = semua meja tempat user jadi anggota.
+     */
+    public function ambilBerikutnya(User $u, ?array $peran = null): ?Task
     {
-        $peran = $this->peranUser($u->id);
+        $peran ??= $this->peranUser($u->id);
         $calon = Task::where('status', 'open')
             ->where(fn ($q) => $q->where('assignee_user_id', $u->id)->orWhere(fn ($w) => $w->whereIn('peran', $peran)->whereNull('assignee_user_id')))
             ->get()->sortByDesc(fn (Task $t) => $this->skor($t))->first();

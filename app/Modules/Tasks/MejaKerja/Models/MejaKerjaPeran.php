@@ -6,7 +6,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** Peran Meja Kerja → orang. urutan 1 = utama, selebihnya cadangan bila utama tak absen masuk. */
+/** Anggota meja peran: user yang membuka & mengambil task meja itu (urutan hanya urutan tampil). */
 class MejaKerjaPeran extends Model
 {
     public const PERAN = [

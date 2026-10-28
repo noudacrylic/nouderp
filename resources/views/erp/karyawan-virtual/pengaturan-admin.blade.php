@@ -12,23 +12,26 @@
         @csrf @method('PUT')
 
         <div class="bg-white shadow rounded-lg border p-6">
-            <h2 class="text-xl font-bold text-gray-800 mb-1">Peran</h2>
+            <h2 class="text-xl font-bold text-gray-800 mb-1">Anggota meja</h2>
             <p class="text-sm text-gray-500 mb-4">
-                Orang pertama = utama, berikutnya cadangan. Task Antre otomatis pindah ke cadangan bila yang utama belum absen masuk hari itu
-                (user tanpa data karyawan, mis. owner, selalu dianggap hadir).
+                Task skill masuk ke <b>meja peran</b>-nya (lihat kolom Peran di bawah) — tetap menumpuk di sana walau anggotanya belum ada.
+                Anggota = akun yang membuka meja itu di Meja Kerja dan mengambil task-nya; siapa yang menekan Mulai, dialah pengerjanya.
+                Super admin bisa membuka semua meja. Boleh kosong.
             </p>
             <div class="grid md:grid-cols-3 gap-4">
                 @foreach ($peranLabel as $p => $label)
                     @php $isi = ($peran[$p] ?? collect())->pluck('user_id')->all(); @endphp
                     <div class="border rounded p-3">
-                        <div class="font-semibold text-gray-800 mb-2">{{ $label }}</div>
-                        @for ($i = 0; $i < 3; $i++)
-                            <label class="block text-[11px] text-gray-500 mt-1">{{ $i === 0 ? 'Utama' : 'Cadangan ' . $i }}</label>
-                            <select name="peran[{{ $p }}][]" class="w-full border rounded px-2 py-1.5 text-sm">
-                                <option value="">—</option>
-                                @foreach ($users as $u)<option value="{{ $u->id }}" @selected(($isi[$i] ?? null) == $u->id)>{{ $u->name }}</option>@endforeach
-                            </select>
-                        @endfor
+                        <div class="font-semibold text-gray-800 mb-2">Meja {{ $label }}</div>
+                        <input type="hidden" name="peran[{{ $p }}][]" value="">
+                        <div class="max-h-56 overflow-y-auto space-y-1">
+                            @foreach ($users as $u)
+                                <label class="flex items-center gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" name="peran[{{ $p }}][]" value="{{ $u->id }}" @checked(in_array($u->id, $isi))>
+                                    {{ $u->name }}
+                                </label>
+                            @endforeach
+                        </div>
                     </div>
                 @endforeach
             </div>
@@ -57,7 +60,7 @@
                             @endif
                         </div>
                         <div class="md:col-span-3">
-                            <label class="block text-[11px] text-gray-500">Peran</label>
+                            <label class="block text-[11px] text-gray-500">Masuk meja</label>
                             <select name="skill[{{ $key }}][peran]" class="w-full border rounded px-2 py-1.5">
                                 @foreach ($peranLabel as $p => $label)<option value="{{ $p }}" @selected($a->peran === $p)>{{ $label }}</option>@endforeach
                             </select>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Settings;
 
 use App\Models\User;
 use App\Modules\SDM\Models\Karyawan;
+use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Services\MenuRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -55,7 +56,9 @@ class UserController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
-        return view('erp.settings.users.index', compact('users', 'karyawanOptions', 'menuTree', 'authUser', 'pendingRegistrations'));
+        $mejaPeran = MejaKerjaPeran::all()->groupBy('user_id')->map(fn ($r) => $r->pluck('peran')->all());
+
+        return view('erp.settings.users.index', compact('users', 'karyawanOptions', 'menuTree', 'authUser', 'pendingRegistrations', 'mejaPeran'));
     }
 
     public function store(Request $request)
@@ -78,6 +81,7 @@ class UserController extends Controller
 
         if ($user->role === 'user') {
             $this->syncPermissions($user, (array) $request->input('permissions', []));
+            $this->syncMejaPeran($user, $request);
         }
 
         return redirect()->route('settings.users.index')->with('success', "User {$user->username} dibuat.");
@@ -116,6 +120,7 @@ class UserController extends Controller
 
         if ($user->role === 'user') {
             $this->syncPermissions($user, (array) $request->input('permissions', []));
+            $this->syncMejaPeran($user, $request);
         } else {
             // super_admin / admin tidak perlu permission row
             $user->menuPermissions()->delete();
@@ -174,6 +179,8 @@ class UserController extends Controller
             'pwa_crm'  => ['nullable', 'boolean'],
             'permissions'   => 'array',
             'permissions.*' => 'string|max:80',
+            'meja_peran'    => 'array',
+            'meja_peran.*'  => ['string', Rule::in(array_keys(MejaKerjaPeran::PERAN))],
         ], [
             'karyawan_id.unique' => 'Karyawan ini sudah ter-link ke user lain.',
             'username.unique'    => 'Username sudah dipakai.',
@@ -216,5 +223,24 @@ class UserController extends Controller
             }
         });
         $user->clearMenuCache();
+    }
+
+    /**
+     * Meja peran Meja Kerja (Layanan, Desain, Owner) tempat user jadi anggota — data yang sama
+     * dengan "Anggota meja" di Pengaturan Manajer Admin. Tanpa menu Meja Kerja = bukan anggota.
+     */
+    private function syncMejaPeran(User $user, Request $request): void
+    {
+        $peran = in_array('tasks.meja', (array) $request->input('permissions', []), true)
+            ? array_values(array_unique((array) $request->input('meja_peran', [])))
+            : [];
+
+        DB::transaction(function () use ($user, $peran) {
+            MejaKerjaPeran::where('user_id', $user->id)->whereNotIn('peran', $peran)->delete();
+            foreach ($peran as $p) {
+                MejaKerjaPeran::firstOrCreate(['peran' => $p, 'user_id' => $user->id],
+                    ['urutan' => (int) MejaKerjaPeran::where('peran', $p)->max('urutan') + 1]);
+            }
+        });
     }
 }

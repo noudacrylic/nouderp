@@ -16,33 +16,42 @@
         <div>
             <h2 class="text-xl font-bold text-gray-800">Meja Kerja</h2>
             <p class="text-sm text-gray-500">
-                @if ($peranSaya)
-                    Peran Anda: {{ collect($peranSaya)->map(fn ($p) => $peranLabel[$p] ?? $p)->implode(', ') }}.
+                @if ($lihat === 'saya')
+                    Task yang Anda pegang{{ $peranSaya ? ' + Antre di meja ' . collect($peranSaya)->map(fn ($p) => $peranLabel[$p] ?? $p)->implode(', ') : '' }}.
+                @elseif ($lihat === 'semua')
+                    Semua meja peran.
                 @else
-                    Anda belum punya peran — task yang ditugaskan langsung ke Anda tetap muncul di sini.
+                    Semua task Meja {{ $peranLabel[$lihat] }} — siapa yang menekan Mulai, dialah pengerjanya.
                 @endif
                 Task otomatis selesai saat pekerjaannya tuntas di ERP.
             </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
             @if ($bolehSemua)
-                <form method="GET" class="flex items-center gap-1">
-                    <select name="lihat" onchange="this.form.submit()" class="border rounded px-2 py-2 text-sm">
-                        <option value="saya" @selected($lihat === 'saya')>Meja saya</option>
-                        <option value="semua" @selected($lihat === 'semua')>Semua peran</option>
-                        @foreach ($peranLabel as $k => $l)<option value="{{ $k }}" @selected($lihat === $k)>{{ $l }}</option>@endforeach
-                    </select>
-                </form>
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
                     <button class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Sinkron sekarang</button>
                 </form>
                 <a href="{{ route('karyawan-virtual.show', \App\Modules\Tasks\MejaKerja\MejaKerjaService::KARYAWAN) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm" title="Skill, peran & jurnal pembagian kerja">🗂️ Manajer Admin</a>
             @endif
             <form method="POST" action="{{ route('tasks.meja.ambil') }}">@csrf
+                <input type="hidden" name="lihat" value="{{ $lihat }}">
                 <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold"
                         @disabled($dikerjakanSaya >= \App\Modules\Tasks\MejaKerja\MejaKerjaService::MAKS_DIKERJAKAN)>▶ Ambil berikutnya</button>
             </form>
         </div>
+    </div>
+
+    @php
+        $tab = ['saya' => 'Meja saya'] + collect($tabPeran)->map(fn ($l) => 'Meja ' . $l)->all() + ($bolehSemua ? ['semua' => 'Semua meja'] : []);
+    @endphp
+    <div class="flex flex-wrap gap-1 border-b border-gray-200 mb-4">
+        @foreach ($tab as $k => $l)
+            <a href="{{ route('tasks.meja.index', ['lihat' => $k]) }}"
+               class="px-3 py-2 text-sm -mb-px border-b-2 {{ $lihat === $k ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
+                {{ $l }}
+                @if (($jumlahAntre[$k] ?? 0) > 0)<span class="ml-1 text-[11px] bg-slate-200 text-slate-700 rounded-full px-1.5">{{ $jumlahAntre[$k] }}</span>@endif
+            </a>
+        @endforeach
     </div>
 
     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4 items-start">
