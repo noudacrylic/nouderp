@@ -85,6 +85,14 @@ class CrmConversation extends Model
      */
     public const KANAL_CERMIN = 'whatsapp_waha';
 
+    /**
+     * Kanal chat Shopee (Open Platform). contact_key = user id pembeli Shopee,
+     * business_number_id = shop_id, display_name = username Shopee. Tahap A baca saja:
+     * ChatManager memberi ShopeeChatProvider yang menolak semua kiriman.
+     */
+    public const KANAL_SHOPEE = 'shopee';
+    public const NAMA_SHOPEE  = 'shopee';
+
     protected $fillable = [
         'channel', 'contact_key', 'display_name', 'name_source', 'name_checked_at',
         'provider_customer_id', 'business_number_id',
@@ -282,7 +290,13 @@ class CrmConversation extends Model
      */
     public function tanpaJendela(): bool
     {
-        return $this->cermin();
+        return $this->cermin() || $this->shopee();
+    }
+
+    /** Percakapan chat Shopee — tak punya nomor WhatsApp, jangan pernah dikirimi lewat WA. */
+    public function shopee(): bool
+    {
+        return $this->channel === self::KANAL_SHOPEE;
     }
 
     /**

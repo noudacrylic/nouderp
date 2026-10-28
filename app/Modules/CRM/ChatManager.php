@@ -6,6 +6,7 @@ use App\Modules\CRM\Contracts\ChatProvider;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Providers\ApiCoIdProvider;
 use App\Modules\CRM\Providers\FakeChatProvider;
+use App\Modules\CRM\Providers\ShopeeChatProvider;
 use App\Modules\CRM\Providers\WahaChatProvider;
 
 /**
@@ -60,6 +61,12 @@ class ChatManager
      */
     public function untuk(CrmConversation $percakapan): ChatProvider
     {
+        // Chat Shopee TIDAK BOLEH jatuh ke jalur WhatsApp (contact_key-nya user id Shopee),
+        // juga tidak ke driver palsu mode aman — Tahap A memang belum bisa membalas.
+        if ($percakapan->shopee()) {
+            return app(ShopeeChatProvider::class);
+        }
+
         if ($this->isDryRun()) {
             return $this->fake();
         }

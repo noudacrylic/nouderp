@@ -27,6 +27,9 @@ class CrmMessage extends Model
     public const SOURCE_ERP          = 'erp';
     public const SOURCE_WHATSAPP_APP = 'whatsapp_app';
     public const SOURCE_API          = 'api';
+    // Chat Shopee: dibalas admin dari Seller Centre, atau pesan otomatis Shopee (sambutan, luar jam).
+    public const SOURCE_SELLER_CENTRE   = 'seller_centre';
+    public const SOURCE_SHOPEE_OTOMATIS = 'shopee_otomatis';
 
     protected $fillable = [
         'conversation_id', 'direction', 'message_type', 'content', 'source',
