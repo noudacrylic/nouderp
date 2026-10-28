@@ -913,6 +913,8 @@ class CrmInboxController extends Controller
             // Percakapan asalnya sendiri tidak boleh jadi tujuan — meneruskan
             // pesan ke chat yang sama cuma menggandakannya di tempat semula.
             ->when($kecuali, fn ($q) => $q->whereKeyNot($kecuali))
+            // Chat Shopee belum bisa dikirimi dari ERP (Tahap A, baca saja).
+            ->where('channel', '!=', CrmConversation::KANAL_SHOPEE)
             ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('contact_key', 'like', "%{$cari}%")
                 ->orWhere('display_name', 'like', "%{$cari}%")

@@ -198,4 +198,23 @@ class ShopeeChatTest extends TestCase
         $this->assertInstanceOf(ShopeeChatProvider::class, app(ChatManager::class)->untuk($crm));
         $this->assertTrue($crm->tanpaJendela());
     }
+
+    public function test_inbox_menampilkan_chat_shopee_baca_saja_tanpa_tombol_mulai_chat(): void
+    {
+        $t = now()->subMinutes(3)->timestamp;
+        $this->cv(5, 'pembeli_shopee', $t, 'e2');
+        $this->pesan[5] = [
+            $this->m('e2', 'text', ['text' => 'baik kak'], toko: true, sumber: 'new_webchat', detik: $t),
+            $this->m('e1', 'text', ['text' => 'halo kak'], detik: $t - 10),
+        ];
+        app(ShopeeChatService::class)->tarikBaru($this->shop);
+        $crm = CrmConversation::firstOrFail();
+
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))
+            ->assertOk()
+            ->assertSee('Chat Shopee — baca saja')
+            ->assertSee('Seller Centre')
+            ->assertSee('Shopee · pembeli_shopee')
+            ->assertDontSee('Pesan bebas tidak bisa dikirim');
+    }
 }
