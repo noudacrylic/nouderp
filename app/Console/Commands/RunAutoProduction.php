@@ -66,6 +66,19 @@ class RunAutoProduction extends Command
                 . collect($nm['usulan'])->where('baru', true)->count() . ' usulan baru.');
         }
 
+        // OP milik pesanan pre-order yang batal: dibatalkan / dilepas / diambil alih pesanan baru —
+        // sebelum sapuan pre-order, supaya pesanan yang mengambil alih tak dibuatkan OP kedua.
+        $yatim = $kv->jalankan('produksi.op-yatim', KaryawanVirtualService::PEMICU_JADWAL);
+        foreach ($yatim['hasil'] as $r) {
+            $tag = match (true) {
+                $r['jenis'] === 'gagal'                => '<comment>GAGAL</comment>',
+                $r['jenis'] === 'dilewati'             => '<comment>SKIPPED</comment>',
+                $r['simulasi']                         => '<info>AKAN</info>',
+                default                                => '<info>' . strtoupper($r['jenis']) . '</info>',
+            };
+            $this->line("  {$tag}  {$r['order_number']} {$r['sku']} — {$r['reason']}");
+        }
+
         $preorderResults = $kv->jalankan('produksi.op-preorder', KaryawanVirtualService::PEMICU_JADWAL)['hasil'];
 
         foreach ($preorderResults as $r) {

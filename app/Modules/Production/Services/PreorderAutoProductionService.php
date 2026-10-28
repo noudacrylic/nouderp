@@ -291,7 +291,7 @@ class PreorderAutoProductionService
      * dikurangi output anak-anak yang di-merge ke dalamnya; kontribusi anak tetap terhitung
      * lewat barisnya sendiri, di SO-nya masing-masing.
      */
-    private function plannedQtyForSalesOrder(int $salesOrderId, int $productId): float
+    public function plannedQtyForSalesOrder(int $salesOrderId, int $productId): float
     {
         $orderIds = ProductionOrder::where('sales_order_id', $salesOrderId)
             ->where('status', '!=', 'cancelled')

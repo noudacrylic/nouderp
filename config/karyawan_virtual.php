@@ -39,10 +39,11 @@ return [
             'produksi.isi-antrean-rakit' => \App\Modules\KaryawanVirtual\Skills\Produksi\OpIsiAntreanRakit::class,
             'produksi.isi-antrean-cnc'   => \App\Modules\KaryawanVirtual\Skills\Produksi\OpIsiAntreanCnc::class,
             'produksi.coret-sampel-mesin' => \App\Modules\KaryawanVirtual\Skills\Produksi\CoretSampelMesin::class,
+            'produksi.op-yatim'           => \App\Modules\KaryawanVirtual\Skills\Produksi\OpYatim::class,
         ],
         // Skill yang masih diuji: diberi label "Dalam percobaan" di halaman & pesan Telegram.
         // Hapus dari daftar ini setelah hasilnya dipercaya (biasanya bersamaan naik ke Otomatis).
-        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc'],
+        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc', 'produksi.op-yatim'],
     ],
 
     // Membagi kerja ke manusia: tiap skill memindai pekerjaan terbuka di ERP lalu menaruhnya

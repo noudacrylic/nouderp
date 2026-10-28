@@ -33,6 +33,14 @@
                                     class="ml-1 text-xs border border-blue-200 text-blue-700 hover:bg-blue-50 px-2 py-0.5 rounded-lg font-semibold">Ganti SO</button>
                         @endif
                     </span>
+                @elseif($opYatim)
+                    <span>SO: <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-black uppercase"
+                              title="Pesanan asal dibatalkan saat OP sudah dikerjakan. Pesanan baru yang kekurangan barang akan mengambil alih otomatis.">Yatim · menunggu pemilik</span>
+                        @if($bolehGantiSo)
+                            <button type="button" @click="$dispatch('buka-ganti-so')"
+                                    class="ml-1 text-xs border border-blue-200 text-blue-700 hover:bg-blue-50 px-2 py-0.5 rounded-lg font-semibold">Pilih SO</button>
+                        @endif
+                    </span>
                 @endif
                 @if(!empty($repairSource) && $repairSource['number'])
                     <span>{{ $repairSource['label'] }}:
@@ -54,7 +62,7 @@
     @if($soChanges->isNotEmpty())
         <div class="mb-5 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 text-xs text-blue-800 space-y-1">
             @foreach($soChanges as $c)
-                <div>🔁 SO diganti <strong>{{ $c->from_number ?? '—' }}</strong> → <strong>{{ $c->to_number }}</strong>
+                <div>🔁 SO diganti <strong>{{ $c->from_number ?? 'yatim' }}</strong> → <strong>{{ $c->to_number ?? 'dilepas (yatim)' }}</strong>
                     · {{ \Carbon\Carbon::parse($c->created_at)->format('d/m/Y H:i') }}{{ $c->user_name ? ' · ' . $c->user_name : '' }}
                     · <span class="italic">{{ $c->reason }}</span></div>
             @endforeach
@@ -69,7 +77,7 @@
                 @csrf
                 <div>
                     <h3 class="font-bold text-gray-800">Ganti SO</h3>
-                    <p class="text-xs text-gray-500 mt-1">SO {{ $order->salesOrder->order_number }} sudah dibatalkan. Pindahkan order produksi ini ke SO pengganti
+                    <p class="text-xs text-gray-500 mt-1">{{ $order->salesOrder ? 'SO ' . $order->salesOrder->order_number . ' sudah dibatalkan' : 'Order produksi ini belum punya pemilik' }}. Pindahkan order produksi ini ke SO pengganti
                         (mis. pelanggan pesan ulang lewat jalur manual). Stok hasil yang sudah difinalisasi ikut pindah.</p>
                 </div>
 

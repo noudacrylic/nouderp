@@ -31,6 +31,9 @@ use Exception;
 
 class ProductionOrderService
 {
+    /** Penanda kv_skill OP yatim: dilepas dari SO batal, menunggu pemilik baru (lihat OpYatimService). */
+    public const KV_OP_YATIM = 'produksi.op-yatim';
+
     public function create(array $data): ProductionOrder
     {
         return DB::transaction(function () use ($data) {
@@ -2512,11 +2515,13 @@ class ProductionOrderService
                 throw new Exception('Order produksi yang dibatalkan atau terkait penggabungan task tidak bisa diganti SO-nya.');
             }
 
-            $oldSo = $order->salesOrder;
-            if (!$oldSo) {
+            // OP yatim (dilepas Manager Produksi) tak punya SO lama — boleh langsung diambil alih.
+            $oldSo  = $order->salesOrder;
+            $yatim  = !$oldSo && $order->kv_skill === self::KV_OP_YATIM;
+            if (!$oldSo && !$yatim) {
                 throw new Exception('Order produksi ini tidak terkait SO.');
             }
-            if (!in_array($oldSo->status, ['void', 'cancelled'], true)) {
+            if ($oldSo && !in_array($oldSo->status, ['void', 'cancelled'], true)) {
                 throw new Exception("SO {$oldSo->order_number} masih aktif — Ganti SO hanya untuk SO yang sudah void/batal.");
             }
 
@@ -2536,18 +2541,21 @@ class ProductionOrderService
                 throw new Exception("SO {$newSo->order_number} tidak memuat produk hasil order produksi ini.");
             }
 
-            $order->update(['sales_order_id' => $newSo->id]);
+            // Punya pemilik lagi → skor antrean kembali Otomatis (Prioritas Rendah hanya selama yatim).
+            $order->update(['sales_order_id' => $newSo->id] + ($yatim
+                ? ['kv_skill' => null, 'score_type' => 'auto', 'priority_level' => null]
+                : []));
 
             $batchIds = $order->finalizations()->pluck('id');
             if ($batchIds->isNotEmpty()) {
                 StockLayer::whereIn('production_finalization_id', $batchIds)
-                    ->where('sales_order_id', $oldSo->id)
+                    ->when($oldSo, fn ($q) => $q->where('sales_order_id', $oldSo->id), fn ($q) => $q->whereNull('sales_order_id'))
                     ->update(['sales_order_id' => $newSo->id]);
             }
 
             DB::table('production_order_so_changes')->insert([
                 'production_order_id' => $order->id,
-                'from_sales_order_id' => $oldSo->id,
+                'from_sales_order_id' => $oldSo?->id,
                 'to_sales_order_id'   => $newSo->id,
                 'reason'              => $reason,
                 'user_id'             => $userId,
@@ -2558,8 +2566,56 @@ class ProductionOrderService
     }
 
     /**
+     * LEPAS SO: OP pre-order umum yang pesanannya batal tapi sudah terlanjur dikerjakan
+     * dijadikan "yatim" — tanpa pemilik, skor Prioritas Rendah, ditandai kv_skill
+     * KV_OP_YATIM supaya pesanan berikutnya yang kekurangan barang bisa mengambil alih
+     * (gantiSalesOrder). Tanpa pengambil alih, OP tetap boleh diselesaikan dan hasilnya
+     * jadi stok biasa.
+     *
+     * Hanya untuk SO yang sudah void/batal — sama dengan aturan Ganti SO.
+     */
+    public function lepasSalesOrder(int $orderId, string $reason, ?int $userId = null): void
+    {
+        DB::transaction(function () use ($orderId, $reason, $userId) {
+            $order = ProductionOrder::with('salesOrder')->lockForUpdate()->findOrFail($orderId);
+
+            $oldSo = $order->salesOrder;
+            if (!$oldSo) {
+                throw new Exception('Order produksi ini tidak terkait SO.');
+            }
+            if (!in_array($oldSo->status, ['void', 'cancelled'], true)) {
+                throw new Exception("SO {$oldSo->order_number} masih aktif — hanya OP milik SO yang batal yang bisa dilepas.");
+            }
+
+            $order->update([
+                'sales_order_id' => null,
+                'kv_skill'       => self::KV_OP_YATIM,
+                'score_type'     => 'priority',
+                'priority_level' => 'low',
+            ]);
+
+            $batchIds = $order->finalizations()->pluck('id');
+            if ($batchIds->isNotEmpty()) {
+                StockLayer::whereIn('production_finalization_id', $batchIds)
+                    ->where('sales_order_id', $oldSo->id)
+                    ->update(['sales_order_id' => null]);
+            }
+
+            DB::table('production_order_so_changes')->insert([
+                'production_order_id' => $order->id,
+                'from_sales_order_id' => $oldSo->id,
+                'to_sales_order_id'   => null,
+                'reason'              => $reason,
+                'user_id'             => $userId,
+                'created_at'          => now(),
+                'updated_at'          => now(),
+            ]);
+        });
+    }
+
+    /**
      * Batalkan order produksi.
-     *  • Draft        → tandai cancelled (belum ada konsumsi stok).
+     *  • Draft       → tandai cancelled (belum ada konsumsi stok).
      *  • Dikonfirmasi → hanya bila BELUM dikerjakan (semua langkah masih antre).
      *    Material yang sudah dikeluarkan saat konfirmasi dikembalikan ke stok
      *    (FIFO + ledger) dan dibuat jurnal balik Dr. Persediaan / Cr. WIP.

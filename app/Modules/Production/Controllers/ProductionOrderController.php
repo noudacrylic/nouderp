@@ -490,21 +490,21 @@ class ProductionOrderController extends Controller
 
         $soChanges = DB::table('production_order_so_changes as c')
             ->leftJoin('sales_orders as f', 'f.id', '=', 'c.from_sales_order_id')
-            ->join('sales_orders as t', 't.id', '=', 'c.to_sales_order_id')
+            ->leftJoin('sales_orders as t', 't.id', '=', 'c.to_sales_order_id')
             ->leftJoin('users as u', 'u.id', '=', 'c.user_id')
             ->where('c.production_order_id', $order->id)
             ->orderByDesc('c.id')
             ->get(['f.order_number as from_number', 't.order_number as to_number', 'c.reason', 'u.name as user_name', 'c.created_at']);
 
-        // Ganti SO hanya ditawarkan bila SO lama sudah void/batal (aturan di service).
-        $bolehGantiSo = $order->salesOrder
-            && in_array($order->salesOrder->status, ['void', 'cancelled'], true)
+        // Ganti SO hanya ditawarkan bila SO lama sudah void/batal, atau OP yatim (aturan di service).
+        $opYatim = !$order->sales_order_id && $order->kv_skill === ProductionOrderService::KV_OP_YATIM;
+        $bolehGantiSo = (($order->salesOrder && in_array($order->salesOrder->status, ['void', 'cancelled'], true)) || $opYatim)
             && !in_array($order->status, ['cancelled', 'merged'], true)
             && $order->merged_into_id === null;
 
         return view('erp.production.orders.show', compact(
             'order', 'departments', 'materialStock', 'repairSource', 'batches', 'lastActiveBatch',
-            'wip', 'wipBreakdown', 'soChanges', 'bolehGantiSo'
+            'wip', 'wipBreakdown', 'soChanges', 'bolehGantiSo', 'opYatim'
         ));
     }
 
