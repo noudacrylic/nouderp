@@ -40,10 +40,11 @@ return [
             'produksi.isi-antrean-cnc'   => \App\Modules\KaryawanVirtual\Skills\Produksi\OpIsiAntreanCnc::class,
             'produksi.coret-sampel-mesin' => \App\Modules\KaryawanVirtual\Skills\Produksi\CoretSampelMesin::class,
             'produksi.op-yatim'           => \App\Modules\KaryawanVirtual\Skills\Produksi\OpYatim::class,
+            'produksi.op-koin'            => \App\Modules\KaryawanVirtual\Skills\Produksi\OpKoin::class,
         ],
         // Skill yang masih diuji: diberi label "Dalam percobaan" di halaman & pesan Telegram.
         // Hapus dari daftar ini setelah hasilnya dipercaya (biasanya bersamaan naik ke Otomatis).
-        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc', 'produksi.op-yatim'],
+        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc', 'produksi.op-yatim', 'produksi.op-koin'],
     ],
 
     // Membagi kerja ke manusia: tiap skill memindai pekerjaan terbuka di ERP lalu menaruhnya
@@ -53,7 +54,7 @@ return [
         'nama'       => 'Manajer Admin',
         'ikon'       => '🗂️',
         'divisi'     => 'Admin',
-        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang), membagikannya ke Meja Kerja orang yang tepat, dan mengalihkan pekerjaan saat yang bertugas belum hadir.',
+        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP), membagikannya ke Meja Kerja orang yang tepat, dan mengalihkan pekerjaan saat yang bertugas belum hadir.',
         'akses'      => 'tasks.board',
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [
@@ -64,9 +65,10 @@ return [
             'admin.purchasing-nonstok' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingNonStokSkill::class,
             'admin.purchasing-laporan' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingLaporanSkill::class,
             'admin.kedatangan'         => \App\Modules\Tasks\MejaKerja\Skills\KedatanganSkill::class,
+            'admin.cetak-stiker'       => \App\Modules\Tasks\MejaKerja\Skills\CetakStikerSkill::class,
             'admin.penugasan'          => \App\Modules\Tasks\MejaKerja\Skills\PenugasanSkill::class,
         ],
-        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.kedatangan'],
+        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.kedatangan', 'admin.cetak-stiker'],
     ],
 
 ];

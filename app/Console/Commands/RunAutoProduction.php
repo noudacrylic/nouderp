@@ -66,6 +66,15 @@ class RunAutoProduction extends Command
                 . collect($nm['usulan'])->where('baru', true)->count() . ' usulan baru.');
         }
 
+        // Koin kotak saran: satu BOM untuk 4 koin, dipicu koin mana pun yang menipis.
+        $koin = $kv->jalankan('produksi.op-koin', KaryawanVirtualService::PEMICU_JADWAL);
+        foreach ($koin['hasil'] as $r) {
+            if ($r['created'] || $r['simulasi']) {
+                $this->line('  ' . ($r['created'] ? '<info>CREATED</info>' : '<info>AKAN</info>')
+                    . ' koin' . ($r['created'] ? " → {$r['order_number']}" : '') . " — {$r['reason']}");
+            }
+        }
+
         // OP milik pesanan pre-order yang batal: dibatalkan / dilepas / diambil alih pesanan baru —
         // sebelum sapuan pre-order, supaya pesanan yang mengambil alih tak dibuatkan OP kedua.
         $yatim = $kv->jalankan('produksi.op-yatim', KaryawanVirtualService::PEMICU_JADWAL);
