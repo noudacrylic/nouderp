@@ -112,7 +112,7 @@
     {{-- Kepala percakapan: siapa yang sedang dibalas, selalu terlihat walau
          thread digulir jauh ke atas. Tanpa ini admin yang membuka beberapa
          chat berturut-turut kehilangan jejak sedang bicara dengan siapa. --}}
-    <div class="shrink-0 flex items-center {{ $modePwa ? 'gap-2 px-2 py-2' : 'gap-3 px-4 py-2.5' }} border-b {{ $terpilih->shopee() ? 'border-orange-200 bg-orange-50 border-t-4 border-t-orange-500' : 'border-gray-200 bg-white' }}"
+    <div class="shrink-0 flex items-center {{ $modePwa ? 'gap-2 px-2 py-2' : 'gap-3 px-4 py-2.5' }} border-b {{ $terpilih->shopee() ? 'border-gray-200 bg-white border-t-4 border-t-orange-500' : 'border-gray-200 bg-white' }}"
          x-data="{ menu: false, catatan: false, nama: false, oper: false }">
         @if($modePwa)
             {{-- Tautan sungguhan, bukan history.back(): chat sering dibuka
@@ -390,7 +390,7 @@
 
     {{-- Daftar pesan: SATU-SATUNYA bagian yang menggulir. Kepala tetap di atas,
          kotak ketik tetap di bawah — seperti aplikasi chat. --}}
-    <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 {{ $terpilih->shopee() ? 'bg-[#fdf1e6]' : 'bg-[#efeae2]' }}">
+    <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 {{ $terpilih->shopee() ? 'bg-white' : 'bg-[#efeae2]' }}">
             @include('erp.crm.inbox._bubbles')
             <div x-ref="tambahan"></div>
             @if($pesan->isEmpty())
