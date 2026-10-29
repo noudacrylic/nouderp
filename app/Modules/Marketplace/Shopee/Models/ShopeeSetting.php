@@ -16,15 +16,17 @@ class ShopeeSetting extends Model
 
     public const ENVS = ['test', 'live'];
 
-    protected $fillable = ['env', 'test_partner_id', 'test_partner_key', 'live_partner_id', 'live_partner_key', 'live_key_expires_at', 'chat_owner_user_id'];
+    protected $fillable = ['env', 'test_partner_id', 'test_partner_key', 'test_push_key', 'live_partner_id', 'live_partner_key', 'live_push_key', 'live_key_expires_at', 'chat_owner_user_id'];
 
-    protected $hidden = ['test_partner_key', 'live_partner_key'];
+    protected $hidden = ['test_partner_key', 'live_partner_key', 'test_push_key', 'live_push_key'];
 
     protected $casts = [
         'test_partner_id'  => 'integer',
         'test_partner_key' => 'encrypted',
         'live_partner_id'  => 'integer',
         'live_partner_key' => 'encrypted',
+        'test_push_key'    => 'encrypted',
+        'live_push_key'    => 'encrypted',
         'live_key_expires_at' => 'date',
         'chat_owner_user_id'  => 'integer',
     ];
@@ -56,6 +58,14 @@ class ShopeeSetting extends Model
         $env ??= $this->envAktif();
 
         return (string) ($this->safeAttr($env . '_partner_key') ?: $this->dariEnv($env, 'partner_key'));
+    }
+
+    /** Live Push Partner Key (Console › Push Mechanism › Generate); '' bila belum diisi. */
+    public function pushKey(?string $env = null): string
+    {
+        $env ??= $this->envAktif();
+
+        return (string) $this->safeAttr($env . '_push_key');
     }
 
     public function siap(?string $env = null): bool

@@ -58,6 +58,10 @@ class ShopeeSettingController extends Controller
             'live_partner_key' => 'nullable|string|max:255',
             'hapus_test_key'   => 'nullable|boolean',
             'hapus_live_key'   => 'nullable|boolean',
+            'test_push_key'    => 'nullable|string|max:255',
+            'live_push_key'    => 'nullable|string|max:255',
+            'hapus_test_push_key' => 'nullable|boolean',
+            'hapus_live_push_key' => 'nullable|boolean',
             'live_key_expires_at' => 'nullable|date',
         ]);
 
@@ -70,6 +74,12 @@ class ShopeeSettingController extends Controller
                 $setting->{$env . '_partner_key'} = $kunci;
             } elseif (!empty($data['hapus_' . $env . '_key'])) {
                 $setting->{$env . '_partner_key'} = null;
+            }
+            $kunciPush = trim((string) ($data[$env . '_push_key'] ?? ''));
+            if ($kunciPush !== '') {
+                $setting->{$env . '_push_key'} = $kunciPush;
+            } elseif (!empty($data['hapus_' . $env . '_push_key'])) {
+                $setting->{$env . '_push_key'} = null;
             }
         }
         $setting->live_key_expires_at = $data['live_key_expires_at'] ?? null;

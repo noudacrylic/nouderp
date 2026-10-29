@@ -68,6 +68,15 @@
                         @elseif ($setting->siap($e))
                             <p class="text-[11px] text-amber-700 mt-1">Saat ini memakai cadangan dari .env server.</p>
                         @endif
+                        <label class="block text-xs font-semibold text-gray-700 mt-2 mb-1">Live Push Partner Key</label>
+                        <input type="password" name="{{ $e }}_push_key" value="" autocomplete="new-password"
+                               class="w-full border rounded px-3 py-2 text-sm font-mono" placeholder="{{ $setting->pushKey($e) !== '' ? '•••••••• (tersimpan)' : 'dari Console › Push Mechanism › Generate' }}">
+                        <p class="text-[11px] text-gray-400 mt-1">Kunci khusus tanda tangan Live Push — beda dengan Partner Key. Kosongkan bila tidak diubah.</p>
+                        @if ($setting->pushKey($e) !== '')
+                            <label class="inline-flex items-center gap-1 text-[11px] text-red-600 mt-1">
+                                <input type="checkbox" name="hapus_{{ $e }}_push_key" value="1"> Hapus kunci push tersimpan
+                            </label>
+                        @endif
                         @if ($e === 'live')
                             <label class="block text-xs font-semibold text-gray-700 mt-2 mb-1">Kunci Live berlaku s/d</label>
                             <input type="date" name="live_key_expires_at" value="{{ old('live_key_expires_at', $setting->live_key_expires_at?->format('Y-m-d')) }}"

@@ -60,20 +60,25 @@ class ShopeePushController extends Controller
     }
 
     /**
-     * Authorization = HMAC-SHA256(partner key, URL push + '|' + body). URL dicoba dua bentuk —
-     * dari APP_URL dan dari permintaan — karena di balik cloudflared skema/host permintaan
-     * bisa berbeda dengan yang didaftarkan di Console.
+     * Authorization = HMAC-SHA256(kunci, URL push + '|' + body). Kuncinya "Live Push Partner
+     * Key" (Console › Push Mechanism › Generate); Partner Key app dicoba sebagai cadangan.
+     * URL dicoba dua bentuk — dari APP_URL dan dari permintaan — karena di balik cloudflared
+     * skema/host permintaan bisa berbeda dengan yang didaftarkan di Console.
      */
     private function tandaTanganSah(Request $request, string $body): bool
     {
         $diterima = (string) $request->header('Authorization', '');
-        if ($diterima === '' || !$this->client->siap()) {
+        $setting  = $this->client->setting();
+        $kunci    = array_filter(array_unique([$setting->pushKey(), $setting->partnerKey()]));
+        if ($diterima === '' || !$kunci) {
             return false;
         }
 
-        foreach (array_unique([route('shopee.push'), $request->url()]) as $url) {
-            if (hash_equals($this->client->tandaTangan($url . '|' . $body), $diterima)) {
-                return true;
+        foreach ($kunci as $k) {
+            foreach (array_unique([route('shopee.push'), $request->url()]) as $url) {
+                if (hash_equals(hash_hmac('sha256', $url . '|' . $body, $k), $diterima)) {
+                    return true;
+                }
             }
         }
 

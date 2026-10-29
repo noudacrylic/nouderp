@@ -79,6 +79,19 @@ class ShopeePushTest extends TestCase
         $this->assertNull($log->error);
     }
 
+    public function test_tanda_tangan_dengan_live_push_partner_key_diterima(): void
+    {
+        \App\Modules\Marketplace\Shopee\Models\ShopeeSetting::singleton()->forceFill(['test_push_key' => 'kunci-push-uji'])->save();
+
+        $isi  = ['shop_id' => self::TOKO, 'code' => 10];
+        $sign = hash_hmac('sha256', route('shopee.push') . '|' . json_encode($isi), 'kunci-push-uji');
+
+        $this->push($isi, $sign)->assertOk();
+
+        $this->assertSame(1, $this->panggilDaftar);
+        $this->assertNull(ShopeeApiLog::where('method', 'PUSH')->sole()->error);
+    }
+
     public function test_tanda_tangan_salah_dijawab_200_tapi_tidak_memicu_apa_pun(): void
     {
         $this->push(['shop_id' => self::TOKO, 'code' => 10], 'palsu')->assertOk();
