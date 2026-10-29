@@ -580,8 +580,14 @@
                        title="Pakai bila label Jubelio tidak mau keluar — label resi dicetak dari ERP (nomor resi & penerima dari Jubelio)">Label ERP</a>
                 @endif
             @endif
-            <a href="{{ route('pos.fulfillment.jubelio-faktur', $r['id']) }}"
-               class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</a>
+            {{-- Faktur ERP, bukan report Jubelio — bisa diberi "Atas nama" pembeli & tanpa info bayar. --}}
+            @if(!empty($r['invoice']))
+                <a href="{{ route('sales.invoices.print', $r['invoice']->id) }}"
+                   class="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold">🧾 Cetak Faktur</a>
+            @else
+                <span class="text-xs px-3 py-1.5 rounded border border-gray-200 text-gray-400 cursor-not-allowed"
+                      title="Faktur ERP belum terbit untuk pesanan ini">🧾 Faktur belum terbit</span>
+            @endif
             @if(!empty($r['tracking_no']))
                 <span class="text-xs text-green-600 font-semibold ml-1">
                     Resi: <span class="js-copy cursor-pointer hover:underline" data-copy="{{ $r['tracking_no'] }}" title="Klik untuk salin resi">{{ $r['tracking_no'] }}</span>
