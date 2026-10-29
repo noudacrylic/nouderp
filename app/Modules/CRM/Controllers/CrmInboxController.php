@@ -1338,7 +1338,8 @@ class CrmInboxController extends Controller
         return back()->with(
             $hasil['success'] ? 'success' : 'error',
             $hasil['success']
-                ? 'Chat ' . $conversation->namaTampil() . ' ditandai sudah dibaca — notifikasinya hilang dari HP CS.'
+                ? 'Chat ' . $conversation->namaTampil() . ' ditandai sudah dibaca — '
+                    . ($conversation->shopee() ? 'tanda belum dibacanya hilang di Seller Centre.' : 'notifikasinya hilang dari HP CS.')
                 : $hasil['error']
         );
     }

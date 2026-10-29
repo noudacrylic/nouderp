@@ -13,9 +13,16 @@
     $cermin  = $terpilih->cermin();
     $terbuka = $cermin || $terpilih->windowIsOpen();
 
+    /* Chat Shopee (Tahap B) tak berjendela: bisa dibalas selama toko Shopee terhubung.
+       Mode aman tetap membuka kotak ketik — balasannya dicatat, tidak dikirim. */
+    if ($terpilih->shopee()) {
+        $terbuka = ($dryRun ?? false) || app(\App\Modules\CRM\ChatManager::class)->siapUntuk($terpilih);
+    }
+
     /* Tombol "tandai dibaca di HP" cuma masuk akal di jalur self-host, dan
        hanya kalau saklarnya dinyalakan — ia memunculkan centang biru. */
-    $bisaTandaiDibaca = $cermin && (bool) config('crm.waha.tandai_dibaca', false);
+    $bisaTandaiDibaca = ($cermin && (bool) config('crm.waha.tandai_dibaca', false))
+        || ($terpilih->shopee() && $terbuka && ! ($dryRun ?? false));
     // Ambangnya dibaca dari servicenya, bukan diketik ulang: angka yang
     // berbeda sedikit saja berarti tombolnya muncul di layar lalu ditolak
     // saat ditekan.
@@ -417,11 +424,19 @@
                      membukanya. --}}
                 <form method="POST" action="{{ route('crm.inbox.tandai-dibaca', $terpilih) }}" class="mb-2 flex justify-end">
                     @csrf
-                    <button type="submit"
-                            title="Hilangkan notifikasi chat ini di HP CS. Pelanggan akan melihat centang biru."
-                            class="px-2.5 py-1 rounded border border-sky-600 text-sky-800 hover:bg-sky-100 text-xs">
-                        Tandai dibaca di HP
-                    </button>
+                    @if($terpilih->shopee())
+                        <button type="submit"
+                                title="Hilangkan tanda belum dibaca di Seller Centre. Pembeli akan melihat status Dibaca."
+                                class="px-2.5 py-1 rounded border border-orange-500 text-orange-800 hover:bg-orange-100 text-xs">
+                            Tandai dibaca di Shopee
+                        </button>
+                    @else
+                        <button type="submit"
+                                title="Hilangkan notifikasi chat ini di HP CS. Pelanggan akan melihat centang biru."
+                                class="px-2.5 py-1 rounded border border-sky-600 text-sky-800 hover:bg-sky-100 text-xs">
+                            Tandai dibaca di HP
+                        </button>
+                    @endif
                 </form>
             @endif
             @if(! $terpilih->owner_user_id)
@@ -470,14 +485,14 @@
                     Chat ini dipegang <b>{{ $terpilih->owner->name ?? 'agen lain' }}</b> — Anda hanya bisa membacanya.
                     Minta dioper lewat chip pemilik di daftar kalau perlu membalas.
                 </div>
-            @elseif($terpilih->shopee())
-                {{-- Chat Shopee Tahap A: baca saja. Kotak "jendela tertutup" di bawah TIDAK boleh
-                     tampil di sini — tombol "Mulai chat"-nya mengirim WhatsApp ke contact_key,
+            @elseif($terpilih->shopee() && ! $terbuka)
+                {{-- Toko Shopee belum/tak lagi terhubung. Kotak "jendela tertutup" di bawah TIDAK
+                     boleh tampil di sini — tombol "Mulai chat"-nya mengirim WhatsApp ke contact_key,
                      yang untuk chat Shopee berisi user id Shopee, bukan nomor. --}}
                 <div class="rounded border border-orange-300 bg-orange-50 px-3 py-3 text-sm text-orange-900">
-                    <b>Chat Shopee — baca saja untuk sementara.</b> Balas lewat
-                    <a href="https://seller.shopee.co.id/webchat/conversations" target="_blank" rel="noopener" class="underline font-medium">Seller Centre</a>;
-                    balasannya ikut tampil di sini dalam ±1 menit.
+                    <b>Chat Shopee belum bisa dibalas dari ERP</b> — toko Shopee belum terhubung atau izinnya
+                    kedaluwarsa (Pengaturan › Integrasi › Shopee). Sementara balas lewat
+                    <a href="https://seller.shopee.co.id/webchat/conversations" target="_blank" rel="noopener" class="underline font-medium">Seller Centre</a>.
                 </div>
             @elseif($terbuka)
                 {{-- Peringatan dini. Jendela yang tinggal sebentar tidak
@@ -532,7 +547,9 @@
                       @berkas-jatuh.window="tambah($event.detail.berkas)">
                     @csrf
 
+                    {{-- Chat Shopee hanya menerima gambar. --}}
                     <input type="file" name="gambar[]" multiple class="hidden"
+                           @if($terpilih->shopee()) accept="image/jpeg,image/png" @endif
                            x-ref="berkas" @change="dariDialog()">
 
                     {{-- Strip kutipan: pesan yang sedang dibalas, tepat di atas kotak
@@ -705,6 +722,10 @@
                     <div class="mt-1.5 text-[11px] text-gray-400">
                         Enter kirim &middot; Shift+Enter baris baru &middot; <b>/</b> template
                         &middot; Ctrl+V tempel gambar &middot; seret berkas ke mana saja di percakapan ini
+                        @if($terpilih->shopee())
+                            <br><span class="text-orange-600">Shopee: hanya teks &amp; gambar (tanpa caption — teks dikirim sesudah gambar).
+                            Hindari nomor WA / tautan luar; Shopee bisa memblokirnya.</span>
+                        @endif
                     </div>
 
                 </form>

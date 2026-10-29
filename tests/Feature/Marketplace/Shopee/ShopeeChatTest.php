@@ -16,13 +16,15 @@ use App\Modules\Marketplace\Shopee\Services\ShopeeChatService;
 use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * Chat Shopee → CRM Tahap A (baca saja): AI-saja disembunyikan, pesan disalin dengan sumber
- * yang benar, SO tertaut dari kartu pesanan, dan tak satu pun kiriman lewat jalur WhatsApp.
+ * Chat Shopee → CRM. Tahap A: AI-saja disembunyikan, pesan disalin dengan sumber yang benar,
+ * SO tertaut dari kartu pesanan, tak satu pun kiriman lewat jalur WhatsApp.
+ * Tahap B: balas teks/gambar lewat send_message + tandai dibaca, tanpa salinan ganda.
  */
 class ShopeeChatTest extends TestCase
 {
@@ -36,6 +38,10 @@ class ShopeeChatTest extends TestCase
     /** conversation_id => daftar pesan (terbaru dulu, seperti API) */
     private array $pesan = [];
     private array $percakapan = [];
+
+    /** Panggilan tulis ke Shopee: [path, body|null] */
+    private array $kiriman = [];
+    private int $nomorKirim = 0;
 
     protected function setUp(): void
     {
@@ -55,6 +61,24 @@ class ShopeeChatTest extends TestCase
             }
             if (str_contains($r->url(), 'get_message')) {
                 return Http::response(['response' => ['messages' => $this->pesan[$q['conversation_id']] ?? [], 'page_result' => ['next_offset' => '']]]);
+            }
+            if (str_contains($r->url(), 'upload_image')) {
+                $this->kiriman[] = ['upload_image', null];
+
+                return Http::response(['response' => ['url' => 'https://cf.shopee.co.id/file/gbr1', 'thumbnail' => 'x']]);
+            }
+            if (str_contains($r->url(), 'send_message')) {
+                $this->kiriman[] = ['send_message', $r->data()];
+
+                return Http::response(['response' => [
+                    'message_id' => 'kirim' . (++$this->nomorKirim), 'to_id' => $r->data()['to_id'],
+                    'message_type' => $r->data()['message_type'], 'content' => $r->data()['content'], 'conversation_id' => '7',
+                ]]);
+            }
+            if (str_contains($r->url(), 'read_conversation')) {
+                $this->kiriman[] = ['read_conversation', $r->data()];
+
+                return Http::response(['response' => []]);
             }
 
             return Http::response(['error' => 'tak_terduga'], 400);
@@ -192,31 +216,135 @@ class ShopeeChatTest extends TestCase
         config(['crm.dry_run' => false]);
         $jalur = app(ChatManager::class)->untuk($crm);
         $this->assertInstanceOf(ShopeeChatProvider::class, $jalur);
-        $this->assertFalse($jalur->sendText(['to' => '9990', 'text' => 'halo'])['success']);
-        $this->assertFalse(app(ChatManager::class)->siapUntuk($crm));
+        $this->assertTrue(app(ChatManager::class)->siapUntuk($crm));
+        $this->assertFalse($jalur->sendTemplate(['to' => '9990', 'template' => 'x'])['success']);
 
+        // Mode aman: driver palsu — tak ada yang berangkat ke Shopee maupun WhatsApp.
         config(['crm.dry_run' => true]);
-        $this->assertInstanceOf(ShopeeChatProvider::class, app(ChatManager::class)->untuk($crm));
+        $this->assertNotInstanceOf(ShopeeChatProvider::class, app(ChatManager::class)->untuk($crm));
         $this->assertTrue($crm->tanpaJendela());
     }
 
-    public function test_inbox_menampilkan_chat_shopee_baca_saja_tanpa_tombol_mulai_chat(): void
+    /** Percakapan tersalin dari Shopee (conversation_id 7, pembeli to_id 70) dengan satu pesan masuk. */
+    private function chatSiapDibalas(): CrmConversation
     {
         $t = now()->subMinutes(3)->timestamp;
-        $this->cv(5, 'pembeli_shopee', $t, 'e2');
-        $this->pesan[5] = [
-            $this->m('e2', 'text', ['text' => 'baik kak'], toko: true, sumber: 'new_webchat', detik: $t),
-            $this->m('e1', 'text', ['text' => 'halo kak'], detik: $t - 10),
-        ];
+        $this->cv(7, 'pembeli_tujuh', $t, 'g1');
+        $this->pesan[7] = [$this->m('g1', 'text', ['text' => 'ready kak?'], detik: $t)];
         app(ShopeeChatService::class)->tarikBaru($this->shop);
-        $crm = CrmConversation::firstOrFail();
+
+        return CrmConversation::where('channel', CrmConversation::KANAL_SHOPEE)->firstOrFail();
+    }
+
+    public function test_inbox_chat_shopee_menampilkan_kotak_ketik_tanpa_tombol_mulai_chat(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
 
         $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))
             ->assertOk()
-            ->assertSee('Chat Shopee — baca saja')
-            ->assertSee('Seller Centre')
-            ->assertSee('Shopee · pembeli_shopee')
-            ->assertDontSee('Pesan bebas tidak bisa dikirim');
+            ->assertSee('Shopee · pembeli_tujuh')
+            ->assertSee('Tulis balasan')
+            ->assertSee('Tandai dibaca di Shopee')
+            ->assertDontSee('Pesan bebas tidak bisa dikirim')
+            ->assertDontSee('belum bisa dibalas dari ERP');
+
+        // Toko terputus → kotak ketik diganti petunjuk Seller Centre.
+        $this->shop->forceFill(['refresh_expires_at' => now()->subDay()])->save();
+        $this->get(route('crm.inbox.show', $crm))
+            ->assertOk()
+            ->assertSee('belum bisa dibalas dari ERP')
+            ->assertDontSee('Tulis balasan');
+    }
+
+    public function test_balas_teks_lewat_send_message_lalu_tandai_dibaca_tanpa_salinan_ganda(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+
+        $this->actingAs($this->saiful)
+            ->postJson(route('crm.inbox.balas', $crm), ['teks' => 'Ready kak, silakan diorder'])
+            ->assertOk();
+
+        $this->assertSame(['send_message', ['to_id' => 70, 'message_type' => 'text', 'content' => ['text' => 'Ready kak, silakan diorder']]], $this->kiriman[0]);
+        $this->assertSame(['read_conversation', ['conversation_id' => 7, 'last_read_message_id' => 'g1']], $this->kiriman[1]);
+
+        $keluar = CrmMessage::where('direction', CrmMessage::KELUAR)->sole();
+        $this->assertSame('shopee:kirim1', $keluar->provider_message_id);
+        $this->assertSame(CrmMessage::SOURCE_ERP, $keluar->source);
+        $this->assertSame($this->saiful->id, $keluar->sent_by_user_id);
+
+        // Sinkron berikutnya melihat balasan itu (source openapi) — tidak boleh menggandakannya.
+        $this->cv(7, 'pembeli_tujuh', now()->timestamp, 'kirim1');
+        array_unshift($this->pesan[7], $this->m('kirim1', 'text', ['text' => 'Ready kak, silakan diorder'], toko: true, sumber: 'openapi'));
+        app(ShopeeChatService::class)->tarikBaru($this->shop->fresh());
+
+        $this->assertSame(1, CrmMessage::where('direction', CrmMessage::KELUAR)->count());
+        $this->assertSame(0, $crm->fresh()->unread_count);
+    }
+
+    public function test_gambar_dan_teks_jadi_dua_pesan_karena_shopee_tanpa_caption(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+
+        $this->actingAs($this->saiful)
+            ->post(route('crm.inbox.balas', $crm), [
+                'teks'   => 'ini desainnya kak',
+                'gambar' => [UploadedFile::fake()->image('desain.jpg', 200, 200)],
+            ], ['Accept' => 'application/json'])
+            ->assertOk();
+
+        $this->assertSame(['upload_image', null], $this->kiriman[0]);
+        $kirim = array_values(array_filter($this->kiriman, fn ($k) => $k[0] === 'send_message'));
+        $this->assertSame(['to_id' => 70, 'message_type' => 'image', 'content' => ['image_url' => 'https://cf.shopee.co.id/file/gbr1']], $kirim[0][1]);
+        $this->assertSame(['to_id' => 70, 'message_type' => 'text', 'content' => ['text' => 'ini desainnya kak']], $kirim[1][1]);
+
+        $keluar = CrmMessage::where('direction', CrmMessage::KELUAR)->orderBy('id')->get();
+        $this->assertSame(['image', 'text'], $keluar->pluck('message_type')->all());
+        $this->assertNull($keluar[0]->content);
+        $this->assertSame(['shopee:kirim1', 'shopee:kirim2'], $keluar->pluck('provider_message_id')->all());
+        $this->assertCount(1, $keluar[0]->attachments);
+    }
+
+    public function test_berkas_bukan_gambar_ditolak_tanpa_menyentuh_shopee(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+
+        $this->actingAs($this->saiful)
+            ->post(route('crm.inbox.balas', $crm), [
+                'gambar' => [UploadedFile::fake()->create('desain.pdf', 50, 'application/pdf')],
+            ], ['Accept' => 'application/json'])
+            ->assertJson(['success' => false]);
+
+        $this->assertSame([], $this->kiriman);
+        $this->assertSame(0, CrmMessage::where('direction', CrmMessage::KELUAR)->count());
+    }
+
+    public function test_mode_aman_mencatat_tanpa_mengirim_ke_shopee(): void
+    {
+        config(['crm.dry_run' => true]);
+        $crm = $this->chatSiapDibalas();
+
+        $this->actingAs($this->saiful)
+            ->postJson(route('crm.inbox.balas', $crm), ['teks' => 'halo'])
+            ->assertOk();
+
+        $this->assertSame([], $this->kiriman);
+        $this->assertSame(CrmMessage::STATUS_TIDAK_DIKIRIM, CrmMessage::where('direction', CrmMessage::KELUAR)->sole()->status);
+    }
+
+    public function test_tombol_tandai_dibaca_di_shopee(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+
+        $this->actingAs($this->saiful)
+            ->post(route('crm.inbox.tandai-dibaca', $crm))
+            ->assertSessionHas('success');
+
+        $this->assertSame([['read_conversation', ['conversation_id' => 7, 'last_read_message_id' => 'g1']]], $this->kiriman);
     }
 
     public function test_saringan_saluran_memisahkan_chat_whatsapp_dan_shopee(): void

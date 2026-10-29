@@ -400,7 +400,7 @@
                                 <span class="truncate {{ $belum ? 'font-bold text-gray-900' : 'font-medium' }}">{{ $namaTampil }}</span>
                                 @if($p->shopee())
                                     <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 uppercase"
-                                          title="Chat Shopee (baca saja — balas lewat Seller Centre)">Shopee</span>
+                                          title="Chat Shopee">Shopee</span>
                                 @elseif(! $p->customer_id)
                                     <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 uppercase"
                                           title="Belum tertaut pelanggan mana pun di ERP">Lead</span>

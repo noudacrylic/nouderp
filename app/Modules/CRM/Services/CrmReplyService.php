@@ -3,6 +3,7 @@
 namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\ChatManager;
+use App\Modules\CRM\Providers\ShopeeChatProvider;
 use App\Modules\CRM\Providers\WahaChatProvider;
 use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
@@ -10,7 +11,9 @@ use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Support\MediaKind;
 use App\Modules\CRM\Support\PhoneNumber;
 use App\Modules\CRM\Support\TemplateResmi;
+use App\Modules\Marketplace\Shopee\Services\ShopeeChatService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Http\UploadedFile;
 
@@ -63,9 +66,43 @@ class CrmReplyService
             return $tolak;
         }
 
+        if ($percakapan->shopee()) {
+            // Shopee tak mengenal caption maupun kutipan: gambar dulu, kalimatnya menyusul
+            // sebagai pesan sendiri.
+            return $this->denganKunciShopee($percakapan, function () use ($percakapan, $teks, $berkas, $userId) {
+                if (! $berkas) {
+                    return $this->kirimTeks($percakapan, $teks, $userId, null);
+                }
+                $gambar = $this->kirimGambar($percakapan, '', $berkas, $userId, null);
+
+                return $gambar['success'] && $teks !== '' ? $this->kirimTeks($percakapan, $teks, $userId, null) : $gambar;
+            });
+        }
+
         return $berkas
             ? $this->kirimGambar($percakapan, $teks, $berkas, $userId, $replyToWamId)
             : $this->kirimTeks($percakapan, $teks, $userId, $replyToWamId);
+    }
+
+    /**
+     * Kirim + catat chat Shopee di bawah kunci yang SAMA dengan sinkron tiap menit
+     * (ShopeeChatService). Tanpa kunci, sinkron bisa menyalin balasan ini lebih dulu —
+     * id pesannya sama, dan catatan kita lalu bentrok dengan baris salinannya.
+     */
+    private function denganKunciShopee(CrmConversation $percakapan, callable $kerja): array
+    {
+        if (! $percakapan->provider_customer_id) {
+            return $kerja();
+        }
+
+        try {
+            return Cache::lock(
+                ShopeeChatService::kunci((string) $percakapan->business_number_id, (string) $percakapan->provider_customer_id),
+                120
+            )->block(30, $kerja);
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            return $this->gagal('Chat ini sedang disinkronkan dari Shopee — belum ada yang terkirim, coba kirim lagi sebentar.');
+        }
     }
 
     /**
@@ -434,6 +471,8 @@ class CrmReplyService
                 'media'           => $this->tautanSementara($lampiran),
                 'caption'         => $caption,
                 'nama_berkas'     => $file->getClientOriginalName(),
+                'berkas_disk'     => $lampiran->disk,
+                'berkas_path'     => $lampiran->path,
                 'channel'         => $percakapan->channel,
                 'phone_number_id' => $percakapan->business_number_id,
             ]);
@@ -488,6 +527,16 @@ class CrmReplyService
         }
 
         $caption = trim($caption);
+
+        if ($percakapan->shopee() && $caption !== '') {
+            // Tanpa caption di Shopee: fotonya dulu, keterangannya pesan teks sesudahnya.
+            return $this->denganKunciShopee($percakapan, function () use ($percakapan, $urlGambar, $caption, $userId) {
+                $foto = $this->kirimFoto($percakapan, $urlGambar, '', $userId);
+
+                return $foto['success'] ? $this->kirimTeks($percakapan, $caption, $userId, null) : $foto;
+            });
+        }
+
         $pesan   = $this->catat($percakapan, 'image', $caption ?: null, [], $userId, null);
 
         $lampiran = $this->media->simpanDariUrl($pesan, $urlGambar);
@@ -504,6 +553,8 @@ class CrmReplyService
             'media'           => $this->tautanSementara($lampiran),
             'caption'         => $caption ?: null,
             'nama_berkas'     => $lampiran->original_name,
+            'berkas_disk'     => $lampiran->disk,
+            'berkas_path'     => $lampiran->path,
             'channel'         => $percakapan->channel,
             'phone_number_id' => $percakapan->business_number_id,
         ]);
@@ -822,6 +873,12 @@ class CrmReplyService
             'last_message_at'  => now(),
             'unread_count'     => 0,
         ])->save();
+
+        // Membalas = sudah membaca, sama seperti membalas dari Seller Centre. Gagal tak apa —
+        // balasannya sendiri sudah terkirim.
+        if ($percakapan->shopee()) {
+            $this->tandaiDibacaShopee($percakapan);
+        }
     }
 
     /**
@@ -840,6 +897,10 @@ class CrmReplyService
      */
     public function tandaiDibaca(CrmConversation $percakapan): array
     {
+        if ($percakapan->shopee()) {
+            return $this->tandaiDibacaShopee($percakapan);
+        }
+
         if (! $percakapan->cermin()) {
             return ['success' => false, 'error' => 'Percakapan ini bukan jalur self-host — tak ada notifikasi HP yang perlu dibersihkan.'];
         }
@@ -861,6 +922,41 @@ class CrmReplyService
         }
 
         return $provider->tandaiDibaca((string) $percakapan->contact_key);
+    }
+
+    /**
+     * Tandai chat Shopee dibaca sampai pesan pembeli terakhir yang sudah ada di ERP.
+     * Pembeli melihat "Dibaca" — sama halnya dengan centang biru, jadi tidak otomatis saat
+     * thread dibuka; hanya lewat tombol atau saat membalas.
+     *
+     * @return array{success:bool, error:?string}
+     */
+    private function tandaiDibacaShopee(CrmConversation $percakapan): array
+    {
+        if ($this->chat->isDryRun()) {
+            return ['success' => false, 'error' => 'Saklar "jangan kirim" sedang menyala.'];
+        }
+
+        $provider = $this->chat->untuk($percakapan);
+        if (! $provider instanceof ShopeeChatProvider || ! $percakapan->provider_customer_id) {
+            return ['success' => false, 'error' => 'Percakapan Shopee ini belum punya id percakapan Shopee.'];
+        }
+
+        $terakhir = CrmMessage::where('conversation_id', $percakapan->id)
+            ->where('direction', CrmMessage::MASUK)
+            ->where('provider_message_id', 'like', 'shopee:%')
+            ->orderByDesc('sent_at')->orderByDesc('id')
+            ->value('provider_message_id');
+
+        if (! $terakhir) {
+            return ['success' => true, 'error' => null];
+        }
+
+        return $provider->tandaiDibaca(
+            (string) $percakapan->business_number_id,
+            (string) $percakapan->provider_customer_id,
+            (string) $terakhir
+        );
     }
 
     private function gagal(string $pesan): array

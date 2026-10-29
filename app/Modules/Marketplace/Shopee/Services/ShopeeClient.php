@@ -120,6 +120,32 @@ class ShopeeClient
      */
     public function panggil(ShopeeShop $shop, string $method, string $path, array $params = []): array
     {
+        $query  = $this->queryToko($shop, $path);
+        $method = strtoupper($method);
+        $url    = $this->host() . $path . '?' . http_build_query($method === 'GET' ? $query + $params : $query);
+
+        $json = $this->kirim($method, $url, $method === 'GET' ? null : $params, $path, $shop->shop_id);
+
+        return $json['response'] ?? $json;
+    }
+
+    /**
+     * Unggah satu berkas (multipart, field `file`) ke endpoint level toko, mis.
+     * sellerchat/upload_image. Tanda tangan sama dengan panggilan toko biasa.
+     *
+     * @return array isi 'response'
+     */
+    public function unggah(ShopeeShop $shop, string $path, string $isi, string $namaBerkas): array
+    {
+        $url  = $this->host() . $path . '?' . http_build_query($this->queryToko($shop, $path));
+        $json = $this->kirim('POST', $url, null, $path, $shop->shop_id, ['isi' => $isi, 'nama' => $namaBerkas]);
+
+        return $json['response'] ?? $json;
+    }
+
+    /** Parameter query bertanda tangan untuk panggilan level toko; token diperbarui dulu bila hampir habis. */
+    private function queryToko(ShopeeShop $shop, string $path): array
+    {
         if ($shop->perluHubungkanUlang()) {
             throw new ShopeeException('token_kedaluwarsa', 'Izin toko sudah kedaluwarsa — hubungkan ulang toko di Pengaturan › Integrasi › Shopee.');
         }
@@ -127,20 +153,15 @@ class ShopeeClient
             $this->perbarui($shop);
         }
 
-        $ts    = time();
-        $query = [
+        $ts = time();
+
+        return [
             'partner_id'   => $this->partnerId(),
             'timestamp'    => $ts,
             'access_token' => $shop->access_token,
             'shop_id'      => $shop->shop_id,
             'sign'         => $this->tandaTangan($this->partnerId() . $path . $ts . $shop->access_token . $shop->shop_id),
         ];
-        $method = strtoupper($method);
-        $url    = $this->host() . $path . '?' . http_build_query($method === 'GET' ? $query + $params : $query);
-
-        $json = $this->kirim($method, $url, $method === 'GET' ? null : $params, $path, $shop->shop_id);
-
-        return $json['response'] ?? $json;
     }
 
     /**
@@ -181,14 +202,18 @@ class ShopeeClient
     }
 
     /** Kirim, catat, dan lempar ShopeeException bila Shopee mengembalikan 'error'. */
-    private function kirim(string $method, string $url, ?array $body, string $path, ?int $shopId): array
+    private function kirim(string $method, string $url, ?array $body, string $path, ?int $shopId, ?array $berkas = null): array
     {
         $mulai = microtime(true);
         $http  = null;
         $json  = [];
         try {
             $req  = Http::timeout(30)->acceptJson();
-            $res  = $method === 'GET' ? $req->get($url) : $req->asJson()->post($url, $body ?? []);
+            $res  = match (true) {
+                $method === 'GET' => $req->get($url),
+                $berkas !== null  => $req->attach('file', $berkas['isi'], $berkas['nama'])->post($url),
+                default           => $req->asJson()->post($url, $body ?? []),
+            };
             $http = $res->status();
             $json = $res->json() ?? [];
         } catch (\Throwable $e) {

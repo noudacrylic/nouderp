@@ -18,8 +18,9 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Chat Shopee → CRM, Tahap A (BACA SAJA): menyalin percakapan Shopee ke inbox CRM kanal
- * `shopee`. Tidak pernah mengirim apa pun ke Shopee.
+ * Chat Shopee → CRM: menyalin percakapan Shopee ke inbox CRM kanal `shopee`. Kelas ini
+ * hanya MEMBACA; balasan dari ERP (Tahap B) lewat CrmReplyService → ShopeeChatProvider dan
+ * kembali ke sini sebagai pesan `openapi` yang id-nya sudah tercatat (tidak digandakan).
  *
  * Aturan yang disepakati user (29 Okt 2026):
  *  - Percakapan yang seluruhnya dilayani AI Shopee DISEMBUNYIKAN (hanya dicatat di
@@ -134,8 +135,14 @@ class ShopeeChatService
     public function sinkronkanPercakapan(ShopeeShop $shop, array $cv, bool $hidup): array
     {
         // Sinkron tiap menit dan penarikan riwayat bisa menyentuh percakapan yang sama bersamaan.
-        return Cache::lock('shopee-chat:' . $shop->shop_id . ':' . $cv['conversation_id'], 120)
+        return Cache::lock(self::kunci((string) $shop->shop_id, (string) $cv['conversation_id']), 120)
             ->block(60, fn () => $this->sinkronkanTerkunci($shop, $cv, $hidup));
+    }
+
+    /** Nama kunci per percakapan — dipakai juga CrmReplyService saat membalas dari ERP. */
+    public static function kunci(string $shopId, string $conversationId): string
+    {
+        return 'shopee-chat:' . $shopId . ':' . $conversationId;
     }
 
     private function sinkronkanTerkunci(ShopeeShop $shop, array $cv, bool $hidup): array

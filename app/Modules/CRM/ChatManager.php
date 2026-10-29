@@ -61,14 +61,13 @@ class ChatManager
      */
     public function untuk(CrmConversation $percakapan): ChatProvider
     {
-        // Chat Shopee TIDAK BOLEH jatuh ke jalur WhatsApp (contact_key-nya user id Shopee),
-        // juga tidak ke driver palsu mode aman — Tahap A memang belum bisa membalas.
-        if ($percakapan->shopee()) {
-            return app(ShopeeChatProvider::class);
-        }
-
         if ($this->isDryRun()) {
             return $this->fake();
+        }
+
+        // Chat Shopee TIDAK BOLEH jatuh ke jalur WhatsApp — contact_key-nya user id Shopee.
+        if ($percakapan->shopee()) {
+            return app(ShopeeChatProvider::class);
         }
 
         return $percakapan->cermin()
