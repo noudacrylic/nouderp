@@ -93,11 +93,9 @@
         @include('erp.crm.inbox._mode_wa')
     @endif
 
-    {{-- Di mode WhatsApp Web sakelar menumpang di baris kotak kontak supaya
-         tidak memakan satu baris sendiri. --}}
-    @unless($modeWa)
-        <div class="shrink-0 mb-2 flex justify-end">@include('erp.crm.inbox._sakelar_mode_wa')</div>
-    @endunless
+    {{-- Tombol "Mode WhatsApp Web" di tampilan biasa DIHAPUS (29 Okt 2026, permintaan user):
+         satu baris sendiri hanya untuk tombol itu memotong tinggi kolom chat. Di mode
+         WhatsApp Web sakelar "kembali" tetap ada di baris kotak kontak. --}}
 
     {{-- Di mode WhatsApp Web kolom thread DILIPAT, bukan dikosongkan: chat
          betulan dilayani di jendela web.whatsapp.com sebelah, dan gelembung

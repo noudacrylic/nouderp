@@ -94,7 +94,9 @@ class ModeWhatsappWebTest extends TestCase
             ->get(route('crm.inbox.show', $percakapan))
             ->assertOk()
             ->assertSee('Halo kak, acrylic A3 ready?', false)
-            ->assertSee('Mode WhatsApp Web');
+            // Tombol masuk mode dihapus dari tampilan biasa (29 Okt 2026) — baris sendiri
+            // untuk satu tombol memotong tinggi kolom chat.
+            ->assertDontSee('Mode WhatsApp Web');
     }
 
     /*
