@@ -167,7 +167,7 @@ class ShopeeChatService
                 $crm = $this->percakapanCrm($shop, $chat, $pesan, $hidup);
                 $chat->crm_conversation_id = $crm->id;
                 $jumlah = $this->salinPesan($shop, $crm, $pesan, $hidup);
-            });
+            }, 3); // deadlock dengan sinkron/CRM lain diulang otomatis (terjadi saat impor riwayat 29 Okt)
         }
 
         $chat->latest_message_id = $terakhir;
