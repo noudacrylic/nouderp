@@ -218,4 +218,18 @@ class ShopeeChatTest extends TestCase
             ->assertSee('Shopee · pembeli_shopee')
             ->assertDontSee('Pesan bebas tidak bisa dikirim');
     }
+
+    public function test_saringan_saluran_memisahkan_chat_whatsapp_dan_shopee(): void
+    {
+        $wa = CrmConversation::findOrCreateFor('628111222333', 'whatsapp', null, ['display_name' => 'Pak Wahyu', 'owner_user_id' => $this->saiful->id]);
+        $sp = CrmConversation::findOrCreateFor('777', CrmConversation::KANAL_SHOPEE, (string) self::TOKO, ['display_name' => 'pembeli_sp', 'owner_user_id' => $this->saiful->id]);
+
+        $this->actingAs($this->saiful);
+        $this->get(route('crm.inbox.index', ['pemilik' => 'semua', 'kanal' => 'shopee']))
+            ->assertOk()->assertSee('pembeli_sp')->assertDontSee('Pak Wahyu');
+        $this->get(route('crm.inbox.index', ['pemilik' => 'semua', 'kanal' => 'whatsapp']))
+            ->assertOk()->assertSee('Pak Wahyu')->assertDontSee('pembeli_sp');
+        $this->get(route('crm.inbox.index', ['pemilik' => 'semua']))
+            ->assertOk()->assertSee('Pak Wahyu')->assertSee('pembeli_sp')->assertSee('Unduh chat');
+    }
 }

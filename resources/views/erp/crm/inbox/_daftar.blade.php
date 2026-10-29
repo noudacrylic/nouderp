@@ -135,6 +135,7 @@
                 <input type="hidden" name="belum_dibaca" value="{{ request('belum_dibaca') }}">
                 <input type="hidden" name="status" value="{{ request('status') }}">
                 <input type="hidden" name="search" value="{{ request('search') }}">
+                <input type="hidden" name="kanal" value="{{ request('kanal') }}">
                 <select name="pemilik" onchange="if (this.value) this.form.submit()"
                         class="border rounded px-1 py-1 text-xs w-full {{ $agenLain ? 'border-emerald-600 text-emerald-700 font-medium' : 'border-gray-300' }}">
                     <option value="" @selected(! $agenLain)>Agen lain…</option>
@@ -165,6 +166,7 @@
         <input type="hidden" name="belum_dibaca" value="{{ request('belum_dibaca') }}">
         <input type="hidden" name="status" value="{{ request('status') }}">
         <input type="hidden" name="pemilik" value="{{ request('pemilik') }}">
+        <input type="hidden" name="kanal" value="{{ request('kanal') }}">
         <input type="text" name="search" value="{{ request('search') }}"
                placeholder="Cari nama, nomor, atau nomor pesanan…"
                class="border rounded px-2 py-1.5 text-sm w-full">
@@ -184,9 +186,48 @@
              yang dipakai menyusun pengetahuan agen adalah kumpulan yang sudah
              dipilih orang (satu label, satu pemilik, satu kata kunci), dan
              mengunduh semuanya cuma memindahkan pekerjaan memilah ke luar. --}}
-        <a href="{{ route('crm.inbox.ekspor') . ($kueriKini ? '?' . $kueriKini : '') }}"
-           class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100 leading-5"
-           title="Unduh chat sesuai saringan ini sebagai teks — bahan menyusun pengetahuan agen">⭳</a>
+        {{-- Saluran (Semua / WhatsApp / Shopee) + Unduh chat dalam satu tombol: kolom ini
+             sudah penuh, dan Unduh jarang dipakai. Warnanya mengikuti saluran terpilih
+             supaya saringan yang aktif kelihatan tanpa membuka menunya. --}}
+        @php
+            $kanalKini  = in_array(request('kanal'), ['whatsapp', 'shopee'], true) ? request('kanal') : '';
+            $gayaKanal  = match ($kanalKini) {
+                'shopee'   => 'border-orange-500 bg-orange-500 text-white',
+                'whatsapp' => 'border-emerald-600 bg-emerald-600 text-white',
+                default    => 'border-gray-300 text-gray-500 hover:bg-gray-100',
+            };
+            $pilihKanal = ['' => ['Semua saluran', 'bg-gray-400'], 'whatsapp' => ['WhatsApp', 'bg-emerald-500'], 'shopee' => ['Shopee', 'bg-orange-500']];
+        @endphp
+        <div class="relative shrink-0" x-data="{ buka: false }" @click.outside="buka = false" @keydown.escape.window="buka = false">
+            <button type="button" @click="buka = ! buka"
+                    class="h-full border rounded px-1.5 py-1.5 text-xs leading-5 flex items-center gap-0.5 {{ $gayaKanal }}"
+                    title="Saluran: {{ $pilihKanal[$kanalKini][0] }} — klik untuk ganti / unduh chat">
+                @if($kanalKini === '')
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 5h18l-7 8v5l-4 2v-7L3 5z"/>
+                    </svg>
+                @else
+                    <span class="font-semibold">{{ $kanalKini === 'shopee' ? 'SP' : 'WA' }}</span>
+                @endif
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div x-show="buka" x-cloak
+                 class="absolute right-0 z-40 mt-1 w-48 rounded border border-gray-200 bg-white py-1 text-sm shadow-lg">
+                <div class="px-3 pt-1 pb-0.5 text-[10px] font-semibold uppercase text-gray-400">Saluran</div>
+                @foreach($pilihKanal as $kode => [$nama, $titik])
+                    <a href="{{ $tautanSaring(['kanal' => $kode ?: null]) }}"
+                       class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 {{ $kanalKini === $kode ? 'font-semibold text-gray-900' : 'text-gray-700' }}">
+                        <span class="w-2 h-2 rounded-full {{ $titik }}"></span>{{ $nama }}
+                        @if($kanalKini === $kode)<span class="ml-auto text-emerald-600">✓</span>@endif
+                    </a>
+                @endforeach
+                <div class="my-1 border-t border-gray-100"></div>
+                {{-- Ekspor mengikuti SARINGAN YANG SEDANG AKTIF (termasuk saluran). --}}
+                <a href="{{ route('crm.inbox.ekspor') . ($kueriKini ? '?' . $kueriKini : '') }}"
+                   class="flex items-center gap-2 px-3 py-1.5 text-gray-700 hover:bg-gray-50"
+                   title="Unduh chat sesuai saringan ini sebagai teks — bahan menyusun pengetahuan agen">⭳ Unduh chat</a>
+            </div>
+        </div>
     </form>
 
     {{-- ---------------------------------------------------------- 3. label --}}

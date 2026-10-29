@@ -465,6 +465,9 @@ class CrmInboxController extends Controller
     {
         $pemilik = self::pemilikKini($request);
         $status  = $request->string('status')->toString();
+        // Saluran: 'whatsapp' (resmi + nomor utama) atau 'shopee'; kosong = semua. Ikut di
+        // penutup dasar supaya angka di tombol label menghitung saluran yang sama.
+        $kanal   = $request->string('kanal')->toString();
 
         /*
          * Pencarian & tab "Semua" melihat SELURUH chat, Open maupun Close —
@@ -476,8 +479,10 @@ class CrmInboxController extends Controller
         $menyeluruh = $request->filled('search') || $pemilik === 'semua';
         $status     = $status !== '' ? $status : ($menyeluruh ? null : CrmConversation::STATUS_AKTIF);
 
-        return function () use ($status, $pemilik, $menyeluruh) {
+        return function () use ($status, $pemilik, $menyeluruh, $kanal) {
             return CrmConversation::query()
+                ->when($kanal === 'shopee', fn ($q) => $q->where('channel', CrmConversation::KANAL_SHOPEE))
+                ->when($kanal === 'whatsapp', fn ($q) => $q->where('channel', '!=', CrmConversation::KANAL_SHOPEE))
                 ->when($status, fn ($q) => $q->where('status', $status))
                 ->when(! $menyeluruh, fn ($q) => $pemilik === 'belum'
                     ? $q->whereNull('owner_user_id')
