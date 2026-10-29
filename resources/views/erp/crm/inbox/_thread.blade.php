@@ -390,7 +390,7 @@
 
     {{-- Daftar pesan: SATU-SATUNYA bagian yang menggulir. Kepala tetap di atas,
          kotak ketik tetap di bawah — seperti aplikasi chat. --}}
-    <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 {{ $terpilih->shopee() ? 'bg-white' : 'bg-[#efeae2]' }}">
+    <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 {{ $terpilih->shopee() ? 'bg-[#eeebe7]' : 'bg-[#efeae2]' }}">
             @include('erp.crm.inbox._bubbles')
             <div x-ref="tambahan"></div>
             @if($pesan->isEmpty())
