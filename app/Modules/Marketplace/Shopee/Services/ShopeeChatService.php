@@ -42,6 +42,11 @@ class ShopeeChatService
     /** Nomor pesanan Shopee: 6 digit tanggal + 8 huruf/angka, mis. 261027PDYVRSV7. */
     private const POLA_ORDER_SN = '/\b(\d{6}[A-Z0-9]{8})\b/';
 
+    /*
+     * ⚠️ Carbon 3: createFromTimestamp() TANPA zona = UTC, bukan zona aplikasi. Kolom datetime
+     * menyimpan jam dinding, jadi stempel Shopee wajib diberi config('app.timezone') — kalau
+     * tidak semua jam chat mundur 7 jam (terjadi 29 Okt 2026).
+     */
     public function __construct(private ShopeeClient $client, private LabelPesananService $label)
     {
     }
@@ -272,7 +277,7 @@ class ShopeeChatService
                 continue;
             }
 
-            $waktu = Carbon::createFromTimestamp((int) ($m['created_timestamp'] ?? time()));
+            $waktu = Carbon::createFromTimestamp((int) ($m['created_timestamp'] ?? time()), config('app.timezone'));
 
             try {
                 $baris = CrmMessage::create([
@@ -509,7 +514,7 @@ class ShopeeChatService
     {
         $detik = strlen($nano) > 10 ? (int) substr($nano, 0, -9) : (int) $nano;
 
-        return $detik > 0 ? Carbon::createFromTimestamp($detik) : null;
+        return $detik > 0 ? Carbon::createFromTimestamp($detik, config('app.timezone')) : null;
     }
 
     /** $a <= $b untuk angka nano berbentuk string (melebihi PHP_INT_MAX tidak, tapi aman dibanding sebagai string). */

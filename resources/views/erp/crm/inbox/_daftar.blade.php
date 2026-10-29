@@ -337,9 +337,12 @@
                  dibuka memang sedang dibaca, dan dua latar berwarna bertumpuk
                  membuat keduanya sama-sama tak terbaca. --}}
             <div {{ $aktif ? 'data-baris-aktif' : '' }}
-                 class="relative hover:bg-emerald-50
-                        {{ $aktif ? 'bg-emerald-50 border-l-4 border-emerald-600'
-                                  : ($belum ? 'bg-emerald-50/40 border-l-4 border-emerald-500' : '') }}">
+                 class="relative {{ $p->shopee() ? 'hover:bg-orange-50' : 'hover:bg-emerald-50' }}
+                        {{ $p->shopee()
+                            ? ($aktif ? 'bg-orange-50 border-l-4 border-orange-600'
+                                      : ($belum ? 'bg-orange-50/60 border-l-4 border-orange-500' : 'border-l-4 border-orange-200'))
+                            : ($aktif ? 'bg-emerald-50 border-l-4 border-emerald-600'
+                                      : ($belum ? 'bg-emerald-50/40 border-l-4 border-emerald-500' : '')) }}">
                 <a href="{{ route($rutaChat, array_merge([$p->id], $kueriBaris)) }}" class="absolute inset-0 z-0"
                    aria-label="Buka chat {{ $namaTampil }}"></a>
 

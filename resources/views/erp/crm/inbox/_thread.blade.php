@@ -57,6 +57,10 @@
        terbaca sekilas tanpa harus menghitung centang. */
     .crm-centang[data-status="dibaca"]   { color: #53bdeb; }
     .crm-centang[data-status="menunggu"] { opacity: .55; }
+    /* Chat Shopee bernuansa oranye supaya CS sadar sedang di kanal mana. Lewat CSS, bukan
+       di partial gelembung: gelembung baru dari polling/kirim (skrip) ikut berubah tanpa
+       partial perlu tahu percakapannya. */
+    .crm-shopee .bg-\[\#d9fdd3\] { background-color: #ffedd5; }
 </style>
 
 {{-- Cetakan yang diklon skrip untuk gelembung sementara. Satu markup, dua jalur. --}}
@@ -71,7 +75,7 @@
 
      Zonanya hanya dipasang saat jendela 24 jam terbuka — kalau tidak, berkas
      yang dilepas hilang tanpa jejak karena kotak ketiknya memang tidak ada. --}}
-<div class="relative flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }}"
+<div class="relative flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }} {{ $terpilih->shopee() ? 'crm-shopee' : '' }}"
      x-data="threadCrm({{ $terpilih->id }}, {{ (int) ($pesan->max('id') ?? 0) }})"
      {{-- Foto produk dikirim dari panel Produk di rail kanan. Yang MENGIRIM
           tetap thread, bukan panelnya: hanya di sini id pesan terakhir diketahui,
@@ -108,7 +112,7 @@
     {{-- Kepala percakapan: siapa yang sedang dibalas, selalu terlihat walau
          thread digulir jauh ke atas. Tanpa ini admin yang membuka beberapa
          chat berturut-turut kehilangan jejak sedang bicara dengan siapa. --}}
-    <div class="shrink-0 flex items-center {{ $modePwa ? 'gap-2 px-2 py-2' : 'gap-3 px-4 py-2.5' }} border-b border-gray-200 bg-white"
+    <div class="shrink-0 flex items-center {{ $modePwa ? 'gap-2 px-2 py-2' : 'gap-3 px-4 py-2.5' }} border-b {{ $terpilih->shopee() ? 'border-orange-200 bg-orange-50 border-t-4 border-t-orange-500' : 'border-gray-200 bg-white' }}"
          x-data="{ menu: false, catatan: false, nama: false, oper: false }">
         @if($modePwa)
             {{-- Tautan sungguhan, bukan history.back(): chat sering dibuka
@@ -386,7 +390,7 @@
 
     {{-- Daftar pesan: SATU-SATUNYA bagian yang menggulir. Kepala tetap di atas,
          kotak ketik tetap di bawah — seperti aplikasi chat. --}}
-    <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 bg-[#efeae2]">
+    <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 {{ $terpilih->shopee() ? 'bg-[#fdf1e6]' : 'bg-[#efeae2]' }}">
             @include('erp.crm.inbox._bubbles')
             <div x-ref="tambahan"></div>
             @if($pesan->isEmpty())

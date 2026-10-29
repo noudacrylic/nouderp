@@ -118,6 +118,7 @@ class ShopeeChatTest extends TestCase
         $this->assertSame(1, $crm->unread_count, 'hanya pertanyaan sesudah balasan admin yang belum dibaca; balasan otomatis tidak dihitung');
 
         $pesan = CrmMessage::where('conversation_id', $crm->id)->orderBy('sent_at')->get();
+        $this->assertSame(date('Y-m-d H:i', $t), $pesan[4]->sent_at->format('Y-m-d H:i'), 'jam pesan = jam WIB, bukan UTC');
         $this->assertCount(5, $pesan, 'penanda obrolan AI tidak disalin');
         $this->assertStringContainsString('Dialihkan dari AI Shopee', $pesan[0]->content);
         $this->assertStringContainsString('Alasan: Pembeli tanyakan ukuran', $pesan[0]->content);
