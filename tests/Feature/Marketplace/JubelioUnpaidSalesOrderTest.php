@@ -480,6 +480,70 @@ class JubelioUnpaidSalesOrderTest extends TestCase
         $this->assertSame(0, SalesDelivery::where('sales_order_id', $soId)->where('status', 'posted')->count());
     }
 
+    /** Path API Shopee yang dipanggil selama tes. */
+    private array $panggilanShopee = [];
+
+    /**
+     * Pesanan lunas (ber-DP) yang pembeli minta batal, tercatat sebagai pesanan Shopee, dengan
+     * Shopee palsu yang melaporkan $statusShopee. Kembalikan id SO.
+     */
+    private function pesananLunasMintaBatal(string $statusShopee): int
+    {
+        $this->prepareMarketplaceAccounting();
+        $link = $this->syncServiceReturning($this->orderDetail(['grand_total' => 44000, 'is_paid' => true]))
+            ->syncOrderById(self::SO_ID);
+        $link->forceFill(['cancel_requested' => true, 'cancel_requested_at' => now()])->save();
+        SalesOrder::whereKey($link->sales_order_id)->update(['customer_po_number' => 'SP-261027Q3FWAKS6']);
+
+        config(['services.shopee' => ['partner_id' => '1000001', 'partner_key' => 'kunci-uji', 'env' => 'test']]);
+        \App\Modules\Marketplace\Shopee\Models\ShopeeShop::create([
+            'shop_id' => 555, 'env' => 'test', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHours(3), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\Http::fake(function (\Illuminate\Http\Client\Request $r) use ($statusShopee) {
+            $path = parse_url($r->url(), PHP_URL_PATH);
+            $this->panggilanShopee[] = $path;
+            if (str_contains($path, 'get_order_detail')) {
+                return \Illuminate\Support\Facades\Http::response(['response' => ['order_list' => [['order_sn' => '261027Q3FWAKS6', 'order_status' => $statusShopee]]]]);
+            }
+
+            return \Illuminate\Support\Facades\Http::response(['response' => []]);
+        });
+
+        $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]));
+
+        return (int) $link->sales_order_id;
+    }
+
+    public function test_setujui_batal_shopee_menyetujui_di_shopee_lalu_void_so_dan_dp(): void
+    {
+        $soId = $this->pesananLunasMintaBatal('IN_CANCEL');
+        $this->assertSame('posted', CustomerPayment::first()->status);
+
+        $this->get(route('pos.fulfillment.pembatalan'))->assertOk()
+            ->assertSee(route('pos.fulfillment.setujui-batal', $soId))
+            ->assertSee('Setujui batal &amp; Void', false);
+
+        $this->post(route('pos.fulfillment.setujui-batal', $soId))->assertSessionHas('success');
+
+        $this->assertContains('/api/v2/order/handle_buyer_cancellation', $this->panggilanShopee);
+        $this->assertSame('void', SalesOrder::find($soId)->status);
+        $this->assertSame('void', CustomerPayment::first()->status, 'DP ikut di-void');
+        $this->assertSame(0, StockReservation::where('sales_order_id', $soId)->where('status', 'active')->count());
+    }
+
+    public function test_setujui_batal_ditolak_bila_shopee_tidak_mencatat_permintaan_batal(): void
+    {
+        $soId = $this->pesananLunasMintaBatal('READY_TO_SHIP');
+
+        $this->post(route('pos.fulfillment.setujui-batal', $soId))->assertSessionHas('error');
+
+        $this->assertNotContains('/api/v2/order/handle_buyer_cancellation', $this->panggilanShopee);
+        $this->assertSame('confirmed', SalesOrder::find($soId)->status);
+        $this->assertSame('posted', CustomerPayment::first()->status);
+    }
+
     /** Void otomatis yang pernah gagal dicoba lagi (sejam sekali), bukan menggantung selamanya. */
     public function test_void_otomatis_yang_pernah_gagal_dicoba_ulang(): void
     {

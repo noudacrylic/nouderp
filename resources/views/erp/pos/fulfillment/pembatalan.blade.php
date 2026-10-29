@@ -6,8 +6,8 @@
         <h1 class="text-lg font-semibold">Pembatalan</h1>
         <p class="text-xs text-gray-500">Pesanan marketplace yang <b>pembeli minta batalkan</b> (dari Jubelio) &amp; SO marketplace yang sudah <b>dibatalkan (void)</b>.</p>
         <p class="text-xs text-indigo-700 mt-1">
-            Alur: cek pesanan di Seller Center → <b>setujui pembatalan</b> di sana → klik <b>Tarik Permintaan Batal</b>
-            (atau tunggu ±5 menit). ERP mem-void SO, faktur &amp; Surat Jalannya sendiri; stok kembali ke gudang.
+            Shopee: klik <b>Setujui batal &amp; Void</b> — pembatalan disetujui langsung di Shopee, lalu SO, DP, faktur &amp; Surat Jalan di-void; stok kembali ke gudang.
+            Marketplace lain: setujui di Seller Center → klik tombol yang sama (atau <b>Tarik Permintaan Batal</b> / tunggu ±5 menit).
         </p>
     </div>
     {{-- Tombol tarik manual (selain cron) — pola wajib: fitur otomatis + trigger manual. --}}
@@ -109,11 +109,16 @@
                                 class="text-xs px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold">⛔ Bukan retur — batal sebelum dikirim</button>
                     </form>
                 @elseif(!$isVoid)
-                    <form action="{{ route('sales.orders.void', $row['id']) }}" method="POST" class="ml-auto"
-                          onsubmit="return confirm('Batalkan (void) SO {{ $row['number'] }}?\n\nReservasi stok dikembalikan. Bila faktur/Surat Jalan sudah terbit, harus di-void lebih dulu dari halaman SO.')">
+                    {{-- Bukan void SO biasa (yang menolak bila ada DP): jalur pembatalan marketplace
+                         yang ikut mem-void DP, faktur & SJ. Shopee disetujui dulu lewat API. --}}
+                    @php $isShopee = str_starts_with((string) $row['number'], 'SP-'); @endphp
+                    <form action="{{ route('pos.fulfillment.setujui-batal', $row['id']) }}" method="POST" class="ml-auto"
+                          onsubmit="return confirm({{ $isShopee
+                              ? "'Setujui pembatalan " . e($row['number']) . " di Shopee lalu void di ERP?\\n\\nDP, faktur & Surat Jalan ikut di-void; stok kembali ke gudang. Paket yang sudah diserahkan kurir jadi kasus Retur.'"
+                              : "'Pembatalan " . e($row['number']) . " SUDAH disetujui di Seller Center?\\n\\nSO, DP, faktur & Surat Jalan di-void; stok kembali ke gudang. Paket yang sudah diserahkan kurir jadi kasus Retur.'" }})">
                         @csrf
                         <button type="submit"
-                                class="text-xs px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold">✗ Batalkan SO (Void)</button>
+                                class="text-xs px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold">✗ {{ $isShopee ? 'Setujui batal & Void' : 'Batalkan SO & DP (Void)' }}</button>
                     </form>
                 @endif
             </div>

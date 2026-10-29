@@ -1037,6 +1037,37 @@ class JubelioOrderSyncService
     }
 
     /**
+     * Tombol "Setujui batal & Void" di tab Pembatalan: admin sudah memastikan pesanan batal
+     * di marketplace (Shopee lewat API, lainnya di Seller Center), jadi ERP tidak menunggu
+     * Jubelio menyusul — jalannya SAMA dengan pembatalan dari Jubelio: DP, faktur, SJ, dan SO
+     * di-void dalam satu transaksi; paket yang sudah diserahkan kurir jadi kasus retur.
+     *
+     * @return array{success:bool, message:string}
+     */
+    public function batalkanDariErp(JubelioOrderLink $link): array
+    {
+        $so = $link->sales_order_id ? SalesOrder::find($link->sales_order_id) : null;
+        if (!$so || in_array($so->status, ['void', 'cancelled'], true)) {
+            return ['success' => false, 'message' => 'SO-nya sudah tidak aktif.'];
+        }
+
+        $link->forceFill(['cancel_requested' => false])->save();
+        $this->cancelOrderFromJubelio($link);
+
+        $so->refresh();
+        $link->refresh();
+
+        if ($so->status === 'void') {
+            return ['success' => true, 'message' => "{$so->order_number} dibatalkan (void): DP, faktur & Surat Jalan ikut di-void, stok kembali ke gudang."];
+        }
+        if ($link->return_created) {
+            return ['success' => true, 'message' => "{$so->order_number} sudah diserahkan ke kurir — dibuka sebagai kasus Retur, bukan void."];
+        }
+
+        return ['success' => false, 'message' => 'Void gagal: ' . ($link->last_error ?: 'tak diketahui') . ' — tangani dari halaman SO.'];
+    }
+
+    /**
      * Pesanan dibatalkan di Jubelio → batalkan di ERP.
      *  - Belum ada SO / SO sudah void → cukup catat.
      *  - BARANG SUDAH KELUAR (ada Surat Jalan posted) → JANGAN void; buka kasus RETUR.
