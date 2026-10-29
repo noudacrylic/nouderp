@@ -54,6 +54,8 @@ Schedule::command('shopee:tarik-bayangan --jam=1')->everyFifteenMinutes()->name(
 Schedule::command('shopee:tarik-bayangan --katalog --jam=1')->dailyAt('05:40')->name('shopee-tarik-katalog')->withoutOverlapping(60);
 // Chat Shopee → CRM — cadangan Live Push (/shopee/push). Riwayat lama: jalankan manual `shopee:tarik-chat --riwayat --halaman=0`.
 Schedule::command('shopee:tarik-chat')->everyMinute()->name('shopee-tarik-chat')->withoutOverlapping(10);
+// Tahap 1b — mutasi saldo Shopee via API → draft Transfer (penarikan) & Pengeluaran (iklan).
+Schedule::command('shopee:tarik-saldo')->hourlyAt(20)->name('shopee-tarik-saldo')->withoutOverlapping(30);
 Schedule::command('jubelio:sync-orders')->everyFiveMinutes()->name('jubelio-sync-orders')->withoutOverlapping(60);
 Schedule::command('jubelio:sync-returns')->everyFifteenMinutes()->name('jubelio-sync-returns')->withoutOverlapping(60);
 // Jubelio stok — push perubahan tiap 5 menit (near-realtime), rekonsiliasi penuh tiap 2 jam.

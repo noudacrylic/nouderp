@@ -20,16 +20,20 @@ class BankTransferService
         protected PeriodService $periodService
     ) {}
 
-    public function createDraft(array $data): BankTransfer
+    /**
+     * @param bool $tujuanBolehKosong draft otomatis (penarikan Shopee) lahir tanpa akun tujuan —
+     *        Shopee tidak menyebut banknya; admin mengisinya sebelum posting.
+     */
+    public function createDraft(array $data, bool $tujuanBolehKosong = false): BankTransfer
     {
-        return DB::transaction(function () use ($data) {
-            $this->validate($data);
+        return DB::transaction(function () use ($data, $tujuanBolehKosong) {
+            $this->validate($data, $tujuanBolehKosong);
 
             return BankTransfer::create([
                 'number'               => $this->generateNumber(BankTransfer::class, 'BT'),
                 'date'                 => $data['date'],
                 'from_account_id'      => $data['from_account_id'],
-                'to_account_id'        => $data['to_account_id'],
+                'to_account_id'        => $data['to_account_id'] ?? null,
                 'admin_fee_account_id' => $data['admin_fee_account_id'] ?? null,
                 'amount'               => $data['amount'],
                 'admin_fee'            => $data['admin_fee'] ?? 0,
@@ -66,6 +70,9 @@ class BankTransferService
     {
         if ($bt->isPosted()) throw new DomainException('Sudah diposting.');
         if ($bt->isVoid())   throw new DomainException('Sudah di-void.');
+        if (!$bt->to_account_id) {
+            throw new DomainException('Akun tujuan belum dipilih — edit draft ini, pilih bank tujuan, lalu posting.');
+        }
 
         $payDate = Carbon::parse($bt->date);
         $this->periodService->ensureOpen($payDate);
@@ -182,20 +189,22 @@ class BankTransferService
         });
     }
 
-    protected function validate(array $data): void
+    protected function validate(array $data, bool $tujuanBolehKosong = false): void
     {
         if ((float) ($data['amount'] ?? 0) <= 0) throw new DomainException('Jumlah transfer harus > 0.');
-        if (empty($data['from_account_id']) || empty($data['to_account_id'])) {
+        $tanpaTujuan = $tujuanBolehKosong && empty($data['to_account_id']);
+        if (empty($data['from_account_id']) || (empty($data['to_account_id']) && !$tanpaTujuan)) {
             throw new DomainException('Akun sumber & tujuan wajib diisi.');
         }
-        if ((int) $data['from_account_id'] === (int) $data['to_account_id']) {
+        if ((int) $data['from_account_id'] === (int) ($data['to_account_id'] ?? 0)) {
             throw new DomainException('Akun sumber & tujuan tidak boleh sama.');
         }
         // Verify both are cash accounts
-        $cashIds = Account::whereIn('id', [$data['from_account_id'], $data['to_account_id']])
+        $akun = array_filter([$data['from_account_id'], $data['to_account_id'] ?? null]);
+        $cashIds = Account::whereIn('id', $akun)
             ->where('is_cash_account', 1)
             ->pluck('id')->toArray();
-        if (count($cashIds) < 2) {
+        if (count($cashIds) < count($akun)) {
             throw new DomainException('Akun sumber & tujuan wajib akun kas/bank (is_cash_account).');
         }
         if ((float) ($data['admin_fee'] ?? 0) > 0 && empty($data['admin_fee_account_id'])) {

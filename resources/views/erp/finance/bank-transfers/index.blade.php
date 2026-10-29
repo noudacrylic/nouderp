@@ -58,7 +58,13 @@
                     <td class="px-3 py-2 font-medium">{{ $bt->number }}</td>
                     <td class="px-3 py-2">{{ $bt->date->format('d M Y') }}</td>
                     <td class="px-3 py-2">{{ $bt->fromAccount->code ?? '' }} {{ $bt->fromAccount->name ?? '' }}</td>
-                    <td class="px-3 py-2">{{ $bt->toAccount->code ?? '' }} {{ $bt->toAccount->name ?? '' }}</td>
+                    <td class="px-3 py-2">
+                        @if($bt->toAccount)
+                            {{ $bt->toAccount->code }} {{ $bt->toAccount->name }}
+                        @else
+                            <span class="text-red-600 font-semibold">— pilih tujuan —</span>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-right">{{ number_format($bt->amount, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-right">{{ number_format($bt->admin_fee, 0, ',', '.') }}</td>
                     <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs uppercase {{ $stCls }}">{{ $bt->status }}</span></td>

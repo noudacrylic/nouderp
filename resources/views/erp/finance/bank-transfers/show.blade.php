@@ -47,7 +47,14 @@
         <div><div class="text-xs text-gray-500">Tanggal</div>{{ $bt->date->format('d M Y') }}</div>
         <div><div class="text-xs text-gray-500">Jurnal</div>{{ $bt->journal_id ? '#'.$bt->journal_id : '-' }}</div>
         <div><div class="text-xs text-gray-500">Dari Akun</div>{{ $bt->fromAccount->code ?? '' }} — {{ $bt->fromAccount->name ?? '' }}</div>
-        <div><div class="text-xs text-gray-500">Ke Akun</div>{{ $bt->toAccount->code ?? '' }} — {{ $bt->toAccount->name ?? '' }}</div>
+        <div><div class="text-xs text-gray-500">Ke Akun</div>
+            @if($bt->toAccount)
+                {{ $bt->toAccount->code }} — {{ $bt->toAccount->name }}
+            @else
+                <span class="text-red-600 font-semibold">Belum dipilih</span>
+                <div class="text-[11px] text-gray-500">Klik Edit, pilih bank tujuan (BCA / BRI / ShopeePay), lalu posting.</div>
+            @endif
+        </div>
         <div><div class="text-xs text-gray-500">Akun Beban Admin</div>{{ $bt->adminFeeAccount ? ($bt->adminFeeAccount->code.' — '.$bt->adminFeeAccount->name) : '-' }}</div>
         <div><div class="text-xs text-gray-500">Jumlah Transfer</div>{{ number_format($amount, 0, ',', '.') }}</div>
         <div><div class="text-xs text-gray-500">Biaya Admin</div>{{ number_format($fee, 0, ',', '.') }}</div>

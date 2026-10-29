@@ -50,8 +50,13 @@ class MutasiShopeeService
         $tanggal = [];
         $n = count($data);
         $baris = [];
+        // Sejak mutasi ditarik lewat API (ShopeeSaldoService), baris Excel di rentang API dilewati.
+        $mulaiApi = Mutasi::where('sumber', 'api')->min('waktu');
         foreach ($data as $i => $r) {
             $waktu  = $this->waktu($r[$h['Tanggal Transaksi']]);
+            if ($mulaiApi && $waktu->gte(Carbon::parse($mulaiApi))) {
+                continue;
+            }
             $tipe   = trim((string) ($r[$h['Tipe Transaksi']] ?? ''));
             $desk   = trim((string) ($r[$h['Deskripsi']] ?? ''));
             $sn     = trim((string) ($r[$h['No. Pesanan']] ?? ''));
