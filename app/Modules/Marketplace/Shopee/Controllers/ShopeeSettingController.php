@@ -38,6 +38,8 @@ class ShopeeSettingController extends Controller
                 'tersembunyi' => ShopeeChat::where('env', $this->client->env())->where('tampil', false)->count(),
             ],
             'callback' => route('settings.integrations.shopee.callback'),
+            'pushUrl'  => route('shopee.push'),
+            'pushTerakhir' => ShopeeApiLog::where('method', 'PUSH')->latest('id')->first(),
         ]);
     }
 

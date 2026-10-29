@@ -35,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'crm/webhook',
             'crm/webhook/*',   // varian bertoken (lihat VerifyCrmWebhookSignature)
             'crm/waha/webhook/*',   // cermin WAHA (lihat VerifyWahaWebhook)
+            'shopee/push',          // Live Push Shopee (tanda tangan dicek di ShopeePushController)
         ]);
 
         // Auto-record URL halaman index (dengan filter query string) ke session,

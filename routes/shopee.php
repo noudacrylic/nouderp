@@ -2,6 +2,7 @@
 
 use App\Modules\Marketplace\Shopee\Controllers\MutasiShopeeController;
 use App\Modules\Marketplace\Shopee\Controllers\ShopeeBayanganController;
+use App\Modules\Marketplace\Shopee\Controllers\ShopeePushController;
 use App\Modules\Marketplace\Shopee\Controllers\ShopeeSettingController;
 use Illuminate\Support\Facades\Route;
 
@@ -10,6 +11,9 @@ use Illuminate\Support\Facades\Route;
 |  - settings.integrations.*                    → hak akses menu Pengaturan › Integrasi
 |  - finance.cash-bank.settlements.*            → hak akses menu Rekonsiliasi Marketplace
 */
+
+// Live Push Shopee (server-ke-server, tanpa login). URL ini yang diisi di Console › Push Mechanism.
+Route::post('shopee/push', [ShopeePushController::class, 'terima'])->name('shopee.push');
 
 Route::middleware('auth')->group(function () {
     Route::prefix('erp/settings/shopee')->name('settings.integrations.shopee.')->group(function () {

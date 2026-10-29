@@ -99,6 +99,42 @@ class ShopeeChatService
     }
 
     /**
+     * Sinkron yang dipicu Live Push. Push datang beruntun (satu per pesan); yang datang saat
+     * penarikan masih berjalan tidak ikut menarik, cukup menitip "ulang sekali lagi" ke yang
+     * sedang jalan — supaya pesan yang tiba di tengah penarikan tetap terambil.
+     */
+    public function tarikDariPush(int $shopId): void
+    {
+        $kunci = Cache::lock('shopee-chat-push:' . $shopId, 120);
+        $ulang = 'shopee-chat-push-ulang:' . $shopId;
+
+        if (!$kunci->get()) {
+            Cache::put($ulang, true, 120);
+
+            return;
+        }
+
+        try {
+            for ($putaran = 0; $putaran < 5; $putaran++) {
+                Cache::forget($ulang);
+                $shop = ShopeeShop::find($shopId);   // penanda chat_nano_terakhir selalu yang terbaru
+                if (!$shop) {
+                    return;
+                }
+                $this->tarikBaru($shop, 3);
+
+                if (!Cache::pull($ulang)) {
+                    break;
+                }
+            }
+        } catch (ShopeeException $e) {
+            report($e);   // cron tiap menit tetap jadi jaring pengaman
+        } finally {
+            $kunci->release();
+        }
+    }
+
+    /**
      * Riwayat: mundur dari kursor tersimpan, sebanyak $maksHalaman halaman percakapan.
      * Kursor disimpan tiap halaman — bisa dihentikan & dilanjutkan kapan saja.
      *

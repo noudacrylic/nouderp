@@ -4,7 +4,10 @@ namespace App\Modules\Marketplace\Shopee\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-/** Jejak satu panggilan API Shopee — tanpa token, kunci, maupun isi respons. */
+/**
+ * Jejak satu panggilan API Shopee — tanpa token, kunci, maupun isi respons.
+ * Baris method PUSH = Live Push masuk; `message` memuat isinya (terpotong) untuk dipelajari.
+ */
 class ShopeeApiLog extends Model
 {
     public const UPDATED_AT = null;

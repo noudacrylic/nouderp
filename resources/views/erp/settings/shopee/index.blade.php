@@ -137,10 +137,26 @@
         <div class="mt-6 rounded border border-orange-200 bg-orange-50 p-4 text-sm">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h3 class="font-semibold text-gray-800">Chat Shopee → CRM <span class="text-xs font-normal text-gray-500">(baca saja)</span></h3>
+                    <h3 class="font-semibold text-gray-800">Chat Shopee → CRM</h3>
                     <p class="text-xs text-gray-600 mt-1 max-w-xl">
-                        Chat Shopee disalin ke <a href="{{ route('crm.inbox.index') }}" class="text-blue-600 hover:underline">Inbox CRM</a> tiap menit.
-                        Percakapan yang hanya dilayani AI Shopee disembunyikan sampai pembeli meminta penjual. Balas tetap lewat Seller Centre.
+                        Chat Shopee disalin ke <a href="{{ route('crm.inbox.index') }}" class="text-blue-600 hover:underline">Inbox CRM</a>
+                        seketika lewat Live Push, dan tiap menit sebagai cadangan. Bisa dibalas (teks &amp; gambar) dari CRM.
+                        Percakapan yang hanya dilayani AI Shopee disembunyikan sampai pembeli meminta penjual.
+                    </p>
+                    <p class="text-xs text-gray-600 mt-1">
+                        Live Push URL (isi di Console › App › Push Mechanism, centang push chat/webchat):
+                        <code class="bg-gray-100 px-1 rounded select-all">{{ $pushUrl }}</code>
+                    </p>
+                    <p class="text-xs text-gray-600 mt-1">
+                        Push terakhir:
+                        @if ($pushTerakhir)
+                            <b>{{ $pushTerakhir->created_at?->format('d/m/Y H:i:s') }}</b> ({{ $pushTerakhir->path }})
+                            @if ($pushTerakhir->error)
+                                <span class="text-red-600 font-semibold">— {{ $pushTerakhir->error === 'tanda_tangan_salah' ? 'tanda tangan tidak cocok, diabaikan' : $pushTerakhir->error }}</span>
+                            @endif
+                        @else
+                            <b>belum pernah diterima</b>
+                        @endif
                     </p>
                     <p class="text-xs text-gray-600 mt-1">
                         Tampil di CRM: <b>{{ number_format($chat['tampil'], 0, ',', '.') }}</b> percakapan ·
