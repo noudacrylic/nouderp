@@ -7,13 +7,14 @@
     reload, sementara PDF (Browsershot, tanpa JS toolbar) tetap mengikuti mode bawaan
     atau query ?bayar=.
 
-    Param: $profile, $payInstr, $payUrl, $qrSrc, $remaining
+    Param: $profile, $payInstr, $payUrl, $qrSrc, $remaining,
+           $defaultMode (opsional, nilai `bayar` bawaan bila query kosong — mis. 'tanpa')
 --}}
 @php
     $ppBanks   = \App\Support\PrintPaymentInfo::banks($profile);
     $ppHasLink = $remaining > 0 && !empty($payUrl);
     $ppHasBank = $remaining > 0 && count($ppBanks) > 0;
-    $ppMode    = \App\Support\PrintPaymentInfo::mode($ppHasLink, $ppHasBank, request()->query('bayar'));
+    $ppMode    = \App\Support\PrintPaymentInfo::mode($ppHasLink, $ppHasBank, request()->query('bayar', $defaultMode ?? null));
     $ppShowLink = $ppHasLink && in_array($ppMode, ['link', 'both'], true);
     $ppShowBank = $ppHasBank && in_array($ppMode, ['bank', 'both'], true);
 @endphp

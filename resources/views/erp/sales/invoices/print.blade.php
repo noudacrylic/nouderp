@@ -8,11 +8,16 @@
 
 @include('erp._partials.print-styles-accurate')
 
-@include('erp.sales.invoices._paper', ['invoice' => $invoice, 'profile' => $profile])
+@include('erp.sales.invoices._paper', [
+    'invoice'  => $invoice,
+    'profile'  => $profile,
+    'atasNama' => request()->query('nama'),
+])
 
 @endsection
 
 @section('toolbar-extra')
+    @include('erp._partials.print-recipient-name')
     @include('erp._partials.print-signature-toggle')
     @include('erp._partials.print-payment-mode-toggle')
 @endsection

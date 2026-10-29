@@ -48,7 +48,10 @@
     // dituangkan jadi cabang bayangan. Satu bentuk, jadi nota tak perlu tahu
     // bedanya — lihat App\Models\Concerns\PunyaTujuanKirim.
     $tujuan = $invoice->tujuan();
-    $custName = $tujuan?->name ?: '-';
+    // "Atas nama" dari toolbar cetak (faktur toko untuk pembeli marketplace, yang
+    // pelanggannya tercatat "Shopee"). Hanya dikirim halaman cetak tunggal & PDF-nya.
+    $atasNama = trim((string) ($atasNama ?? ''));
+    $custName = $atasNama !== '' ? $atasNama : ($tujuan?->name ?: '-');
     $custAddress = (string) ($tujuan?->fullAddress() ?? '');
     // Kontak penerima ikut dicetak: surat jalan yang tak memuat nomor
     // memaksa kurir yang kesasar menelepon kantor dulu.
@@ -57,7 +60,7 @@
 @endphp
 <div class="recipient-block">
     <div class="lbl">Kepada</div>
-    <div class="name">{{ $custName }}</div>
+    <div class="name" data-default-name="{{ $tujuan?->name ?: '-' }}">{{ $custName }}</div>
     @if($custAddress !== '')
         <div class="addr">{{ $custAddress }}</div>
     @endif
@@ -162,6 +165,8 @@
     'payUrl'    => $payUrl,
     'qrSrc'     => $qrSrc,
     'remaining' => $invRemain,
+    // Pesanan marketplace sudah dibayar pembeli di marketplace → bawaan tanpa info bayar.
+    'defaultMode' => $invoice->customer?->is_marketplace ? 'tanpa' : null,
 ])
 
 {{-- Signature --}}

@@ -202,6 +202,11 @@ class DebugInvoiceController extends Controller
         if ($statusVal !== 'posted' || (float) $invoice->remaining_amount <= 0) {
             return;
         }
+        // Pembeli marketplace sudah bayar di marketplace — link Midtrans di faktur toko
+        // malah mengundang bayar dua kali.
+        if ($invoice->customer?->is_marketplace) {
+            return;
+        }
         try {
             app(\App\Modules\Payment\Services\PaymentLinkService::class)
                 ->getOrCreateForInvoice($invoice, auth()->id());
