@@ -845,6 +845,21 @@ class InboxTriaseTest extends TestCase
             ->assertDontSee('Pesan masuk kemungkinan tidak sampai');
     }
 
+    /** Balasan chat Shopee tak pernah dikabari webhook WhatsApp — jangan dituduh patah. */
+    public function test_peringatan_diam_untuk_balasan_chat_shopee(): void
+    {
+        config(['crm.dry_run' => false]);
+        $shopee = CrmConversation::findOrCreateFor('777', CrmConversation::KANAL_SHOPEE, '101');
+
+        $pesan = $this->pesanKeluar($shopee, 'terkirim');
+        $pesan->forceFill(['sent_at' => now()->subHours(3)])->save();
+
+        $this->actingAs($this->admin())
+            ->get(route('crm.inbox.index'))
+            ->assertOk()
+            ->assertDontSee('Pesan masuk kemungkinan tidak sampai');
+    }
+
     /** Kiriman yang baru saja keluar belum layak dicurigai. */
     public function test_peringatan_diam_untuk_kiriman_yang_masih_baru(): void
     {

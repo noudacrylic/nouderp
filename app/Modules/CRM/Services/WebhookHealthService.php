@@ -61,10 +61,15 @@ class WebhookHealthService
          * pengecualian ini pitanya praktis menyala selamanya — dan pita yang
          * selalu menyala sama saja dengan tidak ada pita, justru pada
          * kerusakan yang satu-satunya gejalanya adalah pita ini.
+         *
+         * Sejak 30 Okt 2026 dibalik jadi HANYA kanal resmi: balasan chat
+         * Shopee juga tak pernah dikabari webhook WhatsApp, dan tiap balasan
+         * Shopee menyalakan pita palsu. Kanal resmi (api.co.id) kini tak
+         * dipakai, jadi pitanya diam sampai jalur itu dipakai lagi.
          */
         $kirim = CrmMessage::keluar()
             ->whereIn('status', self::KELUAR_SUNGGUHAN)
-            ->whereHas('conversation', fn ($q) => $q->where('channel', '!=', CrmConversation::KANAL_CERMIN))
+            ->whereHas('conversation', fn ($q) => $q->where('channel', CrmConversation::KANAL_RESMI))
             ->orderByDesc('id')
             ->first(['id', 'status', 'sent_at', 'conversation_id']);
 
