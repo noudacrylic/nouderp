@@ -15,6 +15,8 @@ use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
 use App\Modules\KaryawanVirtual\Skills\Admin\ReturIsiHasil;
 use App\Modules\Marketplace\Shopee\Models\ShopeeReturn;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Services\ShopeeReturService;
+use Carbon\Carbon;
 use App\Modules\Sales\Models\SalesAdvance;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesReturn;
@@ -148,6 +150,28 @@ class ReturMejaKerjaTest extends TestCase
         $aksi = app(MejaKerjaService::class)->skill('retur')->aksi($t);
         $this->assertSame(route('sales.returns.edit', $this->retur->id), $aksi[0]['url']);
         $this->assertSame('R-' . self::SN, collect($aksi)->firstWhere('label', 'Buka di Seller Centre')['salin']);
+    }
+
+    public function test_tarik_retur_menyimpan_batas_respons_dalam_jam_lokal(): void
+    {
+        $batas = Carbon::parse('2026-10-31 18:55:00', 'Asia/Jakarta');
+        Http::fake([
+            self::HOST . '/api/v2/returns/get_return_list*' => fn ($req) => Http::response(['response' => [
+                'return' => str_contains($req->url(), 'page_no=0') && !ShopeeReturn::exists() ? [[
+                    'return_sn' => 'R-' . self::SN, 'order_sn' => self::SN, 'status' => 'PROCESSING', 'reason' => 'CHANGE_MIND',
+                    'refund_amount' => 100000, 'needs_logistics' => true, 'return_seller_due_date' => $batas->timestamp,
+                    'negotiation_status' => '', 'seller_proof_status' => 'NOT_NEEDED',
+                ]] : [],
+                'more' => false,
+            ], 'error' => '']),
+        ]);
+
+        app(ShopeeReturService::class)->tarik(ShopeeShop::first(), 10);
+
+        $x = ShopeeReturn::firstOrFail();
+        $this->assertSame('2026-10-31 18:55:00', DB::table('shopee_returns')->value('seller_due_at'));
+        $this->assertTrue($x->needs_logistics);
+        $this->assertNull($x->negotiation_status);
     }
 
     public function test_banding_jadi_pending_lalu_kembali_antre_saat_hasil_keluar(): void

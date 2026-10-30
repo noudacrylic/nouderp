@@ -18,7 +18,8 @@ class ShopeeReturService
     public function tarik(ShopeeShop $shop, int $hari = 60): int
     {
         $n = 0;
-        $waktu = fn ($ts) => $ts ? Carbon::createFromTimestamp((int) $ts) : null;
+        // Carbon 3: createFromTimestamp() tanpa zona = UTC → jam tersimpan mundur 7 jam.
+        $waktu = fn ($ts) => $ts ? Carbon::createFromTimestamp((int) $ts, config('app.timezone')) : null;
         $teks  = fn ($v) => is_string($v) && $v !== '' ? $v : null;
 
         foreach ($this->retur->tarikRetur($shop, now()->subDays($hari)) as $orderSn => $list) {
