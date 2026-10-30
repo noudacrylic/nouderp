@@ -247,6 +247,12 @@ class DebugInvoiceController extends Controller
         if ($nodePath) $bs->setNodeBinary($nodePath);
         if ($npmPath)  $bs->setNpmBinary($npmPath);
 
+        // Tanpa ini puppeteer memakai Chrome bawaan node_modules yang di server tak
+        // punya sandbox (AppArmor Ubuntu 24.04) → 500. Sama seperti SalesOrderPdfService.
+        if ($chromePath = env('BROWSERSHOT_CHROME_PATH')) {
+            $bs->setChromePath($chromePath);
+        }
+
         $pdf = $bs->pdf();
         $filename = 'FakturPenjualan_' . preg_replace('/[^A-Za-z0-9_-]/', '_', $invoice->invoice_number) . '.pdf';
 
