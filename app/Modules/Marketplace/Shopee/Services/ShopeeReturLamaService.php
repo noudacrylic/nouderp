@@ -84,12 +84,60 @@ class ShopeeReturLamaService
         return is_array($oi) && $oi ? $oi : null;
     }
 
+    private function statusPesanan(ShopeeShop $shop, string $sn): ?string
+    {
+        try {
+            $r = $this->client->panggil($shop, 'GET', '/api/v2/order/get_order_detail', ['order_sn_list' => $sn]);
+        } catch (ShopeeException) {
+            return null;
+        }
+
+        return ($r['response'] ?? $r)['order_list'][0]['order_status'] ?? null;
+    }
+
+    /**
+     * Skill Manajer Admin "Selesaikan retur tidak jadi": draft retur Shopee yang returnya
+     * dibatalkan pembeli & pesanannya sudah selesai → ditutup, faktur dicairkan sesuai angka
+     * Shopee. Satu transaksi per draft; $simulasi = periksa saja.
+     *
+     * @return array<int, array{retur: string, retur_id: int, sn: string, nilai: float, cair: float, potongan: float, status: string, pesan: ?string}>
+     */
+    public function selesaikanTidakJadi(ShopeeShop $shop, bool $simulasi, int $hariMundur = 120): array
+    {
+        $hasil = [];
+        $rencana = $this->rencana($shop, now()->subDays($hariMundur), now(), [], true);
+
+        foreach ($rencana as $r) {
+            $baris = [
+                'retur' => $r['draft']->return_number, 'retur_id' => (int) $r['draft']->id, 'sn' => $r['sn'],
+                'nilai' => $r['nilai'], 'cair' => $r['cair'], 'potongan' => $r['potongan'],
+                'status' => 'dilewati', 'pesan' => $r['alasan'],
+            ];
+            if ($r['kelompok'] === 'C') {
+                if ($simulasi) {
+                    $baris['status'] = 'akan';
+                } else {
+                    try {
+                        DB::transaction(fn () => $this->jalankan($r));
+                        $baris['status'] = 'selesai';
+                    } catch (Throwable $e) {
+                        $baris['status'] = 'gagal';
+                        $baris['pesan']  = $e->getMessage();
+                    }
+                }
+            }
+            $hasil[] = $baris;
+        }
+
+        return $hasil;
+    }
+
     /**
      * Susun rencana untuk draft retur Shopee atas pesanan bertanggal $dari..$sampai.
      *
      * @return array<int, array<string, mixed>>
      */
-    public function rencana(ShopeeShop $shop, Carbon $dari, Carbon $sampai, array $hanyaSn = []): array
+    public function rencana(ShopeeShop $shop, Carbon $dari, Carbon $sampai, array $hanyaSn = [], bool $hanyaReturBatal = false): array
     {
         $drafts = SalesReturn::with('items')
             ->where('sales_returns.status', 'draft')
@@ -106,6 +154,16 @@ class ShopeeReturLamaService
         }
 
         $returShopee = $this->tarikRetur($shop, $dari->copy()->subDays(5));
+
+        // Hanya calon "retur tidak jadi": semua pengajuan retur pesanan itu dibatalkan di Shopee.
+        // Menghemat panggilan rincian dana untuk draft yang jelas bukan kelompok C.
+        if ($hanyaReturBatal) {
+            $drafts = $drafts->filter(function ($d) use ($returShopee) {
+                $list = $returShopee[substr($d->_order, 3)] ?? [];
+
+                return $list && collect($list)->every(fn ($x) => $x['status'] === 'CANCELLED');
+            });
+        }
 
         return $drafts->map(fn (SalesReturn $d) => $this->rencanaSatu($shop, $d, $returShopee[substr($d->_order, 3)] ?? []))->values()->all();
     }
@@ -156,6 +214,11 @@ class ShopeeReturLamaService
 
         // ── C: retur dibatalkan di Shopee ──
         if ($semuaBatal && $refund <= 0) {
+            // Rincian dana baru final setelah pesanan selesai — sebelum itu angkanya taksiran.
+            $status = $this->statusPesanan($shop, $sn);
+            if ($status !== 'COMPLETED') {
+                return $lewati('Retur dibatalkan di Shopee, tapi pesanan masih ' . ($status ?? 'tidak terbaca') . ' — dana belum final.');
+            }
             $r['kelompok'] = 'C';
             $r['alasan']   = 'Retur dibatalkan pembeli di Shopee — pesanan biasa, dana cair ' . rupiah($cair) . '.';
 
@@ -234,7 +297,10 @@ class ShopeeReturLamaService
 
     private function catatan(SalesReturn $d, string $teks): string
     {
-        return trim(($d->notes ? $d->notes . "\n" : '') . '[Data Shopee ' . now()->format('d/m/Y') . '] ' . $teks);
+        // Dikerjakan karyawan virtual → namanya ikut tercatat di riwayat retur.
+        $oleh = auth()->user()?->name;
+
+        return trim(($d->notes ? $d->notes . "\n" : '') . '[Data Shopee ' . now()->format('d/m/Y') . ($oleh ? ' · ' . $oleh : '') . '] ' . $teks);
     }
 
     private function tanggal(SalesReturn $d, SalesInvoice $inv): string

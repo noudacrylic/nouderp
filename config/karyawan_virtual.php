@@ -54,7 +54,7 @@ return [
         'nama'       => 'Manajer Admin',
         'ikon'       => '🗂️',
         'divisi'     => 'Admin',
-        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain, Owner).',
+        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain, Owner). Retur Shopee yang dibatalkan pembeli diselesaikannya sendiri.',
         'akses'      => 'tasks.board',
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [
@@ -67,8 +67,11 @@ return [
             'admin.kedatangan'         => \App\Modules\Tasks\MejaKerja\Skills\KedatanganSkill::class,
             'admin.cetak-stiker'       => \App\Modules\Tasks\MejaKerja\Skills\CetakStikerSkill::class,
             'admin.penugasan'          => \App\Modules\Tasks\MejaKerja\Skills\PenugasanSkill::class,
+            'admin.retur-tidak-jadi'   => \App\Modules\KaryawanVirtual\Skills\Admin\ReturTidakJadi::class,
         ],
-        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.kedatangan', 'admin.cetak-stiker'],
+        // Skill berjadwal sendiri — tidak ikut sinkron Meja Kerja tiap 2 menit (memanggil API luar).
+        'jadwal_sendiri' => ['admin.retur-tidak-jadi'],
+        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.kedatangan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi'],
     ],
 
 ];

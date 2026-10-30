@@ -80,7 +80,8 @@ class MejaKerjaService
     {
         $hasil = ['dibuat' => 0, 'selesai' => 0, 'batal' => 0, 'lanjut' => 0];
 
-        foreach (array_keys($this->kv->karyawan(self::KARYAWAN)['skills'] ?? []) as $key) {
+        $cfg = $this->kv->karyawan(self::KARYAWAN) ?? [];
+        foreach (array_diff(array_keys($cfg['skills'] ?? []), $cfg['jadwal_sendiri'] ?? []) as $key) {
             try {
                 $jalan = $this->kv->jalankan($key, KaryawanVirtualService::PEMICU_JADWAL);
                 foreach ($jalan['hasil'] as $r) {
