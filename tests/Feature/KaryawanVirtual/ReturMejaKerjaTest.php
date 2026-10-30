@@ -265,6 +265,26 @@ class ReturMejaKerjaTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_mode_bayangan_tampil_di_meja_kerja_owner_saja_tanpa_disimpan(): void
+    {
+        Http::fake();
+        $this->shopeeRetur('PROCESSING');
+        app(KaryawanVirtualService::class)->ubahMode('admin.retur', Skill::BAYANGAN, null);
+        $owner = \App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $admin = \App\Models\User::factory()->create(['role' => 'user', 'is_active' => true]);
+        \App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran::create(['peran' => 'layanan', 'user_id' => $admin->id, 'urutan' => 1]);
+        $judul = 'Periksa barang retur ' . $this->retur->return_number;
+
+        $this->actingAs($owner)->get(route('tasks.meja.index', ['lihat' => 'layanan']))
+            ->assertOk()->assertSee('BAYANGAN')->assertSee($judul)->assertSee('Pratinjau Bayangan');
+        $this->actingAs($owner)->get(route('tasks.meja.index', ['lihat' => 'layanan', 'bayangan' => '0']))
+            ->assertOk()->assertDontSee($judul);
+        $this->actingAs($admin)->get(route('tasks.meja.index', ['lihat' => 'layanan']))
+            ->assertOk()->assertDontSee($judul)->assertDontSee('Pratinjau Bayangan');
+
+        $this->assertSame(0, Task::count(), 'pratinjau tidak membuat task');
+    }
+
     public function test_draft_lama_non_shopee_langsung_pending(): void
     {
         Http::fake();

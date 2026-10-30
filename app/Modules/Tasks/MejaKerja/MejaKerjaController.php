@@ -41,6 +41,19 @@ class MejaKerjaController extends Controller
                 ->orWhere(fn ($x) => $x->where('status', 'done')->where('done_at', '>=', today())))
             ->get();
 
+        // Pratinjau skill mode Bayangan — hanya owner/super admin, baca saja.
+        $tampilBayangan = $request->input('bayangan', '1') === '1';
+        $semuaBayangan = $bolehSemua ? $this->meja->bayangan() : collect();
+        $bayangan = collect();
+        if ($tampilBayangan) {
+            $bayangan = $semuaBayangan->filter(fn (Task $t) => match ($lihat) {
+                'saya'  => in_array($t->peran, $peranSaya, true),
+                'semua' => true,
+                default => $t->peran === $lihat,
+            });
+            $tasks = $tasks->concat($bayangan);
+        }
+
         $skor = $tasks->mapWithKeys(fn (Task $t) => [$t->id => $this->meja->skor($t)]);
         $kolom = [
             'open'        => $tasks->where('status', 'open')->sortByDesc(fn ($t) => $skor[$t->id])->values(),
@@ -52,6 +65,8 @@ class MejaKerjaController extends Controller
         return view('erp.tasks.meja.index', [
             'kolom' => $kolom, 'skor' => $skor, 'skills' => $this->meja->skills(), 'lihat' => $lihat,
             'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua, 'tabPeran' => $tabPeran,
+            'bayangan' => $bayangan, 'tampilBayangan' => $tampilBayangan,
+            'bayanganPerMeja' => $semuaBayangan->countBy('peran'),
             'jumlahAntre' => Task::where('status', 'open')->whereIn('peran', array_keys($tabPeran))
                 ->groupBy('peran')->selectRaw('peran, COUNT(*) n')->pluck('n', 'peran'),
             'dikerjakanSaya' => Task::where('assignee_user_id', $u->id)->where('status', 'in_progress')->count(),

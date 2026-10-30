@@ -54,6 +54,19 @@
         @endforeach
     </div>
 
+    @if ($bayanganPerMeja->isNotEmpty())
+        {{-- Pratinjau skill mode Bayangan: hanya owner yang melihat, tidak bisa dikerjakan. --}}
+        <div class="mb-3 flex flex-wrap items-center gap-2 text-xs bg-violet-50 border border-dashed border-violet-300 text-violet-800 rounded px-3 py-2">
+            <span class="font-semibold">👻 Pratinjau Bayangan</span>
+            <span>— kartu dari skill yang masih mode Bayangan (belum dibagikan ke admin, baca saja):</span>
+            @foreach ($bayanganPerMeja as $p => $n)
+                <span class="bg-white border border-violet-200 rounded-full px-2 py-0.5">{{ $peranLabel[$p] ?? $p }}: <b>{{ $n }}</b></span>
+            @endforeach
+            <a href="{{ route('tasks.meja.index', ['lihat' => $lihat, 'bayangan' => $tampilBayangan ? '0' : '1']) }}"
+               class="ml-auto underline">{{ $tampilBayangan ? 'Sembunyikan' : 'Tampilkan' }}</a>
+        </div>
+    @endif
+
     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4 items-start">
         @foreach ($kolom as $status => $tasks)
             <div class="bg-slate-100 rounded-lg overflow-hidden">
@@ -66,14 +79,16 @@
                     @forelse ($tasks as $t)
                         @php
                             $skill = $skills[$t->skill] ?? null;
+                            $bayang = (bool) $t->getAttribute('bayangan');
                             $lewat = $t->tenggat_at && $t->tenggat_at->isPast() && !in_array($t->status, ['done', 'cancelled'], true);
                         @endphp
-                        <div class="bg-white rounded-md border {{ $lewat ? 'border-red-300' : 'border-gray-200' }} p-3 text-sm">
+                        <div class="rounded-md p-3 text-sm {{ $bayang ? 'bg-violet-50/60 border-2 border-dashed border-violet-300' : 'bg-white border ' . ($lewat ? 'border-red-300' : 'border-gray-200') }}">
                             <div class="flex items-start justify-between gap-2">
                                 <div class="font-semibold text-gray-800 leading-snug">{{ $t->title }}</div>
                                 @if ($status === 'open')<span class="text-[10px] text-gray-400 whitespace-nowrap">skor {{ $skor[$t->id] }}</span>@endif
                             </div>
                             <div class="flex flex-wrap gap-1 mt-1 text-[10px]">
+                                @if ($bayang)<span class="px-1.5 py-0.5 rounded bg-violet-600 text-white font-bold" title="Skill masih mode Bayangan — kartu ini belum dibuat untuk admin">👻 BAYANGAN</span>@endif
                                 <span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold">{{ $skill?->label() ?? 'Manual' }}</span>
                                 @if ($t->peran)<span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{{ $peranLabel[$t->peran] ?? $t->peran }}</span>@endif
                                 <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{{ $t->assignee?->name ?? 'Belum dipegang' }}</span>
@@ -102,6 +117,9 @@
                                 </div>
                             @endif
 
+                            @if ($bayang)
+                                <div class="mt-2 pt-2 border-t border-violet-200 text-[11px] text-violet-700">Baca saja — akan muncul di meja ini bila skillnya diubah ke Otomatis.</div>
+                            @else
                             <div class="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-gray-100">
                                 @if ($status === 'open')
                                     <form method="POST" action="{{ route('tasks.meja.mulai', $t->id) }}">@csrf
@@ -142,6 +160,7 @@
                                     <span class="text-[11px] text-green-700">✓ {{ $t->done_at?->format('H:i') }}</span>
                                 @endif
                             </div>
+                            @endif
                         </div>
                     @empty
                         <div class="text-center text-xs text-gray-400 py-6">Kosong</div>

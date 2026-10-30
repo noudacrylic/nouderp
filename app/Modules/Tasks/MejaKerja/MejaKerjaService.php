@@ -141,6 +141,46 @@ class MejaKerjaService
         return $rows;
     }
 
+    /**
+     * Pratinjau kartu dari skill yang sedang mode Bayangan — dihitung langsung dengan pindai
+     * yang sama seperti Otomatis, TIDAK disimpan. Untuk owner menimbang beban tiap meja
+     * sebelum skill diserahkan ke admin. Task-nya bertanda `bayangan` & ber-id negatif.
+     *
+     * @return \Illuminate\Support\Collection<int, Task>
+     */
+    public function bayangan(): \Illuminate\Support\Collection
+    {
+        $out = collect();
+        foreach ($this->skills() as $skill) {
+            if (!$skill->tersedia() || $this->kv->mode(self::kunciKv($skill)) !== Skill::BAYANGAN) continue;
+
+            $atur  = $this->pengaturan($skill);
+            $sejak = $this->kv->state(self::kunciKv($skill))->mode_diubah_at ?? now();
+            try {
+                foreach ($skill->pindai($sejak) as $kerja) {
+                    if (Task::where('kunci_sumber', $kerja['kunci'])->exists()) continue;
+
+                    [$lahir, $isi] = $this->atribut($skill, $atur, $kerja);
+                    $t = new Task($isi);
+                    $t->id = -($out->count() + 1);
+                    $t->created_at = $lahir;
+                    $t->setAttribute('bayangan', true);
+                    // Skill yang langsung mem-pending kartunya (mis. retur lama) menandainya di meta.
+                    if ($alasan = $kerja['meta']['pending'] ?? null) {
+                        $t->status = 'pending';
+                        $t->pending_alasan = $alasan;
+                        $t->pending_sejak = now();
+                    }
+                    $out->push($t);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('MejaKerja: pratinjau bayangan gagal', ['skill' => $skill->key(), 'error' => $e->getMessage()]);
+            }
+        }
+
+        return $out;
+    }
+
     /** Task Pending yang dibalas pelanggan dilanjutkan — skill Atur penugasan. */
     public function aturPenugasan(): array
     {
