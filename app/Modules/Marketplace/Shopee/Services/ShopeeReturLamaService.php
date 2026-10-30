@@ -12,6 +12,7 @@ use App\DTO\SalesReturnDTO;
 use App\Enums\AccountCodeEnum;
 use App\Models\InventoryCostLayer;
 use App\Models\SalesInvoice;
+use App\Modules\Marketplace\Shopee\Models\ShopeeReturn;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Sales\Models\SalesReturn;
 use App\Modules\Sales\Services\MarketplaceEngineService;
@@ -170,7 +171,7 @@ class ShopeeReturLamaService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function rencana(ShopeeShop $shop, Carbon $dari, Carbon $sampai, array $hanyaSn = [], ?\Closure $saring = null): array
+    public function rencana(ShopeeShop $shop, Carbon $dari, Carbon $sampai, array $hanyaSn = [], ?\Closure $saring = null, ?array $returShopee = null): array
     {
         $drafts = SalesReturn::with('items')
             ->where('sales_returns.status', 'draft')
@@ -186,7 +187,8 @@ class ShopeeReturLamaService
             $drafts = $drafts->filter(fn ($d) => in_array(substr($d->_order, 3), $hanyaSn, true));
         }
 
-        $returShopee = $this->tarikRetur($shop, $dari->copy()->subDays(5));
+        // Daftar retur Shopee per order_sn: dari pemanggil (shopee_returns) atau langsung dari API.
+        $returShopee ??= $this->tarikRetur($shop, $dari->copy()->subDays(5));
 
         // Saring calon dari daftar retur Shopee saja, sebelum memanggil rincian dana per pesanan.
         if ($saring) {
@@ -202,7 +204,7 @@ class ShopeeReturLamaService
         $inv = SalesInvoice::with('items')->find($draft->invoice_id);
         $r   = [
             'draft' => $draft, 'invoice' => $inv, 'sn' => $sn, 'kelompok' => '-', 'alasan' => null,
-            'retur_shopee' => array_map(fn ($x) => ['sn' => $x['return_sn'], 'status' => $x['status'], 'alasan' => $x['reason'], 'refund' => (float) $x['refund_amount']], $returSn),
+            'retur_shopee' => array_map(fn ($x) => ['sn' => $x['return_sn'], 'status' => $x['status'], 'alasan' => $x['reason'], 'refund' => (float) $x['refund_amount'], 'needs_logistics' => !empty($x['needs_logistics'])], $returSn),
             'nilai' => (float) ($inv?->grand_total ?? 0), 'refund' => 0.0, 'ganti' => 0.0, 'cair' => 0.0,
             'dibalik' => 0.0, 'potongan' => 0.0, 'jenis' => null, 'kasus' => null, 'lama' => null,
         ];
@@ -356,6 +358,132 @@ class ShopeeReturLamaService
             'condition'       => SalesReturn::CONDITION_NO_RETURN,
         ])->all();
 
+        [$banding, $rev, $set] = $this->susunBlok($r, $items);
+
+        $dto = new SalesReturnDTO(
+            customer_id: (int) $d->customer_id,
+            items: $items,
+            date: $this->tanggal($d, $inv),
+            invoice_id: (int) $inv->id,
+            return_type: $r['jenis'],
+            external_return_number: $this->nomorReturShopee($r),
+            notes: $this->catatan($d, 'Diposting dari rincian dana Shopee: refund ' . rupiah($r['refund']) . ', diganti ' . rupiah($r['ganti']) . ', cair ' . rupiah($r['cair']) . '. Barang dianggap tidak kembali.'),
+            refund_target: 'hold',
+            appeal_result: $banding,
+            journal_reversal: $rev ?? [],
+            journal_settlement: $set,
+            return_case: $r['kasus'],
+        );
+
+        $this->retur->post($dto, $d->id);
+
+        return ['jurnal' => $this->jurnalDokumen($d->id, $inv->id), 'catatan' => []];
+    }
+
+    /**
+     * Skill Manajer Admin "Isi hasil retur Shopee": draft retur yang returnya sudah final di
+     * Shopee & pesanannya tuntas diisi kasus, hasil banding, dan blok jurnal Pembalikan &
+     * Penyelesaian dari rincian dana Shopee — TIDAK diposting; admin memeriksa lalu memposting.
+     * Kondisi barang tetap dari draft (admin yang memeriksa fisiknya). Sumber status retur =
+     * shopee_returns (ditarik shopee:tarik-retur), bukan API.
+     *
+     * @return array<int, array{retur: string, retur_id: int, sn: string, nilai: float, cair: float, potongan: float, status: string, pesan: ?string}>
+     */
+    public function isiHasil(ShopeeShop $shop, bool $simulasi, int $hariMundur = 120): array
+    {
+        $returShopee = ShopeeReturn::where('env', $shop->env)->where('shop_id', $shop->shop_id)->get()
+            ->groupBy('order_sn')->map(fn ($xs) => $xs->map->sebagaiApi()->values()->all())->all();
+
+        // Calon: semua pengajuan retur sudah final, bukan seluruhnya dibatalkan (itu urusan
+        // skill retur tidak jadi), dan draft belum pernah diisi.
+        $saring = fn (array $list) => $list
+            && collect($list)->every(fn ($x) => in_array($x['status'], self::STATUS_RETUR_FINAL, true))
+            && !collect($list)->every(fn ($x) => $x['status'] === 'CANCELLED');
+
+        $hasil = [];
+        foreach ($this->rencana($shop, now()->subDays($hariMundur), now(), [], $saring, $returShopee) as $r) {
+            $d = $r['draft'];
+            if ($d->return_case || $d->journal_reversal !== null || $d->journal_settlement !== null) {
+                continue;
+            }
+            $baris = [
+                'retur' => $d->return_number, 'retur_id' => (int) $d->id, 'sn' => $r['sn'],
+                'nilai' => $r['nilai'], 'cair' => $r['cair'], 'potongan' => $r['potongan'],
+                'status' => 'dilewati', 'pesan' => $r['alasan'], 'kasus' => $r['kasus'],
+            ];
+            if ($r['kelompok'] === 'A' && in_array($this->statusPesanan($shop, $r['sn']), ['CANCELLED', 'COMPLETED'], true)) {
+                $r = $this->kasusBarangKembali($r);
+                $baris['kasus'] = $r['kasus'];
+                $baris['pesan'] = SalesReturn::CASES[$r['jenis']][$r['kasus']] ?? $r['alasan'];
+                if ($simulasi) {
+                    $baris['status'] = 'akan';
+                } else {
+                    try {
+                        DB::transaction(fn () => $this->isiDraft($r));
+                        $baris['status'] = 'selesai';
+                    } catch (Throwable $e) {
+                        $baris['status'] = 'gagal';
+                        $baris['pesan']  = $e->getMessage();
+                    }
+                }
+            }
+            $hasil[] = $baris;
+        }
+
+        return $hasil;
+    }
+
+    /** Barang dikirim balik lewat Shopee → kasus "barang kembali" (K1/K2), bukan K3/K4. */
+    private function kasusBarangKembali(array $r): array
+    {
+        $kembali = collect($r['retur_shopee'])->contains(fn ($x) => !empty($x['needs_logistics']));
+        if ($r['jenis'] === 'diajukan_konsumen' && $kembali && in_array($r['kasus'], ['K3', 'K4'], true)) {
+            $r['kasus'] = $r['kasus'] === 'K3' ? 'K1' : 'K2';
+        }
+
+        return $r;
+    }
+
+    private function isiDraft(array $r): void
+    {
+        /** @var SalesReturn $d */
+        $d = $r['draft'];
+        $items = $d->items->map(fn ($i) => [
+            'invoice_item_id' => (int) $i->reference_item_id,
+            'qty'             => (float) $i->qty,
+            'condition'       => $i->condition,
+        ])->all();
+
+        [$banding, $rev, $set] = $this->susunBlok($r, $items);
+
+        $d->forceFill([
+            'return_type'            => $r['jenis'],
+            'return_case'            => $r['kasus'],
+            'appeal_result'          => $banding,
+            'refund_target'          => 'hold',
+            'journal_reversal'       => $rev ?? [],
+            'journal_settlement'     => $set,
+            'external_return_number' => $this->nomorReturShopee($r),
+            'notes'                  => $this->catatan($d, 'Draft diisi dari rincian dana Shopee: refund ' . rupiah($r['refund'])
+                . ', diganti ' . rupiah($r['ganti']) . ', dibalik ' . rupiah($r['dibalik']) . ', cair ' . rupiah($r['cair'])
+                . '. Periksa kondisi barang lalu posting.'),
+        ])->save();
+    }
+
+    private function nomorReturShopee(array $r): ?string
+    {
+        return $r['draft']->external_return_number ?: (collect($r['retur_shopee'])->pluck('sn')->implode(', ') ?: null);
+    }
+
+    /**
+     * Blok Pembalikan & Penyelesaian dari angka Shopee: dana cair = escrow; potongan = sisa
+     * kotor − dana cair (pajak dipisah bila muat).
+     *
+     * @return array{0: ?string, 1: ?array, 2: ?array} [hasil banding, pembalikan, penyelesaian]
+     */
+    private function susunBlok(array $r, array $items): array
+    {
+        $inv = $r['invoice'];
         $banding = SalesReturn::CASE_APPEAL[$r['kasus']] ?? null;
         $b = $this->retur->jurnalBawaan($inv, $items, $r['jenis'], $banding, 'hold', null, $r['dibalik']);
 
@@ -381,24 +509,7 @@ class ShopeeReturLamaService
             $set[$dompetIdx]['memo']   = 'Dana cair sesuai rincian dana Shopee';
         }
 
-        $dto = new SalesReturnDTO(
-            customer_id: (int) $d->customer_id,
-            items: $items,
-            date: $this->tanggal($d, $inv),
-            invoice_id: (int) $inv->id,
-            return_type: $r['jenis'],
-            external_return_number: $d->external_return_number ?: (collect($r['retur_shopee'])->pluck('sn')->implode(', ') ?: null),
-            notes: $this->catatan($d, 'Diposting dari rincian dana Shopee: refund ' . rupiah($r['refund']) . ', diganti ' . rupiah($r['ganti']) . ', cair ' . rupiah($r['cair']) . '. Barang dianggap tidak kembali.'),
-            refund_target: 'hold',
-            appeal_result: $banding,
-            journal_reversal: SalesReturnService::barisTersimpan($b['pembalikan']) ?? [],
-            journal_settlement: SalesReturnService::barisTersimpan($set),
-            return_case: $r['kasus'],
-        );
-
-        $this->retur->post($dto, $d->id);
-
-        return ['jurnal' => $this->jurnalDokumen($d->id, $inv->id), 'catatan' => []];
+        return [$banding, SalesReturnService::barisTersimpan($b['pembalikan']), SalesReturnService::barisTersimpan($set)];
     }
 
     /** B — tutup draft dobel + jurnal koreksi piutang & stok retur lama. */

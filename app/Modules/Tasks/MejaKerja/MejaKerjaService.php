@@ -144,7 +144,10 @@ class MejaKerjaService
         $rows = [];
         Task::where('skill', $skill->key())->whereIn('status', ['open', 'in_progress', 'pending'])->get()
             ->each(function (Task $t) use ($skill, &$rows) {
-                if (!($k = $skill->keadaan($t))) return;
+                if (!($k = $skill->keadaan($t))) {
+                    if (method_exists($skill, 'perbarui') && ($row = $this->perbarui($skill, $t))) $rows[] = $row;
+                    return;
+                }
                 [$status, $catatan] = $k;
                 $this->ubahStatus($t, $status, null, $catatan);
                 $rows[] = [
@@ -155,6 +158,38 @@ class MejaKerjaService
             });
 
         return $rows;
+    }
+
+    /**
+     * Skill yang kartunya berpindah fase mengikuti sumbernya (mis. retur Shopee: periksa →
+     * banding → hasil): judul/keterangan/tenggat diganti, status dipindah bila diminta.
+     */
+    private function perbarui(SkillAdmin $skill, Task $t): ?array
+    {
+        if (!($u = $skill->perbarui($t))) return null;
+
+        $t->forceFill(array_filter([
+            'title'       => isset($u['title']) ? mb_substr($u['title'], 0, 255) : null,
+            'description' => $u['description'] ?? null,
+            'meta'        => $u['meta'] ?? null,
+            'tenggat_at'  => $u['tenggat_at'] ?? null,
+        ], fn ($v) => $v !== null));
+
+        if ($u['status'] === 'pending' && $t->status !== 'pending') {
+            $t->pending_alasan = mb_substr($u['catatan'], 0, 255);
+            $this->ubahStatus($t, 'pending', null, 'Pending: ' . $u['catatan']);
+        } elseif ($u['status'] && $u['status'] !== $t->status) {
+            $t->pending_alasan = null;
+            $this->ubahStatus($t, $u['status'], null, $u['catatan']);
+        } else {
+            $t->save();
+            $this->catat($t, null, 'diperbarui', $u['catatan']);
+        }
+
+        return [
+            'status' => Skill::DIUBAH, 'judul' => $t->title, 'alasan' => $u['catatan'],
+            'tautan' => collect($skill->aksi($t))->firstWhere('utama')['url'] ?? null, 'dokumen' => null, 'jenis' => null,
+        ];
     }
 
     /** @return array{0: \Carbon\Carbon, 1: array} saat lahir + atribut task baru */
@@ -175,7 +210,8 @@ class MejaKerjaService
             'peran'            => $atur->peran,
             'kunci_sumber'     => $k['kunci'],
             // sla_faktor: pekerjaan yang lebih mendesak dari biasanya (mis. laporan barang sudah habis).
-            'tenggat_at'       => $lahir->copy()->addMinutes((int) round($atur->sla_menit * ($k['sla_faktor'] ?? 1))),
+            // tenggat_at dari skill: batas dari luar (mis. batas respons penjual di Shopee).
+            'tenggat_at'       => $k['tenggat_at'] ?? $lahir->copy()->addMinutes((int) round($atur->sla_menit * ($k['sla_faktor'] ?? 1))),
             'meta'             => $k['meta'] ?? null,
         ]];
     }
