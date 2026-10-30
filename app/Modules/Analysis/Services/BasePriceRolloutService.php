@@ -7,6 +7,8 @@ use App\Models\ProductPrice;
 use App\Modules\Analysis\Models\ProductChannelPrice;
 use App\Modules\Marketplace\Jubelio\Services\JubelioClient;
 use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Services\ShopeeHargaService;
 
 /**
  * "Samakan semua marketplace dengan harga dasar" — satu tombol untuk pekerjaan yang selama
@@ -38,6 +40,7 @@ class BasePriceRolloutService
         protected ChannelPricingService $pricing,
         protected JubelioProductSyncService $sync,
         protected JubelioClient $client,
+        protected ShopeeHargaService $shopee,
     ) {
     }
 
@@ -101,6 +104,7 @@ class BasePriceRolloutService
             'ditimpa'    => [],
             'dasar'      => 'skipped',
             'dicek'      => null,
+            'shopee'     => null,
         ];
 
         // Toko yang benar-benar dikirimi, dikumpulkan lintas kanal: pengecekan baliknya
@@ -127,6 +131,15 @@ class BasePriceRolloutService
 
             $row->price = $price;
             $row->save();
+
+            // Shopee tahap 3b: langsung lewat API Shopee (dicek balik ke Shopee), tak
+            // bergantung Jubelio tersambung. Jubelio di bawah tetap ikut dikirimi.
+            if ($channel['key'] === 'shopee' && ShopeeShop::aktif()) {
+                $hasil['shopee'] = $this->shopee->kirim($product, $price);
+                if ($hasil['shopee']['ok']) {
+                    $row->forceFill(['pushed_price' => $price, 'pushed_at' => now()])->save();
+                }
+            }
 
             if (!$tersambung) {
                 continue;
@@ -161,6 +174,7 @@ class BasePriceRolloutService
         // Beda saat dicek balik bukan kegagalan pengiriman — tapi juga bukan "beres", karena
         // yang tayang di tokonya belum tentu harga ini.
         $hasil['ok']    = empty($hasil['gagal']) && $tersambung
+                          && (!$hasil['shopee'] || $hasil['shopee']['ok'] || $hasil['shopee']['tanpa_listing'])
                           && !($hasil['dicek'] && $hasil['dicek']['ok'] && !$hasil['dicek']['sesuai']);
         $hasil['pesan'] = $this->ringkas($product, $hasil, $tersambung);
 
@@ -200,6 +214,10 @@ class BasePriceRolloutService
         // sudah terjadi di ERP dan angka lamanya tidak bisa dilihat lagi di mana pun.
         if ($hasil['ditimpa']) {
             $bagian[] = 'harga khusus yang ditimpa: ' . implode(', ', $hasil['ditimpa']);
+        }
+
+        if ($hasil['shopee'] ?? null) {
+            $bagian[] = $hasil['shopee']['pesan'];
         }
 
         if (!$tersambung) {

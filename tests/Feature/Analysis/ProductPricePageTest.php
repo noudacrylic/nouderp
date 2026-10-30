@@ -668,6 +668,95 @@ class ProductPricePageTest extends TestCase
             ->assertDontSee('Rp10.000');
     }
 
+    /** Toko Shopee + dua listing (satu ber-varian) yang terpeta ke satu produk ERP. */
+    private function tokoShopeeDenganListing(int $pid): void
+    {
+        config(['services.shopee' => ['partner_id' => '1', 'partner_key' => 'k', 'env' => 'test']]);
+        \App\Modules\Marketplace\Shopee\Models\ShopeeShop::create([
+            'shop_id' => 555, 'env' => 'test', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHours(3), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now(),
+        ]);
+        foreach ([[11, 0], [12, 91]] as [$item, $model]) {
+            \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create([
+                'env' => 'test', 'shop_id' => 555, 'item_id' => $item, 'model_id' => $model, 'nama' => "Listing $item",
+                'harga' => 200_000, 'harga_asli' => 200_000, 'status' => 'NORMAL', 'product_id' => $pid,
+            ]);
+        }
+    }
+
+    /** Shopee palsu: update_price dicatat; harga yang dibaca balik = $hargaTerbaca. */
+    private function shopeePalsu(float $hargaTerbaca): \ArrayObject
+    {
+        $kiriman = new \ArrayObject();
+        \Illuminate\Support\Facades\Http::fake(function ($req) use ($kiriman, $hargaTerbaca) {
+            $p = ['current_price' => $hargaTerbaca, 'original_price' => $hargaTerbaca];
+            if (str_contains($req->url(), 'update_price')) {
+                $kiriman[] = $req->data();
+                return \Illuminate\Support\Facades\Http::response(['response' => ['success_list' => [], 'failure_list' => []], 'error' => '']);
+            }
+            if (str_contains($req->url(), 'get_item_base_info')) {
+                return \Illuminate\Support\Facades\Http::response(['response' => ['item_list' => [
+                    ['item_id' => 11, 'has_model' => false, 'price_info' => [$p]],
+                    ['item_id' => 12, 'has_model' => true],
+                ]], 'error' => '']);
+            }
+            if (str_contains($req->url(), 'get_model_list')) {
+                return \Illuminate\Support\Facades\Http::response(['response' => ['model' => [['model_id' => 91, 'price_info' => [$p]]]], 'error' => '']);
+            }
+            return \Illuminate\Support\Facades\Http::response(['error' => 'tak_dikenal', 'message' => $req->url()], 400);
+        });
+
+        return $kiriman;
+    }
+
+    /**
+     * Tahap 3b: Kirim kanal Shopee mengubah harga normal LANGSUNG di Shopee untuk semua
+     * listing/varian yang terpeta, dicek balik ke Shopee — dan Jubelio tetap ikut dikirimi
+     * supaya tak menimpa balik.
+     */
+    public function test_kirim_kanal_shopee_langsung_ke_shopee_dan_jubelio_ikut(): void
+    {
+        $this->potonganShopee();
+        $this->petakanTokoShopee([71]);
+        $id = $this->produkJubelio('AM-60', 'Frame Mahar Akrilik', 200_000, 55);
+        ProductChannelPrice::create(['product_id' => $id, 'channel' => 'shopee', 'price' => 250_000]);
+        $this->tokoShopeeDenganListing($id);
+        $kiriman = $this->shopeePalsu(250_000);
+        $this->pakaiKlienPalsu([['store_id' => 71, 'price' => 250_000]]);
+        $klien = app(JubelioClient::class);
+        $klien::$sinkron = [];
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->post(route('analisa.harga.push', $id), ['kanal' => 'shopee'])
+            ->assertSessionHas('success');
+
+        $this->assertEquals([
+            ['item_id' => 11, 'price_list' => [['model_id' => 0, 'original_price' => 250000]]],
+            ['item_id' => 12, 'price_list' => [['model_id' => 91, 'original_price' => 250000]]],
+        ], $kiriman->getArrayCopy());
+        $this->assertEquals([250_000, 250_000],
+            \App\Modules\Marketplace\Shopee\Models\ShopeeItem::orderBy('item_id')->pluck('harga_asli')->map(fn ($v) => (float) $v)->all());
+        $this->assertSame([[550]], $klien::$sinkron, 'Jubelio tetap ikut dikirimi harga yang sama.');
+        $this->assertNotNull(ProductChannelPrice::where('product_id', $id)->value('pushed_at'));
+    }
+
+    public function test_kirim_kanal_shopee_memperingatkan_saat_shopee_masih_harga_lama(): void
+    {
+        $this->potonganShopee();
+        $id = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        ProductChannelPrice::create(['product_id' => $id, 'channel' => 'shopee', 'price' => 250_000]);
+        $this->tokoShopeeDenganListing($id);
+        $this->shopeePalsu(200_000);
+
+        $this->actingAs($this->admin())
+            ->from(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->post(route('analisa.harga.push', $id), ['kanal' => 'shopee'])
+            ->assertSessionHas('warning')
+            ->assertSessionMissing('success');
+        $this->assertNull(ProductChannelPrice::where('product_id', $id)->value('pushed_at'));
+    }
+
     private function potonganShopee(): void
     {
         PriceChannelFeeComponent::where('channel', 'shopee')->delete();

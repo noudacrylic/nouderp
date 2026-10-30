@@ -25,10 +25,14 @@
                     <strong>&#10003;</strong> memberlakukan harga di web storefront, ERP, sekaligus jadi harga dasar Jubelio.
                     @if($kanalPasar)
                         <strong>Terapkan ke marketplace</strong> menyalin harga itu ke {{ implode(', ', $kanalPasar) }}
-                        sekaligus mengirimnya ke tokonya lewat Jubelio &mdash; harga khusus kanal yang berbeda ditimpa.
+                        sekaligus mengirimnya ke tokonya lewat Jubelio (Shopee langsung lewat API Shopee) &mdash; harga khusus kanal yang berbeda ditimpa.
                     @endif
                 @else
-                    <strong>Kirim</strong> memberlakukan harga khusus toko ini di Jubelio &mdash; sampai ditekan, produknya dijual di harga dasar.
+                    @if($dariShopee)
+                        <strong>Kirim</strong> mengubah harga normal langsung di Shopee (semua listing/varian yang terpeta ke produk itu) lalu mengeceknya balik ke Shopee; Jubelio ikut disamakan &mdash; sampai ditekan, produknya dijual di harga dasar.
+                    @else
+                        <strong>Kirim</strong> memberlakukan harga khusus toko ini di Jubelio &mdash; sampai ditekan, produknya dijual di harga dasar.
+                    @endif
                     @if($dariShopee)
                         Kolom <strong>Di marketplace</strong> dibaca langsung dari Shopee (katalog ditarik tiap jam) &mdash; harga normal per varian, promo tertulis di bawahnya.
                     @else
@@ -262,7 +266,7 @@
                                         @csrf
                                         <input type="hidden" name="kanal" value="{{ $channel['key'] }}">
                                         <button class="ml-2 border border-slate-200 text-slate-600 hover:bg-slate-50 px-2.5 py-1 rounded-lg text-[11px] font-bold"
-                                                title="Kirim harga ini ke toko kanal, lalu tanyakan balik ke Jubelio apakah benar-benar berganti.">Kirim</button>
+                                                title="{{ $dariShopee ? 'Ubah harga langsung di Shopee (semua listing terpeta), cek balik ke Shopee, Jubelio ikut disamakan.' : 'Kirim harga ini ke toko kanal, lalu tanyakan balik ke Jubelio apakah benar-benar berganti.' }}">Kirim</button>
                                     </form>
                                 @endif
                             </td>

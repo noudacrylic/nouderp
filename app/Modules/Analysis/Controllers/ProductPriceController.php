@@ -13,6 +13,7 @@ use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
 use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Services\ShopeeHargaService;
 use App\Modules\Marketplace\Shopee\Services\ShopeeKatalogService;
 use App\Modules\Sales\Services\PromotionService;
 use Illuminate\Http\Request;
@@ -208,6 +209,25 @@ class ProductPriceController extends Controller
         ]);
     }
 
+    private function kirimKeShopee(Product $product, ProductChannelPrice $row, array $channel, JubelioProductSyncService $sync)
+    {
+        $harga  = (float) $row->price;
+        $shopee = app(ShopeeHargaService::class)->kirim($product, $harga);
+
+        $jubelio = !empty($channel['store_ids'])
+            ? $sync->pushStorePrice($product, $channel['store_ids'], $harga)
+            : ['ok' => false, 'message' => 'kanal belum punya toko Jubelio'];
+
+        if ($shopee['ok']) {
+            $row->forceFill(['pushed_price' => $harga, 'pushed_at' => now()])->save();
+        }
+
+        $pesan = "{$product->name} — {$shopee['pesan']}"
+            . ($jubelio['ok'] ? ' Jubelio ikut disamakan.' : ' Jubelio belum ikut: ' . $jubelio['message']);
+
+        return back()->with($shopee['ok'] ? 'success' : ($shopee['tanpa_listing'] ? 'error' : 'warning'), $pesan);
+    }
+
     /** Toko Shopee yang terhubung, bila kanal ini kanal Shopee — sumber harga langsung. */
     private function tokoShopee(array $channel): ?ShopeeShop
     {
@@ -305,6 +325,13 @@ class ProductPriceController extends Controller
 
         if (!$row || $row->price === null) {
             return back()->with('error', 'Isi lalu simpan harga khusus kanal ini dulu. Tanpa itu produk memang dijual di harga dasar.');
+        }
+
+        // Shopee (tahap 3b): langsung lewat API Shopee + dicek balik ke Shopee. Jubelio
+        // tetap ikut dikirimi harga yang sama supaya tak menimpa balik dengan harga lama
+        // selama pesanan Shopee masih lewat Jubelio.
+        if ($this->tokoShopee($channel)) {
+            return $this->kirimKeShopee($product, $row, $channel, $sync);
         }
 
         $result = $sync->pushStorePrice($product, $channel['store_ids'], (float) $row->price);
