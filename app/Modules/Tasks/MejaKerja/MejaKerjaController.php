@@ -100,7 +100,7 @@ class MejaKerjaController extends Controller
         $u = $request->user();
         $this->bolehPegang($u, $task);
         $skill = $this->meja->skill($task->skill);
-        abort_if($skill && !$skill->selesaiManual(), 422, 'Task ini selesai otomatis saat pekerjaannya tuntas di ERP.');
+        abort_unless(MejaKerjaService::bolehSelesaiManual($skill, $task), 422, 'Task ini selesai otomatis saat pekerjaannya tuntas di ERP.');
         abort_unless(in_array($task->status, ['in_progress', 'pending'], true), 422, 'Mulai dulu task-nya.');
         $this->meja->selesai($task, $u);
 

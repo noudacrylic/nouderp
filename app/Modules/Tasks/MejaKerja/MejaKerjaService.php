@@ -50,6 +50,14 @@ class MejaKerjaService
         return $key ? ($this->skills()[$key] ?? null) : null;
     }
 
+    /** Boleh ditandai selesai dengan tombol? Skill bisa memutuskan per task (selesaiManualUntuk). */
+    public static function bolehSelesaiManual(?SkillAdmin $s, Task $t): bool
+    {
+        if (!$s) return true;
+
+        return method_exists($s, 'selesaiManualUntuk') ? $s->selesaiManualUntuk($t) : $s->selesaiManual();
+    }
+
     public static function kunciKv(SkillAdmin $s): string
     {
         return 'admin.' . $s->key();

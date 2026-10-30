@@ -108,7 +108,7 @@
                                         <button class="bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold">▶ Mulai</button>
                                     </form>
                                 @elseif ($status === 'in_progress')
-                                    @if (!$skill || $skill->selesaiManual())
+                                    @if (\App\Modules\Tasks\MejaKerja\MejaKerjaService::bolehSelesaiManual($skill, $t))
                                         <form method="POST" action="{{ route('tasks.meja.selesai', $t->id) }}">@csrf
                                             <button class="bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">✓ Selesai</button>
                                         </form>

@@ -120,9 +120,14 @@ class ReturMejaKerjaTest extends TestCase
         }
     }
 
-    private function kartu(): ?Task
+    private function kartu(string $fase): ?Task
     {
-        return Task::where('kunci_sumber', 'retur:' . $this->retur->id)->first();
+        return Task::where('kunci_sumber', 'retur:' . $this->retur->id . ':' . $fase)->first();
+    }
+
+    private function kartuTerbuka()
+    {
+        return Task::where('skill', 'retur')->whereIn('status', ['open', 'in_progress', 'pending'])->get();
     }
 
     private function sinkron(): void
@@ -135,11 +140,11 @@ class ReturMejaKerjaTest extends TestCase
         Http::fake();
         $batas = now()->addHours(10)->startOfMinute();
         $this->shopeeRetur('PROCESSING', ['seller_due_at' => $batas]);
-        $this->nyalakan();
+        $this->nyalakan(draftBaru: false);
 
         $this->sinkron();
 
-        $t = $this->kartu();
+        $t = $this->kartu('periksa');
         $this->assertNotNull($t);
         $this->assertSame('open', $t->status);
         $this->assertSame('layanan', $t->peran);
@@ -150,6 +155,7 @@ class ReturMejaKerjaTest extends TestCase
         $aksi = app(MejaKerjaService::class)->skill('retur')->aksi($t);
         $this->assertSame(route('sales.returns.edit', $this->retur->id), $aksi[0]['url']);
         $this->assertSame('R-' . self::SN, collect($aksi)->firstWhere('label', 'Buka di Seller Centre')['salin']);
+        $this->assertTrue(MejaKerjaService::bolehSelesaiManual(app(MejaKerjaService::class)->skill('retur'), $t), 'admin menandai selesai setelah menjawab di Seller Centre');
     }
 
     public function test_tarik_retur_menyimpan_batas_respons_dalam_jam_lokal(): void
@@ -172,26 +178,46 @@ class ReturMejaKerjaTest extends TestCase
         $this->assertSame('2026-10-31 18:55:00', DB::table('shopee_returns')->value('seller_due_at'));
         $this->assertTrue($x->needs_logistics);
         $this->assertNull($x->negotiation_status);
+        $this->assertFalse($x->pernah_disengketakan);
     }
 
-    public function test_banding_jadi_pending_lalu_kembali_antre_saat_hasil_keluar(): void
+    public function test_banding_menutup_kartu_periksa_lalu_kartu_baru_saat_hasil_keluar(): void
     {
         Http::fake();
         $this->shopeeRetur('PROCESSING');
         $this->nyalakan();
         $this->sinkron();
+        $this->assertSame('open', $this->kartu('periksa')->status);
 
-        $this->shopeeRetur('SELLER_DISPUTE');
+        // Banding tercatat di Shopee → kartu periksa selesai, tidak ada kartu menunggu/pending.
+        $this->shopeeRetur('SELLER_DISPUTE', ['pernah_disengketakan' => true]);
         $this->sinkron();
-        $t = $this->kartu()->fresh();
-        $this->assertSame('pending', $t->status);
-        $this->assertStringContainsString('Menunggu keputusan Shopee', $t->pending_alasan);
+        $this->assertSame('done', $this->kartu('periksa')->fresh()->status);
+        $this->assertCount(0, $this->kartuTerbuka());
 
+        // Hasil banding keluar → kartu BARU untuk menyelesaikan.
         $this->shopeeRetur('ACCEPTED');
         $this->sinkron();
-        $t = $this->kartu()->fresh();
+        $t = $this->kartu('hasil');
+        $this->assertNotNull($t);
         $this->assertSame('open', $t->status);
         $this->assertStringStartsWith('Banding sudah selesai', $t->title);
+        $this->assertFalse(MejaKerjaService::bolehSelesaiManual(app(MejaKerjaService::class)->skill('retur'), $t), 'selesai saat retur diposting');
+    }
+
+    public function test_periksa_yang_ditandai_selesai_admin_tidak_dibuat_ulang(): void
+    {
+        Http::fake();
+        $this->shopeeRetur('PROCESSING');
+        $this->nyalakan();
+        $this->sinkron();
+        $t = $this->kartu('periksa');
+        app(MejaKerjaService::class)->ubahStatus($t, 'done', null, 'Ditandai selesai');
+
+        $this->sinkron();
+
+        $this->assertSame(1, Task::where('skill', 'retur')->count());
+        $this->assertCount(0, $this->kartuTerbuka());
     }
 
     public function test_hasil_final_draft_diisi_lalu_kartu_selesai_saat_diposting(): void
@@ -207,7 +233,7 @@ class ReturMejaKerjaTest extends TestCase
         ]);
         $this->nyalakan();
         $this->sinkron();
-        $this->assertStringStartsWith('Retur selesai di Shopee', $this->kartu()->title);
+        $this->assertStringStartsWith('Retur selesai di Shopee', $this->kartu('hasil')->title);
 
         $jalan = app(KaryawanVirtualService::class)->jalankan(ReturIsiHasil::KEY, KaryawanVirtualService::PEMICU_JADWAL);
 
@@ -220,11 +246,11 @@ class ReturMejaKerjaTest extends TestCase
         Http::assertNotSent(fn ($req) => str_contains($req->url(), 'get_return_list'));
 
         $this->sinkron();
-        $this->assertStringContainsString('Draft sudah diisi', $this->kartu()->fresh()->description);
+        $this->assertStringContainsString('Draft sudah diisi', $this->kartu('hasil')->fresh()->description);
 
         DB::table('sales_returns')->where('id', $r->id)->update(['status' => 'posted']);
         $this->sinkron();
-        $this->assertSame('done', $this->kartu()->fresh()->status);
+        $this->assertSame('done', $this->kartu('hasil')->fresh()->status);
     }
 
     public function test_isi_hasil_melewati_retur_yang_masih_berjalan(): void
@@ -247,7 +273,7 @@ class ReturMejaKerjaTest extends TestCase
 
         $this->sinkron();
 
-        $t = $this->kartu();
+        $t = $this->kartu('manual');
         $this->assertSame('pending', $t->status);
         $this->assertStringContainsString('Retur lama', $t->pending_alasan);
         $this->assertStringStartsWith('Selesaikan retur', $t->title);

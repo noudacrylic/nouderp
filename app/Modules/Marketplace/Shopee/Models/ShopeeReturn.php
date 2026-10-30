@@ -16,13 +16,14 @@ class ShopeeReturn extends Model
     protected $fillable = [
         'env', 'shop_id', 'return_sn', 'order_sn', 'status', 'reason', 'text_reason', 'refund_amount',
         'needs_logistics', 'negotiation_status', 'seller_proof_status', 'seller_compensation_status',
-        'seller_due_at', 'dibuat_shopee_at', 'diperbarui_shopee_at', 'raw', 'disinkron_at',
+        'pernah_disengketakan', 'seller_due_at', 'dibuat_shopee_at', 'diperbarui_shopee_at', 'raw', 'disinkron_at',
     ];
 
     protected $casts = [
         'shop_id'              => 'integer',
         'refund_amount'        => 'decimal:2',
         'needs_logistics'      => 'boolean',
+        'pernah_disengketakan' => 'boolean',
         'seller_due_at'        => 'datetime',
         'dibuat_shopee_at'     => 'datetime',
         'diperbarui_shopee_at' => 'datetime',

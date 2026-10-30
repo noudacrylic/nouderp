@@ -24,25 +24,26 @@ class ShopeeReturService
 
         foreach ($this->retur->tarikRetur($shop, now()->subDays($hari)) as $orderSn => $list) {
             foreach ($list as $x) {
-                ShopeeReturn::updateOrCreate(
-                    ['env' => $shop->env, 'shop_id' => $shop->shop_id, 'return_sn' => (string) $x['return_sn']],
-                    [
-                        'order_sn'                   => (string) $orderSn,
-                        'status'                     => (string) $x['status'],
-                        'reason'                     => $teks($x['reason'] ?? null),
-                        'text_reason'                => $teks($x['text_reason'] ?? null),
-                        'refund_amount'              => $x['refund_amount'] ?? null,
-                        'needs_logistics'            => (bool) ($x['needs_logistics'] ?? false),
-                        'negotiation_status'         => $teks($x['negotiation_status'] ?? ($x['negotiation']['negotiation_status'] ?? null)),
-                        'seller_proof_status'        => $teks($x['seller_proof_status'] ?? null),
-                        'seller_compensation_status' => $teks($x['seller_compensation_status'] ?? null),
-                        'seller_due_at'              => $waktu($x['return_seller_due_date'] ?? null),
-                        'dibuat_shopee_at'           => $waktu($x['create_time'] ?? null),
-                        'diperbarui_shopee_at'       => $waktu($x['update_time'] ?? null),
-                        'raw'                        => $x,
-                        'disinkron_at'               => now(),
-                    ]
-                );
+                $baris = ShopeeReturn::firstOrNew(['env' => $shop->env, 'shop_id' => $shop->shop_id, 'return_sn' => (string) $x['return_sn']]);
+                $baris->fill([
+                    'order_sn'                   => (string) $orderSn,
+                    'status'                     => (string) $x['status'],
+                    'reason'                     => $teks($x['reason'] ?? null),
+                    'text_reason'                => $teks($x['text_reason'] ?? null),
+                    'refund_amount'              => $x['refund_amount'] ?? null,
+                    'needs_logistics'            => (bool) ($x['needs_logistics'] ?? false),
+                    'negotiation_status'         => $teks($x['negotiation_status'] ?? ($x['negotiation']['negotiation_status'] ?? null)),
+                    'seller_proof_status'        => $teks($x['seller_proof_status'] ?? null),
+                    'seller_compensation_status' => $teks($x['seller_compensation_status'] ?? null),
+                    'seller_due_at'              => $waktu($x['return_seller_due_date'] ?? null),
+                    'dibuat_shopee_at'           => $waktu($x['create_time'] ?? null),
+                    'diperbarui_shopee_at'       => $waktu($x['update_time'] ?? null),
+                    'raw'                        => $x,
+                    'disinkron_at'               => now(),
+                ]);
+                // Status akhir tak lagi menyebut banding — penandanya dipertahankan sekali terlihat.
+                $baris->pernah_disengketakan = $baris->pernah_disengketakan || $baris->disengketakan();
+                $baris->save();
                 $n++;
             }
         }

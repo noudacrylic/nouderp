@@ -6,24 +6,28 @@ use App\Modules\Marketplace\Shopee\Models\ShopeeReturn;
 use App\Modules\Sales\Models\SalesReturn;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
+use App\Modules\Tasks\MejaKerja\MejaKerjaService;
 use App\Modules\Tasks\Models\Task;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Retur: tiap draft retur → satu kartu di Meja Layanan, selesai sendiri saat returnya
- * diposting (batal bila di-void / tidak jadi). Kartu retur Shopee mengikuti status
- * pengajuannya di Shopee (shopee_returns, ditarik shopee:tarik-retur) lewat fase:
+ * Retur: draft retur → kartu di Meja Layanan. Retur Shopee mengikuti status pengajuannya di
+ * Shopee (shopee_returns, ditarik shopee:tarik-retur); tiap tahap kartunya sendiri:
  *
- *   manual  — bukan Shopee, atau tanpa pengajuan retur di Shopee (gagal kirim / paket hilang).
- *   periksa — retur berjalan: periksa barang, terima atau banding. Tenggat = batas respons
- *             penjual dari Shopee.
- *   banding — sudah disengketakan → Pending "menunggu keputusan Shopee".
- *   hasil   — semua pengajuan final → Antre "periksa & posting". Draftnya diisi skill
- *             admin.retur-isi-hasil dari rincian dana Shopee begitu dana pesanan final.
+ *   manual  — bukan Shopee, atau tanpa pengajuan retur di Shopee (gagal kirim / paket hilang):
+ *             "Selesaikan retur", selesai sendiri saat returnya diposting.
+ *   periksa — retur berjalan: periksa barang, terima atau ajukan banding. Tenggat = batas
+ *             respons penjual dari Shopee. Admin menandai Selesai setelah menjawab di Seller
+ *             Centre; selesai sendiri juga begitu Shopee mencatat banding / hasil final.
+ *   banding — menunggu keputusan Shopee: TIDAK ada kartu (keputusan user 31 Okt 2026 — tanpa
+ *             Pending supaya tidak membingungkan).
+ *   hasil   — semua pengajuan final → kartu BARU "Banding sudah selesai / Retur selesai di
+ *             Shopee — periksa & posting". Draftnya diisi skill admin.retur-isi-hasil dari
+ *             rincian dana Shopee; keterangan kartu ikut diperbarui saat draft terisi.
  *
- * Draft lama (lahir sebelum skill dinyalakan) yang bukan Shopee langsung Pending sampai admin
- * mengeceknya (keputusan user 31 Okt 2026); yang Shopee mengikuti fasenya.
+ * Draft lama (lahir sebelum skill dinyalakan) yang BUKAN Shopee langsung Pending sampai admin
+ * mengeceknya; kartu Shopee tidak pernah Pending.
  */
 class ReturSkill implements SkillAdmin
 {
@@ -38,9 +42,9 @@ class ReturSkill implements SkillAdmin
 
     public function deskripsi(): string
     {
-        return 'Tiap draft retur → kartu "Selesaikan retur" dengan tombol ke form retur. Retur Shopee mengikuti statusnya di Shopee: '
-            . 'periksa barang & putuskan terima atau banding (tenggat = batas respons Shopee), Pending saat menunggu keputusan banding, '
-            . 'lalu kembali Antre "periksa & posting" begitu hasilnya keluar. Selesai sendiri saat retur diposting.';
+        return 'Tiap draft retur → kartu "Selesaikan retur" dengan tombol ke form retur. Retur Shopee: kartu "Periksa barang retur — terima atau banding" '
+            . '(tenggat = batas respons Shopee, tandai Selesai setelah menjawab di Seller Centre), lalu kartu baru "Banding sudah selesai — periksa & posting" '
+            . 'begitu hasilnya keluar. Selesai sendiri saat retur diposting.';
     }
 
     public function peranBawaan(): string { return 'layanan'; }
@@ -55,15 +59,13 @@ class ReturSkill implements SkillAdmin
     {
         foreach ($this->draft() as $d) {
             $f = $this->fase($d);
+            if ($f['fase'] === 'banding') continue;
+
             $lama = Carbon::parse($d->created_at)->lte($sejak);
-            $pending = match (true) {
-                $f['fase'] === 'banding'                => 'Menunggu keputusan Shopee (banding).',
-                $lama && $f['fase'] === 'manual'        => 'Retur lama — menunggu dicek admin.',
-                default                                 => null,
-            };
+            $pending = $lama && $f['order_sn'] === null ? 'Retur lama — menunggu dicek admin.' : null;
 
             yield [
-                'kunci'         => "retur:{$d->id}",
+                'kunci'         => "retur:{$d->id}:{$f['fase']}",
                 'judul'         => $f['judul'],
                 'deskripsi'     => $f['deskripsi'],
                 'taskable_type' => SalesReturn::class,
@@ -73,23 +75,22 @@ class ReturSkill implements SkillAdmin
                     'order_sn'            => $f['order_sn'],
                     'return_sn'           => $f['return_sn'],
                     'fase'                => $f['fase'],
-                    'diisi'               => $f['diisi'],
-                    'pernah_banding'      => $f['fase'] === 'banding',
+                    'diisi'               => $f['diisi'] ?: null,
                     'crm_conversation_id' => $d->so_id ? (DB::table('crm_pesanan_chat')->where('sales_order_id', $d->so_id)->value('conversation_id') ?: null) : null,
                     'pending'             => $pending,
-                ], fn ($v) => $v !== null && $v !== false),
+                ], fn ($v) => $v !== null),
                 'dibuat_at'     => $lama ? now() : Carbon::parse($d->created_at),
                 'tenggat_at'    => $f['tenggat'],
             ];
         }
     }
 
-    /** Kartu baru yang harus langsung Pending (banding berjalan / draft lama non-Shopee). */
+    /** Draft lama non-Shopee langsung Pending sampai admin mengeceknya. */
     public function setelahDibuat(Task $task, array $kerja): void
     {
         if ($alasan = $kerja['meta']['pending'] ?? null) {
             $task->pending_alasan = mb_substr($alasan, 0, 255);
-            app(\App\Modules\Tasks\MejaKerja\MejaKerjaService::class)->ubahStatus($task, 'pending', null, 'Pending: ' . $alasan);
+            app(MejaKerjaService::class)->ubahStatus($task, 'pending', null, 'Pending: ' . $alasan);
         }
     }
 
@@ -99,41 +100,36 @@ class ReturSkill implements SkillAdmin
         if ($status === 'posted') return ['done', 'Retur diposting.'];
         if ($status !== 'draft') return ['cancelled', 'Retur dibatalkan / tidak jadi.'];
 
+        // Kartu periksa tuntas begitu Shopee mencatat jawaban penjual (banding) atau hasil final.
+        if (($task->meta['fase'] ?? null) === 'periksa' && ($d = $this->draft($task->taskable_id)->first())) {
+            $fase = $this->fase($d)['fase'];
+            if ($fase === 'banding') return ['done', 'Banding tercatat di Shopee — menunggu keputusan Shopee.'];
+            if ($fase === 'hasil') return ['done', 'Retur sudah final di Shopee — lanjut kartu periksa & posting.'];
+        }
+
         return null;
     }
 
     /**
-     * Fase kartu berubah karena status Shopee berubah → status, judul & keterangan kartu
-     * ikut diperbarui. Pending yang dipasang admin sendiri tidak diusik selama fasenya sama.
+     * Kartu hasil: keterangan diperbarui saat draft selesai diisi Manajer Admin.
      *
      * @return array{status: ?string, catatan: string, title: string, description: ?string, meta: array, tenggat_at: ?Carbon}|null
      */
     public function perbarui(Task $task): ?array
     {
-        $d = $this->draft($task->taskable_id)->first();
-        if (!$d) return null;
-
         $m = $task->meta ?? [];
-        $f = $this->fase($d, (bool) ($m['pernah_banding'] ?? false));
-        if ($f['fase'] === ($m['fase'] ?? null) && $f['diisi'] === (bool) ($m['diisi'] ?? false)) return null;
+        if (($m['fase'] ?? null) !== 'hasil' || !empty($m['diisi'])) return null;
 
-        [$status, $catatan] = match (true) {
-            $f['fase'] === 'banding'                     => ['pending', 'Menunggu keputusan Shopee (banding).'],
-            $f['fase'] === 'hasil' && $f['diisi']        => [$task->status === 'pending' ? 'open' : null, 'Draft diisi dari rincian dana Shopee — periksa & posting.'],
-            $f['fase'] === 'hasil'                       => [$task->status === 'pending' ? 'open' : null, ($m['pernah_banding'] ?? false) ? 'Banding sudah selesai di Shopee.' : 'Retur selesai di Shopee.'],
-            default                                      => [$task->status === 'pending' && ($m['fase'] ?? null) === 'banding' ? 'open' : null, 'Status retur di Shopee berubah.'],
-        };
+        $d = $this->draft($task->taskable_id)->first();
+        if (!$d || !($f = $this->fase($d))['diisi']) return null;
 
         return [
-            'status'      => $status,
-            'catatan'     => $catatan,
+            'status'      => null,
+            'catatan'     => 'Draft diisi dari rincian dana Shopee — periksa & posting.',
             'title'       => $f['judul'],
             'description' => $f['deskripsi'],
-            'meta'        => array_merge($m, [
-                'fase' => $f['fase'], 'diisi' => $f['diisi'], 'return_sn' => $f['return_sn'],
-                'pernah_banding' => ($m['pernah_banding'] ?? false) || $f['fase'] === 'banding',
-            ]),
-            'tenggat_at'  => $f['tenggat'],
+            'meta'        => array_merge($m, ['diisi' => true]),
+            'tenggat_at'  => null,
         ];
     }
 
@@ -154,6 +150,12 @@ class ReturSkill implements SkillAdmin
 
     public function selesaiManual(): bool { return false; }
 
+    /** Hanya kartu periksa yang ditandai selesai admin (setelah menjawab di Seller Centre). */
+    public function selesaiManualUntuk(Task $task): bool
+    {
+        return ($task->meta['fase'] ?? null) === 'periksa';
+    }
+
     /** Draft retur yang masih terbuka (atau satu draft), beserta pesanan & pelanggannya. */
     private function draft(?int $id = null)
     {
@@ -166,13 +168,13 @@ class ReturSkill implements SkillAdmin
             ->when($id, fn ($q) => $q->where('r.id', $id))
             ->orderBy('r.id')
             ->get(['r.id', 'r.return_number', 'r.created_at', 'r.return_case', 'r.journal_reversal', 'r.journal_settlement',
-                   'r.grand_total', 'so.id as so_id', 'so.order_number', 'c.name as pelanggan']);
+                   'so.id as so_id', 'so.order_number', 'c.name as pelanggan']);
     }
 
     /**
      * @return array{fase: string, judul: string, deskripsi: string, tenggat: ?Carbon, order_sn: ?string, return_sn: ?string, diisi: bool}
      */
-    private function fase(object $d, bool $pernahBanding = false): array
+    private function fase(object $d): array
     {
         $no = $d->return_number;
         $diisi = $d->return_case !== null && ($d->journal_reversal !== null || $d->journal_settlement !== null);
@@ -189,7 +191,7 @@ class ReturSkill implements SkillAdmin
         $rsn = $list->last()?->return_sn;
         if ($list->isEmpty()) {
             return $hasil('manual', "Selesaikan retur $no — SP-$sn (tanpa pengajuan retur di Shopee)",
-                "Tidak ada pengajuan retur di Shopee (gagal kirim / paket hilang). Cek barang yang kembali, lalu posting.", null, $sn);
+                'Tidak ada pengajuan retur di Shopee (gagal kirim / paket hilang). Cek barang yang kembali, lalu posting.', null, $sn);
         }
 
         $ringkas = $list->map(fn (ShopeeReturn $x) => "{$x->return_sn}: {$x->status}" . ($x->reason ? " ({$x->reason})" : '')
@@ -197,17 +199,17 @@ class ReturSkill implements SkillAdmin
 
         $berjalan = $list->reject->final();
         if ($berjalan->contains->disengketakan()) {
-            return $hasil('banding', "Banding retur $no — SP-$sn (menunggu Shopee)",
-                "Banding sudah diajukan, menunggu keputusan Shopee.\n$ringkas", null, $sn, $rsn);
+            return $hasil('banding', "Banding retur $no", '', null, $sn, $rsn);
         }
         if ($berjalan->isNotEmpty()) {
             $tenggat = $berjalan->pluck('seller_due_at')->filter()->min();
             return $hasil('periksa', "Periksa barang retur $no — SP-$sn: terima atau banding",
-                "Periksa barang & bukti pembeli, lalu terima atau ajukan banding di Seller Centre"
-                . ($tenggat ? ' sebelum ' . $tenggat->format('d/m H:i') : '') . ".\n$ringkas", $tenggat, $sn, $rsn);
+                'Periksa barang & bukti pembeli, lalu terima atau ajukan banding di Seller Centre'
+                . ($tenggat ? ' sebelum ' . $tenggat->format('d/m H:i') : '') . '. Tandai Selesai setelah menjawab di Shopee.'
+                . "\n$ringkas", $tenggat, $sn, $rsn);
         }
 
-        $awal = $pernahBanding ? 'Banding sudah selesai' : 'Retur selesai di Shopee';
+        $awal = $list->contains('pernah_disengketakan', true) ? 'Banding sudah selesai' : 'Retur selesai di Shopee';
         return $hasil('hasil', "$awal — periksa & posting $no (SP-$sn)",
             ($diisi ? 'Draft sudah diisi Manajer Admin dari rincian dana Shopee — periksa kondisi barang & jurnalnya, lalu posting.'
                     : 'Menunggu dana pesanan final untuk diisi otomatis — atau lengkapi sendiri lalu posting.') . "\n$ringkas",
