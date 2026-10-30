@@ -1929,6 +1929,71 @@ class CrmInboxController extends Controller
      * berarti ada dua tempat yang masing-masing berjanji kepada pelanggan soal
      * masa berlaku tautan, dan keduanya akan cepat berbeda isi.
      */
+    /**
+     * Kirim faktur pesanan sebagai GAMBAR ke chat ini.
+     *
+     * Chat Shopee tak bisa menerima PDF dan memblokir nomor telepon / alamat web,
+     * jadi di sana notanya dicetak tanpa baris kontak toko. Faktur yang dikirim
+     * hanya yang sudah POSTED — draft belum jadi tagihan bagi pembeli.
+     */
+    public function notaPesanan(
+        Request $request,
+        CrmConversation $conversation,
+        SalesOrder $order,
+        CrmReplyService $balasan,
+        \App\Modules\CRM\Services\NotaGambarService $nota
+    ) {
+        $data = $request->validate(['nama' => ['nullable', 'string', 'max:120']]);
+
+        // Pesanan milik pelanggan LAIN tidak boleh bocor lewat chat ini; pesanan
+        // tertaut (Shopee: atas nama pelanggan marketplace) boleh.
+        $milikSendiri = $conversation->customer_id && $order->customer_id === $conversation->customer_id;
+        $tertaut = in_array($order->id, app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($conversation), true);
+        abort_unless($milikSendiri || $tertaut, 404);
+
+        if ($alasan = $conversation->alasanTakBolehDibalas($request->user())) {
+            return response()->json(['success' => false, 'error' => $alasan], 403);
+        }
+
+        $faktur = $order->invoices()->where('status', 'posted')->latest('id')->first();
+        if (! $faktur) {
+            return response()->json(['success' => false, 'error' => 'Faktur pesanan ini belum terbit (belum posted).'], 422);
+        }
+
+        try {
+            $gambar = $nota->render($faktur, $conversation->shopee(), $data['nama'] ?? null);
+        } catch (\Throwable $e) {
+            Log::warning('Nota gambar gagal dibuat', ['invoice' => $faktur->id, 'error' => $e->getMessage()]);
+
+            return response()->json(['success' => false, 'error' => 'Gambar nota gagal dibuat — coba lagi.'], 500);
+        }
+
+        try {
+            $hasil = $balasan->balas($conversation, '', $request->user()?->id, null, [$gambar]);
+        } finally {
+            @unlink($gambar->getPathname());
+        }
+
+        if (! $hasil['success']) {
+            return response()->json(['success' => false, 'error' => $hasil['error']], 422);
+        }
+
+        $conversation->catatDibalasOleh($request->user());
+
+        $baru = $conversation->messages()
+            ->with(self::MUATAN_GELEMBUNG)
+            ->where('id', '>', (int) $request->input('after', 0))
+            ->orderBy('sent_at')->orderBy('id')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'nomor'   => $faktur->invoice_number,
+            'html'    => view('erp.crm.inbox._bubbles', ['pesan' => $baru])->render(),
+            'last_id' => (int) ($baru->max('id') ?: $request->input('after', 0)),
+        ]);
+    }
+
     public function rincianPesanan(
         CrmConversation $conversation,
         SalesOrder $order,
@@ -2336,6 +2401,8 @@ class CrmInboxController extends Controller
                      * diklik, bukan di sini — rail ini dirender tiap chat dibuka.
                      */
                     'lacak'   => $this->bisaDilacak($so),
+                    // Faktur posted terbaru — syarat tombol "Kirim nota" (gambar).
+                    'faktur'  => $so->invoices()->where('status', 'posted')->latest('id')->value('invoice_number'),
                     'url_lacak' => route('sales.orders.public-tracking', $so->id),
                 ];
             })

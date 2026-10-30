@@ -89,6 +89,7 @@
           dan tanpa itu jawabannya membawa ulang seluruh riwayat sebagai
           gelembung dobel. --}}
      @kirim-foto-produk.window="kirimFotoProduk($event.detail)"
+     @kirim-nota-pesanan.window="kirimNotaPesanan($event.detail)"
      @if($terbuka)
      @dragenter.prevent="mulaiSeret($event)"
      @dragover.prevent
@@ -1291,6 +1292,43 @@
                              * kembali lewat 'foto-produk-selesai' supaya
                              * tombolnya di panel tahu kapan berhenti berputar.
                              */
+                            /*
+                             * Nota pesanan sebagai gambar, dari panel Pesanan.
+                             * Polanya sama dengan foto produk: thread yang
+                             * mengirim karena hanya di sini id pesan terakhir
+                             * diketahui; hasilnya dipantulkan lewat
+                             * 'nota-pesanan-selesai'.
+                             */
+                            async kirimNotaPesanan(detail) {
+                                const selesai = (ok, error) => window.dispatchEvent(
+                                    new CustomEvent('nota-pesanan-selesai', { detail: { ok, error } })
+                                );
+
+                                try {
+                                    const r = await fetch(detail.url, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Accept': 'application/json',
+                                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                                        },
+                                        body: JSON.stringify({ nama: detail.nama || null, after: this.terakhir }),
+                                    });
+                                    const d = await r.json().catch(() => ({}));
+
+                                    if (!r.ok || !d.success) {
+                                        selesai(false, d.error || d.message || 'Nota gagal dikirim.');
+                                        return;
+                                    }
+
+                                    if (d.html) this.tempelHtml(d.html, d.last_id);
+                                    this.keBawah();
+                                    selesai(true, null);
+                                } catch (e) {
+                                    selesai(false, 'Jaringan bermasalah — nota belum terkirim.');
+                                }
+                            },
+
                             async kirimFotoProduk(detail) {
                                 const selesai = (ok, error) => window.dispatchEvent(
                                     new CustomEvent('foto-produk-selesai', { detail: { ok, error } })

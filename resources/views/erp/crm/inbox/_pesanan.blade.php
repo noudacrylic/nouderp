@@ -32,6 +32,7 @@
 @endphp
 
 <div class="space-y-3 text-sm" x-data="pesananCrm()"
+     @nota-pesanan-selesai.window="sibukNota = null; notaGalat = $event.detail.ok ? '' : $event.detail.error; if ($event.detail.ok) notaUntuk = null"
      @ongkir-dipilih.window="terimaDariOngkir($event.detail)"
      @tujuan-ongkir.window="tujuan = $event.detail"
      @minta-keranjang-ongkir.window="baris.length && kirimKeranjangKeOngkir()">
@@ -144,6 +145,38 @@
                             title="Sisipkan tautan lacak ke kotak balasan">
                         <span x-show="sibukLacak !== p.id">Kirim link lacak</span>
                         <span x-show="sibukLacak === p.id" x-cloak>Menyiapkan…</span>
+                    </button>
+                </div>
+
+                {{-- Nota sebagai GAMBAR: chat Shopee tak bisa menerima PDF, dan
+                     di sana baris kontak toko dibuang (nomor & alamat web
+                     diblokir Shopee). "Atas nama" opsional, sama seperti kolom
+                     di halaman cetak faktur. --}}
+                <div x-show="p.faktur" x-cloak class="mt-1">
+                    <div x-show="notaUntuk === p.id" x-cloak class="border border-dashed border-gray-300 rounded p-1.5 space-y-1 mb-1">
+                        <input type="text" x-model="notaNama" maxlength="120" placeholder="Atas nama (opsional)"
+                               class="border rounded w-full px-2 py-1 text-[11px]">
+                        <div class="flex gap-1">
+                            <button type="button" @click="kirimNota(p)" :disabled="sibukNota === p.id"
+                                    class="flex-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-2 py-1 disabled:opacity-60">
+                                <span x-show="sibukNota !== p.id" x-text="'Kirim gambar ' + p.faktur"></span>
+                                <span x-show="sibukNota === p.id" x-cloak>Membuat gambar…</span>
+                            </button>
+                            <button type="button" @click="notaUntuk = null"
+                                    class="text-[11px] border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">Batal</button>
+                        </div>
+                        <p class="text-[10px] text-gray-400 leading-snug">
+                            @if($terpilih?->shopee())
+                                Tanpa nomor telepon &amp; email toko — aturan chat Shopee.
+                            @else
+                                Dikirim sebagai gambar.
+                            @endif
+                        </p>
+                    </div>
+                    <p x-show="notaGalat && notaUntuk === p.id" x-cloak class="text-[11px] text-red-600 mb-1" x-text="notaGalat"></p>
+                    <button type="button" x-show="notaUntuk !== p.id" @click="notaUntuk = p.id; notaNama = ''; notaGalat = ''"
+                            class="text-[11px] font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                        🧾 Kirim nota
                     </button>
                 </div>
 
@@ -809,6 +842,8 @@
             // tarifnya masih cocok atau sudah untuk berat yang lain.
             ongkirSidik: awal.ongkirSidik ?? '',
             sibuk: false, galat: '', jamSimpan: null, sibukRincian: null, sibukLacak: null,
+            // Kirim nota (gambar): kartu yang formulirnya terbuka, yang sedang dibuat, dan galatnya.
+            notaUntuk: null, notaNama: '', sibukNota: null, notaGalat: '',
 
             // Tautan pesanan ↔ chat (CRM Tahap 3).
             tautCari: '', tautHasil: [], tautSibuk: null, tautInfo: '',
@@ -1573,6 +1608,22 @@
                 } finally {
                     this.sibukLacak = null;
                 }
+            },
+
+            /*
+             * Yang mengirim thread (lihat kirimNotaPesanan di _thread); panel
+             * ini cuma meminta. Membuat gambarnya butuh beberapa detik
+             * (Chromium), jadi tombolnya berputar sampai 'nota-pesanan-selesai'.
+             */
+            kirimNota(p) {
+                if (this.sibukNota) return;
+
+                this.sibukNota = p.id;
+                this.notaGalat = '';
+                window.dispatchEvent(new CustomEvent('kirim-nota-pesanan', { detail: {
+                    url: '{{ $terpilih ? url('/erp/crm/' . $terpilih->id . '/pesanan') : '' }}/' + p.id + '/nota',
+                    nama: this.notaNama.trim(),
+                } }));
             },
 
             sisipKeChat(p) {

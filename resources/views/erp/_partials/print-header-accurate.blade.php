@@ -9,6 +9,9 @@
       $docNumber   - nomor dokumen
       $docDate     - tanggal (Carbon|string)
       $extraMeta   - array assoc tambahan, contoh: ['No. P.O' => '...']
+      $tanpaKontak - true = baris telepon/WA/email tidak dicetak (nota untuk chat
+                     Shopee: nomor & alamat web di sana diblokir). Baris kontak juga
+                     dibungkus .doc-contacts supaya bisa disembunyikan dari toolbar.
 --}}
 @php
     $profile   = $profile ?? \App\Models\BusinessProfile::instance();
@@ -30,6 +33,7 @@
         $profile->email    ?: null,
     ]);
     $extraMeta = $extraMeta ?? [];
+    if ($tanpaKontak ?? false) $contacts = [];
 @endphp
 
 <table style="width:100%; border-collapse:collapse; margin: 0;">
@@ -50,7 +54,7 @@
                         <div style="font-size: 12.5px; color: #0f172a; line-height: 1.55; margin-top: 5px;">
                             {{ $profile->address ?: '' }}
                             @if($cityLine !== '')<br>{{ $cityLine }}@endif
-                            @if(count($contacts))<br>{{ implode(' · ', $contacts) }}@endif
+                            @if(count($contacts))<span class="doc-contacts"><br>{{ implode(' · ', $contacts) }}</span>@endif
                         </div>
                     </td>
                 </tr>

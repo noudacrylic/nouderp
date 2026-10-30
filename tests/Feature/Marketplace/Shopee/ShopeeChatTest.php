@@ -360,4 +360,97 @@ class ShopeeChatTest extends TestCase
         $this->get(route('crm.inbox.index', ['pemilik' => 'semua']))
             ->assertOk()->assertSee('Pak Wahyu')->assertSee('pembeli_sp')->assertSee('Unduh chat');
     }
+
+    /** SO Shopee + faktur, ditautkan ke chat. */
+    private function pesananTertaut(CrmConversation $crm, string $statusFaktur = 'posted'): SalesOrder
+    {
+        $gudang = Warehouse::firstOrCreate(['name' => 'Gudang Uji']);
+        $mp = Customer::create(['code' => 'MP-SP', 'name' => 'Shopee', 'is_marketplace' => true, 'is_active' => true]);
+        $so = SalesOrder::create([
+            'order_number' => 'SO-NOTA-1', 'customer_id' => $mp->id, 'warehouse_id' => $gudang->id,
+            'order_date' => now()->toDateString(), 'global_discount_type' => 'nominal', 'status' => 'confirmed',
+            'subtotal' => 69950, 'grand_total' => 69950, 'customer_po_number' => 'SP-261029V2AY0XWK',
+        ]);
+        \App\Models\SalesInvoice::create([
+            'invoice_number' => 'SP-261029V2AY0XWK', 'sales_order_id' => $so->id, 'customer_id' => $mp->id,
+            'warehouse_id' => $gudang->id, 'invoice_date' => now()->toDateString(), 'status' => $statusFaktur,
+            'subtotal' => 69950, 'grand_total' => 69950,
+        ]);
+        app(\App\Modules\CRM\Services\LabelPesananService::class)->tautkan($crm, $so);
+
+        return $so;
+    }
+
+    /**
+     * Nota dikirim sebagai GAMBAR lewat upload_image Shopee, dan untuk chat Shopee
+     * dicetak TANPA kontak toko (nomor & alamat web diblokir Shopee).
+     */
+    public function test_kirim_nota_ke_chat_shopee_sebagai_gambar_tanpa_kontak(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+        $so  = $this->pesananTertaut($crm);
+
+        $panggilan = [];
+        $this->app->instance(\App\Modules\CRM\Services\NotaGambarService::class, new class($panggilan) extends \App\Modules\CRM\Services\NotaGambarService {
+            public function __construct(private array &$catat) {}
+            public function render(\App\Models\SalesInvoice $invoice, bool $tanpaKontak, ?string $atasNama = null): UploadedFile
+            {
+                $this->catat[] = [$invoice->invoice_number, $tanpaKontak, $atasNama];
+                return UploadedFile::fake()->image('Nota_' . $invoice->invoice_number . '.png', 300, 200);
+            }
+        });
+
+        $this->actingAs($this->saiful)
+            ->postJson(route('crm.inbox.pesanan.nota', [$crm, $so]), ['nama' => 'Bu Evi'])
+            ->assertOk()->assertJson(['success' => true, 'nomor' => 'SP-261029V2AY0XWK']);
+
+        $this->assertSame([['SP-261029V2AY0XWK', true, 'Bu Evi']], $panggilan);
+        $this->assertSame('upload_image', $this->kiriman[0][0]);
+        $keluar = CrmMessage::where('direction', CrmMessage::KELUAR)->get();
+        $this->assertSame(['image'], $keluar->pluck('message_type')->all());
+        $this->assertCount(1, $keluar[0]->attachments);
+
+        // Kartu pesanan di panel menawarkan tombolnya.
+        $this->get(route('crm.inbox.show', $crm))->assertOk()->assertSee('Kirim nota');
+    }
+
+    public function test_nota_ditolak_bila_faktur_belum_posted(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+        $so  = $this->pesananTertaut($crm, 'draft');
+
+        $this->actingAs($this->saiful)
+            ->postJson(route('crm.inbox.pesanan.nota', [$crm, $so]))
+            ->assertStatus(422)->assertJson(['success' => false]);
+        $this->assertSame(0, CrmMessage::where('direction', CrmMessage::KELUAR)->count());
+    }
+
+    /** Pesanan yang tak tertaut & bukan milik pelanggan chat ini tidak boleh dikirim. */
+    public function test_nota_pesanan_orang_lain_ditolak(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $so  = $this->pesananTertaut($crm);
+        DB::table('crm_pesanan_chat')->delete();
+
+        $this->actingAs($this->saiful)
+            ->postJson(route('crm.inbox.pesanan.nota', [$crm, $so]))
+            ->assertNotFound();
+    }
+
+    /** Halaman cetak faktur: ?tanpa_kontak=1 membuang baris telepon/email toko. */
+    public function test_cetak_faktur_tanpa_kontak(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $so  = $this->pesananTertaut($crm);
+        $faktur = $so->invoices()->first();
+        \App\Models\BusinessProfile::instance()->forceFill(['phone' => '08998844666', 'email' => 'noudacrylic@gmail.com'])->save();
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+
+        $this->actingAs($admin)->get(route('sales.invoices.print', $faktur->id))
+            ->assertOk()->assertSee('08998844666')->assertSee('Tampilkan kontak toko');
+        $this->actingAs($admin)->get(route('sales.invoices.print', [$faktur->id, 'tanpa_kontak' => 1]))
+            ->assertOk()->assertDontSee('08998844666')->assertDontSee('noudacrylic@gmail.com');
+    }
 }

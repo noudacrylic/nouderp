@@ -33,6 +33,7 @@
 @include('erp._partials.print-header-accurate', [
     'profile'   => $profile,
     'docTitle'  => 'Faktur Penjualan',
+    'tanpaKontak' => $tanpaKontak ?? false,
     'docNumber' => $invoice->invoice_number,
     'docDate'   => $invoice->invoice_date,
     'extraMeta' => [
