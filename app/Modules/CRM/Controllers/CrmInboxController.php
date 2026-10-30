@@ -28,11 +28,14 @@ use App\Modules\CRM\Services\WebhookHealthService;
 use App\Models\ProductPrice;
 use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
 use App\Modules\Marketplace\Jubelio\Services\JubelioStockSyncService;
+use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Services\PromotionService;
 use App\Modules\Sales\Services\QuotationDraftService;
 use App\Modules\Sales\Services\SalesOrderService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -1471,13 +1474,99 @@ class CrmInboxController extends Controller
     {
         $cari = trim((string) $request->input('q', ''));
 
-        $daftar = CrmMarketplaceLink::query()
+        // Chat Shopee hanya ditawari link Shopee: link lapak lain di chat Shopee
+        // melanggar kebijakan Shopee dan memancing pembeli keluar dari tokonya.
+        // Chat WhatsApp ditawari semuanya.
+        $chat = $request->filled('chat') ? CrmConversation::find($request->integer('chat')) : null;
+        $hanyaShopee = (bool) $chat?->shopee();
+
+        $manual = CrmMarketplaceLink::query()
             ->when($cari !== '', fn ($q) => $q->where('nama', 'like', "%{$cari}%"))
             ->orderBy('urutan')->orderBy('id')
             ->limit(200)
-            ->get(['id', 'nama', 'url']);
+            ->get(['id', 'nama', 'url'])
+            ->map(fn ($t) => self::barisManual($t))
+            ->when($hanyaShopee, fn ($c) => $c->where('lapak', 'Shopee'))
+            ->values();
 
-        return response()->json(['tautan' => $daftar]);
+        // Listing yang sudah diketik manual tidak diulang dari katalog: nama
+        // ketikan tim biasanya nama yang memang dikenal pembeli.
+        $sudahAda = $manual->map(fn ($t) => self::itemIdShopee($t['url']))->filter()->all();
+
+        $shopee = $this->listingShopee($chat, $cari)
+            ->reject(fn ($t) => in_array($t['item_id'], $sudahAda, true))
+            ->values();
+
+        return response()->json([
+            'tautan'       => $manual->concat($shopee)->values(),
+            'hanya_shopee' => $hanyaShopee,
+        ]);
+    }
+
+    /**
+     * Listing Shopee aktif dari katalog Peta SKU — satu kartu per LISTING, bukan
+     * per varian, karena yang dikirim ke pembeli adalah halaman listingnya.
+     */
+    private function listingShopee(?CrmConversation $chat, string $cari): Collection
+    {
+        $shop = $chat?->shopee()
+            ? ShopeeShop::where('shop_id', (int) $chat->business_number_id)->latest('terhubung_at')->first()
+            : null;
+        $shop ??= ShopeeShop::aktif();
+
+        if (! $shop) {
+            return collect();
+        }
+
+        return ShopeeItem::query()
+            ->where('env', $shop->env)->where('shop_id', $shop->shop_id)
+            ->where('status', 'NORMAL')
+            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('nama', 'like', "%{$cari}%")
+                ->orWhere('item_sku', 'like', "%{$cari}%")
+                ->orWhere('model_sku', 'like', "%{$cari}%")))
+            ->get(['item_id', 'nama', 'harga'])
+            ->groupBy('item_id')
+            ->map(fn ($varian, $itemId) => [
+                'id'         => 'sp-' . $itemId,
+                'item_id'    => (int) $itemId,
+                'nama'       => $varian->first()->nama,
+                'url'        => "https://shopee.co.id/product/{$shop->shop_id}/{$itemId}",
+                'sumber'     => 'shopee',
+                'lapak'      => 'Shopee',
+                'harga_min'  => $varian->min(fn ($v) => (float) $v->harga) ?: null,
+                'harga_maks' => $varian->max(fn ($v) => (float) $v->harga) ?: null,
+            ])
+            ->sortBy('nama', SORT_NATURAL | SORT_FLAG_CASE)
+            ->take(200)
+            ->values();
+    }
+
+    private static function barisManual(CrmMarketplaceLink $t): array
+    {
+        return [
+            'id' => $t->id, 'nama' => $t->nama, 'url' => $t->url,
+            'sumber' => 'manual', 'lapak' => self::lapakDariUrl($t->url),
+        ];
+    }
+
+    private static function lapakDariUrl(string $url): ?string
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return match (true) {
+            str_contains($host, 'shopee') || str_contains($host, 'shp.ee') => 'Shopee',
+            str_contains($host, 'tokopedia') => 'Tokopedia',
+            str_contains($host, 'tiktok') => 'TikTok',
+            str_contains($host, 'lazada') => 'Lazada',
+            default => null,
+        };
+    }
+
+    /** item_id dari link listing Shopee: /product/<shop>/<item> atau …-i.<shop>.<item>. */
+    private static function itemIdShopee(string $url): ?int
+    {
+        return preg_match('~(?:/product/\d+/|-i\.\d+\.)(\d+)~', $url, $m) ? (int) $m[1] : null;
     }
 
     public function simpanTautanPasar(Request $request)
@@ -1492,7 +1581,7 @@ class CrmInboxController extends Controller
             'created_by' => auth()->id(),
         ]);
 
-        return response()->json(['tautan' => $tautan->only(['id', 'nama', 'url'])]);
+        return response()->json(['tautan' => self::barisManual($tautan)]);
     }
 
     public function ubahTautanPasar(Request $request, CrmMarketplaceLink $tautan)
@@ -1504,7 +1593,7 @@ class CrmInboxController extends Controller
 
         $tautan->update($data);
 
-        return response()->json(['tautan' => $tautan->only(['id', 'nama', 'url'])]);
+        return response()->json(['tautan' => self::barisManual($tautan)]);
     }
 
     public function hapusTautanPasar(CrmMarketplaceLink $tautan)

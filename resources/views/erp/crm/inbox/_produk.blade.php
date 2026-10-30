@@ -10,6 +10,8 @@
                      dikirim: stok, harga, tautan, dan fotonya.
        Market Place— nama & alamat lapak yang diketik manual, TIDAK menempel ke
                      SKU. Yang dijual di lapak sering bukan satu SKU gudang.
+                     Sejak 30 Okt 2026 ditambah listing Shopee aktif dari Peta
+                     SKU; di chat Shopee hanya link Shopee yang tampil.
        Custom      — barang buatan. Harganya baru lahir saat ditanya, jadi
                      harga & berat boleh ditetapkan dari sini lalu didorong ke
                      Jubelio tanpa pindah layar.
@@ -220,13 +222,27 @@
     </template>
 
     {{-- ======================================================= MARKET PLACE --}}
+    {{-- Dua sumber dalam satu daftar: link ketikan tim (bisa diedit) dan listing
+         Shopee dari Peta SKU (terisi sendiri tiap tarikan katalog, tak bisa
+         diedit di sini). Di chat Shopee hanya link Shopee yang ditawarkan —
+         link lapak lain di sana melanggar kebijakan Shopee. --}}
     <template x-if="sub === 'pasar'">
         <div class="space-y-2">
+            <p x-show="hanyaShopee" x-cloak class="text-[11px] text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1.5">
+                Chat Shopee — hanya link Shopee yang ditampilkan.
+            </p>
             <template x-for="t in pasar" :key="t.id">
                 <div class="border border-gray-200 rounded p-2 space-y-1">
                     <template x-if="ubahPasar !== t.id">
                         <div class="space-y-1">
-                            <div class="text-sm font-medium break-words" x-text="t.nama"></div>
+                            <div class="flex items-start gap-1">
+                                <div class="flex-1 min-w-0 text-sm font-medium break-words" x-text="t.nama"></div>
+                                <span x-show="t.lapak" x-cloak x-text="t.lapak"
+                                      :class="t.lapak === 'Shopee' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'"
+                                      class="shrink-0 px-1 rounded text-[10px]"></span>
+                            </div>
+                            <div x-show="t.harga_min" x-cloak class="text-[11px] text-gray-600"
+                                 x-text="t.harga_min === t.harga_maks ? rp(t.harga_min) : rp(t.harga_min) + ' – ' + rp(t.harga_maks)"></div>
                             <div class="text-[11px] text-gray-400 break-all" x-text="t.url"></div>
                             <div class="flex items-center gap-1 pt-1">
                                 <button type="button" @click="kirim(kalimatPasar(t))"
@@ -235,7 +251,8 @@
                                 </button>
                                 <button type="button" @click="sisip(kalimatPasar(t))" title="Sisipkan tanpa mengirim"
                                         class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs hover:bg-gray-50">＋</button>
-                                <button type="button" @click="ubahPasar = t.id; namaBaru = t.nama; urlBaru = t.url"
+                                <button type="button" x-show="t.sumber === 'manual'"
+                                        @click="ubahPasar = t.id; namaBaru = t.nama; urlBaru = t.url"
                                         class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs hover:bg-gray-50">Edit</button>
                             </div>
                         </div>
@@ -488,7 +505,7 @@ function panelProduk(percakapanId) {
         sub: 'web',
         percakapan: percakapanId,
 
-        kata: '', hasil: [], grup: [], pasar: [], sibuk: false, galat: '', kabar: '',
+        kata: '', hasil: [], grup: [], pasar: [], hanyaShopee: false, sibuk: false, galat: '', kabar: '',
         menyimpan: false, mengirimFoto: null,
 
         // Satu penanda "sedang diedit" per jenis baris; nilainya id baris, atau
@@ -515,9 +532,12 @@ function panelProduk(percakapanId) {
             this.galat = '';
             try {
                 if (this.sub === 'pasar') {
-                    const r = await fetch('{{ route('crm.pasar.index') }}?q=' + encodeURIComponent(this.kata),
+                    const r = await fetch('{{ route('crm.pasar.index') }}?chat=' + (this.percakapan ?? '')
+                                          + '&q=' + encodeURIComponent(this.kata),
                                           { headers: { 'Accept': 'application/json' } });
-                    this.pasar = (await r.json()).tautan || [];
+                    const j = await r.json();
+                    this.pasar = j.tautan || [];
+                    this.hanyaShopee = !! j.hanya_shopee;
                 } else {
                     const r = await fetch('{{ route('crm.produk.cari') }}?mode=' + this.sub
                                           + '&chat=' + (this.percakapan ?? '')
@@ -678,7 +698,9 @@ function panelProduk(percakapanId) {
                 if (t) {
                     Object.assign(t, baris);
                 } else {
-                    this.pasar.push(baris);
+                    // Link ketikan tim berdiri di atas listing katalog Shopee.
+                    const i = this.pasar.findIndex(x => x.sumber !== 'manual');
+                    this.pasar.splice(i < 0 ? this.pasar.length : i, 0, baris);
                 }
                 this.ubahPasar = null;
             } catch (e) {

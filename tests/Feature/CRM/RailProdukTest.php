@@ -11,7 +11,11 @@ use App\Models\ProductPrice;
 use App\Models\StoreProduct;
 use App\Models\StoreProductVariant;
 use App\Models\User;
+use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMarketplaceLink;
+use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
+use App\Modules\Marketplace\Shopee\Models\ShopeeSetting;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -324,6 +328,50 @@ class RailProdukTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'tautan')
             ->assertJsonPath('tautan.0.nama', 'Plakat Tokopedia');
+    }
+
+    /**
+     * Listing Shopee aktif dari Peta SKU ikut tampil (satu kartu per listing),
+     * tanpa mengulang listing yang sudah diketik manual. Di chat Shopee hanya
+     * link Shopee; di chat WhatsApp semuanya.
+     */
+    public function test_listing_shopee_ikut_tampil_dan_chat_shopee_hanya_link_shopee(): void
+    {
+        $admin = $this->admin();
+        ShopeeSetting::singleton()->forceFill(['env' => 'live'])->save();
+        ShopeeShop::create([
+            'shop_id' => 101, 'env' => 'live', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHour(), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now(),
+        ]);
+        $item = fn (int $item, int $model, string $nama, string $status, int $harga) => ShopeeItem::create([
+            'env' => 'live', 'shop_id' => 101, 'item_id' => $item, 'model_id' => $model,
+            'nama' => $nama, 'status' => $status, 'harga' => $harga,
+        ]);
+        $item(11, 1, 'Box Mahar', 'NORMAL', 50000);
+        $item(11, 2, 'Box Mahar', 'NORMAL', 75000);
+        $item(22, 0, 'Plakat Lama', 'UNLIST', 90000);
+        $item(33, 0, 'Frame Foto', 'NORMAL', 30000);
+
+        CrmMarketplaceLink::create(['nama' => 'Frame Foto (manual)', 'url' => 'https://shopee.co.id/product/101/33']);
+        CrmMarketplaceLink::create(['nama' => 'Plakat Tokopedia', 'url' => 'https://www.tokopedia.com/noud/plakat']);
+
+        $wa = CrmConversation::findOrCreateFor('628111222333', 'whatsapp');
+        $sp = CrmConversation::findOrCreateFor('777', CrmConversation::KANAL_SHOPEE, '101');
+
+        $r = $this->actingAs($admin)->getJson(route('crm.pasar.index', ['chat' => $wa->id]))
+            ->assertOk()->assertJsonPath('hanya_shopee', false);
+        $this->assertSame(
+            ['Frame Foto (manual)', 'Plakat Tokopedia', 'Box Mahar'],
+            array_column($r->json('tautan'), 'nama'),
+        );
+        $box = $r->json('tautan.2');
+        $this->assertSame('https://shopee.co.id/product/101/11', $box['url']);
+        $this->assertSame('shopee', $box['sumber']);
+        $this->assertEquals([50000, 75000], [$box['harga_min'], $box['harga_maks']]);
+
+        $r = $this->actingAs($admin)->getJson(route('crm.pasar.index', ['chat' => $sp->id]))
+            ->assertOk()->assertJsonPath('hanya_shopee', true);
+        $this->assertSame(['Frame Foto (manual)', 'Box Mahar'], array_column($r->json('tautan'), 'nama'));
     }
 
     /* ------------------------------------------------------- harga & berat custom */
