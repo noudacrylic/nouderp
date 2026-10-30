@@ -17,7 +17,7 @@ class ShopeeItem extends Model
 
     protected $fillable = [
         'env', 'shop_id', 'item_id', 'model_id', 'item_sku', 'model_sku', 'nama', 'nama_model',
-        'harga', 'harga_asli', 'stok', 'status', 'product_id', 'peta_sumber', 'disinkron_at',
+        'harga', 'harga_asli', 'stok', 'berat_kg', 'status', 'product_id', 'peta_sumber', 'disinkron_at',
     ];
 
     protected $casts = [
@@ -27,6 +27,7 @@ class ShopeeItem extends Model
         'harga'        => 'decimal:2',
         'harga_asli'   => 'decimal:2',
         'stok'         => 'integer',
+        'berat_kg'     => 'decimal:3',
         'disinkron_at' => 'datetime',
     ];
 
@@ -44,6 +45,14 @@ class ShopeeItem extends Model
     public function namaLengkap(): string
     {
         return $this->nama . ($this->nama_model ? ' — ' . $this->nama_model : '');
+    }
+
+    /** Varian Shopee aktif (NORMAL) yang terpeta ke produk ERP ini, di toko ini. */
+    public static function terpetaKe(ShopeeShop $shop, Product $product): \Illuminate\Database\Eloquent\Collection
+    {
+        return static::where('env', $shop->env)->where('shop_id', $shop->shop_id)
+            ->where('status', 'NORMAL')->where('product_id', $product->id)
+            ->orderBy('item_id')->orderBy('model_id')->get();
     }
 
     /**

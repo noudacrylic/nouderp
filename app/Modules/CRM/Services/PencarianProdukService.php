@@ -125,6 +125,9 @@ class PencarianProdukService
         return [
             'produk' => $produk->map(fn ($p) => $this->barisVarian($p, $stok, $diskon, $ditandai, [
                 'berat'  => (int) ($p->weight_gram ?? 0),
+                // Ke mana harga/berat/stok dikirim: produk tak disinkron Jubelio
+                // (custom CS*, hanya dijual di Shopee) langsung ke Shopee.
+                'jalur'  => $p->sync_to_jubelio ? 'jubelio' : 'shopee',
                 'tautan' => $p->links->map(fn ($l) => [
                     'id'    => $l->id,
                     'judul' => $l->judul,

@@ -64,6 +64,7 @@ class ShopeeKatalogService
             'item_sku' => $this->bersih($item['item_sku'] ?? null),
             'nama'     => mb_substr((string) ($item['item_name'] ?? ''), 0, 255),
             'status'   => $item['item_status'] ?? null,
+            'berat_kg' => isset($item['weight']) ? (float) $item['weight'] : null,
         ];
 
         if (empty($item['has_model'])) {

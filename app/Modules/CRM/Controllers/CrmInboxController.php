@@ -1210,7 +1210,25 @@ class CrmInboxController extends Controller
 
         $catatan = ['Harga & berat tersimpan.'];
 
-        if ($request->boolean('kirim_jubelio')) {
+        /*
+         * Produk yang tak disinkron ke Jubelio (custom CS* — hanya dijual di Shopee)
+         * dikirim LANGSUNG ke Shopee: harga, berat, dibaca balik dari Shopee. Jubelio
+         * tidak disentuh sama sekali (30 Okt 2026).
+         */
+        if ($request->boolean('kirim_jubelio') && $this->jalurShopee($product)) {
+            $h = app(\App\Modules\Marketplace\Shopee\Services\ShopeeHargaService::class)->kirim($product, $harga);
+            $catatan[] = $h['pesan'];
+
+            if ($h['ok']) {
+                \App\Modules\Analysis\Models\ProductChannelPrice::updateOrCreate(
+                    ['product_id' => $product->id, 'channel' => 'shopee'],
+                    ['price' => $harga]
+                )->forceFill(['pushed_price' => $harga, 'pushed_at' => now()])->save();
+            }
+            if ($berat !== null && $berat > 0 && ! $h['tanpa_listing']) {
+                $catatan[] = app(\App\Modules\Marketplace\Shopee\Services\ShopeeListingService::class)->kirimBerat($product, $berat)['pesan'];
+            }
+        } elseif ($request->boolean('kirim_jubelio')) {
             $h = $jubelio->pushPrice($product);
 
             $catatan[] = match ($h) {
@@ -1286,6 +1304,29 @@ class CrmInboxController extends Controller
      * bukan "berapa yang ada di rak". Menuliskannya ke stok ERP berarti
      * mengarang persediaan, dan HPP serta laporan ikut karangan.
      */
+    /**
+     * Setel stok listing Shopee LANGSUNG — untuk produk yang tak disinkron ke Jubelio
+     * (custom CS*). Sama seperti stok Jubelio: stok ERP tidak disentuh.
+     */
+    public function simpanStokShopee(Request $request, Product $product)
+    {
+        $data = $request->validate([
+            'stok' => ['required', 'integer', 'min:0', 'max:1000000'],
+        ]);
+
+        abort_unless($this->jalurShopee($product), 422, 'Produk ini stoknya dipegang Jubelio — kirim lewat Jubelio.');
+
+        $hasil = app(\App\Modules\Marketplace\Shopee\Services\ShopeeListingService::class)->kirimStok($product, (int) $data['stok']);
+
+        return response()->json(['ok' => $hasil['ok'], 'pesan' => $hasil['pesan']], $hasil['ok'] ? 200 : 422);
+    }
+
+    /** Produk custom yang hanya dijual di Shopee: tidak disinkron ke Jubelio. */
+    private function jalurShopee(Product $product): bool
+    {
+        return ! $product->sync_to_jubelio;
+    }
+
     public function simpanStokJubelio(Request $request, Product $product, JubelioStockSyncService $stok)
     {
         $data = $request->validate([

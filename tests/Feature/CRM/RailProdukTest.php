@@ -418,8 +418,10 @@ class RailProdukTest extends TestCase
         $kiriman = $this->klienJubelioPerekam();
         $this->petakanShopee(127331);
 
+        // Custom yang DISINKRON ke Jubelio tetap lewat Jubelio (custom CS* yang tak
+        // disinkron langsung ke Shopee — lihat tes di bawah).
         $custom = $this->sku('CS1', 'Custom + Print', ['sale_type' => 'preorder', 'made_to_order' => true, 'unit' => 'pcs']);
-        $custom->forceFill(['jubelio_item_id' => 217, 'jubelio_item_group_id' => 131])->save();
+        $custom->forceFill(['jubelio_item_id' => 217, 'jubelio_item_group_id' => 131, 'sync_to_jubelio' => true])->save();
 
         $this->actingAs($this->admin())
             ->postJson(route('crm.produk.harga', $custom), ['harga' => 615000, 'kirim_jubelio' => true])
@@ -431,6 +433,90 @@ class RailProdukTest extends TestCase
         $this->assertEquals(615000, $tokoShopee['price']);
         $this->assertEquals(615000, \App\Modules\Analysis\Models\ProductChannelPrice::where('product_id', $custom->id)
             ->where('channel', 'shopee')->value('pushed_price'));
+    }
+
+    /** Toko Shopee + listing tunggal untuk produk ini; Shopee palsu mencatat kiriman. */
+    private function shopeeCustom(\App\Core\Inventory\Product $p): \ArrayObject
+    {
+        config(['services.shopee' => ['partner_id' => '1', 'partner_key' => 'k', 'env' => 'test']]);
+        \App\Modules\Marketplace\Shopee\Models\ShopeeShop::create([
+            'shop_id' => 555, 'env' => 'test', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHours(3), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now(),
+        ]);
+        \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create([
+            'env' => 'test', 'shop_id' => 555, 'item_id' => 10801524933, 'model_id' => 0, 'nama' => 'Akrilik Custom 2',
+            'harga' => 100, 'harga_asli' => 100, 'stok' => 1, 'status' => 'NORMAL', 'product_id' => $p->id,
+        ]);
+
+        $catat = new \ArrayObject();
+        $keadaan = new \ArrayObject(['harga' => 100, 'stok' => 1, 'berat' => 1.0]);
+        \Illuminate\Support\Facades\Http::fake(function ($req) use ($catat, $keadaan) {
+            $url = $req->url();
+            foreach (['update_price', 'update_stock', 'update_item'] as $aksi) {
+                if (str_contains($url, $aksi)) {
+                    $catat[] = [$aksi, $req->data()];
+                    $d = $req->data();
+                    if ($aksi === 'update_price') $keadaan['harga'] = $d['price_list'][0]['original_price'];
+                    if ($aksi === 'update_stock') $keadaan['stok'] = $d['stock_list'][0]['seller_stock'][0]['stock'];
+                    if ($aksi === 'update_item') $keadaan['berat'] = $d['weight'];
+                    return \Illuminate\Support\Facades\Http::response(['response' => ['failure_list' => []], 'error' => '']);
+                }
+            }
+            if (str_contains($url, 'get_item_base_info')) {
+                return \Illuminate\Support\Facades\Http::response(['response' => ['item_list' => [[
+                    'item_id' => 10801524933, 'has_model' => false, 'weight' => (string) $keadaan['berat'],
+                    'price_info' => [['current_price' => $keadaan['harga'], 'original_price' => $keadaan['harga']]],
+                    'stock_info_v2' => ['summary_info' => ['total_available_stock' => $keadaan['stok']]],
+                ]]], 'error' => '']);
+            }
+            return \Illuminate\Support\Facades\Http::response(['error' => 'tak_dikenal', 'message' => $url], 400);
+        });
+
+        return $catat;
+    }
+
+    /**
+     * Produk custom yang TIDAK disinkron ke Jubelio (CS* — hanya dijual di Shopee):
+     * harga, berat & stok dari panel Custom langsung ke Shopee, Jubelio tak disentuh.
+     */
+    public function test_custom_tanpa_jubelio_harga_berat_stok_langsung_ke_shopee(): void
+    {
+        $jubelio = $this->klienJubelioPerekam();
+        $this->petakanShopee(127331);
+        $cs2 = $this->sku('CS2', 'Produk Custom 2', ['sale_type' => 'preorder', 'made_to_order' => true, 'unit' => 'pcs']);
+        $catat = $this->shopeeCustom($cs2);
+
+        $this->actingAs($this->admin())
+            ->getJson(route('crm.produk.cari', ['mode' => 'custom', 'q' => 'CS2']))
+            ->assertOk()->assertJsonPath('produk.0.jalur', 'shopee');
+
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.produk.harga', $cs2), ['harga' => 2500000, 'berat' => 50000, 'kirim_jubelio' => true])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $this->assertSame([], $jubelio->harga, 'Jubelio tidak boleh disentuh.');
+        $this->assertSame(['update_price', 'update_item'], array_column($catat->getArrayCopy(), 0));
+        $this->assertEquals(['item_id' => 10801524933, 'weight' => 50.0], $catat[1][1]);
+        $this->assertEquals(2500000, \App\Modules\Analysis\Models\ProductChannelPrice::where('product_id', $cs2->id)
+            ->where('channel', 'shopee')->value('pushed_price'));
+
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.produk.stok-shopee', $cs2), ['stok' => 76])
+            ->assertOk()->assertJsonPath('ok', true);
+        $this->assertEquals(['item_id' => 10801524933, 'stock_list' => [['model_id' => 0, 'seller_stock' => [['stock' => 76]]]]], $catat[2][1]);
+        $this->assertSame(76, \App\Modules\Marketplace\Shopee\Models\ShopeeItem::first()->stok);
+    }
+
+    /** Produk yang stoknya dipegang Jubelio tak boleh ditulis langsung ke Shopee. */
+    public function test_stok_shopee_ditolak_untuk_produk_yang_disinkron_jubelio(): void
+    {
+        $am = $this->sku('AM-60', 'Frame Mahar', ['sale_type' => 'preorder', 'made_to_order' => true]);
+        $am->forceFill(['sync_to_jubelio' => true])->save();
+
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.produk.stok-shopee', $am), ['stok' => 5])
+            ->assertStatus(422);
     }
 
     /** Produk BUKAN custom boleh berharga Shopee beda — harga khususnya tak disentuh. */

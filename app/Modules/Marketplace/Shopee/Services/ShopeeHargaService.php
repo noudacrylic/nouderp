@@ -35,7 +35,7 @@ class ShopeeHargaService
             return ['pesan' => 'Toko Shopee belum terhubung.'] + $hasil;
         }
 
-        $baris = $this->varian($shop, $product);
+        $baris = ShopeeItem::terpetaKe($shop, $product);
         if ($baris->isEmpty()) {
             return ['pesan' => 'Produk ini tidak terpeta ke listing Shopee aktif (Peta SKU).', 'tanpa_listing' => true] + $hasil;
         }
@@ -57,7 +57,7 @@ class ShopeeHargaService
 
         // Dibaca balik dari Shopee, bukan dari jawaban update_price.
         $this->segarkan($shop, $perItem->keys()->map(fn ($i) => (int) $i)->all());
-        $terbaca = $this->varian($shop, $product);
+        $terbaca = ShopeeItem::terpetaKe($shop, $product);
         $beda    = $terbaca->filter(fn ($v) => $v->harga_asli === null || abs((float) $v->harga_asli - $harga) >= 1);
 
         $hasil['listing'] = $perItem->count();
@@ -74,16 +74,8 @@ class ShopeeHargaService
         return $hasil;
     }
 
-    /** Varian Shopee aktif yang terpeta ke produk ini. */
-    private function varian(ShopeeShop $shop, Product $product)
-    {
-        return ShopeeItem::where('env', $shop->env)->where('shop_id', $shop->shop_id)
-            ->where('status', 'NORMAL')->where('product_id', $product->id)
-            ->orderBy('item_id')->orderBy('model_id')->get();
-    }
-
-    /** Perbarui harga shopee_items untuk item-item ini langsung dari Shopee. */
-    private function segarkan(ShopeeShop $shop, array $itemIds): void
+    /** Perbarui harga, stok & berat shopee_items untuk item-item ini langsung dari Shopee. */
+    public function segarkan(ShopeeShop $shop, array $itemIds): void
     {
         try {
             $r = $this->client->panggil($shop, 'GET', '/api/v2/product/get_item_base_info', ['item_id_list' => implode(',', $itemIds)]);
@@ -94,8 +86,10 @@ class ShopeeHargaService
         foreach ($r['item_list'] ?? [] as $item) {
             $itemId = (int) $item['item_id'];
             $harga  = [];
+            $stok   = [];
             if (empty($item['has_model'])) {
                 $harga[0] = $item['price_info'][0] ?? [];
+                $stok[0]  = $item['stock_info_v2']['summary_info']['total_available_stock'] ?? null;
             } else {
                 try {
                     $m = $this->client->panggil($shop, 'GET', '/api/v2/product/get_model_list', ['item_id' => $itemId]);
@@ -104,6 +98,7 @@ class ShopeeHargaService
                 }
                 foreach ($m['model'] ?? [] as $model) {
                     $harga[(int) $model['model_id']] = $model['price_info'][0] ?? [];
+                    $stok[(int) $model['model_id']]  = $model['stock_info_v2']['summary_info']['total_available_stock'] ?? null;
                 }
             }
             foreach ($harga as $modelId => $p) {
@@ -112,6 +107,8 @@ class ShopeeHargaService
                     ->update([
                         'harga'        => $p['current_price'] ?? null,
                         'harga_asli'   => $p['original_price'] ?? null,
+                        'stok'         => $stok[$modelId] ?? null,
+                        'berat_kg'     => isset($item['weight']) ? (float) $item['weight'] : null,
                         'disinkron_at' => now(),
                     ]);
             }

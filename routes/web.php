@@ -217,6 +217,7 @@ Route::prefix('erp')->group(function () {
         // Stok Jubelio produk custom diisi TANGAN — lihat simpanStokJubelio():
         // stok ERP sengaja tidak ikut berubah.
         Route::post  ('/produk/{product}/stok-jubelio', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanStokJubelio'])->name('produk.stok-jubelio');
+        Route::post  ('/produk/{product}/stok-shopee',  [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanStokShopee'])->name('produk.stok-shopee');
         // Sub-tab Market Place: daftar nama+alamat bebas, tidak menempel ke SKU.
         Route::get   ('/pasar',           [\App\Modules\CRM\Controllers\CrmInboxController::class, 'daftarTautanPasar'])->name('pasar.index');
         Route::post  ('/pasar',           [\App\Modules\CRM\Controllers\CrmInboxController::class, 'simpanTautanPasar'])->name('pasar.store');

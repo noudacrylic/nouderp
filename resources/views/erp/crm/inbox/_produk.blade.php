@@ -346,7 +346,7 @@
                             </div>
                             <button type="button" @click="simpanHarga(p, true)" :disabled="menyimpan"
                                     class="w-full border border-emerald-600 text-emerald-700 hover:bg-emerald-50 rounded px-2 py-1 text-xs disabled:opacity-50">
-                                Simpan &amp; kirim ke marketplace
+                                <span x-text="p.jalur === 'shopee' ? 'Simpan & kirim ke Shopee' : 'Simpan & kirim ke marketplace'"></span>
                             </button>
                             <p x-show="pesanJubelio" x-cloak class="text-[11px] text-gray-500" x-text="pesanJubelio"></p>
 
@@ -358,15 +358,17 @@
                                  "berapa yang ada di rak" — barang custom memang
                                  belum ada wujudnya sampai dipesan. --}}
                             <div class="border-t border-gray-200 pt-2 mt-2 space-y-1">
-                                <label class="block text-[10px] text-gray-500 uppercase tracking-wide">Stok di Jubelio</label>
+                                <label class="block text-[10px] text-gray-500 uppercase tracking-wide"
+                                       x-text="p.jalur === 'shopee' ? 'Stok di Shopee' : 'Stok di Jubelio'"></label>
                                 <input type="number" step="1" min="0" x-model="stokBaru"
                                        class="border rounded w-full px-2 py-1 text-xs">
-                                <p class="text-[10px] text-gray-400 leading-snug">
-                                    Hanya mengubah stok di Jubelio. Stok ERP tidak tersentuh.
-                                </p>
+                                <p class="text-[10px] text-gray-400 leading-snug"
+                                   x-text="p.jalur === 'shopee'
+                                       ? 'Langsung mengubah stok listing Shopee (tanpa Jubelio). Stok ERP tidak tersentuh.'
+                                       : 'Hanya mengubah stok di Jubelio. Stok ERP tidak tersentuh.'"></p>
                                 <button type="button" @click="kirimStok(p)" :disabled="menyimpan"
                                         class="w-full border border-emerald-600 text-emerald-700 hover:bg-emerald-50 rounded px-2 py-1 text-xs disabled:opacity-50">
-                                    Kirim stok ke Jubelio
+                                    <span x-text="p.jalur === 'shopee' ? 'Kirim stok ke Shopee' : 'Kirim stok ke Jubelio'"></span>
                                 </button>
                                 <p x-show="pesanStok" x-cloak class="text-[11px] leading-snug"
                                    :class="stokGagal ? 'text-red-600' : 'text-gray-500'" x-text="pesanStok"></p>
@@ -815,14 +817,15 @@ function panelProduk(percakapanId) {
             this.pesanStok = '';
             this.stokGagal = false;
             try {
-                const r = await fetch('{{ url('erp/crm/produk') }}/' + p.id + '/stok-jubelio', {
+                // Produk custom yang hanya dijual di Shopee: langsung ke Shopee.
+                const r = await fetch('{{ url('erp/crm/produk') }}/' + p.id + (p.jalur === 'shopee' ? '/stok-shopee' : '/stok-jubelio'), {
                     method: 'POST',
                     headers: this.kepala(),
                     body: JSON.stringify({ stok: Number(this.stokBaru || 0) }),
                 });
                 const j = await r.json();
 
-                this.pesanStok = j.pesan || (r.ok ? 'Stok terkirim.' : 'Stok gagal dikirim.');
+                this.pesanStok = j.pesan || j.message || (r.ok ? 'Stok terkirim.' : 'Stok gagal dikirim.');
                 this.stokGagal = ! r.ok || ! j.ok;
             } catch (e) {
                 this.pesanStok = 'Jaringan bermasalah — stok belum dikirim.';
