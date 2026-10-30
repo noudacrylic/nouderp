@@ -59,6 +59,8 @@ Schedule::command('shopee:tarik-chat')->everyMinute()->name('shopee-tarik-chat')
 Schedule::command('shopee:tarik-saldo')->hourlyAt(20)->name('shopee-tarik-saldo')->withoutOverlapping(30);
 // Manajer Admin — retur Shopee yang dibatalkan pembeli ditutup & fakturnya dicairkan sesuai rincian dana.
 Schedule::command('shopee:retur-tidak-jadi')->hourlyAt(35)->name('shopee-retur-tidak-jadi')->withoutOverlapping(30);
+// Manajer Admin — paket hilang yang sudah diganti Shopee diposting sesuai rincian dana.
+Schedule::command('shopee:retur-paket-hilang')->hourlyAt(50)->name('shopee-retur-paket-hilang')->withoutOverlapping(30);
 Schedule::command('jubelio:sync-orders')->everyFiveMinutes()->name('jubelio-sync-orders')->withoutOverlapping(60);
 Schedule::command('jubelio:sync-returns')->everyFifteenMinutes()->name('jubelio-sync-returns')->withoutOverlapping(60);
 // Jubelio stok — push perubahan tiap 5 menit (near-realtime), rekonsiliasi penuh tiap 2 jam.

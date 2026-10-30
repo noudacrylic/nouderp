@@ -104,8 +104,38 @@ class ShopeeReturLamaService
      */
     public function selesaikanTidakJadi(ShopeeShop $shop, bool $simulasi, int $hariMundur = 120): array
     {
+        // Hanya calon "retur tidak jadi": semua pengajuan retur pesanan itu dibatalkan di Shopee.
+        // Menghemat panggilan rincian dana untuk draft yang jelas bukan kelompok C.
+        $saring = fn (array $list) => $list && collect($list)->every(fn ($x) => $x['status'] === 'CANCELLED');
+
+        return $this->selesaikan($shop, $simulasi, $hariMundur, $saring, fn (array $r) => $r['kelompok'] === 'C');
+    }
+
+    /**
+     * Skill Manajer Admin "Selesaikan paket hilang": draft retur Shopee kasus PH1 yang dananya
+     * sudah diganti penuh oleh Shopee (tak ada yang dibalik) dan pesanannya sudah final →
+     * diposting tiga blok dengan dana cair = penggantian Shopee. Barang memang tidak kembali.
+     *
+     * @return array<int, array{retur: string, retur_id: int, sn: string, nilai: float, cair: float, potongan: float, status: string, pesan: ?string}>
+     */
+    public function selesaikanPaketHilang(ShopeeShop $shop, bool $simulasi, int $hariMundur = 120): array
+    {
+        // Calon paket hilang: tanpa pengajuan retur di Shopee, atau returnya "tidak sampai".
+        $saring = fn (array $list) => !$list || collect($list)->contains(fn ($x) => $x['reason'] === 'NOT_RECEIPT');
+
+        return $this->selesaikan($shop, $simulasi, $hariMundur, $saring, fn (array $r) => $r['kelompok'] === 'A'
+            && $r['kasus'] === 'PH1'
+            && $r['ganti'] > 0.5
+            && $r['dibalik'] <= 0.5
+            // Penggantian baru pasti setelah pesanan tuntas di Shopee.
+            && in_array($this->statusPesanan($shop, $r['sn']), ['CANCELLED', 'COMPLETED'], true));
+    }
+
+    /** Jalankan baris rencana yang lolos $terima, satu transaksi per draft; sisanya dilewati. */
+    private function selesaikan(ShopeeShop $shop, bool $simulasi, int $hariMundur, \Closure $saring, \Closure $terima): array
+    {
         $hasil = [];
-        $rencana = $this->rencana($shop, now()->subDays($hariMundur), now(), [], true);
+        $rencana = $this->rencana($shop, now()->subDays($hariMundur), now(), [], $saring);
 
         foreach ($rencana as $r) {
             $baris = [
@@ -113,7 +143,7 @@ class ShopeeReturLamaService
                 'nilai' => $r['nilai'], 'cair' => $r['cair'], 'potongan' => $r['potongan'],
                 'status' => 'dilewati', 'pesan' => $r['alasan'],
             ];
-            if ($r['kelompok'] === 'C') {
+            if ($terima($r)) {
                 if ($simulasi) {
                     $baris['status'] = 'akan';
                 } else {
@@ -137,7 +167,7 @@ class ShopeeReturLamaService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function rencana(ShopeeShop $shop, Carbon $dari, Carbon $sampai, array $hanyaSn = [], bool $hanyaReturBatal = false): array
+    public function rencana(ShopeeShop $shop, Carbon $dari, Carbon $sampai, array $hanyaSn = [], ?\Closure $saring = null): array
     {
         $drafts = SalesReturn::with('items')
             ->where('sales_returns.status', 'draft')
@@ -155,14 +185,9 @@ class ShopeeReturLamaService
 
         $returShopee = $this->tarikRetur($shop, $dari->copy()->subDays(5));
 
-        // Hanya calon "retur tidak jadi": semua pengajuan retur pesanan itu dibatalkan di Shopee.
-        // Menghemat panggilan rincian dana untuk draft yang jelas bukan kelompok C.
-        if ($hanyaReturBatal) {
-            $drafts = $drafts->filter(function ($d) use ($returShopee) {
-                $list = $returShopee[substr($d->_order, 3)] ?? [];
-
-                return $list && collect($list)->every(fn ($x) => $x['status'] === 'CANCELLED');
-            });
+        // Saring calon dari daftar retur Shopee saja, sebelum memanggil rincian dana per pesanan.
+        if ($saring) {
+            $drafts = $drafts->filter(fn ($d) => $saring($returShopee[substr($d->_order, 3)] ?? []));
         }
 
         return $drafts->map(fn (SalesReturn $d) => $this->rencanaSatu($shop, $d, $returShopee[substr($d->_order, 3)] ?? []))->values()->all();
