@@ -1368,8 +1368,19 @@
                                 // Ditempel hanya kalau ADA isinya; menempel string
                                 // kosong tetap memicu gulir dan terasa berkedip.
                                 const dekatBawah = this.diBawah();
-                                this.$refs.tambahan.insertAdjacentHTML('beforebegin', html);
-                                this.terakhir = lastId;
+
+                                // Gelembung yang SUDAH tampil dilewati. Penarik
+                                // 8 detik bisa lebih dulu menempel pesan yang
+                                // jawaban kirimnya masih di jalan (nota gambar
+                                // butuh beberapa detik) — tanpa saringan ini
+                                // pesannya tampil dua kali padahal terkirim sekali.
+                                const wadah = document.createElement('template');
+                                wadah.innerHTML = html;
+                                wadah.content.querySelectorAll('[data-mid]').forEach((el) => {
+                                    if (this.$refs.gulir.querySelector('[data-mid="' + el.dataset.mid + '"]')) el.remove();
+                                });
+                                this.$refs.tambahan.before(wadah.content);
+                                this.terakhir = Math.max(Number(this.terakhir) || 0, Number(lastId) || 0);
                                 this.kosong = false;
                                 if (dekatBawah) this.keBawah();
                             },
