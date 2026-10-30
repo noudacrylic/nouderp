@@ -195,6 +195,17 @@ class ReturPaketHilangTest extends TestCase
         Http::assertNotSent(fn ($req) => str_contains($req->url(), 'get_escrow_detail'));
     }
 
+    public function test_retur_tidak_sampai_yang_masih_berjalan_dibiarkan(): void
+    {
+        // Refund belum dieksekusi → rincian dana tampak "diganti", padahal belum final.
+        $this->shopee(100000, 'COMPLETED', [[
+            'return_sn' => 'R1', 'order_sn' => self::SN, 'status' => 'PROCESSING', 'reason' => 'NOT_RECEIPT', 'refund_amount' => 100000,
+        ]]);
+
+        $this->assertSame([], $this->jalan()['hasil']);
+        $this->assertSame('draft', $this->retur->fresh()->status);
+    }
+
     public function test_mode_bayangan_hanya_mencatat(): void
     {
         $this->shopee(100000);

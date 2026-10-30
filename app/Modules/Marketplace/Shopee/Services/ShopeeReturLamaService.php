@@ -40,6 +40,9 @@ use Throwable;
  */
 class ShopeeReturLamaService
 {
+    /** Status retur Shopee yang sudah tuntas — selain ini dananya masih bisa berubah. */
+    public const STATUS_RETUR_FINAL = ['ACCEPTED', 'CANCELLED', 'CLOSED', 'REFUND_PAID'];
+
     public function __construct(
         private ShopeeClient $client,
         private SalesReturnService $retur,
@@ -248,6 +251,13 @@ class ShopeeReturLamaService
             $r['alasan']   = 'Retur dibatalkan pembeli di Shopee — pesanan biasa, dana cair ' . rupiah($cair) . '.';
 
             return $r;
+        }
+
+        // Retur masih berjalan di Shopee (mis. PROCESSING: barang dikirim balik, refund belum
+        // dieksekusi) → rincian dana masih menunjukkan refund 0 dan terbaca seperti banding menang.
+        $berjalan = collect($returSn)->pluck('status')->reject(fn ($s) => in_array($s, self::STATUS_RETUR_FINAL, true));
+        if ($berjalan->isNotEmpty()) {
+            return $lewati('Retur masih ' . $berjalan->unique()->implode('/') . ' di Shopee — dana belum final.');
         }
 
         if ($r['potongan'] < -0.5) {
