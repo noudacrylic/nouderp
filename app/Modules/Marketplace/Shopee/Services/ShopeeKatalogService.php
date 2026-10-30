@@ -71,6 +71,7 @@ class ShopeeKatalogService
                 'model_sku'  => null,
                 'nama_model' => null,
                 'harga'      => $item['price_info'][0]['current_price'] ?? null,
+                'harga_asli' => $item['price_info'][0]['original_price'] ?? null,
                 'stok'       => $item['stock_info_v2']['summary_info']['total_available_stock'] ?? null,
             ], $sekarang);
             return 1;
@@ -84,6 +85,7 @@ class ShopeeKatalogService
                 'model_sku'  => $this->bersih($m['model_sku'] ?? null),
                 'nama_model' => $this->namaModel($tier, $m['tier_index'] ?? []),
                 'harga'      => $m['price_info'][0]['current_price'] ?? null,
+                'harga_asli' => $m['price_info'][0]['original_price'] ?? null,
                 'stok'       => $m['stock_info_v2']['summary_info']['total_available_stock'] ?? null,
             ], $sekarang);
             $n++;

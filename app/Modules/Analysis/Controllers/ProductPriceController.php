@@ -11,6 +11,9 @@ use App\Modules\Analysis\Services\ChannelPricingService;
 use App\Modules\Analysis\Support\PricingMath;
 use App\Modules\Marketplace\Jubelio\Models\JubelioStorePrice;
 use App\Modules\Marketplace\Jubelio\Services\JubelioProductSyncService;
+use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Services\ShopeeKatalogService;
 use App\Modules\Sales\Services\PromotionService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -197,8 +200,18 @@ class ProductPriceController extends Controller
             'beda'     => $channel['kind'] === 'internal' ? $this->bedaDariDasar($rows) : collect(),
             // Dibaca DI SINI, sesudah rows(), bukan di dalamnya — supaya rekaman harga
             // marketplace tidak ikut masuk simpanan Analisa dan tidak pernah tampil basi.
-            'pasar'    => JubelioStorePrice::ringkasUntuk($channel['store_ids'] ?? []),
+            // Kanal Shopee dibaca langsung dari katalog API Shopee (tahap 3), bukan Jubelio.
+            'pasar'    => ($toko = $this->tokoShopee($channel))
+                ? ShopeeItem::ringkasHarga($toko)
+                : JubelioStorePrice::ringkasUntuk($channel['store_ids'] ?? []),
+            'sumberPasar' => $toko ? 'shopee' : 'jubelio',
         ]);
+    }
+
+    /** Toko Shopee yang terhubung, bila kanal ini kanal Shopee — sumber harga langsung. */
+    private function tokoShopee(array $channel): ?ShopeeShop
+    {
+        return $channel['key'] === 'shopee' ? ShopeeShop::aktif() : null;
     }
 
     /**
@@ -376,6 +389,20 @@ class ProductPriceController extends Controller
         if ($channel['kind'] === 'internal') {
             return back()->with('error', 'Kanal Website tidak lewat Jubelio — harganya memang harga master.');
         }
+
+        // Shopee: tarik katalog langsung dari API Shopee (harga per varian, sekali sapu).
+        if ($toko = $this->tokoShopee($channel)) {
+            @set_time_limit(300);
+            try {
+                $k = app(ShopeeKatalogService::class)->tarik($toko);
+            } catch (\Throwable $e) {
+                return back()->with('error', 'Katalog Shopee gagal ditarik: ' . $e->getMessage());
+            }
+
+            return back()->with('success', sprintf('Harga Shopee ditarik langsung dari Shopee: %d listing, %d varian (%d terpeta ke produk ERP).',
+                $k['item'], $k['varian'], $k['terpeta']));
+        }
+
         if (empty($channel['store_ids'])) {
             return back()->with('error', 'Kanal ini belum punya toko Jubelio yang dipetakan.');
         }

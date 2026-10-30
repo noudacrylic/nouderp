@@ -84,7 +84,7 @@ class ShopeeBayanganTest extends TestCase
                 'has_next_page' => false], 'error' => '']),
             self::HOST . '/api/v2/product/get_item_base_info*' => Http::response(['response' => ['item_list' => [
                 ['item_id' => 11, 'item_name' => 'Frame', 'item_sku' => 'FR-A4', 'has_model' => false, 'item_status' => 'NORMAL',
-                 'price_info' => [['current_price' => 25000]], 'stock_info_v2' => ['summary_info' => ['total_available_stock' => 7]]],
+                 'price_info' => [['current_price' => 25000, 'original_price' => 30000]], 'stock_info_v2' => ['summary_info' => ['total_available_stock' => 7]]],
                 ['item_id' => 12, 'item_name' => 'Plakat', 'item_sku' => '', 'has_model' => true, 'item_status' => 'NORMAL'],
             ]], 'error' => '']),
             self::HOST . '/api/v2/product/get_model_list*' => Http::response(['response' => [
@@ -100,6 +100,9 @@ class ShopeeBayanganTest extends TestCase
 
         $this->assertSame(['item' => 2, 'varian' => 3, 'terpeta' => 2, 'belum' => 1], $hasil);
         $this->assertSame($this->frame, ShopeeItem::where('item_id', 11)->value('product_id'));
+        // Harga normal (original_price) disimpan terpisah dari harga setelah promo.
+        $frame = ShopeeItem::where('item_id', 11)->first();
+        $this->assertEquals([25000, 30000], [$frame->harga, $frame->harga_asli]);
         $a4 = ShopeeItem::where('model_id', 92)->first();
         $this->assertSame('A4', $a4->nama_model);
         $this->assertNull($a4->product_id);

@@ -630,6 +630,44 @@ class ProductPricePageTest extends TestCase
         return $storeIds;
     }
 
+    /**
+     * Tahap 3 Shopee: kanal Shopee membaca harga langsung dari katalog API Shopee
+     * (shopee_items), bukan rekaman Jubelio. Yang dibandingkan harga normal; promo
+     * tertulis di bawahnya; dua listing berharga beda tidak dilebur.
+     */
+    public function test_kanal_shopee_membaca_harga_dari_katalog_shopee(): void
+    {
+        $this->potonganShopee();
+        config(['services.shopee' => ['partner_id' => '1', 'partner_key' => 'k', 'env' => 'test']]);
+        \App\Modules\Marketplace\Shopee\Models\ShopeeShop::create([
+            'shop_id' => 555, 'env' => 'test', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHours(3), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now(),
+        ]);
+        $frame  = $this->produk('AM-60', 'Frame Mahar Akrilik', 200_000);
+        $plakat = $this->produk('PL-01', 'Plakat Akrilik', 90_000);
+        $item = fn (int $item, int $model, int $pid, float $harga, float $asli, string $status = 'NORMAL') =>
+            \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create([
+                'env' => 'test', 'shop_id' => 555, 'item_id' => $item, 'model_id' => $model, 'nama' => "Listing $item",
+                'harga' => $harga, 'harga_asli' => $asli, 'status' => $status, 'product_id' => $pid, 'disinkron_at' => now(),
+            ]);
+        $item(11, 0, $frame, 239_000, 265_000);           // promo berjalan
+        $item(21, 1, $plakat, 95_000, 95_000);
+        $item(22, 0, $plakat, 99_000, 99_000);            // listing kedua, harga beda
+        $item(23, 0, $plakat, 10_000, 10_000, 'UNLIST');  // tak dihitung
+
+        // Rekaman Jubelio diabaikan untuk kanal Shopee.
+        JubelioStorePrice::create(['product_id' => $frame, 'store_id' => 1, 'price' => 111_111, 'fetched_at' => now()]);
+
+        $this->actingAs($this->admin())->get(route('analisa.harga.index', ['kanal' => 'shopee']))
+            ->assertOk()
+            ->assertSee('dibaca langsung dari Shopee')
+            ->assertSee('Rp265.000')
+            ->assertSee('promo Rp239.000')
+            ->assertSee('beda antar-listing')
+            ->assertDontSee('Rp111.111')
+            ->assertDontSee('Rp10.000');
+    }
+
     private function potonganShopee(): void
     {
         PriceChannelFeeComponent::where('channel', 'shopee')->delete();

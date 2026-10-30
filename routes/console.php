@@ -49,9 +49,10 @@ Schedule::command('shopee:perbarui-token')->hourly()->name('shopee-perbarui-toke
 Schedule::command('shopee:ingatkan-kedaluwarsa')->dailyAt('08:00')->name('shopee-ingatkan-kedaluwarsa');
 // Meja Kerja Admin: Skill Admin → task (QC, desain, persetujuan owner) + tutup otomatis.
 Schedule::command('meja-kerja:sinkron')->everyTwoMinutes()->name('meja-kerja-sinkron')->withoutOverlapping(10);
-// Shopee tahap 2 (bayangan, baca saja): pesanan tiap 15 menit, katalog/peta SKU sekali sehari.
+// Shopee tahap 2 (bayangan, baca saja): pesanan tiap 15 menit. Katalog/peta SKU tiap jam
+// sejak tahap 3 (30 Okt 2026): kolom "Di marketplace" Analisa ▸ Harga kanal Shopee membacanya.
 Schedule::command('shopee:tarik-bayangan --jam=1')->everyFifteenMinutes()->name('shopee-tarik-bayangan')->withoutOverlapping(30);
-Schedule::command('shopee:tarik-bayangan --katalog --jam=1')->dailyAt('05:40')->name('shopee-tarik-katalog')->withoutOverlapping(60);
+Schedule::command('shopee:tarik-bayangan --katalog --jam=1')->hourlyAt(40)->name('shopee-tarik-katalog')->withoutOverlapping(60);
 // Chat Shopee → CRM — cadangan Live Push (/shopee/push). Riwayat lama: jalankan manual `shopee:tarik-chat --riwayat --halaman=0`.
 Schedule::command('shopee:tarik-chat')->everyMinute()->name('shopee-tarik-chat')->withoutOverlapping(10);
 // Tahap 1b — mutasi saldo Shopee via API → draft Transfer (penarikan) & Pengeluaran (iklan).

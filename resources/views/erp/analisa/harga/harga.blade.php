@@ -4,8 +4,10 @@
     $rp    = fn (?float $v) => $v === null ? '—' : 'Rp' . number_format((float) $v, 0, ',', '.');
     $angka = fn (?float $v, int $d = 1) => $v === null ? '—' : number_format($v, $d, ',', '.');
     $isWeb = $channel['kind'] === 'internal';
-    // Kolom "Di marketplace" hanya masuk akal untuk kanal yang punya toko Jubelio.
-    $pasarAktif = !$isWeb && !empty($channel['store_ids']);
+    // Kolom "Di marketplace" hanya masuk akal untuk kanal yang punya toko Jubelio —
+    // atau kanal Shopee yang harganya dibaca langsung dari API Shopee (tahap 3).
+    $dariShopee = ($sumberPasar ?? 'jubelio') === 'shopee';
+    $pasarAktif = !$isWeb && (!empty($channel['store_ids']) || $dariShopee);
     // Kanal tujuan tombol "Terapkan ke marketplace" — semua kanal selain Website.
     $kanalPasar = $channels->reject(fn ($c) => $c['kind'] === 'internal')->pluck('label')->values()->all();
 @endphp
@@ -27,7 +29,11 @@
                     @endif
                 @else
                     <strong>Kirim</strong> memberlakukan harga khusus toko ini di Jubelio &mdash; sampai ditekan, produknya dijual di harga dasar.
-                    Sesudah terkirim harganya langsung ditanyakan balik ke Jubelio, jadi kolom <strong>Di marketplace</strong> ikut terisi.
+                    @if($dariShopee)
+                        Kolom <strong>Di marketplace</strong> dibaca langsung dari Shopee (katalog ditarik tiap jam) &mdash; harga normal per varian, promo tertulis di bawahnya.
+                    @else
+                        Sesudah terkirim harganya langsung ditanyakan balik ke Jubelio, jadi kolom <strong>Di marketplace</strong> ikut terisi.
+                    @endif
                 @endif
             </p>
         </div>
@@ -39,7 +45,7 @@
                     @csrf
                     <input type="hidden" name="kanal" value="{{ $channel['key'] }}">
                     <button class="border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-xl text-sm font-semibold"
-                            title="Tanyakan ke Jubelio berapa harga yang sedang dipegang toko kanal ini.">
+                            title="{{ $dariShopee ? 'Tarik katalog & harga terbaru langsung dari Shopee.' : 'Tanyakan ke Jubelio berapa harga yang sedang dipegang toko kanal ini.' }}">
                         Tarik harga marketplace
                     </button>
                 </form>
@@ -104,7 +110,7 @@
                         <th class="px-3 py-3 text-right font-black">HPP</th>
                         <th class="px-3 py-3 text-right font-black bg-indigo-50">Harga<br>Jual</th>
                         @if($pasarAktif)
-                            <th class="px-3 py-3 text-right font-black" title="Harga yang sedang dipegang Jubelio untuk toko kanal ini.">Di<br>marketplace</th>
+                            <th class="px-3 py-3 text-right font-black" title="{{ $dariShopee ? 'Harga normal di Shopee (langsung dari API Shopee).' : 'Harga yang sedang dipegang Jubelio untuk toko kanal ini.' }}">Di<br>marketplace</th>
                         @endif
                         <th class="px-3 py-3 text-right font-black">Potongan</th>
                         <th class="px-3 py-3 text-right font-black">Untung</th>
@@ -158,17 +164,23 @@
                                 @php $mp = $pasar->get($pid); @endphp
                                 <td class="px-3 py-3 text-right tabular-nums">
                                     @if(!$mp)
-                                        <span class="text-slate-300" title="Belum pernah ditarik dari Jubelio.">—</span>
+                                        <span class="text-slate-300" title="{{ $dariShopee ? 'Tidak ada listing Shopee aktif yang terpeta ke produk ini.' : 'Belum pernah ditarik dari Jubelio.' }}">—</span>
                                     @elseif(!$mp['seragam'])
                                         {{-- Dua toko satu kanal berharga beda: justru ini yang harus terbaca, bukan dilebur. --}}
                                         <span class="text-amber-600 font-bold text-xs"
-                                              title="{{ collect($mp['per_toko'])->map(fn ($v, $t) => 'toko ' . $t . ': ' . ($v === null ? '—' : $rp($v)))->implode(' · ') }}">
-                                            beda antar-toko
+                                              title="{{ collect($mp['per_toko'])->map(fn ($v, $t) => ($dariShopee ? $t : 'toko ' . $t) . ': ' . ($v === null ? '—' : $rp($v)))->implode(' · ') }}">
+                                            {{ $dariShopee ? 'beda antar-listing' : 'beda antar-toko' }}
                                         </span>
                                     @elseif($mp['price'] === null)
                                         <span class="text-slate-300" title="{{ $mp['note'] ?? 'Jubelio tidak memberi harga untuk toko ini.' }}">—</span>
                                     @else
-                                        <span class="font-bold text-slate-700">{{ $rp($mp['price']) }}</span>
+                                        <span class="font-bold text-slate-700"
+                                              @if($dariShopee) title="{{ collect($mp['per_toko'])->keys()->implode(' · ') }}" @endif>{{ $rp($mp['price']) }}</span>
+                                        @if(!empty($mp['promo']))
+                                            <span class="block text-[10px] font-semibold text-rose-600" title="Harga setelah promo Shopee yang sedang berjalan.">
+                                                promo {{ $rp($mp['promo']) }}
+                                            </span>
+                                        @endif
                                         @php $selisih = $row['price'] === null ? null : $mp['price'] - $row['price']; @endphp
                                         @if($selisih !== null && abs($selisih) >= 1)
                                             {{-- Harga di sana berbeda dengan yang kita hitung: entah belum dikirim,
