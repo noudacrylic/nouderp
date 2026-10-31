@@ -22,7 +22,8 @@ use Tests\TestCase;
 
 /**
  * Meja Kerja Admin: Skill Admin membuat task sendiri, task selesai/batal mengikuti sumbernya,
- * pending kembali Dikerjakan saat pelanggan membalas, dan task menumpuk di meja peran sampai diambil.
+ * pengerja ditentukan Manajer Admin (anggota meja), Mulai hanya untuk Desain, dan pending
+ * dilanjutkan saat pelanggan membalas.
  */
 class MejaKerjaTest extends TestCase
 {
@@ -72,7 +73,7 @@ class MejaKerjaTest extends TestCase
 
         $t = Task::where('skill', 'desain')->first();
         $this->assertSame('desain', $t->peran);
-        $this->assertNull($t->assignee_user_id, 'Masuk meja Desain, belum dipegang.');
+        $this->assertSame($this->desainer->id, $t->assignee_user_id, 'Ditugaskan ke anggota meja Desain.');
         $this->assertStringContainsString('KS-K3-M4', $t->title);
         $this->assertStringContainsString('Logo terlampir', $t->description);
         $this->assertSame('ABC123', collect($meja->skill('desain')->aksi($t))->firstWhere('salin')['salin']);
@@ -101,7 +102,7 @@ class MejaKerjaTest extends TestCase
         $meja->sinkron();
         $t = Task::where('skill', 'desain')->first();
 
-        $this->actingAs($this->desainer)->post(route('tasks.meja.ambil'))->assertRedirect();
+        $this->actingAs($this->desainer)->post(route('tasks.meja.mulai', $t->id))->assertRedirect();
         $this->assertSame('in_progress', $t->fresh()->status);
         $this->assertNotNull($t->fresh()->mulai_at);
 
@@ -128,7 +129,8 @@ class MejaKerjaTest extends TestCase
         $t = Task::where('skill', 'persetujuan-usulan')->first();
         $this->assertSame('owner', $t->peran);
 
-        $this->actingAs($this->owner)->post(route('tasks.meja.mulai', $t->id));
+        $this->assertSame($this->owner->id, $t->assignee_user_id);
+        $this->actingAs($this->owner)->post(route('tasks.meja.mulai', $t->id))->assertStatus(422, 'Bukan skill ber-Mulai.');
         $this->actingAs($this->owner)->post(route('tasks.meja.selesai', $t->id))->assertStatus(422);
 
         $u->update(['status' => Usulan::DISETUJUI]);
@@ -136,7 +138,7 @@ class MejaKerjaTest extends TestCase
         $this->assertSame('done', $t->fresh()->status);
     }
 
-    public function test_meja_peran_tanpa_anggota_tetap_terisi_dan_diambil_dari_tab_yang_dibuka(): void
+    public function test_meja_peran_tanpa_anggota_tetap_terisi_lalu_ditugaskan_saat_meja_punya_anggota(): void
     {
         MejaKerjaPeran::where('peran', 'desain')->delete();
         $this->nyalakan('desain', 'desain');
@@ -150,11 +152,24 @@ class MejaKerjaTest extends TestCase
         $this->actingAs($this->owner)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertSee($desain->title);
         $this->actingAs($this->desainer)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertDontSee($desain->title, false);
 
-        // Owner membuka tab Desain → yang diambil task Desain, bukan task meja Owner miliknya.
-        $this->actingAs($this->owner)->post(route('tasks.meja.ambil'), ['lihat' => 'desain'])->assertRedirect();
-        $this->assertSame('in_progress', $desain->fresh()->status);
-        $this->assertSame($this->owner->id, $desain->fresh()->assignee_user_id);
-        $this->assertSame('open', Task::where('skill', 'persetujuan-usulan')->value('status'));
+        $this->assertNull($desain->assignee_user_id);
+        $this->assertSame($this->owner->id, Task::where('skill', 'persetujuan-usulan')->value('assignee_user_id'));
+
+        // Meja Desain diberi anggota → skill Atur penugasan menugaskan task yang menunggu.
+        MejaKerjaPeran::create(['peran' => 'desain', 'user_id' => $this->desainer->id, 'urutan' => 1]);
+        app(MejaKerjaService::class)->aturPenugasan();
+        $this->assertSame($this->desainer->id, $desain->fresh()->assignee_user_id);
+    }
+
+    public function test_task_dibagi_ke_anggota_meja_yang_bebannya_paling_ringan(): void
+    {
+        $kedua = User::factory()->create(['role' => 'user', 'is_active' => true]);
+        MejaKerjaPeran::create(['peran' => 'desain', 'user_id' => $kedua->id, 'urutan' => 2]);
+        $meja = app(MejaKerjaService::class);
+
+        $this->assertSame($this->desainer->id, $meja->pilihPengerja('desain'), 'Seri → urutan anggota.');
+        Task::create(['title' => 'Lama', 'status' => 'open', 'priority' => 'normal', 'peran' => 'desain', 'assignee_user_id' => $this->desainer->id, 'creator_user_id' => $this->owner->id]);
+        $this->assertSame($kedua->id, $meja->pilihPengerja('desain'));
     }
 
     public function test_qc_tinggal_langkah_qc_lalu_selesai_saat_qc_tersimpan(): void
@@ -191,6 +206,11 @@ class MejaKerjaTest extends TestCase
         $this->actingAs($this->desainer)->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertForbidden();
         $this->actingAs($this->owner)->get(route('karyawan-virtual.show', 'manajer-admin'))->assertOk()->assertSee('Purchasing ready stok')->assertSee('Peran & Pengaturan', false);
         $this->actingAs($this->owner)->get(route('tasks.index'))->assertOk()->assertDontSee('Desain SO-1');
+        // Riwayat task Meja Kerja ada di Daftar (filter Sumber), tidak di Daftar bawaan.
+        $judul = Task::where('skill', 'desain')->value('title');
+        $this->actingAs($this->owner)->get(route('tasks.list', ['sumber' => 'meja']))->assertOk()->assertSee($judul)->assertSee('Desain pesanan');
+        $this->actingAs($this->owner)->get(route('tasks.list'))->assertOk()->assertDontSee($judul);
+        $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertSee('▶ Mulai')->assertDontSee('Ambil berikutnya');
 
         $this->actingAs($this->owner)->put(route('karyawan-virtual.admin.pengaturan.simpan', 'manajer-admin'), [
             'peran' => ['desain' => [$this->owner->id, $this->desainer->id]],

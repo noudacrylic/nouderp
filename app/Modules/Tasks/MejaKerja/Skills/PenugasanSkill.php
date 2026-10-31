@@ -7,9 +7,10 @@ use App\Modules\KaryawanVirtual\Contracts\Skill;
 use App\Modules\Tasks\MejaKerja\MejaKerjaService;
 
 /**
- * Penugasan Manajer Admin atas task yang SUDAH ada (semua skill & sumber): task Pending
- * menunggu pelanggan → kembali Dikerjakan begitu pelanggan membalas chat. (Pengganti admin
- * yang tak masuk kerja menyusul sebagai skill tersendiri.)
+ * Penugasan Manajer Admin atas task yang SUDAH ada (semua skill & sumber): task meja yang
+ * belum berpengerja (meja baru diberi anggota / pengerja keluar dari meja) ditugaskan ke
+ * anggota meja; task Pending menunggu pelanggan dilanjutkan begitu pelanggan membalas chat.
+ * (Pengganti admin yang tak masuk kerja menyusul sebagai skill tersendiri.)
  *
  * Bukan SkillAdmin (tidak membuat task). Tanpa mode Bayangan: hanya memindah pemegang /
  * status task, tidak mengubah dokumen ERP.
@@ -20,7 +21,7 @@ class PenugasanSkill implements Skill, PunyaPengaturan
 
     public function deskripsi(): string
     {
-        return 'Task Pending "menunggu pelanggan" kembali Dikerjakan saat pelanggan membalas chat.';
+        return 'Task meja yang belum berpengerja ditugaskan ke anggota meja; task Pending "menunggu pelanggan" dilanjutkan saat pelanggan membalas chat.';
     }
 
     public function jadwal(): string { return 'Tiap 2 menit'; }

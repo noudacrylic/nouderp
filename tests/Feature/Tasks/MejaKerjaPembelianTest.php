@@ -81,7 +81,7 @@ class MejaKerjaPembelianTest extends TestCase
 
         $t = Task::where('skill', 'purchasing-ready')->first();
         $this->assertSame('layanan', $t->peran);
-        $this->assertNull($t->assignee_user_id);
+        $this->assertSame($this->admin->id, $t->assignee_user_id, 'Ditugaskan Manajer Admin ke anggota meja Layanan.');
         $this->assertStringContainsString('AKR-3', $t->title);
         $this->assertStringContainsString('Kranindo', $t->description);
 
@@ -166,8 +166,7 @@ class MejaKerjaPembelianTest extends TestCase
         $this->assertStringStartsWith('Cek persediaan', $t->title);
         $this->assertSame([], $meja->skill('purchasing-nonstok')->aksi($t), 'Tahap cek: bukan tombol beli.');
 
-        $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => 'ada-7'])->assertStatus(422);
-        $this->actingAs($this->admin)->post(route('tasks.meja.mulai', $t->id));
+        $this->actingAs($this->admin)->post(route('tasks.meja.mulai', $t->id))->assertStatus(422);
         $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => 'ada-7'])->assertRedirect();
         $t->refresh();
         $this->assertSame('done', $t->status);
@@ -178,10 +177,9 @@ class MejaKerjaPembelianTest extends TestCase
         $this->assertSame(1, $meja->sinkron()['dibuat'], 'Tujuh hari kemudian dicek lagi.');
         $lagi = Task::where('skill', 'purchasing-nonstok')->where('status', 'open')->first();
 
-        $this->actingAs($this->admin)->post(route('tasks.meja.mulai', $lagi->id));
         $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $lagi->id), ['jawaban' => 'beli'])->assertRedirect();
         $lagi->refresh();
-        $this->assertSame('in_progress', $lagi->status);
+        $this->assertSame('open', $lagi->status, 'Tahap beli tetap di Antre sampai PO dibuat.');
         $this->assertStringStartsWith('Beli LEM', str_replace('Bahan ', '', $lagi->title));
         $this->assertTrue(collect($meja->skill('purchasing-nonstok')->aksi($lagi))->contains('label', 'Buat PO'));
 

@@ -80,7 +80,7 @@ class CetakStikerTest extends TestCase
         $this->assertCount(1, $tasks, 'Hanya OP yang bahannya stiker.');
         $task = $tasks->first();
         $this->assertSame('desain', $task->peran);
-        $this->assertNull($task->assignee_user_id, 'Masuk meja Desain, belum dipegang siapa pun.');
+        $this->assertSame($this->desainer->id, $task->assignee_user_id, 'Ditugaskan ke anggota meja Desain.');
         $this->assertStringContainsString('10 lembar stiker', (string) $task->description);
 
         $meja->sinkron();

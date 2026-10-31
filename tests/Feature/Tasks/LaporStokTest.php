@@ -138,7 +138,6 @@ class LaporStokTest extends TestCase
         $this->assertNull($t->taskable_id);
         $this->assertStringContainsString('Tali rafia', $t->title);
 
-        $this->actingAs($this->admin)->post(route('tasks.meja.mulai', $t->id));
         $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => 'dibeli'])->assertRedirect();
         $this->assertSame('done', $t->fresh()->status);
     }

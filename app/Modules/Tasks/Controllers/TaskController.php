@@ -172,9 +172,12 @@ class TaskController extends Controller
     {
         $userId = auth()->id();
 
+        // Sumber: '' = task biasa (bawaan), 'meja' = task Meja Kerja (riwayat selesai dsb.), 'semua'.
+        $sumber = (string) $request->get('sumber', $request->boolean('skill') ? 'semua' : '');
         $q = Task::with(['category', 'assignee:id,name', 'creator:id,name'])
-            ->when(!$request->boolean('skill'), fn ($x) => $x->whereNull('skill'))
-            ->orderByDesc('id');
+            ->when($sumber === '', fn ($x) => $x->whereNull('skill'))
+            ->when($sumber === 'meja', fn ($x) => $x->whereNotNull('skill'))
+            ->orderByDesc($sumber === 'meja' && $request->get('status') === 'done' ? 'done_at' : 'id');
 
         $search = trim((string) $request->get('search', ''));
         if ($search !== '') $q->where('title', 'like', "%{$search}%");
@@ -212,8 +215,10 @@ class TaskController extends Controller
             ->map(fn($v) => (int) $v)
             ->all();
 
+        $skillLabel = collect(app(\App\Modules\Tasks\MejaKerja\MejaKerjaService::class)->skills())->map->label();
+
         return view('erp.tasks.list', compact(
-            'tasks', 'assignableUsers', 'search', 'status', 'priority', 'assignee', 'hiddenTaskIds'
+            'tasks', 'assignableUsers', 'search', 'status', 'priority', 'assignee', 'hiddenTaskIds', 'sumber', 'skillLabel'
         ));
     }
 

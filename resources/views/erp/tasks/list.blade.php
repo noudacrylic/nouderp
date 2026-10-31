@@ -16,10 +16,18 @@
                class="w-full border rounded px-2 py-1.5">
     </div>
     <div>
+        <label class="block text-xs text-gray-500 mb-1">Sumber</label>
+        <select name="sumber" class="filter-auto border rounded px-2 py-1.5">
+            @foreach(['' => 'Task biasa', 'meja' => 'Meja Kerja', 'semua' => 'Semua'] as $v=>$lbl)
+                <option value="{{ $v }}" @selected($sumber===$v)>{{ $lbl }}</option>
+            @endforeach
+        </select>
+    </div>
+    <div>
         <label class="block text-xs text-gray-500 mb-1">Status</label>
         <select name="status" class="filter-auto border rounded px-2 py-1.5">
             <option value="">Semua</option>
-            @foreach(['open'=>'Terbuka','in_progress'=>'Dikerjakan','done'=>'Selesai','cancelled'=>'Dibatalkan'] as $v=>$lbl)
+            @foreach(['open'=>'Terbuka','in_progress'=>'Dikerjakan','pending'=>'Pending','done'=>'Selesai','cancelled'=>'Dibatalkan'] as $v=>$lbl)
                 <option value="{{ $v }}" @selected($status===$v)>{{ $lbl }}</option>
             @endforeach
         </select>
@@ -74,7 +82,9 @@
                     @endif
                 </td>
                 <td class="px-3 py-2">
-                    @if($task->category)
+                    @if($task->skill)
+                        <span class="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700">{{ $skillLabel[$task->skill] ?? $task->skill }}</span>
+                    @elseif($task->category)
                         <span class="px-2 py-0.5 rounded text-xs text-white" style="background: {{ $task->category->color }}">{{ $task->category->name }}</span>
                     @else
                         <span class="text-gray-400">—</span>
@@ -82,8 +92,13 @@
                 </td>
                 <td class="px-3 py-2">{{ $task->assignee->name ?? '—' }}</td>
                 <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs {{ $prio['class'] }}">{{ $prio['label'] }}</span></td>
-                <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs {{ $stat['class'] }}">{{ $stat['label'] }}</span></td>
-                <td class="px-3 py-2">{{ $task->due_date ? $task->due_date->format('d M Y') : '—' }}</td>
+                <td class="px-3 py-2 text-center">
+                    <span class="px-2 py-0.5 rounded text-xs {{ $stat['class'] }}">{{ $stat['label'] }}</span>
+                    @if($task->skill && $task->done_at && in_array($task->status, ['done', 'cancelled'], true))
+                        <div class="text-[10px] text-gray-400 mt-0.5">{{ $task->done_at->format('d M H:i') }}</div>
+                    @endif
+                </td>
+                <td class="px-3 py-2">{{ $task->due_date ? $task->due_date->format('d M Y') : ($task->tenggat_at ? $task->tenggat_at->format('d M H:i') : '—') }}</td>
                 <td class="px-3 py-2 text-right whitespace-nowrap" onclick="event.stopPropagation()">
                     @if($isHidden)
                         <form method="POST" action="{{ route('tasks.unhide', $task->id) }}" class="inline">
@@ -91,7 +106,7 @@
                             <button type="submit" class="border border-blue-500 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs" title="Tampilkan kembali di board">👁 Tampilkan</button>
                         </form>
                     @endif
-                    @if($task->status === 'done')
+                    @if($task->status === 'done' && !$task->skill)
                         <form method="POST" action="{{ route('tasks.status', $task->id) }}" class="inline"
                               onsubmit="return confirm('Buka kembali task ini ke status Open?')">
                             @csrf
@@ -100,7 +115,9 @@
                             <button type="submit" class="border border-amber-500 text-amber-600 hover:bg-amber-50 px-2 py-1 rounded text-xs">Buka Kembali</button>
                         </form>
                     @endif
-                    <a href="{{ route('tasks.edit', $task->id) }}" class="bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</a>
+                    @unless($task->skill)
+                        <a href="{{ route('tasks.edit', $task->id) }}" class="bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</a>
+                    @endunless
                 </td>
             </tr>
         @empty

@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(function () {
     Route::get('/', [MejaKerjaController::class, 'index'])->name('index');
-    Route::post('/ambil', [MejaKerjaController::class, 'ambil'])->name('ambil');
     Route::post('/sinkron', [MejaKerjaController::class, 'sinkron'])->name('sinkron');
     Route::post('/{task}/mulai', [MejaKerjaController::class, 'mulai'])->whereNumber('task')->name('mulai');
+    Route::post('/{task}/lanjutkan', [MejaKerjaController::class, 'lanjutkan'])->whereNumber('task')->name('lanjutkan');
     Route::post('/{task}/pending', [MejaKerjaController::class, 'pending'])->whereNumber('task')->name('pending');
     Route::post('/{task}/selesai', [MejaKerjaController::class, 'selesai'])->whereNumber('task')->name('selesai');
     Route::post('/{task}/jawab', [MejaKerjaController::class, 'jawab'])->whereNumber('task')->name('jawab');

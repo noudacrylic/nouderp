@@ -55,6 +55,9 @@ class DesainSkill implements SkillAdmin
 
     public function tersedia(): bool { return true; }
 
+    /** Mendesain punya masa kerja nyata → kartu ber-Mulai (lihat MejaKerjaService::butuhMulai). */
+    public function butuhMulai(): bool { return true; }
+
     public function pindai(Carbon $sejak): iterable
     {
         $pola = $this->polaSku();
