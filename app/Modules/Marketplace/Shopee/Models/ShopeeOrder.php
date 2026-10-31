@@ -25,12 +25,13 @@ class ShopeeOrder extends Model
     ];
 
     protected $fillable = [
-        'env', 'shop_id', 'order_sn', 'status', 'dibuat_shopee_at', 'diperbarui_shopee_at', 'total', 'kurir',
+        'env', 'shop_id', 'order_sn', 'buyer_user_id', 'status', 'dibuat_shopee_at', 'diperbarui_shopee_at', 'total', 'kurir',
         'sales_order_id', 'hasil_banding', 'catatan_banding', 'raw', 'disinkron_at',
     ];
 
     protected $casts = [
         'shop_id'              => 'integer',
+        'buyer_user_id'        => 'integer',
         'dibuat_shopee_at'     => 'datetime',
         'diperbarui_shopee_at' => 'datetime',
         'total'                => 'decimal:2',

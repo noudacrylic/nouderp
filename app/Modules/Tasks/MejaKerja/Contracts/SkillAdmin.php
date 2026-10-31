@@ -48,7 +48,12 @@ interface SkillAdmin extends Skill, PunyaPengaturan
      */
     public function keadaan(Task $task): ?array;
 
-    /** @return array<int, array{label: string, url?: string, salin?: string, utama?: bool}> */
+    /**
+     * utama = tombol pokok (oranye, juga tautan di jurnal); warna 'oren'|'hijau' menimpa warnanya
+     * (mis. chat Shopee oranye, chat WhatsApp hijau).
+     *
+     * @return array<int, array{label: string, url?: string, salin?: string, utama?: bool, warna?: string}>
+     */
     public function aksi(Task $task): array;
 
     /** Boleh ditandai selesai dengan tombol? (false = hanya selesai otomatis) */

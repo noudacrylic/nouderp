@@ -21,7 +21,10 @@ class ShopeePesananService
     /** Batas Shopee untuk get_order_list: rentang waktu maksimal 15 hari per panggilan. */
     public const JENDELA_HARI = 15;
 
-    /** Data pembeli tidak disimpan di salinan (tak dibutuhkan untuk banding). */
+    /**
+     * Data pembeli tidak disimpan di salinan (tak dibutuhkan untuk banding). Pengecualian:
+     * buyer_user_id ke kolom sendiri — hanya ID, penghubung pesanan ke chat Shopee-nya.
+     */
     private const BUANG = ['buyer_username', 'buyer_user_id', 'recipient_address', 'buyer_cpf_id', 'message_to_seller', 'note'];
 
     public function __construct(private ShopeeClient $client) {}
@@ -50,7 +53,7 @@ class ShopeePesananService
         foreach (array_chunk(array_values(array_unique($sns)), 50) as $kelompok) {
             $r = $this->client->panggil($shop, 'GET', '/api/v2/order/get_order_detail', [
                 'order_sn_list'            => implode(',', $kelompok),
-                'response_optional_fields' => 'item_list,total_amount,shipping_carrier,pay_time',
+                'response_optional_fields' => 'buyer_user_id,item_list,total_amount,shipping_carrier,pay_time',
             ]);
             foreach ($r['order_list'] ?? [] as $detail) {
                 $order = $this->simpan($shop, $detail);
@@ -66,6 +69,7 @@ class ShopeePesananService
         $order = ShopeeOrder::firstOrNew(['env' => $shop->env, 'shop_id' => $shop->shop_id, 'order_sn' => (string) $d['order_sn']]);
         $order->fill([
             'status'               => (string) ($d['order_status'] ?? ''),
+            'buyer_user_id'        => !empty($d['buyer_user_id']) ? (int) $d['buyer_user_id'] : $order->buyer_user_id,
             'dibuat_shopee_at'     => isset($d['create_time']) ? Carbon::createFromTimestamp($d['create_time']) : null,
             'diperbarui_shopee_at' => isset($d['update_time']) ? Carbon::createFromTimestamp($d['update_time']) : null,
             'total'                => $d['total_amount'] ?? null,

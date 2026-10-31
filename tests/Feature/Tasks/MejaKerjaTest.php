@@ -172,6 +172,38 @@ class MejaKerjaTest extends TestCase
         $this->assertSame($kedua->id, $meja->pilihPengerja('desain'));
     }
 
+    public function test_desain_shopee_chat_shopee_lewat_id_pembeli_dan_chat_wa_bila_tertaut(): void
+    {
+        $this->nyalakan('desain', 'desain');
+        $so = $this->soKs();
+        $meja = app(MejaKerjaService::class);
+        $meja->sinkron();
+        $t = Task::where('skill', 'desain')->first();
+        $aksi = fn () => collect($meja->skill('desain')->aksi($t));
+
+        // Pembeli belum pernah chat → belum ada di CRM, cadangannya Seller Centre.
+        $this->assertSame('ABC123', $aksi()->firstWhere('label', 'Chat di Seller Centre')['salin']);
+
+        $sp = CrmConversation::findOrCreateFor('777', CrmConversation::KANAL_SHOPEE, '55');
+        DB::table('shopee_orders')->insert(['env' => 'live', 'shop_id' => 55, 'order_sn' => 'ABC123', 'buyer_user_id' => 777, 'status' => 'READY_TO_SHIP', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('shopee_chats')->insert(['env' => 'live', 'shop_id' => 55, 'conversation_id' => 1, 'to_id' => 777, 'crm_conversation_id' => $sp->id, 'created_at' => now(), 'updated_at' => now()]);
+
+        $chat = $aksi()->firstWhere('label', 'Chat Shopee');
+        $this->assertSame(route('crm.inbox.show', $sp->id), $chat['url']);
+        $this->assertSame('oren', $chat['warna']);
+        $this->assertNull($aksi()->firstWhere('label', 'Chat di Seller Centre'));
+        $this->assertNull($aksi()->firstWhere('label', 'Chat WA'));
+
+        // Desain dikirim lewat WA: pesanan Shopee yang tertaut chat WA dapat tombol hijau juga.
+        $wa = CrmConversation::findOrCreateFor('628111222333');
+        DB::table('crm_pesanan_chat')->insert(['conversation_id' => $wa->id, 'sales_order_id' => $so->id, 'created_at' => now(), 'updated_at' => now()]);
+        $tombolWa = $aksi()->firstWhere('label', 'Chat WA');
+        $this->assertSame(route('crm.inbox.show', $wa->id), $tombolWa['url']);
+        $this->assertSame('hijau', $tombolWa['warna']);
+        $this->assertNotNull($aksi()->firstWhere('label', 'Chat Shopee'), 'Chat Shopee tetap ada lewat ID pembeli.');
+        $this->assertSame('Chat Shopee', $aksi()->firstWhere('utama')['label']);
+    }
+
     public function test_qc_tinggal_langkah_qc_lalu_selesai_saat_qc_tersimpan(): void
     {
         $this->nyalakan('qc', 'layanan');

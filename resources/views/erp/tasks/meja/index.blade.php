@@ -106,9 +106,16 @@
                             @if ($skill)
                                 <div class="flex flex-wrap gap-1 mt-2">
                                     @foreach ($skill->aksi($t) as $a)
+                                        @php
+                                            $warnaAksi = match ($a['warna'] ?? (!empty($a['utama']) ? 'oren' : null)) {
+                                                'oren'  => 'bg-orange-500 text-white hover:bg-orange-600',
+                                                'hijau' => 'bg-green-600 text-white hover:bg-green-700',
+                                                default => 'border border-gray-300 text-gray-700 hover:bg-gray-50',
+                                            };
+                                        @endphp
                                         <a href="{{ $a['url'] ?? '#' }}" @if (!empty($a['url'])) target="_blank" rel="noopener" @endif
                                            @if (!empty($a['salin'])) data-salin="{{ $a['salin'] }}" @endif
-                                           class="meja-aksi px-2 py-1 rounded text-xs font-semibold {{ !empty($a['utama']) ? 'bg-orange-500 text-white hover:bg-orange-600' : 'border border-gray-300 text-gray-700 hover:bg-gray-50' }}">{{ $a['label'] }}</a>
+                                           class="meja-aksi px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">{{ $a['label'] }}</a>
                                     @endforeach
                                 </div>
                             @endif

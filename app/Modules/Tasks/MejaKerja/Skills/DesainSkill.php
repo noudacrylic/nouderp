@@ -2,6 +2,7 @@
 
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
+use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
@@ -106,25 +107,64 @@ class DesainSkill implements SkillAdmin
         return null;
     }
 
+    /**
+     * Tombol chat dicari saat kartu tampil (chat bisa muncul setelah task dibuat): pesanan
+     * Shopee → chat Shopee di CRM (oranye); pesanan yang tertaut chat WhatsApp → Chat WA
+     * (hijau) — pesanan Shopee pun bisa punya keduanya, desain kadang dikirim lewat WA.
+     */
     public function aksi(Task $task): array
     {
         $m = $task->meta ?? [];
         $aksi = [['label' => 'Lihat SO', 'url' => route('sales.orders.show', $task->taskable_id)]];
-
-        if (!empty($m['crm_conversation_id'])) {
-            $aksi[] = ['label' => 'Chat WA', 'url' => route('crm.inbox.show', $m['crm_conversation_id']), 'utama' => true];
-        }
         $no = (string) ($m['no_marketplace'] ?? '');
-        if (str_starts_with($no, 'SP-')) {
-            // Seller Centre belum bisa dibuka langsung ke pesanan tertentu tanpa order_id
-            // numerik — nomor pesanan disalin, admin tinggal tempel di kolom cari.
+        $shopee = str_starts_with($no, 'SP-');
+
+        if ($shopee && ($cid = $this->chatShopee((int) $task->taskable_id, substr($no, 3)))) {
+            $aksi[] = ['label' => 'Chat Shopee', 'url' => route('crm.inbox.show', $cid), 'warna' => 'oren', 'utama' => true];
+        } elseif ($shopee) {
+            // Pembeli belum pernah chat → belum ada percakapannya di CRM. Seller Centre belum
+            // bisa dibuka langsung ke pesanan tertentu — nomor disalin, tempel di kolom cari.
             $aksi[] = ['label' => 'Chat di Seller Centre', 'url' => 'https://seller.shopee.co.id/portal/sale/order',
-                       'salin' => substr($no, 3), 'utama' => empty($m['crm_conversation_id'])];
-        } elseif ($no !== '') {
+                       'salin' => substr($no, 3), 'warna' => 'oren', 'utama' => true];
+        }
+
+        if ($wa = $this->chatWa((int) $task->taskable_id)) {
+            $aksi[] = ['label' => 'Chat WA', 'url' => route('crm.inbox.show', $wa), 'warna' => 'hijau', 'utama' => !$shopee];
+        }
+        if (!$shopee && $no !== '') {
             $aksi[] = ['label' => 'Salin no. pesanan', 'salin' => preg_replace('/^[A-Z]{2}-/', '', $no)];
         }
 
         return $aksi;
+    }
+
+    /** Percakapan WhatsApp CRM yang tertaut ke SO. */
+    private function chatWa(int $soId): ?int
+    {
+        $id = DB::table('crm_pesanan_chat as pc')->join('crm_conversations as c', 'c.id', '=', 'pc.conversation_id')
+            ->where('pc.sales_order_id', $soId)->where('c.channel', 'like', 'whatsapp%')->value('c.id');
+
+        return $id ? (int) $id : null;
+    }
+
+    /**
+     * Percakapan Shopee CRM milik pembeli pesanan: tautan pesanan↔chat (kartu pesanan di
+     * chat), atau lewat ID pembeli di salinan pesanan Shopee → chat Shopee pembeli itu.
+     */
+    private function chatShopee(int $soId, string $orderSn): ?int
+    {
+        $id = DB::table('crm_pesanan_chat as pc')->join('crm_conversations as c', 'c.id', '=', 'pc.conversation_id')
+            ->where('pc.sales_order_id', $soId)->where('c.channel', CrmConversation::KANAL_SHOPEE)->value('c.id');
+        if ($id) return (int) $id;
+
+        $order = DB::table('shopee_orders')->where('order_sn', $orderSn)->whereNotNull('buyer_user_id')
+            ->first(['shop_id', 'buyer_user_id']);
+        if (!$order) return null;
+
+        $id = DB::table('shopee_chats')->where('shop_id', $order->shop_id)->where('to_id', $order->buyer_user_id)
+            ->whereNotNull('crm_conversation_id')->orderByDesc('last_message_at')->value('crm_conversation_id');
+
+        return $id ? (int) $id : null;
     }
 
     public function selesaiManual(): bool { return true; }
