@@ -265,9 +265,17 @@ class PayrollBreakdownService
             $mins -= $overlap;
         }
 
-        // Dibulatkan KE BAWAH ke kelipatan 30 menit (0,5 jam) — keputusan user 26 Jun 2026:
-        // lembur dari scan tapi tanpa koma aneh (mis. 3j10m → 3,0 ; 3j40m → 3,5).
-        return floor(max(0, $mins) / 30) / 2;
+        return static::bulatkanLemburJam($mins);
+    }
+
+    /**
+     * Lembur hari kerja hanya 1 / 2 / 3 jam penuh (keputusan user 1 Nov 2026, ganti aturan
+     * 0,5 jam 26 Jun). Scan ≥5 menit sebelum target sudah dihitung; sesudahnya tetap di
+     * jam itu sampai target berikutnya — jadwal 16:30: 17:25→1, 18:55→2, 19:55→3.
+     */
+    public static function bulatkanLemburJam(int $mins): float
+    {
+        return (float) min(3, intdiv(max(0, $mins) + 5, 60));
     }
 
     public static function paysFullDay(?string $status): bool

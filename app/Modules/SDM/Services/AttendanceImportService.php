@@ -254,18 +254,14 @@ class AttendanceImportService
             return 0;
         }
 
-        if ($off2 <= '17:30:00') return 1.0;
-        if ($off2 <= '18:00:00') return 1.5;
-        if ($off2 <= '18:30:00') return 1.5;
-        if ($off2 <= '19:00:00') return 2.0;
-        if ($off2 <= '20:00:00') {
-            $start = Carbon::createFromFormat('H:i:s', '18:30:00');
-            $end   = Carbon::createFromFormat('H:i:s', $off2);
-            $mins  = $start->diffInMinutes($end);
-            // Bulat KE BAWAH ke kelipatan 30 menit (0,5 jam) — selaras resolveLemburJam.
-            return 1.5 + floor($mins / 30) * 0.5;
-        }
-        return 3.0;
+        // Durasi nyata 16:30 s/d scan keluar, dikurangi istirahat 18:00–18:30, lalu jam penuh
+        // seperti resolveLemburJam: 17:25 = 1 jam, 18:55 = 2 jam, 19:55 = 3 jam. Dulu scan
+        // apa pun ≤17:30 dapat 1 jam (mis. pulang telat 16:39 ikut terbayar lembur 1 jam).
+        $out   = PayrollBreakdownService::toMinutes(substr($off2, 0, 5));
+        $start = 16 * 60 + 30;
+        $mins  = $out - $start - max(0, min($out, 18 * 60 + 30) - 18 * 60);
+
+        return PayrollBreakdownService::bulatkanLemburJam($mins);
     }
 
     public function applyPayFlags(string $status, ?string $on1 = null): array
