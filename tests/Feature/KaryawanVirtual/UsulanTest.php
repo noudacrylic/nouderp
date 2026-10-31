@@ -91,7 +91,7 @@ class UsulanTest extends TestCase
 
     private function kepalaProduksi(?string $chatId = '5001'): User
     {
-        return $this->user('user', ['production.orders'], $chatId);
+        return $this->user('user', ['production.orders', 'karyawan-virtual'], $chatId);
     }
 
     /** Mode persetujuan + satu produk habis + satu kali pemeriksaan terjadwal → satu usulan. */

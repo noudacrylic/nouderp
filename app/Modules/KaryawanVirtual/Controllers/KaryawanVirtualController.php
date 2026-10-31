@@ -11,10 +11,10 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
- * Menu Karyawan Virtual. Bukan menu di config/menu_permissions.php: tiap
- * karyawan virtual dibuka oleh siapa pun yang punya akses menu divisinya
- * (config karyawan_virtual.*.akses) — kepala produksi memantau Manager
- * Produksi tanpa perlu akses SDM/gaji. Mengganti mode skill: super_admin.
+ * Menu Karyawan Virtual — izin menu tersendiri `karyawan-virtual` di User & Akses
+ * (hanya yang dicentang; super admin & admin otomatis). Penerima & pemutus usulan
+ * tetap ikut menu divisinya (config karyawan_virtual.*.akses). Mengganti mode skill:
+ * super_admin.
  */
 class KaryawanVirtualController extends Controller
 {

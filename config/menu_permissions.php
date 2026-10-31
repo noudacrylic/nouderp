@@ -49,6 +49,16 @@ return [
         ],
     ],
 
+    // Karyawan Virtual: izin tersendiri (bukan ikut menu divisi) — hanya yang dicentang.
+    // Siapa yang menerima & memutus usulan tetap ikut `akses` di config/karyawan_virtual.php.
+    'karyawan_virtual' => [
+        'label' => 'Karyawan Virtual',
+        'icon' => '🤖',
+        'children' => [
+            'karyawan-virtual' => ['label' => 'Karyawan Virtual', 'url' => '/erp/karyawan-virtual', 'route_patterns' => ['karyawan-virtual.*']],
+        ],
+    ],
+
     'inventory' => [
         'label' => 'Inventory',
         'icon' => '📦',

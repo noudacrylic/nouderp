@@ -117,8 +117,8 @@ Route::prefix('erp')->group(function () {
         Route::delete('/{lampiran}', [\App\Http\Controllers\KotakNotaController::class, 'destroy'])->whereNumber('lampiran')->name('destroy');
     });
 
-    // -- Karyawan Virtual: otomasi berbentuk karyawan (skill + jurnal kerja). Akses per
-    //    karyawan ikut menu divisinya — dijaga di controller, bukan EnsureMenuAccess. --
+    // -- Karyawan Virtual: otomasi berbentuk karyawan (skill + jurnal kerja). Akses = izin
+    //    menu `karyawan-virtual` (EnsureMenuAccess); ganti mode skill: super_admin. --
     Route::prefix('karyawan-virtual')->name('karyawan-virtual.')->middleware('auth')->group(function () {
         $c = \App\Modules\KaryawanVirtual\Controllers\KaryawanVirtualController::class;
         Route::get('/', [$c, 'index'])->name('index');

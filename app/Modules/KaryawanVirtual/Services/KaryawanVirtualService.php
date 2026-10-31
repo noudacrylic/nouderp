@@ -77,7 +77,7 @@ class KaryawanVirtualService
     public function bolehLihat(string $kode): bool
     {
         $cfg = $this->karyawan($kode);
-        return $cfg !== null && user_can_access($cfg['akses']);
+        return $cfg !== null && user_can_access('karyawan-virtual');
     }
 
     public function state(string $skillKey): KaryawanVirtualSkill

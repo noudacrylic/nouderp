@@ -197,10 +197,17 @@ class KaryawanVirtualTest extends TestCase
 
     // ───────────── Halaman & akses ─────────────
 
-    public function test_halaman_ikut_akses_menu_produksi(): void
+    public function test_halaman_hanya_untuk_yang_dicentang_izin_karyawan_virtual(): void
     {
-        $kepalaProduksi = $this->user('user', ['production.orders']);
+        $kepalaProduksi = $this->user('user', ['production.orders', 'karyawan-virtual']);
         $staffGudang    = $this->user('user', ['inventory.stocks']);
+        $produksiSaja   = $this->user('user', ['production.orders']);
+
+        $this->actingAs($produksiSaja)->get(route('karyawan-virtual.index'))->assertForbidden();
+        $this->actingAs($produksiSaja)->get(route('karyawan-virtual.show', 'manager-produksi'))->assertForbidden();
+        $this->actingAs($produksiSaja)->get(route('production.orders.index'))
+            ->assertDontSee(route('karyawan-virtual.index'), false);
+        $this->actingAs($this->user('super_admin'))->get(route('karyawan-virtual.index'))->assertOk();
 
         $this->actingAs($kepalaProduksi)->get(route('karyawan-virtual.index'))
             ->assertOk()->assertSee('Manager Produksi');
@@ -237,7 +244,7 @@ class KaryawanVirtualTest extends TestCase
     public function test_jalankan_sekarang_dari_halaman(): void
     {
         $p    = $this->produkReady(0);
-        $user = $this->user('user', ['production.orders']);
+        $user = $this->user('user', ['production.orders', 'karyawan-virtual']);
         $this->kv()->ubahMode(self::STOK, 'bayangan', null);
 
         $this->actingAs($user)->post(route('karyawan-virtual.jalankan', ['manager-produksi', self::STOK]))

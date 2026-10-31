@@ -10,8 +10,9 @@
 | menentukan KAPAN boleh bertindak (mode) dan MENCATAT apa yang dikerjakan.
 |
 | Per karyawan:
-|   'akses'  → menu_key yang membuka halaman karyawan ini (ikut hak divisinya,
-|              bukan izin baru di User & Akses)
+|   'akses'  → menu_key divisinya: pemegangnya menerima & boleh memutus usulan
+|              (Telegram). Membuka halaman Karyawan Virtual = izin menu tersendiri
+|              `karyawan-virtual` di User & Akses.
 |   'skills' → kunci skill => kelas yang mengimplementasikan Contracts\Skill
 |
 | Mode skill (lihat Contracts\Skill::MODE_*):
