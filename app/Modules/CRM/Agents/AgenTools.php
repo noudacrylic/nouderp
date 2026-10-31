@@ -5,6 +5,7 @@ namespace App\Modules\CRM\Agents;
 use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Services\PencarianProdukService;
+use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
 use App\Modules\Marketplace\Shopee\Models\ShopeeOrder;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
@@ -163,7 +164,8 @@ class AgenTools
         return [
             'name'        => 'cek_stok',
             'description' => 'Cek stok ERP sebuah barang (nama atau SKU). Hasilnya juga menyebut apakah '
-                . 'barang itu pre-order. WAJIB dipakai sebelum menyebut stok. Tidak memuat harga.',
+                . 'barang itu pre-order dan link listing Shopee-nya. WAJIB dipakai sebelum menyebut stok '
+                . 'atau mengirim link produk. Tidak memuat harga.',
             'input_schema' => [
                 'type'       => 'object',
                 'properties' => [
@@ -189,9 +191,24 @@ class AgenTools
 
         $baris = array_map(fn ($p) => '- ' . $p['nama'] . ($p['sku'] ? ' | SKU ' . $p['sku'] : '') . ' | ' . ($p['custom']
             ? 'barang custom (dibuat setelah dipesan)'
-            : ($p['preorder'] ? 'PRE-ORDER, stok ' : 'ready, stok ') . $this->angka($p['stok'])), $hasil);
+            : ($p['preorder'] ? 'PRE-ORDER, stok ' : 'ready, stok ') . $this->angka($p['stok']))
+            . (($link = $this->linkShopee($p['sku'])) ? ' | link Shopee ' . $link : ''), $hasil);
 
-        return ['content' => "Hasil cek stok (sebutkan apa adanya):\n" . implode("\n", $baris)];
+        return ['content' => "Hasil cek stok (sebutkan apa adanya; SKU hanya untukmu, jangan disebut ke pembeli):\n" . implode("\n", $baris)];
+    }
+
+    /** Link listing Shopee untuk SKU ini (peta SKU shopee_items) — link di dalam Shopee boleh dikirim. */
+    private function linkShopee(?string $sku): ?string
+    {
+        if (! $sku) {
+            return null;
+        }
+        $produk = Product::where('sku', $sku)->value('id');
+        $item = ShopeeItem::where('env', $this->shopee->env())->where('status', 'NORMAL')
+            ->where(fn ($q) => $q->where('model_sku', $sku)->orWhere('item_sku', $sku)->when($produk, fn ($w) => $w->orWhere('product_id', $produk)))
+            ->first(['shop_id', 'item_id']);
+
+        return $item ? "https://shopee.co.id/product/{$item->shop_id}/{$item->item_id}" : null;
     }
 
     private function skemaInfoPesanan(): array

@@ -151,4 +151,52 @@ class SaranAiTest extends TestCase
         $this->actingAs($admin)->postJson(route('crm.inbox.saran-ai.abaikan', [$c->id, $s->id]), ['catatan' => 'salah butir'])->assertOk();
         $this->assertSame([CrmSaranAi::DIABAIKAN, 'salah butir'], [$s->fresh()->status, $s->fresh()->catatan]);
     }
+    public function test_pengetahuan_dimuat_ulang_dari_berkas_hanya_bila_berubah(): void
+    {
+        $agen = \App\Modules\CRM\Models\CrmAgent::kode('cs-shopee');
+        $this->assertStringContainsString('BC-4x4', $agen->pengetahuanAktif()->isi, 'Tabel ukuran stiker BC ikut.');
+
+        $agen->pengetahuanAktif()->update(['isi' => 'lama']);
+        $this->artisan('crm:muat-pengetahuan')->assertSuccessful();
+        $this->assertSame(2, $agen->pengetahuanAktif()->versi);
+        $this->artisan('crm:muat-pengetahuan')->assertSuccessful();
+        $this->assertSame(2, $agen->fresh()->pengetahuanAktif()->versi, 'Isi sama — tidak ada versi baru.');
+    }
+    public function test_cek_stok_memberi_link_shopee_tanpa_harga(): void
+    {
+        $this->chat('kotak saran 3 kotak tanpa koin ada?');
+        $cari = \Mockery::mock(\App\Modules\CRM\Services\PencarianProdukService::class);
+        $cari->shouldReceive('untukAgen')->andReturn([['nama' => 'Kotak Saran 3 Kotak Tanpa Koin', 'sku' => 'KS-K3-M2', 'stok' => 7.0,
+            'harga' => 99000, 'harga_coret' => null, 'promo' => null, 'preorder' => false, 'custom' => false, 'url' => 'https://noudacrylic.com/x']]);
+        $this->app->instance(\App\Modules\CRM\Services\PencarianProdukService::class, $cari);
+        DB::table('shopee_items')->insert(['env' => app(\App\Modules\Marketplace\Shopee\Services\ShopeeClient::class)->env(), 'shop_id' => 101,
+            'item_id' => 555, 'model_id' => 1, 'model_sku' => 'KS-K3-M2', 'nama' => 'Kotak Saran', 'status' => 'NORMAL', 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->claude->antrekan(FakeClaudeClient::panggilAlat('cek_stok', ['kata_kunci' => 'kotak saran 3 kotak tanpa koin']))
+            ->antrekan($this->usul('B1', 'Ready kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $hasil = CrmSaranAi::firstOrFail()->run->jejak[0]['hasil'];
+        $this->assertStringContainsString('https://shopee.co.id/product/101/555', $hasil);
+        $this->assertStringContainsString('stok 7', $hasil);
+        $this->assertStringNotContainsString('99', $hasil, 'Harga tidak disebut.');
+        $this->assertStringNotContainsString('noudacrylic.com', $hasil, 'Tautan luar Shopee tidak dibawa.');
+    }
+    public function test_fokus_produk_dari_kartu_produk_pembeli(): void
+    {
+        $c = $this->chat('ukuran stikernya berapa kak?');
+        CrmMessage::create(['conversation_id' => $c->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'text',
+            'content' => '🛍️ Produk: Kotak Saran 3 Kotak', 'sent_at' => now()->subMinutes(3), 'raw' => ['message_type' => 'item', 'content' => ['item_id' => 555]]]);
+        foreach ([[1, 'Tanpa Koin', 'KS-K3-M2'], [2, 'Puas, Tidak Puas', 'KS-K3-M1']] as [$m, $nama, $sku]) {
+            DB::table('shopee_items')->insert(['env' => 'live', 'shop_id' => 101, 'item_id' => 555, 'model_id' => $m, 'model_sku' => $sku,
+                'nama' => 'Kotak Saran 3 Kotak', 'nama_model' => $nama, 'stok' => 4, 'status' => 'NORMAL', 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $this->claude->antrekan($this->usul('C4', 'Untuk kotak saran ini …'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $pesan = json_encode($this->claude->diterima[0]['messages'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('Produk yang sedang dibahas', $pesan);
+        $this->assertStringContainsString('https://shopee.co.id/product/101/555', $pesan);
+        $this->assertStringContainsString('Tanpa Koin (SKU KS-K3-M2', $pesan);
+    }
 }

@@ -5,6 +5,8 @@ namespace App\Modules\CRM\Agents;
 use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentKnowledge;
 use App\Modules\CRM\Models\CrmConversation;
+use App\Modules\CRM\Models\CrmMessage;
+use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
 
 /**
  * Menyusun apa yang dibaca agen sebelum menjawab.
@@ -70,6 +72,10 @@ class AgenPrompt
                 : 'Status: belum terdaftar sebagai pelanggan (lead).';
         }
 
+        if ($percakapan?->shopee() && ($fokus = self::fokusProduk($percakapan))) {
+            $baris[] = $fokus;
+        }
+
         $jam = (int) now()->format('H');
         $buka  = (int) config('crm.store_open_hour', 8);
         $tutup = (int) config('crm.store_close_hour', 16);
@@ -80,5 +86,36 @@ class AgenPrompt
         }
 
         return "[Keterangan untukmu, bukan dari pelanggan]\n" . implode("\n", $baris);
+    }
+
+    /**
+     * "Fokus" chat Shopee seperti di Seller Centre: kartu produk terakhir yang dikirim pembeli
+     * (chat dari halaman produk) → listing + variannya, supaya agen tahu barang yang dibahas
+     * tanpa bertanya. Kartu lebih tua dari 7 hari dianggap sudah bukan topik.
+     */
+    private static function fokusProduk(CrmConversation $percakapan): ?string
+    {
+        $kartu = CrmMessage::where('conversation_id', $percakapan->id)
+            ->where('direction', CrmMessage::MASUK)
+            ->where('raw->message_type', 'item')
+            ->where('sent_at', '>=', now()->subDays(7))
+            ->latest('sent_at')->latest('id')->first();
+        $itemId = (int) data_get($kartu?->raw, 'content.item_id');
+        if (! $itemId) {
+            return null;
+        }
+
+        $varian = ShopeeItem::where('shop_id', (int) $percakapan->business_number_id)->where('item_id', $itemId)
+            ->orderBy('model_id')->get(['nama', 'nama_model', 'model_sku', 'item_sku', 'stok']);
+        if ($varian->isEmpty()) {
+            return null;
+        }
+
+        $daftar = $varian->map(fn ($v) => trim(($v->nama_model ?: 'tanpa varian') . ' (SKU ' . ($v->model_sku ?: $v->item_sku ?: '?')
+            . ', stok Shopee ' . (int) $v->stok . ')'))->implode('; ');
+
+        return 'Produk yang sedang dibahas (pembeli mengirim kartu produk ' . $kartu->sent_at->format('d/m H:i') . '): '
+            . $varian->first()->nama . ' — link https://shopee.co.id/product/' . $percakapan->business_number_id . '/' . $itemId
+            . '. Varian: ' . $daftar . '.';
     }
 }
