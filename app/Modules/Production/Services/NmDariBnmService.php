@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Log;
  *
  * BNM lahir sebagai produk sampingan OP lain, jadi NM tidak dibuat dari BOM-nya
  * sendiri selama BNM masih ada. Saat NM menipis (pemicu sama dengan stok menipis):
- *   BNM ≥ 150      → OP 150 pcs, ambil 150 BNM
+ *   BNM ≥ 150      → OP 150 pcs, ambil 150 BNM (NM-4X6: 500 — lihat TARGET_KHUSUS)
  *   BNM 50 – 149   → OP sebanyak seluruh BNM
  *   BNM < 50       → seluruh BNM + potong lembar dari BOM NM; siklus dipilih agar
  *                    total paling dekat ke 150 (22 BNM + 2 × 64 = 150), minimal 1.
@@ -34,6 +34,9 @@ class NmDariBnmService
 {
     public const TARGET  = 150;
     public const MIN_BNM = 50;
+
+    /** Target khusus per awalan SKU NM (laku jauh lebih cepat) — permintaan owner 31 Okt 2026. */
+    public const TARGET_KHUSUS = ['NM-4X6-' => 500];
 
     /** Pengisi antrean: BNM di bawah ini tidak dibuatkan OP (hindari OP 3 pcs). */
     public const PENGISI_MIN_BNM = 10;
@@ -176,14 +179,15 @@ class NmDariBnmService
     public function rencana(Product $nm, Product $bnm, ?Bom $bom, Warehouse $gudang): array
     {
         $stokBnm = $this->stokBnm($bnm, $gudang);
-        $ambil   = (int) min(self::TARGET, $stokBnm);
+        $target  = self::target($nm);
+        $ambil   = (int) min($target, $stokBnm);
         $siklus  = 0;
         $perSiklus = 0.0;
 
         if ($stokBnm < self::MIN_BNM && $bom) {
             $perSiklus = (float) ($bom->outputs->firstWhere('output_type', 'main')?->qty_per_cycle ?? 0);
             if ($perSiklus > 0) {
-                $siklus = max(1, (int) round((self::TARGET - $ambil) / $perSiklus));
+                $siklus = max(1, (int) round(($target - $ambil) / $perSiklus));
             }
         }
 
@@ -222,12 +226,21 @@ class NmDariBnmService
         $ringkas = match (true) {
             $siklus > 0 && $ambil > 0 => "{$total} pcs = {$ambil} {$bnm->sku} (stok {$stokBnm} < " . self::MIN_BNM . ") + {$siklus} siklus potong {$bom->bom_number} @" . (int) $perSiklus,
             $siklus > 0               => "{$total} pcs = {$bnm->sku} habis, {$siklus} siklus potong {$bom->bom_number} @" . (int) $perSiklus,
-            $stokBnm >= self::TARGET  => "{$ambil} pcs dari {$ambil} {$bnm->sku} (stok {$stokBnm})",
+            $stokBnm >= $target       => "{$ambil} pcs dari {$ambil} {$bnm->sku} (stok {$stokBnm})",
             $stokBnm >= self::MIN_BNM => "{$ambil} pcs dari seluruh {$bnm->sku}",
             default                   => "{$ambil} pcs dari seluruh {$bnm->sku} (tanpa BOM potong lembar)",
         };
 
         return ['bom' => $siklus > 0 ? $bom : null, 'siklus' => $siklus] + compact('materials', 'outputs', 'steps', 'ringkas');
+    }
+
+    /** Jumlah sekali OP untuk NM ini: TARGET, kecuali awalan SKU-nya ada di TARGET_KHUSUS. */
+    public static function target(Product $nm): int
+    {
+        foreach (self::TARGET_KHUSUS as $awalan => $jumlah) {
+            if (str_starts_with(strtoupper((string) $nm->sku), $awalan)) return $jumlah;
+        }
+        return self::TARGET;
     }
 
     /** BNM yang bisa diambil OP: stok di gudang OP (konfirmasi mengambil dari sana) − reservasi aktif. */
@@ -351,7 +364,7 @@ class NmDariBnmService
             return array_merge($base, ['reason' => 'Departemen "Assembling" tidak ditemukan untuk langkah OP.']);
         }
 
-        $qty      = (int) min(self::TARGET, $stokBnm);
+        $qty      = (int) min(self::target($nm), $stokBnm);
         $tersedia = $this->auto->stokTersedia($nm);
         $ringkas  = "{$qty} pcs dari {$qty} {$bnm->sku} (stok BNM {$stokBnm}; stok {$nm->sku} {$tersedia}, terendah)";
 

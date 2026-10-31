@@ -96,6 +96,18 @@ class OpNmDariBnmTest extends TestCase
         $this->assertSame(['Assembling'], $op->steps->pluck('name')->all(), 'BNM tinggal dirakit — tanpa CNC.');
     }
 
+    public function test_nm_4x6_targetnya_500(): void
+    {
+        [$nm, $bnm] = $this->pasangan(779, '4X6-M1-2');
+        [$lain, $bnmLain] = $this->pasangan(779, '7X20-M1');
+
+        $this->jalankan();
+
+        $this->assertEquals(500, (float) $this->opUntuk($nm)->materials->firstWhere('product_id', $bnm->id)->qty_required);
+        $this->assertEquals(500, (float) $this->opUntuk($nm)->outputs->firstWhere('output_type', 'main')->qty_planned);
+        $this->assertEquals(150, (float) $this->opUntuk($lain)->outputs->firstWhere('output_type', 'main')->qty_planned, 'NM lain tetap 150.');
+    }
+
     public function test_bnm_50_sampai_149_op_sebanyak_bnm(): void
     {
         [$nm, $bnm] = $this->pasangan(83);
