@@ -43,14 +43,19 @@ class AttendanceStatusResolver
             return $att->status;
         }
 
-        // Tukar ½ Hari: hari kerja → 'hadir' (kredit penuh di sini).
-        // Hari libur → 1 sisi scan consumed swap = 'libur'; 2 sisi = sisanya 'lembur_setengah_hari'.
+        // Tukar ½ Hari: hari kerja → 'hadir' (kredit penuh di sini), kecuali separuh
+        // sisanya izin → 'setengah_hari' (mis. Novan 26 Okt: pagi ditukar, sore izin).
+        // Hari libur → tiap tukar ½ hari menghabiskan 1 sisi scan; sisi sisa = lembur ½ hari.
+        // Dua tukar ½ hari ke hari libur yang sama (pagi + sore) = sehari penuh tukar, bukan lembur.
         if ($isHalfSwap) {
+            $overrides = $row['overrides'] ?? collect();
             if (! ($row['is_off'] ?? false) && ! ($row['is_holiday'] ?? false)) {
-                return 'hadir';
+                $izinSeparuh = $overrides->contains(fn($o) => in_array($o->type, ['izin_pagi', 'izin_sore'], true));
+                return $izinSeparuh ? 'setengah_hari' : 'hadir';
             }
-            $sides = ($on1 ? 1 : 0) + ($off1 ? 1 : 0);
-            return $sides >= 2 ? 'lembur_setengah_hari' : 'libur';
+            $sides    = ($on1 ? 1 : 0) + ($off1 ? 1 : 0);
+            $terpakai = $overrides->where('type', 'tukar_setengah_hari')->count();
+            return $sides > $terpakai ? 'lembur_setengah_hari' : 'libur';
         }
 
         // Tukar Hari (full): hari kerja → 'libur'; hari libur → fall-through ke scan biasa
@@ -65,9 +70,12 @@ class AttendanceStatusResolver
             return $sides === 1 ? 'lembur_setengah_hari' : 'lembur';
         }
 
-        // Status MURNI dari scan — izin/tukar/cuti tidak mengubah status di sini, hanya tampil sebagai badge audit
+        // Status MURNI dari scan — izin/tukar tidak mengubah status di sini, hanya tampil sebagai badge audit.
+        // Kecuali cuti/sakit yang disetujui tanpa scan → 'cuti'/'sakit' (tetap gaji pokok;
+        // tunjangan ikut rule kebijakan).
         if (! $on1 && ! $off1) {
-            return null;
+            $overrides = $row['overrides'] ?? collect();
+            return $overrides->first(fn($o) => in_array($o->type, ['cuti', 'sakit'], true))?->type;
         }
 
         if (! $on1 || ! $off1) {
