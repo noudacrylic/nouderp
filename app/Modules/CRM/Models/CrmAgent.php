@@ -17,6 +17,7 @@ class CrmAgent extends Model
     public const PENYAMBUTAN = 'penyambutan';
     public const PENJUALAN   = 'penjualan';
     public const CETAK       = 'cetak';
+    public const CS_SHOPEE   = 'cs-shopee';
 
     protected $fillable = [
         'kode', 'nama', 'deskripsi', 'persona', 'model', 'maks_giliran', 'is_active',

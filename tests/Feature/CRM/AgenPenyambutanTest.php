@@ -55,9 +55,10 @@ class AgenPenyambutanTest extends TestCase
 
     /* ------------------------------------------------------------------ seed */
 
-    public function test_tiga_agen_lahir_dalam_keadaan_mati(): void
+    public function test_agen_bawaan_lahir_dalam_keadaan_mati(): void
     {
-        $this->assertSame(3, CrmAgent::count());
+        // Tiga agen Tahap 8 + CS Shopee (mode saran, 31 Okt 2026).
+        $this->assertSame(4, CrmAgent::count());
 
         foreach (CrmAgent::all() as $a) {
             $this->assertFalse($a->is_active, "Agen {$a->kode} lahir menyala — ini jalan tercepat "

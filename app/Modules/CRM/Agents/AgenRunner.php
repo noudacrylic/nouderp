@@ -65,12 +65,13 @@ class AgenRunner
 
         $jejak  = [];
         $lempar = false;
+        $selesai = false;
         $token  = ['masuk' => 0, 'cache' => 0, 'keluar' => 0];
 
         for ($putaran = 0; $putaran < max(1, (int) $agen->maks_giliran); $putaran++) {
             $resp = $this->claude->messages([
                 'model'      => $model,
-                'max_tokens' => (int) config('crm.agen.maks_token_keluar', 1024),
+                'max_tokens' => (int) config('crm.agen.maks_token_per.' . $agen->kode, config('crm.agen.maks_token_keluar', 1024)),
                 /*
                  * Satu breakpoint cache di blok system. Urutan render API adalah
                  * tools → system → messages, jadi satu penanda di sini ikut
@@ -83,7 +84,7 @@ class AgenRunner
                 ]],
                 'tools'    => $this->tools->skema($agen),
                 'messages' => $messages,
-            ]);
+            ] + $this->effort($agen));
 
             if (isset($resp['_error'])) {
                 return $this->gagal($agen, $pengetahuan, $percakapan, $mode, $userId, $pesanPelanggan,
@@ -115,6 +116,7 @@ class AgenRunner
                 );
 
                 $lempar = $lempar || ! empty($keluaran['_lempar']);
+                $selesai = $selesai || ! empty($keluaran['_selesai']);
 
                 $jejak[] = [
                     'alat'  => $blok['name'],
@@ -135,6 +137,16 @@ class AgenRunner
              * secara paralel.
              */
             $messages[] = ['role' => 'user', 'content' => $hasil];
+
+            /*
+             * Alat penutup (mis. `usulkan_balasan` CS Shopee) sudah memuat jawabannya —
+             * putaran berikutnya hanya akan membayar model untuk berkata "sudah".
+             */
+            if ($selesai) {
+                return $this->sukses($agen, $pengetahuan, $percakapan, $mode, $userId, $pesanPelanggan,
+                    $this->kumpulkanTeks($isi) ?: '(saran tersimpan)', $lempar, $jejak,
+                    (int) ((microtime(true) - $mulai) * 1000), $model, $token);
+            }
         }
 
         /*
@@ -145,6 +157,14 @@ class AgenRunner
         return $this->sukses($agen, $pengetahuan, $percakapan, $mode, $userId, $pesanPelanggan,
             'Bentar ya Kak, saya sambungkan ke tim.', true, $jejak,
             (int) ((microtime(true) - $mulai) * 1000), $model, $token);
+    }
+
+    /** output_config.effort bila diatur untuk agen ini (config crm.agen.effort). */
+    private function effort(CrmAgent $agen): array
+    {
+        $effort = config('crm.agen.effort.' . $agen->kode);
+
+        return $effort ? ['output_config' => ['effort' => (string) $effort]] : [];
     }
 
     /* ------------------------------------------------------------------ riwayat */

@@ -22,6 +22,7 @@ class CrmAgentRun extends Model
 {
     public const MODE_UJI      = 'uji';
     public const MODE_LANGSUNG = 'langsung';
+    public const MODE_SARAN    = 'saran';     // CS Shopee: usulan untuk admin, tidak dikirim
 
     public const STATUS_SUKSES   = 'sukses';
     public const STATUS_GAGAL    = 'gagal';

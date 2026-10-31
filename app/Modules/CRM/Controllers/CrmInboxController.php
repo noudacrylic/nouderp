@@ -729,6 +729,29 @@ class CrmInboxController extends Controller
         return view('cs.thread', $this->ruangKerja($request, $conversation));
     }
 
+    /** Saran AI CS Shopee yang berlaku untuk percakapan ini (kotak 💡, dibaca berkala). */
+    public function saranAi(CrmConversation $conversation, \App\Modules\CRM\Services\SaranAiService $layanan)
+    {
+        $s = $conversation->shopee() ? $layanan->berlaku($conversation) : null;
+
+        return response()->json(['saran' => $s ? [
+            'id'        => $s->id,
+            'butir'     => $s->butir,
+            'teks'      => $s->teks,
+            'lempar_ke' => $s->lempar_ke,
+            'alasan'    => $s->alasan,
+            'abaikan'   => route('crm.inbox.saran-ai.abaikan', [$conversation->id, $s->id]),
+        ] : null]);
+    }
+
+    public function abaikanSaranAi(Request $request, CrmConversation $conversation, \App\Modules\CRM\Models\CrmSaranAi $saran, \App\Modules\CRM\Services\SaranAiService $layanan)
+    {
+        abort_unless($saran->conversation_id === $conversation->id, 404);
+        $layanan->abaikan($saran, $request->user(), $request->input('catatan'));
+
+        return response()->json(['ok' => true]);
+    }
+
     public function balas(Request $request, CrmConversation $conversation, CrmReplyService $balasan)
     {
         if ($tolak = $this->tolakBalas($request, $conversation)) {
@@ -760,6 +783,8 @@ class CrmInboxController extends Controller
             'reply_to' => 'nullable|string|max:255',
             // Penanda sekali-kirim dari kotak ketik; lihat penjaga di bawah.
             'kirim_key' => 'nullable|string|max:64',
+            // Saran AI yang di-Pakai (kotak 💡); untuk mencatat dipakai/diubah/diabaikan.
+            'saran_ai'  => 'nullable|integer',
             'gambar'   => 'nullable|array|max:5',
             /*
              * Semua jenis berkas boleh — WhatsApp memang menerima gambar, video,
@@ -870,6 +895,10 @@ class CrmInboxController extends Controller
 
         if ($hasil['success']) {
             $conversation->catatDibalasOleh($request->user());
+            app(\App\Modules\CRM\Services\SaranAiService::class)->catatBalasan(
+                $conversation, isset($data['saran_ai']) ? (int) $data['saran_ai'] : null,
+                (string) ($data['teks'] ?? ''), $request->user()
+            );
         }
 
         /*

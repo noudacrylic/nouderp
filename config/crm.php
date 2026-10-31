@@ -295,6 +295,13 @@ return [
         'aktif' => (bool) env('CRM_AGEN_AKTIF', false),
 
         /*
+         | Saklar SARAN — terpisah dari 'aktif'. Saran tidak pernah mengirim apa pun ke
+         | pelanggan (admin yang menekan Pakai), jadi boleh menyala walau 'aktif' mati.
+         | Yang dijaganya biaya: tiap pesan Shopee baru = satu panggilan Claude.
+         */
+        'saran_aktif' => (bool) env('CRM_AGEN_SARAN_AKTIF', false),
+
+        /*
          | Model per agen; baris di crm_agents boleh menimpanya.
          |
          | Penyambutan pakai Haiku: kerjanya klasifikasi & jawaban pendek, dan ia
@@ -307,12 +314,24 @@ return [
             'penyambutan' => env('CRM_AGEN_MODEL_PENYAMBUTAN', 'claude-haiku-4-5'),
             'penjualan'   => env('CRM_AGEN_MODEL_PENJUALAN', 'claude-sonnet-5'),
             'cetak'       => env('CRM_AGEN_MODEL_CETAK', 'claude-sonnet-5'),
+            'cs-shopee'   => env('CRM_AGEN_MODEL_CS_SHOPEE', 'claude-haiku-5-5'),
+        ],
+
+        /*
+         | Effort per agen (output_config.effort). CS Shopee = mencocokkan pesan ke daftar
+         | tanya-jawab: pekerjaan pendek, 'low' cukup dan menekan token berpikir.
+         */
+        'effort' => [
+            'cs-shopee' => env('CRM_AGEN_EFFORT_CS_SHOPEE', 'low'),
         ],
 
         // Dipakai kalau kodenya tidak ada di peta di atas.
         'model_cadangan' => env('CRM_AGEN_MODEL_CADANGAN', 'claude-haiku-4-5'),
 
         'maks_token_keluar' => (int) env('CRM_AGEN_MAKS_TOKEN', 1024),
+
+        // Per agen — model berpikir (Opus 5.5) memakai jatah ini juga untuk berpikirnya.
+        'maks_token_per' => ['cs-shopee' => 4096],
 
         /*
          | Tarif per 1 juta token, dalam USD, apa adanya dari daftar harga
@@ -326,6 +345,9 @@ return [
             'claude-haiku-4-5' => ['masuk' => 1.00, 'cache' => 0.10, 'keluar' => 5.00],
             'claude-sonnet-5'  => ['masuk' => 2.00, 'cache' => 0.20, 'keluar' => 10.00],
             'claude-opus-5'    => ['masuk' => 5.00, 'cache' => 0.50, 'keluar' => 25.00],
+            'claude-opus-5-5'  => ['masuk' => 4.00, 'cache' => 0.20, 'keluar' => 20.00],
+            'claude-sonnet-5-5' => ['masuk' => 2.00, 'cache' => 0.20, 'keluar' => 10.00],
+            'claude-haiku-5-5' => ['masuk' => 0.10, 'cache' => 0.01, 'keluar' => 0.50],
         ],
 
         // Kurs untuk mengubah tarif USD di atas jadi rupiah yang terbaca di layar.

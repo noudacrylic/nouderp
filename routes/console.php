@@ -88,6 +88,10 @@ Schedule::command('crm:kirim-notifikasi')->everyFiveMinutes()->name('crm-kirim-n
 // (impor, koreksi langsung, perintah yang mematikan event model).
 Schedule::command('crm:cek-stok-titipan')->everyFifteenMinutes()->name('crm-cek-stok-titipan')->withoutOverlapping(60);
 
+// Karyawan virtual CS Shopee, mode SARAN: usulan balasan untuk chat Shopee yang belum dibalas
+// (tidak mengirim apa pun). Mati selama CRM_AGEN_SARAN_AKTIF=false.
+Schedule::command('crm:saran-ai')->everyMinute()->name('crm-saran-ai')->withoutOverlapping(10)->runInBackground();
+
 // Pesanan Ambil di Toko yang barangnya sudah siap: pemindaian otomatis DIMATIKAN
 // 22 Okt 2026. Barang stok siap langsung masuk bucket Siap Proses/Belum Lunas begitu
 // dibayar, sehingga pemindaian ini menandai "Siap Diambil" (dan mengabari pembeli)

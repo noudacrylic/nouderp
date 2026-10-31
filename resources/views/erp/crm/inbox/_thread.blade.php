@@ -529,6 +529,28 @@
                         Mode aman menyala — balasan dicatat di thread, tidak dikirim ke pelanggan.
                     </div>
                 @endif
+                {{-- 💡 Saran AI CS Shopee (mode saran): usulan dari daftar tanya-jawab. Pakai =
+                     teks masuk kotak ketik (masih bisa disunting); kirimannya dicatat sebagai
+                     bahan evaluasi sebelum butirnya dilepas jadi otomatis. --}}
+                @if($terpilih->shopee())
+                    <div x-data="saranAiCrm(@js(route('crm.inbox.saran-ai', $terpilih->id)))" x-show="saran" x-cloak
+                         class="mb-2 rounded border border-violet-300 bg-violet-50 px-3 py-2 text-sm">
+                        <div class="flex flex-wrap items-center gap-2 text-xs text-violet-800">
+                            <span class="font-semibold">💡 Saran AI</span>
+                            <span x-show="saran?.butir" class="px-1.5 rounded bg-white border border-violet-200" x-text="'butir ' + (saran?.butir ?? '')"></span>
+                            <span x-show="saran?.lempar_ke" class="px-1.5 rounded bg-amber-100 text-amber-800 font-semibold"
+                                  x-text="'🙋 perlu ' + (saran?.lempar_ke === 'owner' ? 'owner' : 'admin')"></span>
+                            <span class="text-violet-500" x-text="saran?.alasan ?? ''"></span>
+                        </div>
+                        <div x-show="saran?.teks" class="mt-1 whitespace-pre-line text-gray-800" x-text="saran?.teks ?? ''"></div>
+                        <div class="flex gap-2 mt-2">
+                            <button type="button" x-show="saran?.teks" @click="pakai()"
+                                    class="px-3 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold">Pakai</button>
+                            <button type="button" @click="abaikan()"
+                                    class="px-3 py-1 rounded border border-violet-300 text-violet-700 hover:bg-violet-100 text-xs">Abaikan</button>
+                        </div>
+                    </div>
+                @endif
                 {{-- Tempel tangkapan layar (Ctrl+V), seret berkas, atau pilih dari tombol.
                      Diskusi desain hidup dari gambar; memaksa admin menyimpan berkas dulu
                      lalu mencarinya lewat dialog adalah alasan orang kembali ke HP. --}}
@@ -541,7 +563,8 @@
                            penanda `kirim` — tautan produk memang tak perlu
                            disunting lagi sebelum berangkat. --}}
                       @sisip-teks.window="sisip($event.detail.teks); if ($event.detail.kirim) $el.requestSubmit()"
-                      @balasan-terkirim="bersihkan()"
+                      @balasan-terkirim="bersihkan(); $refs.saranAi.value = ''"
+                      @pakai-saran.window="$refs.saranAi.value = $event.detail.id; $refs.teks.value = ''; sisip($event.detail.teks)"
                       {{-- Berkas datang dari zona jatuh sekolom penuh di atas,
                            bukan dari form ini. Dilempar lewat peristiwa supaya
                            zona itu tak perlu tahu isi dalaman komposer. --}}
@@ -561,6 +584,8 @@
                          Yang dikirim id VENDOR pesannya, bukan id baris kita —
                          itu yang dimengerti vendor pada 'reply_to_message_id'. --}}
                     <input type="hidden" name="reply_to" :value="kutipan?.pmid ?? ''">
+                    {{-- Saran AI yang di-Pakai — server mencatat dipakai/diubah. --}}
+                    <input type="hidden" name="saran_ai" x-ref="saranAi">
 
                     <div x-show="kutipan" x-cloak
                          class="mb-2 flex items-stretch gap-2 rounded bg-gray-100 border border-gray-200 overflow-hidden">
@@ -1686,6 +1711,43 @@
                                     el.dataset.status = status;
                                     el.title = judul[status] ?? '';
                                 }
+                            },
+                        };
+                    }
+
+                    // Kotak 💡 Saran AI: dibaca berkala; Pakai melempar teksnya ke kotak ketik.
+                    function saranAiCrm(url) {
+                        return {
+                            saran: null,
+                            terpakai: null,
+                            init() {
+                                this.muat();
+                                this.jam = setInterval(() => this.muat(), 20000);
+                            },
+                            destroy() { clearInterval(this.jam); },
+                            async muat() {
+                                try {
+                                    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                                    if (!r.ok) return;
+                                    const s = (await r.json()).saran;
+                                    // Yang sudah di-Pakai jangan muncul lagi selagi disunting.
+                                    this.saran = s && s.id === this.terpakai ? null : s;
+                                } catch (e) {}
+                            },
+                            pakai() {
+                                if (!this.saran?.teks) return;
+                                this.terpakai = this.saran.id;
+                                window.dispatchEvent(new CustomEvent('pakai-saran', { detail: { id: this.saran.id, teks: this.saran.teks } }));
+                                this.saran = null;
+                            },
+                            async abaikan() {
+                                const s = this.saran;
+                                if (!s) return;
+                                this.saran = null;
+                                await fetch(s.abaikan, { method: 'POST', headers: {
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                                } }).catch(() => {});
                             },
                         };
                     }

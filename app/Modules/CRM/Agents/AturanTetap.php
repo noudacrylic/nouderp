@@ -42,7 +42,7 @@ class AturanTetap
     private const NADA = <<<'TXT'
 ## Cara bicara
 
-Kamu membalas di WhatsApp, bukan menulis surat. Yang paling merusak bukan salah
+Kamu membalas chat (WhatsApp atau Shopee), bukan menulis surat. Yang paling merusak bukan salah
 informasi, melainkan balasan yang terasa seperti mesin — dan orang berhenti
 membalas mesin.
 
