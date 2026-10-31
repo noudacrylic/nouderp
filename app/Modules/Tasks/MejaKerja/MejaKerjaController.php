@@ -4,6 +4,8 @@ namespace App\Modules\Tasks\MejaKerja;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Marketplace\Shopee\Services\ShopeeSapaPembeliService;
+use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\Models\Task;
@@ -133,6 +135,29 @@ class MejaKerjaController extends Controller
         abort_unless(collect($skill->jawaban($task))->contains('kunci', $kunci), 422, 'Jawaban tidak berlaku untuk task ini.');
 
         return back()->with('success', $skill->jawab($task, $kunci, $u));
+    }
+
+    /**
+     * Mulai Chat Shopee dari kartu Desain: sapa pembeli duluan (kartu pesanan + teks), lalu
+     * buka percakapannya di CRM. Chat yang sudah ada langsung dibuka tanpa mengirim apa pun.
+     */
+    public function chatShopee(Request $request, int $so, ShopeeSapaPembeliService $sapa)
+    {
+        $u = $request->user();
+        abort_unless($u->role === 'super_admin' || $this->meja->peranUser($u->id), 403, 'Hanya anggota meja kerja.');
+        $data = $request->validate(['teks' => 'required|string|max:1000']);
+
+        $no = (string) SalesOrder::whereKey($so)->value('customer_po_number');
+        abort_unless(str_starts_with($no, 'SP-'), 422, 'Bukan pesanan Shopee.');
+
+        $h = $sapa->sapa(substr($no, 3), $data['teks'], $u->id);
+        if ($h['error']) return back()->with('error', $h['error']);
+        if (!$h['conversation_id']) {
+            return back()->with('success', 'Sapaan terkirim ke pembeli ' . $no . '. Percakapannya muncul di CRM dalam ±1 menit.');
+        }
+
+        return redirect()->route('crm.inbox.show', $h['conversation_id'])
+            ->with('success', $h['terkirim'] ? 'Sapaan terkirim ke pembeli ' . $no . '.' : 'Chat dengan pembeli ini sudah ada — tidak mengirim ulang.');
     }
 
     public function sinkron(Request $request)

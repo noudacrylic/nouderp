@@ -113,9 +113,21 @@
                                                 default => 'border border-gray-300 text-gray-700 hover:bg-gray-50',
                                             };
                                         @endphp
+                                        @if (!empty($a['kirim']))
+                                            {{-- Pesan ke pelanggan: teksnya ditunjukkan & bisa diubah dulu, baru dikirim. --}}
+                                            <details class="relative">
+                                                <summary class="list-none cursor-pointer px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">{{ $a['label'] }}</summary>
+                                                <form method="POST" action="{{ $a['kirim'] }}" target="_blank" class="absolute z-10 mt-1 w-80 bg-white border rounded shadow p-2 space-y-1">@csrf
+                                                    <div class="text-[11px] text-gray-500">Dikirim ke pembeli: kartu pesanan, lalu pesan ini.</div>
+                                                    <textarea name="teks" rows="4" maxlength="1000" class="w-full border rounded px-2 py-1 text-xs">{{ $a['teks'] ?? '' }}</textarea>
+                                                    <button class="w-full px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">Kirim & buka chat</button>
+                                                </form>
+                                            </details>
+                                        @else
                                         <a href="{{ $a['url'] ?? '#' }}" @if (!empty($a['url'])) target="_blank" rel="noopener" @endif
                                            @if (!empty($a['salin'])) data-salin="{{ $a['salin'] }}" @endif
                                            class="meja-aksi px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">{{ $a['label'] }}</a>
+                                        @endif
                                     @endforeach
                                 </div>
                             @endif

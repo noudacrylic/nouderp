@@ -26,6 +26,9 @@ class DesainSkill implements SkillAdmin
     /** Pola SKU (LIKE) bawaan sebelum admin mengubahnya. */
     public const POLA_SKU = ['KS-%', 'BC-%', 'NM-%TXT', 'FF-%Foto%'];
 
+    /** Teks pembuka bawaan "Mulai Chat Shopee" (dikirim setelah kartu pesanan; admin bisa mengubah sebelum kirim). */
+    public const SAPAAN = 'Halo kak, terima kasih sudah order di Noud Acrylic 🙏 Untuk desain pesanannya mau dibuat seperti apa kak? Boleh kirim logo/tulisan/contoh gambar yang diinginkan ya.';
+
     public function key(): string { return 'desain'; }
 
     public function label(): string { return 'Desain pesanan'; }
@@ -122,10 +125,16 @@ class DesainSkill implements SkillAdmin
         if ($shopee && ($cid = $this->chatShopee((int) $task->taskable_id, substr($no, 3)))) {
             $aksi[] = ['label' => 'Chat Shopee', 'url' => route('crm.inbox.show', $cid), 'warna' => 'oren', 'utama' => true];
         } elseif ($shopee) {
-            // Pembeli belum pernah chat → belum ada percakapannya di CRM. Seller Centre belum
-            // bisa dibuka langsung ke pesanan tertentu — nomor disalin, tempel di kolom cari.
-            $aksi[] = ['label' => 'Chat di Seller Centre', 'url' => 'https://seller.shopee.co.id/portal/sale/order',
-                       'salin' => substr($no, 3), 'warna' => 'oren', 'utama' => true];
+            // Pembeli belum pernah chat → toko menyapa duluan lewat API (kartu pesanan + teks),
+            // percakapannya langsung masuk CRM. Seller Centre tinggal cadangan: ID pembeli belum
+            // tertarik, atau admin ingin membuka di sana — nomor disalin, tempel di kolom cari.
+            $bisaSapa = DB::table('shopee_orders')->where('order_sn', substr($no, 3))->whereNotNull('buyer_user_id')->exists();
+            if ($bisaSapa) {
+                $aksi[] = ['label' => 'Mulai Chat Shopee', 'kirim' => route('tasks.meja.chat-shopee', $task->taskable_id),
+                           'teks' => self::SAPAAN, 'warna' => 'oren', 'utama' => true];
+            }
+            $aksi[] = ['label' => $bisaSapa ? 'Seller Centre' : 'Chat di Seller Centre', 'url' => 'https://seller.shopee.co.id/portal/sale/order',
+                       'salin' => substr($no, 3), 'warna' => $bisaSapa ? null : 'oren', 'utama' => !$bisaSapa];
         }
 
         if ($wa = $this->chatWa((int) $task->taskable_id)) {

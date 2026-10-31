@@ -10,6 +10,9 @@ use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualJurnal;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualSkill;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan as Usulan;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Services\ShopeeChatService;
+use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesOrderItem;
 use App\Modules\Tasks\MejaKerja\MejaKerjaService;
@@ -202,6 +205,55 @@ class MejaKerjaTest extends TestCase
         $this->assertSame('hijau', $tombolWa['warna']);
         $this->assertNotNull($aksi()->firstWhere('label', 'Chat Shopee'), 'Chat Shopee tetap ada lewat ID pembeli.');
         $this->assertSame('Chat Shopee', $aksi()->firstWhere('utama')['label']);
+    }
+
+    public function test_mulai_chat_shopee_menyapa_pembeli_duluan_lalu_membuka_chat_crm(): void
+    {
+        $this->nyalakan('desain', 'desain');
+        $so = $this->soKs();
+        $meja = app(MejaKerjaService::class);
+        $meja->sinkron();
+        $t = Task::where('skill', 'desain')->first();
+        ShopeeShop::create(['shop_id' => 55, 'env' => 'live', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHour(), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now()]);
+        DB::table('shopee_orders')->insert(['env' => 'live', 'shop_id' => 55, 'order_sn' => 'ABC123', 'buyer_user_id' => 777, 'status' => 'READY_TO_SHIP', 'created_at' => now(), 'updated_at' => now()]);
+
+        $aksi = collect($meja->skill('desain')->aksi($t));
+        $mulai = $aksi->firstWhere('label', 'Mulai Chat Shopee');
+        $this->assertSame(route('tasks.meja.chat-shopee', $so->id), $mulai['kirim']);
+        $this->assertSame('Mulai Chat Shopee', $aksi->firstWhere('utama')['label']);
+        $this->assertSame('ABC123', $aksi->firstWhere('label', 'Seller Centre')['salin'], 'Seller Centre tinggal cadangan.');
+
+        // Shopee: kartu pesanan lalu teks; sinkron chat menyalin percakapan barunya ke CRM.
+        $terkirim = [];
+        $client = \Mockery::mock(ShopeeClient::class);
+        $client->shouldReceive('env')->andReturn('live');
+        $client->shouldReceive('panggil')->twice()->andReturnUsing(function ($shop, $m, $path, $p) use (&$terkirim) {
+            $terkirim[] = $p;
+            return ['message_id' => (string) (900 + count($terkirim)), 'conversation_id' => '1'];
+        });
+        $sp = CrmConversation::findOrCreateFor('777', CrmConversation::KANAL_SHOPEE, '55');
+        $sinkron = \Mockery::mock(ShopeeChatService::class);
+        $sinkron->shouldReceive('tarikBaru')->once()->andReturnUsing(function () use ($sp) {
+            DB::table('shopee_chats')->insert(['env' => 'live', 'shop_id' => 55, 'conversation_id' => 1, 'to_id' => 777, 'crm_conversation_id' => $sp->id, 'created_at' => now(), 'updated_at' => now()]);
+            return [];
+        });
+        $this->app->instance(ShopeeClient::class, $client);
+        $this->app->instance(ShopeeChatService::class, $sinkron);
+
+        $this->actingAs($this->desainer)->post(route('tasks.meja.chat-shopee', $so->id), ['teks' => 'Halo kak, mau desain apa?'])
+            ->assertRedirect(route('crm.inbox.show', $sp->id));
+        $this->assertSame([['to_id' => 777, 'message_type' => 'order', 'content' => ['order_sn' => 'ABC123']],
+                           ['to_id' => 777, 'message_type' => 'text', 'content' => ['text' => 'Halo kak, mau desain apa?']]], $terkirim);
+
+        // Sudah ada chat → tidak menyapa dobel, langsung dibuka.
+        $this->actingAs($this->desainer)->post(route('tasks.meja.chat-shopee', $so->id), ['teks' => 'Halo lagi'])
+            ->assertRedirect(route('crm.inbox.show', $sp->id));
+        $this->assertCount(2, $terkirim);
+        $this->assertSame('Chat Shopee', collect($meja->skill('desain')->aksi($t))->firstWhere('utama')['label']);
+
+        $orangLain = User::factory()->create(['role' => 'user', 'is_active' => true]);
+        $this->actingAs($orangLain)->post(route('tasks.meja.chat-shopee', $so->id), ['teks' => 'x'])->assertForbidden();
     }
 
     public function test_qc_tinggal_langkah_qc_lalu_selesai_saat_qc_tersimpan(): void

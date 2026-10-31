@@ -50,9 +50,10 @@ interface SkillAdmin extends Skill, PunyaPengaturan
 
     /**
      * utama = tombol pokok (oranye, juga tautan di jurnal); warna 'oren'|'hijau' menimpa warnanya
-     * (mis. chat Shopee oranye, chat WhatsApp hijau).
+     * (mis. chat Shopee oranye, chat WhatsApp hijau). kirim = URL POST yang dibuka sebagai kotak
+     * pesan berisi 'teks' (bisa diubah) sebelum dikirim, mis. Mulai Chat Shopee.
      *
-     * @return array<int, array{label: string, url?: string, salin?: string, utama?: bool, warna?: string}>
+     * @return array<int, array{label: string, url?: string, salin?: string, utama?: bool, warna?: string, kirim?: string, teks?: string}>
      */
     public function aksi(Task $task): array;
 
