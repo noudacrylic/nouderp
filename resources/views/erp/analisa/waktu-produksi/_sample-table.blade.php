@@ -10,6 +10,7 @@
         'zero_division'    => ['Ada divisi 0 detik', 'bg-amber-50 text-amber-700 border-amber-200'],
         'no_bom'           => ['Tanpa BOM', 'bg-gray-100 text-gray-500 border-gray-200'],
         'mesin_tak_sesuai' => ['Mesin tak sesuai kelompok', 'bg-red-50 text-red-700 border-red-200'],
+        'langkah_dicoret'  => ['Pelaksana diganti', 'bg-amber-50 text-amber-700 border-amber-200'],
     ];
 @endphp
 
@@ -75,7 +76,15 @@
                             // disamakan, angka lama akan tampak seperti kerja tanpa orang.
                             $adaDataPelaksana = array_key_exists('executors', $s);
                             $pelaksana = $s['executors'][$dept['id']] ?? [];
+                            $coret = $s['divisi_dicoret'][$dept['id']] ?? null;
                         @endphp
+                        @if($coret)
+                        <td class="px-3 py-3 text-right whitespace-nowrap text-gray-300" title="{{ $coret }}">
+                            <span class="line-through">dicoret</span>
+                            <span class="block text-[10px] font-medium text-amber-600">pelaksana diganti</span>
+                        </td>
+                        @continue
+                        @endif
                         <td class="px-3 py-3 text-right whitespace-nowrap {{ $sec === 0 ? 'text-amber-600' : 'text-gray-700' }}">
                             {{ $sec === null ? '—' : dur_hms((float) $sec) }}
                             @if($sec !== null && $adaDataPelaksana)

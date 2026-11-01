@@ -1507,6 +1507,8 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('process/steps/{id}/pause',    [\App\Modules\Production\Controllers\ProductionProcessController::class, 'pauseStep'])->name('process.steps.pause');
     Route::post('process/steps/{id}/resume',   [\App\Modules\Production\Controllers\ProductionProcessController::class, 'resumeStep'])->name('process.steps.resume');
     Route::post('process/steps/{id}/complete', [\App\Modules\Production\Controllers\ProductionProcessController::class, 'completeStep'])->name('process.steps.complete');
+    Route::post('process/steps/{id}/lanjutkan', [\App\Modules\Production\Controllers\ProductionProcessController::class, 'lanjutkanStep'])->name('process.steps.lanjutkan');
+    Route::post('process/steps/{id}/ganti',     [\App\Modules\Production\Controllers\ProductionProcessController::class, 'ajukanPergantian'])->name('process.steps.ganti');
     Route::post('process/orders/{id}/notes',   [\App\Modules\Production\Controllers\ProductionProcessController::class, 'updateNotes'])->name('process.orders.notes');
     Route::post('process/orders/merge',        [\App\Modules\Production\Controllers\ProductionProcessController::class, 'mergeOrders'])->name('process.orders.merge');
 

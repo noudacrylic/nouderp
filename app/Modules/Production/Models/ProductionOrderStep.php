@@ -10,6 +10,8 @@ class ProductionOrderStep extends Model
         'production_order_id', 'bom_step_id', 'step_number', 'department_id', 'is_qc',
         'name', 'description', 'status', 'executor_id',
         'started_at', 'started_effective_at', 'paused_at', 'completed_at', 'notes',
+        // Diisi saat pelaksana diganti di tengah jalan — lihat PergantianPelaksanaService.
+        'sample_excluded_reason', 'sample_excluded_by',
     ];
 
     protected $casts = [

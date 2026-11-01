@@ -3,6 +3,7 @@
 namespace App\Modules\SDM\Controllers;
 
 use App\Modules\Production\Models\Department;
+use App\Modules\Production\Services\PergantianPelaksanaService;
 use App\Modules\SDM\Models\Karyawan;
 use App\Modules\SDM\Models\KaryawanSchedule;
 use Illuminate\Http\Request;
@@ -92,15 +93,23 @@ class KaryawanController extends Controller
         return view('erp.sdm.karyawan.edit', compact('karyawan', 'departments'));
     }
 
-    public function update(Request $request, int $id)
+    public function update(Request $request, int $id, PergantianPelaksanaService $pelaksana)
     {
         $karyawan = Karyawan::findOrFail($id);
         $data = $this->validateData($request, $karyawan->id);
         $schedules = $this->parseSchedules($request);
         $applyToAll = $request->boolean('apply_to_all');
+        $dilepas = [];
 
-        DB::transaction(function () use ($request, $karyawan, $data, $schedules, $applyToAll) {
+        DB::transaction(function () use ($request, $karyawan, $data, $schedules, $applyToAll, $pelaksana, &$dilepas) {
+            $wasActive = (bool) $karyawan->is_active;
             $karyawan->update($data);
+            // Dinonaktifkan lewat form edit = sama dengan Arsipkan: lepas langkah produksinya.
+            if ($wasActive && !$karyawan->is_active) {
+                $dilepas = $pelaksana->lepasKaryawan($karyawan);
+            } elseif (!$wasActive && $karyawan->is_active) {
+                $pelaksana->aktifkanKembali($karyawan);
+            }
             $this->handlePhotoUploads($request, $karyawan);
             $this->saveSchedules($karyawan, $schedules);
 
@@ -118,6 +127,7 @@ class KaryawanController extends Controller
         if ($applyToAll) {
             $msg .= ' Jadwal kerja & hari libur juga diterapkan ke semua karyawan aktif lainnya.';
         }
+        $msg .= $this->pesanDilepas($dilepas);
         return redirect(list_url('sdm.karyawan.index'))->with('success', $msg);
     }
 
@@ -137,25 +147,42 @@ class KaryawanController extends Controller
         return back()->with('success', 'Karyawan dihapus permanen.');
     }
 
-    public function archive(int $id)
+    public function archive(int $id, PergantianPelaksanaService $pelaksana)
+    {
+        $karyawan = Karyawan::findOrFail($id);
+        $dilepas = DB::transaction(function () use ($karyawan, $pelaksana) {
+            $karyawan->update([
+                'is_active'   => false,
+                'resign_date' => $karyawan->resign_date ?? now()->toDateString(),
+            ]);
+            return $pelaksana->lepasKaryawan($karyawan);
+        });
+
+        return back()->with('success', 'Karyawan diarsipkan.' . $this->pesanDilepas($dilepas));
+    }
+
+    public function restore(int $id, PergantianPelaksanaService $pelaksana)
     {
         $karyawan = Karyawan::findOrFail($id);
         $karyawan->update([
-            'is_active'   => false,
-            'resign_date' => $karyawan->resign_date ?? now()->toDateString(),
-        ]);
-
-        return back()->with('success', 'Karyawan diarsipkan.');
-    }
-
-    public function restore(int $id)
-    {
-        Karyawan::findOrFail($id)->update([
             'is_active'   => true,
             'resign_date' => null,
         ]);
+        $pelaksana->aktifkanKembali($karyawan);
 
         return back()->with('success', 'Karyawan diaktifkan kembali.');
+    }
+
+    /** Ringkasan langkah produksi yang dilepas saat karyawan dinonaktifkan. */
+    private function pesanDilepas(array $dilepas): string
+    {
+        if (!$dilepas) return '';
+
+        $daftar = collect($dilepas)->map(fn ($r) => "{$r['order_number']} {$r['langkah']}"
+            . ($r['tanpa_pelaksana'] ? ' (tanpa pelaksana)' : ''))->join(', ');
+
+        return ' Langkah produksi yang dipegang dilepas: ' . $daftar
+            . '. Yang tanpa pelaksana bisa dilanjutkan orang lain lewat tombol Lanjutkan di Proses Produksi.';
     }
 
     public function searchByDepartment(int $deptId)

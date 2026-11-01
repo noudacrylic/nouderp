@@ -187,6 +187,7 @@ class ProductionTimeInsightService
         $steps = ProductionOrderStep::with('timeLogs')
             ->whereIn('production_order_id', $orderIds)
             ->where('status', 'completed')
+            ->whereNull('sample_excluded_reason') // pelaksana diganti di tengah jalan
             ->get();
 
         $executors = DB::table('production_department_executors as e')

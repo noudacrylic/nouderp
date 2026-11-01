@@ -6,6 +6,7 @@
          detail: null,
          selesai: null,
          mulai: null,
+         ganti: null,
          catatan: null,
          warehouses: {{ Js::from($warehouses) }},
          defaultWh: {{ (int) $defaultWarehouseId }} || null,
@@ -151,6 +152,7 @@
      @open-detail.window="detail = $event.detail"
      @open-selesai.window="openSelesai($event.detail)"
      @open-mulai.window="mulai = $event.detail"
+     @open-ganti.window="ganti = $event.detail"
      @open-catatan.window="catatan = $event.detail">
 
     {{-- Flash message (mis. gagal Mulai: belum scan check-in, di luar jam kerja, dll.) --}}
@@ -315,7 +317,7 @@
 
             <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                 <div>
-                    <h3 class="font-black text-gray-800 text-sm">Mulai Pengerjaan</h3>
+                    <h3 class="font-black text-gray-800 text-sm" x-text="(mulai && mulai.judul) || 'Mulai Pengerjaan'"></h3>
                     <p class="text-xs text-gray-400 mt-0.5" x-text="mulai ? mulai.order_number + ' · ' + mulai.step_name : ''"></p>
                 </div>
                 <button type="button" @click="mulai = null"
@@ -366,9 +368,91 @@
                             :disabled="selected.length === 0"
                             :class="selected.length > 0 ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer' : 'bg-indigo-300 cursor-not-allowed'"
                             class="flex-1 py-2 text-white text-sm font-bold rounded-xl transition">
-                        ▶ Mulai Sekarang
+                        <span x-text="(mulai && mulai.tombol) || '▶ Mulai Sekarang'"></span>
                     </button>
                     <button type="button" @click="mulai = null; selected = []"
+                            class="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 transition">
+                        Batal
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- ===== MODAL: AJUKAN PERGANTIAN PELAKSANA ===== --}}
+    <div x-show="ganti !== null"
+         x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+         @click.self="ganti = null"
+         style="display:none;">
+
+        <div x-show="ganti !== null"
+             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                    <h3 class="font-black text-gray-800 text-sm">Ajukan Pergantian Pelaksana</h3>
+                    <p class="text-xs text-gray-400 mt-0.5" x-text="ganti ? ganti.order_number + ' · ' + ganti.step_name : ''"></p>
+                </div>
+                <button type="button" @click="ganti = null"
+                        class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center text-sm">✕</button>
+            </div>
+
+            {{-- x-effect: tiap modal dibuka untuk langkah lain, pilihan direset (pelaksana lama tercentang semua). --}}
+            <form method="POST" class="p-5" :action="ganti ? ganti.action_url : '#'"
+                  x-data="{ dari: [], ke: [], alasan: '' }"
+                  x-effect="if (ganti) { dari = ganti.sekarang.map(e => String(e.id)); ke = []; alasan = ''; }">
+                @csrf
+                <div class="mb-3">
+                    <label class="block text-xs font-bold text-gray-600 mb-2">Diganti</label>
+                    <div class="space-y-1.5">
+                        <template x-for="op in (ganti ? ganti.sekarang : [])" :key="op.id">
+                            <label class="flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50">
+                                <input type="checkbox" name="dari[]" :value="op.id" x-model="dari" class="w-4 h-4 rounded accent-indigo-600">
+                                <span class="text-sm font-medium text-gray-700" x-text="op.name"></span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="block text-xs font-bold text-gray-600 mb-2">Pengganti</label>
+                    <p x-show="ganti && ganti.kandidat.length === 0" class="text-xs text-gray-400 italic">Tidak ada pelaksana lain di divisi ini.</p>
+                    <div class="space-y-1.5">
+                        <template x-for="op in (ganti ? ganti.kandidat : [])" :key="op.id">
+                            <label class="flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-100 cursor-pointer hover:bg-indigo-50">
+                                <input type="checkbox" name="ke[]" :value="op.id" x-model="ke" class="w-4 h-4 rounded accent-indigo-600">
+                                <span class="text-sm font-medium text-gray-700" x-text="op.name"></span>
+                                <span x-show="op.busy"
+                                      class="ml-auto text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-bold">
+                                    Sedang mengerjakan
+                                </span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="block text-xs font-bold text-gray-600 mb-1.5">Alasan</label>
+                    <textarea name="alasan" rows="2" maxlength="500" x-model="alasan" placeholder="mis. Ridwan sakit, Budi melanjutkan"
+                              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"></textarea>
+                </div>
+
+                <p class="text-[11px] text-gray-500 mb-4 leading-snug">
+                    Dikirim ke owner lewat Telegram. Selama menunggu, langkah tetap dikerjakan pelaksana lama.
+                    Setelah disetujui, langkah ini dicoret dari sampel waktu produksi.
+                </p>
+
+                <div class="flex gap-2">
+                    <button type="submit"
+                            :disabled="dari.length === 0 || ke.length === 0 || alasan.trim() === ''"
+                            :class="dari.length && ke.length && alasan.trim() ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer' : 'bg-indigo-300 cursor-not-allowed'"
+                            class="flex-1 py-2 text-white text-sm font-bold rounded-xl transition">
+                        Ajukan
+                    </button>
+                    <button type="button" @click="ganti = null"
                             class="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 transition">
                         Batal
                     </button>

@@ -146,6 +146,30 @@
               ])->values()->toArray()
             : [],
     ];
+
+    // Pelaksana lama dinonaktifkan (keluar) → langkah dijeda tanpa pelaksana; siapa saja boleh
+    // melanjutkan. Memakai modal Mulai dengan tujuan & judul lain.
+    $tanpaPelaksana = \App\Modules\Production\Services\PergantianPelaksanaService::tanpaPelaksana($step);
+    if ($tanpaPelaksana) {
+        $mulaiPayload['action_url'] = route('production.process.steps.lanjutkan', $step->id);
+        $mulaiPayload['judul']      = 'Lanjutkan Pengerjaan';
+        $mulaiPayload['tombol']     = '▶ Lanjutkan Sekarang';
+    }
+
+    // Oper tugas ke pelaksana lain — diajukan, diputus owner lewat Telegram.
+    $gantiMenunggu = in_array($step->id, $pergantianMenunggu ?? [], true);
+    $sekarangIds   = $step->executors->pluck('id')->all();
+    $gantiPayload  = [
+        'action_url'   => route('production.process.steps.ganti', $step->id),
+        'step_name'    => $step->name,
+        'order_number' => $order->order_number,
+        'sekarang'     => $step->executors->map(fn($e) => ['id' => $e->id, 'name' => $e->name])->values()->toArray(),
+        'kandidat'     => $step->department
+            ? $step->department->selectableExecutors->reject(fn($e) => in_array($e->id, $sekarangIds))
+                ->map(fn($e) => ['id' => $e->id, 'name' => $e->name, 'busy' => in_array($e->id, $busy)])
+                ->values()->toArray()
+            : [],
+    ];
 @endphp
 
 {{-- Data tersimpan di x-data agar tidak ada masalah JSON encoding di @click attribute --}}
@@ -154,6 +178,7 @@
          detailData: {{ Js::from($detailPayload) }},
          selesaiData: {{ Js::from($selesaiPayload) }},
          mulaiData: {{ Js::from($mulaiPayload) }},
+         gantiData: {{ Js::from($gantiPayload) }},
          catatanData: {{ Js::from($catatanPayload) }}
      }">
 
@@ -273,8 +298,14 @@
                     : $step->executor?->name;
             @endphp
             <span class="text-gray-400">Langkah {{ $step->step_number }}: <span class="font-semibold text-gray-600">{{ $step->name }}</span></span>
-            @if($execNames)
+            @if($tanpaPelaksana)
+                <span class="bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded font-bold"
+                      title="{{ $step->sample_excluded_reason }}">⚠ Tanpa pelaksana</span>
+            @elseif($execNames)
                 <span class="text-gray-500 font-medium">👤 {{ $execNames }}</span>
+            @endif
+            @if($gantiMenunggu)
+                <span class="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold">⇄ Pergantian menunggu persetujuan</span>
             @endif
             @if($elapsedSeconds > 0)
                 @php $dur = sprintf('%02d:%02d:%02d', intdiv($elapsedSeconds,3600), intdiv($elapsedSeconds%3600,60), $elapsedSeconds%60); @endphp
@@ -362,6 +393,12 @@
                         class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition">
                     Selesai
                 </button>
+            @elseif($tanpaPelaksana)
+                <button type="button"
+                        @click="$dispatch('open-mulai', mulaiData)"
+                        class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition">
+                    ▶ Lanjutkan
+                </button>
             @else
                 <form action="{{ route('production.process.steps.resume', $step->id) }}" method="POST" class="inline">
                     @csrf
@@ -387,6 +424,15 @@
                class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
                 ⚖ QC Sebagian
             </a>
+        @endif
+
+        @if(in_array($panel, ['in_progress', 'paused'], true) && !$step->is_qc && !$tanpaPelaksana && !$gantiMenunggu
+            && $step->executors->isNotEmpty())
+            <button type="button"
+                    @click="$dispatch('open-ganti', gantiData)"
+                    class="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-semibold rounded-lg transition">
+                ⇄ Ajukan Pergantian
+            </button>
         @endif
 
         <a href="{{ route('production.material-additions.create', array_filter(['department_id' => $step->department_id, 'step_id' => $step->id])) }}"

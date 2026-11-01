@@ -101,7 +101,7 @@
                                 </form>
                             @elseif($k->is_active)
                                 <form method="POST" action="{{ route('sdm.karyawan.archive', $k->id) }}" class="inline"
-                                      onsubmit="return confirm('Arsipkan karyawan {{ $k->name }}? Karyawan akan dinonaktifkan.')">
+                                      onsubmit="return confirm('Arsipkan karyawan {{ $k->name }}? Karyawan akan dinonaktifkan.\n\nLangkah produksi yang sedang dipegangnya dilepas (jadi Tanpa pelaksana) dan dicoret dari sampel waktu.')">
                                     @csrf
                                     <button type="submit" class="bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded text-xs">Arsipkan</button>
                                 </form>

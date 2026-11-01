@@ -297,10 +297,23 @@ class ProductionTimeAnalysisService
             return array_values($names);
         }, $execByDept);
 
+        // Langkah yang pelaksananya diganti di tengah jalan (PergantianPelaksanaService) dicoret
+        // per DIVISI: sisa langkah divisi itu tak mewakili kerja utuhnya, jadi seluruh divisinya
+        // dianggap tidak tersampel di OP ini. Divisi lain tetap dipakai.
+        $dicoret = [];
+        foreach ($doneSteps->whereNotNull('sample_excluded_reason') as $step) {
+            $dicoret[(int) ($step->department_id ?: self::NO_DEPT_KEY)] = $step->sample_excluded_reason;
+        }
+        if ($dicoret) {
+            $secByDept = array_diff_key($secByDept, $dicoret);
+            $flags[]   = 'langkah_dicoret';
+        }
+
         if (!empty($filters['department_id'])) {
             $deptId     = (int) $filters['department_id'];
             $secByDept  = array_intersect_key($secByDept, [$deptId => true]);
             $execByDept = array_intersect_key($execByDept, [$deptId => true]);
+            $dicoret    = array_intersect_key($dicoret, [$deptId => true]);
         }
 
         $totalSec = array_sum($secByDept);
@@ -366,6 +379,7 @@ class ProductionTimeAnalysisService
             'exclusion_reason'    => $excluded ? $exclusions[$order->id] : null,
             'flags'               => $flags,
             'mesin_tak_sesuai'    => $mesin,
+            'divisi_dicoret'      => $dicoret, // [department_id => alasan]
             'is_eligible'         => $eligible,
             'is_outlier'          => false, // diisi di aggregate()
         ];
@@ -397,8 +411,10 @@ class ProductionTimeAnalysisService
         $included   = array_values(array_filter($eligible, fn ($s) => !$s['excluded']));
 
         // Penanda menyimpang — petunjuk visual saja, tidak membuang sampel otomatis.
+        // Sampel berdivisi dicoret totalnya tak lengkap — tidak ikut patokan menyimpang & median.
         $totals = [];
         foreach ($included as $s) {
+            if (!empty($s['divisi_dicoret'])) continue;
             $totals[$s['order_id']] = (float) $s['total_sec_per_cycle'];
         }
         $outliers = Math::outlierFlags($totals);

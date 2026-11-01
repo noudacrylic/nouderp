@@ -4,6 +4,7 @@ namespace App\Modules\KaryawanVirtual\Services;
 
 use App\Models\User;
 use App\Modules\KaryawanVirtual\Contracts\BisaDiusulkan;
+use App\Modules\KaryawanVirtual\Contracts\DiajukanManusia;
 use App\Modules\KaryawanVirtual\Contracts\Skill;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualJurnal;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan as Usulan;
@@ -73,7 +74,7 @@ class UsulanService
         }
 
         $kunciKini = array_column($usulan, 'kunci');
-        foreach ($menunggu as $kunci => $lama) {
+        foreach ($skill instanceof DiajukanManusia ? [] : $menunggu as $kunci => $lama) {
             if (!in_array($kunci, $kunciKini, true)) {
                 $this->tutup($lama, Usulan::MENUNGGU, Usulan::BATAL,
                     'Keadaan berubah: pemeriksaan terbaru tidak lagi mengusulkan ini.');
@@ -81,6 +82,34 @@ class UsulanService
         }
 
         return $hasil;
+    }
+
+    /**
+     * Ajukan satu usulan dari tombol manusia (skill DiajukanManusia). Usulan lain yang
+     * menunggu tidak disentuh; pemanggil yang mencegah dobel per kunci.
+     *
+     * @param  array{kunci: string, judul: string, alasan: ?string, data: array}  $u
+     */
+    public function ajukanSatu(string $skillKey, array $u): Usulan
+    {
+        $skill = $this->kv->skill($skillKey);
+        if (!$skill instanceof DiajukanManusia) {
+            throw new \InvalidArgumentException("Skill {$skillKey} tidak menerima usulan manual.");
+        }
+
+        $usulan = Usulan::create([
+            'karyawan'       => $this->kv->pemilik($skillKey),
+            'skill'          => $skillKey,
+            'kunci'          => mb_substr($u['kunci'], 0, 120),
+            'judul'          => mb_substr($u['judul'], 0, 190),
+            'alasan'         => $u['alasan'] ?? null,
+            'data'           => $u['data'],
+            'status'         => Usulan::MENUNGGU,
+            'kedaluwarsa_at' => now()->addHours($skill->masaBerlakuJam()),
+        ]);
+        $this->kirimTelegram($usulan);
+
+        return $usulan;
     }
 
     /**

@@ -3081,7 +3081,7 @@ class ProductionOrderService
      *
      * Tetap throw kalau eksekutor tidak ter-link karyawan, tidak ada jadwal, atau libur — itu kondisi data fundamental yang harus dibetulkan sebelum mulai.
      */
-    private function assertExecutorsReady(array $executorIds, bool $strict = true, bool $bypassReady = false): void
+    public function assertExecutorsReady(array $executorIds, bool $strict = true, bool $bypassReady = false): void
     {
         if (empty($executorIds)) {
             throw new Exception('Pilih minimal 1 eksekutor.');

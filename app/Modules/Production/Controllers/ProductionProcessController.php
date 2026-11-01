@@ -7,6 +7,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use App\Modules\Production\Models\Department;
 use App\Modules\Production\Models\ProductionOrderStep;
+use App\Modules\Production\Services\PergantianPelaksanaService;
 use App\Modules\Production\Services\ProductionOrderService;
 use App\Modules\Production\Services\BomScoreService;
 use App\Core\Inventory\Warehouse;
@@ -102,12 +103,19 @@ class ProductionProcessController extends Controller
 
         $testingMode = \App\Models\ProductionSetting::isTestingMode();
 
+        // Langkah yang pergantian pelaksananya masih menunggu persetujuan owner.
+        $pergantianMenunggu = \App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan::menunggu()
+            ->where('skill', PergantianPelaksanaService::SKILL)
+            ->where('kedaluwarsa_at', '>', now())
+            ->pluck('data')->map(fn ($d) => (int) ($d['step_id'] ?? 0))->all();
+
         // Daftar gudang untuk alokasi hasil produksi saat finalisasi langkah terakhir.
         $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
         $defaultWarehouseId = Warehouse::defaultId();
 
         return view('erp.production.process.index', compact(
             'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode',
+            'pergantianMenunggu',
             'warehouses', 'defaultWarehouseId'
         ));
     }
@@ -221,6 +229,42 @@ class ProductionProcessController extends Controller
         try {
             $service->resumeStep($id);
             return back()->with('success', 'Langkah dilanjutkan kembali.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /** Langkah "Tanpa pelaksana" (pelaksana lama dinonaktifkan) dilanjutkan orang lain. */
+    public function lanjutkanStep(Request $request, int $id, PergantianPelaksanaService $service)
+    {
+        $request->validate([
+            'executor_ids'   => 'required|array|min:1',
+            'executor_ids.*' => 'integer|exists:production_department_executors,id',
+        ]);
+
+        try {
+            $service->lanjutkan($id, $request->executor_ids);
+            return back()->with('success', 'Langkah dilanjutkan dengan pelaksana baru.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /** Ajukan oper tugas ke pelaksana lain — diputus owner lewat Telegram. */
+    public function ajukanPergantian(Request $request, int $id, PergantianPelaksanaService $service)
+    {
+        $request->validate([
+            'dari'   => 'required|array|min:1',
+            'dari.*' => 'integer',
+            'ke'     => 'required|array|min:1',
+            'ke.*'   => 'integer|exists:production_department_executors,id',
+            'alasan' => 'required|string|max:500',
+        ]);
+
+        try {
+            $usulan = $service->ajukan($id, $request->dari, $request->ke, $request->alasan, $request->user());
+            return back()->with('success', "Pergantian pelaksana diajukan (usulan #{$usulan->id}). Menunggu persetujuan owner — "
+                . 'sementara itu langkah tetap dikerjakan pelaksana lama.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }
