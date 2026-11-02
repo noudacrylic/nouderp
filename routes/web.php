@@ -298,6 +298,7 @@ Route::prefix('erp')->group(function () {
         // Promo yang berlaku untuk keranjang yang sedang disusun.
         Route::post('/{conversation}/promo', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'promoKeranjang'])->name('inbox.promo');
         // Rincian siap kirim (barang + ongkir + total + tautan bayar).
+        Route::post('/{conversation}/pesanan/cek-shopee', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cekPesananShopee'])->name('inbox.pesanan.cek-shopee');
         Route::post('/{conversation}/pesanan/{order}/rincian', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'rincianPesanan'])->name('inbox.pesanan.rincian');
         Route::post('/{conversation}/pesanan/{order}/lacak', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lacakPesanan'])->name('inbox.pesanan.lacak');
         Route::post('/{conversation}/pesanan/{order}/nota', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'notaPesanan'])->name('inbox.pesanan.nota');

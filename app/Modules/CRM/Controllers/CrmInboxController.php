@@ -2289,6 +2289,31 @@ class CrmInboxController extends Controller
         return response()->json(['success' => true, 'pesanan' => $this->ringkasPesanan($conversation)]);
     }
 
+    /** Tombol "Cek pesanan" di chat Shopee: ambil pesanan terbaru tanpa menunggu jadwal. */
+    public function cekPesananShopee(CrmConversation $conversation, \App\Modules\CRM\Services\ChatPesananService $chat)
+    {
+        abort_unless($conversation->shopee(), 404);
+
+        $h = $chat->cekPesananShopee($conversation);
+        if ($h['error']) {
+            return response()->json(['success' => false, 'error' => $h['error']], 422);
+        }
+
+        $pesanan = $this->ringkasPesanan($conversation);
+        $belumSo = collect($h['belum_so']);
+
+        return response()->json([
+            'success' => true,
+            'pesanan' => $pesanan,
+            'info'    => match (true) {
+                $belumSo->where('belum_bayar', true)->isNotEmpty() => 'Pesanan ' . $belumSo->where('belum_bayar', true)->pluck('order_sn')->implode(', ') . ' belum dibayar pembeli.',
+                $belumSo->isNotEmpty() => 'Pesanan ' . $belumSo->pluck('order_sn')->implode(', ') . ' sudah ada di Shopee, SO-nya belum terbentuk. Coba lagi ±5 menit.',
+                $pesanan === []        => 'Pembeli ini belum punya pesanan.',
+                default                => 'Daftar pesanan sudah terbaru.',
+            },
+        ]);
+    }
+
     public function daftarPesanan(CrmConversation $conversation)
     {
         return response()->json([

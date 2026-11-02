@@ -488,6 +488,78 @@ class ShopeeChatTest extends TestCase
         ));
     }
 
+    /** Tombol "Cek pesanan": menarik dari Shopee sekali per jeda, lalu pesanan baru tampil. */
+    public function test_cek_pesanan_menarik_sekali_per_jeda_lalu_pesanan_tampil(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $so  = $this->pesananTertaut($crm);
+        DB::table('crm_pesanan_chat')->delete();
+        $cek = fn () => $this->actingAs($this->saiful)->postJson(route('crm.inbox.pesanan.cek-shopee', $crm));
+
+        $tarikan = 0;
+        $layanan = \Mockery::mock(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class);
+        $layanan->shouldReceive('tarik')->andReturnUsing(function ($shop, $dari, $sampai) use (&$tarikan) {
+            $tarikan++;
+            DB::table('shopee_orders')->insert(['env' => 'test', 'shop_id' => self::TOKO, 'order_sn' => '261029V2AY0XWK', 'buyer_user_id' => 70,
+                'status' => 'READY_TO_SHIP', 'dibuat_shopee_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+            return ['pesanan' => 1, 'hasil' => []];
+        });
+        $this->app->instance(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class, $layanan);
+
+        $r = $cek()->assertOk()->assertJson(['success' => true, 'info' => 'Daftar pesanan sudah terbaru.']);
+        $this->assertSame($so->id, $r->json('pesanan.0.id'));
+
+        $cek()->assertOk();
+        $this->assertSame(1, $tarikan, 'Klik dalam jeda tidak memanggil API lagi.');
+        $this->assertSame(0, DB::table('crm_pesanan_chat')->count(), 'Cek tidak membuat tautan.');
+    }
+
+    public function test_cek_pesanan_memberi_tahu_keadaan_tanpa_so(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $layanan = \Mockery::mock(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class);
+        $layanan->shouldReceive('tarik')->andReturn(['pesanan' => 0, 'hasil' => []]);
+        $this->app->instance(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class, $layanan);
+        $cek = fn () => $this->actingAs($this->saiful)->postJson(route('crm.inbox.pesanan.cek-shopee', $crm))->assertOk()->json('info');
+
+        $this->assertSame('Pembeli ini belum punya pesanan.', $cek());
+
+        $baris = ['env' => 'test', 'shop_id' => self::TOKO, 'buyer_user_id' => 70, 'dibuat_shopee_at' => now(), 'created_at' => now(), 'updated_at' => now()];
+        DB::table('shopee_orders')->insert($baris + ['order_sn' => 'BATAL1', 'status' => 'CANCELLED']);
+        $this->assertSame('Pembeli ini belum punya pesanan.', $cek(), 'Pesanan batal tidak dihitung.');
+
+        DB::table('shopee_orders')->insert($baris + ['order_sn' => 'BARU1', 'status' => 'READY_TO_SHIP']);
+        $this->assertStringContainsString('BARU1 sudah ada di Shopee', $cek());
+
+        DB::table('shopee_orders')->where('order_sn', 'BARU1')->update(['status' => 'UNPAID']);
+        $this->assertStringContainsString('BARU1 belum dibayar', $cek());
+    }
+
+    public function test_cek_pesanan_hanya_untuk_chat_shopee_dan_galat_shopee_tidak_mengunci_jeda(): void
+    {
+        $wa = CrmConversation::findOrCreateFor('628111222333');
+        $this->actingAs($this->saiful)->postJson(route('crm.inbox.pesanan.cek-shopee', $wa))->assertNotFound();
+
+        $crm = $this->chatSiapDibalas();
+        $layanan = \Mockery::mock(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class);
+        $layanan->shouldReceive('tarik')->once()->andThrow(new \App\Modules\Marketplace\Shopee\Services\ShopeeException('sibuk', ''));
+        $layanan->shouldReceive('tarik')->once()->andReturn(['pesanan' => 0, 'hasil' => []]);
+        $this->app->instance(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class, $layanan);
+
+        $this->actingAs($this->saiful)->postJson(route('crm.inbox.pesanan.cek-shopee', $crm))->assertStatus(422)->assertJson(['success' => false]);
+        $this->actingAs($this->saiful)->postJson(route('crm.inbox.pesanan.cek-shopee', $crm))->assertOk();
+    }
+
+    /** Tombolnya hanya ada di chat Shopee. */
+    public function test_tombol_cek_pesanan_tampil_di_chat_shopee_saja(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()->assertSee('Cek pesanan');
+
+        $wa = CrmConversation::findOrCreateFor('628111222333');
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $wa))->assertOk()->assertDontSee('Cek pesanan');
+    }
+
     /** Halaman cetak faktur: ?tanpa_kontak=1 membuang baris telepon/email toko. */
     public function test_cetak_faktur_tanpa_kontak(): void
     {

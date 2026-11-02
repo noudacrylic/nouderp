@@ -44,6 +44,17 @@
          — dan menjawabnya tidak boleh menuntut pindah menu. --}}
     <div x-show="mode === 'daftar'" class="space-y-2">
 
+        {{-- Pesanan baru biasanya menunggu jadwal tarik 15 menit; tombol ini mengambilnya saat
+             dibutuhkan saja. ChatPesananService::cekPesananShopee --}}
+        @if($terpilih?->shopee())
+            <div class="flex items-center gap-2">
+                <button type="button" @click="cekPesananShopee()" :disabled="cekSibuk"
+                        class="shrink-0 border border-orange-400 text-orange-700 rounded px-2 py-1 text-xs font-semibold hover:bg-orange-50 disabled:opacity-60"
+                        x-text="cekSibuk ? 'Mengecek…' : '🔄 Cek pesanan'"></button>
+                <span x-show="cekInfo" x-cloak class="text-[11px] text-gray-600" x-text="cekInfo"></span>
+            </div>
+        @endif
+
         {{-- Tautkan pesanan ke chat ini (CRM Tahap 3). Label chat mengikuti
              tahapan pesanan tertaut yang TERBARU. Pintu utamanya pesanan Shopee
              yang butuh desain/print: minta nomor pesanannya, ketik di sini. --}}
@@ -849,6 +860,7 @@
 
             // Tautan pesanan ↔ chat (CRM Tahap 3).
             tautCari: '', tautHasil: [], tautSibuk: null, tautInfo: '',
+            cekSibuk: false, cekInfo: '',
 
             // Daftar pesanan datang dari server, bukan dari draft: statusnya
             // berubah di luar layar ini (dibayar, masuk produksi, dikirim), jadi
@@ -1484,6 +1496,36 @@
                     // hasil ketikan yang lebih baru.
                     if (q === this.tautCari.trim()) this.tautHasil = d.hasil ?? [];
                 } catch (e) { /* hasil lama tetap tampil */ }
+            },
+
+            async cekPesananShopee() {
+                if (this.cekSibuk) return;
+
+                this.cekSibuk = true;
+                this.cekInfo  = '';
+
+                try {
+                    const r = await fetch('{{ $terpilih?->shopee() ? route('crm.inbox.pesanan.cek-shopee', $terpilih) : '' }}', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                        },
+                    });
+                    const d = await r.json().catch(() => ({}));
+
+                    if (!r.ok || !d.success) {
+                        this.cekInfo = d.error || d.message || 'Gagal mengecek pesanan.';
+                        return;
+                    }
+
+                    this.pesanan = d.pesanan ?? this.pesanan;
+                    this.cekInfo = d.info;
+                } catch (e) {
+                    this.cekInfo = 'Jaringan bermasalah — coba lagi.';
+                } finally {
+                    this.cekSibuk = false;
+                }
             },
 
             async ubahTautan(id, aksi) {

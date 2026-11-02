@@ -3,6 +3,12 @@
 namespace App\Modules\CRM\Services;
 
 use App\Modules\CRM\Models\CrmConversation;
+use App\Modules\Marketplace\Shopee\Models\ShopeeOrder;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
+use App\Modules\Marketplace\Shopee\Services\ShopeeException;
+use App\Modules\Marketplace\Shopee\Services\ShopeePesananService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -14,6 +20,12 @@ class ChatPesananService
 {
     /** Teks pembuka bawaan "Mulai Chat Shopee" dari luar Desain; admin bisa mengubah sebelum kirim. */
     public const SAPAAN = 'Halo kak, terima kasih sudah order di Noud Acrylic 🙏 Kami ingin mengonfirmasi pesanannya ya kak.';
+
+    /** Tombol "Cek pesanan": paling sering sekali semenit untuk semua pengguna. */
+    private const JEDA_CEK_DETIK = 60;
+
+    /** Cukup menutup celah sejak tarikan terjadwal terakhir (tiap 15 menit), dengan cadangan. */
+    private const JENDELA_CEK_MENIT = 30;
 
     /**
      * SO milik pembeli chat Shopee ini, lewat ID pembeli di salinan pesanan Shopee. Bukan tautan:
@@ -35,6 +47,53 @@ class ChatPesananService
         return DB::table('sales_orders')
             ->whereIn('customer_po_number', $sn->map(fn ($s) => 'SP-' . $s)->all())
             ->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * Tombol "Cek pesanan": tarik pesanan terbaru dari Shopee sekarang, tanpa menunggu jadwal
+     * shopee:tarik-bayangan (15 menit). Jeda bersama semua pengguna menjaga API tetap tenang:
+     * klik dalam jeda hanya membaca ulang data yang ada.
+     *
+     * @return array{error:?string, belum_so:array<int, array{order_sn:string, belum_bayar:bool}>}
+     */
+    public function cekPesananShopee(CrmConversation $chat): array
+    {
+        $shop = ShopeeShop::aktif();
+        if (!app(ShopeeClient::class)->siap() || !$shop || $shop->perluHubungkanUlang()) {
+            return ['error' => 'Toko Shopee belum terhubung di Pengaturan › Integrasi › Shopee.', 'belum_so' => []];
+        }
+
+        if (Cache::add('shopee-cek-pesanan', 1, self::JEDA_CEK_DETIK)) {
+            try {
+                app(ShopeePesananService::class)->tarik($shop, now()->subMinutes(self::JENDELA_CEK_MENIT), now());
+            } catch (ShopeeException $e) {
+                Cache::forget('shopee-cek-pesanan');
+
+                return ['error' => 'Gagal mengambil pesanan dari Shopee: ' . $e->getMessage(), 'belum_so' => []];
+            }
+        }
+
+        return ['error' => null, 'belum_so' => $this->pesananBelumJadiSo($chat)];
+    }
+
+    /** Pesanan pembeli yang sudah ada di Shopee tapi SO-nya belum dibuat sinkron Jubelio. */
+    private function pesananBelumJadiSo(CrmConversation $chat): array
+    {
+        if (!$chat->shopee() || !ctype_digit((string) $chat->contact_key)) return [];
+
+        $pesanan = ShopeeOrder::where('shop_id', (int) $chat->business_number_id)
+            ->where('buyer_user_id', (int) $chat->contact_key)
+            ->where('dibuat_shopee_at', '>=', now()->subDays(30))
+            ->get()->reject(fn (ShopeeOrder $o) => $o->batal());
+        if ($pesanan->isEmpty()) return [];
+
+        $adaSo = DB::table('sales_orders')
+            ->whereIn('customer_po_number', $pesanan->map(fn ($o) => 'SP-' . $o->order_sn)->all())
+            ->pluck('customer_po_number')->flip();
+
+        return $pesanan->reject(fn ($o) => $adaSo->has('SP-' . $o->order_sn))
+            ->map(fn ($o) => ['order_sn' => $o->order_sn, 'belum_bayar' => $o->status === 'UNPAID'])
+            ->values()->all();
     }
 
     /**
