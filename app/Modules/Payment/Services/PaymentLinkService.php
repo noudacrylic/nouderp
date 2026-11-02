@@ -208,10 +208,9 @@ class PaymentLinkService
                 'channel' => 'snap_auto',
                 'gross_amount' => 0,
                 'base_amount' => 0,
-                // Sisa tagihan dibayar penuh: DP adalah tanda jadi yang berlaku sekali,
-                // sesuai ketentuan yang tertulis di halaman bayar. Admin masih bisa
-                // menurunkan batas ini lewat tombol tautan pembayaran bila perlu.
-                'min_dp_amount' => $isSo ? $remaining : null,
+                // Kesepakatan DP hanya mengikat pembayaran pertama: termin berikutnya
+                // boleh berapa pun sampai lunas.
+                'min_dp_amount' => $isSo ? 0 : null,
                 'customer_admin_fee' => 0,
                 'status' => 'pending',
                 'created_by' => $current->created_by,

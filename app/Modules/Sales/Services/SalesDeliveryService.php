@@ -430,6 +430,12 @@ class SalesDeliveryService
                 throw new Exception("Delivery has no items");
             }
 
+            // Satu penjaga untuk semua jalur keluarnya barang: Pemrosesan, tombol Pengiriman
+            // di SO, ambil di toko, dan posting faktur.
+            if ($alasan = $delivery->order?->alasanTakBolehDikirim()) {
+                throw new Exception($alasan);
+            }
+
             foreach ($delivery->items as $item) {
 
                 $product = $item->product;

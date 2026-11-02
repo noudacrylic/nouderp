@@ -175,6 +175,9 @@ class MidtransPublicController extends Controller
             } else {
                 $minDp = $this->minDpFor($trx, $so, $remaining);
                 $amount = (int) clean_number($data['amount'] ?? 0);
+                if ($amount <= 0) {
+                    return response()->json(['error' => 'Isi nominal yang dibayar.'], 422);
+                }
                 if ($amount < $minDp) {
                     return response()->json(['error' => 'DP minimal Rp ' . number_format($minDp, 0, ',', '.') . '.'], 422);
                 }
@@ -255,6 +258,9 @@ class MidtransPublicController extends Controller
             } else {
                 $minDp = $this->minDpFor($trx, $so, $remaining);
                 $amount = (int) clean_number($data['amount'] ?? 0);
+                if ($amount <= 0) {
+                    return response()->json(['error' => 'Isi nominal yang dibayar.'], 422);
+                }
                 if ($amount < $minDp) {
                     return response()->json(['error' => 'DP minimal Rp ' . number_format($minDp, 0, ',', '.') . '.'], 422);
                 }
@@ -390,9 +396,16 @@ class MidtransPublicController extends Controller
      * tautan dibuat), selain itu hitung dari kesepakatan yang tersimpan di SO — bukan
      * angka 50% yang dipatok di sini, supaya SO ber-kesepakatan khusus tetap terhormati
      * meski tautannya terbit sebelum kesepakatan itu dicatat.
+     *
+     * Sudah pernah bayar = termin berikutnya, bebas berapa pun. Dicek paling awal supaya
+     * tautan lama yang masih mencatat kewajiban lunas ikut mengikuti aturan ini.
      */
     protected function minDpFor($trx, $so, int $remaining): int
     {
+        if ((float) $so->paid_amount > 0) {
+            return 0;
+        }
+
         $min = $trx->min_dp_amount !== null
             ? (int) round($trx->min_dp_amount)
             : $so->minDpAmount();

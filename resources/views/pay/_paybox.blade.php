@@ -70,9 +70,14 @@
                 @endif
 
                 <p class="text-xs text-gray-500 mt-2">
-                    Bawaannya <b>bayar lunas</b>. Ingin membayar uang muka dulu? Tekan <b>DP {{ $dpPersen }}%</b>
-                    atau isi sendiri nominalnya &mdash; minimal <b>Rp {{ number_format($min_dp, 0, ',', '.') }}</b>,
-                    maksimal Rp {{ number_format($remaining, 0, ',', '.') }}.
+                    @if($min_dp > 0)
+                        Bawaannya <b>bayar lunas</b>. Ingin membayar uang muka dulu? Tekan <b>DP {{ $dpPersen }}%</b>
+                        atau isi sendiri nominalnya &mdash; minimal <b>Rp {{ number_format($min_dp, 0, ',', '.') }}</b>,
+                        maksimal Rp {{ number_format($remaining, 0, ',', '.') }}.
+                    @else
+                        Bawaannya <b>bayar lunas</b>. Ingin membayar sebagian dulu? Isi sendiri nominalnya,
+                        maksimal Rp {{ number_format($remaining, 0, ',', '.') }}.
+                    @endif
                 </p>
 
                 {{-- Ketentuan DP ditaruh tepat di bawah pilihannya, bukan di bagian lain
@@ -244,6 +249,7 @@
         const amt = getAmount();
 
         if (IS_SO && !REQUIRE_FULL) {
+            if (amt <= 0) { showErr('Isi nominal yang dibayar.'); return; }
             if (amt < MIN_DP) { showErr('DP minimal Rp ' + fmt(MIN_DP) + '.'); return; }
             if (amt > REMAINING) { showErr('DP melebihi sisa tagihan (Rp ' + fmt(REMAINING) + ').'); return; }
         }

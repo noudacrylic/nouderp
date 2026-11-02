@@ -148,8 +148,9 @@ class SalesOrder extends Model
     public const DEFAULT_MIN_DP_PERCENT = 50;
 
     /**
-     * Batas minimal DP yang berlaku untuk SO ini, dalam rupiah, SUDAH dikurangi yang
-     * sudah dibayar dan dibatasi sisa tagihan — inilah angka yang dipakai tautan bayar.
+     * Batas minimal pembayaran SO ini, dalam rupiah, dibatasi sisa tagihan — inilah angka
+     * yang dipakai tautan bayar. Kesepakatan DP hanya mengikat pembayaran PERTAMA;
+     * termin berikutnya boleh berapa pun.
      *
      * Urutan: persen kesepakatan → nominal kesepakatan → bawaan 50%.
      */
@@ -159,6 +160,10 @@ class SalesOrder extends Model
         $paid = (int) round((float) $this->paid_amount);
         $remaining = max(0, $total - $paid);
 
+        if ($paid > 0) {
+            return 0;
+        }
+
         if ($this->min_dp_percent !== null) {
             $batas = (int) round($total * (float) $this->min_dp_percent / 100);
         } elseif ($this->min_dp_amount !== null) {
@@ -167,7 +172,7 @@ class SalesOrder extends Model
             $batas = (int) round($total * self::DEFAULT_MIN_DP_PERCENT / 100);
         }
 
-        return (int) min(max(0, $batas - $paid), $remaining);
+        return (int) min(max(0, $batas), $remaining);
     }
 
     /** Batas DP apa adanya (belum dikurangi pembayaran) — untuk ditampilkan di layar. */
@@ -204,6 +209,27 @@ class SalesOrder extends Model
     public function hasCustomMinDp(): bool
     {
         return $this->min_dp_percent !== null || $this->min_dp_amount !== null;
+    }
+
+    /**
+     * Alasan barang pesanan ini belum boleh keluar, atau null bila boleh. Dicicil berapa kali
+     * pun, barang baru keluar setelah lunas. Dikecualikan: tempo (kesepakatan admin) dan
+     * marketplace (dibayar di marketplace, uangnya cair belakangan).
+     */
+    public function alasanTakBolehDikirim(): ?string
+    {
+        if ($this->is_tempo || $this->customer?->is_marketplace) {
+            return null;
+        }
+
+        // Pembayaran bisa tercatat lewat faktur, bukan SO: pakai yang lebih besar.
+        $lewatFaktur = (float) \App\Models\SalesInvoice::where('sales_order_id', $this->id)->where('status', 'posted')
+            ->selectRaw('COALESCE(SUM(paid_amount + advance_applied), 0) as n')->value('n');
+        $sisa = round((float) $this->grand_total - max((float) $this->paid_amount, $lewatFaktur), 2);
+
+        return $sisa > 0.01
+            ? "Pesanan {$this->order_number} belum lunas. Sisa Rp " . number_format($sisa, 0, ',', '.') . ' harus dibayar sebelum barang dikirim.'
+            : null;
     }
 
     public const DELIVERY_METHODS = [

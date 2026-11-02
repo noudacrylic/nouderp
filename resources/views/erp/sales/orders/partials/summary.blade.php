@@ -31,7 +31,6 @@
 @if($so->status !== 'void' && $remaining > 0)
     @php
         $mdBase = $so->minDpBaseAmount();
-        $mdSisa = $so->minDpAmount();
     @endphp
     <div class="mt-4 p-3 rounded-lg border text-sm flex items-start justify-between gap-3
         {{ $so->hasCustomMinDp() ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200' }}">
@@ -45,7 +44,7 @@
             <div class="text-[11px] text-gray-500 mt-0.5">
                 {{ rtrim(rtrim(number_format($so->minDpPercent(), 2, ',', '.'), '0'), ',') }}% dari total
                 @if($advancePaid > 0)
-                    &mdash; sisa yang harus dibayar minimal <b>{{ format_rupiah($mdSisa) }}</b>
+                    &mdash; pembayaran berikutnya bebas, barang dikirim setelah lunas
                 @endif
                 @unless($so->hasCustomMinDp())
                     (bawaan)
