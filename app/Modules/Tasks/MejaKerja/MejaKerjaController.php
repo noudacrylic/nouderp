@@ -68,6 +68,7 @@ class MejaKerjaController extends Controller
             'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua, 'tabPeran' => $tabPeran,
             'bayangan' => $bayangan, 'tampilBayangan' => $tampilBayangan,
             'bayanganPerMeja' => $semuaBayangan->countBy('peran'),
+            'tugasMenunggu' => app(\App\Modules\Tasks\TugasOwner\TugasOwnerService::class)->jumlahMenunggu($u),
             'jumlahAntre' => Task::where('status', 'open')->whereIn('peran', array_keys($tabPeran))
                 ->groupBy('peran')->selectRaw('peran, COUNT(*) n')->pluck('n', 'peran'),
         ]);

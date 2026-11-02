@@ -7,6 +7,25 @@ route/view/console tidak perlu clear cache manual.)
 
 ---
 
+## Rilis 2026-11 — Tugas dari Owner (brief video, `/erp/tasks/meja/tugas`)
+
+Berkas brief & hasil disimpan di NAS, di folder terpisah dari "Foto Produk". Butuh migrasi.
+
+**1. DSM:** buat shared folder `Brief Owner`, beri user `erp-galeri` izin Baca/Tulis.
+
+**2. Server (butuh sudo — dijalankan user):**
+```bash
+sudo mkdir -p /mnt/nas/brief-owner
+echo '//192.168.1.30/Brief\040Owner /mnt/nas/brief-owner cifs credentials=/root/.smb-galeri,uid=www-data,gid=www-data,file_mode=0664,dir_mode=0775,iocharset=utf8,vers=3.0,_netdev,nofail 0 0' | sudo tee -a /etc/fstab
+sudo systemctl daemon-reload
+sudo mount /mnt/nas/brief-owner && ls -la /mnt/nas/brief-owner
+```
+
+**3. `.env` server:** `TUGAS_OWNER_ROOT=/mnt/nas/brief-owner`, lalu `php artisan migrate --force && php artisan optimize`.
+Selama mount putus, rekaman & lampiran ditolak (`GALERI_WAJIB_MOUNT=true`), pesan teks tetap jalan.
+
+---
+
 ## Rilis 2026-11 — Galeri Foto Produk (PWA `/cs/galeri` → Synology)
 
 Foto/video produk dari HP langsung ke folder Synology `photo/Foto Produk` — TIDAK disimpan di

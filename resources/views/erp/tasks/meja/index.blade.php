@@ -25,6 +25,10 @@
             </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
+            <a href="{{ route('tasks.meja.tugas.index') }}" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-semibold">
+                📝 Tugas dari Owner
+                @if ($tugasMenunggu > 0)<span class="ml-1 text-[11px] bg-white text-blue-700 rounded-full px-1.5 font-bold">{{ $tugasMenunggu }}</span>@endif
+            </a>
             @if ($bolehSemua)
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
                     <button class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Sinkron sekarang</button>

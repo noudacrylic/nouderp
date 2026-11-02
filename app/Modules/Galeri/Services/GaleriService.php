@@ -21,7 +21,8 @@ class GaleriService
     /** Nama yang tak pernah ditampilkan: metadata Synology/Windows & berkas sementara. */
     private const TERSEMBUNYI = ['thumbs.db', 'desktop.ini', '.ds_store'];
 
-    public function __construct(private ?string $root = null) {}
+    /** @param array<string, string[]> $ekstensiTambahan jenis berkas selain config galeri.ekstensi */
+    public function __construct(private ?string $root = null, private array $ekstensiTambahan = []) {}
 
     // ───────────── Akar & path ─────────────
 
@@ -98,7 +99,7 @@ class GaleriService
     public function jenis(string $nama): string
     {
         $ext = strtolower(pathinfo($nama, PATHINFO_EXTENSION));
-        foreach (config('galeri.ekstensi') as $jenis => $daftar) {
+        foreach (config('galeri.ekstensi') + $this->ekstensiTambahan as $jenis => $daftar) {
             if (in_array($ext, $daftar, true)) return $jenis;
         }
         return 'lain';
@@ -310,6 +311,31 @@ class GaleriService
         @chmod($this->abs($tujuan), 0664);
 
         return ['selesai' => true, 'diterima' => $diterima, 'path' => $tujuan];
+    }
+
+    /**
+     * Ukuran potongan (byte): dari config, tapi tak boleh melewati batas unggah PHP — kalau
+     * lewat, PHP membuang berkasnya diam-diam.
+     */
+    public function ukuranPotongan(): int
+    {
+        $batas = min($this->keByte(ini_get('upload_max_filesize')), $this->keByte(ini_get('post_max_size')));
+        $mau = max(1, (int) config('galeri.potongan_mb')) * 1024 * 1024;
+        // Sisakan ruang untuk field lain di request multipart.
+        return max(256 * 1024, min($mau, $batas - 64 * 1024));
+    }
+
+    private function keByte(string|false $nilai): int
+    {
+        $nilai = trim((string) $nilai);
+        if ($nilai === '' || $nilai === '0' || $nilai === '-1') return PHP_INT_MAX;
+        $angka = (int) $nilai;
+        return match (strtolower(substr($nilai, -1))) {
+            'g' => $angka * 1024 ** 3,
+            'm' => $angka * 1024 ** 2,
+            'k' => $angka * 1024,
+            default => $angka,
+        };
     }
 
     /** Potongan yatim (unggahan ditinggal) lebih dari sehari dibuang. */

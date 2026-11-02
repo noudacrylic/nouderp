@@ -5,6 +5,7 @@ use App\Modules\KaryawanVirtual\Controllers\PengaturanAdminController;
 use App\Modules\KaryawanVirtual\Controllers\ProdukDesainController;
 use App\Modules\Purchasing\Controllers\LaporStokController;
 use App\Modules\Tasks\MejaKerja\MejaKerjaController;
+use App\Modules\Tasks\TugasOwner\TugasOwnerController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -22,6 +23,15 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
     Route::post('/{task}/jawab', [MejaKerjaController::class, 'jawab'])->whereNumber('task')->name('jawab');
     // Per SO, bukan per task: kartu Bayangan tidak tersimpan (id negatif) tapi tombolnya tetap dipakai.
     Route::post('/chat-shopee/{so}', [MejaKerjaController::class, 'chatShopee'])->whereNumber('so')->name('chat-shopee');
+    // Tugas dari Owner: halaman sendiri, dibuka dari tombol di Meja Kerja.
+    Route::prefix('tugas')->name('tugas.')->controller(TugasOwnerController::class)->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::post('/', 'store')->name('store');
+        Route::get('/lampiran/{lampiran}', 'lampiran')->whereNumber('lampiran')->name('lampiran');
+        Route::get('/{tugas}', 'show')->whereNumber('tugas')->name('show');
+        Route::post('/{tugas}/unggah', 'unggah')->whereNumber('tugas')->name('unggah');
+        Route::post('/{tugas}/aksi/{aksi}', 'aksi')->whereNumber('tugas')->where('aksi', '[a-z_]+')->name('aksi');
+    });
     // Pengaturan pindah ke karyawan virtual Manajer Admin; tautan lama tetap sampai.
     Route::redirect('/pengaturan', '/erp/karyawan-virtual/manajer-admin/pengaturan-admin')->name('pengaturan');
 });
