@@ -29,7 +29,7 @@
                     </div>
                 </template>
             </div>
-            <p x-show="bisaLayar" x-cloak class="text-[11px] text-gray-500">Saat merekam layar, pilih satu tab atau jendela saja supaya notifikasi dan tab lain tidak ikut terekam.</p>
+            <p x-show="bisaLayar" x-cloak class="text-[11px] text-gray-500">Saat merekam layar, pilih <b>Seluruh layar</b> kalau akan membuka aplikasi lain seperti File Manager; semua yang tampil di layar, termasuk notifikasi, ikut terekam. Pilih tab atau jendela kalau cukup memperlihatkan satu itu saja.</p>
             <p x-show="peringatan" x-cloak class="text-xs text-amber-700" x-text="peringatan"></p>
             <p x-show="galat" x-cloak class="text-xs text-red-600" x-text="galat"></p>
 

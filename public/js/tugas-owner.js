@@ -81,7 +81,8 @@
                 this.galat = this.peringatan = '';
                 var layar, mic = null;
                 try {
-                    layar = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: true });
+                    // Brief sering memperagakan aplikasi lain, jadi Seluruh layar yang disarankan browser.
+                    layar = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15, displaySurface: 'monitor' }, audio: true });
                 } catch (e) {
                     if (e.name !== 'NotAllowedError') this.galat = 'Perekam layar tidak bisa dimulai: ' + e.message;
                     return;
@@ -90,6 +91,12 @@
                     mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
                 } catch (e) {
                     this.peringatan = 'Mikrofon tidak diizinkan: rekaman ini TANPA suara Anda.';
+                }
+
+                var permukaan = layar.getVideoTracks()[0].getSettings().displaySurface;
+                if (permukaan === 'browser' || permukaan === 'window') {
+                    this.peringatan = (this.peringatan ? this.peringatan + ' ' : '')
+                        + 'Yang terekam hanya ' + (permukaan === 'browser' ? 'tab' : 'jendela') + ' yang Anda pilih. Untuk memperlihatkan aplikasi lain, tekan Selesai lalu rekam ulang dengan pilihan Seluruh layar.';
                 }
 
                 var konteks = new (window.AudioContext || window.webkitAudioContext)();
