@@ -111,6 +111,7 @@
                     fd.append('total', f.size);
                     fd.append('nama', it.nama);
                     fd.append('folder', this.cfg.folder);
+                    if (this.cfg.so) fd.append('so', this.cfg.so);
                     fd.append('potongan', f.slice(offset, offset + ukuran), 'potongan');
 
                     var res;

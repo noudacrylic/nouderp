@@ -78,7 +78,9 @@ class GaleriTest extends TestCase
         $this->actingAs($this->akun())->get(route('cs.galeri'))->assertOk()
             ->assertSeeInOrder(['AM - Akrilik Mahar', 'BC', 'Tent Holder'])
             ->assertSee('1 berkas')
-            ->assertDontSee('#recycle')->assertDontSee('@eaDir')->assertDontSee('SynologyWorkingDirectory')->assertDontSee('Thumbs.db');
+            // #recycle disebut di teks konfirmasi hapus, jadi yang diperiksa daftar foldernya.
+            ->assertViewHas('folder', fn ($f) => ! in_array('#recycle', array_column($f, 'nama'), true))
+            ->assertDontSee('@eaDir')->assertDontSee('SynologyWorkingDirectory')->assertDontSee('Thumbs.db');
     }
 
     public function test_tidak_bisa_keluar_root(): void

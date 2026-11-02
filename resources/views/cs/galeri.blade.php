@@ -38,6 +38,7 @@
         folder: @js($path),
         urlUnggah: @js(route('cs.galeri.unggah')),
         urlFolder: @js(route('cs.galeri.folder')),
+        so: {{ $soAktif['id'] ?? 'null' }},
         potongan: {{ $potongan }},
         maksMb: {{ $maksMb }},
      })">
@@ -48,6 +49,19 @@
             koneksi server ke Synology.
         </div>
     @else
+
+    {{-- Sedang memotret untuk satu pesanan (tombol "Foto produk" di Meja Kerja). --}}
+    @if ($soAktif)
+        <div class="bg-amber-50 border border-amber-300 rounded-2xl p-3 text-sm text-amber-900 space-y-1.5">
+            <div class="flex items-start justify-between gap-2">
+                <p class="font-bold">📌 Foto untuk {{ $soAktif['nomor'] }}</p>
+                <a href="{{ route('cs.galeri', ['so' => 0] + ($path === '' ? [] : ['p' => $path])) }}" class="shrink-0 text-xs font-semibold underline">Selesai</a>
+            </div>
+            @if ($soAktif['barang'])<p class="text-xs">{{ $soAktif['barang'] }}</p>@endif
+            <p class="text-[11px]">Buka folder lini produknya, lalu folder <b>Custom</b> di dalamnya (buat bila belum ada). Produk yang belum punya lini: folder <b>Custom</b> di akar. Unggahan di sini otomatis tertaut ke pesanan ini.</p>
+            <p class="text-[11px] font-semibold">{{ $soAktif['jumlah'] }} foto sudah tertaut.</p>
+        </div>
+    @endif
 
     {{-- Tombol unggah. Kamera foto & video dipisah: satu input dengan
          accept image+video membuat sebagian HP langsung membuka kamera foto. --}}
@@ -162,13 +176,21 @@
                     <p class="text-white/70 text-sm px-6 text-center">Berkas ini tidak bisa ditampilkan di HP. Unduh untuk membukanya.</p>
                 </template>
             </div>
-            <div class="grid grid-cols-4 text-white text-[11px] font-semibold border-t border-white/10" style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+            <div class="grid {{ $soAktif ? 'grid-cols-5' : 'grid-cols-4' }} text-white text-[11px] font-semibold border-t border-white/10" style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+                @if ($soAktif)
+                    <form method="POST" action="{{ route('cs.galeri.tautkan') }}">
+                        @csrf
+                        <input type="hidden" name="p" :value="lihat.path">
+                        <input type="hidden" name="kembali" value="{{ $path }}">
+                        <button type="submit" class="w-full flex flex-col items-center gap-1 py-3 text-amber-300 active:bg-white/10"><span class="text-lg">📌</span>Tautkan</button>
+                    </form>
+                @endif
                 <a :href="lihat.unduh" class="flex flex-col items-center gap-1 py-3 active:bg-white/10"><span class="text-lg">⬇</span>Unduh</a>
                 <button type="button" class="flex flex-col items-center gap-1 py-3 active:bg-white/10"
                         @click="formNama = { judul: 'Ganti nama', aksi: @js(route('cs.galeri.ganti-nama')), p: lihat.path, nama: lihat.nama.replace(/\.[^.]+$/, '') }; lihat = null"><span class="text-lg">✎</span>Ganti nama</button>
                 <button type="button" class="flex flex-col items-center gap-1 py-3 active:bg-white/10"
                         @click="const p = lihat.path; lihat = null; bukaPilih(p)"><span class="text-lg">↪</span>Pindah</button>
-                <form method="POST" action="{{ route('cs.galeri.hapus') }}" onsubmit="return confirm('Hapus berkas ini? Masih bisa dipulihkan dari Recycle Bin Synology.')">
+                <form method="POST" action="{{ route('cs.galeri.hapus') }}" onsubmit="return confirm('Hapus berkas ini? Masih bisa dipulihkan dari folder #recycle di PC.')">
                     @csrf
                     <input type="hidden" name="p" :value="lihat.path">
                     <input type="hidden" name="kembali" value="{{ $path }}">
@@ -187,7 +209,7 @@
                         @click="formNama = { judul: 'Ganti nama folder', aksi: @js(route('cs.galeri.ganti-nama')), p: menu.path, nama: menu.nama }; menu = null">✎ Ganti nama</button>
                 <button type="button" class="w-full text-left px-3 py-3 text-sm rounded-xl active:bg-slate-100"
                         @click="bukaPilih(menu.path)">↪ Pindah ke folder lain</button>
-                <form method="POST" action="{{ route('cs.galeri.hapus') }}" onsubmit="return confirm('Hapus folder ini BESERTA seluruh isinya? Masih bisa dipulihkan dari Recycle Bin Synology.')">
+                <form method="POST" action="{{ route('cs.galeri.hapus') }}" onsubmit="return confirm('Hapus folder ini BESERTA seluruh isinya? Masih bisa dipulihkan dari folder #recycle di PC.')">
                     @csrf
                     <input type="hidden" name="p" :value="menu.path">
                     <input type="hidden" name="kembali" value="{{ $path }}">

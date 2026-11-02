@@ -66,6 +66,25 @@
          yang tak berhubungan — padahal yang ditanya pembeli justru
          PERBANDINGANNYA: mana yang lebih murah, mana yang stoknya ada.
          Sebagai baris di bawah satu nama, jawabannya terbaca sekilas. --}}
+    {{-- =============================================================== FOTO --}}
+    {{-- Referensi foto produk custom yang pernah dibuat, tertaut pesanannya (Galeri). Untuk dilihat
+         saat ada pesanan mirip; berkasnya dibuka di tab baru. --}}
+    <template x-if="sub === 'foto'">
+        <div class="grid grid-cols-2 gap-2">
+            <template x-for="f in foto" :key="f.id">
+                <a :href="f.url" target="_blank" rel="noopener" class="block border border-gray-200 rounded overflow-hidden hover:border-emerald-500">
+                    <div class="aspect-square bg-gray-100 flex items-center justify-center">
+                        <img :src="f.thumb" alt="" loading="lazy" class="w-full h-full object-cover" x-show="f.jenis !== 'lain'">
+                    </div>
+                    <div class="px-1.5 py-1">
+                        <div class="text-[11px] font-semibold truncate" x-text="(f.jenis === 'video' ? '▶ ' : '') + f.pesanan"></div>
+                        <div class="text-[10px] text-gray-500 truncate" :title="f.barang" x-text="f.barang"></div>
+                    </div>
+                </a>
+            </template>
+        </div>
+    </template>
+
     <template x-if="sub === 'web'">
         <div class="space-y-2">
             <template x-for="g in grup" :key="g.id">
@@ -517,11 +536,12 @@ function panelProduk(percakapanId) {
             { key: 'web',    label: 'Web' },
             { key: 'pasar',  label: 'Market Place' },
             { key: 'custom', label: 'Custom' },
+            { key: 'foto',   label: 'Foto' },
         ],
         sub: 'web',
         percakapan: percakapanId,
 
-        kata: '', hasil: [], grup: [], pasar: [], hanyaShopee: false, sibuk: false, galat: '', kabar: '',
+        kata: '', hasil: [], grup: [], pasar: [], foto: [], hanyaShopee: false, sibuk: false, galat: '', kabar: '',
         menyimpan: false, mengirimFoto: null,
         // Tombol di bawah Market Place: 'shopee' atau 'lain'. Datanya satu daftar dari server.
         subPasar: 'shopee',
@@ -552,7 +572,11 @@ function panelProduk(percakapanId) {
             this.sibuk = true;
             this.galat = '';
             try {
-                if (this.sub === 'pasar') {
+                if (this.sub === 'foto') {
+                    const r = await fetch('{{ route('crm.inbox.foto.cari') }}?q=' + encodeURIComponent(this.kata),
+                                          { headers: { 'Accept': 'application/json' } });
+                    this.foto = (await r.json()).foto || [];
+                } else if (this.sub === 'pasar') {
                     const r = await fetch('{{ route('crm.pasar.index') }}?chat=' + (this.percakapan ?? '')
                                           + '&q=' + encodeURIComponent(this.kata),
                                           { headers: { 'Accept': 'application/json' } });
@@ -582,6 +606,7 @@ function panelProduk(percakapanId) {
                 this.hasil = [];
                 this.grup = [];
                 this.pasar = [];
+                this.foto = [];
                 this.galat = 'Daftar gagal dimuat. Coba muat ulang.';
             } finally {
                 this.sibuk = false;
@@ -589,6 +614,7 @@ function panelProduk(percakapanId) {
         },
 
         kosong() {
+            if (this.sub === 'foto')  return this.foto.length === 0;
             if (this.sub === 'pasar') return this.pasarTampil.length === 0;
             if (this.sub === 'web')   return this.grup.length === 0;
             return this.hasil.length === 0;
@@ -600,6 +626,9 @@ function panelProduk(percakapanId) {
         },
 
         pesanKosong() {
+            if (this.sub === 'foto') {
+                return this.kata ? 'Tidak ada foto yang cocok.' : 'Belum ada foto produk custom.';
+            }
             if (this.sub === 'pasar') {
                 return this.kata ? 'Tidak ada produk yang cocok.' : 'Belum ada link marketplace. Tambahkan di bawah.';
             }

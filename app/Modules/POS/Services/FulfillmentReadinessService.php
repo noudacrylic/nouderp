@@ -902,12 +902,16 @@ class FulfillmentReadinessService
             $orders->mapWithKeys(fn (SalesOrder $so) => [$so->id => $linksBySo->has($so->id) ? $so->customer_po_number : null])->all()
         );
 
-        return $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo, $chatPesanan) {
+        // Pengingat di kartu, BUKAN blokir: produk custom yang belum difoto sebelum dikirim.
+        $belumDifoto = app(\App\Modules\Galeri\Services\FotoProdukService::class)->pengingat($soIds);
+
+        return $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo, $chatPesanan, $belumDifoto) {
             $returns = $returnsBySo->get($so->id);
             $retur   = $returns?->firstWhere('status', 'draft') ?? $returns?->first();
             $row = $this->buildSoRow($so, $prodBySo->get($so->id), $linksBySo->get($so->id), $retur);
             $row['chat'] = $chatPesanan[$so->id];
             $row['chat_tertaut'] = $chatPesanan[$so->id]['tertaut'];
+            $row['belum_difoto'] = isset($belumDifoto[$so->id]);
 
             // SO yang sudah di-void tidak punya tempat di alur pemrosesan — beri bucket sendiri
             // supaya kolom Status jujur, bukan meminjam label bucket yang tidak ia tempati.

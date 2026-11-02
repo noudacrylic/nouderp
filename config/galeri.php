@@ -34,6 +34,10 @@ return [
     // terlihat di Windows, dan tidak terhapus otomatis.
     'sampah' => env('GALERI_SAMPAH', '#recycle'),
 
+    // Pola SKU (LIKE) produk custom yang wajib difoto. OP tipe custom juga dipakai
+    // produk standar buatan per pesanan (mis. Box Charger), yang tak perlu difoto ulang.
+    'sku_custom' => ['CS_'],
+
     // Disk server: thumbnail & potongan unggahan.
     'thumb_dir' => storage_path('app/galeri-thumbs'),
     'tmp_dir'   => storage_path('app/galeri-tmp'),

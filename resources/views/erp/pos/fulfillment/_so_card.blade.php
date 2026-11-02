@@ -189,6 +189,17 @@
                title="Buka halaman lacak pesanan milik pembeli">🔎 Lacak</a>
         @endif
         @include('erp.pos.fulfillment._chat_btn', ['r' => $r])
+        @if(!empty($r['belum_difoto']) && !$isDone)
+            {{-- Hanya mengingatkan: pesanan tetap boleh diproses. --}}
+            @if(user_can_access('crm.galeri'))
+                <a href="{{ route('cs.galeri', ['so' => $r['id']]) }}" target="_blank" rel="noopener"
+                   class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-amber-700 ring-1 ring-amber-400 hover:bg-amber-50"
+                   title="Produk custom ini belum difoto — foto dulu sebelum dikirim">📷 Belum difoto</a>
+            @else
+                <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-amber-700 ring-1 ring-amber-400"
+                      title="Produk custom ini belum difoto — kabari admin sebelum dikirim">📷 Belum difoto</span>
+            @endif
+        @endif
         @if($isDone && ($pickupDone || $allDelivered))
             <span class="ml-auto text-xs whitespace-nowrap text-white font-semibold">
                 ✓ {{ $pickupDone ? 'Sudah diambil' : 'Sudah sampai' }}

@@ -190,7 +190,7 @@ class GaleriService
             }
         }
 
-        $tujuan = ltrim(dirname('/' . $rel) . '/' . $namaBaru, '/');
+        $tujuan = ltrim($this->induk($rel) . '/' . $namaBaru, '/');
         if ($tujuan === $rel) return $rel;
         // Beda huruf besar/kecil saja tetap boleh (Windows/SMB tak peka huruf).
         if (file_exists($this->abs($tujuan)) && strcasecmp($tujuan, $rel) !== 0) {
@@ -212,7 +212,7 @@ class GaleriService
         if (is_dir($abs) && ($folderTujuan === $rel || str_starts_with($folderTujuan . '/', $rel . '/'))) {
             throw new GaleriException('Folder tidak bisa dipindah ke dalam dirinya sendiri.');
         }
-        if (ltrim(dirname('/' . $rel), '/') === $folderTujuan) return $rel;
+        if ($this->induk($rel) === $folderTujuan) return $rel;
 
         $tujuan = $this->namaUnik($folderTujuan, basename($rel));
         if (! @rename($abs, $this->abs($tujuan))) throw new GaleriException('Gagal memindahkan.');
@@ -231,7 +231,7 @@ class GaleriService
         if ($rel === '' || ! file_exists($abs)) throw new GaleriException('Berkas/folder tidak ditemukan.');
 
         $sampah = trim((string) config('galeri.sampah'), '/');
-        $indukSampah = $this->root() . '/' . $sampah . '/' . ltrim(dirname('/' . $rel), '/');
+        $indukSampah = $this->root() . '/' . $sampah . '/' . $this->induk($rel);
         $indukSampah = rtrim($indukSampah, '/');
         if (! is_dir($indukSampah) && ! @mkdir($indukSampah, 0775, true)) {
             throw new GaleriException('Folder sampah tidak bisa ditulis. Periksa Recycle Bin di DSM.');
@@ -424,6 +424,12 @@ class GaleriService
     }
 
     // ───────────── Bantuan ─────────────
+
+    /** Folder induk relatif, '' untuk item di akar. Di Windows dirname('/a') memberi "\". */
+    private function induk(string $rel): string
+    {
+        return trim(str_replace('\\', '/', dirname('/' . $rel)), '/');
+    }
 
     private function pastikanTersambung(): void
     {

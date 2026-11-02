@@ -61,6 +61,7 @@ return [
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [
             'admin.desain'             => \App\Modules\Tasks\MejaKerja\Skills\DesainSkill::class,
+            'admin.foto-custom'        => \App\Modules\Tasks\MejaKerja\Skills\FotoCustomSkill::class,
             'admin.qc'                 => \App\Modules\Tasks\MejaKerja\Skills\QcSkill::class,
             'admin.persetujuan-usulan' => \App\Modules\Tasks\MejaKerja\Skills\PersetujuanUsulanSkill::class,
             'admin.purchasing-ready'   => \App\Modules\Tasks\MejaKerja\Skills\PurchasingReadySkill::class,

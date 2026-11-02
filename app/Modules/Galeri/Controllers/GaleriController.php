@@ -2,8 +2,11 @@
 
 namespace App\Modules\Galeri\Controllers;
 
+use App\Modules\Galeri\Models\GaleriFoto;
+use App\Modules\Galeri\Services\FotoProdukService;
 use App\Modules\Galeri\Services\GaleriException;
 use App\Modules\Galeri\Services\GaleriService;
+use App\Modules\Sales\Models\SalesOrder;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
@@ -17,11 +20,19 @@ use Illuminate\Routing\Controller;
  */
 class GaleriController extends Controller
 {
-    public function __construct(private GaleriService $galeri) {}
+    public function __construct(private GaleriService $galeri, private FotoProdukService $foto) {}
 
     public function index(Request $request)
     {
         $this->jaga();
+
+        // Tombol "Foto produk" di Meja Kerja: unggahan berikutnya tertaut pesanan ini, sampai
+        // Selesai ditekan (?so=0). Disimpan di sesi supaya bertahan saat berpindah folder.
+        if ($request->has('so')) {
+            $request->integer('so') > 0
+                ? session(['galeri_so' => $request->integer('so')])
+                : session()->forget('galeri_so');
+        }
 
         try {
             $path = $this->galeri->normalisasi($request->query('p'));
@@ -49,7 +60,24 @@ class GaleriController extends Controller
             'tersambung' => $tersambung,
             'potongan'   => $this->ukuranPotongan(),
             'maksMb'     => (int) config('galeri.maks_mb'),
+            'soAktif'    => $this->soAktif(),
         ]);
+    }
+
+    /** Tautkan berkas yang sudah ada di folder ke pesanan yang sedang difoto. */
+    public function tautkan(Request $request)
+    {
+        $this->jaga();
+        $request->validate(['p' => 'required|string']);
+        $so = $this->soAktif();
+        if (!$so) return $this->kembali($request)->with('error', 'Tidak ada pesanan yang sedang difoto.');
+
+        return $this->aksi($request, function () use ($request, $so) {
+            $path = $this->galeri->normalisasi((string) $request->input('p'));
+            $this->galeri->berkas($path);
+            $this->foto->tautkan($path, $so['id'], (int) $request->user()->id);
+            return $this->kembali($request)->with('success', 'Tertaut ke ' . $so['nomor'] . '.');
+        });
     }
 
     /** JSON subfolder — pemilih folder tujuan saat memindah. */
@@ -119,7 +147,9 @@ class GaleriController extends Controller
         $request->validate(['p' => 'required|string', 'nama' => 'required|string|max:150']);
 
         return $this->aksi($request, function () use ($request) {
-            $this->galeri->gantiNama((string) $request->input('p'), (string) $request->input('nama'));
+            $lama = $this->galeri->normalisasi((string) $request->input('p'));
+            $baru = $this->galeri->gantiNama($lama, (string) $request->input('nama'));
+            $this->foto->pathBerubah($lama, $baru);
             return $this->kembali($request)->with('success', 'Nama diganti.');
         });
     }
@@ -130,7 +160,9 @@ class GaleriController extends Controller
         $request->validate(['p' => 'required|string', 'tujuan' => 'nullable|string']);
 
         return $this->aksi($request, function () use ($request) {
-            $this->galeri->pindah((string) $request->input('p'), (string) $request->input('tujuan'));
+            $lama = $this->galeri->normalisasi((string) $request->input('p'));
+            $baru = $this->galeri->pindah($lama, (string) $request->input('tujuan'));
+            $this->foto->pathBerubah($lama, $baru);
             return $this->kembali($request)->with('success', 'Dipindahkan.');
         });
     }
@@ -141,8 +173,10 @@ class GaleriController extends Controller
         $request->validate(['p' => 'required|string']);
 
         return $this->aksi($request, function () use ($request) {
-            $this->galeri->hapus((string) $request->input('p'));
-            return $this->kembali($request)->with('success', 'Dihapus (masuk Recycle Bin Synology).');
+            $path = $this->galeri->normalisasi((string) $request->input('p'));
+            $this->galeri->hapus($path);
+            $this->foto->pathDihapus($path);
+            return $this->kembali($request)->with('success', 'Dihapus (masih ada di folder #recycle).');
         });
     }
 
@@ -156,6 +190,7 @@ class GaleriController extends Controller
             'total'    => 'required|integer|min:1',
             'nama'     => 'required|string|max:255',
             'folder'   => 'nullable|string',
+            'so'       => 'nullable|integer|exists:sales_orders,id',
             'potongan' => 'required|file',
         ]);
 
@@ -176,10 +211,28 @@ class GaleriController extends Controller
             return response()->json(['pesan' => $e->getMessage()], 422);
         }
 
+        if (($hasil['selesai'] ?? false) && $request->filled('so')) {
+            $this->foto->tautkan($hasil['path'], $request->integer('so'), (int) $request->user()->id);
+        }
+
         return response()->json($hasil);
     }
 
     // ───────────── Bantuan ─────────────
+
+    /** @return array{id:int, nomor:string, barang:string, jumlah:int}|null */
+    private function soAktif(): ?array
+    {
+        $so = ($id = (int) session('galeri_so')) ? SalesOrder::with('items.product:id,name')->find($id) : null;
+        if (!$so) return null;
+
+        return [
+            'id'     => $so->id,
+            'nomor'  => $so->order_number,
+            'barang' => $so->items->map(fn ($i) => $i->description ?: $i->product?->name)->filter()->unique()->implode(', '),
+            'jumlah' => GaleriFoto::where('sales_order_id', $so->id)->count(),
+        ];
+    }
 
     private function jaga(): void
     {
