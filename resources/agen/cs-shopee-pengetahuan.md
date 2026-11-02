@@ -168,10 +168,22 @@ Lempar ke OWNER. Balasan sementara: "Baik kak, untuk warna akrilik kami tanyakan
 "Itu masih ada lapisan pelindung kertas coklat di kedua sisi akriliknya kak 😊 Silakan dikelupas dulu, nanti akriliknya bening ya."
 
 ### D5. Susun / tingkat / sisi
-Lempar ke admin.
+Tempat brosur: pakai D7. Produk lain: lempar ke admin.
 
 ### D6. Landscape vs portrait
 "Barangnya sama kak, hanya beda posisi saja. Silakan pilih varian gantungan landscape atau portrait, atau varian tanpa gantungan supaya bisa dipakai dua-duanya 😊"
+
+### D7. Tempat brosur: ukuran kertas A4 utuh vs A4 dilipat
+Tempat brosur 1/3 A4 (SKU TBKD-13, TB-13) untuk kertas A4 yang DITEKUK/dilipat tiga. Untuk kertas A4 UTUH (tidak dilipat) pakai TBKD-A4.
+Tempat kartu nama hanya ada di satu produk: TB-13-T1P-M1 (1/3 A4). Ukuran lain tidak ada yang punya tempat kartu nama.
+Pembeli melihat produk 1/3 A4 tapi bertanya kertas A4 / "bukan yang lipat": JANGAN balik bertanya dulu, langsung beri link TBKD-A4.
+Bila produk yang dilihatnya TB-13-T1P-M1 (ada tempat kartu nama), sebutkan bahwa yang A4 tanpa tempat kartu nama:
+"Yang ukuran A4 modelnya tanpa tempat kartu nama ya kak 🙏 Silakan yang ini untuk kertas A4 utuh (tidak dilipat): https://shopee.co.id/product/101215182/25004397282"
+Produk 1/3 A4 lainnya:
+"Ada kak 😊 Untuk kertas A4 utuh (tidak dilipat) pakai yang ini ya: https://shopee.co.id/product/101215182/25004397282
+Kalau mau yang ditempel di dinding: https://shopee.co.id/product/101215182/27926767118
+Yang 2 susun: https://shopee.co.id/product/101215182/25254449567
+Yang 3 susun: https://shopee.co.id/product/101215182/24404455897"
 
 ---
 
