@@ -555,7 +555,15 @@ class CrmInboxController extends Controller
                                 ->whereNotNull('sales_order_id')
                                 ->select('sales_order_id'))
                             ->select('id'))
-                        ->select('conversation_id')));
+                        ->select('conversation_id'))
+                    // Chat Shopee juga lewat ID pembeli di salinan pesanan: tak semua pesanan
+                    // tertaut. Minimal 6 karakter supaya pencarian pendek tak menyeret ribuan chat.
+                    ->when(strlen($cari) >= 6, fn ($s) => $s->orWhere(fn ($k) => $k
+                        ->where('channel', CrmConversation::KANAL_SHOPEE)
+                        ->whereIn('contact_key', DB::table('shopee_orders')
+                            ->where('order_sn', 'like', '%' . preg_replace('/^SP-/i', '', $cari) . '%')
+                            ->whereNotNull('buyer_user_id')
+                            ->select('buyer_user_id')))));
             })
             // Yang belum pernah ada pesannya pun harus muncul; ORDER BY kolom
             // nullable menaruhnya di ujung, jadi dipakai created_at sebagai jaring.
@@ -1972,13 +1980,8 @@ class CrmInboxController extends Controller
      */
     public function lacakPesanan(CrmConversation $conversation, SalesOrder $order)
     {
-        $tertaut = app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($conversation);
-
         // Pesanan milik pelanggan LAIN tidak boleh bocor lewat chat ini.
-        if (! (($conversation->customer_id && $order->customer_id === $conversation->customer_id)
-            || in_array($order->id, $tertaut, true))) {
-            abort(404);
-        }
+        abort_unless($this->pesananMilikChat($conversation, $order), 404);
 
         if (! $this->bisaDilacak($order->loadMissing('customer:id,is_marketplace'))) {
             return response()->json(['error' => 'Pesanan ini tidak punya halaman lacak (draft, ambil di toko, atau marketplace).'], 422);
@@ -2015,11 +2018,8 @@ class CrmInboxController extends Controller
     ) {
         $data = $request->validate(['nama' => ['nullable', 'string', 'max:120']]);
 
-        // Pesanan milik pelanggan LAIN tidak boleh bocor lewat chat ini; pesanan
-        // tertaut (Shopee: atas nama pelanggan marketplace) boleh.
-        $milikSendiri = $conversation->customer_id && $order->customer_id === $conversation->customer_id;
-        $tertaut = in_array($order->id, app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($conversation), true);
-        abort_unless($milikSendiri || $tertaut, 404);
+        // Pesanan milik pelanggan LAIN tidak boleh bocor lewat chat ini.
+        abort_unless($this->pesananMilikChat($conversation, $order), 404);
 
         if ($alasan = $conversation->alasanTakBolehDibalas($request->user())) {
             return response()->json(['success' => false, 'error' => $alasan], 403);
@@ -2365,16 +2365,26 @@ class CrmInboxController extends Controller
      * Dibatasi 10 terbaru: tiap pesanan butuh beberapa kueri untuk diketahui
      * tahapnya, dan rail ini ikut dirender setiap kali chat dibuka.
      */
+    /** Pesanan pelanggan chat ini, tertaut ke chat ini, atau (Shopee) milik pembelinya. */
+    private function pesananMilikChat(CrmConversation $conversation, SalesOrder $order): bool
+    {
+        return ($conversation->customer_id && $order->customer_id === $conversation->customer_id)
+            || in_array($order->id, app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($conversation), true)
+            || in_array($order->id, app(\App\Modules\CRM\Services\ChatPesananService::class)->idPesananPembeliShopee($conversation), true);
+    }
+
     private function ringkasPesanan(CrmConversation $conversation): array
     {
         /*
          * Pesanan TERTAUT (CRM Tahap 3) ikut tampil walau atas nama pelanggan
          * lain — pesanan Shopee tercatat atas nama pelanggan marketplace, bukan
          * orang yang chat. Pesanan pelanggan sendiri tetap tampil seperti dulu.
+         * Chat Shopee: pesanan pembelinya ikut tampil walau belum tertaut.
          */
         $tertaut = app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($conversation);
+        $tampil = array_merge($tertaut, app(\App\Modules\CRM\Services\ChatPesananService::class)->idPesananPembeliShopee($conversation));
 
-        if (! $conversation->customer_id && ! $tertaut) {
+        if (! $conversation->customer_id && ! $tampil) {
             return [];
         }
 
@@ -2383,7 +2393,7 @@ class CrmInboxController extends Controller
         return SalesOrder::query()
             ->where(fn ($q) => $q
                 ->when($conversation->customer_id, fn ($w) => $w->where('customer_id', $conversation->customer_id))
-                ->orWhereIn('id', $tertaut ?: [0]))
+                ->orWhereIn('id', $tampil ?: [0]))
             ->whereNotIn('status', ['void', 'cancelled'])
             ->latest('id')
             /*

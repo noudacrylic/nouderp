@@ -439,6 +439,55 @@ class ShopeeChatTest extends TestCase
             ->assertNotFound();
     }
 
+    /**
+     * Pesanan pembeli tampil di tab Pesanan lewat ID pembeli walau kartunya tak pernah ada di chat
+     * (mis. CS membalas dari Seller Centre) — tanpa menulis tautan & tanpa menggeser label.
+     */
+    public function test_pesanan_pembeli_tampil_lewat_id_pembeli_tanpa_tautan(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+        $so  = $this->pesananTertaut($crm);
+        DB::table('crm_pesanan_chat')->delete();
+        $crm->forceFill(['queue_state' => 'cetak'])->save();
+        $daftar = fn () => collect($this->actingAs($this->saiful)->getJson(route('crm.inbox.pesanan', $crm))->assertOk()->json('pesanan'));
+
+        $this->assertCount(0, $daftar(), 'Salinan pesanan belum ada → belum bisa dikenali.');
+
+        // Pesanan pembeli lain tidak ikut tampil.
+        DB::table('shopee_orders')->insert(['env' => 'live', 'shop_id' => $this->shop->shop_id, 'order_sn' => '261029V2AY0XWK', 'buyer_user_id' => 71,
+            'status' => 'READY_TO_SHIP', 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertCount(0, $daftar());
+        $this->actingAs($this->saiful)->postJson(route('crm.inbox.pesanan.nota', [$crm, $so]))->assertNotFound();
+
+        DB::table('shopee_orders')->update(['buyer_user_id' => 70]);
+        $kartu = $daftar()->firstWhere('id', $so->id);
+        $this->assertNotNull($kartu, 'Pesanan pembeli tampil.');
+        $this->assertFalse($kartu['tertaut'], 'Bukan tautan: tombolnya tetap "tautkan".');
+        $this->assertSame(0, DB::table('crm_pesanan_chat')->count());
+        $this->assertSame('cetak', $crm->fresh()->queue_state, 'Label buatan orang tidak bergeser.');
+
+        // Nomor pesanan di kotak cari menemukan chatnya, dengan atau tanpa awalan SP-.
+        foreach (['261029V2AY0XWK', 'SP-261029V2AY0XWK'] as $cari) {
+            $this->actingAs($this->saiful)->get(route('crm.inbox.index', ['search' => $cari]))->assertOk()->assertSee('pembeli_tujuh');
+        }
+
+        // Tombol di kartu tetap jalan: nota boleh dikirim ke pembeli pesanan itu.
+        $this->app->instance(\App\Modules\CRM\Services\NotaGambarService::class, new class extends \App\Modules\CRM\Services\NotaGambarService {
+            public function __construct() {}
+            public function render(\App\Models\SalesInvoice $invoice, bool $tanpaKontak, ?string $atasNama = null): UploadedFile
+            {
+                return UploadedFile::fake()->image('Nota.png', 300, 200);
+            }
+        });
+        $this->actingAs($this->saiful)->postJson(route('crm.inbox.pesanan.nota', [$crm, $so]))->assertOk()->assertJson(['success' => true]);
+
+        // Chat Shopee pembeli lain tetap tidak boleh melihatnya.
+        $this->assertSame([], app(\App\Modules\CRM\Services\ChatPesananService::class)->idPesananPembeliShopee(
+            CrmConversation::findOrCreateFor('71', CrmConversation::KANAL_SHOPEE, (string) $this->shop->shop_id)
+        ));
+    }
+
     /** Halaman cetak faktur: ?tanpa_kontak=1 membuang baris telepon/email toko. */
     public function test_cetak_faktur_tanpa_kontak(): void
     {

@@ -16,6 +16,28 @@ class ChatPesananService
     public const SAPAAN = 'Halo kak, terima kasih sudah order di Noud Acrylic 🙏 Kami ingin mengonfirmasi pesanannya ya kak.';
 
     /**
+     * SO milik pembeli chat Shopee ini, lewat ID pembeli di salinan pesanan Shopee. Bukan tautan:
+     * tidak menulis apa pun, jadi label chat tidak ikut bergeser — penggerak label tetap tautan
+     * crm_pesanan_chat, yang dibuat kartu pesanan di chat atau tombol "tautkan".
+     *
+     * @return int[]
+     */
+    public function idPesananPembeliShopee(CrmConversation $chat): array
+    {
+        if (!$chat->shopee() || !ctype_digit((string) $chat->contact_key)) return [];
+
+        $sn = DB::table('shopee_orders')
+            ->where('shop_id', (int) $chat->business_number_id)
+            ->where('buyer_user_id', (int) $chat->contact_key)
+            ->pluck('order_sn');
+        if ($sn->isEmpty()) return [];
+
+        return DB::table('sales_orders')
+            ->whereIn('customer_po_number', $sn->map(fn ($s) => 'SP-' . $s)->all())
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
      * @param  array<int, ?string>  $noMarketplace  [sales_order_id => customer_po_number]
      * @return array<int, array{tertaut:bool, wa:?int, shopee:?int, order_sn:?string, bisa_sapa:bool}>
      */

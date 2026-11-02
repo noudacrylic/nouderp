@@ -211,6 +211,8 @@
         <p x-show="!pesanan.length && !penawaran.length" x-cloak class="text-xs text-gray-500 px-1">
             @if($terpilih?->customer_id)
                 Belum ada pesanan berjalan untuk pelanggan ini.
+            @elseif($terpilih?->shopee())
+                Belum ada pesanan pembeli ini. Pesanan baru muncul sendiri di sini ±15 menit setelah masuk.
             @else
                 Chat ini belum tertaut pelanggan. Pesanan pertama akan menautkannya.
             @endif
