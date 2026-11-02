@@ -56,6 +56,25 @@ class CrmTautkanPesananLama extends Command
                 }
             });
 
+        // Pesanan Shopee: pelanggannya "Shopee", jadi chatnya dicari lewat ID pembeli.
+        SalesOrder::query()
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->whereNotIn('id', fn ($q) => $q->select('sales_order_id')->from('crm_pesanan_chat'))
+            ->whereIn('customer_po_number', fn ($q) => $q->selectRaw("CONCAT('SP-', order_sn)")->from('shopee_orders')->whereNotNull('buyer_user_id'))
+            ->orderBy('id')
+            ->each(function (SalesOrder $so) use ($label, $kering, &$baris) {
+                $chat = $label->chatUntukTautanShopee($so);
+                if (! $chat) {
+                    return;
+                }
+
+                $baris[] = [$so->order_number, $chat->id, $label->labelUntuk($so)];
+
+                if (! $kering) {
+                    $label->tautkan($chat, $so);
+                }
+            });
+
         $this->table(['SO', 'Chat', 'Label'], $baris);
         $this->info(($kering ? '[dry-run] akan ditautkan: ' : 'Ditautkan: ') . count($baris) . ' pesanan.');
 

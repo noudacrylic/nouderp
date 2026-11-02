@@ -28,9 +28,9 @@ class ChatPesananService
     private const JENDELA_CEK_MENIT = 30;
 
     /**
-     * SO milik pembeli chat Shopee ini, lewat ID pembeli di salinan pesanan Shopee. Bukan tautan:
-     * tidak menulis apa pun, jadi label chat tidak ikut bergeser — penggerak label tetap tautan
-     * crm_pesanan_chat, yang dibuat kartu pesanan di chat atau tombol "tautkan".
+     * SO milik pembeli chat Shopee ini, lewat ID pembeli di salinan pesanan Shopee. Hanya membaca:
+     * pesanan yang tak tertaut otomatis (sudah selesai, sudah dilepas CS, tertaut chat WA) tetap
+     * tampil dengan tombol "tautkan". Tautan & labelnya diurus LabelPesananService.
      *
      * @return int[]
      */

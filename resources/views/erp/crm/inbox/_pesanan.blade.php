@@ -209,11 +209,14 @@
                            class="text-[11px] font-semibold text-gray-700 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
                             Buka SO
                         </a>
+                        {{-- Pesanan Shopee dibayar di aplikasinya; tautan luar pun diblokir Shopee. --}}
+                        @unless($terpilih?->shopee())
                             <button type="button" @click="kirimRincian(p)" :disabled="sibukRincian === p.id"
                                     class="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded px-2 py-1 disabled:opacity-60">
                                 <span x-show="sibukRincian !== p.id">Rincian + Link Bayar</span>
                                 <span x-show="sibukRincian === p.id" x-cloak>Menyiapkan…</span>
                             </button>
+                        @endunless
                     </div>
                 </div>
             </div>

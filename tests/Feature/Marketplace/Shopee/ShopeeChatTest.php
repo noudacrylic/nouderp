@@ -488,6 +488,86 @@ class ShopeeChatTest extends TestCase
         ));
     }
 
+    private function soShopee(string $sn): SalesOrder
+    {
+        $mp = Customer::firstOrCreate(['code' => 'MP-SP'], ['name' => 'Shopee', 'is_marketplace' => true, 'is_active' => true]);
+
+        return SalesOrder::create(['order_number' => 'SP-' . $sn, 'customer_po_number' => 'SP-' . $sn, 'customer_id' => $mp->id,
+            'warehouse_id' => Warehouse::firstOrCreate(['name' => 'Gudang Uji'])->id, 'order_date' => now()->toDateString(),
+            'global_discount_type' => 'nominal', 'status' => 'confirmed', 'subtotal' => 1000, 'grand_total' => 1000]);
+    }
+
+    private function salinan(string $sn, int $pembeli = 70): \App\Modules\Marketplace\Shopee\Models\ShopeeOrder
+    {
+        return \App\Modules\Marketplace\Shopee\Models\ShopeeOrder::create(['env' => 'test', 'shop_id' => self::TOKO, 'order_sn' => $sn,
+            'buyer_user_id' => $pembeli, 'status' => 'READY_TO_SHIP', 'dibuat_shopee_at' => now()]);
+    }
+
+    private function selesaikan(SalesOrder $so): void
+    {
+        \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::create(['jubelio_salesorder_id' => 9000 + $so->id, 'jubelio_salesorder_no' => $so->order_number,
+            'sales_order_id' => $so->id, 'store' => 'Shopee', 'last_status' => 'shipped', 'shipped_at' => now()]);
+    }
+
+    /** SO lahir → langsung tertaut ke chat pembeli, sekali saja supaya "lepas" dihormati. */
+    public function test_so_shopee_baru_langsung_tertaut_ke_chat_pembeli_dan_lepas_dihormati(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $pesanan = app(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class);
+        $tautan = fn () => DB::table('crm_pesanan_chat')->where('conversation_id', $crm->id)->pluck('sales_order_id')->all();
+
+        $order = $this->salinan('BARU1');
+        $pesanan->banding($order);
+        $this->assertSame([], $tautan(), 'SO belum ada → belum ada yang ditautkan.');
+
+        $so = $this->soShopee('BARU1');
+        $pesanan->banding($order);
+        $this->assertSame([$so->id], $tautan());
+
+        // Dilepas CS, lalu sinkron berikutnya datang: tidak tertaut lagi.
+        app(\App\Modules\CRM\Services\LabelPesananService::class)->lepas($crm, $so);
+        $pesanan->banding($order->fresh('items'));
+        $this->assertSame([], $tautan());
+
+        // Pembeli lain tidak ikut; pesanan yang sudah Selesai tidak ditautkan.
+        $lain = $this->salinan('LAIN1', 71);
+        $this->soShopee('LAIN1');
+        $pesanan->banding($lain);
+        $tamat = $this->salinan('TAMAT1');
+        $this->selesaikan($this->soShopee('TAMAT1'));
+        $pesanan->banding($tamat);
+        $this->assertSame([], $tautan());
+    }
+
+    /** Pembeli pesan dulu, baru chat: saat chatnya muncul, pesanan berjalannya tertaut. */
+    public function test_chat_baru_menautkan_pesanan_pembeli_yang_masih_berjalan(): void
+    {
+        $jalan = $this->soShopee('JALAN1');
+        $this->salinan('JALAN1');
+        $this->selesaikan($this->soShopee('TAMAT2'));
+        $this->salinan('TAMAT2');
+
+        $crm = $this->chatSiapDibalas();
+
+        $this->assertSame([$jalan->id], DB::table('crm_pesanan_chat')->where('conversation_id', $crm->id)->pluck('sales_order_id')->all());
+    }
+
+    /** Perintah susulan: dry-run tak mengubah apa pun, hanya pesanan berjalan yang ditautkan. */
+    public function test_tautkan_pesanan_lama_mencakup_shopee(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $jalan = $this->soShopee('LAMA1');
+        $this->salinan('LAMA1');
+        $this->selesaikan($this->soShopee('LAMA2'));
+        $this->salinan('LAMA2');
+
+        $this->artisan('crm:tautkan-pesanan-lama', ['--dry-run' => true])->assertSuccessful();
+        $this->assertSame(0, DB::table('crm_pesanan_chat')->count());
+
+        $this->artisan('crm:tautkan-pesanan-lama')->assertSuccessful();
+        $this->assertSame([$jalan->id], DB::table('crm_pesanan_chat')->where('conversation_id', $crm->id)->pluck('sales_order_id')->all());
+    }
+
     /** Tombol "Cek pesanan": menarik dari Shopee sekali per jeda, lalu pesanan baru tampil. */
     public function test_cek_pesanan_menarik_sekali_per_jeda_lalu_pesanan_tampil(): void
     {
@@ -554,10 +634,10 @@ class ShopeeChatTest extends TestCase
     public function test_tombol_cek_pesanan_tampil_di_chat_shopee_saja(): void
     {
         $crm = $this->chatSiapDibalas();
-        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()->assertSee('Cek pesanan');
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()->assertSee('Cek pesanan')->assertDontSee('Rincian + Link Bayar');
 
         $wa = CrmConversation::findOrCreateFor('628111222333');
-        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $wa))->assertOk()->assertDontSee('Cek pesanan');
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $wa))->assertOk()->assertDontSee('Cek pesanan')->assertSee('Rincian + Link Bayar');
     }
 
     /** Halaman cetak faktur: ?tanpa_kontak=1 membuang baris telepon/email toko. */

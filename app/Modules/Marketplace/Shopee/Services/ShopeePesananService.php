@@ -3,6 +3,7 @@
 namespace App\Modules\Marketplace\Shopee\Services;
 
 use App\Core\Inventory\Product;
+use App\Modules\CRM\Services\LabelPesananService;
 use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
 use App\Modules\Marketplace\Shopee\Models\ShopeeOrder;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
@@ -112,6 +113,7 @@ class ShopeePesananService
     public function banding(ShopeeOrder $order): ShopeeOrder
     {
         $so = SalesOrder::where('customer_po_number', 'SP-' . $order->order_sn)->orderByRaw("status = 'void'")->orderByDesc('id')->first();
+        $soBaru = $so && !$order->sales_order_id;
         $order->sales_order_id = $so?->id;
         $catatan = [];
 
@@ -131,6 +133,11 @@ class ShopeePesananService
         $order->hasil_banding   = $hasil;
         $order->catatan_banding = $catatan ? mb_substr(implode(' ', $catatan), 0, 2000) : null;
         $order->save();
+
+        // Sekali saja, saat SO-nya pertama terlihat: tautan yang dilepas CS tidak kembali.
+        if ($soBaru) {
+            app(LabelPesananService::class)->tautkanPesananShopee($so);
+        }
 
         return $order;
     }

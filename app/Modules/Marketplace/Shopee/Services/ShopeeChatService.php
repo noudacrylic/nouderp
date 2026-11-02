@@ -293,7 +293,7 @@ class ShopeeChatService
         $terakhir = $chat->last_message_at ?? now();
         $aktif    = $hidup && $terakhir->gte(now()->subDays(self::HARI_AKTIF));
 
-        return CrmConversation::findOrCreateFor((string) $chat->to_id, CrmConversation::KANAL_SHOPEE, (string) $shop->shop_id, [
+        $crm = CrmConversation::findOrCreateFor((string) $chat->to_id, CrmConversation::KANAL_SHOPEE, (string) $shop->shop_id, [
             'display_name'         => $chat->to_name,
             'name_source'          => CrmConversation::NAMA_SHOPEE,
             'provider_customer_id' => (string) $chat->conversation_id,
@@ -303,6 +303,14 @@ class ShopeeChatService
             'closed_at'            => $aktif ? null : $terakhir,
             'unread_count'         => 0,
         ]);
+
+        // Pembeli yang sudah pesan lalu baru chat: pesanannya langsung tertaut.
+        if ($crm->wasRecentlyCreated) {
+            $this->label->tautkanPesananPembeliShopee($crm);
+            $crm->refresh();
+        }
+
+        return $crm;
     }
 
     /** Salin pesan (terlama dulu) lalu perbarui keadaan percakapan. Kembalikan jumlah pesan baru. */

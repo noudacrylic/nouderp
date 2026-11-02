@@ -193,6 +193,65 @@ class LabelPesananService
         return $tertaut;
     }
 
+    /**
+     * Chat Shopee tujuan tautan otomatis SO `SP-<sn>`, lewat ID pembeli di salinan pesanan.
+     * Null bila tak ada chatnya, SO sudah tertaut, batal, atau sudah Selesai — pesanan selesai
+     * yang jadi terbaru membuat chat melompat ke Selesai lalu tertutup (lihat crm:tautkan-pesanan-lama).
+     */
+    public function chatUntukTautanShopee(SalesOrder $so): ?CrmConversation
+    {
+        $no = (string) $so->customer_po_number;
+        if (! str_starts_with($no, 'SP-')
+            || DB::table('crm_pesanan_chat')->where('sales_order_id', $so->id)->exists()) {
+            return null;
+        }
+
+        $o = DB::table('shopee_orders')->where('order_sn', substr($no, 3))->whereNotNull('buyer_user_id')
+            ->first(['shop_id', 'buyer_user_id']);
+        $chat = $o ? CrmConversation::where('channel', CrmConversation::KANAL_SHOPEE)
+            ->where('contact_key', (string) $o->buyer_user_id)
+            ->where('business_number_id', (string) $o->shop_id)
+            ->first() : null;
+        if (! $chat) {
+            return null;
+        }
+
+        $kode = $this->labelUntuk($so);
+
+        return $kode && $kode !== self::SELESAI ? $chat : null;
+    }
+
+    /**
+     * Tautkan SO Shopee ke chat pembelinya. Dipanggil hanya saat SO-nya lahir atau chatnya baru
+     * muncul, supaya 'lepas' dihormati. TIDAK PERNAH melempar: sinkron pesanan & chat lebih penting.
+     */
+    public function tautkanPesananShopee(SalesOrder $so): bool
+    {
+        try {
+            $chat = $this->chatUntukTautanShopee($so);
+            if (! $chat) {
+                return false;
+            }
+            $this->tautkan($chat, $so);
+
+            return true;
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
+    }
+
+    /** Chat Shopee baru muncul: tautkan pesanan pembelinya yang masih berjalan. */
+    public function tautkanPesananPembeliShopee(CrmConversation $chat): void
+    {
+        $ids = app(ChatPesananService::class)->idPesananPembeliShopee($chat);
+
+        SalesOrder::whereIn('id', $ids)->whereNotIn('status', ['void', 'cancelled'])
+            ->orderBy('id')->get()
+            ->each(fn (SalesOrder $so) => $this->tautkanPesananShopee($so));
+    }
+
     public function lepas(CrmConversation $chat, SalesOrder $so): void
     {
         DB::table('crm_pesanan_chat')
