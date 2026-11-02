@@ -2142,7 +2142,7 @@ class CrmInboxController extends Controller
 
         $baris[] = 'Total: ' . $this->rupiah($order->grand_total);
 
-        $sisa = (int) round((float) $order->grand_total - (float) $order->paid_amount);
+        $sisa = (int) round($order->sisaTagihan());
 
         /*
          * Tautan bayar hanya dibuat kalau memang masih ada yang harus dibayar.

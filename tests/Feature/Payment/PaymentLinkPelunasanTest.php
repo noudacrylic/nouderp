@@ -67,8 +67,8 @@ class PaymentLinkPelunasanTest extends TestCase
         $this->assertSame('token-dp-lama', $next->link_token, 'Tautan pembeli tidak boleh berubah.');
         $this->assertSame('pending', $next->status);
         $this->assertSame($so->id, $next->sales_order_id);
-        // Kesepakatan DP hanya mengikat pembayaran pertama: termin berikutnya bebas.
-        $this->assertSame(0, (int) round($next->min_dp_amount));
+        // Sisa tagihan dibayar penuh — DP adalah tanda jadi yang berlaku sekali.
+        $this->assertSame(375000, (int) round($next->min_dp_amount));
 
         // Transaksi DP-nya sendiri tidak diutak-atik, hanya kehilangan tokennya supaya
         // tidak ada dua baris memperebutkan alamat yang sama.

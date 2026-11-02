@@ -51,6 +51,7 @@
                          pesanan. Yang ingin mencicil menekan tombol DP di bawah. --}}
                     <input id="dp_input" type="number" inputmode="numeric"
                            min="{{ $min_dp }}" max="{{ $remaining }}" value="{{ $remaining }}"
+                           {{ $min_dp >= $remaining ? 'readonly' : '' }}
                            class="w-full border-2 border-gray-200 rounded-xl pl-9 pr-3 py-3 text-lg font-bold focus:border-emerald-400 focus:outline-none">
                 </div>
 
@@ -70,7 +71,9 @@
                 @endif
 
                 <p class="text-xs text-gray-500 mt-2">
-                    @if($min_dp > 0)
+                    @if($min_dp >= $remaining)
+                        Sisa tagihan dibayar <b>penuh</b> sebesar Rp {{ number_format($remaining, 0, ',', '.') }}.
+                    @elseif($min_dp > 0)
                         Bawaannya <b>bayar lunas</b>. Ingin membayar uang muka dulu? Tekan <b>DP {{ $dpPersen }}%</b>
                         atau isi sendiri nominalnya &mdash; minimal <b>Rp {{ number_format($min_dp, 0, ',', '.') }}</b>,
                         maksimal Rp {{ number_format($remaining, 0, ',', '.') }}.

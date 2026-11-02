@@ -141,7 +141,7 @@ class SalesOrder extends Model
 
         return $left !== null
             && $left < 0
-            && round((float) $this->grand_total - (float) $this->paid_amount, 2) > 0.01;
+            && $this->sisaTagihan() > 0.01;
     }
 
     /** Batas DP bawaan bila SO tidak menyepakati apa pun. */
@@ -149,8 +149,9 @@ class SalesOrder extends Model
 
     /**
      * Batas minimal pembayaran SO ini, dalam rupiah, dibatasi sisa tagihan — inilah angka
-     * yang dipakai tautan bayar. Kesepakatan DP hanya mengikat pembayaran PERTAMA;
-     * termin berikutnya boleh berapa pun.
+     * yang dipakai tautan bayar. Tautan hanya untuk DP dan pelunasan: selama batas DP belum
+     * terpenuhi yang ditagih kekurangannya, sesudah itu sisa tagihan dibayar penuh. Pembayaran
+     * di luar itu dicatat manual oleh admin. Kesepakatan 0 berarti tanpa batas.
      *
      * Urutan: persen kesepakatan → nominal kesepakatan → bawaan 50%.
      */
@@ -160,10 +161,6 @@ class SalesOrder extends Model
         $paid = (int) round((float) $this->paid_amount);
         $remaining = max(0, $total - $paid);
 
-        if ($paid > 0) {
-            return 0;
-        }
-
         if ($this->min_dp_percent !== null) {
             $batas = (int) round($total * (float) $this->min_dp_percent / 100);
         } elseif ($this->min_dp_amount !== null) {
@@ -172,7 +169,11 @@ class SalesOrder extends Model
             $batas = (int) round($total * self::DEFAULT_MIN_DP_PERCENT / 100);
         }
 
-        return (int) min(max(0, $batas), $remaining);
+        if ($batas <= 0) {
+            return 0;
+        }
+
+        return $paid >= $batas ? $remaining : (int) min($batas - $paid, $remaining);
     }
 
     /** Batas DP apa adanya (belum dikurangi pembayaran) — untuk ditampilkan di layar. */
@@ -212,8 +213,21 @@ class SalesOrder extends Model
     }
 
     /**
-     * Alasan barang pesanan ini belum boleh keluar, atau null bila boleh. Dicicil berapa kali
-     * pun, barang baru keluar setelah lunas. Dikecualikan: tempo (kesepakatan admin) dan
+     * Sisa yang masih ditagih ke pembeli. Pelunasan setelah faktur terbit tercatat di faktur,
+     * dan paid_amount SO tidak ikut naik, jadi yang lebih besar yang dipakai. Tanpa ini
+     * pesanan yang sudah lunas lewat faktur masih bisa ditagih dan dibayar dua kali.
+     */
+    public function sisaTagihan(): float
+    {
+        $lewatFaktur = (float) \App\Models\SalesInvoice::where('sales_order_id', $this->id)->where('status', 'posted')
+            ->selectRaw('COALESCE(SUM(paid_amount + advance_applied), 0) as n')->value('n');
+
+        return max(0, round((float) $this->grand_total - max((float) $this->paid_amount, $lewatFaktur), 2));
+    }
+
+    /**
+     * Alasan barang pesanan ini belum boleh keluar, atau null bila boleh. Barang baru keluar
+     * setelah lunas. Dikecualikan: tempo (kesepakatan admin) dan
      * marketplace (dibayar di marketplace, uangnya cair belakangan).
      */
     public function alasanTakBolehDikirim(): ?string
@@ -222,10 +236,7 @@ class SalesOrder extends Model
             return null;
         }
 
-        // Pembayaran bisa tercatat lewat faktur, bukan SO: pakai yang lebih besar.
-        $lewatFaktur = (float) \App\Models\SalesInvoice::where('sales_order_id', $this->id)->where('status', 'posted')
-            ->selectRaw('COALESCE(SUM(paid_amount + advance_applied), 0) as n')->value('n');
-        $sisa = round((float) $this->grand_total - max((float) $this->paid_amount, $lewatFaktur), 2);
+        $sisa = $this->sisaTagihan();
 
         return $sisa > 0.01
             ? "Pesanan {$this->order_number} belum lunas. Sisa Rp " . number_format($sisa, 0, ',', '.') . ' harus dibayar sebelum barang dikirim.'

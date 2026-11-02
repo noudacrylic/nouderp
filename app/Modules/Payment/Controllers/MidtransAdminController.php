@@ -70,7 +70,7 @@ class MidtransAdminController extends Controller
             return response()->json(['error' => 'Sales Order sudah full invoiced.'], 422);
         }
 
-        $remaining = (int) round($order->grand_total - $order->paid_amount);
+        $remaining = (int) round($order->sisaTagihan());
         if ($remaining <= 0) {
             return response()->json(['error' => 'Sales Order sudah lunas.'], 422);
         }
@@ -147,7 +147,7 @@ class MidtransAdminController extends Controller
         if (! in_array($order->status, ['draft', 'confirmed'], true)) {
             return response()->json(['error' => 'Pembayaran QRIS hanya untuk Sales Order draft atau confirmed.'], 422);
         }
-        if ((float) $order->grand_total - (float) $order->paid_amount <= 0) {
+        if ($order->sisaTagihan() <= 0) {
             return response()->json(['error' => 'Sales Order ini sudah lunas.'], 422);
         }
 

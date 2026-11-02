@@ -49,7 +49,7 @@ class PelunasanNoticeService
             return [false, "Pesanan {$so->order_number} tempo — boleh dikirim sebelum lunas."];
         }
 
-        $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
+        $sisa = $so->sisaTagihan();
 
         if ($sisa <= 0.01) {
             return [false, "Pesanan {$so->order_number} sudah lunas."];

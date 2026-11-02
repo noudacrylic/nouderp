@@ -208,9 +208,9 @@ class PaymentLinkService
                 'channel' => 'snap_auto',
                 'gross_amount' => 0,
                 'base_amount' => 0,
-                // Kesepakatan DP hanya mengikat pembayaran pertama: termin berikutnya
-                // boleh berapa pun sampai lunas.
-                'min_dp_amount' => $isSo ? 0 : null,
+                // Sisa tagihan dibayar penuh: DP adalah tanda jadi yang berlaku sekali,
+                // sesuai ketentuan yang tertulis di halaman bayar.
+                'min_dp_amount' => $isSo ? $remaining : null,
                 'customer_admin_fee' => 0,
                 'status' => 'pending',
                 'created_by' => $current->created_by,
@@ -259,7 +259,7 @@ class PaymentLinkService
 
         $so = $trx->salesOrder;
 
-        return $so ? (int) round((float) $so->grand_total - (float) $so->paid_amount) : 0;
+        return $so ? (int) round($so->sisaTagihan()) : 0;
     }
 
     public function makeOrderId(string $prefix): string

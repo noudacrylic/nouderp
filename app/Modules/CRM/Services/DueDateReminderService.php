@@ -125,7 +125,7 @@ class DueDateReminderService
             return false;
         }
 
-        $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
+        $sisa = $so->sisaTagihan();
 
         $kunci = "so:{$so->id}:tempo:h{$titik}";
 

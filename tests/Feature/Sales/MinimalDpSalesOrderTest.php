@@ -75,20 +75,25 @@ class MinimalDpSalesOrderTest extends TestCase
         $this->assertTrue($so->hasCustomMinDp(), 'Nol adalah kesepakatan, bukan "belum diisi".');
     }
 
-    public function test_kesepakatan_hanya_mengikat_pembayaran_pertama_dan_dibatasi_sisa(): void
+    public function test_tautan_hanya_untuk_dp_dan_pelunasan(): void
     {
         // Belum bayar → wajib memenuhi kesepakatan.
         $this->assertSame(300000, $this->so(['min_dp_percent' => 30])->minDpAmount());
 
-        // Sudah pernah bayar, walau di bawah batas → termin berikutnya bebas.
+        // Sudah DP 200rb dari batas 300rb → tinggal 100rb lagi untuk memenuhi batas.
         $so = $this->so(['min_dp_percent' => 30, 'paid_amount' => 200000]);
-        $this->assertSame(0, $so->minDpAmount());
+        $this->assertSame(100000, $so->minDpAmount());
 
+        // Batas sudah terpenuhi → sisanya pelunasan penuh.
         $so2 = $this->so(['min_dp_percent' => 30, 'paid_amount' => 400000]);
-        $this->assertSame(0, $so2->minDpAmount());
+        $this->assertSame(600000, $so2->minDpAmount());
 
+        // Batas 900rb, sudah dibayar 800rb → tinggal 100rb, walau sisa tagihannya 200rb.
         $so3 = $this->so(['min_dp_amount' => 900000, 'paid_amount' => 800000]);
-        $this->assertSame(0, $so3->minDpAmount());
+        $this->assertSame(100000, $so3->minDpAmount());
+
+        // Kesepakatan tanpa batas tetap tanpa batas.
+        $this->assertSame(0, $this->so(['min_dp_percent' => 0, 'paid_amount' => 100000])->minDpAmount());
 
         // Batas melebihi total pesanan → dipotong ke sisa tagihan, tidak boleh lebih.
         $so4 = $this->so(['min_dp_amount' => 1200000]);

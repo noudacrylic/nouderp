@@ -12,8 +12,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Kesepakatan DP mengikat pembayaran pertama saja; termin berikutnya bebas. Dicicil berapa kali
- * pun, barang baru boleh keluar setelah lunas.
+ * Tautan bayar hanya untuk DP dan pelunasan; pembayaran di luar itu dicatat manual oleh admin.
+ * Barang baru boleh keluar setelah lunas.
  */
 class TerminDanKirimLunasTest extends TestCase
 {
@@ -52,22 +52,38 @@ class TerminDanKirimLunasTest extends TestCase
         }
     }
 
-    /** Kasus Hanif: DP 2.251.000, tautan lama mencatat wajib lunas, mau bayar 2 juta dulu. */
-    public function test_termin_berikutnya_bebas_walau_tautan_lama_mencatat_wajib_lunas(): void
+    /** Kasus Hanif: DP 2.251.000, mau bayar 2 juta dulu lewat tautan → ditolak, dicatat manual. */
+    public function test_sesudah_dp_tautan_hanya_menerima_pelunasan_penuh(): void
     {
         $so = $this->so(['paid_amount' => 2251000]);
-        $t = $this->tautan($so, 2251000);
-        $this->assertSame(0, $so->minDpAmount());
+
+        // Termasuk tautan yang terlanjur mencatat batas 0 atau batas DP awal.
+        foreach ([2251000, 0, 1800800, null] as $min) {
+            $t = $this->tautan($so, $min);
+
+            $this->get("/pay/{$t->link_token}")->assertOk()
+                ->assertSee('dibayar <b>penuh</b>', false)->assertDontSee('Ingin membayar sebagian dulu?')->assertDontSee('Ketentuan pembayaran DP');
+
+            foreach (['charge', 'snap'] as $jalur) {
+                $this->postJson("/pay/{$t->link_token}/{$jalur}", ['channel' => 'qris', 'amount' => 2000000])
+                    ->assertStatus(422)->assertJson(['error' => 'DP minimal Rp 2.251.000.']);
+            }
+        }
+
+        // Tombol rincian pesanan & buat tautan menulis ulang batas tautan dari minDpAmount().
+        $this->assertSame(2251000, $so->minDpAmount());
+    }
+
+    public function test_kesepakatan_tanpa_batas_tetap_boleh_sebagian(): void
+    {
+        $so = $this->so(['min_dp_percent' => 0]);
+        $t = $this->tautan($so, 0);
 
         $this->get("/pay/{$t->link_token}")->assertOk()
             ->assertSee('Ingin membayar sebagian dulu?')->assertDontSee('DP 0%')->assertDontSee('Ketentuan pembayaran DP');
 
-        // Lolos penjaga nominal: gagalnya (bila ada) dari pemanggilan Midtrans, bukan batas DP.
         foreach (['charge', 'snap'] as $jalur) {
-            $r = $this->postJson("/pay/{$t->link_token}/{$jalur}", ['channel' => 'qris', 'amount' => 2000000]);
-            $this->assertStringNotContainsString('DP minimal', (string) $r->json('error'), $jalur);
             $this->postJson("/pay/{$t->link_token}/{$jalur}", ['channel' => 'qris', 'amount' => 0])->assertStatus(422)->assertJson(['error' => 'Isi nominal yang dibayar.']);
-            $this->postJson("/pay/{$t->link_token}/{$jalur}", ['channel' => 'qris', 'amount' => 2251001])->assertStatus(422);
         }
     }
 
@@ -101,6 +117,35 @@ class TerminDanKirimLunasTest extends TestCase
         \App\Models\SalesInvoice::create(['invoice_number' => 'INV-T1', 'sales_order_id' => $so->id, 'customer_id' => $so->customer_id, 'warehouse_id' => $so->warehouse_id,
             'invoice_date' => now()->toDateString(), 'status' => 'posted', 'subtotal' => 4502000, 'grand_total' => 4502000, 'paid_amount' => 2251000, 'advance_applied' => 2251000]);
         $this->assertNull($so->fresh()->alasanTakBolehDikirim());
+    }
+
+    /** Kasus Hanif: lunas lewat faktur, tautan lama masih pending → tidak boleh bayar lagi. */
+    public function test_tautan_pada_pesanan_lunas_lewat_faktur_menolak_pembayaran(): void
+    {
+        $so = $this->so(['paid_amount' => 4251000]);
+        $t = $this->tautan($so, 2251000);
+        $this->assertSame(251000.0, $so->sisaTagihan());
+
+        \App\Models\SalesInvoice::create(['invoice_number' => 'INV-T2', 'sales_order_id' => $so->id, 'customer_id' => $so->customer_id, 'warehouse_id' => $so->warehouse_id,
+            'invoice_date' => now()->toDateString(), 'status' => 'posted', 'subtotal' => 4502000, 'grand_total' => 4502000, 'paid_amount' => 251000, 'advance_applied' => 4251000]);
+        $this->assertSame(0.0, $so->fresh()->sisaTagihan());
+
+        $this->get("/pay/{$t->link_token}")->assertOk()->assertSee('sudah lunas')->assertDontSee('dp_input', false);
+        foreach (['charge', 'snap'] as $jalur) {
+            $this->postJson("/pay/{$t->link_token}/{$jalur}", ['channel' => 'qris', 'amount' => 251000])->assertStatus(422)->assertJson(['error' => 'Pesanan ini sudah lunas.']);
+        }
+        $this->assertSame('pending', $t->fresh()->status);
+    }
+
+    /** Faktur draft atau void bukan pembayaran. */
+    public function test_faktur_belum_posting_atau_void_tidak_dihitung(): void
+    {
+        foreach (['draft', 'void'] as $i => $status) {
+            $so = $this->so(['paid_amount' => 1000000]);
+            \App\Models\SalesInvoice::create(['invoice_number' => 'INV-S' . $i, 'sales_order_id' => $so->id, 'customer_id' => $so->customer_id, 'warehouse_id' => $so->warehouse_id,
+                'invoice_date' => now()->toDateString(), 'status' => $status, 'subtotal' => 4502000, 'grand_total' => 4502000, 'paid_amount' => 4502000, 'advance_applied' => 0]);
+            $this->assertSame(3502000.0, $so->sisaTagihan(), $status);
+        }
     }
 
     private function produk(): int

@@ -429,7 +429,7 @@ class MidtransService
      */
     public function createQrisInstoreForSO(SalesOrder $so, ?int $userId = null): MidtransTransaction
     {
-        $base = (int) round((float) $so->grand_total - (float) $so->paid_amount);
+        $base = (int) round($so->sisaTagihan());
         if ($base <= 0) {
             throw new RuntimeException('Sales Order ini sudah lunas.');
         }

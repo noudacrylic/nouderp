@@ -72,7 +72,7 @@ class OrderNotificationService
              * pesan ini (variabel ke-5, khusus WAHA; lihat TemplateResmi 'tambahan_waha').
              * Tempo tidak: sisanya memang ditagih belakangan, bukan di kasir.
              */
-            $sisa = round((float) $so->grand_total - (float) $so->paid_amount, 2);
+            $sisa = $so->sisaTagihan();
 
             /*
              * Slot {{5}} SELALU dikirim, walau kosong.

@@ -1187,7 +1187,7 @@ class SalesOrderController extends Controller
      */
     private function ensurePaymentLink(SalesOrder $order): void
     {
-        $remaining = (float) $order->grand_total - (float) ($order->paid_amount ?? 0);
+        $remaining = $order->sisaTagihan();
         if (! in_array($order->status, ['draft', 'confirmed'], true) || $remaining <= 0) {
             return;
         }

@@ -85,7 +85,12 @@ class MidtransPublicController extends Controller
             if (!$so) {
                 return view('pay.invalid', ['reason' => 'Pesanan tidak ditemukan.']);
             }
-            $remaining = (int) round($so->grand_total - $so->paid_amount);
+            $remaining = (int) round($so->sisaTagihan());
+            // Sudah lunas lewat faktur sementara tautan ini belum pernah dibayar: tak ada lagi
+            // yang ditagih, jangan sampai pembeli membayar dua kali.
+            if ($remaining <= 0 && !$trx->isPaid()) {
+                return view('pay.invalid', ['reason' => "Pesanan {$so->order_number} sudah lunas. Tidak ada tagihan yang perlu dibayar."]);
+            }
             $requireFull = $this->requiresFullPayment($trx); // pesanan dari website → wajib lunas
 
             // Halaman lacak ada di TOKO, bukan di ERP. Tautan bayar berumur pendek
@@ -165,7 +170,7 @@ class MidtransPublicController extends Controller
             if (!$so) {
                 return response()->json(['error' => 'Pesanan tidak ditemukan'], 404);
             }
-            $remaining = (int) round($so->grand_total - $so->paid_amount);
+            $remaining = (int) round($so->sisaTagihan());
             if ($remaining <= 0) {
                 return response()->json(['error' => 'Pesanan ini sudah lunas.'], 422);
             }
@@ -248,7 +253,7 @@ class MidtransPublicController extends Controller
             if (!$so) {
                 return response()->json(['error' => 'Pesanan tidak ditemukan'], 404);
             }
-            $remaining = (int) round($so->grand_total - $so->paid_amount);
+            $remaining = (int) round($so->sisaTagihan());
             if ($remaining <= 0) {
                 return response()->json(['error' => 'Pesanan ini sudah lunas.'], 422);
             }
@@ -397,16 +402,12 @@ class MidtransPublicController extends Controller
      * angka 50% yang dipatok di sini, supaya SO ber-kesepakatan khusus tetap terhormati
      * meski tautannya terbit sebelum kesepakatan itu dicatat.
      *
-     * Sudah pernah bayar = termin berikutnya, bebas berapa pun. Dicek paling awal supaya
-     * tautan lama yang masih mencatat kewajiban lunas ikut mengikuti aturan ini.
+     * Sudah pernah bayar = yang berlaku hitungan SO, bukan catatan tautan: tautan yang masih
+     * mencatat batas DP awal atau 0 tidak boleh membuka pembayaran sebagian.
      */
     protected function minDpFor($trx, $so, int $remaining): int
     {
-        if ((float) $so->paid_amount > 0) {
-            return 0;
-        }
-
-        $min = $trx->min_dp_amount !== null
+        $min = $trx->min_dp_amount !== null && (float) $so->paid_amount <= 0
             ? (int) round($trx->min_dp_amount)
             : $so->minDpAmount();
 
