@@ -895,16 +895,19 @@ class FulfillmentReadinessService
                 ->whereIn('bom_outputs.product_id', $kurangPreorder)
                 ->pluck('bom_outputs.product_id')->all())) : [];
 
-        // SO yang ditautkan ke chat CRM — penentu tombol "Chat" untuk pesanan marketplace,
-        // yang pelanggannya (Shopee/Tokopedia) bukan orang yang chat.
-        $chatTertaut = $soIds ? array_flip(\Illuminate\Support\Facades\DB::table('crm_pesanan_chat')
-            ->whereIn('sales_order_id', $soIds)->pluck('sales_order_id')->all()) : [];
+        // Chat CRM milik pesanan — penentu tombol chat pesanan marketplace, yang pelanggannya
+        // (Shopee/Tokopedia) bukan orang yang chat. Nomor marketplace hanya dari SO ber-link
+        // Jubelio: nomor PO SO biasa bisa saja kebetulan berawalan 'SP-'.
+        $chatPesanan = app(\App\Modules\CRM\Services\ChatPesananService::class)->untuk(
+            $orders->mapWithKeys(fn (SalesOrder $so) => [$so->id => $linksBySo->has($so->id) ? $so->customer_po_number : null])->all()
+        );
 
-        return $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo, $chatTertaut) {
+        return $orders->map(function (SalesOrder $so) use ($prodBySo, $linksBySo, $returnsBySo, $chatPesanan) {
             $returns = $returnsBySo->get($so->id);
             $retur   = $returns?->firstWhere('status', 'draft') ?? $returns?->first();
             $row = $this->buildSoRow($so, $prodBySo->get($so->id), $linksBySo->get($so->id), $retur);
-            $row['chat_tertaut'] = isset($chatTertaut[$so->id]);
+            $row['chat'] = $chatPesanan[$so->id];
+            $row['chat_tertaut'] = $chatPesanan[$so->id]['tertaut'];
 
             // SO yang sudah di-void tidak punya tempat di alur pemrosesan — beri bucket sendiri
             // supaya kolom Status jujur, bukan meminjam label bucket yang tidak ia tempati.

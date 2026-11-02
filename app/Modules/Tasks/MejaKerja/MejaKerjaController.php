@@ -138,13 +138,14 @@ class MejaKerjaController extends Controller
     }
 
     /**
-     * Mulai Chat Shopee dari kartu Desain: sapa pembeli duluan (kartu pesanan + teks), lalu
-     * buka percakapannya di CRM. Chat yang sudah ada langsung dibuka tanpa mengirim apa pun.
+     * Mulai Chat Shopee dari kartu Desain & kartu Pemrosesan Pesanan: sapa pembeli duluan (kartu
+     * pesanan + teks), lalu buka percakapannya di CRM. Chat yang sudah ada langsung dibuka tanpa
+     * mengirim apa pun. Boleh bagi anggota meja kerja dan pemegang akses Inbox CRM.
      */
     public function chatShopee(Request $request, int $so, ShopeeSapaPembeliService $sapa)
     {
         $u = $request->user();
-        abort_unless($u->role === 'super_admin' || $this->meja->peranUser($u->id), 403, 'Hanya anggota meja kerja.');
+        abort_unless($u->role === 'super_admin' || $this->meja->peranUser($u->id) || user_can_access('crm.inbox'), 403, 'Hanya anggota meja kerja atau pemegang akses Inbox CRM.');
         $data = $request->validate(['teks' => 'required|string|max:1000']);
 
         $no = (string) SalesOrder::whereKey($so)->value('customer_po_number');
