@@ -557,17 +557,36 @@ class CrmInboxController extends Controller
                             ->select('id'))
                         ->select('conversation_id'))
                     // Chat Shopee juga lewat ID pembeli di salinan pesanan: tak semua pesanan
-                    // tertaut. Minimal 6 karakter supaya pencarian pendek tak menyeret ribuan chat.
-                    ->when(strlen($cari) >= 6, fn ($s) => $s->orWhere(fn ($k) => $k
+                    // tertaut. ID diambil dulu, JANGAN subquery: digabung OR di atas, MariaDB
+                    // mengulangnya tiap baris chat dan pencarian menggantung (>25 detik, 2 Nov 2026).
+                    ->when($this->pembeliShopeeDariNomor($cari), fn ($s, $pembeli) => $s->orWhere(fn ($k) => $k
                         ->where('channel', CrmConversation::KANAL_SHOPEE)
-                        ->whereIn('contact_key', DB::table('shopee_orders')
-                            ->where('order_sn', 'like', '%' . preg_replace('/^SP-/i', '', $cari) . '%')
-                            ->whereNotNull('buyer_user_id')
-                            ->select('buyer_user_id')))));
+                        ->whereIn('contact_key', $pembeli))));
             })
             // Yang belum pernah ada pesannya pun harus muncul; ORDER BY kolom
             // nullable menaruhnya di ujung, jadi dipakai created_at sebagai jaring.
             ->orderByRaw('COALESCE(last_message_at, created_at) DESC');
+    }
+
+    /**
+     * ID pembeli (teks, sama dengan contact_key) dari potongan nomor pesanan Shopee. Minimal
+     * 6 karakter supaya pencarian pendek tak menyeret ribuan chat.
+     *
+     * @return string[]
+     */
+    private function pembeliShopeeDariNomor(string $cari): array
+    {
+        if (strlen($cari) < 6) {
+            return [];
+        }
+
+        return DB::table('shopee_orders')
+            ->where('order_sn', 'like', '%' . preg_replace('/^SP-/i', '', $cari) . '%')
+            ->whereNotNull('buyer_user_id')
+            ->limit(50)
+            ->pluck('buyer_user_id')
+            ->map(fn ($id) => (string) $id)
+            ->unique()->values()->all();
     }
 
     /**

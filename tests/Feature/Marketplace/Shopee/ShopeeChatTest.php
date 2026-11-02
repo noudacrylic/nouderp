@@ -472,6 +472,14 @@ class ShopeeChatTest extends TestCase
             $this->actingAs($this->saiful)->get(route('crm.inbox.index', ['search' => $cari]))->assertOk()->assertSee('pembeli_tujuh');
         }
 
+        // Penjaga kinerja: subquery shopee_orders di dalam query chat membuat pencarian menggantung.
+        DB::enableQueryLog();
+        $this->actingAs($this->saiful)->get(route('crm.inbox.index', ['search' => '261029V2AY0XWK']))->assertOk();
+        $gabungan = collect(DB::getQueryLog())->pluck('query')
+            ->filter(fn ($q) => str_contains($q, 'from `crm_conversations`') && str_contains($q, 'shopee_orders'));
+        DB::disableQueryLog();
+        $this->assertCount(0, $gabungan, 'shopee_orders tidak boleh jadi subquery pencarian chat.');
+
         // Tombol di kartu tetap jalan: nota boleh dikirim ke pembeli pesanan itu.
         $this->app->instance(\App\Modules\CRM\Services\NotaGambarService::class, new class extends \App\Modules\CRM\Services\NotaGambarService {
             public function __construct() {}
