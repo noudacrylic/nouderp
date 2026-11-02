@@ -9,32 +9,41 @@ use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
 /**
  * "Fokus" chat Shopee seperti di Seller Centre: kartu produk terakhir yang dikirim pembeli (chat
  * dari halaman produk) → listing + SKU variannya. Kartu lebih tua dari 7 hari dianggap sudah bukan
- * topik. Kartu hanya membawa item_id, jadi varian yang dimaksud pembeli tidak diketahui: bila
- * produknya bervarian, semua SKU-nya yang ditunjukkan.
+ * topik. Kartu `item` hanya membawa item_id, jadi varian yang dimaksud tidak diketahui dan semua
+ * SKU ditunjukkan. Kartu `variation_card` ("Pelanggan menanyakan tentang variasi") membawa model_id,
+ * jadi variannya pasti.
  */
 class ProdukDibahasService
 {
+    public const JENIS_KARTU = ['item', 'variation_card'];
+
     /** SKU yang ditulis di layar; sisanya jadi "+n lainnya" dan tetap terbaca di title. */
     private const MAKS_SKU_TAMPIL = 4;
 
-    /** @return array{item_id:int, nama:string, sent_at:\Illuminate\Support\Carbon, varian:\Illuminate\Support\Collection}|null */
+    /** @return array{item_id:int, nama:string, sent_at:\Illuminate\Support\Carbon, varian:\Illuminate\Support\Collection, pilihan:?ShopeeItem}|null */
     public function untukChat(CrmConversation $chat): ?array
     {
         if (!$chat->shopee()) return null;
 
         $kartu = CrmMessage::where('conversation_id', $chat->id)
             ->where('direction', CrmMessage::MASUK)
-            ->where('raw->message_type', 'item')
+            ->whereIn('raw->message_type', self::JENIS_KARTU)
             ->where('sent_at', '>=', now()->subDays(7))
             ->latest('sent_at')->latest('id')->first();
-        $itemId = (int) data_get($kartu?->raw, 'content.item_id');
+        $itemId = $this->itemId($kartu?->raw);
         if (!$itemId) return null;
 
         $varian = ShopeeItem::where('shop_id', (int) $chat->business_number_id)->where('item_id', $itemId)
-            ->orderBy('model_id')->get(['nama', 'nama_model', 'model_sku', 'item_sku', 'stok']);
+            ->orderBy('model_id')->get(['nama', 'nama_model', 'model_id', 'model_sku', 'item_sku', 'stok']);
         if ($varian->isEmpty()) return null;
 
-        return ['item_id' => $itemId, 'nama' => (string) $varian->first()->nama, 'sent_at' => $kartu->sent_at, 'varian' => $varian];
+        return [
+            'item_id' => $itemId,
+            'nama'    => (string) $varian->first()->nama,
+            'sent_at' => $kartu->sent_at,
+            'varian'  => $varian,
+            'pilihan' => $varian->firstWhere('model_id', (int) data_get($kartu->raw, 'content.model_id')),
+        ];
     }
 
     /** @return string[] SKU unik varian, urut seperti listing */
@@ -63,17 +72,33 @@ class ProdukDibahasService
      */
     public function skuKartu(iterable $pesan): array
     {
-        $item = [];
+        $kartu = [];
         foreach ($pesan as $m) {
-            if (data_get($m->raw, 'message_type') === 'item' && ($id = (int) data_get($m->raw, 'content.item_id'))) {
-                $item[$m->id] = $id;
+            if ($this->kartuProduk($m->raw) && ($id = $this->itemId($m->raw))) {
+                $kartu[$m->id] = [$id, (int) data_get($m->raw, 'content.model_id')];
             }
         }
-        if (!$item) return [];
+        if (!$kartu) return [];
 
-        $varian = ShopeeItem::whereIn('item_id', array_unique($item))->orderBy('model_id')
-            ->get(['item_id', 'model_sku', 'item_sku'])->groupBy('item_id');
+        $varian = ShopeeItem::whereIn('item_id', array_unique(array_column($kartu, 0)))->orderBy('model_id')
+            ->get(['item_id', 'model_id', 'model_sku', 'item_sku'])->groupBy('item_id');
 
-        return array_filter(array_map(fn ($id) => $this->daftarSku($varian->get($id, [])), $item));
+        return array_filter(array_map(function (array $k) use ($varian) {
+            $semua = $varian->get($k[0], collect());
+            $pilihan = $semua->firstWhere('model_id', $k[1]);
+
+            return $this->daftarSku($pilihan ? [$pilihan] : $semua);
+        }, $kartu));
+    }
+
+    public function kartuProduk(mixed $raw): bool
+    {
+        return in_array(data_get($raw, 'message_type'), self::JENIS_KARTU, true);
+    }
+
+    /** Kartu item memakai item_id, kartu variasi memakai product_id untuk hal yang sama. */
+    private function itemId(mixed $raw): int
+    {
+        return (int) (data_get($raw, 'content.item_id') ?: data_get($raw, 'content.product_id'));
     }
 }

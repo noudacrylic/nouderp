@@ -102,6 +102,8 @@ class AgenPrompt
 
         return 'Produk yang sedang dibahas (pembeli mengirim kartu produk ' . $fokus['sent_at']->format('d/m H:i') . '): '
             . $fokus['nama'] . ' — link https://shopee.co.id/product/' . $percakapan->business_number_id . '/' . $fokus['item_id']
-            . '. Varian: ' . $daftar . '.';
+            . '. Varian: ' . $daftar . '.'
+            . ($fokus['pilihan'] ? ' Varian yang ditanyakan pembeli: ' . ($fokus['pilihan']->nama_model ?: 'tanpa varian')
+                . ' (SKU ' . ($fokus['pilihan']->model_sku ?: $fokus['pilihan']->item_sku) . ').' : '');
     }
 }

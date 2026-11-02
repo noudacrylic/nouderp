@@ -703,6 +703,49 @@ class ShopeeChatTest extends TestCase
         $this->actingAs($this->saiful)->get(route('crm.inbox.show', $wa))->assertOk()->assertDontSee('id="produkDibahas"', false);
     }
 
+    /** Kartu "Pelanggan menanyakan tentang variasi" membawa varian persis: nama, SKU, dan fokus AI. */
+    public function test_kartu_variasi_dikenali_dengan_varian_persisnya(): void
+    {
+        $varian = fn (int $model, string $nama, string $sku) => \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create(['env' => 'test', 'shop_id' => self::TOKO, 'item_id' => 888,
+            'model_id' => $model, 'model_sku' => $sku, 'nama' => 'Papan Nama Meja 7x30', 'nama_model' => $nama, 'harga' => 1000, 'stok' => 5]);
+        $varian(11, '1 Sisi', 'NM-7x30-M1');
+        $varian(22, '1 Sisi+Print Tulisan', 'NM-7x30-M1-TXT');
+
+        $t = now()->subMinutes(3)->timestamp;
+        $this->cv(7, 'pembeli_tujuh', $t, 'v1');
+        $this->pesan[7] = [$this->m('v1', 'variation_card', ['product_id' => 888, 'shop_id' => self::TOKO, 'model_id' => 22, 'item_card_v2' => ['sold_count' => 9]], detik: $t)];
+        app(ShopeeChatService::class)->tarikBaru($this->shop);
+        $crm = CrmConversation::where('channel', CrmConversation::KANAL_SHOPEE)->firstOrFail();
+
+        $this->assertSame('🛍️ Menanyakan varian: Papan Nama Meja 7x30 — 1 Sisi+Print Tulisan', CrmMessage::where('conversation_id', $crm->id)->value('content'));
+
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()
+            ->assertSee('Dibahas:')->assertSee('SKU: NM-7x30-M1-TXT')->assertSee('(1 Sisi+Print Tulisan)')
+            ->assertDontSee('SKU: NM-7x30-M1-TXT, NM-7x30-M1');
+
+        $prompt = (new \ReflectionMethod(\App\Modules\CRM\Agents\AgenPrompt::class, 'fokusProduk'))->invoke(null, $crm);
+        $this->assertStringContainsString('Varian yang ditanyakan pembeli: 1 Sisi+Print Tulisan (SKU NM-7x30-M1-TXT)', $prompt);
+        $this->assertStringContainsString('1 Sisi (SKU NM-7x30-M1', $prompt, 'Varian lain tetap diketahui.');
+    }
+
+    /** Pesan lama "[variation_card]" ditulis ulang dari raw; dry-run tak mengubah apa pun, aman diulang. */
+    public function test_perbaiki_kartu_variasi_lama(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create(['env' => 'test', 'shop_id' => self::TOKO, 'item_id' => 888, 'model_id' => 22,
+            'nama' => 'Papan Nama', 'nama_model' => 'Print', 'harga' => 1000, 'stok' => 5]);
+        $lama = CrmMessage::create(['conversation_id' => $crm->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'text', 'content' => '[variation_card]',
+            'sent_at' => now(), 'provider_message_id' => 'shopee:lama1', 'raw' => $this->m('lama1', 'variation_card', ['product_id' => 888, 'shop_id' => self::TOKO, 'model_id' => 22])]);
+
+        $this->artisan('shopee:perbaiki-kartu-variasi', ['--dry-run' => true])->assertSuccessful();
+        $this->assertSame('[variation_card]', $lama->fresh()->content);
+
+        $this->artisan('shopee:perbaiki-kartu-variasi')->assertSuccessful();
+        $this->assertSame('🛍️ Menanyakan varian: Papan Nama — Print', $lama->fresh()->content);
+        $this->artisan('shopee:perbaiki-kartu-variasi')->assertSuccessful();
+        $this->assertSame('🛍️ Menanyakan varian: Papan Nama — Print', $lama->fresh()->content);
+    }
+
     /** Halaman cetak faktur: ?tanpa_kontak=1 membuang baris telepon/email toko. */
     public function test_cetak_faktur_tanpa_kontak(): void
     {

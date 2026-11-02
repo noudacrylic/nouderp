@@ -1854,7 +1854,7 @@ class CrmInboxController extends Controller
             'window_open' => $conversation->windowIsOpen(),
             'centang' => $this->centangTerakhir($conversation),
             // Hanya saat kartu produk baru masuk: tulisan "Dibahas" di atas kotak balasan berganti.
-            'produk_dibahas' => $baru->contains(fn ($m) => data_get($m->raw, 'message_type') === 'item')
+            'produk_dibahas' => $baru->contains(fn ($m) => app(\App\Modules\CRM\Services\ProdukDibahasService::class)->kartuProduk($m->raw))
                 ? view('erp.crm.inbox._produk_dibahas', ['percakapan' => $conversation])->render()
                 : null,
         ]);

@@ -487,6 +487,9 @@ class ShopeeChatService
             case 'item':
                 $u['isi'] = '🛍️ Produk: ' . $this->namaProduk($shop, (int) ($c['item_id'] ?? 0));
                 break;
+            case 'variation_card':
+                $u['isi'] = '🛍️ Menanyakan varian: ' . $this->namaProduk($shop, (int) ($c['product_id'] ?? 0), (int) ($c['model_id'] ?? 0));
+                break;
             case 'bot_summary_bundle_msg':
                 $baris = array_filter([
                     '🤖 Dialihkan dari AI Shopee',
@@ -542,13 +545,15 @@ class ShopeeChatService
         };
     }
 
-    private function namaProduk(ShopeeShop $shop, int $itemId): string
+    private function namaProduk(ShopeeShop $shop, int $itemId, int $modelId = 0): string
     {
-        $nama = $itemId
-            ? ShopeeItem::where('env', $shop->env)->where('shop_id', $shop->shop_id)->where('item_id', $itemId)->value('nama')
-            : null;
+        $varian = $itemId
+            ? ShopeeItem::where('env', $shop->env)->where('shop_id', $shop->shop_id)->where('item_id', $itemId)->get(['nama', 'nama_model', 'model_id'])
+            : collect();
+        $nama = $varian->first()?->nama;
+        $model = $modelId ? $varian->firstWhere('model_id', $modelId)?->nama_model : null;
 
-        return $nama ?: 'Shopee #' . $itemId;
+        return ($nama ?: 'Shopee #' . $itemId) . ($model ? " — {$model}" : '');
     }
 
     private function url(mixed $url): ?string
