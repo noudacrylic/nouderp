@@ -1,7 +1,11 @@
 {{-- Satu gelembung pesan. Dipisah karena dipakai DUA jalur: render awal
      halaman, dan penambahan lewat fetch (kirim & pesan masuk). Kalau
      markupnya digandakan, gelembung baru cepat berbeda dari yang lama. --}}
-@php $aksesNota = \App\Services\FotoNotaService::bolehNota(); @endphp
+@php
+    $aksesNota = \App\Services\FotoNotaService::bolehNota();
+    $layananProduk = app(\App\Modules\CRM\Services\ProdukDibahasService::class);
+    $skuKartu = $layananProduk->skuKartu($pesan);
+@endphp
 @foreach($pesan as $m)
                 @php
                     $masuk = $m->isInbound();
@@ -147,6 +151,10 @@
                              kenapa urutannya tidak boleh dibalik. --}}
                         @if($m->content)
                             <div class="whitespace-pre-wrap">{!! \App\Modules\CRM\Support\TeksPesan::tautkan($m->content) !!}</div>
+                        @endif
+                        {{-- Kartu produk Shopee: SKU dibaca dari katalog saat tampil, jadi pesan lama ikut. --}}
+                        @if(!empty($skuKartu[$m->id]))
+                            <div class="mt-0.5 text-[11px] font-mono text-gray-500" title="{{ implode(', ', $skuKartu[$m->id]) }}">SKU: {{ $layananProduk->ringkas($skuKartu[$m->id]) }}</div>
                         @endif
 
                         {{-- Titik tujuan (shareloc, link Maps, atau koordinat ketikan)

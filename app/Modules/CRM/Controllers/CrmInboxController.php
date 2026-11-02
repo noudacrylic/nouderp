@@ -1838,6 +1838,10 @@ class CrmInboxController extends Controller
             'last_id' => (int) ($baru->max('id') ?: $setelah),
             'window_open' => $conversation->windowIsOpen(),
             'centang' => $this->centangTerakhir($conversation),
+            // Hanya saat kartu produk baru masuk: tulisan "Dibahas" di atas kotak balasan berganti.
+            'produk_dibahas' => $baru->contains(fn ($m) => data_get($m->raw, 'message_type') === 'item')
+                ? view('erp.crm.inbox._produk_dibahas', ['percakapan' => $conversation])->render()
+                : null,
         ]);
     }
 

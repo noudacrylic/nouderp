@@ -648,6 +648,61 @@ class ShopeeChatTest extends TestCase
         $this->actingAs($this->saiful)->get(route('crm.inbox.show', $wa))->assertOk()->assertDontSee('Cek pesanan')->assertSee('Rincian + Link Bayar');
     }
 
+    private function kartuProduk(CrmConversation $crm, int $itemId, $waktu = null): CrmMessage
+    {
+        return CrmMessage::create(['conversation_id' => $crm->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'text',
+            'content' => '🛍️ Produk: Box Charger', 'sent_at' => $waktu ?? now(), 'provider_message_id' => 'kartu' . $itemId . '-' . uniqid(),
+            'raw' => ['message_type' => 'item', 'content' => ['shop_id' => self::TOKO, 'item_id' => $itemId]]]);
+    }
+
+    private function katalog(int $itemId, array $sku): void
+    {
+        foreach ($sku as $i => $s) {
+            \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create(['env' => 'test', 'shop_id' => self::TOKO, 'item_id' => $itemId, 'model_id' => $i + 1,
+                'model_sku' => $s, 'nama' => 'Box Charger ' . $itemId, 'nama_model' => 'V' . $i, 'harga' => 1000, 'stok' => 5]);
+        }
+    }
+
+    /** Kartu produk menampilkan SKU, dan SKU yang dibahas tertulis kecil di atas kotak balasan. */
+    public function test_sku_produk_dibahas_tampil_di_kartu_dan_di_atas_kotak_balasan(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $buka = fn () => $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk();
+        $this->katalog(111, ['BC-1x5']);
+        $this->katalog(222, ['KS-A', 'KS-B', 'KS-C', 'KS-D', 'KS-E', 'KS-F']);
+
+        $buka()->assertDontSee('Dibahas:');
+
+        // Pesan lama ikut: SKU dibaca dari katalog saat tampil. Kartu >7 hari bukan topik lagi.
+        $this->kartuProduk($crm, 111, now()->subDays(8));
+        $buka()->assertSee('SKU: BC-1x5')->assertDontSee('Dibahas:');
+
+        $this->kartuProduk($crm, 111);
+        $buka()->assertSee('Dibahas:')->assertSee('BC-1x5')->assertSee('Box Charger 111');
+
+        // Kartu terbaru yang berlaku; produk bervarian diringkas, lengkapnya di title.
+        $lama = CrmMessage::max('id');
+        $this->kartuProduk($crm, 222);
+        $buka()->assertSee('KS-A, KS-B, KS-C, KS-D +2 lainnya')->assertSee('KS-F');
+
+        // Tarikan berkala membawa tulisan baru hanya bila ada kartu produk baru.
+        $this->actingAs($this->saiful)->getJson(route('crm.inbox.pesan-baru', [$crm, 'after' => $lama]))
+            ->assertOk()->assertJsonPath('produk_dibahas', fn ($h) => str_contains($h, 'id="produkDibahas"') && str_contains($h, 'KS-A'));
+        $this->actingAs($this->saiful)->getJson(route('crm.inbox.pesan-baru', [$crm, 'after' => CrmMessage::max('id')]))
+            ->assertOk()->assertJsonPath('produk_dibahas', null);
+    }
+
+    /** Kartu produk yang tak ada di katalog tidak merusak gelembung, dan chat WA tak terpengaruh. */
+    public function test_produk_dibahas_tanpa_katalog_dan_chat_wa(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        $this->kartuProduk($crm, 999);
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()->assertDontSee('Dibahas:')->assertDontSee('SKU: ');
+
+        $wa = CrmConversation::findOrCreateFor('628111222333');
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $wa))->assertOk()->assertDontSee('id="produkDibahas"', false);
+    }
+
     /** Halaman cetak faktur: ?tanpa_kontak=1 membuang baris telepon/email toko. */
     public function test_cetak_faktur_tanpa_kontak(): void
     {

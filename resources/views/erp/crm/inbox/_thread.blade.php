@@ -533,6 +533,7 @@
                      teks masuk kotak ketik (masih bisa disunting); kirimannya dicatat sebagai
                      bahan evaluasi sebelum butirnya dilepas jadi otomatis. --}}
                 @if($terpilih->shopee())
+                    @include('erp.crm.inbox._produk_dibahas', ['percakapan' => $terpilih])
                     <div x-data="saranAiCrm(@js(route('crm.inbox.saran-ai', $terpilih->id)))" x-show="saran" x-cloak
                          class="mb-2 rounded border border-violet-300 bg-violet-50 px-3 py-2 text-sm">
                         <div class="flex flex-wrap items-center gap-2 text-xs text-violet-800">
@@ -1308,6 +1309,8 @@
                                     const d = await r.json();
                                     if (d.html) this.tempelHtml(d.html, d.last_id);
                                     if (d.centang) this.perbaruiCentang(d.centang);
+                                    const dibahas = document.getElementById('produkDibahas');
+                                    if (d.produk_dibahas && dibahas) dibahas.outerHTML = d.produk_dibahas;
                                 } catch (e) { /* jaringan putus sesaat: coba lagi siklus berikutnya */ }
                             },
 
