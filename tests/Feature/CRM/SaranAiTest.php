@@ -224,6 +224,61 @@ class SaranAiTest extends TestCase
         }
     }
 
+    /** Sebutan pembeli yang hanya ada di nama listing Shopee tetap menemukan barang & deskripsinya. */
+    public function test_sebutan_pembeli_ketemu_lewat_nama_listing_shopee(): void
+    {
+        $this->halamanWeb();
+        DB::table('shopee_items')->insert(['env' => app(\App\Modules\Marketplace\Shopee\Services\ShopeeClient::class)->env(), 'shop_id' => 101, 'item_id' => 777, 'model_id' => 0, 'item_sku' => 'BC-2x2',
+            'nama' => 'Box Charger HP Akrilik 4 Kotak Loker Murah', 'stok' => 4, 'status' => 'NORMAL', 'created_at' => now(), 'updated_at' => now()]);
+        $alat = app(AgenTools::class);
+
+        // Urutan kata boleh beda & tidak bersambung; semua katanya harus ada.
+        foreach (['box charger 4 kotak', '4 kotak LOKER'] as $sebutan) {
+            $this->assertStringContainsString('SKU BC-2x2', $alat->jalankan('cek_stok', ['kata_kunci' => $sebutan], null)['content'], $sebutan);
+            $this->assertStringContainsString('Ukuran per kotak', $alat->jalankan('deskripsi_produk', ['kata_kunci' => $sebutan], null)['content'], $sebutan);
+        }
+        $this->assertStringContainsString('Tidak ada barang', $alat->jalankan('cek_stok', ['kata_kunci' => 'box charger pigura'], null)['content']);
+    }
+
+    /** Kata umum tak dipotong batas kecil, dan deskripsi mendahulukan nama yang berawalan kata itu. */
+    public function test_kata_umum_mencakup_produk_utama_dan_deskripsi_tepat(): void
+    {
+        $halaman = function (string $nama, string $sku, int $varian) {
+            $kat = DB::table('store_categories')->insertGetId(['name' => "K $sku", 'slug' => "k-$sku", 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('store_products')->insertGetId(['store_category_id' => $kat, 'slug' => "h-$sku", 'name' => $nama, 'status' => 'published',
+                'description' => "Deskripsi $nama", 'created_at' => now(), 'updated_at' => now()]);
+            for ($i = 1; $i <= $varian; $i++) {
+                $p = Product::create(['sku' => "$sku-$i", 'name' => "$nama $i", 'sale_type' => 'bundle', 'base_unit' => 'pcs', 'base_price' => 1000, 'is_active' => true, 'is_sellable' => true]);
+                DB::table('store_product_variants')->insert(['store_product_id' => $id, 'product_id' => $p->id, 'variant_label' => "V$i", 'created_at' => now(), 'updated_at' => now()]);
+            }
+        };
+        $halaman('Koin Akrilik Kotak Saran', 'KOIN', 4);
+        $halaman('Kotak Saran Akrilik 1 Kotak', 'KS-K1', 3);
+        $halaman('Kotak Saran Akrilik 2 Kotak', 'KS-K2', 3);
+        $halaman('Kotak Saran Akrilik 3 Kotak', 'KS-K3', 6);
+
+        $alat = app(AgenTools::class);
+        $stok = $alat->jalankan('cek_stok', ['kata_kunci' => 'kotak saran'], null)['content'];
+        foreach (['KS-K1-1', 'KS-K2-1', 'KS-K3-6', 'KOIN-1'] as $sku) {
+            $this->assertStringContainsString($sku, $stok, 'Batas pencarian tak memotong: ' . $sku);
+        }
+
+        $des = $alat->jalankan('deskripsi_produk', ['kata_kunci' => 'kotak saran'], null)['content'];
+        $this->assertStringContainsString('Deskripsi Kotak Saran Akrilik 1 Kotak', $des);
+        $this->assertStringContainsString('Deskripsi Kotak Saran Akrilik 2 Kotak', $des);
+        $this->assertStringNotContainsString('Deskripsi Koin', $des, 'Koin bukan yang pertama dibaca.');
+        $this->assertStringContainsString('Koin Akrilik Kotak Saran: V1 = KOIN-1', $des, 'Yang lain disebut namanya, bisa dipanggil lagi.');
+        $this->assertStringContainsString('Deskripsi Kotak Saran Akrilik 1 Kotak', $alat->jalankan('deskripsi_produk', ['kata_kunci' => 'KS-K1-2'], null)['content']);
+    }
+
+    public function test_sebutan_pembeli_tertulis_di_pengetahuan(): void
+    {
+        $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
+        foreach (['kotak infaq = HANYA Kotak Saran 1 kotak', 'Kotak surat BUKAN produk kita', '`TH-A5`', '"Box akrilik"', '"Papan akrilik": jangan menebak'] as $aturan) {
+            $this->assertStringContainsString($aturan, $isi);
+        }
+    }
+
     public function test_alat_deskripsi_hanya_ditawarkan_ke_cs_shopee(): void
     {
         $nama = fn (string $kode) => array_column(app(AgenTools::class)->skema(CrmAgent::kode($kode)), 'name');

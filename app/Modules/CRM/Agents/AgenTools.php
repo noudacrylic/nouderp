@@ -36,6 +36,8 @@ class AgenTools
     private const PROVINSI_JAWA = ['dki jakarta', 'jakarta', 'jawa barat', 'jawa tengah', 'jawa timur',
         'di yogyakarta', 'yogyakarta', 'daerah istimewa yogyakarta', 'banten'];
 
+    private const BATAS_CARI_SHOPEE = 40;
+
     public function __construct(
         private PencarianProdukService $pencarian,
         private ShopeeClient $shopee,
@@ -186,7 +188,7 @@ class AgenTools
             return ['content' => 'Kata kunci kosong. Sebutkan nama barang atau SKU-nya.'];
         }
 
-        $hasil = $this->pencarian->untukAgen($kata);
+        $hasil = $this->cariBarangShopee($kata);
         if (! $hasil) {
             return ['content' => 'Tidak ada barang yang cocok dengan "' . $kata . '". Jangan mengarang — tanya pembeli atau lempar ke admin.'];
         }
@@ -197,6 +199,56 @@ class AgenTools
             . (($link = $this->linkShopee($p['sku'])) ? ' | link Shopee ' . $link : ''), $hasil);
 
         return ['content' => "Hasil cek stok (sebutkan apa adanya; SKU hanya untukmu, jangan disebut ke pembeli):\n" . implode("\n", $baris)];
+    }
+
+    /**
+     * Pencarian untuk CS Shopee. Batasnya longgar: satu kata umum ("kotak saran") mencakup banyak
+     * varian, dan batas kecil memotong produk utamanya. Tak ketemu lewat nama ERP → lewat nama
+     * listing Shopee & teks SEO halaman web, tempat sebutan pembeli ("box charger", "rak brosur") ada.
+     */
+    private function cariBarangShopee(string $kata): array
+    {
+        $hasil = $this->pencarian->untukAgen($kata, self::BATAS_CARI_SHOPEE);
+        if ($hasil) {
+            return $hasil;
+        }
+
+        $perSku = [];
+        foreach ($this->skuDariSebutan($kata) as $sku) {
+            foreach ($this->pencarian->untukAgen($sku, self::BATAS_CARI_SHOPEE) as $p) {
+                $perSku[$p['sku'] ?: $p['nama']] = $p;
+            }
+        }
+
+        return array_slice(array_values($perSku), 0, self::BATAS_CARI_SHOPEE);
+    }
+
+    /** @return string[] SKU listing/halaman yang namanya memuat SEMUA kata dalam sebutan pembeli */
+    private function skuDariSebutan(string $kata): array
+    {
+        $kataKata = array_values(array_filter(preg_split('/\s+/u', $kata)));
+        $tiapKata = function ($q, array $kolom) use ($kataKata) {
+            foreach ($kataKata as $w) {
+                $q->where(function ($a) use ($kolom, $w) {
+                    foreach ($kolom as $k) {
+                        $a->orWhere($k, 'like', "%{$w}%");
+                    }
+                });
+            }
+        };
+
+        $sku = ShopeeItem::where('env', $this->shopee->env())->where('status', 'NORMAL')
+            ->where(fn ($q) => $tiapKata($q, ['nama']))
+            ->get(['model_sku', 'item_sku'])
+            ->map(fn ($i) => $i->model_sku ?: $i->item_sku);
+
+        $web = StoreProduct::published()
+            ->where(fn ($q) => $tiapKata($q, ['name', 'short_description', 'meta_title', 'meta_description']))
+            ->with('variants.product:id,sku')
+            ->get()
+            ->flatMap(fn ($h) => $h->variants->map(fn ($v) => $v->product?->sku));
+
+        return $sku->concat($web)->filter()->unique()->values()->all();
     }
 
     /** Link listing Shopee untuk SKU ini (peta SKU shopee_items) — link di dalam Shopee boleh dikirim. */
@@ -242,21 +294,30 @@ class AgenTools
         $halaman = fn (array $sku) => StoreProduct::published()
             ->whereHas('variants.product', fn ($q) => $q->whereIn('sku', $sku))
             ->with('variants.product:id,sku')
-            ->limit(2)->get();
+            ->orderBy('name')->get();
 
+        // Urutan: SKU persis, nama halaman (yang berawalan kata itu dulu, supaya "kotak saran"
+        // tak dijawab dengan "Koin Akrilik Kotak Saran"), baru pencarian barang.
         $produk = $halaman([$kata]);
         if ($produk->isEmpty()) {
-            $produk = $halaman(array_values(array_filter(array_column($this->pencarian->untukAgen($kata), 'sku'))));
+            $produk = StoreProduct::published()->where('name', 'like', "%{$kata}%")
+                ->with('variants.product:id,sku')
+                ->orderByRaw('CASE WHEN name LIKE ? THEN 0 ELSE 1 END', ["{$kata}%"])->orderBy('name')->get();
+        }
+        if ($produk->isEmpty()) {
+            $produk = $halaman(array_values(array_filter(array_column($this->cariBarangShopee($kata), 'sku'))));
         }
         if ($produk->isEmpty()) {
             return ['content' => 'Belum ada deskripsi untuk "' . $kata . '". Jangan mengarang — lempar ke admin.'];
         }
 
-        $isi = $produk->map(fn (StoreProduct $p) => $p->name . "\nVarian & SKU: "
-            . $p->variants->map(fn ($v) => trim(($v->variant_label ?: 'tanpa varian') . ' = ' . $v->product?->sku))->implode('; ')
+        $sku = fn (StoreProduct $p) => $p->variants->map(fn ($v) => trim(($v->variant_label ?: 'tanpa varian') . ' = ' . $v->product?->sku))->implode('; ');
+        $isi = $produk->take(2)->map(fn (StoreProduct $p) => $p->name . "\nVarian & SKU: " . $sku($p)
             . "\n\n" . $this->deskripsiUntukShopee((string) $p->description));
+        $lain = $produk->slice(2)->map(fn (StoreProduct $p) => '- ' . $p->name . ': ' . $sku($p));
 
-        return ['content' => "Deskripsi produk (SKU hanya untukmu, jangan disebut ke pembeli):\n\n" . $isi->implode("\n\n---\n\n")];
+        return ['content' => "Deskripsi produk (SKU hanya untukmu, jangan disebut ke pembeli):\n\n" . $isi->implode("\n\n---\n\n")
+            . ($lain->isEmpty() ? '' : "\n\n---\n\nProduk lain yang juga cocok (belum ditampilkan, panggil lagi dengan SKU-nya bila produk ini yang dimaksud):\n" . $lain->implode("\n"))];
     }
 
     /**
