@@ -174,6 +174,9 @@ return [
             'crm.template'   => ['label' => 'Template Pesan',     'url' => '/erp/crm/template', 'route_patterns' => ['crm.template.*']],
             'crm.agen'       => ['label' => 'Agen AI',            'url' => '/erp/crm/agen',     'route_patterns' => ['crm.agen.*']],
             'crm.label'      => ['label' => 'Label',              'url' => '/erp/crm/label',    'route_patterns' => ['crm.label.*']],
+            // Bukan halaman ERP: izin menu Galeri di PWA HP (/cs/galeri) — foto & video
+            // produk ke shared folder Synology "Foto Produk". Dijaga di GaleriController.
+            'crm.galeri'     => ['label' => 'Galeri Foto Produk (HP)', 'url' => '/cs/galeri', 'hidden' => true, 'route_patterns' => ['cs.galeri*']],
         ],
     ],
 

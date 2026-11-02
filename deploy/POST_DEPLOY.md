@@ -7,6 +7,49 @@ route/view/console tidak perlu clear cache manual.)
 
 ---
 
+## Rilis 2026-11 — Galeri Foto Produk (PWA `/cs/galeri` → Synology)
+
+Foto/video produk dari HP langsung ke folder Synology `photo/Foto Produk` — TIDAK disimpan di
+disk server (hanya thumbnail & potongan unggahan sementara di `storage/app/galeri-*`).
+Tanpa migrasi. Izin: centang **CRM › Galeri Foto Produk (HP)** di User & Akses
+(super_admin/admin otomatis boleh).
+
+**1. DSM (di kantor):**
+- Control Panel › File Services › SMB: aktif.
+- "Foto Produk" adalah SUBFOLDER shared folder `photo`, yang juga berisi Camera Roll & Screenshots.
+  Jangan beri `erp-galeri` izin Baca/Tulis di level shared folder `photo` (ikut menurun ke foto lain).
+- Buat user `erp-galeri` tanpa akses aplikasi.
+- File Station › klik kanan `photo/Foto Produk` › Properties › Permission › Create: user
+  `erp-galeri`, Allow, berlaku untuk folder + subfolder + berkas, centang Read & Write.
+- Berkas terhapus masuk `Foto Produk/#recycle` (folder biasa, bukan Recycle Bin DSM yang ada di
+  akar `photo`): tak tampil di HP, tapi terlihat di Windows, dan tidak terhapus otomatis.
+
+**2. Server (butuh sudo — dijalankan user):**
+```bash
+sudo mkdir -p /mnt/nas/foto-produk
+sudo install -m 600 /dev/null /root/.smb-galeri
+sudo tee /root/.smb-galeri >/dev/null <<'EOF'
+username=erp-galeri
+password=ISI_PASSWORD
+EOF
+# www-data = pemilik berkas di sisi server (PHP-FPM); berkas di NAS tetap milik erp-galeri.
+# Spasi di path ditulis \040 (aturan fstab). Mount subfolder saja: foto lain di share photo tak terjangkau.
+echo '//192.168.1.30/photo/Foto\040Produk /mnt/nas/foto-produk cifs credentials=/root/.smb-galeri,uid=www-data,gid=www-data,file_mode=0664,dir_mode=0775,iocharset=utf8,vers=3.0,_netdev,nofail 0 0' | sudo tee -a /etc/fstab
+sudo systemctl daemon-reload
+sudo mount /mnt/nas/foto-produk && ls /mnt/nas/foto-produk
+sudo apt install -y ffmpeg      # thumbnail video (opsional; tanpa ini video tampil ikon ▶)
+```
+
+**3. `.env` server:**
+```
+GALERI_ROOT=/mnt/nas/foto-produk
+GALERI_WAJIB_MOUNT=true
+```
+lalu `php artisan optimize`. `GALERI_WAJIB_MOUNT=true` menolak semua tulisan bila mount putus
+(tanpa itu unggahan mendarat diam-diam di disk server).
+
+---
+
 ## Rilis 2026-10-15 — Intercom divisi (Laravel Reverb + WebRTC)
 
 Suara dua arah antar stasiun (Admin, Packing, CNC, Asembling). Suaranya WebRTC langsung antar

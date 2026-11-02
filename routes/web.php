@@ -1770,6 +1770,19 @@ Route::prefix('cs')->name('cs.')->group(function () {
         Route::get('/nota/{lampiran}',     [\App\Http\Controllers\KotakNotaController::class, 'pwaGambar'])->whereNumber('lampiran')->name('nota.gambar');
         Route::delete('/nota/{lampiran}',  [\App\Http\Controllers\KotakNotaController::class, 'pwaDestroy'])->whereNumber('lampiran')->name('nota.destroy');
 
+        // Galeri: foto & video produk langsung ke shared folder Synology (izin crm.galeri).
+        Route::prefix('galeri')->name('galeri')->controller(\App\Modules\Galeri\Controllers\GaleriController::class)->group(function () {
+            Route::get ('/',           'index');
+            Route::get ('/folder',     'folder')->name('.folder');
+            Route::get ('/thumb',      'thumb')->name('.thumb');
+            Route::get ('/berkas',     'berkas')->name('.berkas');
+            Route::post('/folder',     'buatFolder')->name('.folder.store');
+            Route::post('/ganti-nama', 'gantiNama')->name('.ganti-nama');
+            Route::post('/pindah',     'pindah')->name('.pindah');
+            Route::post('/hapus',      'hapus')->name('.hapus');
+            Route::post('/unggah',     'unggah')->name('.unggah');
+        });
+
         // Penampil PDF lampiran chat; berkasnya disimpan service worker di HP.
         Route::get('/lampiran/{attachment}',        [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pwaLampiran'])->whereNumber('attachment')->name('lampiran');
         Route::get('/lampiran/{attachment}/berkas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pwaLampiranBerkas'])->whereNumber('attachment')->name('lampiran.berkas');
