@@ -12,6 +12,7 @@ use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
 use App\Modules\Tasks\MejaKerja\Skills\DesainSkill;
 use App\Core\Inventory\Product;
 use App\Models\StoreProduct;
+use Illuminate\Support\Collection;
 use Carbon\Carbon;
 
 /**
@@ -226,29 +227,45 @@ class AgenTools
     /** @return string[] SKU listing/halaman yang namanya memuat SEMUA kata dalam sebutan pembeli */
     private function skuDariSebutan(string $kata): array
     {
-        $kataKata = array_values(array_filter(preg_split('/\s+/u', $kata)));
-        $tiapKata = function ($q, array $kolom) use ($kataKata) {
-            foreach ($kataKata as $w) {
-                $q->where(function ($a) use ($kolom, $w) {
-                    foreach ($kolom as $k) {
-                        $a->orWhere($k, 'like', "%{$w}%");
-                    }
-                });
-            }
-        };
-
         $sku = ShopeeItem::where('env', $this->shopee->env())->where('status', 'NORMAL')
-            ->where(fn ($q) => $tiapKata($q, ['nama']))
-            ->get(['model_sku', 'item_sku'])
+            ->get(['nama', 'model_sku', 'item_sku'])->toBase()
+            ->filter(fn ($i) => $this->memuatSemuaKata((string) $i->nama, $kata))
             ->map(fn ($i) => $i->model_sku ?: $i->item_sku);
 
         $web = StoreProduct::published()
-            ->where(fn ($q) => $tiapKata($q, ['name', 'short_description', 'meta_title', 'meta_description']))
             ->with('variants.product:id,sku')
-            ->get()
+            ->get(['id', 'name', 'short_description', 'meta_title', 'meta_description'])->toBase()
+            ->filter(fn ($h) => $this->memuatSemuaKata("{$h->name} {$h->short_description} {$h->meta_title} {$h->meta_description}", $kata))
             ->flatMap(fn ($h) => $h->variants->map(fn ($v) => $v->product?->sku));
 
         return $sku->concat($web)->filter()->unique()->values()->all();
+    }
+
+    /**
+     * Semua kata ada di teks. Angka harus utuh: "4 kotak" tidak boleh cocok dengan "14 kotak"
+     * atau "A4", karena jawabannya jadi ukuran produk lain.
+     */
+    private function memuatSemuaKata(string $teks, string $kata): bool
+    {
+        foreach (array_filter(preg_split('/\s+/u', $kata)) as $w) {
+            $cocok = ctype_digit($w)
+                ? preg_match('/(?<![\p{L}\p{N}])' . $w . '(?![\p{L}\p{N}])/u', $teks)
+                : mb_stripos($teks, $w) !== false;
+            if (! $cocok) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Halaman yang NAMANYA memuat angka dalam kata kunci didahulukan: "4 kotak" membaca halaman 4 Kotak. */
+    private function urutkanMenurutAngka(Collection $halaman, string $kata): Collection
+    {
+        $angka = implode(' ', array_filter(preg_split('/\s+/u', $kata), 'ctype_digit'));
+
+        return $angka === '' ? $halaman
+            : $halaman->sortBy(fn (StoreProduct $h) => $this->memuatSemuaKata($h->name, $angka) ? 0 : 1)->values();
     }
 
     /** Link listing Shopee untuk SKU ini (peta SKU shopee_items) — link di dalam Shopee boleh dikirim. */
@@ -305,7 +322,7 @@ class AgenTools
                 ->orderByRaw('CASE WHEN name LIKE ? THEN 0 ELSE 1 END', ["{$kata}%"])->orderBy('name')->get();
         }
         if ($produk->isEmpty()) {
-            $produk = $halaman(array_values(array_filter(array_column($this->cariBarangShopee($kata), 'sku'))));
+            $produk = $this->urutkanMenurutAngka($halaman(array_values(array_filter(array_column($this->cariBarangShopee($kata), 'sku')))), $kata);
         }
         if ($produk->isEmpty()) {
             return ['content' => 'Belum ada deskripsi untuk "' . $kata . '". Jangan mengarang — lempar ke admin.'];

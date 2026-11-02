@@ -271,6 +271,32 @@ class SaranAiTest extends TestCase
         $this->assertStringContainsString('Deskripsi Kotak Saran Akrilik 1 Kotak', $alat->jalankan('deskripsi_produk', ['kata_kunci' => 'KS-K1-2'], null)['content']);
     }
 
+    /** Kasus server: "box charger 4 kotak" sempat membaca halaman 12 Kotak & 16 Kotak (ukuran salah). */
+    public function test_angka_dalam_sebutan_harus_utuh_dan_mendahulukan_halaman_itu(): void
+    {
+        $halaman = function (string $nama, string $sku, string $meta = '') {
+            $kat = DB::table('store_categories')->insertGetId(['name' => "K $sku", 'slug' => "k-$sku", 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('store_products')->insertGetId(['store_category_id' => $kat, 'slug' => "h-$sku", 'name' => $nama, 'status' => 'published',
+                'description' => "Deskripsi $nama", 'meta_description' => $meta, 'created_at' => now(), 'updated_at' => now()]);
+            $p = Product::create(['sku' => $sku, 'name' => $nama, 'sale_type' => 'bundle', 'base_unit' => 'pcs', 'base_price' => 1000, 'is_active' => true, 'is_sellable' => true]);
+            DB::table('store_product_variants')->insert(['store_product_id' => $id, 'product_id' => $p->id, 'variant_label' => 'V', 'created_at' => now(), 'updated_at' => now()]);
+        };
+        // Nama halaman 4 Kotak tidak memuat "box charger"; halaman lain memuatnya, dan menyebut "4" di SEO.
+        $halaman('Box Charger HP 12 Kotak', 'BC-3x4', 'box charger isi 3 x 4 kotak');
+        $halaman('Box Charger HP 14 Kotak', 'BC-2x7');
+        $halaman('Charging Station Akrilik 4 Kotak', 'BC-2x2', 'box charger 4 kotak terlaris');
+
+        $alat = app(AgenTools::class);
+        $des = $alat->jalankan('deskripsi_produk', ['kata_kunci' => 'box charger 4 kotak'], null)['content'];
+
+        $this->assertStringContainsString('Deskripsi Charging Station Akrilik 4 Kotak', $des);
+        $this->assertSame(0, strpos(trim(str_replace('Deskripsi produk (SKU hanya untukmu, jangan disebut ke pembeli):', '', $des)), 'Charging Station Akrilik 4 Kotak'), 'Halaman 4 Kotak dibaca pertama.');
+        $this->assertStringNotContainsString('14 Kotak', $des, '"4" tidak cocok dengan "14".');
+        $stok = $alat->jalankan('cek_stok', ['kata_kunci' => 'box charger 4 kotak'], null)['content'];
+        $this->assertStringContainsString('BC-2x2', $stok);
+        $this->assertStringNotContainsString('BC-2x7', $stok);
+    }
+
     public function test_sebutan_pembeli_tertulis_di_pengetahuan(): void
     {
         $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
