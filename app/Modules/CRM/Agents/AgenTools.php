@@ -11,6 +11,7 @@ use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
 use App\Modules\Tasks\MejaKerja\Skills\DesainSkill;
 use App\Core\Inventory\Product;
+use App\Models\StoreProduct;
 use Carbon\Carbon;
 
 /**
@@ -54,7 +55,7 @@ class AgenTools
     {
         return match ($agen->kode) {
             CrmAgent::PENYAMBUTAN => [$this->skemaCariProduk(), $this->skemaLempar()],
-            CrmAgent::CS_SHOPEE   => [$this->skemaCekStok(), $this->skemaInfoPesanan(), $this->skemaUsulkan()],
+            CrmAgent::CS_SHOPEE   => [$this->skemaCekStok(), $this->skemaInfoPesanan(), $this->skemaDeskripsiProduk(), $this->skemaUsulkan()],
             // Penjualan & cetak belum dikerjakan; keduanya minimal punya pintu
             // menyerah supaya tidak pernah terjebak mengarang jawaban.
             default => [$this->skemaLempar()],
@@ -71,6 +72,7 @@ class AgenTools
             'lempar_ke_manusia' => $this->lempar($input, $percakapan),
             'cek_stok'          => $this->cekStok($input),
             'info_pesanan'      => $this->infoPesanan($percakapan),
+            'deskripsi_produk'  => $this->deskripsiProduk($input),
             'usulkan_balasan'   => $this->usulkan($input),
             default             => ['content' => 'Alat "' . $nama . '" tidak ada. Jangan panggil lagi.'],
         };
@@ -209,6 +211,70 @@ class AgenTools
             ->first(['shop_id', 'item_id']);
 
         return $item ? "https://shopee.co.id/product/{$item->shop_id}/{$item->item_id}" : null;
+    }
+
+    private function skemaDeskripsiProduk(): array
+    {
+        return [
+            'name'        => 'deskripsi_produk',
+            'description' => 'Deskripsi lengkap produk: ukuran, bahan, ketebalan, isi paket, kelengkapan, fitur, cara pakai. '
+                . 'WAJIB dipakai sebelum menjawab hal-hal itu, jangan mengarang. Pakai SKU dari "Produk yang sedang dibahas" '
+                . 'bila ada. Jawab hanya yang ditanyakan, jangan menyalin seluruh deskripsi. Yang tidak tertulis berarti tidak '
+                . 'diketahui: lempar ke admin. Harga & stok tidak diambil dari sini.',
+            'input_schema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'kata_kunci' => ['type' => 'string', 'description' => 'SKU atau nama barang, mis. "BC-2x2" atau "kotak saran 3 kotak".'],
+                ],
+                'required' => ['kata_kunci'],
+            ],
+        ];
+    }
+
+    /** Deskripsi halaman web produk (lebih lengkap dari deskripsi listing Shopee). */
+    private function deskripsiProduk(array $input): array
+    {
+        $kata = trim((string) ($input['kata_kunci'] ?? ''));
+        if ($kata === '') {
+            return ['content' => 'Kata kunci kosong. Sebutkan SKU atau nama barangnya.'];
+        }
+
+        $halaman = fn (array $sku) => StoreProduct::published()
+            ->whereHas('variants.product', fn ($q) => $q->whereIn('sku', $sku))
+            ->with('variants.product:id,sku')
+            ->limit(2)->get();
+
+        $produk = $halaman([$kata]);
+        if ($produk->isEmpty()) {
+            $produk = $halaman(array_values(array_filter(array_column($this->pencarian->untukAgen($kata), 'sku'))));
+        }
+        if ($produk->isEmpty()) {
+            return ['content' => 'Belum ada deskripsi untuk "' . $kata . '". Jangan mengarang — lempar ke admin.'];
+        }
+
+        $isi = $produk->map(fn (StoreProduct $p) => $p->name . "\nVarian & SKU: "
+            . $p->variants->map(fn ($v) => trim(($v->variant_label ?: 'tanpa varian') . ' = ' . $v->product?->sku))->implode('; ')
+            . "\n\n" . $this->deskripsiUntukShopee((string) $p->description));
+
+        return ['content' => "Deskripsi produk (SKU hanya untukmu, jangan disebut ke pembeli):\n\n" . $isi->implode("\n\n---\n\n")];
+    }
+
+    /**
+     * Deskripsi ditulis untuk web: ajakan menghubungi lewat WhatsApp, nomor, dan alamat luar
+     * dibuang per kalimat, karena di chat Shopee semua itu melanggar aturan dan bisa diblokir.
+     */
+    private function deskripsiUntukShopee(string $deskripsi): string
+    {
+        $bersih = [];
+        foreach (preg_split('/\R/u', html_entity_decode(strip_tags($deskripsi))) as $baris) {
+            $kalimat = preg_split('/(?<=[.!?])\s+/u', trim($baris));
+            $sisa = array_filter($kalimat, fn ($k) => ! preg_match('~whats\s*app|\bwa\b|https?://|www\.|\.com\b|\.co\.id\b|(\+?62|\b08)[\d\s\-]{7,}~iu', $k));
+            if ($sisa !== []) {
+                $bersih[] = implode(' ', $sisa);
+            }
+        }
+
+        return trim(preg_replace("/\n{3,}/", "\n\n", implode("\n", $bersih)));
     }
 
     private function skemaInfoPesanan(): array

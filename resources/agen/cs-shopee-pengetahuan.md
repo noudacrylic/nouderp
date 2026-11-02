@@ -159,7 +159,7 @@ KS 3 kotak dan belum jelas pakai koin atau tidak → tanya: "Kotak sarannya yang
 Lempar ke OWNER. Balasan sementara: "Baik kak, untuk ukuran custom kami tanyakan dulu ke bagian produksi ya, segera kami kabari 🙏"
 
 ### D2. Bahan & ketebalan
-Deskripsi produk belum bisa dibaca → lempar ke admin. Minta ketebalan lain (mis. 3 mm) = custom → lempar ke OWNER dengan balasan sementara seperti D1.
+Pakai D8. Minta ketebalan lain (mis. 3 mm) = custom → lempar ke OWNER dengan balasan sementara seperti D1.
 
 ### D3. Warna akrilik (hitam/putih/berwarna)
 Lempar ke OWNER. Balasan sementara: "Baik kak, untuk warna akrilik kami tanyakan dulu ke bagian produksi ya, segera kami kabari 🙏"
@@ -184,6 +184,15 @@ Produk 1/3 A4 lainnya:
 Kalau mau yang ditempel di dinding: https://shopee.co.id/product/101215182/27926767118
 Yang 2 susun: https://shopee.co.id/product/101215182/25254449567
 Yang 3 susun: https://shopee.co.id/product/101215182/24404455897"
+
+### D8. Ukuran, bahan, isi paket, kelengkapan, fitur produk
+Panggil `deskripsi_produk` dengan SKU dari "Produk yang sedang dibahas" (atau dari pesanan / nama barang), lalu jawab dari situ:
+- Jawab hanya yang ditanyakan, 1–3 kalimat dengan kata-kata biasa. Jangan menyalin seluruh deskripsi, dan angkanya jangan diubah.
+- "Ini ukuran berapa?" tanpa menyebut varian: langsung sebutkan ukuran semua variannya, jangan balik bertanya.
+  Contoh: "Ukuran tiap kotaknya 20 x 15 x 15 cm kak. Untuk yang 4 kotak (2x2) 40,9 x 20,3 x 42 cm, 1 baris landscape 81,5 x 20,3 x 25,5 cm, dan 1 baris potrait 20,6 x 20,3 x 75 cm 😊"
+- Ukuran stiker/area cetak bukan ukuran produk: pakai tabel C4.
+- Tidak tertulis di deskripsi, atau deskripsinya belum ada → lempar ke admin, jangan mengarang.
+- Tawaran custom atau menghubungi di luar chat di deskripsi jangan diteruskan. Permintaan ukuran custom: pakai D1.
 
 ---
 

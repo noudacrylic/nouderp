@@ -6,6 +6,8 @@ use App\Core\Inventory\Product;
 use App\Models\User;
 use App\Modules\Assistant\Services\ClaudeClient;
 use App\Modules\Assistant\Services\FakeClaudeClient;
+use App\Modules\CRM\Agents\AgenTools;
+use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentRun;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
@@ -70,7 +72,7 @@ class SaranAiTest extends TestCase
         $this->assertCount(1, $this->claude->diterima, 'Alat usulkan_balasan menutup giliran — tanpa putaran tambahan.');
         $this->assertSame('claude-haiku-5-5', $muatan['model']);
         $this->assertSame(['effort' => 'low'], $muatan['output_config']);
-        $this->assertSame(['cek_stok', 'info_pesanan', 'usulkan_balasan'], array_column($muatan['tools'], 'name'));
+        $this->assertSame(['cek_stok', 'info_pesanan', 'deskripsi_produk', 'usulkan_balasan'], array_column($muatan['tools'], 'name'));
         $this->assertStringContainsString('Jl. Suren Raya No.25A', $muatan['system'][0]['text'], 'Pengetahuan = daftar tanya-jawab.');
 
         $this->artisan('crm:saran-ai')->assertSuccessful();
@@ -182,6 +184,55 @@ class SaranAiTest extends TestCase
         $this->assertStringNotContainsString('99', $hasil, 'Harga tidak disebut.');
         $this->assertStringNotContainsString('noudacrylic.com', $hasil, 'Tautan luar Shopee tidak dibawa.');
     }
+    /** Halaman web dengan dua varian; draft tidak boleh dipakai. */
+    private function halamanWeb(string $status = 'published', string $sku = 'BC-2x2'): void
+    {
+        $kategori = DB::table('store_categories')->insertGetId(['name' => 'Kat ' . $sku, 'slug' => 'kat-' . $sku, 'created_at' => now(), 'updated_at' => now()]);
+        $halaman = DB::table('store_products')->insertGetId(['store_category_id' => $kategori, 'slug' => 'hal-' . $sku, 'name' => 'Charging Station 4 Kotak',
+            'status' => $status, 'created_at' => now(), 'updated_at' => now(),
+            'description' => "📱 Deskripsi\nLoker pengisian daya HP. Hubungi kami lewat WhatsApp untuk konsultasi.\n● Ukuran per kotak: 20 × 15 × 15 cm\nKunjungi www.contoh.com sekarang.\nChat 081234567890 ya.\nBahan akrilik 2 mm."]);
+        foreach ([[$sku, '2x2'], [$sku . 'B', '1x4']] as [$s, $label]) {
+            $p = Product::create(['sku' => $s, 'name' => 'Produk ' . $s, 'sale_type' => 'bundle', 'base_unit' => 'pcs', 'base_price' => 1000, 'is_active' => true, 'is_sellable' => true]);
+            DB::table('store_product_variants')->insert(['store_product_id' => $halaman, 'product_id' => $p->id, 'variant_label' => $label, 'created_at' => now(), 'updated_at' => now()]);
+        }
+    }
+
+    /** Pertanyaan ukuran dijawab dari deskripsi web, tanpa ajakan keluar dari chat Shopee. */
+    public function test_deskripsi_produk_dari_web_dibersihkan_untuk_shopee(): void
+    {
+        $this->halamanWeb();
+        $hasil = app(AgenTools::class)->jalankan('deskripsi_produk', ['kata_kunci' => 'BC-2x2'], null)['content'];
+
+        $this->assertStringContainsString('Charging Station 4 Kotak', $hasil);
+        $this->assertStringContainsString('2x2 = BC-2x2', $hasil);
+        $this->assertStringContainsString('1x4 = BC-2x2B', $hasil);
+        $this->assertStringContainsString('Ukuran per kotak: 20 × 15 × 15 cm', $hasil);
+        $this->assertStringContainsString('Loker pengisian daya HP.', $hasil, 'Kalimat lain di baris yang sama tetap ada.');
+        $this->assertStringContainsString('Bahan akrilik 2 mm.', $hasil);
+        foreach (['WhatsApp', 'www.contoh.com', '081234567890'] as $terlarang) {
+            $this->assertStringNotContainsString($terlarang, $hasil);
+        }
+    }
+
+    public function test_deskripsi_produk_draft_atau_tak_dikenal_tidak_mengarang(): void
+    {
+        $this->halamanWeb('draft', 'KS-DRAFT');
+        foreach (['KS-DRAFT', 'barang-tidak-ada'] as $kata) {
+            $hasil = app(AgenTools::class)->jalankan('deskripsi_produk', ['kata_kunci' => $kata], null)['content'];
+            $this->assertStringContainsString('lempar ke admin', $hasil, $kata);
+            $this->assertStringNotContainsString('Ukuran per kotak', $hasil, $kata);
+        }
+    }
+
+    public function test_alat_deskripsi_hanya_ditawarkan_ke_cs_shopee(): void
+    {
+        $nama = fn (string $kode) => array_column(app(AgenTools::class)->skema(CrmAgent::kode($kode)), 'name');
+
+        $this->assertContains('deskripsi_produk', $nama(CrmAgent::CS_SHOPEE));
+        $this->assertSame(array_search('usulkan_balasan', $nama(CrmAgent::CS_SHOPEE)), count($nama(CrmAgent::CS_SHOPEE)) - 1);
+        $this->assertNotContains('deskripsi_produk', $nama(CrmAgent::PENYAMBUTAN));
+    }
+
     public function test_fokus_produk_dari_kartu_produk_pembeli(): void
     {
         $c = $this->chat('ukuran stikernya berapa kak?');
