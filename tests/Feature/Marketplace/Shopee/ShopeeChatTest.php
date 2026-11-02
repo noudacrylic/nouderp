@@ -728,8 +728,56 @@ class ShopeeChatTest extends TestCase
         $this->assertStringContainsString('1 Sisi (SKU NM-7x30-M1', $prompt, 'Varian lain tetap diketahui.');
     }
 
+    /** Kartu stok, retur & pengiriman tampil sebagai kalimat, angkanya dibaca benar. */
+    public function test_kartu_stok_retur_dan_pengiriman_terbaca(): void
+    {
+        $uraikan = fn (string $jenis, array $isi) => app(ShopeeChatService::class)->uraikan($this->shop, $this->m('k' . $jenis, $jenis, $isi))['isi'];
+        \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create(['env' => 'test', 'shop_id' => self::TOKO, 'item_id' => 888, 'model_id' => 22,
+            'nama' => 'Kotak Saran', 'nama_model' => '1 Kotak', 'harga' => 1000, 'stok' => 5]);
+
+        $this->assertSame('🛍️ Menanyakan stok: Kotak Saran — 1 Kotak', $uraikan('out_of_stock_reminder_card', [
+            'product_info' => ['item_id' => 888, 'name' => 'x', 'models' => [['model_id' => 22, 'model_stock' => 649]]], 'use_case' => 'Chat',
+        ]));
+
+        $retur = $uraikan('return_refund_card', [
+            'order_info' => ['order_title' => 'Box Mahar', 'item_count' => 2],
+            'rr_detail'  => ['amount' => 17506900000, 'translated_detail' => [
+                ['language' => 'en', 'solution' => 'Refund Only', 'reason' => 'Shattered products'],
+                ['language' => 'id', 'solution' => 'Pengembalian Dana', 'reason' => 'Barang pecah'],
+            ]],
+        ]);
+        $this->assertSame("↩️ Pengajuan retur: Box Mahar (2 barang)\nSolusi: Pengembalian Dana\nAlasan: Barang pecah\nNilai: Rp175.069", $retur);
+        $this->assertSame('↩️ Pengajuan retur: pesanan', $uraikan('return_refund_card', []), 'Kartu tak lengkap tidak gagal.');
+
+        $this->assertSame('↩️ Status pengajuan pengembalian Pembeli adalah Menunggu', $uraikan('track_rr_status_card', ['card_title_for_sender' => [
+            'text' => 'The status is Menunggu',
+            'translated_with_lang' => [['language' => 'en', 'text' => 'The status is Menunggu'], ['language' => 'id', 'text' => 'Status pengajuan pengembalian Pembeli adalah Menunggu']],
+        ]]));
+        $this->assertSame('↩️ The status', $uraikan('track_rr_status_card', ['card_title_for_sender' => ['text' => 'The status']]));
+
+        $waktu = \Illuminate\Support\Carbon::parse('2026-11-02 10:00:00', config('app.timezone'));
+        $this->assertSame("🚚 Pesanan telah diserahkan\nPada: 02/11/2026 10:00\nEstimasi sampai: 05/11/2026 10:00", $uraikan('logistics_card', ['logistic_tracking_info' => [
+            'latest_tracking_info' => 'Pesanan telah diserahkan', 'latest_tracking_time' => $waktu->timestamp, 'estimate_delivery_time' => $waktu->copy()->addDays(3)->timestamp,
+        ]]));
+    }
+
+    /** Kartu stok jadi fokus produk dengan varian persisnya. */
+    public function test_kartu_stok_menjadi_produk_yang_dibahas(): void
+    {
+        $crm = $this->chatSiapDibalas();
+        foreach ([[21, 'NM-A'], [22, 'NM-B']] as [$model, $sku]) {
+            \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create(['env' => 'test', 'shop_id' => self::TOKO, 'item_id' => 888, 'model_id' => $model, 'model_sku' => $sku,
+                'nama' => 'Papan Nama', 'nama_model' => $sku, 'harga' => 1000, 'stok' => 5]);
+        }
+        CrmMessage::create(['conversation_id' => $crm->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'text', 'content' => '🛍️ Menanyakan stok: Papan Nama',
+            'sent_at' => now(), 'provider_message_id' => 'shopee:stok1', 'raw' => $this->m('stok1', 'out_of_stock_reminder_card', ['product_info' => ['item_id' => 888, 'models' => [['model_id' => 22, 'model_stock' => 5]]]])]);
+
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()
+            ->assertSee('SKU: NM-B')->assertSee('Dibahas:')->assertDontSee('SKU: NM-A');
+    }
+
     /** Pesan lama "[variation_card]" ditulis ulang dari raw; dry-run tak mengubah apa pun, aman diulang. */
-    public function test_perbaiki_kartu_variasi_lama(): void
+    public function test_perbaiki_kartu_lama(): void
     {
         $crm = $this->chatSiapDibalas();
         \App\Modules\Marketplace\Shopee\Models\ShopeeItem::create(['env' => 'test', 'shop_id' => self::TOKO, 'item_id' => 888, 'model_id' => 22,
@@ -737,12 +785,19 @@ class ShopeeChatTest extends TestCase
         $lama = CrmMessage::create(['conversation_id' => $crm->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'text', 'content' => '[variation_card]',
             'sent_at' => now(), 'provider_message_id' => 'shopee:lama1', 'raw' => $this->m('lama1', 'variation_card', ['product_id' => 888, 'shop_id' => self::TOKO, 'model_id' => 22])]);
 
-        $this->artisan('shopee:perbaiki-kartu-variasi', ['--dry-run' => true])->assertSuccessful();
+        $kirim = CrmMessage::create(['conversation_id' => $crm->id, 'direction' => CrmMessage::KELUAR, 'message_type' => 'text', 'content' => '[logistics_card]',
+            'sent_at' => now(), 'provider_message_id' => 'shopee:lama2', 'raw' => $this->m('lama2', 'logistics_card', ['logistic_tracking_info' => ['latest_tracking_info' => 'Paket diserahkan']])]);
+        $lain = CrmMessage::create(['conversation_id' => $crm->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'text', 'content' => '[rating_card]',
+            'sent_at' => now(), 'provider_message_id' => 'shopee:lama3', 'raw' => $this->m('lama3', 'rating_card', [])]);
+
+        $this->artisan('shopee:perbaiki-kartu', ['--dry-run' => true])->assertSuccessful();
         $this->assertSame('[variation_card]', $lama->fresh()->content);
 
-        $this->artisan('shopee:perbaiki-kartu-variasi')->assertSuccessful();
+        $this->artisan('shopee:perbaiki-kartu')->assertSuccessful();
         $this->assertSame('🛍️ Menanyakan varian: Papan Nama — Print', $lama->fresh()->content);
-        $this->artisan('shopee:perbaiki-kartu-variasi')->assertSuccessful();
+        $this->assertSame('🚚 Paket diserahkan', $kirim->fresh()->content);
+        $this->assertSame('[rating_card]', $lain->fresh()->content, 'Jenis yang belum ditangani tidak disentuh.');
+        $this->artisan('shopee:perbaiki-kartu')->assertSuccessful();
         $this->assertSame('🛍️ Menanyakan varian: Papan Nama — Print', $lama->fresh()->content);
     }
 

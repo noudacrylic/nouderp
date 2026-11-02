@@ -43,6 +43,9 @@ class ShopeeChatService
     /** Nomor pesanan Shopee: 6 digit tanggal + 8 huruf/angka, mis. 261027PDYVRSV7. */
     private const POLA_ORDER_SN = '/\b(\d{6}[A-Z0-9]{8})\b/';
 
+    /** Nominal di kartu chat Shopee dikali 100.000: 17506900000 = Rp175.069. */
+    private const PENGALI_UANG = 100000;
+
     /*
      * ⚠️ Carbon 3: createFromTimestamp() TANPA zona = UTC, bukan zona aplikasi. Kolom datetime
      * menyimpan jam dinding, jadi stempel Shopee wajib diberi config('app.timezone') — kalau
@@ -490,6 +493,19 @@ class ShopeeChatService
             case 'variation_card':
                 $u['isi'] = '🛍️ Menanyakan varian: ' . $this->namaProduk($shop, (int) ($c['product_id'] ?? 0), (int) ($c['model_id'] ?? 0));
                 break;
+            case 'out_of_stock_reminder_card':
+                $produk = (array) ($c['product_info'] ?? []);
+                $u['isi'] = '🛍️ Menanyakan stok: ' . $this->namaProduk($shop, (int) ($produk['item_id'] ?? 0), (int) data_get($produk, 'models.0.model_id'));
+                break;
+            case 'return_refund_card':
+                $u['isi'] = $this->teksKartuRetur($c);
+                break;
+            case 'track_rr_status_card':
+                $u['isi'] = '↩️ ' . $this->teksIndonesia((array) ($c['card_title_for_sender'] ?? []), 'Status pengajuan retur berubah.');
+                break;
+            case 'logistics_card':
+                $u['isi'] = $this->teksKartuKirim($c);
+                break;
             case 'bot_summary_bundle_msg':
                 $baris = array_filter([
                     '🤖 Dialihkan dari AI Shopee',
@@ -543,6 +559,39 @@ class ShopeeChatService
             'openapi' => CrmMessage::SOURCE_API,
             default   => CrmMessage::SOURCE_SELLER_CENTRE,
         };
+    }
+
+    private function teksKartuRetur(array $c): string
+    {
+        $pesanan = (array) ($c['order_info'] ?? []);
+        $retur   = (array) ($c['rr_detail'] ?? []);
+        $rincian = collect($retur['translated_detail'] ?? [])->firstWhere('language', 'id') ?? [];
+        $jumlah  = (int) ($pesanan['item_count'] ?? 0);
+
+        return implode("\n", array_filter([
+            '↩️ Pengajuan retur: ' . ($pesanan['order_title'] ?? 'pesanan') . ($jumlah ? " ({$jumlah} barang)" : ''),
+            ($t = $rincian['solution'] ?? null) ? 'Solusi: ' . $t : null,
+            ($t = $rincian['reason'] ?? null) ? 'Alasan: ' . $t : null,
+            !empty($retur['amount']) ? 'Nilai: Rp' . number_format($retur['amount'] / self::PENGALI_UANG, 0, ',', '.') : null,
+        ]));
+    }
+
+    private function teksKartuKirim(array $c): string
+    {
+        $lacak = (array) ($c['logistic_tracking_info'] ?? []);
+        $waktu = fn ($d) => Carbon::createFromTimestamp((int) $d, config('app.timezone'))->format('d/m/Y H:i');
+
+        return implode("\n", array_filter([
+            '🚚 ' . ($lacak['latest_tracking_info'] ?? 'Info pengiriman pesanan'),
+            !empty($lacak['latest_tracking_time']) ? 'Pada: ' . $waktu($lacak['latest_tracking_time']) : null,
+            !empty($lacak['estimate_delivery_time']) ? 'Estimasi sampai: ' . $waktu($lacak['estimate_delivery_time']) : null,
+        ]));
+    }
+
+    /** Teks kartu Shopee berisi terjemahan banyak bahasa: pakai Indonesia, lalu teks aslinya. */
+    private function teksIndonesia(array $teks, string $cadangan): string
+    {
+        return (string) (collect($teks['translated_with_lang'] ?? [])->firstWhere('language', 'id')['text'] ?? ($teks['text'] ?? $cadangan));
     }
 
     private function namaProduk(ShopeeShop $shop, int $itemId, int $modelId = 0): string

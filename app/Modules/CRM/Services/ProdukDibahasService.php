@@ -10,12 +10,12 @@ use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
  * "Fokus" chat Shopee seperti di Seller Centre: kartu produk terakhir yang dikirim pembeli (chat
  * dari halaman produk) → listing + SKU variannya. Kartu lebih tua dari 7 hari dianggap sudah bukan
  * topik. Kartu `item` hanya membawa item_id, jadi varian yang dimaksud tidak diketahui dan semua
- * SKU ditunjukkan. Kartu `variation_card` ("Pelanggan menanyakan tentang variasi") membawa model_id,
- * jadi variannya pasti.
+ * SKU ditunjukkan. Kartu `variation_card` ("Pelanggan menanyakan tentang variasi") dan
+ * `out_of_stock_reminder_card` membawa model_id, jadi variannya pasti.
  */
 class ProdukDibahasService
 {
-    public const JENIS_KARTU = ['item', 'variation_card'];
+    public const JENIS_KARTU = ['item', 'variation_card', 'out_of_stock_reminder_card'];
 
     /** SKU yang ditulis di layar; sisanya jadi "+n lainnya" dan tetap terbaca di title. */
     private const MAKS_SKU_TAMPIL = 4;
@@ -42,7 +42,7 @@ class ProdukDibahasService
             'nama'    => (string) $varian->first()->nama,
             'sent_at' => $kartu->sent_at,
             'varian'  => $varian,
-            'pilihan' => $varian->firstWhere('model_id', (int) data_get($kartu->raw, 'content.model_id')),
+            'pilihan' => $varian->firstWhere('model_id', $this->modelId($kartu->raw)),
         ];
     }
 
@@ -75,7 +75,7 @@ class ProdukDibahasService
         $kartu = [];
         foreach ($pesan as $m) {
             if ($this->kartuProduk($m->raw) && ($id = $this->itemId($m->raw))) {
-                $kartu[$m->id] = [$id, (int) data_get($m->raw, 'content.model_id')];
+                $kartu[$m->id] = [$id, $this->modelId($m->raw)];
             }
         }
         if (!$kartu) return [];
@@ -96,9 +96,14 @@ class ProdukDibahasService
         return in_array(data_get($raw, 'message_type'), self::JENIS_KARTU, true);
     }
 
-    /** Kartu item memakai item_id, kartu variasi memakai product_id untuk hal yang sama. */
+    /** Tiap jenis kartu menyimpan id produknya di tempat berbeda. */
     private function itemId(mixed $raw): int
     {
-        return (int) (data_get($raw, 'content.item_id') ?: data_get($raw, 'content.product_id'));
+        return (int) (data_get($raw, 'content.item_id') ?: data_get($raw, 'content.product_id') ?: data_get($raw, 'content.product_info.item_id'));
+    }
+
+    private function modelId(mixed $raw): int
+    {
+        return (int) (data_get($raw, 'content.model_id') ?: data_get($raw, 'content.product_info.models.0.model_id'));
     }
 }
