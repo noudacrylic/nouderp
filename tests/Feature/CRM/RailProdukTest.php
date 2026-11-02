@@ -374,6 +374,63 @@ class RailProdukTest extends TestCase
         $this->assertSame(['Frame Foto (manual)', 'Box Mahar'], array_column($r->json('tautan'), 'nama'));
     }
 
+    /**
+     * Kartu menyebut semua SKU listing, dan pencarian SKU tetap membawa SKU & rentang harga
+     * lengkap walau cuma cocok satu varian. Link manual ikut dikenali lewat SKU katalognya.
+     */
+    public function test_marketplace_menyebut_sku_dan_bisa_dicari_lewat_sku(): void
+    {
+        $admin = $this->admin();
+        ShopeeSetting::singleton()->forceFill(['env' => 'live'])->save();
+        ShopeeShop::create([
+            'shop_id' => 101, 'env' => 'live', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHour(), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now(),
+        ]);
+        $item = fn (int $item, int $model, string $nama, ?string $sku, int $harga, string $status = 'NORMAL', ?string $induk = null) => ShopeeItem::create([
+            'env' => 'live', 'shop_id' => 101, 'item_id' => $item, 'model_id' => $model, 'nama' => $nama,
+            'status' => $status, 'harga' => $harga, 'model_sku' => $sku, 'item_sku' => $induk,
+        ]);
+        $item(11, 1, 'Box Charger', 'BC-2x2', 50000);
+        $item(11, 2, 'Box Charger', 'BC-1x4', 75000);
+        $item(22, 0, 'Frame Foto', null, 30000, 'NORMAL', 'FF-A4');
+        $item(33, 0, 'Plakat Lama', 'PL-1', 90000, 'UNLIST');
+        CrmMarketplaceLink::create(['nama' => 'FF ketikan tim', 'url' => 'https://shopee.co.id/product/101/22/']);
+        CrmMarketplaceLink::create(['nama' => 'Plakat lama tim', 'url' => 'https://shopee.co.id/product/101/33']);
+        CrmMarketplaceLink::create(['nama' => 'Plakat Tokopedia', 'url' => 'https://www.tokopedia.com/noud/plakat']);
+
+        $cari = fn (?string $q = null) => collect($this->actingAs($admin)
+            ->getJson(route('crm.pasar.index', array_filter(['q' => $q])))->assertOk()->json('tautan'));
+
+        // Tanpa cari: semua SKU tersebut; listing tak aktif tak jadi kartu sendiri, link manualnya tetap ber-SKU.
+        $semua = $cari()->keyBy('nama');
+        $this->assertSame(['BC-2x2', 'BC-1x4'], $semua['Box Charger']['sku']);
+        $this->assertSame(['FF-A4'], $semua['FF ketikan tim']['sku']);
+        $this->assertSame(['PL-1'], $semua['Plakat lama tim']['sku']);
+        $this->assertSame([], $semua['Plakat Tokopedia']['sku']);
+        $this->assertFalse($semua->has('Frame Foto'), 'Listing yang sudah diketik manual tidak diulang.');
+        $this->assertFalse($semua->has('Plakat Lama'));
+        $this->assertArrayNotHasKey('aktif', $semua['Box Charger']);
+
+        // Cocok satu varian, huruf kecil: kartu tetap lengkap.
+        $hasil = $cari('bc-1x4');
+        $this->assertSame(['Box Charger'], $hasil->pluck('nama')->all());
+        $this->assertSame(['BC-2x2', 'BC-1x4'], $hasil[0]['sku']);
+        $this->assertEquals([50000, 75000], [$hasil[0]['harga_min'], $hasil[0]['harga_maks']]);
+
+        // Link manual ketemu lewat SKU katalog, tanpa kartu kembar dari katalog.
+        $this->assertSame(['FF ketikan tim'], $cari('FF-A4')->pluck('nama')->all());
+        // Lewat nama katalog: link manualnya tak cocok, listingnya yang muncul.
+        $this->assertSame(['Frame Foto'], $cari('frame')->pluck('nama')->all());
+        $this->assertSame(['Plakat lama tim', 'Plakat Tokopedia'], $cari('plakat')->pluck('nama')->all());
+    }
+
+    /** Tombol Shopee & Marketplace Lain ikut dirender di panel Produk. */
+    public function test_panel_market_place_punya_tombol_shopee_dan_lain(): void
+    {
+        $this->actingAs($this->admin())->get(route('crm.inbox.index'))->assertOk()
+            ->assertSee('Marketplace Lain')->assertSee('pasarTampil', false)->assertSee('bg-orange-500 hover:bg-orange-600', false);
+    }
+
     /* ------------------------------------------------------- harga & berat custom */
 
     /**

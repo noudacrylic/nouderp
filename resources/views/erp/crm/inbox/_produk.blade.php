@@ -11,7 +11,8 @@
        Market Place— nama & alamat lapak yang diketik manual, TIDAK menempel ke
                      SKU. Yang dijual di lapak sering bukan satu SKU gudang.
                      Sejak 30 Okt 2026 ditambah listing Shopee aktif dari Peta
-                     SKU; di chat Shopee hanya link Shopee yang tampil.
+                     SKU; di chat Shopee hanya link Shopee yang tampil. Dipisah
+                     lagi jadi Shopee | Marketplace Lain (2 Nov 2026).
        Custom      — barang buatan. Harganya baru lahir saat ditanya, jadi
                      harga & berat boleh ditetapkan dari sini lalu didorong ke
                      Jubelio tanpa pindah layar.
@@ -35,7 +36,7 @@
 
     <div class="flex items-center gap-2">
         <input type="text" x-model="kata" @input.debounce.400ms="muat()"
-               :placeholder="sub === 'pasar' ? 'Cari nama lapak…' : 'Cari nama produk atau SKU…'"
+               placeholder="Cari nama produk atau SKU…"
                class="flex-1 border rounded px-2 py-1.5 text-sm">
         <button type="button" @click="muat()" title="Muat ulang"
                 class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50">↻</button>
@@ -228,10 +229,20 @@
          link lapak lain di sana melanggar kebijakan Shopee. --}}
     <template x-if="sub === 'pasar'">
         <div class="space-y-2">
+            <div class="flex gap-1 text-[11px]">
+                <button type="button" @click="subPasar = 'shopee'; ubahPasar = null"
+                        :class="subPasar === 'shopee' ? 'border-orange-500 bg-orange-50 text-orange-700 font-medium'
+                                                      : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'"
+                        class="flex-1 px-2 py-1 rounded border">Shopee</button>
+                <button type="button" x-show="! hanyaShopee" @click="subPasar = 'lain'; ubahPasar = null"
+                        :class="subPasar === 'lain' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 font-medium'
+                                                    : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'"
+                        class="flex-1 px-2 py-1 rounded border">Marketplace Lain</button>
+            </div>
             <p x-show="hanyaShopee" x-cloak class="text-[11px] text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1.5">
                 Chat Shopee — hanya link Shopee yang ditampilkan.
             </p>
-            <template x-for="t in pasar" :key="t.id">
+            <template x-for="t in pasarTampil" :key="t.id">
                 <div class="border border-gray-200 rounded p-2 space-y-1">
                     <template x-if="ubahPasar !== t.id">
                         <div class="space-y-1">
@@ -243,10 +254,13 @@
                             </div>
                             <div x-show="t.harga_min" x-cloak class="text-[11px] text-gray-600"
                                  x-text="t.harga_min === t.harga_maks ? rp(t.harga_min) : rp(t.harga_min) + ' – ' + rp(t.harga_maks)"></div>
+                            <div x-show="t.sku && t.sku.length" x-cloak class="text-[11px] font-mono text-gray-700 break-words"
+                                 x-text="'SKU: ' + (t.sku || []).join(', ')"></div>
                             <div class="text-[11px] text-gray-400 break-all" x-text="t.url"></div>
                             <div class="flex items-center gap-1 pt-1">
                                 <button type="button" @click="kirim(kalimatPasar(t))"
-                                        class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2 py-1.5 text-xs">
+                                        :class="t.lapak === 'Shopee' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-emerald-600 hover:bg-emerald-700'"
+                                        class="flex-1 text-white rounded px-2 py-1.5 text-xs">
                                     Kirim link
                                 </button>
                                 <button type="button" @click="sisip(kalimatPasar(t))" title="Sisipkan tanpa mengirim"
@@ -509,6 +523,11 @@ function panelProduk(percakapanId) {
 
         kata: '', hasil: [], grup: [], pasar: [], hanyaShopee: false, sibuk: false, galat: '', kabar: '',
         menyimpan: false, mengirimFoto: null,
+        // Tombol di bawah Market Place: 'shopee' atau 'lain'. Datanya satu daftar dari server.
+        subPasar: 'shopee',
+        get pasarTampil() {
+            return this.pasar.filter(t => (t.lapak === 'Shopee') === (this.subPasar === 'shopee'));
+        },
 
         // Satu penanda "sedang diedit" per jenis baris; nilainya id baris, atau
         // penanda 'baru' untuk formulir tambah.
@@ -540,6 +559,7 @@ function panelProduk(percakapanId) {
                     const j = await r.json();
                     this.pasar = j.tautan || [];
                     this.hanyaShopee = !! j.hanya_shopee;
+                    if (this.hanyaShopee) this.subPasar = 'shopee';
                 } else {
                     const r = await fetch('{{ route('crm.produk.cari') }}?mode=' + this.sub
                                           + '&chat=' + (this.percakapan ?? '')
@@ -569,7 +589,7 @@ function panelProduk(percakapanId) {
         },
 
         kosong() {
-            if (this.sub === 'pasar') return this.pasar.length === 0;
+            if (this.sub === 'pasar') return this.pasarTampil.length === 0;
             if (this.sub === 'web')   return this.grup.length === 0;
             return this.hasil.length === 0;
         },
@@ -581,7 +601,7 @@ function panelProduk(percakapanId) {
 
         pesanKosong() {
             if (this.sub === 'pasar') {
-                return this.kata ? 'Tidak ada lapak yang cocok.' : 'Belum ada link marketplace. Tambahkan di bawah.';
+                return this.kata ? 'Tidak ada produk yang cocok.' : 'Belum ada link marketplace. Tambahkan di bawah.';
             }
             if (this.sub === 'custom') {
                 return this.kata ? 'Tidak ada produk custom yang cocok.' : 'Ketik nama atau SKU produk custom.';
@@ -697,14 +717,12 @@ function panelProduk(percakapanId) {
                 if (! r.ok) throw new Error();
                 const baris = (await r.json()).tautan;
 
-                if (t) {
-                    Object.assign(t, baris);
-                } else {
-                    // Link ketikan tim berdiri di atas listing katalog Shopee.
-                    const i = this.pasar.findIndex(x => x.sumber !== 'manual');
-                    this.pasar.splice(i < 0 ? this.pasar.length : i, 0, baris);
-                }
+                // Muat ulang dari server: SKU link datang dari katalog, dan listing yang kini
+                // diketik manual harus hilang dari daftar. Pindah ke tombol tempat link itu berada.
+                this.subPasar = baris.lapak === 'Shopee' ? 'shopee' : 'lain';
+                this.kata = '';
                 this.ubahPasar = null;
+                await this.muat();
             } catch (e) {
                 this.galat = 'Link gagal disimpan. Periksa alamatnya — harus lengkap dengan https://';
             } finally {

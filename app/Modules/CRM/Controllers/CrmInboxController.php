@@ -1577,12 +1577,18 @@ class CrmInboxController extends Controller
         $chat = $request->filled('chat') ? CrmConversation::find($request->integer('chat')) : null;
         $hanyaShopee = (bool) $chat?->shopee();
 
+        $katalog = $this->katalogShopee($chat);
+        // Penyaringan di sini, bukan di SQL: kartu harus tetap membawa SEMUA SKU & rentang
+        // harga listingnya walau yang dicari cuma cocok dengan satu varian.
+        $cocok = fn (array $t) => $cari === '' || mb_stripos($t['nama'], $cari) !== false
+            || collect($t['sku'])->contains(fn ($s) => mb_stripos($s, $cari) !== false);
+
         $manual = CrmMarketplaceLink::query()
-            ->when($cari !== '', fn ($q) => $q->where('nama', 'like', "%{$cari}%"))
             ->orderBy('urutan')->orderBy('id')
             ->limit(200)
             ->get(['id', 'nama', 'url'])
-            ->map(fn ($t) => self::barisManual($t))
+            ->map(fn ($t) => self::barisManual($t) + ['sku' => $katalog->get(self::itemIdShopee($t->url))['sku'] ?? []])
+            ->filter($cocok)
             ->when($hanyaShopee, fn ($c) => $c->where('lapak', 'Shopee'))
             ->values();
 
@@ -1590,8 +1596,12 @@ class CrmInboxController extends Controller
         // ketikan tim biasanya nama yang memang dikenal pembeli.
         $sudahAda = $manual->map(fn ($t) => self::itemIdShopee($t['url']))->filter()->all();
 
-        $shopee = $this->listingShopee($chat, $cari)
+        $shopee = $katalog
+            ->filter(fn ($t) => $t['aktif'] && $cocok($t))
             ->reject(fn ($t) => in_array($t['item_id'], $sudahAda, true))
+            ->sortBy('nama', SORT_NATURAL | SORT_FLAG_CASE)
+            ->take(200)
+            ->map(fn ($t) => collect($t)->except('aktif')->all())
             ->values();
 
         return response()->json([
@@ -1601,10 +1611,13 @@ class CrmInboxController extends Controller
     }
 
     /**
-     * Listing Shopee aktif dari katalog Peta SKU — satu kartu per LISTING, bukan
-     * per varian, karena yang dikirim ke pembeli adalah halaman listingnya.
+     * Listing Shopee dari katalog Peta SKU — satu kartu per LISTING, bukan per varian,
+     * karena yang dikirim ke pembeli adalah halaman listingnya. Yang tak aktif ikut
+     * (aktif=false) supaya link ketikan ke listing itu tetap bisa menyebut SKU-nya.
+     *
+     * @return Collection<int, array> per item_id
      */
-    private function listingShopee(?CrmConversation $chat, string $cari): Collection
+    private function katalogShopee(?CrmConversation $chat): Collection
     {
         $shop = $chat?->shopee()
             ? ShopeeShop::where('shop_id', (int) $chat->business_number_id)->latest('terhubung_at')->first()
@@ -1615,28 +1628,30 @@ class CrmInboxController extends Controller
             return collect();
         }
 
+        $produk = app(\App\Modules\CRM\Services\ProdukDibahasService::class);
+
         return ShopeeItem::query()
             ->where('env', $shop->env)->where('shop_id', $shop->shop_id)
-            ->where('status', 'NORMAL')
-            ->when($cari !== '', fn ($q) => $q->where(fn ($w) => $w
-                ->where('nama', 'like', "%{$cari}%")
-                ->orWhere('item_sku', 'like', "%{$cari}%")
-                ->orWhere('model_sku', 'like', "%{$cari}%")))
-            ->get(['item_id', 'nama', 'harga'])
+            ->orderBy('model_id')
+            ->get(['item_id', 'nama', 'harga', 'status', 'item_sku', 'model_sku'])
             ->groupBy('item_id')
-            ->map(fn ($varian, $itemId) => [
-                'id'         => 'sp-' . $itemId,
-                'item_id'    => (int) $itemId,
-                'nama'       => $varian->first()->nama,
-                'url'        => "https://shopee.co.id/product/{$shop->shop_id}/{$itemId}",
-                'sumber'     => 'shopee',
-                'lapak'      => 'Shopee',
-                'harga_min'  => $varian->min(fn ($v) => (float) $v->harga) ?: null,
-                'harga_maks' => $varian->max(fn ($v) => (float) $v->harga) ?: null,
-            ])
-            ->sortBy('nama', SORT_NATURAL | SORT_FLAG_CASE)
-            ->take(200)
-            ->values();
+            ->map(function ($semua, $itemId) use ($shop, $produk) {
+                $aktif  = $semua->where('status', 'NORMAL');
+                $varian = $aktif->isNotEmpty() ? $aktif : $semua;
+
+                return [
+                    'id'         => 'sp-' . $itemId,
+                    'item_id'    => (int) $itemId,
+                    'nama'       => $varian->first()->nama,
+                    'url'        => "https://shopee.co.id/product/{$shop->shop_id}/{$itemId}",
+                    'sumber'     => 'shopee',
+                    'lapak'      => 'Shopee',
+                    'harga_min'  => $varian->min(fn ($v) => (float) $v->harga) ?: null,
+                    'harga_maks' => $varian->max(fn ($v) => (float) $v->harga) ?: null,
+                    'sku'        => $produk->daftarSku($varian),
+                    'aktif'      => $aktif->isNotEmpty(),
+                ];
+            });
     }
 
     private static function barisManual(CrmMarketplaceLink $t): array

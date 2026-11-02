@@ -697,7 +697,7 @@ class ShopeeChatTest extends TestCase
     {
         $crm = $this->chatSiapDibalas();
         $this->kartuProduk($crm, 999);
-        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()->assertDontSee('Dibahas:')->assertDontSee('SKU: ');
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', $crm))->assertOk()->assertDontSee('Dibahas:')->assertDontSee('">SKU: ', false);
 
         $wa = CrmConversation::findOrCreateFor('628111222333');
         $this->actingAs($this->saiful)->get(route('crm.inbox.show', $wa))->assertOk()->assertDontSee('id="produkDibahas"', false);
