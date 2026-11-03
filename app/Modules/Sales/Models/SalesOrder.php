@@ -48,6 +48,35 @@ class SalesOrder extends Model
         return rtrim((string) config('store.storefront_url'), '/') . '/pesanan/' . $this->public_token;
     }
 
+    public function dibatalkan(): bool
+    {
+        return in_array(strtolower((string) $this->status), ['void', 'cancelled', 'canceled'], true);
+    }
+
+    /**
+     * Dokumen yang boleh diunduh pembeli dari halaman status: nota pesanan + faktur yang
+     * sudah diposting. Pesanan batal tidak punya dokumen.
+     *
+     * @return array<int, array{type: string, label: string, number: string, url: string}>
+     */
+    public function dokumenPublik(): array
+    {
+        if ($this->dibatalkan()) {
+            return [];
+        }
+
+        $token = $this->ensurePublicToken();
+        $faktur = $this->invoices()->where('status', 'posted')->orderBy('id')->get(['id', 'invoice_number']);
+
+        return [
+            ['type' => 'so', 'label' => 'Nota Pesanan', 'number' => (string) $this->order_number, 'url' => route('pesanan.dokumen.so', $token)],
+            ...$faktur->map(fn ($f) => [
+                'type' => 'invoice', 'label' => 'Invoice', 'number' => (string) $f->invoice_number,
+                'url' => route('pesanan.dokumen.invoice', [$token, $f->id]),
+            ])->all(),
+        ];
+    }
+
     protected $fillable = [
         'order_number',
         'customer_id',

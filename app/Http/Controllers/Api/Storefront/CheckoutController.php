@@ -950,6 +950,7 @@ class CheckoutController extends Controller
             'bank_accounts'   => [],
             'progress'        => $progress,
             'items'           => $this->orderItems($so),
+            'documents'       => $so->dokumenPublik(),
         ];
     }
 
@@ -1246,6 +1247,7 @@ class CheckoutController extends Controller
             'track_token'     => $so?->public_token,
             'progress'        => $so ? app(\App\Modules\Sales\Services\OrderProgressService::class)->for($so) : null,
             'items'           => $so ? $this->orderItems($so) : [],
+            'documents'       => $so ? $so->dokumenPublik() : [],
             'bank_accounts'   => collect($setting->accounts())->map(fn ($a) => [
                 'bank_name'      => $a['bank_name'],
                 'account_number' => $a['account_number'],

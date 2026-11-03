@@ -130,7 +130,7 @@ class TerminDanKirimLunasTest extends TestCase
             'invoice_date' => now()->toDateString(), 'status' => 'posted', 'subtotal' => 4502000, 'grand_total' => 4502000, 'paid_amount' => 251000, 'advance_applied' => 4251000]);
         $this->assertSame(0.0, $so->fresh()->sisaTagihan());
 
-        $this->get("/pay/{$t->link_token}")->assertOk()->assertSee('sudah lunas')->assertDontSee('dp_input', false);
+        $this->get("/pay/{$t->link_token}")->assertRedirect($so->fresh()->publicTrackUrl());
         foreach (['charge', 'snap'] as $jalur) {
             $this->postJson("/pay/{$t->link_token}/{$jalur}", ['channel' => 'qris', 'amount' => 251000])->assertStatus(422)->assertJson(['error' => 'Pesanan ini sudah lunas.']);
         }

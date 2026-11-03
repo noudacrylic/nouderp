@@ -41,6 +41,12 @@ Route::get ('/pay/{token}/done',     [\App\Modules\Payment\Controllers\MidtransP
 Route::get ('/pay/{token}/invoice.pdf', [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'invoicePdf'])->name('pay.invoice.pdf');
 Route::get ('/pay/{token}/so.pdf',      [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'soPdf'])->name('pay.so.pdf');
 
+// Unduhan di halaman status pesanan — memakai token PESANAN, yang tetap hidup setelah tautan bayar selesai.
+Route::middleware('throttle:10,1')->group(function () {
+    Route::get('/pesanan-dokumen/{token}/so.pdf', [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'pesananSoPdf'])->name('pesanan.dokumen.so');
+    Route::get('/pesanan-dokumen/{token}/invoice/{invoice}.pdf', [\App\Modules\Payment\Controllers\MidtransPublicController::class, 'pesananInvoicePdf'])->whereNumber('invoice')->name('pesanan.dokumen.invoice');
+});
+
 // Faktur versi web (struk gaya marketplace) untuk pesanan etalase — publik via public_token.
 Route::get ('/faktur/{token}',          [\App\Http\Controllers\WebFakturController::class, 'show'])->name('faktur.web');
 Route::post('/midtrans/notify',   [\App\Modules\Payment\Controllers\MidtransWebhookController::class, 'handle'])

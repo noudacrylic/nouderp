@@ -10,6 +10,7 @@ use App\Modules\Payment\Services\MidtransFeeCalculator;
 use App\Modules\Payment\Services\MidtransService;
 use App\Modules\Payment\Services\PaymentLinkService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Throwable;
@@ -45,7 +46,7 @@ class MidtransPublicController extends Controller
      * Halaman publik bayar / lihat dokumen — buka via /pay/{token}.
      * Mendukung dua jenis link: invoice (pelunasan) & sales order (DP/uang muka).
      */
-    public function show(string $token): View
+    public function show(string $token): View|RedirectResponse
     {
         $trx = $this->links->findByToken($token);
         if (!$trx) {
@@ -86,10 +87,10 @@ class MidtransPublicController extends Controller
                 return view('pay.invalid', ['reason' => 'Pesanan tidak ditemukan.']);
             }
             $remaining = (int) round($so->sisaTagihan());
-            // Sudah lunas lewat faktur sementara tautan ini belum pernah dibayar: tak ada lagi
-            // yang ditagih, jangan sampai pembeli membayar dua kali.
-            if ($remaining <= 0 && !$trx->isPaid()) {
-                return view('pay.invalid', ['reason' => "Pesanan {$so->order_number} sudah lunas. Tidak ada tagihan yang perlu dibayar."]);
+            // Tak ada lagi yang ditagih (termasuk lunas lewat faktur): tautan ini kini jadi
+            // pintu ke halaman status, tempat pembeli memantau pesanan & mengunduh dokumennya.
+            if ($remaining <= 0) {
+                return $this->keHalamanStatus($so);
             }
             $requireFull = $this->requiresFullPayment($trx); // pesanan dari website → wajib lunas
 
@@ -121,6 +122,12 @@ class MidtransPublicController extends Controller
             return view('pay.invalid', ['reason' => 'Invoice tidak ditemukan.']);
         }
         $remaining = (int) round($invoice->remaining_amount);
+
+        // Faktur tanpa pesanan (atau pesanannya batal) tak punya halaman status: tetap di sini.
+        $soFaktur = $invoice->salesOrder;
+        if ($remaining <= 0 && $soFaktur && !$soFaktur->dibatalkan()) {
+            return $this->keHalamanStatus($soFaktur);
+        }
 
         return view('pay.show', array_merge($common, [
             'invoice' => $invoice,
@@ -348,15 +355,8 @@ class MidtransPublicController extends Controller
         if (!$trx || !$trx->invoice || $trx->documentBlockedReason()) {
             abort(404);
         }
-        $invoice = $trx->invoice->load(['customer', 'items.product']);
-        $profile = BusinessProfile::instance()->load('bankAccounts');
-        $html = view('erp.sales.invoices.print', [
-            'invoice' => $invoice,
-            'profile' => $profile,
-            'pdfMode' => true,
-        ])->render();
 
-        return $this->renderPdf($html, 'FakturPenjualan_' . $invoice->invoice_number);
+        return $this->pdfInvoice($trx->invoice);
     }
 
     public function soPdf(string $token)
@@ -365,20 +365,63 @@ class MidtransPublicController extends Controller
         if (!$trx || !$trx->salesOrder || $trx->documentBlockedReason()) {
             abort(404);
         }
-        $order = $trx->salesOrder->load(['customer', 'warehouse', 'items.product', 'advances']);
-        $profile = BusinessProfile::instance()->load('bankAccounts');
-        $html = view('erp.sales.orders.print', [
-            'order' => $order,
-            'profile' => $profile,
-            'pdfMode' => true,
-        ])->render();
 
-        return $this->renderPdf($html, 'PesananPenjualan_' . $order->order_number);
+        return $this->pdfSo($trx->salesOrder);
+    }
+
+    /** Unduhan dari halaman status pesanan. */
+    public function pesananSoPdf(string $token)
+    {
+        return $this->pdfSo($this->pesananBertoken($token));
+    }
+
+    public function pesananInvoicePdf(string $token, int $invoice)
+    {
+        $faktur = $this->pesananBertoken($token)->invoices()->where('status', 'posted')->findOrFail($invoice);
+
+        return $this->pdfInvoice($faktur);
     }
 
     /* ===================================================================
        Helpers
        =================================================================== */
+
+    protected function pesananBertoken(string $token): \App\Modules\Sales\Models\SalesOrder
+    {
+        $so = \App\Modules\Sales\Models\SalesOrder::where('public_token', $token)->first();
+        abort_if(!$so || $so->dibatalkan(), 404);
+
+        return $so;
+    }
+
+    protected function keHalamanStatus(\App\Modules\Sales\Models\SalesOrder $so): RedirectResponse
+    {
+        $so->ensurePublicToken();
+
+        return redirect()->away($so->publicTrackUrl());
+    }
+
+    protected function pdfInvoice(\App\Models\SalesInvoice $invoice)
+    {
+        $html = view('erp.sales.invoices.print', [
+            'invoice' => $invoice->load(['customer', 'items.product']),
+            'profile' => BusinessProfile::instance()->load('bankAccounts'),
+            'pdfMode' => true,
+        ])->render();
+
+        return $this->renderPdf($html, 'FakturPenjualan_' . $invoice->invoice_number);
+    }
+
+    protected function pdfSo(\App\Modules\Sales\Models\SalesOrder $order)
+    {
+        $html = view('erp.sales.orders.print', [
+            'order' => $order->load(['customer', 'warehouse', 'items.product', 'advances']),
+            'profile' => BusinessProfile::instance()->load('bankAccounts'),
+            'pdfMode' => true,
+        ])->render();
+
+        return $this->renderPdf($html, 'PesananPenjualan_' . $order->order_number);
+    }
 
     protected function isSo($trx): bool
     {
