@@ -4,6 +4,7 @@ namespace App\Modules\Notifications\Services;
 
 use App\Models\TelegramSetting;
 use App\Models\User;
+use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -91,6 +92,20 @@ class TelegramNotifier
         }
 
         return $sent;
+    }
+
+    /** @return \Illuminate\Support\Collection<int,string> chat_id owner: super admin & anggota Meja Owner yang aktif */
+    public function ownerChatIds(): \Illuminate\Support\Collection
+    {
+        return User::where('is_active', true)->where('is_virtual', false)->whereNotNull('telegram_chat_id')
+            ->where(fn ($q) => $q->where('role', 'super_admin')
+                ->orWhereIn('id', MejaKerjaPeran::where('peran', 'owner')->select('user_id')))
+            ->pluck('telegram_chat_id')->unique()->values();
+    }
+
+    public function notifyOwners(string $text, array $opts = []): int
+    {
+        return $this->ownerChatIds()->filter(fn ($chatId) => $this->send($chatId, $text, $opts))->count();
     }
 
     /** Kirim pesan & kembalikan message_id (untuk diedit belakangan). Null bila gagal. */

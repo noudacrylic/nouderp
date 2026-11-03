@@ -9,7 +9,6 @@ use App\Modules\Notifications\Services\TelegramNotifier;
 use App\Modules\Notifications\Services\WebPushNotifier;
 use App\Modules\SDM\Models\IzinRequest;
 use App\Modules\Tasks\MejaKerja\MejaKerjaService;
-use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\Models\Task;
 use App\Modules\Tasks\TugasOwner\TugasOwnerService;
 use Illuminate\Support\Facades\DB;
@@ -85,11 +84,6 @@ class IzinKeputusanService
         try {
             if (!$this->telegram->enabled()) return;
 
-            $penerima = User::where('is_active', true)->where('is_virtual', false)->whereNotNull('telegram_chat_id')
-                ->where(fn ($q) => $q->where('role', 'super_admin')
-                    ->orWhereIn('id', MejaKerjaPeran::where('peran', 'owner')->select('user_id')))
-                ->pluck('telegram_chat_id')->unique();
-
             $opsi = $this->kv->mode(self::KUNCI_SKILL) === Skill::OTOMATIS
                 ? ['reply_markup' => json_encode(['inline_keyboard' => [[
                     ['text' => '✅ Setujui', 'callback_data' => "iz:ok:{$req->id}"],
@@ -98,7 +92,7 @@ class IzinKeputusanService
                 : [];
 
             $terkirim = [];
-            foreach ($penerima as $chatId) {
+            foreach ($this->telegram->ownerChatIds() as $chatId) {
                 if ($mid = $this->telegram->sendAndGetMessageId($chatId, $this->teks($req), $opsi)) {
                     $terkirim[] = [(string) $chatId, $mid];
                 }

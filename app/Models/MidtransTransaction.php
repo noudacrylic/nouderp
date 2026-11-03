@@ -10,6 +10,7 @@ class MidtransTransaction extends Model
 {
     protected $fillable = [
         'order_id',
+        'order_id_lama',
         'sales_invoice_id',
         'sales_order_id',
         'customer_id',
@@ -37,6 +38,7 @@ class MidtransTransaction extends Model
     ];
 
     protected $casts = [
+        'order_id_lama' => 'array',
         'transaction_time' => 'datetime',
         'expired_at' => 'datetime',
         'settled_at' => 'datetime',

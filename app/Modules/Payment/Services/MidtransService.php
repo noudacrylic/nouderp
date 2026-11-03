@@ -8,8 +8,11 @@ use App\Models\MidtransSetting;
 use App\Models\MidtransTransaction;
 use App\Models\PaymentFeeSetting;
 use App\Models\SalesInvoice;
+use App\Modules\Notifications\Services\TelegramNotifier;
+use App\Modules\Payment\Exceptions\OrderMidtransTakDikenal;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Services\CustomerPaymentService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -158,8 +161,11 @@ class MidtransService
             }
         }
 
+        $orderLama = $this->orderYangDigantikan($trx);
+
         $trx->update([
             'order_id' => $orderId,
+            'order_id_lama' => $this->daftarOrderLama($trx, $orderLama),
             'channel' => $channel,
             'bank' => $bank,
             'gross_amount' => $gross,
@@ -171,7 +177,37 @@ class MidtransService
             'raw_response' => json_encode($data),
         ]);
 
+        $this->matikanOrderLama($orderLama);
+
         return $trx->fresh();
+    }
+
+    /** order_id aktif yang akan tertimpa, null bila belum pernah di-charge (belum dikenal Midtrans). */
+    protected function orderYangDigantikan(MidtransTransaction $trx): ?string
+    {
+        return $trx->raw_response || $trx->snap_token || $trx->qris_payload ? $trx->order_id : null;
+    }
+
+    /** @return array<int,string>|null */
+    protected function daftarOrderLama(MidtransTransaction $trx, ?string $orderLama): ?array
+    {
+        $daftar = $trx->order_id_lama ?? [];
+        if ($orderLama) {
+            $daftar[] = $orderLama;
+        }
+
+        return $daftar ? array_slice($daftar, -20) : null;
+    }
+
+    /**
+     * Pembeli ganti metode: kode bayar lama dimatikan di Midtrans, jadi tidak bisa dibayar lagi
+     * tanpa tercatat. Dipanggil sesudah kode baru terbit supaya pembeli tak pernah tanpa kode.
+     */
+    protected function matikanOrderLama(?string $orderLama): void
+    {
+        if ($orderLama) {
+            $this->expireOrder($orderLama);
+        }
     }
 
     /**
@@ -279,8 +315,11 @@ class MidtransService
             throw new RuntimeException('Midtrans menolak pembuatan halaman pembayaran: ' . ($data['error_messages'][0] ?? $response->body()));
         }
 
+        $orderLama = $this->orderYangDigantikan($trx);
+
         $trx->update([
             'order_id' => $orderId,
+            'order_id_lama' => $this->daftarOrderLama($trx, $orderLama),
             'channel' => $channel, // group metode (qris/va/ewallet/credit_card/alfamart/paylater)
             'gross_amount' => $gross,
             'base_amount' => $base,
@@ -290,6 +329,8 @@ class MidtransService
             'status' => 'pending',
             'raw_response' => json_encode($data),
         ]);
+
+        $this->matikanOrderLama($orderLama);
 
         return $trx->fresh();
     }
@@ -521,7 +562,7 @@ class MidtransService
         return DB::transaction(function () use ($orderId, $payload) {
             $trx = MidtransTransaction::where('order_id', $orderId)->lockForUpdate()->first();
             if (!$trx) {
-                throw new RuntimeException("MidtransTransaction tidak ditemukan: {$orderId}");
+                throw new OrderMidtransTakDikenal($orderId);
             }
 
             $newStatus = $this->mapStatus($payload['transaction_status'] ?? 'pending');
@@ -606,20 +647,62 @@ class MidtransService
             return false;
         }
 
+        return $this->expireOrder($trx->order_id);
+    }
+
+    protected function expireOrder(string $orderId): bool
+    {
         try {
             $response = Http::withHeaders([
                     'Accept' => 'application/json',
                     'Authorization' => $this->authHeader(),
                 ])
                 ->timeout(15)
-                ->post($this->apiBase() . '/v2/' . $trx->order_id . '/expire');
+                ->post($this->apiBase() . '/v2/' . $orderId . '/expire');
 
             return $response->successful();
         } catch (Throwable $e) {
-            Log::warning('Midtrans expire gagal', ['order_id' => $trx->order_id, 'error' => $e->getMessage()]);
+            Log::warning('Midtrans expire gagal', ['order_id' => $orderId, 'error' => $e->getMessage()]);
 
             return false;
         }
+    }
+
+    /**
+     * Notifikasi untuk order yang bukan order aktif. Hampir selalu order lama yang kedaluwarsa
+     * setelah pembeli ganti metode — wajar, cukup dicatat. Yang dibayar berarti uang masuk tanpa
+     * tercatat: tidak diposting otomatis (pesanannya bisa saja sudah dibayar lewat order baru),
+     * owner diberi tahu supaya dicatat manual atau di-refund.
+     */
+    public function tanganiOrderTakDikenal(array $payload): void
+    {
+        $orderId = (string) ($payload['order_id'] ?? '');
+        $status  = $this->mapStatus($payload['transaction_status'] ?? 'pending');
+
+        if ($status !== 'settlement' || ($payload['fraud_status'] ?? null) === 'deny') {
+            Log::info('Midtrans: notifikasi order lama diabaikan', ['order_id' => $orderId, 'status' => $status]);
+            return;
+        }
+
+        Log::critical('Midtrans: uang masuk untuk order tak dikenal — belum tercatat', ['order_id' => $orderId, 'gross_amount' => $payload['gross_amount'] ?? null]);
+
+        // capture lalu settlement = dua notifikasi untuk satu pembayaran.
+        if (! Cache::add('midtrans:alarm:' . $orderId, 1, now()->addDays(30))) {
+            return;
+        }
+
+        $trx = MidtransTransaction::whereJsonContains('order_id_lama', $orderId)->first();
+        $dokumen = $trx?->salesOrder?->order_number ?? $trx?->invoice?->invoice_number ?? 'tidak diketahui';
+        $nominal = 'Rp ' . number_format((float) ($payload['gross_amount'] ?? 0), 0, ',', '.');
+
+        app(TelegramNotifier::class)->notifyOwners(
+            "🚨 <b>Uang masuk Midtrans BELUM tercatat</b>\n"
+            . "Order: <code>" . e($orderId) . "</code>\n"
+            . "Nominal: {$nominal}\n"
+            . 'Metode: ' . e((string) ($payload['payment_type'] ?? '-')) . "\n"
+            . 'Dokumen: ' . e($dokumen) . "\n\n"
+            . 'Pembeli membayar kode lama. Periksa apakah pesanan ini juga sudah dibayar lewat kode baru, lalu catat manual atau refund.'
+        );
     }
 
     /**

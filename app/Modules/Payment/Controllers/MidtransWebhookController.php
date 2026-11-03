@@ -3,6 +3,7 @@
 namespace App\Modules\Payment\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Payment\Exceptions\OrderMidtransTakDikenal;
 use App\Modules\Payment\Services\MidtransService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,6 +30,10 @@ class MidtransWebhookController extends Controller
                 'status' => $trx->status,
                 'order_id' => $trx->order_id,
             ]);
+        } catch (OrderMidtransTakDikenal $e) {
+            // 200: Midtrans tak perlu mengulang, order-nya memang bukan order aktif.
+            $this->midtrans->tanganiOrderTakDikenal($payload);
+            return response()->json(['ok' => false, 'error' => $e->getMessage()]);
         } catch (Throwable $e) {
             Log::error('Midtrans webhook handler error', [
                 'order_id' => $payload['order_id'] ?? null,
