@@ -700,76 +700,13 @@ class SalesInvoiceService
         });
     }
 
-    /**
-     * Reverse stok yang dikonsumsi saat delivery posted.
-     * Mencatat ledger qty_in untuk mengembalikan saldo stok, dan
-     * membuat StockLayer baru sebagai stok kembali (FIFO order tetap terjaga).
-     */
+    /** Balik stok yang dikonsumsi saat delivery posted, kembali ke lapisan asalnya. */
     protected function reverseDeliveryStock(\App\Modules\Sales\Models\SalesDelivery $delivery): void
     {
         $delivery->loadMissing('items.product');
-        $engine = app(\App\Core\Inventory\InventoryEngine::class);
 
         foreach ($delivery->items as $item) {
-            $product = $item->product;
-            if (!$product || in_array($product->sale_type ?? null, ['service', 'non_stock'], true)) {
-                continue;
-            }
-            if ((float) $item->qty <= 0) {
-                continue;
-            }
-
-            // Cari InventoryCostLayer hasil consume saat delivery posted
-            $consumeLayers = \App\Models\InventoryCostLayer::where('product_id', $item->product_id)
-                ->where('reference_type', 'sales')
-                ->where('reference_id', $delivery->id)
-                ->where('qty_out', '>', 0)
-                ->get();
-
-            $totalQty = (float) $consumeLayers->sum('qty_out');
-            if ($totalQty <= 0) {
-                $totalQty = (float) $item->qty;
-            }
-
-            // Restore: catat ledger qty_in dan buat StockLayer kembali (avg cost)
-            $avgCost = 0;
-            if ($consumeLayers->count() > 0 && $totalQty > 0) {
-                $totalCost = $consumeLayers->sum(fn($l) => (float) $l->qty_out * (float) $l->unit_cost);
-                $avgCost = $totalCost / $totalQty;
-            } elseif ((float) $item->qty > 0 && (float) ($item->cogs_total ?? 0) > 0) {
-                $avgCost = (float) $item->cogs_total / (float) $item->qty;
-            }
-
-            $engine->ledger(
-                $item->product_id,
-                $delivery->warehouse_id,
-                $totalQty,
-                0,
-                'sales_void',
-                $delivery->delivery_number,
-                'Void delivery ' . $delivery->delivery_number,
-                $delivery->id
-            );
-
-            // Catat balik di FIFO sebagai layer baru (qty_remaining penuh)
-            \App\Core\Inventory\StockLayer::create([
-                'product_id'   => $item->product_id,
-                'warehouse_id' => $delivery->warehouse_id,
-                'qty_in'       => $totalQty,
-                'qty_remaining'=> $totalQty,
-                'unit_cost'    => $avgCost,
-                'source_type'  => 'sales_void',
-                'source_id'    => $delivery->id,
-            ]);
-
-            \App\Models\InventoryCostLayer::create([
-                'product_id'     => $item->product_id,
-                'qty_in'         => $totalQty,
-                'qty_balance'    => $totalQty,
-                'unit_cost'      => $avgCost,
-                'reference_type' => 'sales_void',
-                'reference_id'   => $delivery->id,
-            ]);
+            app(SalesDeliveryService::class)->kembalikanStokItem($delivery, $item);
         }
     }
 
