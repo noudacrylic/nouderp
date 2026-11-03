@@ -293,6 +293,34 @@ class InventoryEngine
         });
     }
 
+    /**
+     * Kebalikan pelepasan reservasi di ship()/shipDeferred(), dipakai saat SJ di-void. Tanpa
+     * cek ketersediaan seperti reserve(): barang yang kembali memang milik pesanan ini.
+     */
+    public function kembalikanReservasi($product, $warehouse, $qty, $soId): void
+    {
+        $aktif = StockReservation::where([
+            'product_id'     => $product,
+            'warehouse_id'   => $warehouse,
+            'sales_order_id' => $soId,
+            'status'         => 'active',
+        ])->orderBy('id')->lockForUpdate()->first();
+
+        if ($aktif) {
+            $aktif->qty = (float) $aktif->qty + (float) $qty;
+            $aktif->save();
+            return;
+        }
+
+        StockReservation::create([
+            'product_id'     => $product,
+            'warehouse_id'   => $warehouse,
+            'sales_order_id' => $soId,
+            'qty'            => $qty,
+            'status'         => 'active',
+        ]);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | SHIPMENT (SALES DELIVERY)

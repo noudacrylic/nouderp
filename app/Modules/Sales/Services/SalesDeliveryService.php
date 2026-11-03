@@ -300,6 +300,11 @@ class SalesDeliveryService
         }
         if ((float) $item->qty <= 0) return;
 
+        // Pesanan masih berjalan: barang yang kembali tetap miliknya, bukan stok bebas.
+        if ($product->sale_type !== 'bundle' && $delivery->order?->status === 'confirmed') {
+            $engine->kembalikanReservasi($item->product_id, $delivery->warehouse_id, (float) $item->qty, $delivery->sales_order_id);
+        }
+
         // Item yang masih di-defer: dikirim dengan stok minus, COGS belum dihitung
         // dan TIDAK ada layer FIFO yang dikonsumsi. Cukup balikkan ledger (tambah qty),
         // tanpa membuat layer biaya phantom.

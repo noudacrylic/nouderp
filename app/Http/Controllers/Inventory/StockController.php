@@ -136,7 +136,9 @@ class StockController extends Controller
                 $stokCadangan = $nonSellableStocksMap[$pid] ?? 0;
                 $stokDipesan  = $reservationsMap[$pid] ?? 0;
                 $sellableQty  = $sellableStocksMap[$pid] ?? 0;
-                $stokTersedia = $sellableQty - $stokDipesan + ($product->preorder_stock ?? 0);
+                // Kuota preorder sengaja tidak ikut: itu izin jual, bukan barang. Gerbang jual
+                // (StokTersediaService, Jubelio, toko online) tetap menghitungnya.
+                $stokTersedia = $sellableQty - $stokDipesan;
                 $shippedQty   = max(0, ($shippedQtyMap[$pid] ?? 0) - ($returnedFromSOMap[$pid] ?? 0));
             }
 
@@ -164,6 +166,7 @@ class StockController extends Controller
                 'ordered'     => $stokDipesan,
                 'shipped'     => $shippedQty,
                 'available'   => $stokTersedia,
+                'kuota_preorder' => $product->sale_type === 'bundle' ? 0 : (float) ($product->preorder_stock ?? 0),
                 'min_stock'   => $minStock,
                 'stock_status'=> $stockStatus,
             ];

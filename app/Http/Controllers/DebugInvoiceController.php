@@ -548,23 +548,27 @@ class DebugInvoiceController extends Controller
         }
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($invoice) {
-            // Draft invoice sudah menambah qty_invoiced di SO saat dibuat → kembalikan
-            // supaya SO tidak terkunci dan bisa di-invoice ulang.
-            foreach ($invoice->items as $invItem) {
-                if ($invItem->sales_order_item_id) {
-                    $soItem = \App\Modules\Sales\Models\SalesOrderItem::find($invItem->sales_order_item_id);
-                    if ($soItem) {
-                        $soItem->qty_invoiced = max(0, (float) $soItem->qty_invoiced - (float) $invItem->qty);
-                        $soItem->save();
-                    }
-                }
-            }
+            $this->kembalikanQtyInvoiced($invoice);
             $invoice->status = \App\Enums\InvoiceStatusEnum::VOID;
             $invoice->save();
         });
 
         return redirect()->route('sales.invoices.show', $invoice->id)
             ->with('success', 'Invoice berhasil dibatalkan.');
+    }
+
+    /** Draft sudah menambah qty_invoiced di SO saat dibuat → kembalikan supaya SO bisa difaktur ulang. */
+    private function kembalikanQtyInvoiced(\App\Models\SalesInvoice $invoice): void
+    {
+        foreach ($invoice->items as $invItem) {
+            if ($invItem->sales_order_item_id) {
+                $soItem = \App\Modules\Sales\Models\SalesOrderItem::find($invItem->sales_order_item_id);
+                if ($soItem) {
+                    $soItem->qty_invoiced = max(0, (float) $soItem->qty_invoiced - (float) $invItem->qty);
+                    $soItem->save();
+                }
+            }
+        }
     }
 
     public function void($id)
@@ -585,13 +589,19 @@ class DebugInvoiceController extends Controller
 
     public function destroy($id)
     {
-        $invoice = \App\Models\SalesInvoice::findOrFail($id);
+        $invoice = \App\Models\SalesInvoice::with('items')->findOrFail($id);
 
         if ($invoice->status === \App\Enums\InvoiceStatusEnum::POSTED) {
             return back()->with('error', 'Invoice yang sudah posted tidak bisa dihapus. Gunakan Void.');
         }
 
-        $invoice->delete();
+        \Illuminate\Support\Facades\DB::transaction(function () use ($invoice) {
+            // Faktur void sudah mengembalikan qty_invoiced saat di-void.
+            if ($invoice->status === \App\Enums\InvoiceStatusEnum::DRAFT) {
+                $this->kembalikanQtyInvoiced($invoice);
+            }
+            $invoice->delete();
+        });
 
         return redirect()->route('sales.invoices.index')
             ->with('success', 'Invoice berhasil dihapus.');

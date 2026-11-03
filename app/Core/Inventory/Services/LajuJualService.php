@@ -9,8 +9,8 @@ use App\Models\InventoryLedger;
  *
  * Sengaja dari kartu stok, bukan baris SO: produk yang laku lewat bundel (mis.
  * AM-40x30x6 keluar 266/bulan lewat 14 SKU bundel, padahal baris SO-nya cuma 11)
- * hanya terlihat di sini. SJ yang di-void membalik barisnya (qty_in), jadi dihitung
- * bersih: Σ(qty_out − qty_in).
+ * hanya terlihat di sini. SJ yang di-void mencatat baris 'sales_void' (qty_in), jadi
+ * dihitung bersih: Σ(qty_out − qty_in).
  *
  * Dipakai halaman Stok (kolom "Laku/hari" & "Cukup") dan skill isi antrean CNC,
  * supaya angka yang dilihat orang sama dengan yang dipakai sistem memutuskan.
@@ -29,7 +29,7 @@ class LajuJualService
         if ($ids->isEmpty()) return [];
 
         $total = InventoryLedger::whereIn('product_id', $ids)
-            ->where('transaction_type', 'sale')
+            ->whereIn('transaction_type', ['sale', 'sales_void'])
             ->where('created_at', '>=', now()->subDays($hari))
             ->selectRaw('product_id, SUM(qty_out) - SUM(qty_in) as qty')
             ->groupBy('product_id')
