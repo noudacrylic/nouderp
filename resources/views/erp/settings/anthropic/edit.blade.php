@@ -59,17 +59,6 @@
                 </div>
             </div>
 
-            <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Ambang Konfirmasi (Rp)</label>
-                <input type="number" name="confirm_threshold" min="0" step="1000"
-                       value="{{ old('confirm_threshold', $setting->confirm_threshold) }}"
-                       class="w-full md:w-64 border rounded px-3 py-2 text-sm">
-                <p class="text-xs text-gray-400 mt-1">
-                    Transaksi di atas nilai ini wajib dikonfirmasi (balas <b>ya</b>) sebelum diposting.
-                    Isi <span class="font-mono">0</span> agar <b>semua</b> transaksi minta konfirmasi (aman untuk uji coba).
-                </p>
-            </div>
-
             <label class="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
                 <input type="checkbox" name="is_active" value="1" {{ old('is_active', $setting->is_active) ? 'checked' : '' }}
                        class="rounded border-gray-300">

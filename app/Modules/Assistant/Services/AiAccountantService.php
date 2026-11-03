@@ -11,6 +11,7 @@ use App\Models\CustomerPayment;
 use App\Models\FreightSetting;
 use App\Models\SalesInvoice;
 use App\Models\User;
+use App\Modules\Assistant\Models\AsistenIngatan;
 use App\Modules\Finance\Models\BankTransfer;
 use App\Modules\Finance\Models\CashDisbursement;
 use App\Modules\Finance\Models\CashDisbursementLine;
@@ -32,9 +33,11 @@ use Illuminate\Support\Facades\Cache;
  *
  * Alur: pesan teks → percakapan dengan Claude (tool use) → AI memanggil tool
  * (cari_akun / catat_pengeluaran / catat_transfer_bank) → posting lewat service ERP
- * yang sama dengan UI (jurnal konsisten). Nominal di atas ambang ditahan untuk
- * konfirmasi deterministik (ya/batal) sebelum diposting. /batal mem-void transaksi
- * terakhir (CD atau transfer).
+ * yang sama dengan UI (jurnal konsisten), langsung diposting berapa pun nominalnya; koreksi
+ * lewat /batal (void transaksi terakhir, CD atau transfer).
+ *
+ * Konteks: percakapan yang belum tuntas diingat KONTEKS_TTL (balasan esok hari tetap nyambung).
+ * Aturan tetap dari user disimpan permanen di asisten_ingatan dan ikut di system prompt.
  *
  * Cakupan: Pengeluaran umum & Prive, Transfer antar bank, Bayar ongkir (per faktur),
  * baca struk (vision), laporan ringkas, serta Sales Order (buat draft → kirim PDF →
@@ -42,6 +45,17 @@ use Illuminate\Support\Facades\Cache;
  */
 class AiAccountantService
 {
+    /** Percakapan & transaksi terakhir (/batal) diingat 7 hari. */
+    private const KONTEKS_TTL = 7 * 24 * 3600;
+
+    /** Lewat jeda ini, pesan baru diberi catatan waktu supaya tanggal transaksinya tidak bergeser. */
+    private const JEDA_CATATAN_DETIK = 3600;
+
+    /** Batas pesan yang disimpan: membatasi biaya AI tiap giliran. */
+    private const MAKS_RIWAYAT = 30;
+
+    private const MAKS_INGATAN = 50;
+
     public function __construct(
         private ClaudeClient $claude,
         private CashDisbursementService $cdService,
@@ -61,11 +75,10 @@ class AiAccountantService
         $text = trim($text);
         $lower = strtolower($text);
 
-        // Perintah & konfirmasi hanya berlaku untuk pesan teks murni (bukan foto).
+        // Perintah hanya berlaku untuk pesan teks murni (bukan foto).
         if (! $image) {
             if ($lower === '/baru' || $lower === 'reset' || $lower === '/reset') {
                 $this->forgetConversation($chatId);
-                $this->forgetPending($chatId);
                 return '🔄 Percakapan direset. Silakan mulai lagi.';
             }
             if (str_starts_with($lower, '/batal')) {
@@ -74,14 +87,12 @@ class AiAccountantService
             if ($lower === '/help' || $lower === '/bantuan') {
                 return $this->helpText();
             }
-
-            // Ada transaksi menunggu konfirmasi (nominal di atas ambang)?
-            if ($pending = Cache::get($this->pendingKey($chatId))) {
-                return $this->resolvePending($chatId, $text, $pending);
+            if ($lower === '/ingatan') {
+                return $this->daftarIngatan($user);
             }
-        } else {
-            // Foto baru = transaksi baru; buang konfirmasi lama yang menggantung.
-            $this->forgetPending($chatId);
+            if ($lower === '/lupa' || str_starts_with($lower, '/lupa ')) {
+                return $this->lupakan($user, trim(substr($lower, 5)));
+            }
         }
 
         if (! $this->claude->enabled()) {
@@ -96,6 +107,7 @@ class AiAccountantService
     private function converse(User $user, string $chatId, string $text, ?array $image = null): string
     {
         $messages = Cache::get($this->convKey($chatId), []);
+        $text = $this->denganCatatanJeda($chatId, $messages, $text);
 
         if ($image) {
             // Giliran dengan foto struk → konten gambar + instruksi.
@@ -150,13 +162,7 @@ class AiAccountantService
                     if (($block['type'] ?? '') !== 'tool_use') {
                         continue;
                     }
-                    $result = $this->execTool($chatId, $block['name'] ?? '', $block['input'] ?? []);
-
-                    // Halt → butuh konfirmasi user; hentikan loop, kirim pesan deterministik.
-                    if (isset($result['_halt'])) {
-                        $this->saveConversation($chatId, $messages);
-                        return $result['message'];
-                    }
+                    $result = $this->execTool($user, $chatId, $block['name'] ?? '', $block['input'] ?? []);
                     if (! empty($result['_posted_summary'])) {
                         $postedSummary = $result['_posted_summary'];
                     }
@@ -177,7 +183,7 @@ class AiAccountantService
                 // Transaksi sukses turn ini → reset percakapan + tempel hint /batal.
                 $this->forgetConversation($chatId);
                 return ($reply !== '' ? $reply : '✅ Tercatat.')
-                    . "\n\n↩️ /batal untuk membatalkan transaksi terakhir.";
+                    . (Cache::has($this->lastKey($chatId)) ? "\n\n↩️ /batal untuk membatalkan transaksi terakhir." : '');
             }
 
             $this->saveConversation($chatId, $messages);
@@ -188,9 +194,11 @@ class AiAccountantService
         return 'Maaf, percakapan terlalu panjang. Coba /baru lalu ulangi lebih ringkas.';
     }
 
-    private function execTool(string $chatId, string $name, array $input): array
+    private function execTool(User $user, string $chatId, string $name, array $input): array
     {
         return match ($name) {
+            'simpan_ingatan'       => ['content' => $this->toolSimpanIngatan($user, $input)],
+            'hapus_ingatan'        => ['content' => $this->toolHapusIngatan($user, $input)],
             'cari_akun'            => ['content' => $this->toolCariAkun($input)],
             'catat_pengeluaran'    => $this->toolCatatPengeluaran($chatId, $input),
             'catat_transfer_bank'  => $this->toolCatatTransfer($chatId, $input),
@@ -287,26 +295,11 @@ class AiAccountantService
             return ['content' => 'Gagal membuat draft: ' . $e->getMessage()];
         }
 
-        // Di atas ambang → tahan untuk konfirmasi (deterministik, di luar tangan model).
-        if ($nominal > $this->threshold()) {
-            Cache::put($this->pendingKey($chatId), [
-                'kind'    => 'cd',
-                'id'      => $cd->id,
-                'number'  => $cd->number,
-                'summary' => $summary,
-            ], $this->ttl());
-
-            return [
-                '_halt'   => true,
-                'message' => '⚠️ Perlu konfirmasi (di atas ' . $this->thresholdLabel() . "):\n\n{$summary}\n\n"
-                    . 'Balas <b>ya</b> untuk posting atau <b>batal</b> untuk membatalkan.',
-            ];
-        }
-
         try {
             $this->cdService->post($cd);
         } catch (\Throwable $e) {
-            return ['content' => 'Draft dibuat tapi gagal posting: ' . $e->getMessage()];
+            $this->deleteDraft('cd', $cd);
+            return ['content' => 'Gagal posting, tidak ada yang tercatat: ' . $e->getMessage()];
         }
 
         Cache::put($this->lastKey($chatId), ['kind' => 'cd', 'id' => $cd->id], $this->ttl());
@@ -379,26 +372,11 @@ class AiAccountantService
             return ['content' => 'Gagal membuat draft transfer: ' . $e->getMessage()];
         }
 
-        // Patokan ambang = nominal transfer (tanpa biaya admin).
-        if ($nominal > $this->threshold()) {
-            Cache::put($this->pendingKey($chatId), [
-                'kind'    => 'transfer',
-                'id'      => $bt->id,
-                'number'  => $bt->number,
-                'summary' => $summary,
-            ], $this->ttl());
-
-            return [
-                '_halt'   => true,
-                'message' => '⚠️ Perlu konfirmasi (di atas ' . $this->thresholdLabel() . "):\n\n{$summary}\n\n"
-                    . 'Balas <b>ya</b> untuk posting atau <b>batal</b> untuk membatalkan.',
-            ];
-        }
-
         try {
             $this->btService->post($bt);
         } catch (\Throwable $e) {
-            return ['content' => 'Draft transfer dibuat tapi gagal posting: ' . $e->getMessage()];
+            $this->deleteDraft('transfer', $bt);
+            return ['content' => 'Gagal posting transfer, tidak ada yang tercatat: ' . $e->getMessage()];
         }
 
         Cache::put($this->lastKey($chatId), ['kind' => 'transfer', 'id' => $bt->id], $this->ttl());
@@ -521,23 +499,11 @@ class AiAccountantService
             return ['content' => 'Gagal membuat draft ongkir: ' . $e->getMessage()];
         }
 
-        // Ambang = bayar aktual.
-        if ($bayar > $this->threshold()) {
-            Cache::put($this->pendingKey($chatId), [
-                'kind' => 'cd', 'id' => $cd->id, 'number' => $cd->number, 'summary' => $summary,
-            ], $this->ttl());
-
-            return [
-                '_halt'   => true,
-                'message' => '⚠️ Perlu konfirmasi (di atas ' . $this->thresholdLabel() . "):\n\n{$summary}\n\n"
-                    . 'Balas <b>ya</b> untuk posting atau <b>batal</b>.',
-            ];
-        }
-
         try {
             $this->cdService->post($cd);
         } catch (\Throwable $e) {
-            return ['content' => 'Draft ongkir dibuat tapi gagal posting: ' . $e->getMessage()];
+            $this->deleteDraft('cd', $cd);
+            return ['content' => 'Gagal posting ongkir, tidak ada yang tercatat: ' . $e->getMessage()];
         }
 
         Cache::put($this->lastKey($chatId), ['kind' => 'cd', 'id' => $cd->id], $this->ttl());
@@ -950,6 +916,7 @@ class AiAccountantService
             return ['content' => 'Gagal post SO: ' . $e->getMessage()];
         }
 
+        $this->forgetLast($chatId);
         $so->refresh();
         $extra = $so->delivery_method === 'ambil_toko' && $so->pickup_code
             ? "\nKode ambil di toko: <b>{$so->pickup_code}</b>."
@@ -1013,28 +980,15 @@ class AiAccountantService
         $cust    = $so->customer->name ?? '-';
         $summary = "DP {$so->order_number} ({$cust})\n{$rp} → {$kas->name} · {$tgl}";
 
-        if ($nominal > $this->threshold()) {
-            Cache::put($this->pendingKey($chatId), [
-                'kind'    => 'dp',
-                'id'      => $payment->id,
-                'so_id'   => $so->id,
-                'number'  => $payment->payment_number,
-                'summary' => $summary,
-            ], $this->ttl());
-
-            return [
-                '_halt'   => true,
-                'message' => '⚠️ Perlu konfirmasi (di atas ' . $this->thresholdLabel() . "):\n\n{$summary}\n\n"
-                    . 'Balas <b>ya</b> untuk posting DP atau <b>batal</b> untuk membatalkan.',
-            ];
-        }
-
         try {
             $this->paymentService->post($payment->id, null, [], [$so->id], false);
         } catch (\Throwable $e) {
-            return ['content' => 'Draft DP dibuat tapi gagal posting: ' . $e->getMessage()];
+            $payment->delete();
+            return ['content' => 'Gagal posting DP, tidak ada yang tercatat: ' . $e->getMessage()];
         }
 
+        // DP tak bisa di-/batal: jangan sampai /batal mengenai transaksi sebelumnya.
+        $this->forgetLast($chatId);
         $this->catatJurnal($payment->payment_number, $summary);
 
         return [
@@ -1078,84 +1032,7 @@ class AiAccountantService
             . 'Total: <b>Rp ' . number_format((float) $so->grand_total, 0, ',', '.') . '</b>';
     }
 
-    // ───────────────────────── Konfirmasi & void ─────────────────────────
-
-    private function resolvePending(string $chatId, string $text, array $pending): string
-    {
-        $t   = strtolower(trim($text));
-        $yes = ['ya', 'iya', 'y', 'ok', 'oke', 'lanjut', 'betul', 'benar', 'sip', 'gas', 'setuju', 'yoi'];
-        $no  = ['batal', 'tidak', 'gak', 'ga', 'engga', 'enggak', 'no', 'jangan', 'stop', 'cancel'];
-
-        $isYes = in_array($t, $yes, true);
-        $isNo  = in_array($t, $no, true);
-
-        if (! $isYes && ! $isNo) {
-            return "❓ Masih ada transaksi menunggu konfirmasi:\n\n{$pending['summary']}\n\n"
-                . 'Balas <b>ya</b> untuk posting atau <b>batal</b> untuk membatalkan.';
-        }
-
-        $this->forgetPending($chatId);
-        $kind = $pending['kind'] ?? 'cd';
-
-        // DP (uang muka) punya alur post tersendiri (butuh SO id) → tangani terpisah.
-        if ($kind === 'dp') {
-            return $this->resolvePendingDp($chatId, $isYes, $pending);
-        }
-
-        $doc = $this->findDoc($kind, (int) ($pending['id'] ?? 0));
-
-        if (! $doc || ! $doc->isDraft()) {
-            $this->forgetConversation($chatId);
-            return 'Transaksi sudah tidak bisa diproses (mungkin sudah berubah). Silakan ulangi.';
-        }
-
-        if ($isNo) {
-            $this->deleteDraft($kind, $doc);
-            $this->forgetConversation($chatId);
-            return '❌ Dibatalkan. Tidak ada yang dibukukan.';
-        }
-
-        try {
-            $this->postDoc($kind, $doc);
-        } catch (\Throwable $e) {
-            return '❌ Gagal posting: ' . $e->getMessage();
-        }
-
-        Cache::put($this->lastKey($chatId), ['kind' => $kind, 'id' => $doc->id], $this->ttl());
-        $this->forgetConversation($chatId);
-        $this->catatJurnal($doc->number, $pending['summary']);
-
-        return "✅ <b>Diposting</b>: {$doc->number}\n{$pending['summary']}\n\n↩️ /batal untuk membatalkan.";
-    }
-
-    /** Konfirmasi DP: post lewat CustomerPaymentService (butuh SO id). Tidak wire /batal (void DP di ERP). */
-    private function resolvePendingDp(string $chatId, bool $isYes, array $pending): string
-    {
-        $payment = CustomerPayment::find((int) ($pending['id'] ?? 0));
-
-        if (! $payment || $payment->status !== 'draft') {
-            $this->forgetConversation($chatId);
-            return 'DP sudah tidak bisa diproses (mungkin sudah berubah). Silakan ulangi.';
-        }
-
-        if (! $isYes) {
-            $payment->delete();
-            $this->forgetConversation($chatId);
-            return '❌ Dibatalkan. DP tidak dibukukan.';
-        }
-
-        try {
-            $this->paymentService->post($payment->id, null, [], [(int) ($pending['so_id'] ?? 0)], false);
-        } catch (\Throwable $e) {
-            return '❌ Gagal posting DP: ' . $e->getMessage();
-        }
-
-        $this->forgetConversation($chatId);
-        $this->catatJurnal($payment->payment_number, $pending['summary']);
-
-        return "✅ <b>DP diposting</b>: {$payment->payment_number}\n{$pending['summary']}\n\n"
-            . '<i>Untuk membatalkan DP, void di menu Pembayaran ERP.</i>';
-    }
+    // ───────────────────────── Void ─────────────────────────
 
     private function voidLast(string $chatId): string
     {
@@ -1186,7 +1063,6 @@ class AiAccountantService
         }
     }
 
-    /** Cari dokumen draft/posted berdasarkan jenis (cd = Pengeluaran, transfer = Bank Transfer). */
     /** Jurnal kerja Asisten Owner: satu baris per transaksi yang diposting. Gagal mencatat tak mengganggu posting. */
     private function catatJurnal(string $nomor, string $ringkasan): void
     {
@@ -1199,14 +1075,10 @@ class AiAccountantService
         ]], KaryawanVirtualService::PEMICU_PERISTIWA, 'Pesan Telegram', auth()->id(), Skill::OTOMATIS);
     }
 
+    /** Cari dokumen draft/posted berdasarkan jenis (cd = Pengeluaran, transfer = Bank Transfer). */
     private function findDoc(string $kind, int $id)
     {
         return $kind === 'transfer' ? BankTransfer::find($id) : CashDisbursement::find($id);
-    }
-
-    private function postDoc(string $kind, $doc): void
-    {
-        $kind === 'transfer' ? $this->btService->post($doc) : $this->cdService->post($doc);
     }
 
     private function voidDoc(string $kind, $doc): void
@@ -1222,13 +1094,86 @@ class AiAccountantService
         $doc->delete();
     }
 
+    // ───────────────────────── Konteks & ingatan ─────────────────────────
+
+    /** Balasan yang datang lama sesudahnya diberi catatan waktu: tanggal transaksi tetap tanggal percakapan asal. */
+    private function denganCatatanJeda(string $chatId, array $messages, string $text): string
+    {
+        $terakhir = Cache::get($this->convAtKey($chatId));
+        if (! $messages || ! $terakhir || now()->timestamp - $terakhir < self::JEDA_CATATAN_DETIK) {
+            return $text;
+        }
+        $lalu = \Carbon\Carbon::createFromTimestamp($terakhir, config('app.timezone'))->format('Y-m-d H:i');
+
+        return "[Catatan sistem: pesan ini dikirim " . now()->format('Y-m-d H:i') . ", percakapan sebelumnya terakhir {$lalu}. "
+            . 'Bila pesan ini menjawab pertanyaan terakhirmu, lanjutkan dan isi tanggal transaksi dengan tanggal percakapan itu, '
+            . "kecuali user menyebut tanggal lain. Bila jelas topik baru, abaikan percakapan lama.]\n\n{$text}";
+    }
+
+    private function teksIngatan(User $user): string
+    {
+        $isi = AsistenIngatan::where('user_id', $user->id)->orderBy('id')->get();
+
+        return $isi->isEmpty() ? '(belum ada)' : $isi->map(fn ($i) => "#{$i->id}: {$i->isi}")->implode("\n");
+    }
+
+    private function daftarIngatan(User $user): string
+    {
+        $isi = AsistenIngatan::where('user_id', $user->id)->orderBy('id')->get();
+        if ($isi->isEmpty()) {
+            return '📝 Belum ada yang saya ingat. Sebutkan saja aturannya, mis. <i>untuk BCA pakai rekening bank, bukan QRIS</i>.';
+        }
+
+        return "📝 <b>Yang saya ingat:</b>\n"
+            . $isi->map(fn ($i) => "{$i->id}. " . e($i->isi))->implode("\n")
+            . "\n\nHapus: /lupa nomor · /lupa semua";
+    }
+
+    private function lupakan(User $user, string $arg): string
+    {
+        $milik = AsistenIngatan::where('user_id', $user->id);
+        if ($arg === 'semua') {
+            $milik->delete();
+            return '🗑 Semua ingatan dihapus.';
+        }
+        if (! ctype_digit($arg)) {
+            return 'Tulis /lupa diikuti nomornya (lihat /ingatan), atau /lupa semua.';
+        }
+
+        return $milik->whereKey((int) $arg)->delete() ? "🗑 Ingatan {$arg} dihapus." : "Ingatan {$arg} tidak ditemukan.";
+    }
+
+    private function toolSimpanIngatan(User $user, array $input): string
+    {
+        $isi = mb_substr(trim((string) ($input['isi'] ?? '')), 0, 300);
+        if ($isi === '') {
+            return 'Isi ingatan kosong.';
+        }
+        $milik = AsistenIngatan::where('user_id', $user->id);
+        if ((clone $milik)->where('isi', $isi)->exists()) {
+            return 'Sudah tersimpan sebelumnya.';
+        }
+        if ((clone $milik)->count() >= self::MAKS_INGATAN) {
+            return 'Ingatan penuh (' . self::MAKS_INGATAN . '). Minta user menghapus lewat /ingatan.';
+        }
+        AsistenIngatan::create(['user_id' => $user->id, 'isi' => $isi]);
+
+        return 'Tersimpan.';
+    }
+
+    private function toolHapusIngatan(User $user, array $input): string
+    {
+        return AsistenIngatan::where('user_id', $user->id)->whereKey((int) ($input['id'] ?? 0))->delete()
+            ? 'Dihapus.' : 'Ingatan tidak ditemukan.';
+    }
+
     // ───────────────────────── Prompt & tool schema ─────────────────────────
 
     private function systemPrompt(User $user): string
     {
         $today = now()->format('Y-m-d');
         $nama  = $user->name ?: 'Pengguna';
-        $amb   = $this->thresholdLabel();
+        $ingatan = $this->teksIngatan($user);
 
         return <<<TXT
 Kamu "Noud Bot", asisten pencatat keuangan untuk Noud Acrylic di dalam ERP. Kamu ngobrol santai dalam Bahasa Indonesia dan membantu {$nama} mencatat transaksi lewat Telegram.
@@ -1262,17 +1207,24 @@ Bedakan dengan jelas:
 - BAYAR ONGKIR yang terkait FAKTUR/pelanggan (pelepasan titipan) → cari_faktur_ongkir + catat_bayar_ongkir. User boleh menyebut NAMA PEMESAN/PELANGGAN (tidak harus nomor faktur). Jika hasil cari_faktur_ongkir lebih dari satu, TAMPILKAN daftarnya (pelanggan, nomor faktur, titipan, tanggal/resi) dan minta user memilih yang mana. Ongkir lain yang murni biaya umum tanpa faktur → catat_pengeluaran ke akun beban. Kalau ragu, tanya user dulu.
 - Foto struk pengeluaran → baca lalu catat_pengeluaran. Bila struk jelas pembelian barang untuk stok dari supplier, sampaikan dicatat manual di ERP.
 
+INGATAN (aturan tetap dari user, berlaku di semua percakapan):
+{$ingatan}
+- Saat user menyatakan aturan/kebiasaan yang berlaku seterusnya (mis. "untuk BCA pakai rekening bank bukan QRIS", "bensin selalu dari kas kecil"), panggil simpan_ingatan, lalu sampaikan "📝 Saya ingat: ...". Jangan menyimpan yang hanya berlaku sekali atau hal yang kamu tebak sendiri.
+- Saat user minta melupakan/mengubah sebuah aturan, panggil hapus_ingatan dengan id-nya (lalu simpan_ingatan bila ada aturan pengganti).
+- Id akun tetap harus dari cari_akun; INGATAN hanya menentukan akun mana yang dimaksud.
+
 ATURAN:
 - SELALU pakai tool cari_akun untuk menemukan id akun dari kata user. JANGAN mengarang id akun.
   • biaya/beban (mis. "bensin", "makan", "listrik") → cari_akun jenis=beban.
   • "prive"/"ambil pribadi"/"buat pemilik" → cari_akun jenis=equity (cari "Prive").
   • rekening kas/bank ("kas", "kas kecil", "bca", "bri", "mandiri") → cari_akun jenis=kas_bank.
-- Pengeluaran: jika SUMBER kas/bank belum disebut user, TANYAKAN dulu — jangan menebak.
+- Pengeluaran: jika SUMBER kas/bank belum disebut user dan tidak ada di INGATAN, TANYAKAN dulu — jangan menebak.
 - Transfer: butuh rekening SUMBER dan TUJUAN; kalau salah satu belum jelas, tanyakan. Biaya admin opsional (sebutkan jika user menyebut, mis. "admin 6500").
-- Jika hasil cari_akun lebih dari satu yang relevan dan ambigu, tanyakan user mana yang dimaksud.
+- Jika hasil cari_akun lebih dari satu yang relevan dan ambigu, tanyakan user mana yang dimaksud — kecuali INGATAN sudah menentukannya; maka langsung pakai itu tanpa bertanya.
 - Jika akun Prive tidak ditemukan, beri tahu user agar dibuat dulu di Bagan Akun.
 - Parse nominal Indonesia: "20rb"/"20k"/"20.000" = 20000; "1,5jt"/"1.5jt" = 1500000.
-- Nominal di atas {$amb} otomatis butuh konfirmasi user (sistem yang menangani setelah kamu memanggil tool catat/DP) — kamu tidak perlu minta konfirmasi sendiri. (Membuat SO draft & mem-post SO TIDAK pakai ambang; post hanya atas perintah user.)
+- Transaksi LANGSUNG diposting berapa pun nominalnya begitu datanya lengkap — jangan minta konfirmasi nominal. Setelah tercatat, sebutkan ringkas nominal, akun, sumber, dan tanggalnya. Salah catat dikoreksi user dengan /batal.
+- Bila posting gagal (mis. periode tanggal itu sudah ditutup), tidak ada yang tercatat: sampaikan alasannya dan tanyakan tanggal baru.
 - SO: JANGAN mengarang customer_id atau product_id — selalu lewat cari_pelanggan/buat_pelanggan & cari_produk. Konfirmasikan ringkas isi pesanan sebelum buat_so_draft bila ada yang ambigu.
 - DP hanya untuk SO yang sudah confirmed (di-post). Kalau user mau DP tapi SO masih draft, ingatkan untuk post dulu.
 - Setelah semua id akun & nominal jelas, panggil tool yang sesuai. Balas singkat, ramah, dan to the point.
@@ -1282,6 +1234,27 @@ TXT;
     private function tools(): array
     {
         return [
+            [
+                'name'        => 'simpan_ingatan',
+                'description' => 'Simpan aturan tetap yang dinyatakan user supaya tidak ditanyakan lagi di percakapan berikutnya. '
+                    . 'Hanya untuk aturan yang berlaku seterusnya, bukan fakta satu transaksi.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'isi' => ['type' => 'string', 'description' => 'Aturan dalam satu kalimat jelas, mis. "BCA berarti akun rekening Bank BCA, bukan QRIS BCA".'],
+                    ],
+                    'required' => ['isi'],
+                ],
+            ],
+            [
+                'name'        => 'hapus_ingatan',
+                'description' => 'Hapus satu ingatan berdasarkan id di bagian INGATAN.',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => ['id' => ['type' => 'integer', 'description' => 'Id ingatan.']],
+                    'required'   => ['id'],
+                ],
+            ],
             [
                 'name'        => 'cari_akun',
                 'description' => 'Cari akun di Bagan Akun (COA) berdasarkan kata kunci untuk menemukan id-nya '
@@ -1559,8 +1532,7 @@ TXT;
                 'name'        => 'catat_dp',
                 'description' => 'Catat DP / uang muka pembeli untuk sebuah SO yang SUDAH di-post (confirmed). Kredit akun Uang Muka '
                     . 'Penjualan, debit kas/bank. Sumber DP dari bukti transfer yang diteruskan user (baca nominal dari foto '
-                    . 'bila ada). Panggil setelah so_id jelas & kas via cari_akun jenis=kas_bank. Nominal di atas ambang '
-                    . 'ditahan untuk konfirmasi otomatis oleh sistem.',
+                    . 'bila ada). Panggil setelah so_id jelas & kas via cari_akun jenis=kas_bank. Langsung diposting.',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -1593,7 +1565,8 @@ TXT;
             . "• revisi: <i>ganti jadi 12 pcs</i> / <i>ganti nama item jadi ...</i> · lalu <i>post</i> kalau sudah oke\n"
             . "• DP: forward bukti transfer + <i>DP 500rb ke BCA</i>\n"
             . "📷 atau kirim <b>foto struk</b> untuk dicatat otomatis.\n\n"
-            . "Perintah: /batal (batalkan transaksi terakhir) · /baru (mulai ulang percakapan)\n\n"
+            . "📝 Sebutkan aturan tetap, mis. <i>untuk BCA pakai rekening bank</i>, nanti tidak ditanya lagi.\n\n"
+            . "Perintah: /batal (batalkan transaksi terakhir) · /baru (mulai ulang percakapan) · /ingatan (lihat yang diingat) · /lupa nomor\n\n"
             . '<i>Mendukung pengeluaran, prive, transfer antar bank, bayar ongkir (per faktur), baca struk, cek pengeluaran/saldo, '
             . 'serta buat SO → PDF → post → DP. Pembelian supplier berstok dicatat manual di ERP.</i>';
     }
@@ -1638,23 +1611,9 @@ TXT;
         return (string) (($setting?->model_vision) ?: config('services.anthropic.model_vision', 'claude-opus-4-8'));
     }
 
-    private function threshold(): float
-    {
-        $setting = AnthropicSetting::current();
-        if ($setting && $setting->confirm_threshold !== null) {
-            return (float) $setting->confirm_threshold;
-        }
-        return (float) config('services.anthropic.confirm_threshold', 100000);
-    }
-
-    private function thresholdLabel(): string
-    {
-        return 'Rp ' . number_format($this->threshold(), 0, ',', '.');
-    }
-
     private function ttl(): int
     {
-        return (int) config('services.anthropic.conversation_ttl', 1200);
+        return self::KONTEKS_TTL;
     }
 
     /** SO aktif diingat lebih lama (7 hari) supaya DP yang di-forward belakangan tetap bisa default ke SO terakhir. */
@@ -1664,16 +1623,49 @@ TXT;
     }
 
     private function convKey(string $chatId): string    { return "aiacc:conv:{$chatId}"; }
-    private function pendingKey(string $chatId): string  { return "aiacc:pending:{$chatId}"; }
+    private function convAtKey(string $chatId): string  { return "aiacc:conv_at:{$chatId}"; }
     private function lastKey(string $chatId): string     { return "aiacc:last:{$chatId}"; }
     private function soKey(string $chatId): string       { return "aiacc:so:{$chatId}"; }
 
     private function saveConversation(string $chatId, array $messages): void
     {
-        Cache::put($this->convKey($chatId), $messages, $this->ttl());
+        Cache::put($this->convKey($chatId), $this->rampingkanRiwayat($messages), $this->ttl());
+        Cache::put($this->convAtKey($chatId), now()->timestamp, $this->ttl());
     }
 
-    private function forgetConversation(string $chatId): void { Cache::forget($this->convKey($chatId)); }
-    private function forgetPending(string $chatId): void      { Cache::forget($this->pendingKey($chatId)); }
+    /**
+     * Riwayat disimpan lama, jadi dijaga tetap kecil: foto (base64) diganti penanda, hanya pesan
+     * terakhir yang disimpan, dan awalnya selalu pesan user biasa — API menolak tool_result
+     * tanpa pasangan tool_use-nya.
+     */
+    private function rampingkanRiwayat(array $messages): array
+    {
+        $messages = array_map(function ($m) {
+            if (is_array($m['content'] ?? null)) {
+                $m['content'] = array_map(fn ($b) => ($b['type'] ?? '') === 'image' ? ['type' => 'text', 'text' => '[foto struk/nota]'] : $b, $m['content']);
+            }
+            return $m;
+        }, $messages);
+
+        $messages = array_slice($messages, -self::MAKS_RIWAYAT);
+        while ($messages && ! $this->pesanUserBiasa($messages[0])) {
+            array_shift($messages);
+        }
+
+        return $messages;
+    }
+
+    private function pesanUserBiasa(array $m): bool
+    {
+        return ($m['role'] ?? '') === 'user'
+            && ! (is_array($m['content']) && collect($m['content'])->contains('type', 'tool_result'));
+    }
+
+    private function forgetConversation(string $chatId): void
+    {
+        Cache::forget($this->convKey($chatId));
+        Cache::forget($this->convAtKey($chatId));
+    }
+
     private function forgetLast(string $chatId): void         { Cache::forget($this->lastKey($chatId)); }
 }

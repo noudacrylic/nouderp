@@ -70,13 +70,11 @@ return [
 
     // Claude (Anthropic) — asisten pencatat keuangan via Telegram. Tanpa key, AI no-op aman.
     // Pakai Http langsung ke api.anthropic.com (tanpa SDK). model_text utk perintah teks,
-    // model_vision utk baca struk (Fase 3). confirm_threshold: nominal di atas ini wajib konfirmasi.
+    // model_vision utk baca struk (Fase 3).
     'anthropic' => [
         'key'               => env('ANTHROPIC_API_KEY'),
         'model_text'        => env('ANTHROPIC_MODEL_TEXT', 'claude-sonnet-4-6'),
         'model_vision'      => env('ANTHROPIC_MODEL_VISION', 'claude-opus-4-8'),
-        'confirm_threshold' => (int) env('AI_CONFIRM_THRESHOLD', 100000),
-        'conversation_ttl'  => (int) env('AI_CONVERSATION_TTL', 1200), // detik
     ],
 
     // Web Push (PWA Karyawan) — VAPID. Tanpa kunci, WebPushNotifier no-op aman.

@@ -29,7 +29,6 @@ class AnthropicSettingController extends Controller
             'api_key'           => 'nullable|string|max:255',
             'model_text'        => 'required|string|max:64',
             'model_vision'      => 'required|string|max:64',
-            'confirm_threshold' => 'required|integer|min:0',
             'is_active'         => 'nullable|boolean',
         ]);
 
@@ -39,7 +38,6 @@ class AnthropicSettingController extends Controller
             'api_key'           => $data['api_key'] ?: null,
             'model_text'        => $data['model_text'],
             'model_vision'      => $data['model_vision'],
-            'confirm_threshold' => (int) $data['confirm_threshold'],
             'is_active'         => (bool) ($data['is_active'] ?? false),
         ]);
         $setting->save();
