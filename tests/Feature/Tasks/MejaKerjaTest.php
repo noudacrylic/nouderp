@@ -164,6 +164,24 @@ class MejaKerjaTest extends TestCase
         $this->assertSame($this->desainer->id, $desain->fresh()->assignee_user_id);
     }
 
+    public function test_owner_hanya_punya_meja_owner_dan_task_miliknya_ikut_di_sana(): void
+    {
+        $pembuat    = ['creator_user_id' => $this->owner->id];
+        $milikOwner = Task::create($pembuat + ['title' => 'Task manual owner', 'status' => 'pending', 'assignee_user_id' => $this->owner->id]);
+        $mejaOwner  = Task::create($pembuat + ['title' => 'Persetujuan meja owner', 'status' => 'open', 'peran' => 'owner']);
+        $milikLain  = Task::create($pembuat + ['title' => 'Task manual desainer', 'status' => 'open', 'assignee_user_id' => $this->desainer->id]);
+
+        foreach ([[], ['lihat' => 'saya']] as $param) {
+            $this->actingAs($this->owner)->get(route('tasks.meja.index', $param))->assertOk()
+                ->assertDontSee('Meja saya')->assertSee('Semua task Meja Owner')
+                ->assertSee($milikOwner->title)->assertSee($mejaOwner->title)->assertDontSee($milikLain->title);
+        }
+
+        // Admin biasa tetap memakai Meja saya, tanpa tab Meja Owner.
+        $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertOk()
+            ->assertSee('Meja saya')->assertDontSee('Meja Owner')->assertSee($milikLain->title);
+    }
+
     public function test_task_dibagi_ke_anggota_meja_yang_bebannya_paling_ringan(): void
     {
         $kedua = User::factory()->create(['role' => 'user', 'is_active' => true]);

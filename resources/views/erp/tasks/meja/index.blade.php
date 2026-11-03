@@ -18,6 +18,8 @@
                     Task yang ditugaskan Manajer Admin kepada Anda{{ $peranSaya ? ' + yang belum berpengerja di meja ' . collect($peranSaya)->map(fn ($p) => $peranLabel[$p] ?? $p)->implode(', ') : '' }}.
                 @elseif ($lihat === 'semua')
                     Semua meja peran.
+                @elseif ($lihat === 'owner')
+                    Semua task Meja Owner + task yang ditugaskan kepada Anda.
                 @else
                     Semua task Meja {{ $peranLabel[$lihat] }} — pengerjanya ditentukan Manajer Admin.
                 @endif
@@ -40,7 +42,8 @@
     </div>
 
     @php
-        $tab = ['saya' => 'Meja saya'] + collect($tabPeran)->map(fn ($l) => 'Meja ' . $l)->all() + ($bolehSemua ? ['semua' => 'Semua meja'] : []);
+        // Tab pertama = meja utama: Meja Owner bagi owner, Meja saya bagi lainnya.
+        $tab = [$mejaUtama => $mejaUtama === 'owner' ? 'Meja Owner' : 'Meja saya'] + collect($tabPeran)->map(fn ($l) => 'Meja ' . $l)->all() + ($bolehSemua ? ['semua' => 'Semua meja'] : []);
     @endphp
     <div class="flex flex-wrap gap-1 border-b border-gray-200 mb-4">
         @foreach ($tab as $k => $l)

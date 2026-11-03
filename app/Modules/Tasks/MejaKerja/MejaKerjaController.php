@@ -27,8 +27,10 @@ class MejaKerjaController extends Controller
         $peranSaya = $this->meja->peranUser($u->id);
         $bolehSemua = $u->role === 'super_admin';
         $tabPeran = $this->tabPeran($u);
-        $lihat = $request->input('lihat', 'saya');
-        if ($lihat !== 'saya' && !($lihat === 'semua' ? $bolehSemua : isset($tabPeran[$lihat]))) $lihat = 'saya';
+        // Owner cukup satu meja: Meja Owner menggantikan "Meja saya" (task yang ditugaskan kepadanya ikut di sana).
+        $mejaUtama = isset($tabPeran['owner']) ? 'owner' : 'saya';
+        $lihat = $request->input('lihat', $mejaUtama);
+        if ($lihat !== $mejaUtama && !($lihat === 'semua' ? $bolehSemua : isset($tabPeran[$lihat]))) $lihat = $mejaUtama;
 
         $q = Task::with('assignee:id,name');
         if ($lihat === 'saya') {
@@ -36,6 +38,8 @@ class MejaKerjaController extends Controller
                 ->orWhere(fn ($x) => $x->whereIn('peran', $peranSaya)->whereNull('assignee_user_id')));
         } elseif ($lihat === 'semua') {
             $q->whereNotNull('peran');
+        } elseif ($lihat === 'owner') {
+            $q->where($this->isiMejaOwner($u));
         } else {
             $q->where('peran', $lihat);
         }
@@ -63,14 +67,19 @@ class MejaKerjaController extends Controller
             'pending' => $tasks->where('status', 'pending')->sortBy('pending_sejak')->values(),
         ];
 
+        $jumlahAntre = Task::where('status', 'open')->whereIn('peran', array_keys($tabPeran))
+            ->groupBy('peran')->selectRaw('peran, COUNT(*) n')->pluck('n', 'peran');
+        if ($mejaUtama === 'owner') {
+            $jumlahAntre['owner'] = Task::where('status', 'open')->where($this->isiMejaOwner($u))->count();
+        }
+
         return view('erp.tasks.meja.index', [
-            'kolom' => $kolom, 'skor' => $skor, 'skills' => $this->meja->skills(), 'lihat' => $lihat,
+            'kolom' => $kolom, 'skor' => $skor, 'skills' => $this->meja->skills(), 'lihat' => $lihat, 'mejaUtama' => $mejaUtama,
             'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua, 'tabPeran' => $tabPeran,
             'bayangan' => $bayangan, 'tampilBayangan' => $tampilBayangan,
             'bayanganPerMeja' => $semuaBayangan->countBy('peran'),
             'tugasMenunggu' => app(\App\Modules\Tasks\TugasOwner\TugasOwnerService::class)->jumlahMenunggu($u),
-            'jumlahAntre' => Task::where('status', 'open')->whereIn('peran', array_keys($tabPeran))
-                ->groupBy('peran')->selectRaw('peran, COUNT(*) n')->pluck('n', 'peran'),
+            'jumlahAntre' => $jumlahAntre,
         ]);
     }
 
@@ -174,6 +183,12 @@ class MejaKerjaController extends Controller
         return $u->role === 'super_admin'
             ? MejaKerjaPeran::PERAN
             : array_intersect_key(MejaKerjaPeran::PERAN, array_flip($this->meja->peranUser($u->id)));
+    }
+
+    /** Isi Meja Owner: task peran owner + semua task yang ditugaskan ke owner yang membuka. */
+    private function isiMejaOwner(User $u): \Closure
+    {
+        return fn ($w) => $w->where('peran', 'owner')->orWhere('assignee_user_id', $u->id);
     }
 
     private function penuh(User $u): bool
