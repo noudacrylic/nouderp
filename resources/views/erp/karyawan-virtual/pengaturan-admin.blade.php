@@ -20,7 +20,7 @@
                 Yang tampil: super admin/admin, divisi Admin, dan user yang diberi menu Meja Kerja (Pengaturan › User).
             </p>
             <div class="grid md:grid-cols-3 gap-4">
-                @foreach ($peranLabel as $p => $label)
+                @foreach ($mejaDiatur as $p => $label)
                     @php $isi = ($peran[$p] ?? collect())->pluck('user_id')->all(); @endphp
                     <div class="border rounded p-3">
                         <div class="font-semibold text-gray-800 mb-2">Meja {{ $label }}</div>
@@ -66,7 +66,7 @@
                         <div class="md:col-span-3">
                             <label class="block text-[11px] text-gray-500">Masuk meja</label>
                             <select name="skill[{{ $key }}][peran]" class="w-full border rounded px-2 py-1.5">
-                                @foreach ($peranLabel as $p => $label)<option value="{{ $p }}" @selected($a->peran === $p)>{{ $label }}</option>@endforeach
+                                @foreach ($mejaDiatur as $p => $label)<option value="{{ $p }}" @selected($a->peran === $p)>{{ $label }}</option>@endforeach
                             </select>
                         </div>
                         <div class="md:col-span-2">

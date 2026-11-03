@@ -57,6 +57,7 @@
            class="px-3 py-2 whitespace-nowrap {{ $isSp ? 'border-b-2 border-emerald-600 text-emerald-700 font-semibold' : 'text-gray-600 hover:text-gray-900' }}">
             Surat Peringatan
         </a>
+        @if (auth()->user()?->role === 'super_admin')
         <a href="{{ route('sdm.pengajuan-izin.index') }}"
            class="px-3 py-2 whitespace-nowrap {{ $isPengajuanIzin ? 'border-b-2 border-emerald-600 text-emerald-700 font-semibold' : 'text-gray-600 hover:text-gray-900' }}">
             Pengajuan Izin
@@ -65,6 +66,7 @@
                 <span class="ml-1 text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full">{{ $pendingIzin }}</span>
             @endif
         </a>
+        @endif
     </div>
 @endif
 

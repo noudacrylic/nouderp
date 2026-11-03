@@ -35,7 +35,7 @@
 </div>
 
 {{-- Kartu Pengajuan Izin menunggu (karyawan dari PWA) — klik langsung ke pemrosesan. --}}
-@if($isAdmin && ($pendingIzin ?? 0) > 0)
+@if(auth()->user()?->role === 'super_admin' && ($pendingIzin ?? 0) > 0)
 <a href="{{ route('sdm.pengajuan-izin.index') }}"
    class="flex items-center gap-3 bg-amber-50 border border-amber-300 rounded-lg shadow-sm p-4 mb-4 transition hover:shadow-md hover:border-amber-400">
     <div class="bg-amber-400 text-white rounded-full w-11 h-11 flex items-center justify-center text-xl shrink-0">📝</div>

@@ -36,6 +36,7 @@
                     <button class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Sinkron sekarang</button>
                 </form>
                 <a href="{{ route('karyawan-virtual.show', \App\Modules\Tasks\MejaKerja\MejaKerjaService::KARYAWAN) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm" title="Skill, peran & jurnal pembagian kerja">🗂️ Manajer Admin</a>
+                <a href="{{ route('karyawan-virtual.show', \App\Modules\Tasks\MejaKerja\MejaKerjaService::KARYAWAN_OWNER) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm" title="Skill & jurnal pekerjaan owner">🧑‍💼 Asisten Owner</a>
             @endif
             <a href="{{ route('tasks.list', ['sumber' => 'meja', 'status' => 'done']) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">✓ Riwayat selesai</a>
         </div>

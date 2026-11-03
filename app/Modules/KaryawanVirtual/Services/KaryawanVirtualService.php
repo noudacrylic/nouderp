@@ -7,6 +7,7 @@ use App\Modules\KaryawanVirtual\Contracts\BisaDiusulkan;
 use App\Modules\KaryawanVirtual\Contracts\Skill;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualJurnal;
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualSkill;
+use App\Modules\Tasks\TugasOwner\TugasOwnerService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -77,7 +78,13 @@ class KaryawanVirtualService
     public function bolehLihat(string $kode): bool
     {
         $cfg = $this->karyawan($kode);
-        return $cfg !== null && user_can_access('karyawan-virtual');
+        if ($cfg === null) return false;
+        // Karyawan pribadi owner (jurnalnya berisi transaksi keuangan) — izin menu saja tidak cukup.
+        if (!empty($cfg['hanya_owner'])) {
+            $u = Auth::user();
+            return $u !== null && app(TugasOwnerService::class)->owner($u);
+        }
+        return user_can_access('karyawan-virtual');
     }
 
     public function state(string $skillKey): KaryawanVirtualSkill

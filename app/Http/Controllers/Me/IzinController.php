@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers\Me;
 
-use App\Modules\Notifications\Services\TelegramNotifier;
 use App\Modules\SDM\Models\IzinRequest;
+use App\Modules\SDM\Services\IzinKeputusanService;
 use App\Modules\SDM\Services\IzinRequestService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
  * PWA Karyawan — pengajuan izin (lihat daftar + ajukan baru).
- * Approval ada di sisi admin (web): modul Absensi → tab Pengajuan Izin.
+ * Approval hanya oleh owner: Meja Owner, Telegram, atau modul Absensi → tab Pengajuan Izin.
  */
 class IzinController extends Controller
 {
@@ -34,7 +34,7 @@ class IzinController extends Controller
         return view('me.izin.create', compact('types'));
     }
 
-    public function store(Request $request, TelegramNotifier $telegram)
+    public function store(Request $request)
     {
         $karyawan = auth()->user()->karyawan;
 
@@ -57,21 +57,8 @@ class IzinController extends Controller
             return back()->withInput()->with('error', $e->getMessage());
         }
 
-        // Notifikasi approver via Telegram (no-op aman bila bot belum dikonfigurasi).
-        $tgl = $izin->tanggal->translatedFormat('d M Y')
-            . ($izin->tanggal_akhir ? ' s/d ' . $izin->tanggal_akhir->translatedFormat('d M Y') : '');
-        $reviewUrl = route('sdm.pengajuan-izin.index', [
-            'status'    => 'pending',
-            'highlight' => $izin->id,
-        ]) . '#izin-' . $izin->id;
-        $telegram->notifyApprovers(
-            "🔔 <b>Pengajuan izin baru</b>\n"
-            . "Karyawan: {$karyawan->name}\n"
-            . "Tipe: {$izin->typeLabel()}\n"
-            . "Tanggal: {$tgl}\n"
-            . "Alasan: {$izin->alasan}\n\n"
-            . "👉 <a href=\"{$reviewUrl}\">Buka halaman Pemrosesan Izin</a>"
-        );
+        // Kabari owner via Telegram (no-op aman bila bot belum dikonfigurasi).
+        app(IzinKeputusanService::class)->kirimTelegram($izin);
 
         return redirect()->route('me.izin')->with('success', 'Pengajuan izin terkirim. Menunggu persetujuan.');
     }

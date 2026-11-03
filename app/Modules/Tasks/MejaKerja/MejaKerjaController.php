@@ -144,7 +144,11 @@ class MejaKerjaController extends Controller
         $kunci = (string) $request->input('jawaban');
         abort_unless(collect($skill->jawaban($task))->contains('kunci', $kunci), 422, 'Jawaban tidak berlaku untuk task ini.');
 
-        return back()->with('success', $skill->jawab($task, $kunci, $u));
+        try {
+            return back()->with('success', $skill->jawab($task, $kunci, $u));
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 
     /**

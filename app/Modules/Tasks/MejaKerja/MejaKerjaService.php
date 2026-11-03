@@ -7,6 +7,7 @@ use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\KaryawanVirtual\Contracts\Skill;
 use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
+use App\Modules\Tasks\MejaKerja\Contracts\SkillOwner;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
 use App\Modules\Tasks\Models\Task;
@@ -30,6 +31,9 @@ class MejaKerjaService
     /** Kode karyawan virtual pemilik skill admin (config/karyawan_virtual.php). */
     public const KARYAWAN = 'manajer-admin';
 
+    /** Karyawan virtual pemilik skill Meja Owner (Contracts\SkillOwner). */
+    public const KARYAWAN_OWNER = 'asisten-owner';
+
     /** Batas task ber-Mulai (skill butuhMulai) yang dikerjakan bersamaan per orang. */
     public const MAKS_DIKERJAKAN = 3;
 
@@ -39,9 +43,11 @@ class MejaKerjaService
     public function skills(): array
     {
         $out = [];
-        foreach ($this->kv->karyawan(self::KARYAWAN)['skills'] ?? [] as $kelas) {
-            $s = app($kelas);
-            if ($s instanceof SkillAdmin) $out[$s->key()] = $s;
+        foreach ([self::KARYAWAN, self::KARYAWAN_OWNER] as $kode) {
+            foreach ($this->kv->karyawan($kode)['skills'] ?? [] as $kelas) {
+                $s = app($kelas);
+                if ($s instanceof SkillAdmin) $out[$s->key()] = $s;
+            }
         }
         return $out;
     }
@@ -70,7 +76,7 @@ class MejaKerjaService
 
     public static function kunciKv(SkillAdmin $s): string
     {
-        return 'admin.' . $s->key();
+        return ($s instanceof SkillOwner ? 'owner.' : 'admin.') . $s->key();
     }
 
     /** Pengaturan peran/bobot/tenggat skill; dibuat dengan nilai bawaan bila belum ada. */
@@ -89,7 +95,7 @@ class MejaKerjaService
     }
 
     /**
-     * Semua skill Manajer Admin dijalankan sesuai modenya (jadwal tiap 2 menit & tombol
+     * Semua skill Manajer Admin & Asisten Owner dijalankan sesuai modenya (jadwal tiap 2 menit & tombol
      * Sinkron di Meja Kerja). Satu skill gagal tidak menghentikan yang lain.
      *
      * @return array{dibuat: int, selesai: int, batal: int, lanjut: int}
@@ -98,15 +104,17 @@ class MejaKerjaService
     {
         $hasil = ['dibuat' => 0, 'selesai' => 0, 'batal' => 0, 'lanjut' => 0];
 
-        $cfg = $this->kv->karyawan(self::KARYAWAN) ?? [];
-        foreach (array_diff(array_keys($cfg['skills'] ?? []), $cfg['jadwal_sendiri'] ?? []) as $key) {
-            try {
-                $jalan = $this->kv->jalankan($key, KaryawanVirtualService::PEMICU_JADWAL);
-                foreach ($jalan['hasil'] as $r) {
-                    if (isset($r['jenis'], $hasil[$r['jenis']])) $hasil[$r['jenis']]++;
+        foreach ([self::KARYAWAN, self::KARYAWAN_OWNER] as $kode) {
+            $cfg = $this->kv->karyawan($kode) ?? [];
+            foreach (array_diff(array_keys($cfg['skills'] ?? []), $cfg['jadwal_sendiri'] ?? []) as $key) {
+                try {
+                    $jalan = $this->kv->jalankan($key, KaryawanVirtualService::PEMICU_JADWAL);
+                    foreach ($jalan['hasil'] as $r) {
+                        if (isset($r['jenis'], $hasil[$r['jenis']])) $hasil[$r['jenis']]++;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('MejaKerja: skill gagal disinkron', ['skill' => $key, 'error' => $e->getMessage()]);
                 }
-            } catch (\Throwable $e) {
-                Log::warning('MejaKerja: skill gagal disinkron', ['skill' => $key, 'error' => $e->getMessage()]);
             }
         }
 
@@ -297,7 +305,7 @@ class MejaKerjaService
         return [$lahir, [
             'title'            => mb_substr($k['judul'], 0, 255),
             'description'      => $k['deskripsi'] ?? null,
-            'creator_user_id'  => $this->kv->akun(self::KARYAWAN)->id,
+            'creator_user_id'  => $this->kv->akun($skill instanceof SkillOwner ? self::KARYAWAN_OWNER : self::KARYAWAN)->id,
             'assignee_user_id' => $this->pilihPengerja($atur->peran),
             'status'           => 'open',
             'priority'         => 'normal',
@@ -325,7 +333,7 @@ class MejaKerjaService
         [$lahir, $isi] = $this->atribut($skill, $atur, $k);
         $task = Task::create($isi);
         $task->forceFill(['created_at' => $lahir])->saveQuietly();
-        $this->catat($task, null, 'dibuat', 'Dibuat oleh Manajer Admin — ' . $skill->label());
+        $this->catat($task, null, 'dibuat', 'Dibuat oleh ' . ($skill instanceof SkillOwner ? 'Asisten Owner' : 'Manajer Admin') . ' — ' . $skill->label());
         // Skill yang perlu menautkan sumbernya ke task (mis. laporan Lapor Stok → task_id).
         if (method_exists($skill, 'setelahDibuat')) $skill->setelahDibuat($task, $k);
 

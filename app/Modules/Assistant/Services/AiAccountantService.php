@@ -16,6 +16,9 @@ use App\Modules\Finance\Models\CashDisbursement;
 use App\Modules\Finance\Models\CashDisbursementLine;
 use App\Modules\Finance\Services\BankTransferService;
 use App\Modules\Finance\Services\CashDisbursementService;
+use App\Modules\KaryawanVirtual\Contracts\Skill;
+use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
+use App\Modules\KaryawanVirtual\Skills\Owner\PencatatanTelegram;
 use App\Modules\Notifications\Services\TelegramNotifier;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Services\CustomerPaymentService;
@@ -307,6 +310,7 @@ class AiAccountantService
         }
 
         Cache::put($this->lastKey($chatId), ['kind' => 'cd', 'id' => $cd->id], $this->ttl());
+        $this->catatJurnal($cd->number, $summary);
 
         return [
             'content'         => "Berhasil diposting (nomor {$cd->number}). {$summary}",
@@ -398,6 +402,7 @@ class AiAccountantService
         }
 
         Cache::put($this->lastKey($chatId), ['kind' => 'transfer', 'id' => $bt->id], $this->ttl());
+        $this->catatJurnal($bt->number, $summary);
 
         return [
             'content'         => "Transfer berhasil diposting (nomor {$bt->number}). {$summary}",
@@ -536,6 +541,7 @@ class AiAccountantService
         }
 
         Cache::put($this->lastKey($chatId), ['kind' => 'cd', 'id' => $cd->id], $this->ttl());
+        $this->catatJurnal($cd->number, $summary);
 
         return [
             'content'         => "Bayar ongkir diposting (nomor {$cd->number}). {$summary}",
@@ -1029,6 +1035,8 @@ class AiAccountantService
             return ['content' => 'Draft DP dibuat tapi gagal posting: ' . $e->getMessage()];
         }
 
+        $this->catatJurnal($payment->payment_number, $summary);
+
         return [
             'content'         => "DP diposting (nomor {$payment->payment_number}). {$summary}",
             '_posted_summary' => "✅ <b>DP diposting</b>: {$payment->payment_number}\n{$summary}",
@@ -1115,6 +1123,7 @@ class AiAccountantService
 
         Cache::put($this->lastKey($chatId), ['kind' => $kind, 'id' => $doc->id], $this->ttl());
         $this->forgetConversation($chatId);
+        $this->catatJurnal($doc->number, $pending['summary']);
 
         return "✅ <b>Diposting</b>: {$doc->number}\n{$pending['summary']}\n\n↩️ /batal untuk membatalkan.";
     }
@@ -1142,6 +1151,7 @@ class AiAccountantService
         }
 
         $this->forgetConversation($chatId);
+        $this->catatJurnal($payment->payment_number, $pending['summary']);
 
         return "✅ <b>DP diposting</b>: {$payment->payment_number}\n{$pending['summary']}\n\n"
             . '<i>Untuk membatalkan DP, void di menu Pembayaran ERP.</i>';
@@ -1177,6 +1187,18 @@ class AiAccountantService
     }
 
     /** Cari dokumen draft/posted berdasarkan jenis (cd = Pengeluaran, transfer = Bank Transfer). */
+    /** Jurnal kerja Asisten Owner: satu baris per transaksi yang diposting. Gagal mencatat tak mengganggu posting. */
+    private function catatJurnal(string $nomor, string $ringkasan): void
+    {
+        app(KaryawanVirtualService::class)->catat(PencatatanTelegram::KEY, [[
+            'status'  => Skill::DIBUAT,
+            'judul'   => $nomor,
+            'alasan'  => mb_substr(strip_tags($ringkasan), 0, 500),
+            'tautan'  => null,
+            'dokumen' => $nomor,
+        ]], KaryawanVirtualService::PEMICU_PERISTIWA, 'Pesan Telegram', auth()->id(), Skill::OTOMATIS);
+    }
+
     private function findDoc(string $kind, int $id)
     {
         return $kind === 'transfer' ? BankTransfer::find($id) : CashDisbursement::find($id);

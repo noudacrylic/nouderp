@@ -4,7 +4,7 @@ namespace App\Modules\Tasks\MejaKerja\Skills;
 
 use App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan as Usulan;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
-use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
+use App\Modules\Tasks\MejaKerja\Contracts\SkillOwner;
 use App\Modules\Tasks\Models\Task;
 use Carbon\Carbon;
 
@@ -13,7 +13,7 @@ use Carbon\Carbon;
  * Selesai sendiri begitu usulan disetujui/ditolak di halaman Karyawan Virtual (atau lewat
  * Telegram), batal bila kedaluwarsa/dibatalkan.
  */
-class PersetujuanUsulanSkill implements SkillAdmin
+class PersetujuanUsulanSkill implements SkillOwner
 {
     use JadiSkillManajer;
 

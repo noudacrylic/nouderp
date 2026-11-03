@@ -16,7 +16,7 @@ class IzinRequest extends Model
         'paired_date', 'sesi', 'paired_sesi',
         'jam_masuk_override', 'jam_pulang_override',
         'alasan', 'lampiran_path',
-        'status', 'reviewed_by', 'reviewed_at', 'review_notes', 'override_ids',
+        'status', 'reviewed_by', 'reviewed_at', 'review_notes', 'override_ids', 'telegram',
     ];
 
     protected $casts = [
@@ -25,6 +25,7 @@ class IzinRequest extends Model
         'paired_date'   => 'date',
         'reviewed_at'   => 'datetime',
         'override_ids'  => 'array',
+        'telegram'      => 'array',
     ];
 
     /** Tipe yang boleh diajukan karyawan = semua override + toleransi. */

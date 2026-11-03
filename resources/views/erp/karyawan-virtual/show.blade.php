@@ -144,7 +144,7 @@
                                 Belum pernah diperiksa.
                             @endif
                         </div>
-                        @if ($s['mode'] !== 'nonaktif')
+                        @if ($s['mode'] !== 'nonaktif' && !in_array($s['key'], $karyawan['tanpa_jalankan'] ?? [], true))
                             <form method="POST" action="{{ route('karyawan-virtual.jalankan', [$kode, $s['key']]) }}"
                                   @if ($s['mode'] === 'otomatis') onsubmit="return confirm('Jalankan sekarang? Mode Otomatis — order produksi bisa langsung dibuat.')" @endif>
                                 @csrf

@@ -5,7 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\TelegramSetting;
 use App\Models\User;
 use App\Modules\Assistant\Services\AiAccountantService;
+use App\Modules\KaryawanVirtual\Contracts\Skill;
+use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
+use App\Modules\KaryawanVirtual\Skills\Owner\PencatatanTelegram;
 use App\Modules\Notifications\Services\TelegramNotifier;
+use App\Modules\Tasks\TugasOwner\TugasOwnerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -60,7 +64,7 @@ class TelegramWebhookController extends Controller
 
     /**
      * Pesan masuk selain /start → diteruskan ke AiAccountantService.
-     * Guard: hanya user ter-link & ber-role admin/owner yang boleh mencatat transaksi.
+     * Guard: hanya owner ter-link yang boleh mencatat transaksi.
      */
     private function handleMessage(TelegramNotifier $telegram, string $chatId, string $text, ?string $photoFileId = null): void
     {
@@ -73,8 +77,13 @@ class TelegramWebhookController extends Controller
             return;
         }
 
-        if (! $user->canManageUsers()) {
-            $telegram->send($chatId, '⛔ Maaf, hanya admin/pemilik yang bisa mencatat transaksi lewat bot.');
+        if (! app(TugasOwnerService::class)->owner($user)) {
+            $telegram->send($chatId, '⛔ Maaf, hanya owner yang bisa mencatat transaksi lewat bot.');
+            return;
+        }
+
+        if (app(KaryawanVirtualService::class)->mode(PencatatanTelegram::KEY) === Skill::NONAKTIF) {
+            $telegram->send($chatId, '⏸ Pencatatan via Telegram sedang dimatikan di Asisten Owner.');
             return;
         }
 
@@ -114,6 +123,10 @@ class TelegramWebhookController extends Controller
         // Usulan Karyawan Virtual punya penjaga sendiri (akses menu divisi, bukan admin).
         if (str_starts_with($data, 'kv:')) {
             $this->handleUsulanCallback($telegram, $callback);
+            return;
+        }
+        if (str_starts_with($data, 'iz:')) {
+            $this->handleIzinCallback($telegram, $callback);
             return;
         }
 
@@ -200,6 +213,35 @@ class TelegramWebhookController extends Controller
 
         // Pesan (semua penerima) sudah diperbarui oleh putuskan(); di sini cukup jawab klik-nya.
         $telegram->answerCallback($callbackId, mb_substr($hasil['pesan'], 0, 190), ! $hasil['ok']);
+    }
+
+    /**
+     * Tombol ✅ Setujui / ❌ Tolak pengajuan izin. callback_data: "iz:ok:{id}" | "iz:no:{id}".
+     * Hak memutus (hanya owner) & anti dobel klik dijaga IzinKeputusanService::putuskan.
+     */
+    private function handleIzinCallback(TelegramNotifier $telegram, array $callback): void
+    {
+        $callbackId = (string) data_get($callback, 'id');
+        $fromId     = (string) data_get($callback, 'from.id');
+
+        if (! preg_match('/^iz:(ok|no):(\d+)$/', (string) data_get($callback, 'data'), $m)) {
+            $telegram->answerCallback($callbackId);
+            return;
+        }
+
+        $user = $fromId !== '' ? User::where('telegram_chat_id', $fromId)->where('is_active', true)->first() : null;
+        $izin = \App\Modules\SDM\Models\IzinRequest::find((int) $m[2]);
+        if (! $user || ! $izin) {
+            $telegram->answerCallback($callbackId, $user ? 'Pengajuan tidak ditemukan.' : '⛔ Akun Telegram ini belum terhubung ke Noud ERP.', true);
+            return;
+        }
+
+        try {
+            $pesan = app(\App\Modules\SDM\Services\IzinKeputusanService::class)->putuskan($izin, $m[1] === 'ok', $user);
+            $telegram->answerCallback($callbackId, mb_substr($pesan, 0, 190));
+        } catch (\RuntimeException $e) {
+            $telegram->answerCallback($callbackId, '❌ ' . mb_substr($e->getMessage(), 0, 190), true);
+        }
     }
 
     private function handleStart(TelegramNotifier $telegram, string $chatId, string $text): void

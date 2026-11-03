@@ -56,14 +56,13 @@ return [
         'nama'       => 'Manajer Admin',
         'ikon'       => '🗂️',
         'divisi'     => 'Admin',
-        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, persetujuan owner, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP, retur penjualan), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain, Owner). Retur Shopee yang dibatalkan pembeli dan paket hilang yang sudah diganti Shopee diselesaikannya sendiri; hasil retur Shopee yang sudah final ditulisnya ke draft untuk diperiksa admin.',
+        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP, retur penjualan), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain). Retur Shopee yang dibatalkan pembeli dan paket hilang yang sudah diganti Shopee diselesaikannya sendiri; hasil retur Shopee yang sudah final ditulisnya ke draft untuk diperiksa admin.',
         'akses'      => 'tasks.board',
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [
             'admin.desain'             => \App\Modules\Tasks\MejaKerja\Skills\DesainSkill::class,
             'admin.foto-custom'        => \App\Modules\Tasks\MejaKerja\Skills\FotoCustomSkill::class,
             'admin.qc'                 => \App\Modules\Tasks\MejaKerja\Skills\QcSkill::class,
-            'admin.persetujuan-usulan' => \App\Modules\Tasks\MejaKerja\Skills\PersetujuanUsulanSkill::class,
             'admin.purchasing-ready'   => \App\Modules\Tasks\MejaKerja\Skills\PurchasingReadySkill::class,
             'admin.purchasing-nonstok' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingNonStokSkill::class,
             'admin.purchasing-laporan' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingLaporanSkill::class,
@@ -78,6 +77,27 @@ return [
         // Skill berjadwal sendiri — tidak ikut sinkron Meja Kerja tiap 2 menit (memanggil API luar).
         'jadwal_sendiri' => ['admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur-isi-hasil'],
         'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.kedatangan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil'],
+    ],
+
+    // Mengurus pekerjaan pribadi owner: yang butuh keputusannya masuk Meja Owner (satu klik di
+    // kartu atau Telegram), pencatatan keuangan lewat chat Telegram.
+    'asisten-owner' => [
+        'nama'       => 'Asisten Owner',
+        'ikon'       => '🧑‍💼',
+        'divisi'     => 'Owner',
+        'deskripsi'  => 'Mengumpulkan pekerjaan yang butuh keputusan owner ke Meja Owner (usulan Karyawan Virtual, pengajuan izin karyawan) dan mencatat transaksi keuangan dari chat Telegram.',
+        'akses'      => 'karyawan-virtual',
+        'hanya_owner' => true,
+        'pengaturan' => 'karyawan-virtual.admin.pengaturan',
+        'skills'     => [
+            'owner.persetujuan-usulan'  => \App\Modules\Tasks\MejaKerja\Skills\PersetujuanUsulanSkill::class,
+            'owner.pengajuan-izin'      => \App\Modules\Tasks\MejaKerja\Skills\PengajuanIzinSkill::class,
+            'owner.pencatatan-telegram' => \App\Modules\KaryawanVirtual\Skills\Owner\PencatatanTelegram::class,
+        ],
+        // Pencatatan berjalan saat ada pesan Telegram — tak ikut sinkron & tak punya "Jalankan sekarang".
+        'jadwal_sendiri' => ['owner.pencatatan-telegram'],
+        'tanpa_jalankan' => ['owner.pencatatan-telegram'],
+        'percobaan' => ['owner.pengajuan-izin'],
     ],
 
 ];

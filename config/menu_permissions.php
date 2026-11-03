@@ -225,6 +225,7 @@ return [
                 'label' => 'Penerimaan Izin',
                 'url'   => '/erp/sdm/pengajuan-izin',
                 'route_patterns' => ['sdm.pengajuan-izin.*'],
+                'role_gate' => ['super_admin'],
             ],
         ],
     ],

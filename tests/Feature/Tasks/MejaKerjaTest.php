@@ -52,7 +52,8 @@ class MejaKerjaTest extends TestCase
     private function nyalakan(string $skill, string $peran, string $mode = 'otomatis', $sejak = null): void
     {
         MejaKerjaSkill::updateOrCreate(['skill' => $skill], ['peran' => $peran, 'bobot' => 8, 'sla_menit' => 120]);
-        KaryawanVirtualSkill::updateOrCreate(['skill' => "admin.$skill"], ['mode' => $mode, 'mode_diubah_at' => $sejak ?? now()->subDay()]);
+        $kunci = ($skill === 'persetujuan-usulan' ? 'owner.' : 'admin.') . $skill;
+        KaryawanVirtualSkill::updateOrCreate(['skill' => $kunci], ['mode' => $mode, 'mode_diubah_at' => $sejak ?? now()->subDay()]);
     }
 
     private function soKs(): SalesOrder

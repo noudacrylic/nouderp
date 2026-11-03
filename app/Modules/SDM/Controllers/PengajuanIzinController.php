@@ -2,21 +2,26 @@
 
 namespace App\Modules\SDM\Controllers;
 
-use App\Models\User;
-use App\Modules\Notifications\Services\WebPushNotifier;
 use App\Modules\SDM\Models\IzinRequest;
-use App\Modules\SDM\Services\IzinRequestService;
+use App\Modules\SDM\Services\IzinKeputusanService;
 use App\Modules\SDM\Services\IzinReviewService;
+use App\Modules\Tasks\TugasOwner\TugasOwnerService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
 /**
- * Admin: kotak masuk Pengajuan Izin karyawan (dari PWA). Setujui / Tolak / Batalkan.
- * Sub-tab di modul Absensi → Izin & Sanksi.
+ * Owner: kotak masuk Pengajuan Izin karyawan (dari PWA). Setujui / Tolak / Batalkan.
+ * Sub-tab di modul Absensi → Izin & Sanksi. Hanya owner — admin tidak memeriksa izin.
  */
 class PengajuanIzinController extends Controller
 {
-    public function __construct(private IzinRequestService $service) {}
+    public function __construct(private IzinKeputusanService $keputusan)
+    {
+        $this->middleware(function ($request, $next) {
+            abort_unless(app(TugasOwnerService::class)->owner($request->user()), 403, 'Pengajuan izin hanya untuk owner.');
+            return $next($request);
+        });
+    }
 
     public function index(Request $request)
     {
@@ -95,48 +100,29 @@ class PengajuanIzinController extends Controller
         ]);
     }
 
-    public function approve(int $id, WebPushNotifier $push)
+    public function approve(Request $request, int $id)
     {
         $req = IzinRequest::findOrFail($id);
         try {
-            $this->service->approve($req, auth()->user()->name ?? 'admin');
+            $pesan = $this->keputusan->putuskan($req, true, $request->user());
         } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
         }
 
-        // Notifikasi Web Push ke karyawan pemohon (no-op aman bila belum aktif).
-        $tgl = $req->tanggal->translatedFormat('d M Y')
-            . ($req->tanggal_akhir ? ' s/d ' . $req->tanggal_akhir->translatedFormat('d M Y') : '');
-        $push->notifyUser(
-            $this->pemohonUser($req),
-            '✅ Izin disetujui',
-            "{$req->typeLabel()} ({$tgl}) telah disetujui.",
-            ['url' => route('me.izin'), 'tag' => 'izin-' . $req->id]
-        );
-
-        return $this->kembaliKeAntrean($req)->with('success', 'Pengajuan disetujui & diterapkan.');
+        return $this->kembaliKeAntrean($req)->with('success', $pesan);
     }
 
-    public function reject(Request $request, int $id, WebPushNotifier $push)
+    public function reject(Request $request, int $id)
     {
         $data = $request->validate(['review_notes' => 'nullable|string|max:255']);
         $req = IzinRequest::findOrFail($id);
         try {
-            $this->service->reject($req, auth()->user()->name ?? 'admin', $data['review_notes'] ?? null);
+            $pesan = $this->keputusan->putuskan($req, false, $request->user(), $data['review_notes'] ?? null);
         } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
         }
 
-        $catatan = $data['review_notes'] ?? null;
-        $push->notifyUser(
-            $this->pemohonUser($req),
-            '❌ Izin ditolak',
-            "{$req->typeLabel()} ({$req->tanggal->translatedFormat('d M Y')}) ditolak."
-                . ($catatan ? " Catatan: {$catatan}" : ''),
-            ['url' => route('me.izin'), 'tag' => 'izin-' . $req->id]
-        );
-
-        return $this->kembaliKeAntrean($req)->with('success', 'Pengajuan ditolak. Karyawan sudah diberi tahu untuk mengajukan ulang.');
+        return $this->kembaliKeAntrean($req)->with('success', $pesan);
     }
 
     /**
@@ -148,19 +134,11 @@ class PengajuanIzinController extends Controller
         return redirect()->route('sdm.pengajuan-izin.index', ['status' => 'pending', 'highlight' => $req->id]);
     }
 
-    /** Akun login PWA (role 'karyawan') milik pemohon izin. */
-    private function pemohonUser(IzinRequest $req): ?User
-    {
-        return User::where('karyawan_id', $req->karyawan_id)
-            ->where('role', 'karyawan')
-            ->first();
-    }
-
     public function cancel(int $id)
     {
         $req = IzinRequest::findOrFail($id);
         try {
-            $this->service->cancelApproval($req);
+            $this->keputusan->batalkan($req);
         } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
         }
