@@ -43,8 +43,8 @@
                 <th class="px-3 py-2 text-right">Cadangan</th>
                 <th class="px-3 py-2 text-right">Dipesan</th>
                 <th class="px-3 py-2 text-right">Dikirim</th>
-                <th class="px-3 py-2 text-right" title="Stok gudang jual dikurangi yang dipesan. Kuota preorder tidak termasuk.">Tersedia</th>
                 <th class="px-3 py-2 text-right" title="Batas jual preorder di luar stok. Ini izin jual, bukan barang.">Kuota PO</th>
+                <th class="px-3 py-2 text-right" title="Stok gudang jual dikurangi yang dipesan, ditambah kuota preorder.">Tersedia</th>
                 <th class="px-3 py-2 text-right" title="Rata-rata keluar terjual per hari, 30 hari terakhir (dari kartu stok — termasuk yang laku lewat bundel)">Laku/hari</th>
                 <th class="px-3 py-2 text-right" title="Stok tersedia cukup untuk berapa hari dengan laju jual 30 hari terakhir">Cukup</th>
                 <th class="px-3 py-2 text-center">Min Stok / Status</th>
@@ -84,13 +84,14 @@
                             <span class="text-gray-400">{{ format_qty($stock->shipped ?? 0) }}</span>
                         @endif
                     </td>
-                    <td class="px-3 py-2 text-right text-green-600 font-semibold">{{ format_qty($stock->available) }}</td>
                     <td class="px-3 py-2 text-right {{ $stock->kuota_preorder > 0 ? 'text-purple-700' : 'text-gray-400' }}">{{ $stock->kuota_preorder > 0 ? format_qty($stock->kuota_preorder) : '—' }}</td>
+                    <td class="px-3 py-2 text-right text-green-600 font-semibold">{{ format_qty($stock->available) }}</td>
                     <td class="px-3 py-2 text-right text-gray-600 whitespace-nowrap">
                         {{ $stock->per_hari === null ? '—' : ($stock->per_hari > 0 ? rtrim(rtrim(number_format($stock->per_hari, 1, ',', '.'), '0'), ',') : '0') }}
                     </td>
                     <td class="px-3 py-2 text-right whitespace-nowrap">
-                        @if ($stock->per_hari === null)
+                        {{-- Preorder dibuat saat ada pesanan, jadi tidak perlu hitungan cukup berapa hari. --}}
+                        @if ($stock->per_hari === null || $stock->type === 'preorder')
                             <span class="text-gray-400">—</span>
                         @elseif ($stock->hari_cukup === null)
                             <span class="text-gray-400" title="Tidak terjual 30 hari terakhir">∞</span>
