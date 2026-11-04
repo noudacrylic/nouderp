@@ -16,6 +16,9 @@
 */
 
 return [
+    // Dipegang admin (Kas, Shopee Pay): tidak jadi pilihan saat owner membayar lewat kartu Meja Owner.
+    'rekening_admin' => ['1101', '1295'],
+
     /*
     | Daftar tipe dokumen yang bisa dilink ke Task.
     |   - label       : tampilan untuk user

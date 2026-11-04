@@ -66,7 +66,7 @@ return [
             'admin.purchasing-ready'   => \App\Modules\Tasks\MejaKerja\Skills\PurchasingReadySkill::class,
             'admin.purchasing-nonstok' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingNonStokSkill::class,
             'admin.purchasing-laporan' => \App\Modules\Tasks\MejaKerja\Skills\PurchasingLaporanSkill::class,
-            'admin.kedatangan'         => \App\Modules\Tasks\MejaKerja\Skills\KedatanganSkill::class,
+            'admin.selesaikan-pesanan' => \App\Modules\Tasks\MejaKerja\Skills\SelesaikanPesananSkill::class,
             'admin.cetak-stiker'       => \App\Modules\Tasks\MejaKerja\Skills\CetakStikerSkill::class,
             'admin.penugasan'          => \App\Modules\Tasks\MejaKerja\Skills\PenugasanSkill::class,
             'admin.retur'              => \App\Modules\Tasks\MejaKerja\Skills\ReturSkill::class,
@@ -76,7 +76,7 @@ return [
         ],
         // Skill berjadwal sendiri — tidak ikut sinkron Meja Kerja tiap 2 menit (memanggil API luar).
         'jadwal_sendiri' => ['admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur-isi-hasil'],
-        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.kedatangan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil'],
+        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.selesaikan-pesanan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil'],
     ],
 
     // Mengurus pekerjaan pribadi owner: yang butuh keputusannya masuk Meja Owner (satu klik di
@@ -92,6 +92,9 @@ return [
         'skills'     => [
             'owner.persetujuan-usulan'  => \App\Modules\Tasks\MejaKerja\Skills\PersetujuanUsulanSkill::class,
             'owner.pengajuan-izin'      => \App\Modules\Tasks\MejaKerja\Skills\PengajuanIzinSkill::class,
+            'owner.lapor-owner'         => \App\Modules\Tasks\MejaKerja\Skills\LaporOwnerSkill::class,
+            'owner.isi-saldo'           => \App\Modules\Tasks\MejaKerja\Skills\IsiSaldoSkill::class,
+            'owner.bayar-owner'         => \App\Modules\Tasks\MejaKerja\Skills\BayarOwnerSkill::class,
             'owner.pencatatan-telegram' => \App\Modules\KaryawanVirtual\Skills\Owner\PencatatanTelegram::class,
         ],
         // Pencatatan berjalan saat ada pesan Telegram — tak ikut sinkron & tak punya "Jalankan sekarang".

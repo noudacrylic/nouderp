@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Modules\Purchasing\Models\LaporStok;
 use App\Modules\Purchasing\Services\LaporStokService;
 use App\Modules\Purchasing\Services\StokBahanService;
+use App\Modules\Tasks\MejaKerja\Contracts\AlurPembelian;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
@@ -27,7 +28,7 @@ use Illuminate\Support\Facades\DB;
  */
 class PurchasingLaporanSkill implements SkillAdmin, PunyaJawaban
 {
-    use JadiSkillManajer;
+    use JadiSkillManajer, AlurPembelian;
 
     /** Laporan lebih lama dari ini yang belum tertangani dianggap basi. */
     public const MASA_HARI = 14;
@@ -109,10 +110,7 @@ class PurchasingLaporanSkill implements SkillAdmin, PunyaJawaban
             return $koreksi ? ['done', 'Stok dikoreksi lewat penyesuaian stok.'] : null;
         }
 
-        $po = DB::table('purchase_order_items as i')->join('purchase_orders as o', 'o.id', '=', 'i.purchase_order_id')
-            ->where('i.product_id', $task->taskable_id)->where('o.status', '!=', 'cancelled')
-            ->where('o.created_at', '>', $task->meta['beli_sejak'] ?? $task->created_at)->value('o.po_number');
-        return $po ? ['done', "Dibeli lewat PO $po."] : null;
+        return $this->keadaanPembelian($task);
     }
 
     public function aksi(Task $task): array
@@ -120,7 +118,7 @@ class PurchasingLaporanSkill implements SkillAdmin, PunyaJawaban
         if (!$task->taskable_id) return [];
         return ($task->meta['tahap'] ?? 'beli') === 'opname'
             ? [['label' => 'Penyesuaian stok', 'url' => route('inventory.adjustments.create'), 'utama' => true]]
-            : [['label' => 'Buat PO', 'url' => route('purchasing.orders.create', ['product_id' => $task->taskable_id]), 'utama' => true]];
+            : ($this->aksiBayar($task) ?? $this->aksiBeli($task));
     }
 
     public function selesaiManual(): bool { return false; }
@@ -133,6 +131,8 @@ class PurchasingLaporanSkill implements SkillAdmin, PunyaJawaban
                 ['kunci' => 'beli', 'label' => 'Memang habis → beli', 'utama' => true],
             ];
         }
+        if ($bayar = $this->jawabanBayar($task)) return $bayar;
+
         return $task->taskable_id
             ? [['kunci' => 'tidak', 'label' => 'Tidak perlu dibeli']]
             : [['kunci' => 'tidak', 'label' => 'Tidak perlu dibeli'], ['kunci' => 'dibeli', 'label' => 'Sudah dibeli', 'utama' => true]];
@@ -142,11 +142,13 @@ class PurchasingLaporanSkill implements SkillAdmin, PunyaJawaban
     {
         $meja = app(MejaKerjaService::class);
 
+        if ($kunci === 'bayar-owner') return $this->serahkanKeOwner($task, $u);
+
         return match ($kunci) {
             'ada'    => tap('Dicatat: barang ada, stok ERP benar.', fn () => $meja->ubahStatus($task, 'done', $u, 'Barang ternyata ada — stok ERP benar')),
             'tidak'  => tap('Dicatat: tidak perlu dibeli.', fn () => $meja->ubahStatus($task, 'cancelled', $u, 'Tidak perlu dibeli')),
             'dibeli' => tap('Dicatat: sudah dibeli.', fn () => $meja->ubahStatus($task, 'done', $u, 'Sudah dibeli (barang belum terdaftar)')),
-            'beli'   => tap('Dicatat: perlu beli. Task ini selesai sendiri saat PO dibuat — stok ERP perlu dikoreksi juga.', function () use ($task, $u) {
+            'beli'   => tap('Dicatat: perlu beli. Lanjutkan dengan Buat PO atau Buat Faktur — stok ERP perlu dikoreksi juga.', function () use ($task, $u) {
                 $task->meta = array_merge($task->meta ?? [], ['tahap' => 'beli', 'beli_sejak' => now()->toDateTimeString()]);
                 $task->title = mb_substr('Beli ' . ($task->meta['nama'] ?? $task->title) . ' — stok ERP tak sesuai fisik', 0, 255);
                 $task->save();

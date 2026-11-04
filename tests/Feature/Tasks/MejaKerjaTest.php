@@ -258,7 +258,7 @@ class MejaKerjaTest extends TestCase
         $this->assertSame('Desain pesanan KS-K1, KS-K2 nomor SO-1', $judul('desain', 'Desain SO-1 — KS-K1, KS-K2'));
         $this->assertSame('Purchasing - Cek persediaan Lem (LEM)', $judul('purchasing-nonstok', 'Cek persediaan Lem (LEM)'));
         $this->assertSame('Purchasing - Beli AKR-3 — sisa 2 pcs (min 5)', $judul('purchasing-ready', 'Beli AKR-3 — sisa 2 pcs (min 5)'));
-        $this->assertSame('Purchasing - Barang belum datang: PO-1 — Toko', $judul('kedatangan', 'Barang belum datang: PO-1 — Toko'));
+        $this->assertSame('Selesaikan pesanan - PO-1 — Toko', $judul('selesaikan-pesanan', 'PO-1 — Toko'));
         $this->assertSame('QC - OP-1 — KS', $judul('qc', 'QC OP-1 — KS'));
         $this->assertSame('Foto custom - SO-1', $judul('foto-custom', 'Foto SO-1'));
         $this->assertSame('Cetak stiker - OP-1', $judul('cetak-stiker', 'Cetak stiker OP-1'));

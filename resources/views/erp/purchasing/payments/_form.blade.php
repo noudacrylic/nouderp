@@ -17,6 +17,8 @@
                     value="{{ $preselectedSupplier ? $preselectedSupplier->name . ' (' . $preselectedSupplier->code . ')' : '' }}"
                     {{ $isEdit ? 'readonly' : '' }}>
                 <input type="hidden" name="supplier_id" id="supplierId" value="{{ $preselectedSupplierId }}" required>
+                {{-- Dari kartu Purchasing: pembayaran ini tertaut ke PO-nya. --}}
+                @if(!$isEdit && request('po_id'))<input type="hidden" name="purchase_order_id" value="{{ request('po_id') }}">@endif
                 <div id="supplierDropdown"
                     class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl hidden max-h-60 overflow-y-auto"></div>
             </div>
@@ -107,7 +109,7 @@
                 <span class="text-lg font-black text-gray-300 pr-2 group-focus-within:text-blue-500">Rp</span>
                 <input type="text" inputmode="numeric" id="paymentAmount" name="amount"
                     class="rupiah-input w-full py-4 text-2xl font-black outline-none bg-transparent" placeholder="0"
-                    value="{{ old('amount', $payment->amount ?? '') }}" required>
+                    value="{{ old('amount', $payment->amount ?? request('jumlah', '')) }}" required>
             </div>
 
             <div id="dpInfo" class="text-[10px] text-purple-700 font-bold hidden bg-purple-50 p-2 rounded-lg border border-purple-200 italic text-center mt-2">

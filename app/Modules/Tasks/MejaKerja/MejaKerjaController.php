@@ -23,6 +23,8 @@ class MejaKerjaController extends Controller
 
     public function index(Request $request)
     {
+        $this->meja->segarkanPembelian();
+
         $u = $request->user();
         $peranSaya = $this->meja->peranUser($u->id);
         $bolehSemua = $u->role === 'super_admin';
@@ -64,7 +66,8 @@ class MejaKerjaController extends Controller
         $kolom = [
             'open'    => $tasks->where('status', 'in_progress')->sortBy('mulai_at')
                 ->concat($tasks->where('status', 'open')->sortByDesc(fn ($t) => $skor[$t->id]))->values(),
-            'pending' => $tasks->where('status', 'pending')->sortBy('pending_sejak')->values(),
+            // Hutang: jatuh tempo terdekat di atas.
+            'pending' => $tasks->where('status', 'pending')->sortBy(fn ($t) => [$t->meta['jatuh_tempo'] ?? '9999', $t->pending_sejak])->values(),
         ];
 
         $jumlahAntre = Task::where('status', 'open')->whereIn('peran', array_keys($tabPeran))
@@ -79,6 +82,8 @@ class MejaKerjaController extends Controller
             'bayangan' => $bayangan, 'tampilBayangan' => $tampilBayangan,
             'bayanganPerMeja' => $semuaBayangan->countBy('peran'),
             'jumlahAntre' => $jumlahAntre,
+            'rekeningOwner' => MejaKerjaService::rekeningOwner()->get(['id', 'code', 'name']),
+            'bolehLapor' => \App\Modules\Tasks\LaporOwner\LaporOwnerController::bolehLapor($u),
         ]);
     }
 

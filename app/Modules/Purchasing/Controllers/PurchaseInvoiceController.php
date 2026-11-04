@@ -91,7 +91,8 @@ class PurchaseInvoiceController extends Controller
             $po = PurchaseOrder::with('items.product', 'items.assetCategory', 'expenses.account')->find($request->po_id);
         }
         $assetCategories = AssetCategory::where('is_active', 1)->orderBy('name')->get();
-        return view('erp.purchasing.invoices.create', compact('suppliers', 'warehouses', 'products', 'expenseAccounts', 'po', 'assetCategories'));
+        $isian = $po ? null : app(\App\Modules\Purchasing\Services\StokBahanService::class)->isianDariProduk((int) $request->input('product_id'));
+        return view('erp.purchasing.invoices.create', compact('isian', 'suppliers', 'warehouses', 'products', 'expenseAccounts', 'po', 'assetCategories'));
     }
 
     public function store(Request $request)

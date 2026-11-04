@@ -148,13 +148,27 @@ class StokBahanService
         })->values();
     }
 
-    /** Tanggal PO dianggap mestinya sudah datang: tanggal perkiraan, atau tanggal PO + lead time. */
-    public function jatuhTempoDatang(object $po, ?int $leadHari): Carbon
+    /**
+     * ?product_id= (tombol Buat PO / Buat Faktur di kartu Purchasing): satu baris bahan + supplier,
+     * satuan, qty, dan harga dari pembelian terakhirnya.
+     */
+    public function isianDariProduk(int $productId): ?array
     {
-        return $po->expected_date
-            ? Carbon::parse($po->expected_date)->startOfDay()
-            : Carbon::parse($po->po_date)->startOfDay()->addDays($leadHari ?: self::LEAD_TIME_BAWAAN);
+        $p = $productId ? \App\Core\Inventory\Product::where('is_active', 1)->find($productId) : null;
+        if (!$p) return null;
+        $beli = $this->pembelianTerakhir($p->id);
+
+        return [
+            'supplier_id'    => $beli->supplier_id ?? null,
+            'supplier_label' => $beli ? "{$beli->supplier} ({$beli->supplier_code})" : '',
+            'item' => [
+                'product_id' => $p->id, 'sku' => $p->sku, 'product_sku' => $p->sku, 'product_name' => $p->name, 'description' => $p->name,
+                'qty' => $beli ? (float) $beli->qty : 1, 'unit' => $beli->unit ?? $p->base_unit,
+                'price' => $beli ? (float) $beli->price : 0, 'discount_type' => 'nominal', 'discount_value' => 0, 'is_asset' => false,
+            ],
+        ];
     }
+
 
     /**
      * Saran min_stock = pemakaian per hari × (lama datang + hari cadangan), dibulatkan ke atas.

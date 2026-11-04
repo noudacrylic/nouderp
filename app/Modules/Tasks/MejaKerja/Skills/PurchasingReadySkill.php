@@ -3,8 +3,11 @@
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
 use App\Core\Inventory\Product;
+use App\Models\User;
 use App\Modules\Purchasing\Services\StokBahanService;
+use App\Modules\Tasks\MejaKerja\Contracts\AlurPembelian;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
+use App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
 use App\Modules\Tasks\MejaKerja\MejaKerjaService;
 use App\Modules\Tasks\Models\Task;
@@ -19,9 +22,9 @@ use Illuminate\Support\Facades\DB;
  * Berbeda dari skill lain, pemicunya KEADAAN stok, bukan dokumen baru — bahan yang sudah
  * menipis saat skill dinyalakan ikut masuk (jumlahnya kecil, dan memang harus dibeli).
  */
-class PurchasingReadySkill implements SkillAdmin
+class PurchasingReadySkill implements SkillAdmin, PunyaJawaban
 {
-    use JadiSkillManajer;
+    use JadiSkillManajer, AlurPembelian;
 
     public function __construct(private StokBahanService $stok) {}
 
@@ -77,11 +80,7 @@ class PurchasingReadySkill implements SkillAdmin
 
     public function keadaan(Task $task): ?array
     {
-        $po = DB::table('purchase_order_items as i')->join('purchase_orders as o', 'o.id', '=', 'i.purchase_order_id')
-            ->where('i.product_id', $task->taskable_id)->where('o.status', '!=', 'cancelled')
-            ->where('o.created_at', '>', $task->created_at)
-            ->value('o.po_number');
-        if ($po) return ['done', "PO $po dibuat."];
+        if (!empty($task->meta['po_id']) || !empty($task->meta['faktur_id'])) return $this->keadaanPembelian($task);
 
         $p = DB::table('products')->where('id', $task->taskable_id)->first(['is_active', 'min_stock']);
         if (!$p || !$p->is_active || !($p->min_stock > 0)) return ['cancelled', 'Bahan diarsipkan / min stok dikosongkan.'];
@@ -93,10 +92,7 @@ class PurchasingReadySkill implements SkillAdmin
 
     public function aksi(Task $task): array
     {
-        return [
-            ['label' => 'Buat PO', 'url' => route('purchasing.orders.create', ['product_id' => $task->taskable_id]), 'utama' => true],
-            ['label' => 'Saran min stok', 'url' => $this->urlPengaturan(MejaKerjaService::KARYAWAN)],
-        ];
+        return $this->aksiBayar($task) ?? [...$this->aksiBeli($task), ['label' => 'Saran min stok', 'url' => $this->urlPengaturan(MejaKerjaService::KARYAWAN)]];
     }
 
     /** Pengaturan skill ini = min stok bahan (peran/bobot/tenggat tetap di Pengaturan Manajer Admin). */
@@ -106,4 +102,16 @@ class PurchasingReadySkill implements SkillAdmin
     }
 
     public function selesaiManual(): bool { return false; }
+
+    public function jawaban(Task $task): array
+    {
+        return $this->jawabanBayar($task) ?? [];
+    }
+
+    public function jawab(Task $task, string $kunci, User $u): string
+    {
+        abort_unless($kunci === 'bayar-owner', 422, 'Jawaban tidak dikenal.');
+
+        return $this->serahkanKeOwner($task, $u);
+    }
 }

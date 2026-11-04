@@ -41,7 +41,10 @@ class MejaKerjaService
     private const AWALAN_JUDUL = [
         'cetak-stiker'       => ['Cetak stiker', 'Cetak stiker '],
         'foto-custom'        => ['Foto custom', 'Foto '],
-        'kedatangan'         => ['Purchasing', ''],
+        'bayar-owner'        => ['Bayar', ''],
+        'isi-saldo'          => ['Isi saldo', ''],
+        'selesaikan-pesanan' => ['Selesaikan pesanan', ''],
+        'lapor-owner'        => ['Laporan', ''],
         'pengajuan-izin'     => ['Izin karyawan', 'Izin '],
         'persetujuan-usulan' => ['Persetujuan', 'Setujui? '],
         'purchasing-laporan' => ['Purchasing', ''],
@@ -99,6 +102,8 @@ class MejaKerjaService
 
             return ($sendiri ? 'Tugas sendiri' : 'Tugas') . ' - ' . $t->title;
         }
+
+        if ($s->key() === 'bayar-owner' && $t->status === 'pending') return 'Hutang tempo - ' . $t->title;
 
         // "Desain SO-1 — KS-K1, KS-K2" → "Desain pesanan KS-K1, KS-K2 nomor SO-1"
         if ($s->key() === 'desain' && preg_match('/^Desain (.+?) — (.+)$/u', $t->title, $m)) {
@@ -239,6 +244,39 @@ class MejaKerjaService
         return $out;
     }
 
+    /** Rekening untuk owner membayar: daftar kas/bank yang sama dengan halaman Pembayaran, tanpa pegangan admin. */
+    public static function rekeningOwner()
+    {
+        return \App\Core\Accounting\Account::whereIn('account_category', ['cash', 'cash_equivalent'])->where('is_active', 1)
+            ->whereNotIn('code', config('tasks.rekening_admin'))->orderBy('code');
+    }
+
+    /** Tutup kartu sebuah skill yang sumbernya baru beres, tanpa menunggu sinkron berikutnya. */
+    public function sinkronkanSkill(SkillAdmin $skill): void
+    {
+        $this->tutupYangBeres($skill);
+    }
+
+    /**
+     * Tombol kartu Purchasing mengikuti dokumen yang baru dibuat admin, jadi begitu ia kembali
+     * ke Meja Kerja tombolnya harus sudah benar, tidak menunggu sinkron 2 menitan.
+     */
+    public function segarkanPembelian(): void
+    {
+        $adaSelesai = false;
+        foreach (['purchasing-ready', 'purchasing-nonstok', 'purchasing-laporan'] as $key) {
+            if (!$this->aktif($key)) continue;
+            try {
+                foreach ([1, 2] as $_) { // ke-1 menempelkan dokumen, ke-2 menutup bila sudah dibayar
+                    $adaSelesai = collect($this->tutupYangBeres($this->skill($key)))->contains('jenis', 'selesai') || $adaSelesai;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('MejaKerja: gagal menyegarkan kartu pembelian', ['skill' => $key, 'error' => $e->getMessage()]);
+            }
+        }
+        if ($adaSelesai && $this->aktif('selesaikan-pesanan')) $this->kerjakan($this->skill('selesaikan-pesanan'), false);
+    }
+
     /** Skill Atur penugasan: tugaskan task meja yang belum berpengerja + lanjutkan Pending yang dibalas. */
     public function aturPenugasan(): array
     {
@@ -321,10 +359,10 @@ class MejaKerjaService
             'tenggat_at'  => $u['tenggat_at'] ?? null,
         ], fn ($v) => $v !== null));
 
-        if ($u['status'] === 'pending' && $t->status !== 'pending') {
+        if (($u['status'] ?? null) === 'pending' && $t->status !== 'pending') {
             $t->pending_alasan = mb_substr($u['catatan'], 0, 255);
             $this->ubahStatus($t, 'pending', null, 'Pending: ' . $u['catatan']);
-        } elseif ($u['status'] && $u['status'] !== $t->status) {
+        } elseif (($u['status'] ?? null) && $u['status'] !== $t->status) {
             $t->pending_alasan = null;
             $this->ubahStatus($t, $u['status'], null, $u['catatan']);
         } else {

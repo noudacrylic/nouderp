@@ -10,7 +10,7 @@
 </style>
 
 @php
-    $preSupplierId = old('supplier_id', $invoice->supplier_id ?? ($po->supplier_id ?? ''));
+    $preSupplierId = old('supplier_id', $invoice->supplier_id ?? ($po->supplier_id ?? ($isian['supplier_id'] ?? '')));
     $preSupplier = $preSupplierId ? $suppliers->firstWhere('id', $preSupplierId) : null;
     $prePoId = old('purchase_order_id', $invoice->purchase_order_id ?? ($po->id ?? ''));
     $prePoNumber = $po->po_number ?? ($invoice->purchaseOrder->po_number ?? '');
@@ -990,6 +990,8 @@
                 });
             @endforeach
         @endif
+    @elseif(!empty($isian))
+        addItem(@json($isian['item']));
     @else
         addItem();
     @endif

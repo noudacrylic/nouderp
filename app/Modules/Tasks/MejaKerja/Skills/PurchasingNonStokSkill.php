@@ -5,6 +5,7 @@ namespace App\Modules\Tasks\MejaKerja\Skills;
 use App\Core\Inventory\Product;
 use App\Models\User;
 use App\Modules\Purchasing\Services\StokBahanService;
+use App\Modules\Tasks\MejaKerja\Contracts\AlurPembelian;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\DB;
  */
 class PurchasingNonStokSkill implements SkillAdmin, PunyaJawaban
 {
-    use JadiSkillManajer;
+    use JadiSkillManajer, AlurPembelian;
 
     /** Cek mulai saat jeda sejak beli terakhir ≥ 80% jeda biasanya. */
     public const AMBANG = 0.8;
@@ -84,11 +85,7 @@ class PurchasingNonStokSkill implements SkillAdmin, PunyaJawaban
 
     public function keadaan(Task $task): ?array
     {
-        $sejak = $task->meta['beli_sejak'] ?? $task->created_at;
-        $po = DB::table('purchase_order_items as i')->join('purchase_orders as o', 'o.id', '=', 'i.purchase_order_id')
-            ->where('i.product_id', $task->taskable_id)->where('o.status', '!=', 'cancelled')
-            ->where('o.created_at', '>', $sejak)->value('o.po_number');
-        if ($po) return ['done', "Dibeli lewat PO $po."];
+        if (!empty($task->meta['po_id']) || !empty($task->meta['faktur_id'])) return $this->keadaanPembelian($task);
         if (!DB::table('products')->where('id', $task->taskable_id)->where('is_active', true)->exists()) {
             return ['cancelled', 'Barang diarsipkan.'];
         }
@@ -97,14 +94,14 @@ class PurchasingNonStokSkill implements SkillAdmin, PunyaJawaban
 
     public function aksi(Task $task): array
     {
-        $beli = ['label' => 'Buat PO', 'url' => route('purchasing.orders.create', ['product_id' => $task->taskable_id])];
-        return ($task->meta['tahap'] ?? 'cek') === 'beli' ? [$beli + ['utama' => true]] : [];
+        return $this->aksiBayar($task) ?? (($task->meta['tahap'] ?? 'cek') === 'beli' ? $this->aksiBeli($task) : []);
     }
 
     public function selesaiManual(): bool { return false; }
 
     public function jawaban(Task $task): array
     {
+        if ($bayar = $this->jawabanBayar($task)) return $bayar;
         if (($task->meta['tahap'] ?? 'cek') !== 'cek') return [];
 
         return [
@@ -117,9 +114,10 @@ class PurchasingNonStokSkill implements SkillAdmin, PunyaJawaban
     {
         $meja = app(MejaKerjaService::class);
 
+        if ($kunci === 'bayar-owner') return $this->serahkanKeOwner($task, $u);
         if ($kunci === 'beli') {
             $this->naikkanKeBeli($task, $u, 'Hasil cek: perlu beli');
-            return 'Dicatat: perlu beli. Task ini selesai sendiri saat PO dibuat.';
+            return 'Dicatat: perlu beli. Lanjutkan dengan Buat PO atau Buat Faktur.';
         }
 
         $hari = (int) substr($kunci, 4);

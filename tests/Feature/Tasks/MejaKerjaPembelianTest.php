@@ -19,7 +19,7 @@ use Tests\TestCase;
 
 /**
  * Skill pembelian Meja Kerja: Purchasing ready stok (stok ≤ min & belum ada PO ditunggu → task, selesai
- * saat PO dibuat) dan Kedatangan barang (PO lewat tanggal datang → task, selesai saat difakturkan
+ * saat PO dibayar atau diserahkan ke owner).
  * atau tanggal datang dimundurkan), plus halaman saran min stok & isian PO dari task.
  */
 class MejaKerjaPembelianTest extends TestCase
@@ -67,7 +67,7 @@ class MejaKerjaPembelianTest extends TestCase
         return $po;
     }
 
-    public function test_ready_stok_dibuat_sekali_lalu_selesai_saat_po_dibuat(): void
+    public function test_ready_stok_dibuat_sekali_lalu_selesai_saat_po_diserahkan_ke_owner(): void
     {
         $this->nyalakan('purchasing-ready');
         $akrilik = $this->bahan('AKR-3', 50, 20);
@@ -88,6 +88,8 @@ class MejaKerjaPembelianTest extends TestCase
         $this->travel(1)->minutes();
         $this->po($akrilik, now()->toDateString());
         $meja->sinkron();
+        $this->assertSame('open', $t->fresh()->status, 'PO dibuat: tinggal dibayar.');
+        $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => 'bayar-owner'])->assertRedirect();
         $this->assertSame('done', $t->fresh()->status);
         $this->assertSame(0, Task::where('skill', 'purchasing-ready')->whereIn('status', ['open', 'in_progress'])->count(), 'PO masih ditunggu → tidak ada task baru.');
     }
@@ -103,35 +105,6 @@ class MejaKerjaPembelianTest extends TestCase
         ProductStock::where('product_id', $akrilik->id)->update(['qty_on_hand' => 80]);
         $meja->sinkron();
         $this->assertSame('cancelled', Task::where('skill', 'purchasing-ready')->first()->status);
-    }
-
-    public function test_kedatangan_terlambat_lalu_selesai_saat_tanggal_dimundurkan_atau_difakturkan(): void
-    {
-        $this->nyalakan('kedatangan');
-        $akrilik = $this->bahan('AKR-3', null, 0);
-        $po = $this->po($akrilik, now()->subDays(5)->toDateString());                     // tempo = +3 hari → telat
-        $this->po($akrilik, now()->subDays(1)->toDateString());                           // belum jatuh tempo
-        $this->po($akrilik, now()->subDays(30)->toDateString());                          // telat sebelum skill dinyalakan
-        $meja = app(MejaKerjaService::class);
-
-        $this->assertSame(1, $meja->sinkron()['dibuat']);
-        $t = Task::where('skill', 'kedatangan')->first();
-        $this->assertSame($po->id, $t->taskable_id);
-        $this->assertSame(now()->subDays(2)->toDateString(), $t->meta['jatuh_tempo']);
-        $this->assertSame('https://wa.me/6281234567890', collect($meja->skill('kedatangan')->aksi($t))->firstWhere('label', 'WA supplier')['url']);
-
-        $po->update(['expected_date' => now()->addDays(2)->toDateString()]);
-        $meja->sinkron();
-        $this->assertSame('done', $t->fresh()->status, 'Tanggal datang dimundurkan setelah konfirmasi supplier.');
-
-        $this->travel(4)->days();
-        $this->assertSame(2, $meja->sinkron()['dibuat'], 'Lewat lagi → task baru; PO kedua kini ikut terlambat.');
-        $baru = Task::where('skill', 'kedatangan')->where('status', 'open')->where('taskable_id', $po->id)->first();
-        $this->assertNotNull($baru);
-
-        PurchaseOrderItem::where('purchase_order_id', $po->id)->update(['qty_invoiced' => 10]);
-        $meja->sinkron();
-        $this->assertSame('done', $baru->fresh()->status);
     }
 
     public function test_saran_min_stok_disimpan_dan_po_terisi_dari_task(): void
@@ -186,6 +159,8 @@ class MejaKerjaPembelianTest extends TestCase
         $this->travel(1)->minutes();
         $this->po($lem, now()->toDateString());
         $meja->sinkron();
+        $this->assertSame('open', $lagi->fresh()->status, 'PO dibuat: tinggal dibayar.');
+        $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $lagi->id), ['jawaban' => 'bayar-owner'])->assertRedirect();
         $this->assertSame('done', $lagi->fresh()->status);
         $this->assertSame(0, Task::where('skill', 'purchasing-nonstok')->whereIn('status', ['open', 'in_progress'])->count(), 'Baru dibeli → siklus mulai lagi.');
     }

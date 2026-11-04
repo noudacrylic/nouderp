@@ -106,6 +106,7 @@ class SupplierPaymentController extends Controller
         $request->validate(\App\Services\FotoNotaService::rules(), \App\Services\FotoNotaService::messages());
         $data = $request->validate([
             'supplier_id' => 'required|exists:suppliers,id',
+            'purchase_order_id' => 'nullable|exists:purchase_orders,id',
             'payment_date' => 'required|date',
             'payment_method' => 'nullable|in:cash,bank,transfer',
             'bank_account_id' => 'required|exists:accounts,id',

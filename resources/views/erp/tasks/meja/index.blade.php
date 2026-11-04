@@ -27,6 +27,20 @@
             </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
+            @if ($bolehLapor)
+                <details class="relative">
+                    <summary class="list-none cursor-pointer bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-sm font-semibold">Lapor ke Owner</summary>
+                    <form method="POST" action="{{ route('tasks.meja.lapor.store') }}" enctype="multipart/form-data" class="absolute right-0 z-20 mt-1 w-96 max-w-[90vw] bg-white border rounded shadow-lg p-3 space-y-2 text-sm">@csrf
+                        <div class="text-xs text-gray-500">Langsung sampai ke owner, juga lewat Telegram. Balasannya muncul di lonceng notifikasi Anda.</div>
+                        <textarea name="isi" rows="4" required maxlength="2000" placeholder="Mis. saldo ShopeePay belum diisi, transaksi belum tercatat..." class="w-full border rounded px-2 py-1.5">{{ old('isi') }}</textarea>
+                        <input type="file" name="foto" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
+                        <label class="flex items-center gap-2 text-xs text-gray-700">
+                            <input type="checkbox" name="penting" value="1" @checked(old('penting'))> Penting
+                        </label>
+                        <button class="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded font-semibold">Kirim laporan</button>
+                    </form>
+                </details>
+            @endif
             @if ($bolehSemua)
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
                     <button class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Sinkron sekarang</button>
@@ -118,10 +132,10 @@
                                             {{-- Pesan ke pelanggan: teksnya ditunjukkan & bisa diubah dulu, baru dikirim. --}}
                                             <details class="relative">
                                                 <summary class="list-none cursor-pointer px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">{{ $a['label'] }}</summary>
-                                                <form method="POST" action="{{ $a['kirim'] }}" target="_blank" class="absolute z-10 mt-1 w-80 bg-white border rounded shadow p-2 space-y-1">@csrf
-                                                    <div class="text-[11px] text-gray-500">Dikirim ke pembeli: kartu pesanan, lalu pesan ini.</div>
+                                                <form method="POST" action="{{ $a['kirim'] }}" @empty($a['tab_ini']) target="_blank" @endempty class="absolute z-10 mt-1 w-80 bg-white border rounded shadow p-2 space-y-1">@csrf
+                                                    <div class="text-[11px] text-gray-500">{{ $a['keterangan'] ?? 'Dikirim ke pembeli: kartu pesanan, lalu pesan ini.' }}</div>
                                                     <textarea name="teks" rows="4" maxlength="1000" class="w-full border rounded px-2 py-1 text-xs">{{ $a['teks'] ?? '' }}</textarea>
-                                                    <button class="w-full px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">Kirim & buka chat</button>
+                                                    <button class="w-full px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">{{ $a['tombol'] ?? 'Kirim & buka chat' }}</button>
                                                 </form>
                                             </details>
                                         @else
@@ -137,6 +151,9 @@
                                 <div class="mt-2 pt-2 border-t border-violet-200 text-[11px] text-violet-700">Baca saja — akan muncul di meja ini bila skillnya diubah ke Otomatis.</div>
                             @else
                             <div class="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-gray-100">
+                                @if ($skill && method_exists($skill, 'formKartu'))
+                                    @include('erp.tasks.meja._form-kartu', ['form' => $skill->formKartu($t)])
+                                @endif
                                 @if ($skill instanceof \App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban && ($jawaban = $skill->jawaban($t)))
                                     <form method="POST" action="{{ route('tasks.meja.jawab', $t->id) }}" class="flex flex-wrap gap-1 w-full mb-1">@csrf
                                         @foreach ($jawaban as $j)
@@ -150,7 +167,7 @@
                                         <button class="bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold">▶ Mulai</button>
                                     </form>
                                 @endif
-                                @if ($status === 'pending')
+                                @if ($status === 'pending' && !method_exists($skill ?? new stdClass, 'kendaliSendiri'))
                                     <form method="POST" action="{{ route('tasks.meja.lanjutkan', $t->id) }}">@csrf
                                         <button class="bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold">▶ Lanjutkan</button>
                                     </form>
@@ -160,7 +177,7 @@
                                         <button class="bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">✓ Selesai</button>
                                     </form>
                                 @endif
-                                @if ($status === 'open')
+                                @if ($status === 'open' && !method_exists($skill ?? new stdClass, 'kendaliSendiri'))
                                     <details class="relative">
                                         <summary class="list-none cursor-pointer border border-orange-300 text-orange-700 px-2 py-1 rounded text-xs font-semibold">⏸ Pending</summary>
                                         <form method="POST" action="{{ route('tasks.meja.pending', $t->id) }}" class="absolute z-10 mt-1 w-64 bg-white border rounded shadow p-2 space-y-1">@csrf

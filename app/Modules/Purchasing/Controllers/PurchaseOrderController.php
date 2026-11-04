@@ -129,29 +129,8 @@ class PurchaseOrderController extends Controller
             ->orderBy('code')
             ->get();
         $assetCategories = AssetCategory::where('is_active', 1)->orderBy('name')->get();
-        $isian = $this->isianDariProduk((int) $request->input('product_id'));
+        $isian = app(\App\Modules\Purchasing\Services\StokBahanService::class)->isianDariProduk((int) $request->input('product_id'));
         return view('erp.purchasing.orders.create', compact('suppliers', 'warehouses', 'products', 'expenseAccounts', 'assetCategories', 'isian'));
-    }
-
-    /**
-     * ?product_id= (tombol "Buat PO" task Restok di Meja Kerja): satu baris bahan + supplier,
-     * satuan, qty, dan harga dari pembelian terakhirnya.
-     */
-    private function isianDariProduk(int $productId): ?array
-    {
-        $p = $productId ? Product::where('is_active', 1)->find($productId) : null;
-        if (!$p) return null;
-        $beli = app(\App\Modules\Purchasing\Services\StokBahanService::class)->pembelianTerakhir($p->id);
-
-        return [
-            'supplier_id'    => $beli->supplier_id ?? null,
-            'supplier_label' => $beli ? "{$beli->supplier} ({$beli->supplier_code})" : '',
-            'item' => [
-                'product_id' => $p->id, 'sku' => $p->sku, 'description' => $p->name,
-                'qty' => $beli ? (float) $beli->qty : 1, 'unit' => $beli->unit ?? $p->base_unit,
-                'price' => $beli ? (float) $beli->price : 0, 'discount_type' => 'nominal', 'discount_value' => 0, 'is_asset' => false,
-            ],
-        ];
     }
 
     public function store(Request $request)

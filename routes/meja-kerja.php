@@ -4,6 +4,8 @@ use App\Modules\KaryawanVirtual\Controllers\MinStokController;
 use App\Modules\KaryawanVirtual\Controllers\PengaturanAdminController;
 use App\Modules\KaryawanVirtual\Controllers\ProdukDesainController;
 use App\Modules\Purchasing\Controllers\LaporStokController;
+use App\Modules\Tasks\LaporOwner\LaporOwnerController;
+use App\Modules\Tasks\MejaKerja\KartuPembelianController;
 use App\Modules\Tasks\MejaKerja\MejaKerjaController;
 use App\Modules\Tasks\TugasOwner\TugasOwnerController;
 use Illuminate\Support\Facades\Route;
@@ -23,6 +25,14 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
     Route::post('/{task}/jawab', [MejaKerjaController::class, 'jawab'])->whereNumber('task')->name('jawab');
     // Per SO, bukan per task: kartu Bayangan tidak tersimpan (id negatif) tapi tombolnya tetap dipakai.
     Route::post('/chat-shopee/{so}', [MejaKerjaController::class, 'chatShopee'])->whereNumber('so')->name('chat-shopee');
+    Route::post('/{task}/bayar', [KartuPembelianController::class, 'bayar'])->whereNumber('task')->name('bayar');
+    Route::post('/{task}/isi-saldo', [KartuPembelianController::class, 'isiSaldo'])->whereNumber('task')->name('isi-saldo');
+    Route::post('/{task}/selesaikan', [KartuPembelianController::class, 'selesaikan'])->whereNumber('task')->name('selesaikan');
+    Route::prefix('lapor')->name('lapor.')->controller(LaporOwnerController::class)->group(function () {
+        Route::post('/', 'store')->name('store');
+        Route::post('/{lapor}/balas', 'balas')->whereNumber('lapor')->name('balas');
+        Route::get('/{lapor}/foto', 'foto')->whereNumber('lapor')->name('foto');
+    });
     // Tugas dari Owner: halaman sendiri, dibuka dari tombol di Meja Kerja.
     Route::prefix('tugas')->name('tugas.')->controller(TugasOwnerController::class)->group(function () {
         Route::get('/', 'index')->name('index');

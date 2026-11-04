@@ -113,6 +113,7 @@ class SupplierPaymentService
                 'overpay'         => $b['overpay'],
                 'used_balance'    => $b['used_balance'],
                 'status'          => 'draft',
+                'purchase_order_id' => $data['purchase_order_id'] ?? null,
                 'notes'           => $data['notes'] ?? null,
             ]);
 

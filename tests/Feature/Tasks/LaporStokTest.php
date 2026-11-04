@@ -67,7 +67,7 @@ class LaporStokTest extends TestCase
         $this->actingAs($this->operator)->post(route('lapor-stok.simpan'), $isi + ['divisi' => 'Packing', 'kondisi' => 'habis'])->assertRedirect();
     }
 
-    public function test_laporan_digabung_jadi_satu_task_beli_lalu_selesai_saat_po_dibuat(): void
+    public function test_laporan_digabung_jadi_satu_task_beli_lalu_selesai_saat_po_diserahkan_ke_owner(): void
     {
         $lakban = $this->barang('LAKBAN');
         $this->actingAs($this->operator)->getJson(route('lapor-stok.pilihan', ['divisi' => 'Packing']))
@@ -88,6 +88,7 @@ class LaporStokTest extends TestCase
         $this->travel(1)->minutes();
         $this->po($lakban, now()->toDateString());
         $meja->sinkron();
+        $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => 'bayar-owner'])->assertRedirect();
         $this->assertSame('done', $t->fresh()->status);
         $this->assertSame('Sudah ditangani', LaporStok::first()->fresh()->statusLabel()[0]);
     }

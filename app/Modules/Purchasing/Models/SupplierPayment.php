@@ -17,6 +17,7 @@ class SupplierPayment extends Model
         'payment_number',
         'payment_date',
         'supplier_id',
+        'purchase_order_id',
         'payment_method',
         'bank_account_id',
         'amount',
