@@ -55,6 +55,25 @@ class MejaKerjaService
         'retur'              => ['Retur', ''],
     ];
 
+    private const WARNA_JENIS = [
+        'Tugas sendiri'      => 'bg-sky-100 text-sky-800',
+        'Tugas'              => 'bg-slate-200 text-slate-800',
+        'Desain pesanan'     => 'bg-fuchsia-100 text-fuchsia-800',
+        'Foto custom'        => 'bg-pink-100 text-pink-800',
+        'Cetak stiker'       => 'bg-violet-100 text-violet-800',
+        'QC'                 => 'bg-teal-100 text-teal-800',
+        'Purchasing'         => 'bg-amber-100 text-amber-800',
+        'Selesaikan pesanan' => 'bg-lime-100 text-lime-800',
+        'Retur'              => 'bg-rose-100 text-rose-800',
+        'Laporan'            => 'bg-red-100 text-red-800',
+        'Persetujuan'        => 'bg-indigo-100 text-indigo-800',
+        'Izin karyawan'      => 'bg-cyan-100 text-cyan-800',
+        'Bayar'              => 'bg-emerald-100 text-emerald-800',
+        'Hutang tempo'       => 'bg-orange-100 text-orange-800',
+        'Isi saldo'          => 'bg-blue-100 text-blue-800',
+        'Penarikan saldo'    => 'bg-green-100 text-green-800',
+    ];
+
     public function __construct(private KaryawanVirtualService $kv) {}
 
     /** @return array<string, SkillAdmin> key pendek => skill */
@@ -93,31 +112,43 @@ class MejaKerjaService
     }
 
     /**
-     * Judul di kartu Meja Kerja: jenis pekerjaan di depan supaya terbaca sekilas. Hanya tampilan,
-     * judul tersimpan tidak berubah (kartu lama ikut rapi tanpa mengubah data).
+     * Judul di kartu Meja Kerja dibagi jenis pekerjaan (lencana berwarna & saringan) dan isinya.
+     * Hanya tampilan, judul tersimpan tidak berubah (kartu lama ikut rapi tanpa mengubah data).
+     *
+     * @return array{jenis: string, isi: string}
      */
-    public static function judulKartu(Task $t, ?SkillAdmin $s): string
+    public static function jenisKartu(Task $t, ?SkillAdmin $s): array
     {
         if (!$s) {
             $sendiri = $t->source !== 'event' && (int) $t->creator_user_id === (int) $t->assignee_user_id;
 
-            return ($sendiri ? 'Tugas sendiri' : 'Tugas') . ' - ' . $t->title;
+            return ['jenis' => $sendiri ? 'Tugas sendiri' : 'Tugas', 'isi' => $t->title];
         }
 
-        if ($s->key() === 'bayar-owner' && $t->status === 'pending') return 'Hutang tempo - ' . $t->title;
+        if ($s->key() === 'bayar-owner' && $t->status === 'pending') return ['jenis' => 'Hutang tempo', 'isi' => $t->title];
 
-        // "Desain SO-1 — KS-K1, KS-K2" → "Desain pesanan KS-K1, KS-K2 nomor SO-1"
+        // "Desain SO-1 — KS-K1, KS-K2" → "KS-K1, KS-K2 nomor SO-1"
         if ($s->key() === 'desain' && preg_match('/^Desain (.+?) — (.+)$/u', $t->title, $m)) {
-            return "Desain pesanan {$m[2]} nomor {$m[1]}";
+            return ['jenis' => 'Desain pesanan', 'isi' => "{$m[2]} nomor {$m[1]}"];
         }
 
         [$awalan, $buang] = self::AWALAN_JUDUL[$s->key()] ?? [$s->label(), ''];
         $peringatan = str_starts_with($t->title, '⚠️ ') ? '⚠️ ' : '';
         $sisa = substr($t->title, strlen($peringatan));
-        if ($buang !== '' && str_starts_with($sisa, $buang)) $sisa = substr($sisa, strlen($buang));
-        if (str_starts_with(mb_strtolower($sisa), mb_strtolower($awalan))) return $peringatan . $sisa;
+        foreach ([$buang, $awalan . ' '] as $pembuka) {
+            if ($pembuka !== ' ' && $pembuka !== '' && str_starts_with(mb_strtolower($sisa), mb_strtolower($pembuka))) {
+                $sisa = substr($sisa, strlen($pembuka));
+                break;
+            }
+        }
 
-        return "$peringatan$awalan - $sisa";
+        return ['jenis' => $awalan, 'isi' => $peringatan . $sisa];
+    }
+
+    /** Kelas warna lencana jenis pekerjaan; jenis baru tanpa warna memakai abu-abu. */
+    public static function warnaJenis(string $jenis): string
+    {
+        return self::WARNA_JENIS[$jenis] ?? 'bg-gray-200 text-gray-800';
     }
 
     public static function kunciKv(SkillAdmin $s): string

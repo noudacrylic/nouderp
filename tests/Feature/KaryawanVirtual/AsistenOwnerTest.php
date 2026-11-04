@@ -108,14 +108,14 @@ class AsistenOwnerTest extends TestCase
 
         $meja->sinkron();
         $this->assertSame(0, Task::where('skill', 'pengajuan-izin')->count());
-        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertOk()->assertSee('BAYANGAN')->assertSee('Izin karyawan - Andi');
+        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertOk()->assertSee('BAYANGAN')->assertSee('Izin karyawan')->assertSee('Andi:');
 
         // Pengajuan yang lebih dulu masuk tetap ikut saat skill dinyalakan.
         $this->nyalakan('pengajuan-izin');
         $meja->sinkron();
         $t = Task::where('skill', 'pengajuan-izin')->sole();
         $this->assertSame('owner', $t->peran);
-        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Izin karyawan - Andi')->assertSee('✅ Setujui');
+        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Izin karyawan')->assertSee('Andi:')->assertSee('✅ Setujui');
     }
 
     public function test_setujui_dari_kartu_menerapkan_izin_dan_menutup_kartu(): void

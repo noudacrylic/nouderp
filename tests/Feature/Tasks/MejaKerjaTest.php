@@ -155,7 +155,7 @@ class MejaKerjaTest extends TestCase
         $desain = Task::where('skill', 'desain')->first();
 
         $this->assertSame('desain', $desain->peran, 'Meja Desain belum punya anggota — task tetap masuk.');
-        $this->actingAs($this->owner)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertSee(MejaKerjaService::judulKartu($desain, app(MejaKerjaService::class)->skill('desain')));
+        $this->actingAs($this->owner)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertSee(MejaKerjaService::jenisKartu($desain, app(MejaKerjaService::class)->skill('desain'))['isi']);
         $this->actingAs($this->desainer)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertDontSee($desain->title, false);
 
         $this->assertNull($desain->assignee_user_id);
@@ -250,26 +250,30 @@ class MejaKerjaTest extends TestCase
         $this->assertNull($milikSendiri->fresh());
     }
 
-    public function test_judul_kartu_diawali_jenis_pekerjaan(): void
+    public function test_kartu_punya_jenis_berwarna_dan_bisa_disaring(): void
     {
         $meja = app(MejaKerjaService::class);
-        $judul = fn (?string $skill, string $title, array $isi = []) => MejaKerjaService::judulKartu(new Task($isi + ['title' => $title, 'skill' => $skill]), $meja->skill($skill));
+        $kartu = fn (?string $skill, string $title, array $isi = []) => array_values(MejaKerjaService::jenisKartu(new Task($isi + ['title' => $title, 'skill' => $skill]), $meja->skill($skill)));
 
-        $this->assertSame('Desain pesanan KS-K1, KS-K2 nomor SO-1', $judul('desain', 'Desain SO-1 — KS-K1, KS-K2'));
-        $this->assertSame('Purchasing - Cek persediaan Lem (LEM)', $judul('purchasing-nonstok', 'Cek persediaan Lem (LEM)'));
-        $this->assertSame('Purchasing - Beli AKR-3 — sisa 2 pcs (min 5)', $judul('purchasing-ready', 'Beli AKR-3 — sisa 2 pcs (min 5)'));
-        $this->assertSame('Selesaikan pesanan - PO-1 — Toko', $judul('selesaikan-pesanan', 'PO-1 — Toko'));
-        $this->assertSame('QC - OP-1 — KS', $judul('qc', 'QC OP-1 — KS'));
-        $this->assertSame('Foto custom - SO-1', $judul('foto-custom', 'Foto SO-1'));
-        $this->assertSame('Cetak stiker - OP-1', $judul('cetak-stiker', 'Cetak stiker OP-1'));
-        $this->assertSame('Persetujuan - Buat OP RP-3', $judul('persetujuan-usulan', 'Setujui? Buat OP RP-3'));
-        $this->assertSame('⚠️ Izin karyawan - Andi: Sakit', $judul('pengajuan-izin', '⚠️ Izin Andi: Sakit'));
-        $this->assertSame('Retur - Periksa barang retur', $judul('retur', 'Periksa barang retur'));
-        $this->assertSame('Tugas sendiri - Pengembangan', $judul(null, 'Pengembangan', ['source' => 'manual', 'creator_user_id' => 1, 'assignee_user_id' => 1]));
-        $this->assertSame('Tugas - Dari orang lain', $judul(null, 'Dari orang lain', ['source' => 'manual', 'creator_user_id' => 1, 'assignee_user_id' => 2]));
+        $this->assertSame(['Desain pesanan', 'KS-K1, KS-K2 nomor SO-1'], $kartu('desain', 'Desain SO-1 — KS-K1, KS-K2'));
+        $this->assertSame(['Purchasing', 'Cek persediaan Lem (LEM)'], $kartu('purchasing-nonstok', 'Cek persediaan Lem (LEM)'));
+        $this->assertSame(['Selesaikan pesanan', 'PO-1 — Toko'], $kartu('selesaikan-pesanan', 'PO-1 — Toko'));
+        $this->assertSame(['QC', 'OP-1 — KS'], $kartu('qc', 'QC OP-1 — KS'));
+        $this->assertSame(['Foto custom', 'SO-1'], $kartu('foto-custom', 'Foto SO-1'));
+        $this->assertSame(['Cetak stiker', 'OP-1'], $kartu('cetak-stiker', 'Cetak stiker OP-1'));
+        $this->assertSame(['Persetujuan', 'Buat OP RP-3'], $kartu('persetujuan-usulan', 'Setujui? Buat OP RP-3'));
+        $this->assertSame(['Izin karyawan', '⚠️ Andi: Sakit'], $kartu('pengajuan-izin', '⚠️ Izin Andi: Sakit'));
+        $this->assertSame(['Retur', 'Periksa barang retur'], $kartu('retur', 'Periksa barang retur'));
+        $this->assertSame(['Tugas sendiri', 'Pengembangan'], $kartu(null, 'Pengembangan', ['source' => 'manual', 'creator_user_id' => 1, 'assignee_user_id' => 1]));
+        $this->assertSame(['Tugas', 'Dari orang lain'], $kartu(null, 'Dari orang lain', ['source' => 'manual', 'creator_user_id' => 1, 'assignee_user_id' => 2]));
+        $this->assertNotSame(MejaKerjaService::warnaJenis('Purchasing'), MejaKerjaService::warnaJenis('Tugas sendiri'));
 
         $this->actingAs($this->owner)->post(route('tasks.store'), ['title' => 'Pengembangan ERP', 'priority' => 'normal', 'status' => 'open']);
-        $this->get(route('tasks.meja.index'))->assertSee('Tugas sendiri - Pengembangan ERP');
+        Task::create(['title' => 'Tugas dari atasan', 'status' => 'open', 'creator_user_id' => $this->desainer->id, 'assignee_user_id' => $this->owner->id]);
+
+        $this->get(route('tasks.meja.index'))->assertSee('Daftar Pekerjaan')->assertSee('Pekerjaan Tertunda')->assertDontSee('>Antre<', false)
+            ->assertSee('Tugas sendiri')->assertSee('Pengembangan ERP')->assertSee('Tugas dari atasan')->assertSee('⏸ Tunda');
+        $this->get(route('tasks.meja.index', ['jenis' => 'Tugas sendiri']))->assertSee('Pengembangan ERP')->assertDontSee('Tugas dari atasan');
     }
 
     public function test_jadwal_milik_sendiri_membuat_tugas_di_papan(): void
@@ -286,7 +290,7 @@ class MejaKerjaTest extends TestCase
         $jadwal->update(['next_run_at' => now()->subMinute()]);
         $this->assertSame(1, app(\App\Modules\Tasks\Services\TaskScheduleService::class)->runScheduled());
         $this->get(route('tasks.index'))->assertSee('Cek kas harian')->assertSee('Hitung')->assertSee('Catat');
-        $this->get(route('tasks.meja.index'))->assertSee('Tugas sendiri - Cek kas harian');
+        $this->get(route('tasks.meja.index'))->assertSee('Tugas sendiri')->assertSee('Cek kas harian');
         $this->assertTrue($jadwal->fresh()->next_run_at->isFuture());
         $this->assertSame(0, app(\App\Modules\Tasks\Services\TaskScheduleService::class)->runScheduled());
 

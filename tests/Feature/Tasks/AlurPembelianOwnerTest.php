@@ -196,12 +196,12 @@ class AlurPembelianOwnerTest extends TestCase
         $this->meja->sinkron();
         $kartu = $this->kartu('bayar-owner');
         $this->assertSame('owner', $kartu->peran);
-        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Bayar - ' . $faktur->invoice_number)->assertSee('Bayar tempo');
+        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee($faktur->invoice_number)->assertSee('Bayar tempo');
 
         $this->jawab($this->owner, $kartu, 'tempo');
         $kartu->refresh();
         $this->assertSame('pending', $kartu->status);
-        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Hutang tempo - ' . $faktur->invoice_number)->assertDontSee('▶ Lanjutkan');
+        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Hutang tempo')->assertSee($faktur->invoice_number)->assertDontSee('▶ Lanjutkan');
 
         // Cicilan: tetap Pending dengan sisa terbaru.
         $this->post(route('tasks.meja.bayar', $kartu->id), ['rekening' => $this->rekening(), 'nominal' => '40.000'])->assertSessionHas('success');
@@ -265,7 +265,7 @@ class AlurPembelianOwnerTest extends TestCase
         $this->assertSame(1, Task::where('skill', 'isi-saldo')->count());
         $kartu = $this->kartu('isi-saldo');
         $this->assertSame('owner', $kartu->peran);
-        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Isi saldo - ShopeePay sisa Rp0')->assertSee('3.000.000');
+        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Isi saldo')->assertSee('ShopeePay sisa Rp0')->assertSee('3.000.000');
 
         $this->actingAs($this->admin)->post(route('tasks.meja.isi-saldo', $kartu->id), ['rekening' => $this->rekening(), 'nominal' => '3.000.000'])->assertForbidden();
         $this->actingAs($this->owner)->post(route('tasks.meja.isi-saldo', $kartu->id), ['rekening' => $this->rekening(), 'nominal' => '3.000.000'])->assertSessionHas('success');
@@ -293,7 +293,7 @@ class AlurPembelianOwnerTest extends TestCase
         $this->assertSame($bt->id, $kartu->taskable_id, 'Hanya draft tanpa tujuan.');
         $this->assertSame('owner', $kartu->peran);
         $this->actingAs($this->owner)->get(route('tasks.meja.index'))
-            ->assertSee('Penarikan saldo - Rp3.000.000')->assertSee('Pilih rekening &amp; posting', false)->assertSee('1295 Shopee Pay');
+            ->assertSee('Penarikan saldo')->assertSee('Rp3.000.000 tanggal')->assertSee('Pilih rekening &amp; posting', false)->assertSee('1295 Shopee Pay');
 
         $this->actingAs($this->admin)->post(route('tasks.meja.penarikan', $kartu->id), ['rekening' => $this->rekening()])->assertForbidden();
         $this->actingAs($this->owner)->post(route('tasks.meja.penarikan', $kartu->id), ['rekening' => $this->rekening('1104')])->assertStatus(422);

@@ -61,6 +61,13 @@ class MejaKerjaController extends Controller
             $tasks = $tasks->concat($bayangan);
         }
 
+        // Lencana & saringan jenis pekerjaan. Hitungannya dari sebelum disaring, supaya pilihan lain tetap terlihat.
+        $skills = $this->meja->skills();
+        $jenisKartu = $tasks->mapWithKeys(fn (Task $t) => [$t->id => MejaKerjaService::jenisKartu($t, $skills[$t->skill] ?? null)]);
+        $jumlahJenis = $jenisKartu->pluck('jenis')->countBy()->sortKeys();
+        $saringJenis = (string) $request->input('jenis');
+        if ($saringJenis !== '') $tasks = $tasks->filter(fn (Task $t) => $jenisKartu[$t->id]['jenis'] === $saringJenis);
+
         $skor = $tasks->mapWithKeys(fn (Task $t) => [$t->id => $this->meja->skor($t)]);
         // Yang sedang dikerjakan (skill ber-Mulai) di atas Antre, sisanya urut skor.
         $kolom = [
@@ -77,7 +84,7 @@ class MejaKerjaController extends Controller
         }
 
         return view('erp.tasks.meja.index', [
-            'kolom' => $kolom, 'skor' => $skor, 'skills' => $this->meja->skills(), 'lihat' => $lihat, 'mejaUtama' => $mejaUtama,
+            'kolom' => $kolom, 'skor' => $skor, 'skills' => $skills, 'jenisKartu' => $jenisKartu, 'jumlahJenis' => $jumlahJenis, 'saringJenis' => $saringJenis, 'lihat' => $lihat, 'mejaUtama' => $mejaUtama,
             'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua, 'tabPeran' => $tabPeran,
             'bayangan' => $bayangan, 'tampilBayangan' => $tampilBayangan,
             'bayanganPerMeja' => $semuaBayangan->countBy('peran'),
@@ -106,7 +113,7 @@ class MejaKerjaController extends Controller
     {
         $u = $request->user();
         $this->bolehPegang($u, $task);
-        abort_unless($task->status === 'pending', 422, 'Hanya task Pending yang bisa dilanjutkan.');
+        abort_unless($task->status === 'pending', 422, 'Hanya pekerjaan tertunda yang bisa dilanjutkan.');
         $this->meja->lanjutkan($task, $u);
 
         return back();

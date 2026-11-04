@@ -24,7 +24,7 @@ class SelesaikanPesananSkill implements SkillAdmin
 
     public function deskripsi(): string
     {
-        return 'PO yang belum difakturkan → kartu Pending. Saat barang sampai, tombol Selesaikan pesanan otomatis membuat faktur dan menambah stok. Kartu selesai juga bila fakturnya diinput manual.';
+        return 'PO yang belum difakturkan → kartu di Pekerjaan Tertunda. Saat barang sampai, tombol Selesaikan pesanan otomatis membuat faktur dan menambah stok. Kartu selesai juga bila fakturnya diinput manual.';
     }
 
     /** Skill baru: dilihat dulu di Bayangan sebelum kartunya sungguh dibuat. */

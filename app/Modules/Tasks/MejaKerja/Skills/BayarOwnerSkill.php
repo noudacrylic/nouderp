@@ -28,7 +28,7 @@ class BayarOwnerSkill implements SkillOwner, PunyaJawaban
 
     public function deskripsi(): string
     {
-        return 'Pembelian yang diserahkan admin lewat tombol Bayar owner → kartu Bayar di Meja Owner; tempo menjadi daftar hutang di Pending sampai lunas.';
+        return 'Pembelian yang diserahkan admin lewat tombol Bayar owner → kartu Bayar di Meja Owner; tempo menjadi daftar hutang di Pekerjaan Tertunda sampai lunas.';
     }
 
     /** Sudah diserahkan manusia dan ditunggu: nonaktif/bayangan sama dengan tagihan hilang. */
@@ -149,7 +149,7 @@ class BayarOwnerSkill implements SkillOwner, PunyaJawaban
         abort_unless($kunci === 'tempo', 422, 'Jawaban tidak dikenal.');
         $this->jadikanHutang($task, $u);
 
-        return 'Masuk daftar hutang di kolom Pending.';
+        return 'Masuk daftar hutang di Pekerjaan Tertunda.';
     }
 
     public function formKartu(Task $task): array

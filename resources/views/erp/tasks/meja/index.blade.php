@@ -3,8 +3,8 @@
 @section('content')
 @php
     $judulKolom = [
-        'open'    => ['Antre', 'bg-slate-500', 'Urut skor — yang teratas dikerjakan dulu. Selesai sendiri saat dokumennya dibuat di ERP.'],
-        'pending' => ['Pending', 'bg-orange-500', 'Menunggu pelanggan/barang/keputusan'],
+        'open'    => ['Daftar Pekerjaan', 'bg-slate-500', 'Urut skor — yang teratas dikerjakan dulu. Selesai sendiri saat dokumennya dibuat di ERP.'],
+        'pending' => ['Pekerjaan Tertunda', 'bg-orange-500', 'Menunggu pelanggan/barang/keputusan'],
     ];
     $peranLabel = \App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran::PERAN;
     $alasanCepat = ['Menunggu balasan pelanggan', 'Menunggu barang datang', 'Menunggu keputusan owner'];
@@ -76,6 +76,17 @@
         </div>
     @endif
 
+    @if ($jumlahJenis->count() > 1 || $saringJenis !== '')
+        {{-- Saringan jenis pekerjaan --}}
+        <div class="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
+            @php $parameter = fn ($jenis) => array_filter(['lihat' => $lihat, 'bayangan' => request('bayangan'), 'jenis' => $jenis], fn ($v) => $v !== null && $v !== ''); @endphp
+            <a href="{{ route('tasks.meja.index', $parameter('')) }}" class="px-2 py-1 rounded font-semibold {{ $saringJenis === '' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">Semua</a>
+            @foreach ($jumlahJenis as $jenis => $n)
+                <a href="{{ route('tasks.meja.index', $parameter($jenis)) }}" class="px-2 py-1 rounded font-semibold {{ \App\Modules\Tasks\MejaKerja\MejaKerjaService::warnaJenis($jenis) }} {{ $saringJenis === $jenis ? 'ring-2 ring-gray-800' : 'hover:opacity-80' }}">{{ $jenis }} {{ $n }}</a>
+            @endforeach
+        </div>
+    @endif
+
     <div class="grid gap-3 md:grid-cols-2 items-start">
         @foreach ($kolom as $status => $tasks)
             <div class="bg-slate-100 rounded-lg overflow-hidden">
@@ -94,7 +105,9 @@
                         @endphp
                         <div class="rounded-md p-3 text-sm {{ $bayang ? 'bg-violet-50/60 border-2 border-dashed border-violet-300' : 'bg-white border ' . ($lewat ? 'border-red-300' : 'border-gray-200') }}">
                             <div class="flex items-start justify-between gap-2">
-                                <div class="font-semibold text-gray-800 leading-snug">{{ \App\Modules\Tasks\MejaKerja\MejaKerjaService::judulKartu($t, $skill) }}</div>
+                                <div class="font-semibold text-gray-800 leading-snug">
+                                    <span class="px-1.5 py-0.5 rounded text-xs mr-1 {{ \App\Modules\Tasks\MejaKerja\MejaKerjaService::warnaJenis($jenisKartu[$t->id]['jenis']) }}">{{ $jenisKartu[$t->id]['jenis'] }}</span>{{ $jenisKartu[$t->id]['isi'] }}
+                                </div>
                                 @if ($status === 'open')<span class="text-[10px] text-gray-400 whitespace-nowrap">skor {{ $skor[$t->id] }}</span>@endif
                             </div>
                             <div class="flex flex-wrap gap-1 mt-1 text-[10px]">
@@ -176,7 +189,7 @@
                                 @endif
                                 @if ($status === 'open' && !method_exists($skill ?? new stdClass, 'kendaliSendiri'))
                                     <details class="relative">
-                                        <summary class="list-none cursor-pointer border border-orange-300 text-orange-700 px-2 py-1 rounded text-xs font-semibold">⏸ Pending</summary>
+                                        <summary class="list-none cursor-pointer border border-orange-300 text-orange-700 px-2 py-1 rounded text-xs font-semibold">⏸ Tunda</summary>
                                         <form method="POST" action="{{ route('tasks.meja.pending', $t->id) }}" class="absolute z-10 mt-1 w-64 bg-white border rounded shadow p-2 space-y-1">@csrf
                                             @foreach ($alasanCepat as $al)
                                                 <button name="alasan" value="{{ $al }}" class="block w-full text-left text-xs px-2 py-1 rounded hover:bg-orange-50">{{ $al }}</button>

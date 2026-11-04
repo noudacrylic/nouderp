@@ -49,7 +49,7 @@ class LaporOwnerTest extends TestCase
         $this->assertTrue($this->terkirimKe('5001', 'Saldo ShopeePay belum diisi 2 hari'));
 
         $this->actingAs($this->owner)->get(route('tasks.meja.index'))
-            ->assertSee('⚠️ Laporan - Saldo ShopeePay belum diisi 2 hari', false)->assertSee('Kirim balasan');
+            ->assertSee('Laporan')->assertSee('⚠️ Saldo ShopeePay belum diisi 2 hari', false)->assertSee('Kirim balasan');
     }
 
     public function test_balasan_owner_sampai_ke_pelapor_dan_kartu_selesai(): void
