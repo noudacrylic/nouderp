@@ -1,6 +1,6 @@
 {{-- Form di kartu Meja Kerja dari SkillAdmin::formKartu(). --}}
 @if ($form['jenis'] === 'selesaikan')
-    <form method="POST" action="{{ $form['url'] }}" class="w-full mb-1"
+    <form method="POST" action="{{ $form['url'] }}"
           onsubmit="return confirm('Selesaikan pesanan? Faktur dibuat dan stok masuk sesuai PO. Kalau ada barang kurang atau rusak, tetap selesaikan lalu buat retur dari fakturnya.')">@csrf
         <button class="bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">✓ Selesaikan pesanan</button>
     </form>

@@ -118,8 +118,9 @@
                                 </details>
                             @endif
 
+                            {{-- Semua tombol kartu satu baris; turun ke baris berikutnya hanya bila tak muat. --}}
+                            <div class="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-gray-100">
                             @if ($skill)
-                                <div class="flex flex-wrap gap-1 mt-2">
                                     @foreach ($skill->aksi($t) as $a)
                                         @php
                                             $warnaAksi = match ($a['warna'] ?? (!empty($a['utama']) ? 'oren' : null)) {
@@ -144,18 +145,14 @@
                                            class="meja-aksi px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">{{ $a['label'] }}</a>
                                         @endif
                                     @endforeach
-                                </div>
                             @endif
 
-                            @if ($bayang)
-                                <div class="mt-2 pt-2 border-t border-violet-200 text-[11px] text-violet-700">Baca saja — akan muncul di meja ini bila skillnya diubah ke Otomatis.</div>
-                            @else
-                            <div class="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-gray-100">
+                            @unless ($bayang)
                                 @if ($skill && method_exists($skill, 'formKartu'))
                                     @include('erp.tasks.meja._form-kartu', ['form' => $skill->formKartu($t)])
                                 @endif
                                 @if ($skill instanceof \App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban && ($jawaban = $skill->jawaban($t)))
-                                    <form method="POST" action="{{ route('tasks.meja.jawab', $t->id) }}" class="flex flex-wrap gap-1 w-full mb-1">@csrf
+                                    <form method="POST" action="{{ route('tasks.meja.jawab', $t->id) }}" class="contents">@csrf
                                         @foreach ($jawaban as $j)
                                             <button name="jawaban" value="{{ $j['kunci'] }}"
                                                     class="px-2 py-1 rounded text-xs font-semibold {{ !empty($j['utama']) ? 'bg-green-600 text-white' : 'border border-green-300 text-green-800 hover:bg-green-50' }}">{{ $j['label'] }}</button>
@@ -191,7 +188,10 @@
                                         </form>
                                     </details>
                                 @endif
+                            @endunless
                             </div>
+                            @if ($bayang)
+                                <div class="mt-2 text-[11px] text-violet-700">Baca saja — akan muncul di meja ini bila skillnya diubah ke Otomatis.</div>
                             @endif
                         </div>
                     @empty
