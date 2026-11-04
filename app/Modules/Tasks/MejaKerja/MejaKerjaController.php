@@ -36,12 +36,11 @@ class MejaKerjaController extends Controller
 
         $q = Task::with('assignee:id,name');
         if ($lihat === 'saya') {
-            $q->where(fn ($w) => $w->where('assignee_user_id', $u->id)
-                ->orWhere(fn ($x) => $x->whereIn('peran', $peranSaya)->whereNull('assignee_user_id')));
+            $q->where($this->meja->isiMejaSaya($u));
         } elseif ($lihat === 'semua') {
             $q->whereNotNull('peran');
         } elseif ($lihat === 'owner') {
-            $q->where($this->isiMejaOwner($u));
+            $q->where($this->meja->isiMejaOwner($u));
         } else {
             $q->where('peran', $lihat);
         }
@@ -80,7 +79,7 @@ class MejaKerjaController extends Controller
         $jumlahAntre = Task::where('status', 'open')->whereIn('peran', array_keys($tabPeran))
             ->groupBy('peran')->selectRaw('peran, COUNT(*) n')->pluck('n', 'peran');
         if ($mejaUtama === 'owner') {
-            $jumlahAntre['owner'] = Task::where('status', 'open')->where($this->isiMejaOwner($u))->count();
+            $jumlahAntre['owner'] = Task::where('status', 'open')->where($this->meja->isiMejaOwner($u))->count();
         }
 
         return view('erp.tasks.meja.index', [
@@ -92,6 +91,12 @@ class MejaKerjaController extends Controller
             'rekeningOwner' => MejaKerjaService::rekeningOwner()->get(['id', 'code', 'name']),
             'bolehLapor' => \App\Modules\Tasks\LaporOwner\LaporOwnerController::bolehLapor($u),
         ]);
+    }
+
+    /** Angka lencana menu Task Manager, ditanya berkala oleh layout. */
+    public function lencana(Request $request)
+    {
+        return response()->json(['jumlah' => $this->meja->jumlahDaftarPekerjaan($request->user())]);
     }
 
     /** Hanya skill yang punya masa kerja nyata (butuhMulai, mis. Desain). */
@@ -198,16 +203,6 @@ class MejaKerjaController extends Controller
         return $u->role === 'super_admin'
             ? MejaKerjaPeran::PERAN
             : array_intersect_key(MejaKerjaPeran::PERAN, array_flip($this->meja->peranUser($u->id)));
-    }
-
-    /**
-     * Isi Meja Owner: task peran owner + task yang ditugaskan ke owner yang membuka + task tanpa
-     * pemilik & tanpa meja (dulu hanya terlihat di Board, jangan sampai hilang dari pandangan).
-     */
-    private function isiMejaOwner(User $u): \Closure
-    {
-        return fn ($w) => $w->where('peran', 'owner')->orWhere('assignee_user_id', $u->id)
-            ->orWhere(fn ($x) => $x->whereNull('peran')->whereNull('assignee_user_id')->whereNull('skill'));
     }
 
     private function penuh(User $u): bool

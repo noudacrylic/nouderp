@@ -69,6 +69,10 @@ class AppServiceProvider extends ServiceProvider
             $view->with('crmBelumDibaca', should_show_menu_group('crm')
                 ? BelumDibaca::untuk(auth()->user())
                 : 0);
+
+            $view->with('jumlahDaftarPekerjaan', should_show_menu_group('tasks')
+                ? app(\App\Modules\Tasks\MejaKerja\MejaKerjaService::class)->jumlahDaftarPekerjaan(auth()->user())
+                : 0);
         });
 
         FingerprintLog::observe(FingerprintLogObserver::class);

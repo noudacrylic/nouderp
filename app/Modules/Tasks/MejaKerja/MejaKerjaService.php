@@ -450,6 +450,39 @@ class MejaKerjaService
         return $task;
     }
 
+    // ── Isi meja utama ─────────────────────────────────────────────────────────
+
+    /** Meja pertama yang dibuka: Meja Owner bagi owner, Meja saya bagi lainnya. */
+    public function mejaUtama(User $u): string
+    {
+        return $u->role === 'super_admin' || in_array('owner', $this->peranUser($u->id), true) ? 'owner' : 'saya';
+    }
+
+    /** Isi Meja saya: task yang ditugaskan kepadanya + yang belum berpengerja di mejanya. */
+    public function isiMejaSaya(User $u): \Closure
+    {
+        return fn ($w) => $w->where('assignee_user_id', $u->id)
+            ->orWhere(fn ($x) => $x->whereIn('peran', $this->peranUser($u->id))->whereNull('assignee_user_id'));
+    }
+
+    /**
+     * Isi Meja Owner: task peran owner + task yang ditugaskan ke owner yang membuka + task tanpa
+     * pemilik & tanpa meja (dulu hanya terlihat di Board, jangan sampai hilang dari pandangan).
+     */
+    public function isiMejaOwner(User $u): \Closure
+    {
+        return fn ($w) => $w->where('peran', 'owner')->orWhere('assignee_user_id', $u->id)
+            ->orWhere(fn ($x) => $x->whereNull('peran')->whereNull('assignee_user_id')->whereNull('skill'));
+    }
+
+    /** Lencana menu Task Manager: isi Daftar Pekerjaan di meja utama. */
+    public function jumlahDaftarPekerjaan(User $u): int
+    {
+        $isi = $this->mejaUtama($u) === 'owner' ? $this->isiMejaOwner($u) : $this->isiMejaSaya($u);
+
+        return Task::whereIn('status', ['open', 'in_progress'])->where($isi)->count();
+    }
+
     // ── Anggota meja ───────────────────────────────────────────────────────────
 
     /** @return string[] meja peran tempat user jadi anggota */

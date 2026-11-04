@@ -307,6 +307,26 @@ class MejaKerjaTest extends TestCase
         $this->delete(route('tasks.schedules.destroy', $jadwal->id))->assertForbidden();
     }
 
+    public function test_lencana_menu_menghitung_daftar_pekerjaan_meja_utama(): void
+    {
+        $meja = app(MejaKerjaService::class);
+        $pembuat = ['creator_user_id' => $this->owner->id];
+        Task::create($pembuat + ['title' => 'A', 'status' => 'open', 'peran' => 'owner']);
+        Task::create($pembuat + ['title' => 'B', 'status' => 'in_progress', 'assignee_user_id' => $this->owner->id]);
+        Task::create($pembuat + ['title' => 'Tertunda', 'status' => 'pending', 'peran' => 'owner']);
+        Task::create($pembuat + ['title' => 'Selesai', 'status' => 'done', 'peran' => 'owner']);
+        Task::create($pembuat + ['title' => 'Milik desainer', 'status' => 'open', 'assignee_user_id' => $this->desainer->id]);
+
+        $this->assertSame(2, $meja->jumlahDaftarPekerjaan($this->owner), 'Pending & selesai tidak dihitung.');
+        $this->assertSame(1, $meja->jumlahDaftarPekerjaan($this->desainer));
+
+        $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertSee('id="tugasLencana"', false)->assertDontSee('style="display:none" >1</span>', false);
+        $this->getJson(route('tasks.meja.lencana'))->assertOk()->assertExactJson(['jumlah' => 1]);
+        Task::where('assignee_user_id', $this->desainer->id)->update(['status' => 'done']);
+        $this->getJson(route('tasks.meja.lencana'))->assertExactJson(['jumlah' => 0]);
+        $this->get(route('tasks.meja.index'))->assertSee('id="tugasLencana"', false);
+    }
+
     public function test_task_tanpa_pemilik_tetap_terlihat_di_meja_owner(): void
     {
         Task::create(['title' => 'Task lama tanpa pemilik', 'status' => 'open', 'creator_user_id' => $this->owner->id]);

@@ -949,7 +949,11 @@
                 {{-- ================= TASK MANAGER ================= --}}
                 @if(should_show_menu_group('tasks'))
                 <a href="{{ module_landing_url('tasks') }}" class="menu-single {{ request()->is('erp/tasks*') ? 'active' : '' }}" data-tip="Task Manager">
-                    <span class="menu-icon">{!! $svgTask !!}</span><span class="menu-label">&nbsp;Task Manager</span>
+                    <span class="menu-icon" style="position:relative">{!! $svgTask !!}
+                        {{-- Selalu dirender (disembunyikan saat 0) supaya penanya berkala bisa menyalakannya. --}}
+                        <span class="crm-lencana" id="tugasLencana" data-url="{{ route('tasks.meja.lencana') }}" title="Jumlah Daftar Pekerjaan"
+                              @if(($jumlahDaftarPekerjaan ?? 0) <= 0) style="display:none" @endif>{{ ($jumlahDaftarPekerjaan ?? 0) > 99 ? '99+' : ($jumlahDaftarPekerjaan ?? 0) }}</span>
+                    </span><span class="menu-label">&nbsp;Task Manager</span>
                 </a>
                 @endif
 
@@ -1452,6 +1456,29 @@
 
         tampilkan(parseInt(el.textContent, 10) || 0);
         setInterval(tanya, JEDA);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) tanya(); });
+    })();
+    </script>
+
+    {{-- Lencana Task Manager hidup, sama seperti CRM. Judul tab tetap milik angka chat. --}}
+    <script>
+    (function () {
+        const el = document.getElementById('tugasLencana');
+        if (!el) return;
+
+        function tanya() {
+            fetch(el.dataset.url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (!d) return;
+                    const n = parseInt(d.jumlah, 10) || 0;
+                    el.textContent = n > 99 ? '99+' : n;
+                    el.style.display = n > 0 ? '' : 'none';
+                })
+                .catch(() => {});
+        }
+
+        setInterval(tanya, 20000);
         document.addEventListener('visibilitychange', () => { if (!document.hidden) tanya(); });
     })();
     </script>
