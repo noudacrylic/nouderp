@@ -276,6 +276,51 @@ class AlurPembelianOwnerTest extends TestCase
         $this->assertSame(1, Task::where('skill', 'isi-saldo')->count(), 'Saldo cukup, tak ada kartu baru.');
     }
 
+    public function test_draft_penarikan_jadi_kartu_owner_tinggal_pilih_rekening_dan_posting(): void
+    {
+        Account::firstOrCreate(['code' => '1104'], ['name' => 'Saldo Penjualan Shopee', 'type' => 'asset', 'normal_balance' => 'debit', 'is_active' => 1])->update(['is_cash_account' => 1, 'is_active' => 1]);
+        $bt = app(\App\Modules\Finance\Services\BankTransferService::class)->createDraft([
+            'date' => today()->subDays(3)->toDateString(), 'from_account_id' => $this->rekening('1104'), 'to_account_id' => null,
+            'amount' => 3000000, 'reference' => 'Penarikan Dana Shopee',
+        ], tujuanBolehKosong: true);
+        $lengkap = app(\App\Modules\Finance\Services\BankTransferService::class)->createDraft([
+            'date' => today()->toDateString(), 'from_account_id' => $this->rekening('1104'), 'to_account_id' => $this->rekening(), 'amount' => 1000,
+        ]);
+
+        $this->meja->sinkron();
+        $this->meja->sinkron();
+        $kartu = Task::where('skill', 'penarikan-saldo')->sole();
+        $this->assertSame($bt->id, $kartu->taskable_id, 'Hanya draft tanpa tujuan.');
+        $this->assertSame('owner', $kartu->peran);
+        $this->actingAs($this->owner)->get(route('tasks.meja.index'))
+            ->assertSee('Penarikan saldo - Rp3.000.000')->assertSee('Pilih rekening &amp; posting', false)->assertSee('1295 Shopee Pay');
+
+        $this->actingAs($this->admin)->post(route('tasks.meja.penarikan', $kartu->id), ['rekening' => $this->rekening()])->assertForbidden();
+        $this->actingAs($this->owner)->post(route('tasks.meja.penarikan', $kartu->id), ['rekening' => $this->rekening('1104')])->assertStatus(422);
+
+        $this->post(route('tasks.meja.penarikan', $kartu->id), ['rekening' => $this->rekening(IsiSaldoSkill::AKUN)])->assertSessionHas('success');
+        $bt->refresh();
+        $this->assertSame('posted', $bt->status);
+        $this->assertSame($this->rekening(IsiSaldoSkill::AKUN), (int) $bt->to_account_id);
+        $this->assertSame('done', $kartu->fresh()->status);
+        $this->assertSame('draft', $lengkap->fresh()->status);
+    }
+
+    public function test_kartu_penarikan_tutup_bila_draft_dihapus_dari_halaman_transfer(): void
+    {
+        Account::firstOrCreate(['code' => '1104'], ['name' => 'Saldo Penjualan Shopee', 'type' => 'asset', 'normal_balance' => 'debit', 'is_active' => 1])->update(['is_cash_account' => 1, 'is_active' => 1]);
+        $bt = app(\App\Modules\Finance\Services\BankTransferService::class)->createDraft([
+            'date' => today()->toDateString(), 'from_account_id' => $this->rekening('1104'), 'to_account_id' => null, 'amount' => 5000,
+        ], tujuanBolehKosong: true);
+        $this->meja->sinkron();
+        $kartu = Task::where('skill', 'penarikan-saldo')->sole();
+
+        $bt->delete();
+        $this->meja->sinkron();
+
+        $this->assertSame('cancelled', $kartu->fresh()->status);
+    }
+
     public function test_hutang_lama_ditampilkan_dulu_lalu_masuk_pending_dan_aman_diulang(): void
     {
         $faktur = app(\App\Modules\Purchasing\Services\PurchaseInvoiceService::class)->createDraft([

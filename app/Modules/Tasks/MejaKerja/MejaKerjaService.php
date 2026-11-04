@@ -45,6 +45,7 @@ class MejaKerjaService
         'isi-saldo'          => ['Isi saldo', ''],
         'selesaikan-pesanan' => ['Selesaikan pesanan', ''],
         'lapor-owner'        => ['Laporan', ''],
+        'penarikan-saldo'    => ['Penarikan saldo', ''],
         'pengajuan-izin'     => ['Izin karyawan', 'Izin '],
         'persetujuan-usulan' => ['Persetujuan', 'Setujui? '],
         'purchasing-laporan' => ['Purchasing', ''],

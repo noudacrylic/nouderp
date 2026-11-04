@@ -11,15 +11,17 @@
             <div class="text-[11px] text-gray-500">{{ $form['keterangan'] }}</div>
             <select name="rekening" required class="w-full border rounded px-2 py-1 text-xs">
                 <option value="">Pilih rekening…</option>
-                @foreach ($rekeningOwner as $r)
+                @foreach ($form['daftar'] ?? $rekeningOwner as $r)
                     <option value="{{ $r->id }}">{{ $r->code }} {{ $r->name }}</option>
                 @endforeach
             </select>
-            <input type="text" inputmode="numeric" name="nominal" required value="{{ number_format($form['nominal'], 0, ',', '.') }}" class="rupiah-input w-full border rounded px-2 py-1 text-xs" placeholder="Nominal">
+            @isset($form['nominal'])
+                <input type="text" inputmode="numeric" name="nominal" required value="{{ number_format($form['nominal'], 0, ',', '.') }}" class="rupiah-input w-full border rounded px-2 py-1 text-xs" placeholder="Nominal">
+            @endisset
             @if ($form['bukti'])
                 <input type="file" name="nota[]" accept="image/*,application/pdf" class="w-full text-[11px]">
             @endif
-            <button class="w-full bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">Simpan</button>
+            <button class="w-full bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">{{ $form['tombol'] ?? 'Simpan' }}</button>
         </form>
     </details>
 @endif

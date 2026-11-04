@@ -95,6 +95,7 @@ return [
             'owner.lapor-owner'         => \App\Modules\Tasks\MejaKerja\Skills\LaporOwnerSkill::class,
             'owner.isi-saldo'           => \App\Modules\Tasks\MejaKerja\Skills\IsiSaldoSkill::class,
             'owner.bayar-owner'         => \App\Modules\Tasks\MejaKerja\Skills\BayarOwnerSkill::class,
+            'owner.penarikan-saldo'     => \App\Modules\Tasks\MejaKerja\Skills\PenarikanSaldoSkill::class,
             'owner.pencatatan-telegram' => \App\Modules\KaryawanVirtual\Skills\Owner\PencatatanTelegram::class,
         ],
         // Pencatatan berjalan saat ada pesan Telegram — tak ikut sinkron & tak punya "Jalankan sekarang".

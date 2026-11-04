@@ -5,6 +5,7 @@ namespace App\Modules\Tasks\MejaKerja;
 use App\Core\Accounting\Account;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Finance\Models\BankTransfer;
 use App\Modules\Finance\Services\BankTransferService;
 use App\Modules\Notifications\Services\PusatNotifikasi;
 use App\Modules\Purchasing\Models\PengajuanBayarOwner;
@@ -14,10 +15,12 @@ use App\Modules\Purchasing\Services\SelesaikanPesananService;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\MejaKerja\Skills\BayarOwnerSkill;
 use App\Modules\Tasks\MejaKerja\Skills\IsiSaldoSkill;
+use App\Modules\Tasks\MejaKerja\Skills\PenarikanSaldoSkill;
 use App\Modules\Tasks\MejaKerja\Skills\SelesaikanPesananSkill;
 use App\Modules\Tasks\Models\Task;
 use App\Services\FotoNotaService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /** Tombol uang di kartu Meja Kerja: bayar pembelian & isi saldo (owner), selesaikan pesanan (admin). */
 class KartuPembelianController extends Controller
@@ -71,6 +74,28 @@ class KartuPembelianController extends Controller
         $this->meja->sinkronkanSkill(app(IsiSaldoSkill::class));
 
         return back()->with('success', "Transfer {$bt->number} tercatat.");
+    }
+
+    public function penarikan(Request $request, Task $task, BankTransferService $transfer)
+    {
+        abort_unless($this->owner($request->user()), 403, 'Hanya owner yang memposting penarikan lewat kartu ini.');
+        abort_unless($task->skill === 'penarikan-saldo', 404);
+        $data = $request->validate(['rekening' => 'required|integer|exists:accounts,id']);
+        abort_unless(PenarikanSaldoSkill::rekeningTujuan()->whereKey($data['rekening'])->exists(), 422, 'Rekening tujuan tidak valid.');
+
+        $bt = BankTransfer::findOrFail($task->taskable_id);
+        abort_unless($bt->isDraft(), 422, 'Transfer ini sudah bukan draft.');
+        try {
+            DB::transaction(function () use ($bt, $data, $transfer) {
+                $bt->update(['to_account_id' => $data['rekening']]);
+                $transfer->post($bt);
+            });
+        } catch (\DomainException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+        $this->meja->sinkronkanSkill(app(PenarikanSaldoSkill::class));
+
+        return back()->with('success', "Penarikan {$bt->number} diposting.");
     }
 
     public function selesaikan(Request $request, Task $task, SelesaikanPesananService $layanan)

@@ -28,6 +28,7 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
     Route::post('/{task}/bayar', [KartuPembelianController::class, 'bayar'])->whereNumber('task')->name('bayar');
     Route::post('/{task}/isi-saldo', [KartuPembelianController::class, 'isiSaldo'])->whereNumber('task')->name('isi-saldo');
     Route::post('/{task}/selesaikan', [KartuPembelianController::class, 'selesaikan'])->whereNumber('task')->name('selesaikan');
+    Route::post('/{task}/penarikan', [KartuPembelianController::class, 'penarikan'])->whereNumber('task')->name('penarikan');
     Route::prefix('lapor')->name('lapor.')->controller(LaporOwnerController::class)->group(function () {
         Route::post('/', 'store')->name('store');
         Route::post('/{lapor}/balas', 'balas')->whereNumber('lapor')->name('balas');
