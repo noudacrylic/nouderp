@@ -41,11 +41,19 @@ return [
         'icon' => '✅',
         'children' => [
             // Tiap orang punya meja sendiri (isi dibatasi di controller) → selalu terlihat.
-            'tasks.meja'       => ['label' => 'Meja Kerja',      'url' => '/erp/tasks/meja',      'route_patterns' => ['tasks.meja.*'], 'always_visible' => true],
-            'tasks.board'      => ['label' => 'Board',           'url' => '/erp/tasks',           'route_patterns' => ['tasks.index', 'tasks.move', 'tasks.status', 'tasks.create', 'tasks.store', 'tasks.show', 'tasks.edit', 'tasks.update', 'tasks.destroy', 'tasks.subtasks.*', 'tasks.visible_categories.*', 'tasks.assignee', 'tasks.priority', 'tasks.description', 'tasks.json', 'tasks.links.*', 'tasks.categories.store', 'tasks.categories.create', 'tasks.categories.edit', 'tasks.categories.update']],
-            'tasks.list'       => ['label' => 'Daftar',          'url' => '/erp/tasks/list',      'route_patterns' => ['tasks.list']],
-            'tasks.automation' => ['label' => 'Otomasi',         'url' => '/erp/tasks/schedules', 'route_patterns' => ['tasks.schedules.*', 'tasks.automation.*']],
-            'tasks.categories' => ['label' => 'Kategori',        'url' => '/erp/tasks/categories','route_patterns' => ['tasks.categories.*']],
+            // active_patterns: Tugas dari Owner (tasks.meja.tugas.*) & Riwayat ikut izin ini tapi punya tab sendiri.
+            'tasks.meja'       => ['label' => 'Meja Kerja',      'url' => '/erp/tasks/meja',      'route_patterns' => ['tasks.meja.*', 'tasks.list'], 'active_patterns' => ['tasks.meja.index'], 'always_visible' => true],
+            // Papan tugas pribadi: isinya hanya tugas milik sendiri (dibatasi di controller) → selalu terlihat.
+            'tasks.saya'       => ['label' => 'Tugas saya',      'url' => '/erp/tasks',           'route_patterns' => ['tasks.index', 'tasks.move', 'tasks.status', 'tasks.create', 'tasks.store', 'tasks.show', 'tasks.edit', 'tasks.update', 'tasks.destroy', 'tasks.subtasks.*', 'tasks.visible_categories.*', 'tasks.priority', 'tasks.description', 'tasks.json', 'tasks.links.*', 'tasks.categories.*', 'tasks.schedules.*', 'tasks.unhide'], 'always_visible' => true],
+            // Izin Manajer Admin (karyawan_virtual.akses), bukan pintu halaman lagi.
+            'tasks.board'      => ['label' => 'Manajer Admin',   'url' => '/erp/tasks',           'hidden' => true, 'route_patterns' => []],
+        ],
+        // Tab pintasan, bukan izin menu: tidak ikut daftar centang di User & Akses.
+        'tab_tambahan' => [
+            ['label' => 'Tugas dari Owner', 'url' => '/erp/tasks/meja/tugas', 'route_patterns' => ['tasks.meja.tugas.*'], 'badge' => 'tugas_owner'],
+            ['label' => 'Manajer Admin',    'url' => '/erp/karyawan-virtual/manajer-admin', 'role_gate' => ['super_admin']],
+            ['label' => 'Asisten Owner',    'url' => '/erp/karyawan-virtual/asisten-owner', 'role_gate' => ['super_admin']],
+            ['label' => 'Riwayat selesai',  'url' => '/erp/tasks/list?sumber=semua&status=done', 'route_patterns' => ['tasks.list']],
         ],
     ],
 

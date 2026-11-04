@@ -1,14 +1,15 @@
 @extends('layouts.erp')
 
 @section('content')
-@include('erp.tasks.automation._subtabs', ['current' => 'jadwal'])
-
 <div class="flex items-center justify-between mb-4">
     <div>
-        <h1 class="text-lg font-semibold">Otomasi Jadwal</h1>
-        <p class="text-xs text-gray-500 mt-1">Task otomatis dibuat sesuai jadwal yang ditentukan (harian/mingguan/bulanan/custom cron).</p>
+        <h1 class="text-lg font-semibold">Jadwal Tugas Saya</h1>
+        <p class="text-xs text-gray-500 mt-1">Tugas otomatis masuk ke papan Tugas saya sesuai jadwal (harian/mingguan/bulanan/custom cron).</p>
     </div>
-    <a href="{{ route('tasks.schedules.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Jadwal</a>
+    <div class="flex items-center gap-3">
+        <a href="{{ route('tasks.index') }}" class="text-sm text-gray-500">← Tugas saya</a>
+        <a href="{{ route('tasks.schedules.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Jadwal</a>
+    </div>
 </div>
 
 
@@ -19,7 +20,7 @@
                 <th class="px-3 py-2 text-left">Judul</th>
                 <th class="px-3 py-2 text-left">Frekuensi</th>
                 <th class="px-3 py-2 text-left">Kategori</th>
-                <th class="px-3 py-2 text-left">Assignee</th>
+                <th class="px-3 py-2 text-left">Untuk</th>
                 <th class="px-3 py-2 text-left">Run Berikutnya</th>
                 <th class="px-3 py-2 text-center">Aktif</th>
                 <th class="px-3 py-2 text-right">Aksi</th>
@@ -62,7 +63,7 @@
                 </td>
             </tr>
         @empty
-            <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada jadwal otomatis.</td></tr>
+            <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">Belum ada jadwal.</td></tr>
         @endforelse
         </tbody>
     </table>

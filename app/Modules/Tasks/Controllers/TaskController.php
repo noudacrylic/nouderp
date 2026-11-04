@@ -16,11 +16,10 @@ class TaskController extends Controller
 {
     public function __construct(private TaskPositionService $positions) {}
 
-    /** Board view — kolom per kategori. */
+    /** Tugas saya: papan pribadi, kolom per kategori. Hanya tugas milik yang membuka. */
     public function index(Request $request)
     {
         $userId = auth()->id();
-        $filterAssignee = $request->get('assignee', 'all');
         $filterPriority = $request->get('priority');
         $search = trim((string) $request->get('search', ''));
         $showDone = $request->boolean('show_done');
@@ -34,15 +33,11 @@ class TaskController extends Controller
         $categories = $allCategories->reject(fn($c) => in_array($c->id, $hiddenIds, true))->values();
         $showUncategorized = !in_array(0, $hiddenIds, true);
 
-        $hiddenTaskIds = DB::table('user_hidden_tasks')
-            ->where('user_id', $userId)
-            ->pluck('task_id')
-            ->map(fn($v) => (int) $v)
-            ->all();
-
         // Task dari Skill Admin (±puluhan per hari) tinggal di Meja Kerja, bukan di Board.
         $q = Task::with(['assignee:id,name', 'subtasks:id,task_id,is_done,title,sort_order'])
             ->whereNull('skill')
+            ->where(fn ($w) => $w->where('assignee_user_id', $userId)
+                ->orWhere(fn ($x) => $x->whereNull('assignee_user_id')->where('creator_user_id', $userId)))
             ->orderByRaw("FIELD(priority, 'high', 'normal', 'low')")
             ->orderBy('position')
             ->orderBy('id');
@@ -51,38 +46,15 @@ class TaskController extends Controller
             $q->whereNotIn('status', ['done', 'cancelled']);
         }
 
-        if (!empty($hiddenTaskIds)) {
-            $q->whereNotIn('id', $hiddenTaskIds);
-        }
-
-        if ($filterAssignee === 'me') {
-            $q->where('assignee_user_id', $userId);
-        } elseif ($filterAssignee === 'mine') {
-            $q->where('creator_user_id', $userId);
-        } elseif (is_numeric($filterAssignee)) {
-            $q->where('assignee_user_id', (int) $filterAssignee);
-        }
-
-        // Role `user` hanya boleh lihat task yang di-assign ke dirinya atau yang dia buat.
-        if (auth()->user()->role === 'user') {
-            $q->where(function ($w) use ($userId) {
-                $w->where('assignee_user_id', $userId)
-                  ->orWhere('creator_user_id', $userId);
-            });
-        }
-
         if ($filterPriority) $q->where('priority', $filterPriority);
         if ($search !== '') $q->where('title', 'like', "%{$search}%");
 
         $tasks = $q->get();
         $tasksByCategory = $tasks->groupBy(fn($t) => $t->category_id ?? 0);
 
-        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
-
         return view('erp.tasks.index', compact(
             'categories', 'allCategories', 'hiddenIds', 'showUncategorized',
-            'tasksByCategory', 'assignableUsers',
-            'filterAssignee', 'filterPriority', 'search', 'showDone'
+            'tasksByCategory', 'filterPriority', 'search', 'showDone'
         ));
     }
 
@@ -177,7 +149,7 @@ class TaskController extends Controller
         $q = Task::with(['category', 'assignee:id,name', 'creator:id,name'])
             ->when($sumber === '', fn ($x) => $x->whereNull('skill'))
             ->when($sumber === 'meja', fn ($x) => $x->whereNotNull('skill'))
-            ->orderByDesc($sumber === 'meja' && $request->get('status') === 'done' ? 'done_at' : 'id');
+            ->orderByDesc($request->get('status') === 'done' ? 'done_at' : 'id');
 
         $search = trim((string) $request->get('search', ''));
         if ($search !== '') $q->where('title', 'like', "%{$search}%");
@@ -236,6 +208,7 @@ class TaskController extends Controller
     {
         $data = $this->validateData($request);
         $data['creator_user_id'] = auth()->id();
+        $data['assignee_user_id'] = auth()->id();
         $data['position'] = $this->positions->nextPosition($data['category_id'] ?? null);
 
         DB::transaction(function () use ($data, $request, &$task) {
@@ -260,12 +233,14 @@ class TaskController extends Controller
 
     public function show(Task $task)
     {
+        abort_unless($task->bolehDilihatOleh(auth()->user()), 403, 'Task ini milik orang lain.');
         $task->load(['category', 'assignee', 'creator', 'subtasks', 'schedule']);
         return view('erp.tasks.show', compact('task'));
     }
 
     public function edit(Task $task)
     {
+        $this->authorizeModify($task);
         $task->load('subtasks');
         return $this->renderForm($task, 'edit');
     }
@@ -352,36 +327,6 @@ class TaskController extends Controller
         return back()->with('success', 'Status diperbarui.');
     }
 
-    /** Ubah assignee inline dari card. */
-    public function updateAssignee(Request $request, Task $task)
-    {
-        $this->authorizeModify($task);
-        $data = $request->validate([
-            'assignee_user_id' => ['nullable', 'integer', User::assignableExistsRule()],
-        ]);
-
-        $oldId = $task->assignee_user_id;
-        $newId = $data['assignee_user_id'] ?? null;
-
-        if ($oldId == $newId) {
-            return response()->json(['ok' => true, 'unchanged' => true]);
-        }
-
-        $task->assignee_user_id = $newId;
-        $task->save();
-
-        $this->forceCategoryVisibleForAssignee($task);
-
-        $oldName = $oldId ? optional(User::find($oldId))->name : 'Tidak ditentukan';
-        $newName = $newId ? optional(User::find($newId))->name : 'Tidak ditentukan';
-        TaskHistory::log($task->id, auth()->id(), 'assignee', "Ditugaskan: {$oldName} → {$newName}");
-
-        return response()->json([
-            'ok' => true,
-            'assignee' => $newId ? ['id' => $newId, 'name' => $newName] : null,
-        ]);
-    }
-
     /** Ubah priority inline dari card. */
     public function updatePriority(Request $request, Task $task)
     {
@@ -422,6 +367,7 @@ class TaskController extends Controller
     /** Detail task dalam bentuk JSON untuk modal popup. */
     public function showJson(Task $task)
     {
+        abort_unless($task->bolehDilihatOleh(auth()->user()), 403, 'Task ini milik orang lain.');
         $task->load(['assignee:id,name', 'creator:id,name', 'category', 'subtasks', 'links', 'histories.user:id,name']);
 
         $links = collect();
@@ -488,7 +434,6 @@ class TaskController extends Controller
             'title'            => 'required|string|max:200',
             'description'      => 'nullable|string|max:5000',
             'category_id'      => 'nullable|integer|exists:task_categories,id',
-            'assignee_user_id' => ['nullable', 'integer', User::assignableExistsRule()],
             'priority'         => 'required|in:low,normal,high',
             'status'           => 'required|in:open,in_progress,done,cancelled',
             'due_date'         => 'nullable|date',
@@ -535,8 +480,7 @@ class TaskController extends Controller
     private function renderForm(Task $task, string $mode)
     {
         $categories = TaskCategory::active()->orderBy('sort_order')->orderBy('id')->get();
-        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
         $taskableTypes = config('tasks.taskable_types', []);
-        return view('erp.tasks.form', compact('task', 'categories', 'assignableUsers', 'taskableTypes', 'mode'));
+        return view('erp.tasks.form', compact('task', 'categories', 'taskableTypes', 'mode'));
     }
 }

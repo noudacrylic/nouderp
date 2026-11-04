@@ -3,7 +3,10 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">Kategori Task</h1>
-    <a href="{{ route('tasks.categories.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Kategori</a>
+    <div class="flex items-center gap-3">
+        <a href="{{ route('tasks.index') }}" class="text-sm text-gray-500">← Tugas saya</a>
+        <a href="{{ route('tasks.categories.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Kategori</a>
+    </div>
 </div>
 
 
@@ -34,11 +37,13 @@
                 </td>
                 <td class="px-3 py-2 text-center">{{ $cat->tasks()->count() }}</td>
                 <td class="px-3 py-2 text-right">
+                    @if(in_array($cat->id, $bolehUbah, true))
                     <a href="{{ route('tasks.categories.edit', $cat->id) }}" class="bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</a>
                     <form method="POST" action="{{ route('tasks.categories.destroy', $cat->id) }}" class="inline" onsubmit="return confirm('Hapus kategori ini? Task yang terkait akan jadi tanpa kategori.')">
                         @csrf @method('DELETE')
                         <button class="bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                     </form>
+                    @endif
                 </td>
             </tr>
         @empty

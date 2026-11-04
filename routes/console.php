@@ -31,8 +31,8 @@ Schedule::command('pajak:bukukan-hutang')
 // Hari kerja tanpa scan kini tampil kosong; izin/sakit/cuti/lupa-absen diisi manual HRD
 // lewat dropdown status / Upload Excel. Lihat AutoAttendanceService (kini tak terjadwal).
 
-// Task Manager — generate scheduled tasks setiap 5 menit
-Schedule::call(fn() => app(\App\Modules\Tasks\Services\TaskAutomationService::class)->runScheduled())
+// Task Manager — generate tugas terjadwal setiap 5 menit
+Schedule::call(fn() => app(\App\Modules\Tasks\Services\TaskScheduleService::class)->runScheduled())
     ->everyFiveMinutes()->name('task-scheduler')->withoutOverlapping(60);
 
 // Pengingat absensi karyawan (Web Push) — cek tiap 5 menit sesuai jadwal masing-masing.

@@ -136,6 +136,12 @@ class Task extends Model
         return false;
     }
 
+    /** Boleh melihat detail: yang boleh mengubah, atau pembuatnya. */
+    public function bolehDilihatOleh(?\App\Models\User $user): bool
+    {
+        return $user && ($this->canBeModifiedBy($user) || (int) $this->creator_user_id === (int) $user->id);
+    }
+
     public function priorityLabel(): array
     {
         return match ($this->priority) {

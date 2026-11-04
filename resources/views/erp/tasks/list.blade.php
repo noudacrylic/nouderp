@@ -2,11 +2,7 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-semibold">Task — Tampilan Daftar</h1>
-    <div class="flex gap-2">
-        <a href="{{ route('tasks.index') }}" class="text-sm text-gray-600">📋 Tampilan Board</a>
-        <a href="{{ route('tasks.create') }}" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">+ Tambah Task</a>
-    </div>
+    <h1 class="text-lg font-semibold">Riwayat Task</h1>
 </div>
 
 <form method="GET" class="bg-white rounded shadow p-3 mb-3 flex gap-3 items-end text-sm flex-wrap">
@@ -73,12 +69,14 @@
                 $prio = $task->priorityLabel();
                 $stat = $task->statusLabel();
                 $isHidden = in_array((int) $task->id, $hiddenTaskIds ?? [], true);
+                $bolehBuka = $task->bolehDilihatOleh(auth()->user());
+                $bolehUbah = $task->canBeModifiedBy(auth()->user());
             @endphp
-            <tr class="border-b hover:bg-blue-50 cursor-pointer {{ $isHidden ? 'bg-gray-50' : '' }}" onclick="window.location='{{ route('tasks.show', $task->id) }}'">
+            <tr class="border-b hover:bg-blue-50 {{ $bolehBuka ? 'cursor-pointer' : '' }} {{ $isHidden ? 'bg-gray-50' : '' }}" @if($bolehBuka) onclick="window.location='{{ route('tasks.show', $task->id) }}'" @endif>
                 <td class="px-3 py-2 font-medium {{ $task->status === 'done' ? 'line-through text-gray-400' : '' }}">
                     {{ $task->title }}
                     @if($isHidden)
-                        <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-200 text-gray-600" title="Disembunyikan dari board Anda">🙈 Disembunyikan</span>
+                        <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-200 text-gray-600" title="Disembunyikan">🙈 Disembunyikan</span>
                     @endif
                 </td>
                 <td class="px-3 py-2">
@@ -94,7 +92,7 @@
                 <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs {{ $prio['class'] }}">{{ $prio['label'] }}</span></td>
                 <td class="px-3 py-2 text-center">
                     <span class="px-2 py-0.5 rounded text-xs {{ $stat['class'] }}">{{ $stat['label'] }}</span>
-                    @if($task->skill && $task->done_at && in_array($task->status, ['done', 'cancelled'], true))
+                    @if($task->done_at && in_array($task->status, ['done', 'cancelled'], true))
                         <div class="text-[10px] text-gray-400 mt-0.5">{{ $task->done_at->format('d M H:i') }}</div>
                     @endif
                 </td>
@@ -103,10 +101,10 @@
                     @if($isHidden)
                         <form method="POST" action="{{ route('tasks.unhide', $task->id) }}" class="inline">
                             @csrf
-                            <button type="submit" class="border border-blue-500 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs" title="Tampilkan kembali di board">👁 Tampilkan</button>
+                            <button type="submit" class="border border-blue-500 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs" title="Tampilkan kembali">👁 Tampilkan</button>
                         </form>
                     @endif
-                    @if($task->status === 'done' && !$task->skill)
+                    @if($bolehUbah && $task->status === 'done' && !$task->skill)
                         <form method="POST" action="{{ route('tasks.status', $task->id) }}" class="inline"
                               onsubmit="return confirm('Buka kembali task ini ke status Open?')">
                             @csrf
@@ -115,9 +113,9 @@
                             <button type="submit" class="border border-amber-500 text-amber-600 hover:bg-amber-50 px-2 py-1 rounded text-xs">Buka Kembali</button>
                         </form>
                     @endif
-                    @unless($task->skill)
+                    @if($bolehUbah && !$task->skill)
                         <a href="{{ route('tasks.edit', $task->id) }}" class="bg-blue-600 text-white px-2 py-1 rounded text-xs">Edit</a>
-                    @endunless
+                    @endif
                 </td>
             </tr>
         @empty

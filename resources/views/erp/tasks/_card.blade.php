@@ -3,10 +3,8 @@
     $isOverdue = $task->due_date && $task->due_date->isPast() && $task->status !== 'done';
     $isDone = $task->status === 'done';
     $authUser = auth()->user();
-    $authId = (int) ($authUser->id ?? 0);
     $canModify = $task->canBeModifiedBy($authUser);
     $isReadOnly = !$canModify;
-    $assigneeName = $task->assignee?->name;
 @endphp
 <div class="task-card {{ $isDone ? 'is-done' : '' }} {{ $isReadOnly ? 'is-readonly' : '' }}"
      draggable="{{ $canModify ? 'true' : 'false' }}"
@@ -36,14 +34,6 @@
                     title="Hapus task">🗑</button>
         @endif
     </div>
-
-    {{-- Label "Diproses oleh" — hanya untuk yang bukan assignee, ketika ada assignee --}}
-    @if($assigneeName && $task->assignee_user_id !== $authId)
-        <div class="task-card-processed">
-            <span class="task-card-processed-icon">👤</span>
-            Diproses oleh <strong>{{ $assigneeName }}</strong>
-        </div>
-    @endif
 
     {{-- Badges (due date, source) --}}
     @if($task->due_date || $task->source !== 'manual')
@@ -90,16 +80,8 @@
         </div>
     @endif
 
-    {{-- Footer: assignee + priority dropdown --}}
+    {{-- Footer: priority dropdown --}}
     <div class="task-card-foot">
-        <select class="task-assignee-select" data-task-id="{{ $task->id }}"
-                data-current="{{ $task->assignee_user_id }}"
-                @disabled($isReadOnly)>
-            <option value="">— Tidak ditentukan —</option>
-            @foreach(($assignableUsers ?? []) as $u)
-                <option value="{{ $u->id }}" @selected($task->assignee_user_id == $u->id)>{{ $u->name }}</option>
-            @endforeach
-        </select>
         <select class="task-priority-select prio-{{ $task->priority }}"
                 data-task-id="{{ $task->id }}"
                 data-current="{{ $task->priority }}"

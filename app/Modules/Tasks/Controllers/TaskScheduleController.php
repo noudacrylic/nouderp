@@ -3,17 +3,18 @@
 namespace App\Modules\Tasks\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
 use App\Modules\Tasks\Models\TaskCategory;
 use App\Modules\Tasks\Models\TaskSchedule;
-use App\Modules\Tasks\Services\TaskAutomationService;
+use App\Modules\Tasks\Services\TaskScheduleService;
 use Illuminate\Http\Request;
 
 class TaskScheduleController extends Controller
 {
     public function index()
     {
+        $uid = auth()->id();
         $schedules = TaskSchedule::with(['category', 'assignee:id,name'])
+            ->where(fn ($q) => $q->where('assignee_user_id', $uid)->orWhere('created_by_user_id', $uid))
             ->orderByDesc('id')
             ->paginate(25);
         return view('erp.tasks.schedules.index', compact('schedules'));
@@ -27,10 +28,11 @@ class TaskScheduleController extends Controller
         ]), 'create');
     }
 
-    public function store(Request $request, TaskAutomationService $svc)
+    public function store(Request $request)
     {
         $data = $this->validateData($request);
         $data['created_by_user_id'] = auth()->id();
+        $data['assignee_user_id'] = auth()->id();
         $data['subtasks_template'] = $this->parseSubtasksTemplate($request);
 
         $schedule = TaskSchedule::create($data);
@@ -47,11 +49,13 @@ class TaskScheduleController extends Controller
 
     public function edit(TaskSchedule $schedule)
     {
+        $this->authorizeModify($schedule);
         return $this->renderForm($schedule, 'edit');
     }
 
     public function update(Request $request, TaskSchedule $schedule)
     {
+        $this->authorizeModify($schedule);
         $data = $this->validateData($request);
         $data['subtasks_template'] = $this->parseSubtasksTemplate($request);
 
@@ -64,12 +68,14 @@ class TaskScheduleController extends Controller
 
     public function destroy(TaskSchedule $schedule)
     {
+        $this->authorizeModify($schedule);
         $schedule->delete();
         return back()->with('success', 'Jadwal dihapus.');
     }
 
-    public function runNow(TaskSchedule $schedule, TaskAutomationService $svc)
+    public function runNow(TaskSchedule $schedule, TaskScheduleService $svc)
     {
+        $this->authorizeModify($schedule);
         $task = $svc->instantiateTask($schedule);
         $schedule->last_run_at = now();
         $schedule->next_run_at = $schedule->computeNextRunAt(now());
@@ -78,13 +84,25 @@ class TaskScheduleController extends Controller
         return redirect()->route('tasks.show', $task)->with('success', 'Task baru dibuat dari jadwal.');
     }
 
+    /** Pemilik jadwal (penerima tugas atau pembuat), atau admin. */
+    private function authorizeModify(TaskSchedule $schedule): void
+    {
+        $u = auth()->user();
+        abort_unless(
+            in_array($u->role, ['admin', 'super_admin'], true)
+                || (int) $schedule->assignee_user_id === (int) $u->id
+                || (int) $schedule->created_by_user_id === (int) $u->id,
+            403,
+            'Jadwal ini milik orang lain.'
+        );
+    }
+
     private function validateData(Request $request): array
     {
         return $request->validate([
             'title'            => 'required|string|max:200',
             'description'      => 'nullable|string|max:5000',
             'category_id'      => 'nullable|integer|exists:task_categories,id',
-            'assignee_user_id' => ['nullable', 'integer', User::assignableExistsRule()],
             'priority'         => 'required|in:low,normal,high',
             'frequency'        => 'required|in:daily,weekly,monthly,custom_cron',
             'time_of_day'      => 'nullable|date_format:H:i',
@@ -112,7 +130,6 @@ class TaskScheduleController extends Controller
     private function renderForm(TaskSchedule $schedule, string $mode)
     {
         $categories = TaskCategory::active()->orderBy('sort_order')->orderBy('id')->get();
-        $assignableUsers = User::assignable()->orderBy('name')->get(['id', 'name']);
-        return view('erp.tasks.schedules.form', compact('schedule', 'categories', 'assignableUsers', 'mode'));
+        return view('erp.tasks.schedules.form', compact('schedule', 'categories', 'mode'));
     }
 }

@@ -78,7 +78,6 @@ class MejaKerjaController extends Controller
             'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua, 'tabPeran' => $tabPeran,
             'bayangan' => $bayangan, 'tampilBayangan' => $tampilBayangan,
             'bayanganPerMeja' => $semuaBayangan->countBy('peran'),
-            'tugasMenunggu' => app(\App\Modules\Tasks\TugasOwner\TugasOwnerService::class)->jumlahMenunggu($u),
             'jumlahAntre' => $jumlahAntre,
         ]);
     }
@@ -189,10 +188,14 @@ class MejaKerjaController extends Controller
             : array_intersect_key(MejaKerjaPeran::PERAN, array_flip($this->meja->peranUser($u->id)));
     }
 
-    /** Isi Meja Owner: task peran owner + semua task yang ditugaskan ke owner yang membuka. */
+    /**
+     * Isi Meja Owner: task peran owner + task yang ditugaskan ke owner yang membuka + task tanpa
+     * pemilik & tanpa meja (dulu hanya terlihat di Board, jangan sampai hilang dari pandangan).
+     */
     private function isiMejaOwner(User $u): \Closure
     {
-        return fn ($w) => $w->where('peran', 'owner')->orWhere('assignee_user_id', $u->id);
+        return fn ($w) => $w->where('peran', 'owner')->orWhere('assignee_user_id', $u->id)
+            ->orWhere(fn ($x) => $x->whereNull('peran')->whereNull('assignee_user_id')->whereNull('skill'));
     }
 
     private function penuh(User $u): bool

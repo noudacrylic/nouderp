@@ -9,10 +9,10 @@
 @endphp
 
 <div class="flex items-center justify-between mb-4">
-    <a href="{{ route('tasks.index') }}" class="text-sm text-gray-500">← Board</a>
-    <div class="flex gap-2">
+    <a href="{{ route('tasks.index') }}" class="text-sm text-gray-500">← Tugas saya</a>
+    @if($task->canBeModifiedBy(auth()->user()))
         <a href="{{ route('tasks.edit', $task->id) }}" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">✎ Edit</a>
-    </div>
+    @endif
 </div>
 
 

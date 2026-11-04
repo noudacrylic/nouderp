@@ -28,7 +28,7 @@
         <div class="flex gap-2 items-center">
             <input type="color" name="color" value="{{ old('color', $category->color ?: '#94a3b8') }}"
                    class="w-12 h-9 border rounded cursor-pointer">
-            <span class="text-xs text-gray-500">Pilih warna untuk badge kategori di Board</span>
+            <span class="text-xs text-gray-500">Pilih warna untuk kolom kategori di Tugas saya</span>
         </div>
     </div>
 

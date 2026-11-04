@@ -11,7 +11,9 @@ class TaskCategoryController extends Controller
     public function index()
     {
         $categories = TaskCategory::orderBy('sort_order')->orderBy('id')->get();
-        return view('erp.tasks.categories.index', compact('categories'));
+        $bolehUbah = $categories->filter(fn ($c) => $this->bolehUbah($c))->pluck('id')->all();
+
+        return view('erp.tasks.categories.index', compact('categories', 'bolehUbah'));
     }
 
     public function create()
@@ -78,20 +80,27 @@ class TaskCategoryController extends Controller
 
     private function authorizeEdit(TaskCategory $category): void
     {
+        abort_unless($this->bolehUbah($category), 403, 'Anda hanya bisa mengubah kategori yang Anda buat sendiri.');
+    }
+
+    private function bolehUbah(TaskCategory $category): bool
+    {
         $user = auth()->user();
-        if ($user->isAdmin() || $user->isSuperAdmin()) return;
-        if ((int) $category->created_by_user_id === (int) $user->id) return;
-        abort(403, 'Anda hanya bisa mengubah kategori yang Anda buat sendiri.');
+
+        return $user->isAdmin() || $user->isSuperAdmin() || (int) $category->created_by_user_id === (int) $user->id;
     }
 
     public function destroy(TaskCategory $category)
     {
+        $this->authorizeEdit($category);
         $category->delete();
         return back()->with('success', 'Kategori dihapus.');
     }
 
     public function reorder(Request $request)
     {
+        $user = auth()->user();
+        abort_unless($user->isAdmin() || $user->isSuperAdmin(), 403, 'Urutan kategori dipakai bersama; hanya admin yang bisa mengubahnya.');
         $ids = $request->input('ids', []);
         foreach ($ids as $idx => $id) {
             TaskCategory::where('id', (int) $id)->update(['sort_order' => $idx + 1]);

@@ -130,7 +130,7 @@ class User extends Authenticatable
     }
 
     /**
-     * Akun yang boleh dipilih di dropdown penugasan ERP (Task, Jadwal, Otomasi).
+     * Akun yang boleh dipilih di dropdown penugasan ERP (Task).
      *
      * Akun PWA karyawan (role 'karyawan') SENGAJA dikecualikan: aksesnya hanya /me/*,
      * mereka tidak pernah membuka halaman Task — task yang ditugaskan ke sana tidak

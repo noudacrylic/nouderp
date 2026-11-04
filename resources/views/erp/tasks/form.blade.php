@@ -34,15 +34,6 @@
             </select>
         </div>
         <div>
-            <label class="block text-xs text-gray-500 mb-1">Ditugaskan ke</label>
-            <select name="assignee_user_id" class="w-full border rounded px-2 py-2 text-sm">
-                <option value="">— Tidak ditentukan —</option>
-                @foreach($assignableUsers as $u)
-                    <option value="{{ $u->id }}" @selected(old('assignee_user_id', $task->assignee_user_id)==$u->id)>{{ $u->name }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div>
             <label class="block text-xs text-gray-500 mb-1">Prioritas</label>
             <select name="priority" class="w-full border rounded px-2 py-2 text-sm">
                 @foreach(['low'=>'Low','normal'=>'Normal','high'=>'High'] as $v=>$lbl)
@@ -126,14 +117,18 @@
             Batal
         </a>
         @if($isEdit)
-            <form method="POST" action="{{ route('tasks.destroy', $task->id) }}"
-                  class="ml-auto" onsubmit="return confirm('Hapus task ini?')">
-                @csrf @method('DELETE')
-                <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded text-sm">Hapus</button>
-            </form>
+            <button type="submit" form="formHapusTask" class="ml-auto bg-red-600 text-white px-4 py-2 rounded text-sm">Hapus</button>
         @endif
     </div>
 </form>
+
+{{-- Sengaja di luar form simpan: form bersarang dibuang browser, dan _method DELETE-nya
+     malah ikut terkirim saat menekan Simpan sehingga task terhapus. --}}
+@if($isEdit)
+    <form id="formHapusTask" method="POST" action="{{ route('tasks.destroy', $task->id) }}" onsubmit="return confirm('Hapus task ini?')">
+        @csrf @method('DELETE')
+    </form>
+@endif
 
 <script>
 (function() {

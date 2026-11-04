@@ -8,12 +8,9 @@ use Illuminate\Support\Facades\View;
 use App\Modules\Production\Models\Department;
 use App\Modules\SDM\Models\FingerprintLog;
 use App\Modules\SDM\Observers\FingerprintLogObserver;
-use App\Core\Inventory\StockMovement;
 use App\Models\InventoryLedger;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Sales\Models\SalesAdvance;
-use App\Modules\Tasks\Observers\SalesOrderObserver as TasksSalesOrderObserver;
-use App\Modules\Tasks\Observers\StockMovementObserver as TasksStockMovementObserver;
 use App\Modules\Production\Observers\SalesAdvanceObserver;
 use App\Models\ProductPrice;
 use App\Models\SalesInvoice;
@@ -75,8 +72,6 @@ class AppServiceProvider extends ServiceProvider
         });
 
         FingerprintLog::observe(FingerprintLogObserver::class);
-        SalesOrder::observe(TasksSalesOrderObserver::class);
-        StockMovement::observe(TasksStockMovementObserver::class);
         // DP/uang muka di-post (channel apa pun) → auto-buat OP preorder.
         SalesAdvance::observe(SalesAdvanceObserver::class);
         // Perubahan stok (pembelian, SJ, penyesuaian, transfer, produksi) → tandai produk

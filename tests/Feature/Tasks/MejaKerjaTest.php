@@ -19,6 +19,8 @@ use App\Modules\Tasks\MejaKerja\MejaKerjaService;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
 use App\Modules\Tasks\Models\Task;
+use App\Modules\Tasks\Models\TaskCategory;
+use App\Modules\Tasks\Models\TaskSchedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -153,7 +155,7 @@ class MejaKerjaTest extends TestCase
         $desain = Task::where('skill', 'desain')->first();
 
         $this->assertSame('desain', $desain->peran, 'Meja Desain belum punya anggota — task tetap masuk.');
-        $this->actingAs($this->owner)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertSee($desain->title);
+        $this->actingAs($this->owner)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertSee(MejaKerjaService::judulKartu($desain, app(MejaKerjaService::class)->skill('desain')));
         $this->actingAs($this->desainer)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertDontSee($desain->title, false);
 
         $this->assertNull($desain->assignee_user_id);
@@ -163,6 +165,150 @@ class MejaKerjaTest extends TestCase
         MejaKerjaPeran::create(['peran' => 'desain', 'user_id' => $this->desainer->id, 'urutan' => 1]);
         app(MejaKerjaService::class)->aturPenugasan();
         $this->assertSame($this->desainer->id, $desain->fresh()->assignee_user_id);
+    }
+
+    public function test_tugas_saya_selalu_milik_pembuatnya_dan_tidak_bisa_dioper(): void
+    {
+        $data = ['priority' => 'high', 'status' => 'open', 'assignee_user_id' => $this->owner->id];
+        $this->actingAs($this->desainer)->post(route('tasks.store'), $data + ['title' => 'Tugas desainer'])->assertRedirect();
+        $this->actingAs($this->owner)->post(route('tasks.store'), $data + ['title' => 'Tugas owner'])->assertRedirect();
+        $milikDesainer = Task::where('title', 'Tugas desainer')->first();
+
+        $this->assertSame($this->desainer->id, $milikDesainer->assignee_user_id, 'Isian assignee diabaikan.');
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('tasks.assignee'));
+
+        // Papan hanya berisi tugas sendiri, dengan subtask & rincian, tanpa pilihan penugasan.
+        $this->actingAs($this->desainer)->get(route('tasks.index'))->assertOk()
+            ->assertSee('Tugas desainer')->assertDontSee('Tugas owner')
+            ->assertSee('+ Subtask')->assertSee('Rincian')->assertSee('Dokumen Terkait')->assertSee('Riwayat')
+            ->assertDontSee('task-assignee-select"', false)->assertDontSee('name="assignee_user_id"', false);
+
+        // Mengedit tidak bisa memindahkan tugas ke orang lain.
+        $this->actingAs($this->desainer)->get(route('tasks.edit', $milikDesainer->id))->assertOk()->assertDontSee('name="assignee_user_id"', false);
+        $this->patch(route('tasks.update', $milikDesainer->id), $data + ['title' => 'Tugas desainer'])->assertRedirect();
+        $this->assertSame($this->desainer->id, $milikDesainer->fresh()->assignee_user_id);
+    }
+
+    public function test_tugas_saya_subtask_rincian_dan_selesai_lewat_papan(): void
+    {
+        $this->actingAs($this->desainer)->post(route('tasks.store'), ['title' => 'Tugas lengkap', 'priority' => 'normal', 'status' => 'open']);
+        $t = Task::where('title', 'Tugas lengkap')->first();
+
+        $this->post(route('tasks.subtasks.store', $t->id), ['title' => 'Langkah 1'], ['Accept' => 'application/json'])->assertOk();
+        $this->get(route('tasks.index'))->assertSee('Langkah 1');
+        $this->get(route('tasks.json', $t->id))->assertOk()->assertJsonPath('task.title', 'Tugas lengkap');
+
+        // Tugas orang lain tertutup bagi akun biasa.
+        $this->actingAs($this->owner)->post(route('tasks.store'), ['title' => 'Rahasia owner', 'priority' => 'normal', 'status' => 'open']);
+        $milikOwner = Task::where('title', 'Rahasia owner')->first();
+        $this->actingAs($this->desainer)->get(route('tasks.json', $milikOwner->id))->assertForbidden();
+        $this->get(route('tasks.show', $milikOwner->id))->assertForbidden();
+        $this->patch(route('tasks.status', $milikOwner->id), ['status' => 'done'])->assertForbidden();
+
+        $this->patch(route('tasks.status', $t->id), ['status' => 'done'])->assertRedirect();
+        $this->get(route('tasks.index'))->assertDontSee('Tugas lengkap');
+        $this->get(route('tasks.list', ['sumber' => 'semua', 'status' => 'done']))->assertOk()->assertSee('Tugas lengkap');
+    }
+
+    public function test_bilah_menu_memakai_pintasan_meja_kerja_bukan_menu_lama(): void
+    {
+        $halaman = $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertOk()
+            ->assertSee('Tugas saya')->assertSee('Tugas dari Owner')->assertSee('Manajer Admin')->assertSee('Asisten Owner')->assertSee('Riwayat selesai');
+        $halaman->assertDontSee('/erp/tasks/automation', false)->assertDontSee('/erp/tasks/schedules', false)->assertDontSee('/erp/tasks/categories', false);
+
+        // Tab khusus super admin tidak tampil untuk anggota meja biasa.
+        $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertOk()
+            ->assertSee('Riwayat selesai')->assertDontSee('Asisten Owner');
+
+        // Sesi lama yang masih mengingat halaman tersembunyi tidak mendaratkan menu ke sana.
+        $anak = config('menu_permissions.tasks.children');
+        $anak['tasks.saya']['hidden'] = true;
+        config(['menu_permissions.tasks.children' => $anak]);
+        app()->forgetInstance(\App\Services\MenuRegistry::class);
+        session(['last_submenu.tasks' => url('/erp/tasks?uji=sembunyi')]);
+        $this->assertSame('/erp/tasks/meja', module_landing_url('tasks'));
+    }
+
+    public function test_kategori_bisa_diatur_dari_tugas_saya_dan_dijaga_per_pembuat(): void
+    {
+        $this->actingAs($this->desainer)->get(route('tasks.index'))->assertSee(route('tasks.categories.index'), false);
+        $this->get(route('tasks.categories.index'))->assertOk();
+
+        $this->post(route('tasks.categories.store'), ['name' => 'Kategori desainer', 'color' => '#112233'])->assertRedirect();
+        $milikSendiri = TaskCategory::where('name', 'Kategori desainer')->first();
+        $milikOrang = TaskCategory::create(['name' => 'Kategori owner', 'created_by_user_id' => $this->owner->id, 'is_active' => true]);
+
+        $halaman = $this->get(route('tasks.categories.index'));
+        $halaman->assertSee(route('tasks.categories.edit', $milikSendiri->id), false)->assertDontSee(route('tasks.categories.edit', $milikOrang->id), false);
+
+        $this->get(route('tasks.categories.edit', $milikOrang->id))->assertForbidden();
+        $this->delete(route('tasks.categories.destroy', $milikOrang->id))->assertForbidden();
+        $this->patch(route('tasks.categories.reorder'), ['ids' => [$milikOrang->id]])->assertForbidden();
+        $this->assertNotNull($milikOrang->fresh());
+
+        $this->delete(route('tasks.categories.destroy', $milikSendiri->id))->assertRedirect();
+        $this->assertNull($milikSendiri->fresh());
+    }
+
+    public function test_judul_kartu_diawali_jenis_pekerjaan(): void
+    {
+        $meja = app(MejaKerjaService::class);
+        $judul = fn (?string $skill, string $title, array $isi = []) => MejaKerjaService::judulKartu(new Task($isi + ['title' => $title, 'skill' => $skill]), $meja->skill($skill));
+
+        $this->assertSame('Desain pesanan KS-K1, KS-K2 nomor SO-1', $judul('desain', 'Desain SO-1 — KS-K1, KS-K2'));
+        $this->assertSame('Purchasing - Cek persediaan Lem (LEM)', $judul('purchasing-nonstok', 'Cek persediaan Lem (LEM)'));
+        $this->assertSame('Purchasing - Beli AKR-3 — sisa 2 pcs (min 5)', $judul('purchasing-ready', 'Beli AKR-3 — sisa 2 pcs (min 5)'));
+        $this->assertSame('Purchasing - Barang belum datang: PO-1 — Toko', $judul('kedatangan', 'Barang belum datang: PO-1 — Toko'));
+        $this->assertSame('QC - OP-1 — KS', $judul('qc', 'QC OP-1 — KS'));
+        $this->assertSame('Foto custom - SO-1', $judul('foto-custom', 'Foto SO-1'));
+        $this->assertSame('Cetak stiker - OP-1', $judul('cetak-stiker', 'Cetak stiker OP-1'));
+        $this->assertSame('Persetujuan - Buat OP RP-3', $judul('persetujuan-usulan', 'Setujui? Buat OP RP-3'));
+        $this->assertSame('⚠️ Izin karyawan - Andi: Sakit', $judul('pengajuan-izin', '⚠️ Izin Andi: Sakit'));
+        $this->assertSame('Retur - Periksa barang retur', $judul('retur', 'Periksa barang retur'));
+        $this->assertSame('Tugas sendiri - Pengembangan', $judul(null, 'Pengembangan', ['source' => 'manual', 'creator_user_id' => 1, 'assignee_user_id' => 1]));
+        $this->assertSame('Tugas - Dari orang lain', $judul(null, 'Dari orang lain', ['source' => 'manual', 'creator_user_id' => 1, 'assignee_user_id' => 2]));
+
+        $this->actingAs($this->owner)->post(route('tasks.store'), ['title' => 'Pengembangan ERP', 'priority' => 'normal', 'status' => 'open']);
+        $this->get(route('tasks.meja.index'))->assertSee('Tugas sendiri - Pengembangan ERP');
+    }
+
+    public function test_jadwal_milik_sendiri_membuat_tugas_di_papan(): void
+    {
+        $this->actingAs($this->desainer)->get(route('tasks.index'))->assertSee(route('tasks.schedules.index'), false);
+        $this->get(route('tasks.schedules.create'))->assertOk()->assertDontSee('name="assignee_user_id"', false);
+
+        $isi = ['title' => 'Cek kas harian', 'priority' => 'normal', 'frequency' => 'daily', 'time_of_day' => '09:00', 'subtasks_template' => "Hitung\nCatat", 'assignee_user_id' => $this->owner->id, 'is_active' => '1'];
+        $this->post(route('tasks.schedules.store'), $isi)->assertRedirect(route('tasks.schedules.index'));
+        $jadwal = TaskSchedule::where('title', 'Cek kas harian')->first();
+        $this->assertSame($this->desainer->id, $jadwal->assignee_user_id, 'Isian penerima diabaikan.');
+
+        // Jatuh tempo → tugas masuk papan pembuatnya, lengkap dengan subtask, dan terbaca Tugas sendiri.
+        $jadwal->update(['next_run_at' => now()->subMinute()]);
+        $this->assertSame(1, app(\App\Modules\Tasks\Services\TaskScheduleService::class)->runScheduled());
+        $this->get(route('tasks.index'))->assertSee('Cek kas harian')->assertSee('Hitung')->assertSee('Catat');
+        $this->get(route('tasks.meja.index'))->assertSee('Tugas sendiri - Cek kas harian');
+        $this->assertTrue($jadwal->fresh()->next_run_at->isFuture());
+        $this->assertSame(0, app(\App\Modules\Tasks\Services\TaskScheduleService::class)->runScheduled());
+
+        // Bisa dinonaktifkan: checkbox kosong mengirim is_active=0.
+        $this->patch(route('tasks.schedules.update', $jadwal->id), ['is_active' => '0'] + $isi)->assertRedirect();
+        $this->assertFalse($jadwal->fresh()->is_active);
+        $this->assertSame($this->desainer->id, $jadwal->fresh()->assignee_user_id);
+
+        // Akun biasa lain tidak melihat & tidak bisa mengubahnya.
+        $lain = User::factory()->create(['role' => 'user', 'is_active' => true]);
+        $this->actingAs($lain)->get(route('tasks.schedules.index'))->assertOk()->assertDontSee('Cek kas harian');
+        $this->get(route('tasks.schedules.edit', $jadwal->id))->assertForbidden();
+        $this->post(route('tasks.schedules.run', $jadwal->id))->assertForbidden();
+        $this->delete(route('tasks.schedules.destroy', $jadwal->id))->assertForbidden();
+    }
+
+    public function test_task_tanpa_pemilik_tetap_terlihat_di_meja_owner(): void
+    {
+        Task::create(['title' => 'Task lama tanpa pemilik', 'status' => 'open', 'creator_user_id' => $this->owner->id]);
+
+        $this->actingAs($this->owner)->get(route('tasks.meja.index'))->assertSee('Task lama tanpa pemilik');
+        $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertDontSee('Task lama tanpa pemilik');
     }
 
     public function test_owner_hanya_punya_meja_owner_dan_task_miliknya_ikut_di_sana(): void

@@ -1617,20 +1617,9 @@ Route::prefix('erp/tasks')->name('tasks.')->group(function () {
     Route::patch('categories/reorder', [\App\Modules\Tasks\Controllers\TaskCategoryController::class, 'reorder'])->name('categories.reorder');
     Route::resource('categories', \App\Modules\Tasks\Controllers\TaskCategoryController::class)->except(['show'])->parameters(['categories' => 'category']);
 
-    // Scheduled (Otomasi → Jadwal)
+    // Jadwal tugas (dibuka dari papan Tugas saya)
     Route::post('schedules/{schedule}/run-now', [\App\Modules\Tasks\Controllers\TaskScheduleController::class, 'runNow'])->name('schedules.run');
     Route::resource('schedules', \App\Modules\Tasks\Controllers\TaskScheduleController::class)->parameters(['schedules' => 'schedule']);
-
-    // Otomasi Stok & Pesanan (rule-based)
-    Route::prefix('automation/{automationType}')->name('automation.rules.')->where(['automationType' => 'stock|order'])->group(function () {
-        Route::post('check-stock', [\App\Modules\Tasks\Controllers\TaskAutomationRuleController::class, 'checkStockNow'])->name('check-stock');
-        Route::get('/', [\App\Modules\Tasks\Controllers\TaskAutomationRuleController::class, 'index'])->name('index');
-        Route::get('create', [\App\Modules\Tasks\Controllers\TaskAutomationRuleController::class, 'create'])->name('create');
-        Route::post('/', [\App\Modules\Tasks\Controllers\TaskAutomationRuleController::class, 'store'])->name('store');
-        Route::get('{rule}/edit', [\App\Modules\Tasks\Controllers\TaskAutomationRuleController::class, 'edit'])->name('edit');
-        Route::patch('{rule}', [\App\Modules\Tasks\Controllers\TaskAutomationRuleController::class, 'update'])->name('update');
-        Route::delete('{rule}', [\App\Modules\Tasks\Controllers\TaskAutomationRuleController::class, 'destroy'])->name('destroy');
-    });
 
     // Daftar (table view)
     Route::get('list', [\App\Modules\Tasks\Controllers\TaskController::class, 'list'])->name('list');
@@ -1646,7 +1635,6 @@ Route::prefix('erp/tasks')->name('tasks.')->group(function () {
     // Task actions
     Route::patch('{task}/move', [\App\Modules\Tasks\Controllers\TaskController::class, 'move'])->name('move');
     Route::patch('{task}/status', [\App\Modules\Tasks\Controllers\TaskController::class, 'toggleStatus'])->name('status');
-    Route::patch('{task}/assignee', [\App\Modules\Tasks\Controllers\TaskController::class, 'updateAssignee'])->name('assignee');
     Route::patch('{task}/priority', [\App\Modules\Tasks\Controllers\TaskController::class, 'updatePriority'])->name('priority');
     Route::patch('{task}/description', [\App\Modules\Tasks\Controllers\TaskController::class, 'updateDescription'])->name('description');
     Route::post('{task}/hide', [\App\Modules\Tasks\Controllers\TaskController::class, 'hide'])->name('hide');

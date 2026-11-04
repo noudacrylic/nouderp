@@ -37,6 +37,20 @@ class MejaKerjaService
     /** Batas task ber-Mulai (skill butuhMulai) yang dikerjakan bersamaan per orang. */
     public const MAKS_DIKERJAKAN = 3;
 
+    /** Awalan judul kartu per skill => [awalan, kata pembuka judul yang jadi berlebih]. */
+    private const AWALAN_JUDUL = [
+        'cetak-stiker'       => ['Cetak stiker', 'Cetak stiker '],
+        'foto-custom'        => ['Foto custom', 'Foto '],
+        'kedatangan'         => ['Purchasing', ''],
+        'pengajuan-izin'     => ['Izin karyawan', 'Izin '],
+        'persetujuan-usulan' => ['Persetujuan', 'Setujui? '],
+        'purchasing-laporan' => ['Purchasing', ''],
+        'purchasing-nonstok' => ['Purchasing', ''],
+        'purchasing-ready'   => ['Purchasing', ''],
+        'qc'                 => ['QC', 'QC '],
+        'retur'              => ['Retur', ''],
+    ];
+
     public function __construct(private KaryawanVirtualService $kv) {}
 
     /** @return array<string, SkillAdmin> key pendek => skill */
@@ -72,6 +86,32 @@ class MejaKerjaService
     public static function butuhMulai(?SkillAdmin $s): bool
     {
         return $s !== null && method_exists($s, 'butuhMulai') && $s->butuhMulai();
+    }
+
+    /**
+     * Judul di kartu Meja Kerja: jenis pekerjaan di depan supaya terbaca sekilas. Hanya tampilan,
+     * judul tersimpan tidak berubah (kartu lama ikut rapi tanpa mengubah data).
+     */
+    public static function judulKartu(Task $t, ?SkillAdmin $s): string
+    {
+        if (!$s) {
+            $sendiri = $t->source !== 'event' && (int) $t->creator_user_id === (int) $t->assignee_user_id;
+
+            return ($sendiri ? 'Tugas sendiri' : 'Tugas') . ' - ' . $t->title;
+        }
+
+        // "Desain SO-1 — KS-K1, KS-K2" → "Desain pesanan KS-K1, KS-K2 nomor SO-1"
+        if ($s->key() === 'desain' && preg_match('/^Desain (.+?) — (.+)$/u', $t->title, $m)) {
+            return "Desain pesanan {$m[2]} nomor {$m[1]}";
+        }
+
+        [$awalan, $buang] = self::AWALAN_JUDUL[$s->key()] ?? [$s->label(), ''];
+        $peringatan = str_starts_with($t->title, '⚠️ ') ? '⚠️ ' : '';
+        $sisa = substr($t->title, strlen($peringatan));
+        if ($buang !== '' && str_starts_with($sisa, $buang)) $sisa = substr($sisa, strlen($buang));
+        if (str_starts_with(mb_strtolower($sisa), mb_strtolower($awalan))) return $peringatan . $sisa;
+
+        return "$peringatan$awalan - $sisa";
     }
 
     public static function kunciKv(SkillAdmin $s): string

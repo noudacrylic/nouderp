@@ -18,7 +18,6 @@ use Illuminate\Support\Facades\DB;
  *
  * Berbeda dari skill lain, pemicunya KEADAAN stok, bukan dokumen baru — bahan yang sudah
  * menipis saat skill dinyalakan ikut masuk (jumlahnya kecil, dan memang harus dibeli).
- * Menggantikan aturan Task Otomasi jenis stok selama skill ini aktif.
  */
 class PurchasingReadySkill implements SkillAdmin
 {

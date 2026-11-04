@@ -27,18 +27,11 @@
             </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-            <a href="{{ route('tasks.meja.tugas.index') }}" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-semibold">
-                📝 Tugas dari Owner
-                @if ($tugasMenunggu > 0)<span class="ml-1 text-[11px] bg-white text-blue-700 rounded-full px-1.5 font-bold">{{ $tugasMenunggu }}</span>@endif
-            </a>
             @if ($bolehSemua)
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
                     <button class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Sinkron sekarang</button>
                 </form>
-                <a href="{{ route('karyawan-virtual.show', \App\Modules\Tasks\MejaKerja\MejaKerjaService::KARYAWAN) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm" title="Skill, peran & jurnal pembagian kerja">🗂️ Manajer Admin</a>
-                <a href="{{ route('karyawan-virtual.show', \App\Modules\Tasks\MejaKerja\MejaKerjaService::KARYAWAN_OWNER) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm" title="Skill & jurnal pekerjaan owner">🧑‍💼 Asisten Owner</a>
             @endif
-            <a href="{{ route('tasks.list', ['sumber' => 'meja', 'status' => 'done']) }}" class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">✓ Riwayat selesai</a>
         </div>
     </div>
 
@@ -87,12 +80,12 @@
                         @endphp
                         <div class="rounded-md p-3 text-sm {{ $bayang ? 'bg-violet-50/60 border-2 border-dashed border-violet-300' : 'bg-white border ' . ($lewat ? 'border-red-300' : 'border-gray-200') }}">
                             <div class="flex items-start justify-between gap-2">
-                                <div class="font-semibold text-gray-800 leading-snug">{{ $t->title }}</div>
+                                <div class="font-semibold text-gray-800 leading-snug">{{ \App\Modules\Tasks\MejaKerja\MejaKerjaService::judulKartu($t, $skill) }}</div>
                                 @if ($status === 'open')<span class="text-[10px] text-gray-400 whitespace-nowrap">skor {{ $skor[$t->id] }}</span>@endif
                             </div>
                             <div class="flex flex-wrap gap-1 mt-1 text-[10px]">
                                 @if ($bayang)<span class="px-1.5 py-0.5 rounded bg-violet-600 text-white font-bold" title="Skill masih mode Bayangan — kartu ini belum dibuat untuk admin">👻 BAYANGAN</span>@endif
-                                <span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold">{{ $skill?->label() ?? 'Manual' }}</span>
+                                @if ($skill)<span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold">{{ $skill->label() }}</span>@endif
                                 @if ($t->peran)<span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{{ $peranLabel[$t->peran] ?? $t->peran }}</span>@endif
                                 <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{{ $t->assignee?->name ?? 'Belum ada pengerja' }}</span>
                                 @if ($t->status === 'in_progress')<span class="px-1.5 py-0.5 rounded bg-blue-600 text-white font-semibold">Sedang dikerjakan · {{ $t->mulai_at?->format('H:i') }}</span>@endif

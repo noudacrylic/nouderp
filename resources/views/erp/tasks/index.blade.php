@@ -194,7 +194,6 @@
         cursor: not-allowed;
         opacity: 0.55;
     }
-    .task-card.is-readonly .task-assignee-select[disabled],
     .task-card.is-readonly .task-priority-select[disabled] {
         cursor: default;
         opacity: 0.75;
@@ -291,7 +290,7 @@
         align-items: center;
         flex-wrap: wrap;
     }
-    .task-assignee-select, .task-priority-select {
+    .task-priority-select {
         font-size: 12px;
         border: 1px solid transparent;
         background: transparent;
@@ -300,13 +299,11 @@
         cursor: pointer;
         max-width: 100%;
     }
-    .task-assignee-select { color: #64748b; flex: 1; min-width: 0; }
     .task-priority-select { font-weight: 600; }
     .task-priority-select.prio-high { color: #dc2626; background: #fee2e2; }
     .task-priority-select.prio-normal { color: #1d4ed8; background: #dbeafe; }
     .task-priority-select.prio-low { color: #475569; background: #e2e8f0; }
-    .task-assignee-select:hover { background: #f1f5f9; border-color: #e2e8f0; }
-    .task-assignee-select:focus, .task-priority-select:focus { outline: none; border-color: #2563eb; background: white; }
+    .task-priority-select:focus { outline: none; border-color: #2563eb; background: white; }
     /* Tombol Detail — visual selaras dgn dropdown priority di sebelahnya */
     .task-detail-btn {
         font-size: 12px;
@@ -388,13 +385,14 @@
 </style>
 
 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-    <h1 class="text-lg font-semibold">Task Manager</h1>
+    <h1 class="text-lg font-semibold">Tugas Saya</h1>
     <div class="flex gap-2 items-center relative">
         <button type="button" id="btnToggleColsPopover"
                 class="text-sm text-gray-700 border border-gray-300 hover:border-gray-500 px-3 py-2 rounded">
             👁 Kolom Saya
         </button>
-        <a href="{{ route('tasks.list') }}" class="text-sm text-gray-600 hover:text-gray-900">📋 Tampilan Daftar</a>
+        <a href="{{ route('tasks.categories.index') }}" class="text-sm text-gray-700 border border-gray-300 hover:border-gray-500 px-3 py-2 rounded">🗂 Kategori</a>
+        <a href="{{ route('tasks.schedules.index') }}" class="text-sm text-gray-700 border border-gray-300 hover:border-gray-500 px-3 py-2 rounded">⏰ Jadwal</a>
         <button type="button" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm js-open-task-modal" data-category-id="">
             + Tambah Task
         </button>
@@ -539,25 +537,14 @@
                            class="w-full border rounded px-3 py-2 text-sm">
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">Kategori</label>
-                        <select name="category_id" id="taskModalCategorySelect" class="w-full border rounded px-2 py-2 text-sm">
-                            <option value="">— Tanpa Kategori —</option>
-                            @foreach($allCategories as $c)
-                                <option value="{{ $c->id }}">{{ $c->name }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">Ditugaskan ke</label>
-                        <select name="assignee_user_id" class="w-full border rounded px-2 py-2 text-sm">
-                            <option value="">— Tidak ditentukan —</option>
-                            @foreach($assignableUsers as $u)
-                                <option value="{{ $u->id }}" @selected($u->id === auth()->id())>{{ $u->name }}</option>
-                            @endforeach
-                        </select>
-                    </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Kategori</label>
+                    <select name="category_id" id="taskModalCategorySelect" class="w-full border rounded px-2 py-2 text-sm">
+                        <option value="">— Tanpa Kategori —</option>
+                        @foreach($allCategories as $c)
+                            <option value="{{ $c->id }}">{{ $c->name }}</option>
+                        @endforeach
+                    </select>
                 </div>
 
                 <div class="grid grid-cols-3 gap-3">
@@ -677,7 +664,7 @@
                     <label class="block text-xs text-gray-500 mb-1">Warna</label>
                     <div class="flex gap-2 items-center">
                         <input type="color" name="color" id="categoryModalColor" value="#94a3b8" class="w-12 h-9 border rounded cursor-pointer">
-                        <span class="text-xs text-gray-500">Warna badge kategori di Board</span>
+                        <span class="text-xs text-gray-500">Warna kolom kategori di Tugas saya</span>
                     </div>
                 </div>
 
@@ -1126,7 +1113,7 @@
         });
     }
 
-    // ============ Card interactions (status, subtask, assignee, delete, detail) ============
+    // ============ Card interactions (status, subtask, delete, detail) ============
 
     async function api(method, url, body = null) {
         const opts = {
@@ -1303,22 +1290,6 @@
         if (showBtn) showBtn.classList.remove('hidden');
     }, true);
 
-    // === Assignee change ===
-    document.addEventListener('change', async (e) => {
-        const sel = e.target.closest('.task-assignee-select');
-        if (!sel) return;
-        const taskId = sel.dataset.taskId;
-        const userId = sel.value || '';
-
-        const res = await api('PATCH', '/erp/tasks/' + taskId + '/assignee', { assignee_user_id: userId });
-        if (!res.ok) {
-            sel.value = sel.dataset.current || '';
-            alert('Gagal ubah penugasan.');
-        } else {
-            sel.dataset.current = userId;
-        }
-    });
-
     // === Priority change (auto re-sort dalam kolom) ===
     document.addEventListener('change', async (e) => {
         const sel = e.target.closest('.task-priority-select');
@@ -1406,7 +1377,6 @@
 
         const metaParts = [];
         if (t.category) metaParts.push('🗂 ' + t.category.name);
-        if (t.assignee) metaParts.push('→ ' + t.assignee.name);
         if (t.due_date) metaParts.push('📅 ' + t.due_date);
         metaParts.push('Status: ' + t.status);
         metaParts.push('Prioritas: ' + t.priority);

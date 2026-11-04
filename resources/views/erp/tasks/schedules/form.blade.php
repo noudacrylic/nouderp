@@ -4,13 +4,11 @@
 @php
     $isEdit = $mode === 'edit';
     $action = $isEdit ? route('tasks.schedules.update', $schedule->id) : route('tasks.schedules.store');
-    $title  = $isEdit ? 'Edit Jadwal Otomatis' : 'Tambah Jadwal Otomatis';
+    $title  = $isEdit ? 'Edit Jadwal Tugas' : 'Tambah Jadwal Tugas';
 
     $subTemplate = $schedule->subtasks_template ?? [];
     $subTemplateText = is_array($subTemplate) ? implode("\n", $subTemplate) : '';
 @endphp
-
-@include('erp.tasks.automation._subtabs', ['current' => 'jadwal'])
 
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">{{ $title }}</h1>
@@ -28,22 +26,13 @@
                class="w-full border rounded px-3 py-2 text-sm">
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
             <label class="block text-xs text-gray-500 mb-1">Kategori</label>
             <select name="category_id" class="w-full border rounded px-2 py-2 text-sm">
                 <option value="">— Tanpa Kategori —</option>
                 @foreach($categories as $c)
                     <option value="{{ $c->id }}" @selected(old('category_id', $schedule->category_id)==$c->id)>{{ $c->name }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div>
-            <label class="block text-xs text-gray-500 mb-1">Ditugaskan ke</label>
-            <select name="assignee_user_id" class="w-full border rounded px-2 py-2 text-sm">
-                <option value="">— Tidak ditentukan —</option>
-                @foreach($assignableUsers as $u)
-                    <option value="{{ $u->id }}" @selected(old('assignee_user_id', $schedule->assignee_user_id)==$u->id)>{{ $u->name }}</option>
                 @endforeach
             </select>
         </div>
@@ -109,6 +98,8 @@
     </div>
 
     <label class="flex items-center gap-2 text-sm">
+        {{-- Checkbox kosong tidak terkirim; tanpa ini jadwal tidak bisa dinonaktifkan. --}}
+        <input type="hidden" name="is_active" value="0">
         <input type="checkbox" name="is_active" value="1" @checked(old('is_active', $schedule->is_active ?? true))>
         Jadwal aktif
     </label>

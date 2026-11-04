@@ -54,7 +54,7 @@
                 // Active state berdasarkan route_patterns
                 $isActive = false;
                 if ($currentRouteName) {
-                    foreach ($cfg['route_patterns'] ?? [] as $pattern) {
+                    foreach ($cfg['active_patterns'] ?? $cfg['route_patterns'] ?? [] as $pattern) {
                         if (\Illuminate\Support\Str::is($pattern, $currentRouteName)) {
                             $isActive = true;
                             break;
@@ -67,6 +67,19 @@
                     {{ $cfg['label'] }}
                 </a>
             @endif
+        @endforeach
+        {{-- Tab pintasan modul (lihat 'tab_tambahan' di config), bukan izin menu. --}}
+        @foreach($moduleCfg['tab_tambahan'] ?? [] as $tab)
+            @continue(isset($tab['role_gate']) && !in_array(auth()->user()?->role, $tab['role_gate'], true))
+            @php
+                $tabBadge = ($tab['badge'] ?? null) === 'tugas_owner'
+                    ? app(\App\Modules\Tasks\TugasOwner\TugasOwnerService::class)->jumlahMenunggu(auth()->user())
+                    : 0;
+            @endphp
+            <a href="{{ url($tab['url']) }}" class="tab {{ $currentRouteName && \Illuminate\Support\Str::is($tab['route_patterns'] ?? [], $currentRouteName) ? 'active' : '' }}">
+                {{ $tab['label'] }}
+                @if($tabBadge > 0)<span class="subtab-badge">{{ $tabBadge }}</span>@endif
+            </a>
         @endforeach
     </div>
 

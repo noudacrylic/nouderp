@@ -136,8 +136,9 @@ if (!function_exists('submenu_url_belongs_to')) {
             // Menuntut itu aman: RememberSubmenuUrl hanya menyimpan URL yang
             // menu-key-nya berhasil di-resolve, jadi URL yang sah pasti lolos.
             // Yang gugur justru yang memang basi — halaman yang sudah pindah
-            // module, atau yang entri menunya sudah dicabut.
-            $ok = $menu !== null && explode('.', $menu)[0] === $module;
+            // module, atau yang entri menunya sudah dicabut / disembunyikan.
+            $registry = app(\App\Services\MenuRegistry::class);
+            $ok = $menu !== null && explode('.', $menu)[0] === $module && empty($registry->flat()[$menu]['hidden']);
         } catch (\Throwable) {
             $ok = false;   // URL tak lagi punya rute (mis. rute dihapus)
         }

@@ -60,7 +60,6 @@
                             @endif
                             @if ($key === 'purchasing-ready')
                                 <a href="{{ $s->urlPengaturan($kode) }}" class="inline-block text-xs text-blue-600 hover:underline mt-0.5">Atur min stok bahan (saran otomatis) →</a>
-                                <div class="text-[11px] text-gray-500">Selama Otomatis, aturan Task Otomasi jenis stok tidak membuat task lagi.</div>
                             @endif
                         </div>
                         <div class="md:col-span-3">
