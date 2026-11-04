@@ -57,11 +57,11 @@ class ShopeeSaldoTest extends TestCase
         Http::fake(fn () => Http::response(['response' => ['transaction_list' => $this->transaksi, 'more' => false]]));
     }
 
-    public function test_penarikan_jadi_draft_transfer_tanpa_tujuan_dan_iklan_jadi_draft_pengeluaran(): void
+    public function test_penarikan_jadi_draft_transfer_tanpa_tujuan_dan_iklan_langsung_diposting(): void
     {
         $h = app(ShopeeSaldoService::class)->tarik($this->shop, now()->subDay());
 
-        $this->assertSame(['baru' => 3, 'draft_transfer' => 1, 'draft_iklan' => 1, 'sudah_tercatat' => 0], $h);
+        $this->assertSame(['baru' => 3, 'draft_transfer' => 1, 'draft_iklan' => 1, 'sudah_tercatat' => 0, 'iklan_diposting' => 1], $h);
         $this->assertSame(['pesanan', 'iklan', 'penarikan'], Mutasi::orderBy('waktu')->pluck('kategori')->all());
 
         $bt = BankTransfer::sole();
@@ -71,15 +71,52 @@ class ShopeeSaldoTest extends TestCase
         $this->assertEquals(6000000, (float) $bt->amount);
 
         $cd = CashDisbursement::with('lines')->sole();
-        $this->assertSame('draft', $cd->status);
+        $this->assertSame('posted', $cd->status);
         $this->assertSame($this->akun['1104'], (int) $cd->cash_account_id);
+        $this->assertStringContainsString('Tercatat otomatis di ' . $cd->number, Mutasi::where('kategori', 'iklan')->sole()->dokumen_catatan);
+        $this->assertEquals(3330000, (float) JournalLine::where('account_id', $this->akun['1104'])->sum('credit'));
+        $this->assertEquals(3000000, (float) JournalLine::where('account_id', $this->akun['5009'])->sum('debit'));
+        $this->assertEquals(330000, (float) JournalLine::where('account_id', $this->akun['5010'])->sum('debit'));
         $this->assertEquals([3000000, 330000], $cd->lines->sortBy('id')->pluck('amount')->map(fn ($v) => (float) $v)->values()->all());
         $this->assertEquals([$this->akun['5009'], $this->akun['5010']], $cd->lines->sortBy('id')->pluck('account_id')->map(fn ($v) => (int) $v)->values()->all());
 
         // Jalan ulang: tak ada baris maupun draft kembar.
         $h2 = app(ShopeeSaldoService::class)->tarik($this->shop, now()->subDay());
-        $this->assertSame(['baru' => 0, 'draft_transfer' => 0, 'draft_iklan' => 0, 'sudah_tercatat' => 0], $h2);
+        $this->assertSame(['baru' => 0, 'draft_transfer' => 0, 'draft_iklan' => 0, 'sudah_tercatat' => 0, 'iklan_diposting' => 0], $h2);
         $this->assertSame(1, BankTransfer::count());
+        $this->assertSame(1, CashDisbursement::count());
+    }
+
+    public function test_iklan_gagal_diposting_tetap_draft_lalu_dicoba_lagi(): void
+    {
+        $bulan = ['year' => (int) now()->year, 'month' => (int) now()->month];
+        AccountingPeriod::updateOrCreate($bulan, ['start_date' => now()->startOfMonth()->toDateString(), 'end_date' => now()->endOfMonth()->toDateString(), 'status' => 'closed']);
+
+        $h = app(ShopeeSaldoService::class)->tarik($this->shop, now()->subDay());
+
+        $this->assertSame(0, $h['iklan_diposting']);
+        $cd = CashDisbursement::sole();
+        $this->assertSame('draft', $cd->status);
+
+        AccountingPeriod::where($bulan)->update(['status' => 'open']);
+        $h2 = app(ShopeeSaldoService::class)->tarik($this->shop, now()->subDay());
+
+        $this->assertSame(1, $h2['iklan_diposting']);
+        $this->assertSame('posted', $cd->fresh()->status);
+        $this->assertSame(1, CashDisbursement::count());
+    }
+
+    public function test_draft_iklan_buatan_admin_ditautkan_tanpa_diposting(): void
+    {
+        $manual = app(\App\Modules\Finance\Services\CashDisbursementService::class)->createDraft([
+            'date' => now()->toDateString(), 'type' => 'general', 'cash_account_id' => $this->akun['1104'], 'notes' => 'Dicatat admin',
+            'lines' => [['account_id' => $this->akun['5009'], 'amount' => 3330000, 'description' => 'Iklan']],
+        ]);
+
+        $h = app(ShopeeSaldoService::class)->tarik($this->shop, now()->subDay());
+
+        $this->assertSame(0, $h['iklan_diposting']);
+        $this->assertSame('draft', $manual->fresh()->status);
         $this->assertSame(1, CashDisbursement::count());
     }
 

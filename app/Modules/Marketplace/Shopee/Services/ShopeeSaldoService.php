@@ -11,15 +11,17 @@ use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Marketplace\Shopee\Models\ShopeeWalletTransaction as Mutasi;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Tahap 1b — mutasi Saldo Penjual Shopee lewat API (v2.payment.get_wallet_transaction_list),
  * menggantikan unggah Excel bulanan. Baris disimpan di tabel Mutasi Saldo yang sama
- * (sumber `api`), lalu dua jenis baris dijadikan DRAFT untuk admin:
+ * (sumber `api`), lalu dua jenis baris dijadikan dokumen:
  *
  *  - Penarikan Dana  → draft Transfer Bank 1104 → (kosong). Shopee tidak menyebut bank
  *    tujuannya, jadi admin memilih BCA / BRI / ShopeePay lalu posting.
- *  - Isi Ulang Saldo Iklan/Koin dari saldo → draft Pengeluaran 1104: 5009 Iklan + 5010 PPN 11%.
+ *  - Isi Ulang Saldo Iklan/Koin dari saldo → Pengeluaran 1104 yang langsung diposting:
+ *    5009 Iklan + 5010 PPN 11%.
  *
  * Sebelum membuat draft, dicari dokumen yang SUDAH mencatatnya (jurnal 1104 posted, atau draft
  * Transfer/Pengeluaran dari 1104) bernominal sama dalam ±HARI_TOLERANSI hari. Ketemu → tidak
@@ -35,6 +37,9 @@ class ShopeeSaldoService
 
     private const PPN = 0.11;
 
+    /** Penanda pengeluaran buatan layanan ini; draft buatan admin tidak ikut diposting otomatis. */
+    private const CATATAN_IKLAN = 'Otomatis dari mutasi saldo Shopee';
+
     public function __construct(
         private ShopeeClient $client,
         private MutasiShopeeService $mutasi,
@@ -47,7 +52,7 @@ class ShopeeSaldoService
      * Tarik mutasi sejak $dari (default: sehari sebelum baris API terakhir, atau awal hari ini
      * untuk pertama kali), lalu buat draft.
      *
-     * @return array{baru:int, draft_transfer:int, draft_iklan:int, sudah_tercatat:int}
+     * @return array{baru:int, draft_transfer:int, draft_iklan:int, sudah_tercatat:int, iklan_diposting:int}
      */
     public function tarik(ShopeeShop $shop, ?Carbon $dari = null): array
     {
@@ -116,13 +121,13 @@ class ShopeeSaldoService
     }
 
     /**
-     * Draft untuk penarikan & isi ulang iklan yang belum punya dokumen.
+     * Dokumen untuk penarikan & isi ulang iklan yang belum punya dokumen.
      *
-     * @return array{draft_transfer:int, draft_iklan:int, sudah_tercatat:int}
+     * @return array{draft_transfer:int, draft_iklan:int, sudah_tercatat:int, iklan_diposting:int}
      */
     public function buatDraft(): array
     {
-        $hasil = ['draft_transfer' => 0, 'draft_iklan' => 0, 'sudah_tercatat' => 0];
+        $hasil = ['draft_transfer' => 0, 'draft_iklan' => 0, 'sudah_tercatat' => 0, 'iklan_diposting' => 0];
         $akun1104 = $this->mutasi->akunSaldo();
         if (!$akun1104) {
             return $hasil;
@@ -159,7 +164,35 @@ class ShopeeSaldoService
             });
         }
 
+        $hasil['iklan_diposting'] = $this->postingIklan();
+
         return $hasil;
+    }
+
+    /**
+     * Pengeluaran iklan buatan otomatis langsung diposting: akun & nominalnya sudah pasti dari
+     * mutasi. Di luar transaksi pembuatan draft, supaya gagal posting (mis. periode ditutup)
+     * tetap menyisakan draft untuk admin; yang gagal dicoba lagi pada jalan berikutnya.
+     */
+    private function postingIklan(): int
+    {
+        $n = 0;
+        $baris = Mutasi::where('sumber', 'api')->where('kategori', 'iklan')->where('dokumen_type', 'cash_disbursement')
+            ->whereIn('dokumen_id', CashDisbursement::where('status', 'draft')->where('notes', 'like', self::CATATAN_IKLAN . '%')->select('id'))
+            ->get();
+
+        foreach ($baris as $m) {
+            $cd = CashDisbursement::find($m->dokumen_id);
+            try {
+                $this->pengeluaran->post($cd);
+                $m->forceFill(['dokumen_catatan' => 'Tercatat otomatis di ' . $cd->number])->save();
+                $n++;
+            } catch (\Throwable $e) {
+                Log::warning('Shopee saldo: pengeluaran iklan gagal diposting', ['dokumen' => $cd->number, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return $n;
     }
 
     private function draftPenarikan(Mutasi $m, int $akun1104): BankTransfer
@@ -184,7 +217,7 @@ class ShopeeSaldoService
             'type'            => 'general',
             'cash_account_id' => $akun1104,
             'reference'       => 'Isi Ulang Saldo Iklan Shopee ' . $m->waktu->format('d M H:i'),
-            'notes'           => 'Otomatis dari mutasi saldo Shopee (dibayar dari Saldo Penjual). Periksa lalu posting.',
+            'notes'           => self::CATATAN_IKLAN . ' (dibayar dari Saldo Penjual).',
             'lines'           => [
                 ['account_id' => Account::where('code', '5009')->value('id'), 'amount' => $dasar, 'description' => 'Biaya iklan Shopee'],
                 ['account_id' => Account::where('code', '5010')->value('id'), 'amount' => $total - $dasar, 'description' => 'PPN iklan Shopee'],

@@ -37,7 +37,7 @@ class ShopeeTarikSaldo extends Command
             return self::FAILURE;
         }
 
-        $this->info("Mutasi baru {$h['baru']} — draft transfer {$h['draft_transfer']}, draft iklan {$h['draft_iklan']}, sudah tercatat {$h['sudah_tercatat']}.");
+        $this->info("Mutasi baru {$h['baru']} — draft transfer {$h['draft_transfer']}, pengeluaran iklan {$h['draft_iklan']} (diposting {$h['iklan_diposting']}), sudah tercatat {$h['sudah_tercatat']}.");
 
         return self::SUCCESS;
     }
