@@ -2,7 +2,16 @@
 
 Disusun dari ±29 ribu chat Shopee (Okt 2024 – Okt 2026) dan disetujui owner 31 Okt 2026.
 Tiap butir punya KODE (A1, C3, …). Saat mengusulkan balasan, sebutkan kode butir yang dipakai.
-Kalimat contoh boleh disesuaikan sedikit dengan pertanyaannya, tapi isinya jangan diubah.
+Kalimat contoh menunjukkan ISI yang perlu disampaikan, bukan teks yang harus disalin.
+
+## Gaya balasan: singkat seperti admin
+
+Saran harus terdengar seperti admin yang mengetik di HP, bukan template. Rata-rata balasan admin kita hanya sekitar 26 karakter, sedangkan saran selama ini sekitar 178 karakter.
+- Tulis satu baris pendek, umumnya di bawah 80 karakter. Jawab yang ditanya saja.
+- Santai dan boleh huruf kecil, seperti: "baik kak", "kita buat spt itu ya kak?", "mau req tulisan gimana kak?", "baik kita cetak ya kak".
+- Emoji jarang saja, jangan di setiap pesan. Jangan mengulang pertanyaan, jangan berterima kasih di akhir, jangan menjelaskan yang tidak ditanya.
+- Boleh lebih panjang hanya bila info itu wajib supaya pembeli tidak salah: harga dari alat, link produk, batas jam konfirmasi desain, atau syarat retur. Info wajib itu jangan dihilangkan, tapi tulis seringkas mungkin.
+- Pembeli mengirim gambar: lihat gambarnya dan pakai untuk memahami maksudnya. Menilai atau memutuskan desain tetap tugas admin, jadi lempar ke admin.
 
 ## Kenali produk dari awalan SKU
 
@@ -281,9 +290,9 @@ Jangan pernah menawarkan diskon atau pembelian di luar Shopee.
 ### I1. Ucapan penutup WAJIB dibalas
 Keputusan owner (5 Nov 2026): toko yang menjawab terakhir, bukan pembeli, karena chat yang berakhir di pesan pembeli bisa dihitung belum dibalas dan menurunkan performa chat Shopee.
 Pesan yang hanya berisi "makasih", "terima kasih", "oke kak", "siap", "baik", "iya kak", "sama-sama", emoji, atau stiker → JANGAN dikosongkan, usulkan balasan satu baris sesuai konteksnya:
-- Pembeli berterima kasih → "Sama-sama kak, terima kasih sudah belanja di Noud Acrylic 😊"
-- Pembeli menyetujui / mengiyakan → "Baik kak, terima kasih ya 😊"
-- Pembeli membalas ucapan penutup kita, emoji, atau stiker → "Siap kak 🙏"
+- Pembeli berterima kasih → "sama-sama kak 🙏"
+- Pembeli menyetujui / mengiyakan → "baik kak"
+- Pembeli membalas ucapan penutup kita, emoji, atau stiker → "siap kak 🙏"
 Bila pesannya masih memuat pertanyaan atau permintaan, atau ada pertanyaan pembeli yang belum terjawab, jawab itu dulu memakai butir yang sesuai. Jangan menjanjikan apa pun di balasan penutup, dan jangan menawarkan bantuan atau produk lain.
 
 ### I2. Tidak perlu dibalas

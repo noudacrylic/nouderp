@@ -5,7 +5,9 @@ namespace App\Modules\CRM\Agents;
 use App\Modules\Assistant\Services\ClaudeClient;
 use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentRun;
+use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Menjalankan satu giliran agen: pesan pelanggan masuk, balasan keluar.
@@ -32,6 +34,16 @@ class AgenRunner
     /** Berapa banyak pesan terakhir yang ikut dibaca sebagai riwayat. */
     private const RIWAYAT = 12;
 
+    /** Gambar pembeli yang ikut dibaca: yang terbaru saja, supaya biaya tiap saran tetap kecil. */
+    private const MAKS_GAMBAR = 3;
+
+    /** Batas API 5 MB untuk base64; 3,5 MB berkas asli masih di bawahnya. */
+    private const MAKS_BYTE_GAMBAR = 3_500_000;
+
+    private const MAKS_SISI_GAMBAR = 8000;
+
+    private const MEDIA_GAMBAR = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
     public function __construct(
         private ClaudeClient $claude,
         private AgenTools $tools,
@@ -57,7 +69,7 @@ class AgenRunner
                 'Kunci Anthropic belum diatur (Settings → Integrasi → Claude AI).', 0, []);
         }
 
-        $messages = $this->riwayat($percakapan);
+        $messages = $this->riwayat($percakapan, (bool) config('crm.agen.baca_gambar.' . $agen->kode, false));
         $messages[] = [
             'role'    => 'user',
             'content' => AgenPrompt::keterangan($percakapan) . "\n\n" . $pesanPelanggan,
@@ -172,11 +184,11 @@ class AgenRunner
     /**
      * Riwayat percakapan dari crm_messages, bukan dari cache.
      *
-     * Lampiran sengaja diringkas jadi keterangan pendek, bukan dikirim isinya:
-     * ronde ini agen belum membaca gambar, dan gelembung kosong tanpa penanda
-     * membuatnya menjawab seolah tak ada yang dikirim.
+     * Agen dengan saklar baca_gambar ikut menerima beberapa gambar terbaru dari pelanggan.
+     * Lampiran lain diringkas jadi keterangan pendek, karena gelembung kosong tanpa penanda
+     * membuat agen menjawab seolah tak ada yang dikirim.
      */
-    private function riwayat(?CrmConversation $percakapan): array
+    private function riwayat(?CrmConversation $percakapan, bool $bacaGambar = false): array
     {
         if (! $percakapan) {
             return [];
@@ -190,13 +202,18 @@ class AgenRunner
             ->reverse()
             ->values();
 
+        $terbaca  = $bacaGambar ? $this->gambarTerbaca($pesan) : [];
         $messages = [];
 
         foreach ($pesan as $m) {
-            $teks = trim((string) $m->content);
+            $teks   = trim((string) $m->content);
+            $gambar = $terbaca[$m->id] ?? [];
 
             if ($teks === '' && $m->attachments->isNotEmpty()) {
-                $teks = '[pelanggan mengirim ' . $m->attachments->count() . ' lampiran]';
+                $pengirim = $m->isInbound() ? 'pelanggan' : 'toko';
+                $teks = count($gambar) === $m->attachments->count()
+                    ? "[{$pengirim} mengirim gambar]"
+                    : "[{$pengirim} mengirim " . $m->attachments->count() . ' lampiran]';
             }
 
             if ($teks === '') {
@@ -204,17 +221,18 @@ class AgenRunner
             }
 
             $peran = $m->isInbound() ? 'user' : 'assistant';
+            $isi   = $gambar ? [...$gambar, ['type' => 'text', 'text' => $teks]] : $teks;
 
             // API menolak dua giliran beruntun dengan peran sama pada sebagian
             // bentuk; digabung saja, isinya tetap utuh.
             $akhir = count($messages) - 1;
 
             if ($akhir >= 0 && $messages[$akhir]['role'] === $peran) {
-                $messages[$akhir]['content'] .= "\n" . $teks;
+                $messages[$akhir]['content'] = $this->gabungIsi($messages[$akhir]['content'], $isi);
                 continue;
             }
 
-            $messages[] = ['role' => $peran, 'content' => $teks];
+            $messages[] = ['role' => $peran, 'content' => $isi];
         }
 
         // Riwayat WAJIB dimulai dari pelanggan.
@@ -223,6 +241,77 @@ class AgenRunner
         }
 
         return $messages;
+    }
+
+    /**
+     * Blok gambar per id pesan, untuk gambar terbaru dari PELANGGAN (peran assistant tidak boleh
+     * memuat gambar). Jenis asli dibaca dari isi berkas: kolom mime lampiran Shopee selalu
+     * image/jpeg, dan media_type yang tak cocok ditolak API sehingga sarannya ikut gagal.
+     * Gambar yang tak terbaca dilewati; pesannya tetap tampil sebagai keterangan lampiran.
+     *
+     * @return array<int, array<int, array>>
+     */
+    private function gambarTerbaca($pesan): array
+    {
+        $hasil = [];
+        $sisa  = self::MAKS_GAMBAR;
+
+        foreach ($pesan->reverse() as $m) {
+            if (! $m->isInbound()) {
+                continue;
+            }
+
+            foreach ($m->attachments->reverse() as $a) {
+                if ($sisa <= 0) {
+                    return $hasil;
+                }
+                if (! $a->isGambar() || ! $a->tersimpanAman() || $a->sudahDisapu()) {
+                    continue;
+                }
+                if ($blok = $this->blokGambar($a)) {
+                    $hasil[$m->id] ??= [];
+                    array_unshift($hasil[$m->id], $blok);
+                    $sisa--;
+                }
+            }
+        }
+
+        return $hasil;
+    }
+
+    private function blokGambar(CrmAttachment $a): ?array
+    {
+        try {
+            $disk = Storage::disk($a->disk);
+            if (! $disk->exists($a->path) || $disk->size($a->path) > self::MAKS_BYTE_GAMBAR) {
+                return null;
+            }
+
+            $isi    = (string) $disk->get($a->path);
+            $ukuran = @getimagesizefromstring($isi);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (! $ukuran || ! in_array($ukuran['mime'], self::MEDIA_GAMBAR, true)
+            || max($ukuran[0], $ukuran[1]) > self::MAKS_SISI_GAMBAR) {
+            return null;
+        }
+
+        return ['type' => 'image', 'source' => [
+            'type' => 'base64', 'media_type' => $ukuran['mime'], 'data' => base64_encode($isi),
+        ]];
+    }
+
+    private function gabungIsi(string|array $lama, string|array $baru): string|array
+    {
+        if (is_string($lama) && is_string($baru)) {
+            return $lama . "\n" . $baru;
+        }
+
+        $blok = fn ($isi) => is_string($isi) ? [['type' => 'text', 'text' => $isi]] : $isi;
+
+        return [...$blok($lama), ...$blok($baru)];
     }
 
     /* -------------------------------------------------------------------- utilitas */

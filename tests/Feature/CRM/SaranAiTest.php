@@ -9,11 +9,13 @@ use App\Modules\Assistant\Services\FakeClaudeClient;
 use App\Modules\CRM\Agents\AgenTools;
 use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentRun;
+use App\Modules\CRM\Models\CrmAttachment;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSaranAi;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -295,6 +297,117 @@ class SaranAiTest extends TestCase
         $stok = $alat->jalankan('cek_stok', ['kata_kunci' => 'box charger 4 kotak'], null)['content'];
         $this->assertStringContainsString('BC-2x2', $stok);
         $this->assertStringNotContainsString('BC-2x7', $stok);
+    }
+
+    /** Lampiran gambar tersimpan; isinya PNG walau kolom mime berkata jpeg, seperti lampiran Shopee. */
+    private function lampiranGambar(CrmMessage $m, string $nama = 'a.png', ?int $sisi = 2): CrmAttachment
+    {
+        $path = 'crm/' . $nama;
+        ob_start();
+        imagepng(imagecreatetruecolor($sisi, $sisi));
+        Storage::disk('local')->put($path, ob_get_clean());
+
+        return CrmAttachment::create(['message_id' => $m->id, 'disk' => 'local', 'path' => $path,
+            'mime' => 'image/jpeg', 'downloaded_at' => now()]);
+    }
+
+    public function test_gambar_pembeli_ikut_terbaca_dengan_jenis_asli_berkas(): void
+    {
+        Storage::fake('local');
+        $c = $this->chat('ini logonya kak');
+        $this->lampiranGambar($c->messages()->where('direction', CrmMessage::MASUK)->firstOrFail());
+        $this->claude->antrekan($this->usul('C2', 'baik kak'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $pesan = $this->claude->diterima[0]['messages'][0];
+        $this->assertSame('user', $pesan['role']);
+        $this->assertSame('image', $pesan['content'][0]['type']);
+        $this->assertSame('image/png', $pesan['content'][0]['source']['media_type'], 'Dibaca dari isi berkas, bukan kolom mime.');
+        $this->assertSame(['type' => 'text', 'text' => 'ini logonya kak'], $pesan['content'][1]);
+        $this->assertStringNotContainsString($pesan['content'][0]['source']['data'], (string) CrmAgentRun::firstOrFail()->masukan);
+    }
+
+    public function test_hanya_tiga_gambar_terbaru_dan_berkas_rusak_dilewati(): void
+    {
+        Storage::fake('local');
+        $c = $this->chat('kak');
+        $m = $c->messages()->where('direction', CrmMessage::MASUK)->firstOrFail();
+        foreach (['1', '2', '3', '4'] as $n) {
+            $this->lampiranGambar($m, "g{$n}.png");
+        }
+        Storage::disk('local')->put('crm/rusak.jpg', 'bukan gambar');
+        CrmAttachment::create(['message_id' => $m->id, 'disk' => 'local', 'path' => 'crm/rusak.jpg', 'mime' => 'image/jpeg', 'downloaded_at' => now()]);
+        $this->claude->antrekan($this->usul('-', 'baik kak'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $blok = $this->claude->diterima[0]['messages'][0]['content'];
+        $this->assertCount(3, array_filter($blok, fn ($b) => $b['type'] === 'image'));
+    }
+
+    public function test_tanpa_saklar_gambar_hanya_jadi_keterangan_dan_saran_tetap_jalan(): void
+    {
+        Storage::fake('local');
+        config(['crm.agen.baca_gambar.cs-shopee' => false]);
+        $c = CrmConversation::findOrCreateFor('778', CrmConversation::KANAL_SHOPEE, '101');
+        $m = $this->pesan($c, CrmMessage::MASUK, '', now()->subMinutes(2));
+        $this->lampiranGambar($m);
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(2), 'last_outbound_at' => null])->save();
+        $this->claude->antrekan($this->usul('-', 'baik kak'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $this->assertSame('[pelanggan mengirim 1 lampiran]', $this->claude->diterima[0]['messages'][0]['content']);
+    }
+
+    public function test_saran_menunggu_lampiran_yang_masih_diunduh_maksimal_lima_menit(): void
+    {
+        $c = $this->chat('ini logonya');
+        $m = $c->messages()->where('direction', CrmMessage::MASUK)->firstOrFail();
+        CrmAttachment::create(['message_id' => $m->id, 'source_url' => 'https://cf.shopee.co.id/file/x', 'mime' => 'image/jpeg']);
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame(0, CrmSaranAi::count(), 'Gambarnya belum terunduh.');
+
+        $m->forceFill(['sent_at' => now()->subMinutes(6)])->save();
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(6)])->save();
+        $this->claude->antrekan($this->usul('-', 'baik kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame(1, CrmSaranAi::count(), 'Unduhan macet tidak menahan saran.');
+    }
+
+    public function test_penanda_awal_chat_hilang_hanya_bila_diawali_balasan_seller_centre(): void
+    {
+        $hilang = CrmConversation::findOrCreateFor('781', CrmConversation::KANAL_SHOPEE, '101');
+        $this->pesan($hilang, CrmMessage::KELUAR, 'Selamat datang', now()->subHours(2), CrmMessage::SOURCE_SHOPEE_OTOMATIS);
+        $this->pesan($hilang, CrmMessage::KELUAR, 'baik kak', now()->subHour(), CrmMessage::SOURCE_SELLER_CENTRE);
+        $this->assertTrue($hilang->awalChatHilang());
+
+        $lengkap = CrmConversation::findOrCreateFor('782', CrmConversation::KANAL_SHOPEE, '101');
+        $this->pesan($lengkap, CrmMessage::MASUK, 'halo', now()->subHours(2));
+        $this->pesan($lengkap, CrmMessage::KELUAR, 'iya kak', now()->subHour(), CrmMessage::SOURCE_SELLER_CENTRE);
+        $this->assertFalse($lengkap->awalChatHilang());
+
+        $sapa = CrmConversation::findOrCreateFor('783', CrmConversation::KANAL_SHOPEE, '101');
+        $this->pesan($sapa, CrmMessage::KELUAR, 'halo kak', now()->subHour(), CrmMessage::SOURCE_ERP);
+        $this->assertFalse($sapa->awalChatHilang(), 'Toko menyapa duluan dari ERP: tidak ada yang hilang.');
+
+        $wa = CrmConversation::findOrCreateFor('6281200000000', CrmConversation::KANAL_RESMI, '101');
+        $this->pesan($wa, CrmMessage::KELUAR, 'halo', now()->subHour(), CrmMessage::SOURCE_SELLER_CENTRE);
+        $this->assertFalse($wa->awalChatHilang());
+
+        $u = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $this->actingAs($u)->get(route('crm.inbox.show', $hilang))->assertOk()->assertSee('Awal chat ini tidak ada di ERP');
+        $this->actingAs($u)->get(route('crm.inbox.show', $lengkap))->assertOk()->assertDontSee('Awal chat ini tidak ada di ERP');
+    }
+
+    public function test_pengetahuan_meminta_balasan_singkat_gaya_admin(): void
+    {
+        $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
+
+        $this->assertStringContainsString('## Gaya balasan: singkat seperti admin', $isi);
+        $this->assertStringNotContainsString('tapi isinya jangan diubah', $isi);
     }
 
     public function test_ucapan_penutup_wajib_dibalas_menurut_pengetahuan(): void

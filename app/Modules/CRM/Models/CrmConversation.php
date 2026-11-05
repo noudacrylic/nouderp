@@ -300,6 +300,25 @@ class CrmConversation extends Model
     }
 
     /**
+     * Chat Shopee yang riwayatnya dimulai dari balasan admin di Seller Centre: pesan pembeli
+     * yang dibalas tidak ada di ERP, kemungkinan obrolan dengan Asisten AI Shopee yang tak
+     * tersedia di API. Balasan otomatis Shopee dilewati; sapaan dari ERP bukan tanda hilang.
+     */
+    public function awalChatHilang(): bool
+    {
+        if (!$this->shopee()) {
+            return false;
+        }
+
+        $awal = $this->messages()
+            ->where(fn ($q) => $q->whereNull('source')->orWhere('source', '!=', CrmMessage::SOURCE_SHOPEE_OTOMATIS))
+            ->orderBy('sent_at')->orderBy('id')
+            ->first(['direction', 'source']);
+
+        return $awal && $awal->direction === CrmMessage::KELUAR && $awal->source === CrmMessage::SOURCE_SELLER_CENTRE;
+    }
+
+    /**
      * Nama yang dipakai di layar untuk percakapan ini.
      *
      * Urutannya sengaja: nama pelanggan ERP (paling bermakna) → nama profil

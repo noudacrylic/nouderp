@@ -445,7 +445,7 @@ class AgenTools
                 'type'       => 'object',
                 'properties' => [
                     'butir' => ['type' => 'string', 'description' => 'Kode butir daftar tanya-jawab yang dipakai, mis. "A1", "F2". "-" bila tidak ada yang cocok. "I1" untuk ucapan penutup (wajib dibalas). "I2" bila pesan tak perlu dibalas.'],
-                    'teks' => ['type' => 'string', 'description' => 'Saran balasan untuk pembeli. Boleh kosong bila tak perlu dibalas, atau bila dilempar tanpa balasan sementara.'],
+                    'teks' => ['type' => 'string', 'description' => 'Saran balasan untuk pembeli: satu baris pendek gaya admin di HP. Boleh kosong bila tak perlu dibalas, atau bila dilempar tanpa balasan sementara.'],
                     'lempar_ke' => ['type' => 'string', 'enum' => ['tidak', 'admin', 'owner'], 'description' => 'Siapa yang harus menangani: tidak (cukup saran ini), admin, atau owner.'],
                     'alasan' => ['type' => 'string', 'description' => 'Satu kalimat untuk admin: kenapa butir ini / kenapa dilempar.'],
                 ],

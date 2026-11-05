@@ -28,6 +28,8 @@ class SaranAiService
     /** Pesan lebih tua dari ini tidak lagi diberi saran (chat malam tetap dapat saran pagi). */
     public const BATAS_JAM = 24;
 
+    private const TUNGGU_LAMPIRAN_MENIT = 5;
+
     public function __construct(private AgenRunner $runner) {}
 
     public function aktif(): bool
@@ -49,7 +51,9 @@ class SaranAiService
             ->orderByDesc('last_inbound_at')
             ->limit($batas * 3)
             ->get()
-            ->filter(fn (CrmConversation $c) => ($m = $this->pesanTerakhir($c)) && !CrmSaranAi::where('untuk_message_id', $m->id)->exists())
+            ->filter(fn (CrmConversation $c) => ($m = $this->pesanTerakhir($c))
+                && !CrmSaranAi::where('untuk_message_id', $m->id)->exists()
+                && !$this->lampiranMasihDiunduh($m))
             ->take($batas)
             ->values();
     }
@@ -147,6 +151,16 @@ class SaranAiService
             ->latest('sent_at')->latest('id')->first();
 
         return $m && $m->direction === CrmMessage::MASUK ? $m : null;
+    }
+
+    /**
+     * Lampiran baru diunduh penjadwal tiap menit. Saran ditunda sampai gambarnya ada, dengan
+     * batas 5 menit supaya unduhan yang macet tidak menahan sarannya.
+     */
+    private function lampiranMasihDiunduh(CrmMessage $m): bool
+    {
+        return $m->sent_at?->gt(now()->subMinutes(self::TUNGGU_LAMPIRAN_MENIT))
+            && $m->attachments()->belumTerunduh()->exists();
     }
 
     private function rapikan(string $t): string

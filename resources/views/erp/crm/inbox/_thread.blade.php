@@ -396,6 +396,16 @@
         </div>
     @endif
 
+    @if($terpilih->awalChatHilang())
+        {{-- Obrolan pembeli dengan Asisten AI Shopee tidak tersedia di API maupun Live Push. --}}
+        <div class="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+            <b>Awal chat ini tidak ada di ERP</b>, kemungkinan obrolan pembeli dengan Asisten AI Shopee.
+            Cek dulu di
+            <a href="https://seller.shopee.co.id/webchat/conversations" target="_blank" rel="noopener" class="underline font-medium">Seller Centre</a>
+            sebelum mengerjakan pesanan atau desainnya.
+        </div>
+    @endif
+
     {{-- Daftar pesan: SATU-SATUNYA bagian yang menggulir. Kepala tetap di atas,
          kotak ketik tetap di bawah — seperti aplikasi chat. --}}
     <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 {{ $terpilih->shopee() ? 'bg-[#eeebe7]' : 'bg-[#efeae2]' }}">

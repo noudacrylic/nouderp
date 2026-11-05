@@ -330,6 +330,9 @@ return [
 
         'maks_token_keluar' => (int) env('CRM_AGEN_MAKS_TOKEN', 1024),
 
+        // Agen yang ikut membaca gambar terbaru dari pelanggan (AgenRunner::gambarTerbaca).
+        'baca_gambar' => ['cs-shopee' => (bool) env('CRM_AGEN_BACA_GAMBAR_CS_SHOPEE', true)],
+
         // Per agen — model berpikir (Opus 5.5) memakai jatah ini juga untuk berpikirnya.
         'maks_token_per' => ['cs-shopee' => 4096],
 
