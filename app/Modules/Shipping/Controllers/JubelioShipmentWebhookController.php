@@ -5,6 +5,7 @@ namespace App\Modules\Shipping\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Sales\Models\SalesDelivery;
 use App\Modules\Shipping\Providers\JubelioShipmentProvider;
+use App\Modules\Shipping\Services\DriverKurirService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -67,6 +68,12 @@ class JubelioShipmentWebhookController extends Controller
         // tab "Dikirim" ke "Selesai" tanpa ada yang harus menekan tombol. Idempoten: Jubelio
         // boleh mengirim status yang sama berkali-kali.
         $autoSelesai = $internal === 'delivered' && $delivery->markDelivered();
+
+        // Driver hanya ada selama pengiriman berjalan. Sesudah balasan terkirim supaya panggilan
+        // ke halaman lacak Jubelio tidak menahan jawaban webhook.
+        if ($internal !== 'delivered') {
+            dispatch(fn () => app(DriverKurirService::class)->tangkap($delivery))->afterResponse();
+        }
 
         return response()->json([
             'ok'              => true,

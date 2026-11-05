@@ -640,6 +640,7 @@
                         <div class="min-w-0">
                             <span class="font-semibold text-gray-700">📄 <span class="js-copy cursor-pointer hover:text-indigo-600" data-copy="{{ $d->delivery_number }}" title="Klik untuk salin nomor SJ">{{ $d->delivery_number }}</span></span>
                             @if($d->tracking_number)<span class="text-green-600 ml-1">Resi: <span class="js-copy cursor-pointer hover:underline" data-copy="{{ $d->tracking_number }}" title="Klik untuk salin resi">{{ $d->tracking_number }}</span></span>@endif
+                            @include('erp.sales.deliveries._driver', ['delivery' => $d])
                         </div>
                         <div class="flex items-center gap-2 flex-wrap">
                             @if($d->delivery_method !== 'ambil_toko')

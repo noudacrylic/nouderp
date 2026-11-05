@@ -109,6 +109,7 @@
                 </div>
             </form>
         @endif
+        <div class="mt-3">@include('erp.sales.deliveries._driver', ['delivery' => $delivery])</div>
     </div>
 </div>
 

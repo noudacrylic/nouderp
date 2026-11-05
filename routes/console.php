@@ -74,6 +74,7 @@ Schedule::command('jubelio:push-prices')->everyFifteenMinutes()->name('jubelio-p
 // Pengiriman — segarkan status kurir Jubelio Shipment & tandai paket yang sudah sampai.
 // Webhook Jubelio yang jadi andalan (real-time); ini penyapu bila ada webhook yang terlewat.
 Schedule::command('shipping:sync-status')->everyThirtyMinutes()->name('shipping-sync-status')->withoutOverlapping(60);
+Schedule::command('shipping:tangkap-driver')->everyFiveMinutes()->name('shipping-tangkap-driver')->withoutOverlapping(10);
 // Store — garbage collector media: hapus file foto/video yang sudah di-soft-delete
 // & lewat masa jeda (config store.media_gc_days). Harian dini hari.
 // Antrean notifikasi WhatsApp pelanggan. Tiap 5 menit: pesan "siap diambil" yang
