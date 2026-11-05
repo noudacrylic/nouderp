@@ -175,6 +175,9 @@ Route::prefix('erp')->group(function () {
         // Agen AI (Tahap 8). Sama seperti tetangganya, WAJIB berdiri sebelum
         // '/{conversation}' supaya 'agen' tidak ditangkap sebagai id percakapan.
         Route::get ('/agen',                 [\App\Modules\CRM\Controllers\CrmAgenController::class, 'index'])->name('agen.index');
+        // Berdiri sebelum '/agen/{agen}' supaya 'saran' tidak dibaca sebagai agen.
+        Route::get ('/agen/saran',           [\App\Modules\CRM\Controllers\CrmSaranPeriksaController::class, 'index'])->name('agen.saran.index');
+        Route::post('/agen/saran/{saran}/tinjau', [\App\Modules\CRM\Controllers\CrmSaranPeriksaController::class, 'tinjau'])->name('agen.saran.tinjau');
         Route::get ('/agen/{agen}',          [\App\Modules\CRM\Controllers\CrmAgenController::class, 'edit'])->name('agen.edit');
         Route::post('/agen/{agen}',          [\App\Modules\CRM\Controllers\CrmAgenController::class, 'update'])->name('agen.update');
         Route::post('/agen/{agen}/pengetahuan', [\App\Modules\CRM\Controllers\CrmAgenController::class, 'simpanPengetahuan'])->name('agen.pengetahuan.simpan');

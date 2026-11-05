@@ -3,7 +3,10 @@
 @section('content')
 <div class="flex items-center justify-between mb-4">
     <h1 class="text-lg font-semibold">Agen AI</h1>
-    <a href="{{ route('crm.inbox.index') }}" class="text-sm text-emerald-700 hover:underline">← Kembali ke Inbox</a>
+    <div class="flex items-center gap-3">
+        <a href="{{ route('crm.agen.saran.index') }}" class="text-sm px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium">Periksa Saran AI</a>
+        <a href="{{ route('crm.inbox.index') }}" class="text-sm text-emerald-700 hover:underline">← Kembali ke Inbox</a>
+    </div>
 </div>
 
 {{-- Keadaan saklar induk dinyatakan di depan, bukan disembunyikan di pengaturan.

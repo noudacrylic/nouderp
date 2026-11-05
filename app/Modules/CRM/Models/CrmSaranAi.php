@@ -19,17 +19,33 @@ class CrmSaranAi extends Model
     public const TAK_PERLU   = 'tak_perlu';     // ucapan terima kasih, stiker, dll.
     public const GAGAL       = 'gagal';
 
+    // Hasil pemeriksaan manual owner (kolom tinjauan).
+    public const TEPAT = 'tepat';
+    public const SALAH = 'salah';
+
     protected $table = 'crm_saran_ai';
 
     protected $fillable = [
         'conversation_id', 'untuk_message_id', 'agent_run_id', 'butir', 'teks', 'lempar_ke', 'alasan',
         'status', 'teks_terkirim', 'diubah', 'catatan', 'diputus_oleh', 'diputus_at',
+        'tinjauan', 'koreksi', 'ditinjau_oleh', 'ditinjau_at',
     ];
 
     protected $casts = [
-        'diubah'     => 'boolean',
-        'diputus_at' => 'datetime',
+        'diubah'      => 'boolean',
+        'diputus_at'  => 'datetime',
+        'ditinjau_at' => 'datetime',
     ];
+
+    public function pesan(): BelongsTo
+    {
+        return $this->belongsTo(CrmMessage::class, 'untuk_message_id');
+    }
+
+    public function peninjau(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'ditinjau_oleh');
+    }
 
     public function conversation(): BelongsTo
     {
