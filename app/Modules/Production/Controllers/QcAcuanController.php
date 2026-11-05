@@ -8,6 +8,7 @@ use App\Models\ProductionSetting;
 use App\Modules\Production\Models\QcProfile;
 use App\Modules\Production\Services\QcService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * Sampel Acuan & Setting Toleransi QC Timbang — khusus admin (role_gate di
@@ -33,9 +34,10 @@ class QcAcuanController extends Controller
         return view('erp.production.qc.acuan.index', compact('profiles', 'info'));
     }
 
-    public function create()
+    /** ?produk=ID: tambah sampel untuk produk yang sudah ber-profil. */
+    public function create(Request $request)
     {
-        return $this->form(new QcProfile(['is_active' => true]));
+        return $this->form(new QcProfile(['is_active' => true, 'product_id' => $request->integer('produk') ?: null]));
     }
 
     public function edit(int $id)
@@ -50,14 +52,20 @@ class QcAcuanController extends Controller
             ->get()
             ->map(fn ($p) => [
                 'id'        => $p->id,
-                'label'     => ($p->product?->sku ?? '?') . ' — ' . ($p->product?->name ?? ''),
+                'label'     => ($p->product?->sku ?? '?') . ' — ' . ($p->product?->name ?? '') . ' (' . $p->label . ')',
                 'packaging' => $p->packaging_gram,
                 // Varian beda ukuran = berat beda: yang disalin nama & jumlahnya saja.
                 'components' => $p->components->map(fn ($k) => ['name' => $k->name, 'qty' => $k->qty])->values(),
             ])->values();
 
+        // Sampel baru produk yang sudah ber-profil: komponennya sama, hanya beratnya yang ditimbang ulang.
+        $bibit = !$profil->exists && $profil->product_id
+            ? QcProfile::with('components')->where('product_id', $profil->product_id)->orderBy('id')->first()
+            : null;
+
         return view('erp.production.qc.acuan.form', [
             'profil'    => $profil,
+            'bibit'     => $bibit,
             'salinan'   => $salinan,
             'bawaan'    => $this->qc->toleransiBawaan(),
         ]);
@@ -65,7 +73,7 @@ class QcAcuanController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validasi($request, true);
+        $data = $this->validasi($request);
         $profil = $this->qc->simpanProfil($data, $request->user()?->id);
 
         return redirect()->route('production.qc-acuan.edit', $profil->id)->with('success', 'Profil QC tersimpan.');
@@ -74,12 +82,12 @@ class QcAcuanController extends Controller
     public function update(Request $request, int $id)
     {
         $profil = QcProfile::findOrFail($id);
-        $this->qc->simpanProfil($this->validasi($request, false), $request->user()?->id, $profil);
+        $this->qc->simpanProfil($this->validasi($request, $profil), $request->user()?->id, $profil);
 
         return redirect()->route('production.qc-acuan.edit', $profil->id)->with('success', 'Profil QC diperbarui.');
     }
 
-    /** Pencarian produk yang belum punya profil (JSON) untuk form profil baru. */
+    /** Pencarian produk yang belum punya profil (JSON). Sampel tambahan lewat tombol + Sampel. */
     public function produk(Request $request)
     {
         $q = trim((string) $request->get('q', ''));
@@ -131,10 +139,14 @@ class QcAcuanController extends Controller
         return back()->with('success', 'Setting QC disimpan.');
     }
 
-    private function validasi(Request $request, bool $baru): array
+    private function validasi(Request $request, ?QcProfile $profil = null): array
     {
+        $productId = $profil?->product_id ?? (int) $request->input('product_id');
+
         return $request->validate([
-            'product_id'            => $baru ? 'required|integer|exists:products,id|unique:qc_profiles,product_id' : 'nullable',
+            'product_id'            => $profil ? 'nullable' : 'required|integer|exists:products,id',
+            'label'                 => ['nullable', 'string', 'max:60',
+                Rule::unique('qc_profiles', 'label')->where('product_id', $productId)->ignore($profil?->id)],
             'packaging_gram'        => 'nullable|numeric|min:0',
             'samples'               => 'nullable|array',
             'samples.*'             => 'nullable|numeric|min:0',
@@ -148,6 +160,6 @@ class QcAcuanController extends Controller
             'components.*.unit_gram'=> 'nullable|numeric|min:0',
             'components.*.samples'  => 'nullable|array',
             'components.*.samples.*'=> 'nullable|numeric|min:0',
-        ]) + ['product_id' => $request->input('product_id')];
+        ], ['label.unique' => 'Nama sampel ini sudah dipakai produk yang sama.']) + ['product_id' => $productId];
     }
 }

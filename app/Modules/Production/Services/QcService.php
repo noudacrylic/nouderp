@@ -177,9 +177,31 @@ class QcService
 
     // ──────────────────────────────── timbang ────────────────────────────────
 
-    public function profilAktif(int $productId): ?QcProfile
+    /** Semua sampel aktif satu produk (mis. "2 mm NN" & "1,8 mm"). */
+    public function sampelAktif(int $productId): Collection
     {
-        return QcProfile::with('components')->where('product_id', $productId)->where('is_active', true)->first();
+        return QcProfile::with('components')->where('product_id', $productId)->where('is_active', true)->orderBy('id')->get();
+    }
+
+    /**
+     * Sampel yang tampil di layar timbang: pilihan petugas → satu-satunya sampel → yang terakhir
+     * dipakai OP ini. Null berarti petugas harus memilih dulu.
+     */
+    public function sampelTerpilih(int $orderId, int $productId, ?int $profilId = null): ?QcProfile
+    {
+        $aktif = $this->sampelAktif($productId);
+
+        if ($profilId && $dipilih = $aktif->firstWhere('id', $profilId)) {
+            return $dipilih;
+        }
+        if ($aktif->count() === 1) {
+            return $aktif->first();
+        }
+
+        $terakhir = QcCheck::where('production_order_id', $orderId)->where('product_id', $productId)
+            ->whereIn('qc_profile_id', $aktif->pluck('id'))->latest('id')->value('qc_profile_id');
+
+        return $terakhir ? $aktif->firstWhere('id', $terakhir) : null;
     }
 
     /** OP & produk ini wajib QC? Profil aktif + OP dibuat setelah profilnya ada (OP lama dibebaskan). */
@@ -189,7 +211,8 @@ class QcService
             return false;
         }
 
-        $profil = QcProfile::where('product_id', $productId)->where('is_active', true)->first();
+        // Sampel tertua yang menentukan: menambah sampel baru tidak membebaskan OP yang sudah berjalan.
+        $profil = QcProfile::where('product_id', $productId)->where('is_active', true)->orderBy('created_at')->first();
 
         return $profil && $order->created_at && $order->created_at->gte($profil->created_at);
     }
@@ -274,10 +297,13 @@ class QcService
      *
      * Penimbangan menjalankan timer langkah QC (lihat ProductionOrderService::runQcTimer);
      * keterangan langkah lain yang ikut dijeda ditaruh di $this->jedaOtomatis.
+     *
+     * Produk dengan beberapa sampel wajib menyebut $profilId; sampelnya boleh berganti di tengah OP
+     * dan tiap penimbangan mencatat sampel yang dipakai.
      */
-    public function catatTimbang(int $orderId, int $productId, float $aktual, string $mode, string $source, ?string $raw, ?int $userId, array $executorIds = []): QcCheck
+    public function catatTimbang(int $orderId, int $productId, float $aktual, string $mode, string $source, ?string $raw, ?int $userId, array $executorIds = [], ?int $profilId = null): QcCheck
     {
-        return DB::transaction(function () use ($orderId, $productId, $aktual, $mode, $source, $raw, $userId, $executorIds) {
+        return DB::transaction(function () use ($orderId, $productId, $aktual, $mode, $source, $raw, $userId, $executorIds, $profilId) {
             $order = ProductionOrder::with('outputs')->lockForUpdate()->findOrFail($orderId);
 
             if (!in_array($order->status, self::STATUS_BOLEH_TIMBANG, true)) {
@@ -287,9 +313,16 @@ class QcService
                 throw new Exception('Produk ini bukan hasil order produksi tersebut.');
             }
 
-            $profil = $this->profilAktif($productId);
-            if (!$profil) {
+            $aktif = $this->sampelAktif($productId);
+            if ($aktif->isEmpty()) {
                 throw new Exception('Produk ini belum punya profil QC aktif.');
+            }
+
+            $profil = $profilId ? $aktif->firstWhere('id', $profilId) : ($aktif->count() === 1 ? $aktif->first() : null);
+            if (!$profil) {
+                throw new Exception($profilId
+                    ? 'Sampel yang dipilih sudah tidak aktif untuk produk ini — muat ulang halaman lalu pilih sampelnya.'
+                    : 'Pilih sampel dulu — produk ini punya lebih dari satu sampel acuan.');
             }
 
             $menunggu = null;
@@ -349,7 +382,7 @@ class QcService
         return QcCheck::create([
             'production_order_id' => $orderId,
             'product_id'          => $productId,
-            'qc_profile_id'       => $this->profilAktif($productId)?->id,
+            'qc_profile_id'       => $this->sampelTerpilih($orderId, $productId)?->id,
             'mode'                => 'lepas',
             'qty'                 => $qty,
             'result'              => QcCheck::DILEPAS,
@@ -446,7 +479,11 @@ class QcService
                             'unit_gram' => $unit, 'samples' => $s ?: null, 'sort_order' => $i];
                 });
 
+            $label = trim((string) ($data['label'] ?? ''));
+            $label = $label !== '' ? mb_substr($label, 0, 60) : ($profil?->label ?? $this->labelBerikutnya((int) $data['product_id']));
+
             $atribut = [
+                'label'           => $label,
                 'packaging_gram'  => round((float) ($data['packaging_gram'] ?? 0), 1),
                 'target_gram'     => $sampel ? round(array_sum($sampel) / count($sampel), 1) : null,
                 'samples'         => $sampel ?: null,
@@ -495,6 +532,18 @@ class QcService
 
             return $profil->fresh('components');
         });
+    }
+
+    /** Nama bawaan sampel baru: "Sampel N" pertama yang belum dipakai produk ini. */
+    private function labelBerikutnya(int $productId): string
+    {
+        $terpakai = QcProfile::where('product_id', $productId)->pluck('label');
+        $n = $terpakai->count() + 1;
+        while ($terpakai->contains("Sampel {$n}")) {
+            $n++;
+        }
+
+        return "Sampel {$n}";
     }
 
     private function angka(float $n): string

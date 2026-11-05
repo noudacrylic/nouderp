@@ -39,10 +39,28 @@
                 @endif
             </div>
 
+            @if($sampel->count() > 1)
+                {{-- Bahan beda berat beda sampel. Boleh diganti kapan saja; tiap timbang mencatat sampelnya. --}}
+                <div class="bg-white rounded-2xl border {{ $profil ? 'border-gray-100' : 'border-red-300' }} shadow-sm p-4 space-y-2">
+                    <label class="block text-xs font-semibold text-gray-600">Sampel yang dipakai</label>
+                    <div class="space-y-1">
+                        @foreach($sampel as $s)
+                            <a href="{{ route('production.qc.index', ['op' => $order->id, 'produk' => $productId, 'sampel' => $s->id]) }}"
+                               class="block px-3 py-2 rounded-lg text-sm border {{ $profil?->id === $s->id ? 'border-blue-400 bg-blue-50 font-semibold' : 'border-gray-200 hover:bg-gray-50' }}">
+                                {{ $s->label }}
+                                @if($t = app(\App\Modules\Production\Services\QcService::class)->target($s))
+                                    <span class="text-gray-400 text-xs font-normal">{{ number_format($t, 1, ',', '.') }} g</span>
+                                @endif
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             @if($profil)
                 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-sm space-y-2">
-                    <div class="font-bold text-gray-700">Acuan</div>
-                    <div class="flex justify-between"><span class="text-gray-500">Target</span><b>{{ number_format($target, 1, ',', '.') }} g</b></div>
+                    <div class="font-bold text-gray-700">Acuan{{ $sampel->count() > 1 ? ' · ' . $profil->label : '' }}</div>
+                    <div class="flex justify-between"><span class="text-gray-500">Target</span><b>{{ $target ? number_format($target, 1, ',', '.') . ' g' : '—' }}</b></div>
                     <div class="flex justify-between"><span class="text-gray-500">Toleransi</span><b>± {{ number_format($toleransi, 1, ',', '.') }} g</b></div>
                     @if($profil->components->isNotEmpty())
                         <div class="pt-2 border-t border-gray-100 space-y-0.5">
@@ -62,6 +80,8 @@
                 'op'        => $order->id,
                 'produk'    => $productId,
                 'url'       => route('production.qc.timbang'),
+                'sampel'    => $profil->id,
+                'banyakSampel' => $sampel->count() > 1,
                 'ringkasan' => $ringkasan,
                 'timer'     => $langkah?->status,
                 'penimbang' => $penimbang,
@@ -69,7 +89,7 @@
                 'riwayat'   => $riwayat->map(fn ($c) => [
                     'id' => $c->id, 'result' => $c->result, 'aktual' => $c->actual_gram, 'selisih' => $c->diff_gram,
                     'mode' => $c->mode, 'qty' => $c->qty, 'pesan' => $c->analysis['pesan'] ?? $c->reason,
-                    'repair' => $c->repair_status, 'waktu' => $c->created_at->format('d/m H:i'), 'oleh' => $c->user?->name,
+                    'repair' => $c->repair_status, 'waktu' => $c->created_at->format('d/m H:i'), 'oleh' => $c->user?->name, 'sampel' => $c->profil?->label,
                 ])->values(),
              ]))" @timbangan-tangkap.window="tangkap($event.detail)" @timbangan-beban.window="beban($event.detail.ada)">
 
@@ -227,6 +247,7 @@
                                           :class="r.result === 'lulus' ? 'text-emerald-600' : (r.result === 'dilepas' ? 'text-orange-600' : 'text-red-600')"
                                           x-text="r.result === 'dilepas' ? ('DILEPAS ×' + r.qty) : r.result.toUpperCase()"></span>
                                     <span x-show="r.aktual" x-text="g(r.aktual)"></span>
+                                    <span x-show="cfg.banyakSampel && r.sampel" class="text-blue-600" x-text="'· ' + r.sampel"></span>
                                     <span x-show="r.mode === 'perbaikan'" class="text-orange-500">· perbaikan</span>
                                     <span x-show="r.repair === 'menunggu'" class="text-orange-500">· tunggu perbaikan</span>
                                     <span x-show="r.repair === 'diperbaiki'" class="text-gray-400">· sudah diperbaiki</span>
@@ -240,6 +261,10 @@
                 </div>
             </div>
         </div>
+        @elseif($productId && $sampel->count() > 1 && !$profil)
+            <div class="col-span-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 h-fit">
+                Produk ini punya {{ $sampel->count() }} sampel acuan. Pilih sampel yang sesuai bahan OP ini di sebelah kiri sebelum menimbang.
+            </div>
         @elseif($order && $productId && !$target)
             <div class="col-span-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 h-fit">
                 Profil QC produk ini belum punya berat acuan. Ambil sampel dulu di tab Sampel Acuan.
@@ -289,7 +314,7 @@
                         method: 'POST',
                         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json',
                                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '' },
-                        body: JSON.stringify({ production_order_id: cfg.op, product_id: cfg.produk, gram, mode: this.mode, source, raw,
+                        body: JSON.stringify({ production_order_id: cfg.op, product_id: cfg.produk, qc_profile_id: cfg.sampel, gram, mode: this.mode, source, raw,
                                                executor_ids: this.penimbangId ? [this.penimbangId] : [] }),
                     });
                     const d = await r.json().catch(() => ({}));
@@ -308,7 +333,7 @@
                         mode: d.check.mode, qty: 1, pesan: d.check.pesan,
                         repair: d.check.result !== 'lulus' && d.check.mode !== 'perbaikan' ? 'menunggu' : null,
                         waktu: new Date().toLocaleString('id-ID', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
-                        oleh: '{{ auth()->user()?->name }}' });
+                        oleh: '{{ auth()->user()?->name }}', sampel: d.check.sampel });
                     window.bunyiQc(d.check.result === 'lulus');
                     if (this.mode === 'perbaikan' && !this.ringkasan.menunggu) this.mode = 'normal';
                 } catch (e) {

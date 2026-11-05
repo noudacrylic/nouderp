@@ -115,6 +115,48 @@ class QcHalamanTest extends TestCase
         $this->assertSame(221.0, $p->components->first()->unit_gram);
     }
 
+    public function test_tambah_sampel_lewat_form_menyalin_komponen_dan_menolak_nama_kembar(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin)->get(route('production.qc-acuan.create', ['produk' => $this->produk]))
+            ->assertOk()->assertSee('Sampel Baru tb-13-t1-m3')->assertSee('Samping');
+
+        $this->post(route('production.qc-acuan.store'), ['product_id' => $this->produk, 'label' => '1,8 mm', 'samples' => [760], 'is_active' => 1])
+            ->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame(2, QcProfile::where('product_id', $this->produk)->count());
+
+        $this->post(route('production.qc-acuan.store'), ['product_id' => $this->produk, 'label' => '1,8 mm', 'samples' => [761], 'is_active' => 1])
+            ->assertSessionHasErrors('label');
+        $this->assertSame(2, QcProfile::where('product_id', $this->produk)->count());
+
+        // Mengubah sampel tanpa mengganti namanya tidak dianggap kembar dengan dirinya sendiri.
+        $p = QcProfile::where('label', '1,8 mm')->first();
+        $this->put(route('production.qc-acuan.update', $p->id), ['label' => '1,8 mm', 'samples' => [762], 'is_active' => 1])
+            ->assertSessionHasNoErrors();
+        $this->assertSame(762.0, $p->fresh()->target_gram);
+    }
+
+    public function test_layar_timbang_meminta_pilih_sampel_lalu_mencatat_pilihannya(): void
+    {
+        $admin = $this->admin();
+        $tipis = app(QcService::class)->simpanProfil(['product_id' => $this->produk, 'label' => '1,8 mm', 'samples' => [760]], null);
+        $url = ['op' => $this->order->id, 'produk' => $this->produk];
+
+        $this->actingAs($admin)->get(route('production.qc.index', $url))
+            ->assertOk()->assertSee('Sampel yang dipakai')->assertSee('Pilih sampel yang sesuai')->assertDontSee('timbangan.js');
+
+        $this->get(route('production.qc.index', $url + ['sampel' => $tipis->id]))
+            ->assertOk()->assertSee('760,0 g')->assertSee('timbangan.js')->assertDontSee('Pilih sampel yang sesuai');
+
+        $kirim = ['production_order_id' => $this->order->id, 'product_id' => $this->produk, 'gram' => 760, 'mode' => 'normal', 'source' => 'simulasi'];
+        $this->postJson(route('production.qc.timbang'), $kirim)->assertStatus(422);
+        $this->postJson(route('production.qc.timbang'), $kirim + ['qc_profile_id' => $tipis->id])
+            ->assertOk()->assertJsonPath('check.result', 'lulus')->assertJsonPath('check.sampel', '1,8 mm');
+
+        // Dibuka lagi tanpa ?sampel= → sampel terakhir OP ini langsung terpilih.
+        $this->get(route('production.qc.index', $url))->assertOk()->assertSee('timbangan.js')->assertSee('760,0 g');
+    }
+
     public function test_simpan_toleransi_bawaan(): void
     {
         $this->actingAs($this->admin())->post(route('production.qc-acuan.toleransi.save'), ['mode' => 'gram', 'value' => 5])

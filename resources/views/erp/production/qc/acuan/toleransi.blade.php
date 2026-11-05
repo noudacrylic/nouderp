@@ -48,6 +48,7 @@
                         @php $i = $info[$p->id]; @endphp
                         <tr class="border-t border-gray-50">
                             <td class="px-4 py-2"><a href="{{ route('production.qc-acuan.edit', $p->id) }}" class="font-bold text-blue-600 hover:underline">{{ $p->product?->sku }}</a>
+                                <span class="text-xs text-blue-700">{{ $p->label }}</span>
                                 <span class="text-xs text-gray-400">{{ $p->tolerance_mode ? 'toleransi sendiri' : 'ikut bawaan' }}</span></td>
                             <td class="px-4 py-2 text-right">{{ $i['target'] ? number_format($i['target'], 1, ',', '.') . ' g' : '—' }}</td>
                             <td class="px-4 py-2 text-right">± {{ number_format($i['toleransi'], 1, ',', '.') }} g</td>

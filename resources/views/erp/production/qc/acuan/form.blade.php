@@ -4,11 +4,13 @@
 @php
     $awal = [
         'product'    => $profil->product ? ['id' => $profil->product->id, 'label' => $profil->product->sku . ' — ' . $profil->product->name] : null,
-        'packaging'  => $profil->packaging_gram ?? 0,
+        'packaging'  => $profil->packaging_gram ?? $bibit?->packaging_gram ?? 0,
         'samples'    => $profil->samples ?? [],
         'components' => $profil->exists
             ? $profil->components->map(fn ($k) => ['name' => $k->name, 'qty' => $k->qty, 'unit_gram' => $k->unit_gram, 'samples' => $k->samples ?? []])->values()
-            : [['name' => '', 'qty' => 1, 'unit_gram' => null, 'samples' => []]],
+            : ($bibit && $bibit->components->isNotEmpty()
+                ? $bibit->components->map(fn ($k) => ['name' => $k->name, 'qty' => $k->qty, 'unit_gram' => null, 'samples' => []])->values()
+                : [['name' => '', 'qty' => 1, 'unit_gram' => null, 'samples' => []]]),
         'tol_mode'   => $profil->tolerance_mode ?? '',
         'tol_value'  => $profil->tolerance_value,
         'bawaan'     => $bawaan,
@@ -18,8 +20,8 @@
 @endphp
 <div class="w-full px-6 py-4" x-data="formAcuan(@js($awal))" @timbangan-tangkap.window="tangkap($event.detail)">
     <div class="mb-3">
-        <div class="text-xs text-gray-400"><a href="{{ route('production.qc-acuan.index') }}" class="hover:text-blue-600">Sampel Acuan</a> › {{ $profil->exists ? $profil->product?->sku : 'Profil baru' }}</div>
-        <h1 class="text-xl font-bold text-gray-800">{{ $profil->exists ? 'Profil QC ' . $profil->product?->sku : 'Profil QC Baru' }}</h1>
+        <div class="text-xs text-gray-400"><a href="{{ route('production.qc-acuan.index') }}" class="hover:text-blue-600">Sampel Acuan</a> › {{ $profil->exists ? $profil->product?->sku . ' · ' . $profil->label : ($bibit ? 'Sampel baru ' . $profil->product?->sku : 'Profil baru') }}</div>
+        <h1 class="text-xl font-bold text-gray-800">{{ $profil->exists ? 'Profil QC ' . $profil->product?->sku . ' · ' . $profil->label : ($bibit ? 'Sampel Baru ' . $profil->product?->sku : 'Profil QC Baru') }}</h1>
     </div>
     @include('erp.production.qc._tabs')
 
@@ -53,6 +55,14 @@
                         </div>
                     </div>
                 @endif
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Nama sampel</label>
+                    <input type="text" name="label" value="{{ old('label', $profil->exists ? $profil->label : '') }}" maxlength="60" placeholder="mis. Akrilik 2 mm NN"
+                           class="w-full border {{ $errors->has('label') ? 'border-red-400' : 'border-gray-200' }} rounded-xl px-3 py-2 text-sm">
+                    @error('label')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
+                    <p class="text-[11px] text-gray-500 mt-1">Satu produk boleh punya beberapa sampel bila bahannya berbeda berat. Petugas QC memilihnya saat menimbang. Kosong = Sampel 1, 2, dst.</p>
+                </div>
 
                 <div x-show="salinan.length" class="flex items-center gap-2 text-xs">
                     <span class="text-gray-500">Salin komponen dari:</span>

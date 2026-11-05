@@ -181,6 +181,85 @@ class QcTimbangTest extends TestCase
         $this->assertSame(3.0, $this->qc->ringkasan($order, $this->produk)['boleh']);
     }
 
+    /** Dua bahan: 855 g (Sampel 1) & 760 g (1,8 mm), toleransi ketat masing-masing. */
+    private function duaSampel(): array
+    {
+        $tebal = $this->profil(['tolerance_mode' => 'gram', 'tolerance_value' => 10]);
+        $tipis = $this->qc->simpanProfil(['product_id' => $this->produk, 'label' => '1,8 mm', 'samples' => [760],
+            'tolerance_mode' => 'gram', 'tolerance_value' => 10], null);
+
+        return [$tebal, $tipis];
+    }
+
+    public function test_profil_lama_jadi_sampel_pertama_dan_sampel_baru_bernomor(): void
+    {
+        $this->assertSame('Sampel 1', $this->profil()->label);
+        $this->assertSame('Sampel 2', $this->qc->simpanProfil(['product_id' => $this->produk, 'samples' => [760]], null)->label);
+    }
+
+    public function test_tiap_sampel_menilai_dengan_target_dan_toleransinya_sendiri(): void
+    {
+        [$tebal, $tipis] = $this->duaSampel();
+        $order = $this->op();
+
+        $a = $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tipis->id);
+        $this->assertSame(QcCheck::LULUS, $a->result);
+        $this->assertSame($tipis->id, $a->qc_profile_id);
+
+        // Sampel boleh berganti di tengah OP; tiap catatan menyimpan sampelnya.
+        $b = $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tebal->id);
+        $this->assertSame(QcCheck::KURANG, $b->result);
+        $this->assertSame($tebal->id, $b->qc_profile_id);
+        $this->assertSame(855.0, $b->target_gram);
+    }
+
+    public function test_banyak_sampel_wajib_menyebut_sampel_aktif_milik_produknya(): void
+    {
+        [$tebal, $tipis] = $this->duaSampel();
+        $order = $this->op();
+
+        try {
+            $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null);
+            $this->fail('Tanpa pilihan sampel harus ditolak.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('Pilih sampel', $e->getMessage());
+        }
+
+        $tipis->update(['is_active' => false]);
+        try {
+            $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tipis->id);
+            $this->fail('Sampel nonaktif harus ditolak.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('tidak aktif', $e->getMessage());
+        }
+
+        $this->assertSame(0, QcCheck::count());
+    }
+
+    public function test_sampel_terpilih_mengingat_yang_terakhir_dipakai_op(): void
+    {
+        [$tebal, $tipis] = $this->duaSampel();
+        $order = $this->op();
+
+        $this->assertNull($this->qc->sampelTerpilih($order->id, $this->produk));
+
+        $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tipis->id);
+        $this->assertSame($tipis->id, $this->qc->sampelTerpilih($order->id, $this->produk)->id);
+        $this->assertSame($tebal->id, $this->qc->sampelTerpilih($order->id, $this->produk, $tebal->id)->id);
+    }
+
+    public function test_menambah_sampel_tidak_membebaskan_op_yang_berjalan(): void
+    {
+        $tebal = $this->profil();
+        $tebal->forceFill(['created_at' => now()->subDay()])->save();
+        $order = $this->op();
+
+        $tipis = $this->qc->simpanProfil(['product_id' => $this->produk, 'label' => '1,8 mm', 'samples' => [760]], null);
+        $tipis->forceFill(['created_at' => now()->addDay()])->save();
+
+        $this->assertTrue($this->qc->wajibQc($order, $this->produk));
+    }
+
     public function test_acuan_berubah_diarsipkan(): void
     {
         $profil = $this->profil();

@@ -38,10 +38,11 @@ class QcController extends Controller
         $productId = (int) $request->input('produk', $produkPilihan->count() === 1 ? $produkPilihan->first()->product_id : 0);
         $output    = $produkPilihan->firstWhere('product_id', $productId);
 
-        $profil = $output ? $this->qc->profilAktif($productId) : null;
+        $sampel = $output ? $this->qc->sampelAktif($productId) : collect();
+        $profil = $output ? $this->qc->sampelTerpilih($order->id, $productId, $request->integer('sampel') ?: null) : null;
         $ringkasan = $output ? $this->qc->ringkasan($order, $productId) : null;
         $riwayat = $output
-            ? QcCheck::with('user:id,name')->where('production_order_id', $order->id)->where('product_id', $productId)
+            ? QcCheck::with(['user:id,name', 'profil:id,label'])->where('production_order_id', $order->id)->where('product_id', $productId)
                 ->latest('id')->limit(30)->get()
             : collect();
 
@@ -56,6 +57,7 @@ class QcController extends Controller
             'order'         => $order,
             'produkPilihan' => $produkPilihan,
             'productId'     => $output ? $productId : null,
+            'sampel'        => $sampel,
             'profil'        => $profil,
             'target'        => $profil ? $this->qc->target($profil) : null,
             'toleransi'     => $profil ? $this->qc->toleransiGram($profil) : null,
@@ -78,6 +80,7 @@ class QcController extends Controller
             'gram'                => 'required|numeric|min:0.1|max:100000',
             'mode'                => 'required|in:normal,perbaikan',
             'source'              => 'required|in:timbangan,simulasi,manual',
+            'qc_profile_id'       => 'nullable|integer',
             'raw'                 => 'nullable|string|max:4000',
             'executor_ids'        => 'nullable|array',
             'executor_ids.*'      => 'integer|exists:production_department_executors,id',
@@ -85,7 +88,7 @@ class QcController extends Controller
 
         try {
             $check = $this->qc->catatTimbang($data['production_order_id'], $data['product_id'], (float) $data['gram'],
-                $data['mode'], $data['source'], $data['raw'] ?? null, $request->user()?->id, $data['executor_ids'] ?? []);
+                $data['mode'], $data['source'], $data['raw'] ?? null, $request->user()?->id, $data['executor_ids'] ?? [], $data['qc_profile_id'] ?? null);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'pesan' => $e->getMessage()], 422);
         }
@@ -105,6 +108,7 @@ class QcController extends Controller
                 'pesan'     => $check->analysis['pesan'] ?? '',
                 'kandidat'  => $check->analysis['kandidat'] ?? [],
                 'mode'      => $check->mode,
+                'sampel'    => $check->profil?->label,
             ],
             'ringkasan' => $this->qc->ringkasan($order, $data['product_id']),
             'timer'     => $langkah?->status,

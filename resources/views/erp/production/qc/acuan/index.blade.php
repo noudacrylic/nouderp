@@ -30,6 +30,7 @@
                         <td class="px-4 py-2">
                             <div class="font-bold">{{ $p->product?->sku }}</div>
                             <div class="text-xs text-gray-500">{{ $p->product?->name }}</div>
+                            <span class="inline-block mt-0.5 text-[11px] font-semibold bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">{{ $p->label }}</span>
                             @unless($p->is_active)<span class="text-[10px] text-gray-500 font-bold uppercase">nonaktif</span>@endunless
                         </td>
                         <td class="px-4 py-2 text-xs text-gray-600">
@@ -44,7 +45,10 @@
                             {{ optional($p->sampled_at)->format('d/m/Y') ?? 'belum' }}{{ $p->sampler ? ' · ' . $p->sampler->name : '' }}
                             @if($p->batch_note)<div>{{ $p->batch_note }}</div>@endif
                         </td>
-                        <td class="px-4 py-2 text-right"><a href="{{ route('production.qc-acuan.edit', $p->id) }}" class="text-blue-600 text-xs font-semibold hover:underline">Ubah / ambil ulang</a></td>
+                        <td class="px-4 py-2 text-right whitespace-nowrap">
+                            <a href="{{ route('production.qc-acuan.edit', $p->id) }}" class="text-blue-600 text-xs font-semibold hover:underline">Ubah / ambil ulang</a>
+                            <a href="{{ route('production.qc-acuan.create', ['produk' => $p->product_id]) }}" class="ml-2 text-blue-600 text-xs font-semibold hover:underline">+ Sampel</a>
+                        </td>
                     </tr>
                 @empty
                     <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">Belum ada profil QC.</td></tr>

@@ -10,12 +10,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Profil QC timbang satu SKU knockdown: berat acuan paket utuh + daftar komponen
  * per bungkus. Adanya profil AKTIF = hasil produksi SKU ini wajib lolos QC sebelum
- * difinalisasi (lihat QcService::assertBolehFinalisasi).
+ * difinalisasi (lihat QcService::assertBolehFinalisasi). Satu SKU boleh punya beberapa
+ * profil ("sampel") bila bahannya berbeda berat, dipilih petugas saat menimbang.
  */
 class QcProfile extends Model
 {
     protected $fillable = [
-        'product_id', 'packaging_gram', 'target_gram', 'samples', 'tolerance_mode', 'tolerance_value',
+        'product_id', 'label', 'packaging_gram', 'target_gram', 'samples', 'tolerance_mode', 'tolerance_value',
         'batch_note', 'sampled_at', 'sampled_by', 'is_active',
     ];
 

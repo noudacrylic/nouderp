@@ -33,6 +33,11 @@ class QcCheck extends Model
         return $this->belongsTo(Product::class);
     }
 
+    public function profil()
+    {
+        return $this->belongsTo(QcProfile::class, 'qc_profile_id');
+    }
+
     public function user()
     {
         return $this->belongsTo(\App\Models\User::class);
