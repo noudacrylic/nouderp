@@ -387,7 +387,6 @@ class AgenTools
         $baris = [];
 
         foreach ($pesanan as $o) {
-            $bayar = ($t = data_get($o->raw, 'pay_time')) ? Carbon::createFromTimestamp((int) $t, config('app.timezone'))->format('d/m H:i') : 'belum dibayar';
             $barang = $o->items->map(function ($i) use ($pola) {
                 $p = $i->product_id ? Product::find($i->product_id) : null;
                 $sku = (string) ($i->sku ?: $p?->sku);
@@ -401,16 +400,42 @@ class AgenTools
 
             $prov = $provinsi[$o->order_sn] ?? null;
             $baris[] = "- {$o->order_sn} | status Shopee {$o->status} | dibuat " . $o->dibuat_shopee_at?->format('d/m H:i')
-                . " | dibayar {$bayar} | {$barang}"
+                . ' (' . $this->waktuPesanan($o) . ') | pembayaran ' . $this->statusBayar($o) . " | {$barang}"
                 . ($prov ? ' | tujuan ' . $prov . (in_array(strtolower($prov), self::PROVINSI_JAWA, true) ? ' (Jawa)' : ' (LUAR JAWA)') : '');
         }
 
         return ['content' => "Pesanan pembeli ini (terbaru dulu):\n" . implode("\n", $baris)];
     }
 
+    /** Dihitung di sini supaya aturan jam 12.00 tidak bergantung pada model membandingkan jam. */
+    private function waktuPesanan(ShopeeOrder $o): string
+    {
+        $t = $o->dibuat_shopee_at;
+        if (! $t || ! $t->isSameDay(now())) {
+            return 'hari sebelumnya';
+        }
+
+        return ($t->hour < 12 ? 'sebelum' : 'setelah') . ' jam 12.00 hari ini';
+    }
+
+    /** COD tidak punya waktu bayar: tanpa cabang ini pesanan COD terbaca belum dibayar. */
+    private function statusBayar(ShopeeOrder $o): string
+    {
+        if ($o->status === 'UNPAID') {
+            return 'belum dibayar';
+        }
+        if ($t = data_get($o->raw, 'pay_time')) {
+            return 'dibayar ' . Carbon::createFromTimestamp((int) $t, config('app.timezone'))->format('d/m H:i');
+        }
+
+        return data_get($o->raw, 'cod') ? 'COD, bayar saat barang diterima' : 'tidak ada waktu bayar';
+    }
+
     /**
      * Provinsi tujuan, diambil langsung dari Shopee saat dibutuhkan — alamat pembeli
      * sengaja TIDAK disimpan di shopee_orders. Gagal = kosong, agen tinggal tak tahu.
+     * Tanpa izin data sensitif Shopee menyamarkannya ("****"): itu juga dianggap tak tahu,
+     * bukan luar Jawa.
      *
      * @return array<string, string> order_sn => provinsi
      */
@@ -432,7 +457,7 @@ class AgenTools
 
         return collect($r['order_list'] ?? [])
             ->mapWithKeys(fn ($o) => [(string) $o['order_sn'] => trim((string) data_get($o, 'recipient_address.state'))])
-            ->filter()->all();
+            ->filter(fn (string $p) => $p !== '' && ! str_contains($p, '*'))->all();
     }
 
     private function skemaUsulkan(): array

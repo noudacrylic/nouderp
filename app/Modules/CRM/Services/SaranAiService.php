@@ -105,6 +105,24 @@ class SaranAiService
     /** Saran yang sedang berlaku untuk ditampilkan di layar chat. */
     public function berlaku(CrmConversation $c): ?CrmSaranAi
     {
+        $saran = $this->saranBaru($c);
+        if (!$saran) {
+            return null;
+        }
+
+        // Dibalas dari Seller Centre: pertanyaannya sudah terjawab, sarannya tidak perlu tampil lagi.
+        $pesan = CrmMessage::find($saran->untuk_message_id);
+        if ($pesan && $c->last_outbound_at && $c->last_outbound_at->gt($pesan->sent_at)) {
+            $saran->update(['status' => CrmSaranAi::KEDALUWARSA, 'catatan' => 'Sudah dibalas tanpa lewat saran.']);
+
+            return null;
+        }
+
+        return $saran;
+    }
+
+    private function saranBaru(CrmConversation $c): ?CrmSaranAi
+    {
         return CrmSaranAi::where('conversation_id', $c->id)->where('status', CrmSaranAi::BARU)->latest('id')->first();
     }
 
@@ -115,7 +133,7 @@ class SaranAiService
      */
     public function catatBalasan(CrmConversation $c, ?int $saranId, string $teksTerkirim, ?User $u): void
     {
-        $saran = $this->berlaku($c);
+        $saran = $this->saranBaru($c);
         if (!$saran) {
             return;
         }

@@ -6,6 +6,8 @@ use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentKnowledge;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Services\ProdukDibahasService;
+use App\Modules\SDM\Models\NationalHoliday;
+use Carbon\CarbonInterface;
 
 /**
  * Menyusun apa yang dibaca agen sebelum menjawab.
@@ -78,13 +80,39 @@ class AgenPrompt
         $jam = (int) now()->format('H');
         $buka  = (int) config('crm.store_open_hour', 8);
         $tutup = (int) config('crm.store_close_hour', 16);
+        $libur = self::hariLibur(now());
 
-        if ($jam < $buka || $jam >= $tutup) {
+        if ($libur) {
+            $baris[] = 'Hari ini toko libur (Minggu atau tanggal merah).';
+        }
+
+        if ($libur || $jam < $buka || $jam >= $tutup) {
             $baris[] = 'Di luar jam operasional — tim baru bisa menindaklanjuti pada jam kerja berikutnya. '
                 . 'Jangan berpura-pura ada orang di bengkel sekarang.';
+            $baris[] = 'Admin aktif lagi: ' . self::adminAktifLagi($buka);
+        } else {
+            $baris[] = 'Admin sedang aktif sekarang.';
         }
 
         return "[Keterangan untukmu, bukan dari pelanggan]\n" . implode("\n", $baris);
+    }
+
+    private static function hariLibur(CarbonInterface $hari): bool
+    {
+        return $hari->isSunday() || NationalHoliday::isLibur($hari->toDateString());
+    }
+
+    /** Jam buka berikutnya, dihitung di sini karena model tidak tahu daftar tanggal merah. */
+    private static function adminAktifLagi(int $buka): string
+    {
+        $hari = now()->startOfDay();
+        if (self::hariLibur($hari) || (int) now()->format('H') >= $buka) {
+            do {
+                $hari = $hari->addDay();
+            } while (self::hariLibur($hari) && $hari->lt(now()->addDays(14)));
+        }
+
+        return $hari->translatedFormat('l, d M') . sprintf(' jam %02d.00', $buka);
     }
 
     /**

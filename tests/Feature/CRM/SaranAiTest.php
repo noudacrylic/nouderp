@@ -6,7 +6,10 @@ use App\Core\Inventory\Product;
 use App\Models\User;
 use App\Modules\Assistant\Services\ClaudeClient;
 use App\Modules\Assistant\Services\FakeClaudeClient;
+use App\Modules\CRM\Agents\AgenPrompt;
 use App\Modules\CRM\Agents\AgenTools;
+use App\Modules\SDM\Models\NationalHoliday;
+use Carbon\Carbon;
 use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentRun;
 use App\Modules\CRM\Models\CrmAttachment;
@@ -15,6 +18,7 @@ use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSaranAi;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -114,6 +118,155 @@ class SaranAiTest extends TestCase
         $this->assertStringContainsString('261031ABCDEFGH', $hasil);
         $this->assertStringContainsString('butuh desain', $hasil);
         $this->assertStringContainsString('ready', $hasil);
+    }
+
+    /** Hasil alat info_pesanan untuk satu pesanan yang dibuat pada $dibuat. */
+    private function infoPesanan(array $raw, string $status, $dibuat): string
+    {
+        $this->chat('kak kapan dikirim?');
+        DB::table('shopee_orders')->insert(['env' => 'live', 'shop_id' => 101, 'order_sn' => '261105AAAAAAAA', 'buyer_user_id' => 777,
+            'status' => $status, 'dibuat_shopee_at' => $dibuat, 'raw' => json_encode($raw), 'created_at' => now(), 'updated_at' => now()]);
+        $this->claude->antrekan(FakeClaudeClient::panggilAlat('info_pesanan', []))->antrekan($this->usul('A1', 'baik kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        return CrmSaranAi::firstOrFail()->run->jejak[0]['hasil'];
+    }
+
+    public function test_info_pesanan_menandai_jam_12_dan_cod_bukan_belum_dibayar(): void
+    {
+        $this->travelTo(now()->setTime(13, 0));
+        $hasil = $this->infoPesanan(['cod' => true], 'READY_TO_SHIP', now()->setTime(11, 9));
+
+        $this->assertStringContainsString('dibuat ' . now()->format('d/m') . ' 11:09 (sebelum jam 12.00 hari ini)', $hasil);
+        $this->assertStringContainsString('pembayaran COD', $hasil);
+        $this->assertStringNotContainsString('belum dibayar', $hasil);
+    }
+
+    public function test_info_pesanan_setelah_jam_12_hari_sebelumnya_dan_belum_bayar(): void
+    {
+        $this->travelTo(now()->setTime(15, 0));
+        $this->assertStringContainsString('setelah jam 12.00 hari ini', $this->infoPesanan(['pay_time' => now()->timestamp], 'READY_TO_SHIP', now()->setTime(12, 0)));
+
+        CrmSaranAi::query()->delete();
+        DB::table('shopee_orders')->delete();
+        $this->assertStringContainsString('(hari sebelumnya) | pembayaran belum dibayar', $this->infoPesanan([], 'UNPAID', now()->subDay()));
+    }
+
+    public function test_tujuan_tersamar_tidak_dibaca_sebagai_luar_jawa(): void
+    {
+        $this->shopTokoLive();
+        Http::fake(['*get_order_detail*' => Http::response(['response' => ['order_list' => [
+            ['order_sn' => '261105AAAAAAAA', 'recipient_address' => ['state' => '****']],
+        ]]])]);
+
+        $hasil = $this->infoPesanan(['cod' => true], 'READY_TO_SHIP', now());
+
+        $this->assertStringNotContainsString('LUAR JAWA', $hasil);
+        $this->assertStringNotContainsString('tujuan', $hasil);
+    }
+
+    public function test_keterangan_menyebut_kapan_admin_aktif_melewati_minggu_dan_tanggal_merah(): void
+    {
+        // Sabtu 7 Nov 2026 setelah tutup → Minggu libur, Senin 9 Nov tanggal merah → Selasa 10 Nov.
+        NationalHoliday::create(['tanggal' => '2026-11-09', 'nama' => 'Libur uji']);
+        $this->travelTo(Carbon::parse('2026-11-07 17:00'));
+        $teks = AgenPrompt::keterangan(null);
+        $this->assertStringContainsString('Admin aktif lagi: ' . Carbon::parse('2026-11-10')->translatedFormat('l, d M') . ' jam 08.00', $teks);
+        $this->assertStringNotContainsString('toko libur', $teks);
+
+        // Minggu pagi di jam buka: tetap libur.
+        $this->travelTo(Carbon::parse('2026-11-08 10:00'));
+        $teks = AgenPrompt::keterangan(null);
+        $this->assertStringContainsString('Hari ini toko libur', $teks);
+        $this->assertStringContainsString('Admin aktif lagi: ' . Carbon::parse('2026-11-10')->translatedFormat('l, d M'), $teks);
+
+        // Sebelum buka di hari kerja: hari yang sama.
+        $this->travelTo(Carbon::parse('2026-11-10 06:00'));
+        $this->assertStringContainsString('Admin aktif lagi: ' . Carbon::parse('2026-11-10')->translatedFormat('l, d M'), AgenPrompt::keterangan(null));
+
+        // Jam kerja: admin aktif, tanpa jadwal.
+        $this->travelTo(Carbon::parse('2026-11-10 10:00'));
+        $teks = AgenPrompt::keterangan(null);
+        $this->assertStringContainsString('Admin sedang aktif sekarang', $teks);
+        $this->assertStringNotContainsString('Admin aktif lagi', $teks);
+    }
+
+    public function test_saran_hilang_setelah_dibalas_dari_seller_centre(): void
+    {
+        $c = $this->chat();
+        $m = $c->messages()->where('direction', CrmMessage::MASUK)->firstOrFail();
+        $s = CrmSaranAi::create(['conversation_id' => $c->id, 'untuk_message_id' => $m->id, 'teks' => 'baik kak', 'status' => CrmSaranAi::BARU]);
+        $layanan = app(\App\Modules\CRM\Services\SaranAiService::class);
+
+        $this->assertTrue($layanan->berlaku($c)->is($s), 'Belum dibalas: tetap tampil.');
+
+        $c->forceFill(['last_outbound_at' => now()])->save();
+        $this->assertNull($layanan->berlaku($c->fresh()));
+        $this->assertSame(CrmSaranAi::KEDALUWARSA, $s->fresh()->status);
+    }
+
+    public function test_pakai_saran_dari_erp_tetap_tercatat_walau_balasan_sudah_terkirim(): void
+    {
+        $c = $this->chat();
+        $m = $c->messages()->where('direction', CrmMessage::MASUK)->firstOrFail();
+        $s = CrmSaranAi::create(['conversation_id' => $c->id, 'untuk_message_id' => $m->id, 'teks' => 'baik kak', 'status' => CrmSaranAi::BARU]);
+        $c->forceFill(['last_outbound_at' => now()])->save();
+
+        app(\App\Modules\CRM\Services\SaranAiService::class)->catatBalasan($c->fresh(), $s->id, 'baik kak', null);
+
+        $this->assertSame(CrmSaranAi::DIPAKAI, $s->fresh()->status);
+    }
+
+    public function test_beli_offline_dijawab_bila_pembeli_bertanya(): void
+    {
+        $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
+
+        $this->assertStringContainsString('### A6b. Beli langsung / ambil offline di toko', $isi);
+        $this->assertStringContainsString('istirahat 11.30–12.30', $isi);
+        $this->assertStringContainsString('Pembeli yang bertanya sendiri soal beli langsung di toko: pakai A6b', $isi);
+    }
+
+    public function test_aturan_kirim_sebelum_jam_12_tertulis_di_pengetahuan(): void
+    {
+        $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
+
+        $this->assertStringContainsString('tetap dikirim hari ini karena aturan Shopee', $isi);
+        $this->assertStringContainsString('Memberi tahu admin aktif', $isi);
+
+        $this->assertStringContainsString('pengiriman hari ini kak, untuk sampainya sesuai estimasi kurir pilihan ya kak', $isi);
+        $this->assertStringContainsString('Ada produk pre-order: lempar ke admin', $isi);
+    }
+
+    public function test_jam_pesanan_shopee_tersimpan_dalam_zona_aplikasi(): void
+    {
+        $shop = $this->shopTokoLive();
+        $ts = now()->setTime(11, 9, 0)->timestamp;
+
+        $order = app(\App\Modules\Marketplace\Shopee\Services\ShopeePesananService::class)->simpan($shop,
+            ['order_sn' => '261105BBBBBBBB', 'order_status' => 'READY_TO_SHIP', 'create_time' => $ts, 'update_time' => $ts]);
+
+        $this->assertSame('11:09', $order->fresh()->dibuat_shopee_at->format('H:i'));
+    }
+
+    public function test_migrasi_meluruskan_jam_pesanan_lama_dan_aman_diulang(): void
+    {
+        $ts = now()->setTime(11, 9, 0)->timestamp;
+        $id = DB::table('shopee_orders')->insertGetId(['env' => 'live', 'shop_id' => 101, 'order_sn' => '261105CCCCCCCC', 'status' => 'READY_TO_SHIP',
+            'dibuat_shopee_at' => now()->setTime(4, 9, 0), 'raw' => json_encode(['create_time' => $ts, 'update_time' => $ts]), 'created_at' => now(), 'updated_at' => now()]);
+        $migrasi = require database_path('migrations/2026_11_05_120000_perbaiki_jam_shopee_orders.php');
+
+        $migrasi->up();
+        $migrasi->up();
+
+        $this->assertStringContainsString(' 11:09:00', (string) DB::table('shopee_orders')->where('id', $id)->value('dibuat_shopee_at'));
+    }
+
+    private function shopTokoLive(): \App\Modules\Marketplace\Shopee\Models\ShopeeShop
+    {
+        config(['services.shopee' => ['partner_id' => '1000001', 'partner_key' => 'kunci-uji', 'env' => 'live']]);
+
+        return \App\Modules\Marketplace\Shopee\Models\ShopeeShop::create(['shop_id' => 101, 'env' => 'live', 'access_token' => 'a', 'refresh_token' => 'r',
+            'access_expires_at' => now()->addHours(3), 'refresh_expires_at' => now()->addDays(20), 'terhubung_at' => now()]);
     }
 
     public function test_pesan_tak_perlu_dibalas_tidak_ditampilkan(): void

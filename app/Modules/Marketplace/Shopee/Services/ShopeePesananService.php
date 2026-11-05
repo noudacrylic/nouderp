@@ -71,8 +71,9 @@ class ShopeePesananService
         $order->fill([
             'status'               => (string) ($d['order_status'] ?? ''),
             'buyer_user_id'        => !empty($d['buyer_user_id']) ? (int) $d['buyer_user_id'] : $order->buyer_user_id,
-            'dibuat_shopee_at'     => isset($d['create_time']) ? Carbon::createFromTimestamp($d['create_time']) : null,
-            'diperbarui_shopee_at' => isset($d['update_time']) ? Carbon::createFromTimestamp($d['update_time']) : null,
+            // Carbon 3: createFromTimestamp() tanpa zona = UTC → jam tersimpan mundur 7 jam.
+            'dibuat_shopee_at'     => isset($d['create_time']) ? Carbon::createFromTimestamp($d['create_time'], config('app.timezone')) : null,
+            'diperbarui_shopee_at' => isset($d['update_time']) ? Carbon::createFromTimestamp($d['update_time'], config('app.timezone')) : null,
             'total'                => $d['total_amount'] ?? null,
             'kurir'                => isset($d['shipping_carrier']) ? mb_substr((string) $d['shipping_carrier'], 0, 100) : null,
             'raw'                  => array_diff_key($d, array_flip(self::BUANG)),
