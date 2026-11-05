@@ -248,8 +248,9 @@ return [
             'production.orders'              => ['label' => 'Order Produksi',    'url' => '/erp/production/orders',             'route_patterns' => ['production.orders.*']],
             'production.process'             => ['label' => 'Proses Produksi',   'url' => '/erp/production/process',            'route_patterns' => ['production.process.*'], 'dynamic_dept' => true],
             'production.qc'                  => ['label' => 'QC',                'url' => '/erp/production/qc',                 'route_patterns' => ['production.qc.*']],
-            // Acuan & toleransi QC: khusus admin, pintunya tab di dalam halaman QC.
-            'production.qc-acuan'            => ['label' => 'QC — Acuan & Toleransi', 'url' => '/erp/production/qc/acuan', 'route_patterns' => ['production.qc-acuan.*'], 'role_gate' => ['super_admin', 'admin'], 'hidden' => true],
+            // Pintunya tab di dalam halaman QC. Keduanya lewat centang user: Admin Layanan yang membuat acuan.
+            'production.qc-acuan'            => ['label' => 'QC — Sampel Acuan', 'url' => '/erp/production/qc/acuan', 'route_patterns' => ['production.qc-acuan.index', 'production.qc-acuan.create', 'production.qc-acuan.produk', 'production.qc-acuan.store', 'production.qc-acuan.edit', 'production.qc-acuan.update'], 'hidden' => true],
+            'production.qc-toleransi'        => ['label' => 'QC — Toleransi', 'url' => '/erp/production/qc/toleransi', 'route_patterns' => ['production.qc-acuan.toleransi*'], 'hidden' => true],
             'production.material-additions'  => ['label' => 'Penambahan Bahan',  'url' => '/erp/production/material-additions', 'route_patterns' => ['production.material-additions.*']],
             'production.completed'           => ['label' => 'Finalisasi',        'url' => '/erp/production/completed',          'route_patterns' => ['production.completed.*']],
         ],

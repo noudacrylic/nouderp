@@ -80,6 +80,56 @@ class QcHalamanTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_pemegang_izin_acuan_membuat_sampel_tapi_tidak_mengubah_toleransi(): void
+    {
+        $munif = $this->petugas();
+        DB::table('user_menu_permissions')->insert(['user_id' => $munif->id, 'menu_key' => 'production.qc-acuan',
+            'created_at' => now(), 'updated_at' => now()]);
+        $lain = Product::create(['sku' => 'tb-baru', 'name' => 'Produk Baru', 'sale_type' => 'ready', 'base_unit' => 'pcs',
+            'base_price' => 1000, 'is_active' => true, 'is_sellable' => true])->id;
+
+        $this->actingAs($munif)->get(route('production.qc-acuan.index'))->assertOk()->assertSee('Sampel Acuan')->assertDontSee('🎚️ Toleransi');
+        $this->actingAs($munif)->get(route('production.qc-acuan.create'))->assertOk()->assertDontSee('name="tolerance_mode"', false);
+        $this->actingAs($munif)->get(route('production.qc-acuan.toleransi'))->assertForbidden();
+        $this->actingAs($munif)->post(route('production.qc-acuan.toleransi.save'), ['mode' => 'gram', 'value' => 99])->assertForbidden();
+
+        // Toleransi yang dikirim diam-diam lewat form diabaikan.
+        $this->actingAs($munif)->post(route('production.qc-acuan.store'), ['product_id' => $lain, 'samples' => [500, 505], 'is_active' => 1,
+            'tolerance_mode' => 'gram', 'tolerance_value' => 99])->assertRedirect();
+        $p = QcProfile::where('product_id', $lain)->sole();
+        $this->assertSame(502.5, (float) $p->target_gram);
+        $this->assertNull($p->tolerance_mode);
+
+        // Admin menetapkan; ubah sampel oleh Munif tidak menghapus toleransi itu.
+        $this->actingAs($this->admin())->put(route('production.qc-acuan.update', $p->id), ['samples' => [500], 'is_active' => 1, 'tolerance_mode' => 'gram', 'tolerance_value' => 8]);
+        $this->actingAs($munif)->put(route('production.qc-acuan.update', $p->id), ['samples' => [510], 'is_active' => 1, 'tolerance_mode' => 'gram', 'tolerance_value' => 99]);
+        $this->assertSame(['gram', 8.0, 510.0], [$p->fresh()->tolerance_mode, (float) $p->fresh()->tolerance_value, (float) $p->fresh()->target_gram]);
+    }
+
+    public function test_pemegang_izin_toleransi_bisa_mengatur_bawaan_dan_per_profil(): void
+    {
+        $munif = $this->petugas();
+        foreach (['production.qc-acuan', 'production.qc-toleransi'] as $izin) {
+            DB::table('user_menu_permissions')->insert(['user_id' => $munif->id, 'menu_key' => $izin, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $lain = Product::create(['sku' => 'tb-tol', 'name' => 'Produk Tol', 'sale_type' => 'ready', 'base_unit' => 'pcs',
+            'base_price' => 1000, 'is_active' => true, 'is_sellable' => true])->id;
+
+        $this->actingAs($munif)->get(route('production.qc-acuan.toleransi'))->assertOk();
+        $this->actingAs($munif)->post(route('production.qc-acuan.toleransi.save'), ['mode' => 'gram', 'value' => 5])->assertSessionHas('success');
+        $this->assertSame(['mode' => 'gram', 'value' => 5.0], app(QcService::class)->toleransiBawaan());
+
+        $this->actingAs($munif)->get(route('production.qc-acuan.create'))->assertOk()->assertSee('name="tolerance_mode"', false);
+        $this->actingAs($munif)->post(route('production.qc-acuan.store'), ['product_id' => $lain, 'samples' => [500], 'is_active' => 1,
+            'tolerance_mode' => 'gram', 'tolerance_value' => 8]);
+        $this->assertSame(8.0, (float) QcProfile::where('product_id', $lain)->sole()->tolerance_value);
+
+        // Melepas tanpa timbang tetap admin.
+        $this->actingAs($munif)->post(route('production.qc.lepas'), [
+            'production_order_id' => $this->order->id, 'product_id' => $this->produk, 'qty' => 1, 'reason' => 'x',
+        ])->assertForbidden();
+    }
+
     public function test_admin_melepas_dengan_alasan(): void
     {
         $this->actingAs($this->admin())->post(route('production.qc.lepas'), [

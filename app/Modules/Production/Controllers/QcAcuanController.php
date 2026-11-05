@@ -11,8 +11,9 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Sampel Acuan & Setting Toleransi QC Timbang — khusus admin (role_gate di
- * config/menu_permissions.php, entri production.qc-acuan). Petugas QC hanya menimbang.
+ * Sampel Acuan QC Timbang (izin menu production.qc-acuan) & Setting Toleransi
+ * (production.qc-toleransi), keduanya dipegang Admin Layanan. Tanpa izin toleransi, toleransi per
+ * profil juga tidak bisa diubah.
  */
 class QcAcuanController extends Controller
 {
@@ -73,7 +74,7 @@ class QcAcuanController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validasi($request);
+        $data = $this->saringToleransi($this->validasi($request));
         $profil = $this->qc->simpanProfil($data, $request->user()?->id);
 
         return redirect()->route('production.qc-acuan.edit', $profil->id)->with('success', 'Profil QC tersimpan.');
@@ -82,7 +83,7 @@ class QcAcuanController extends Controller
     public function update(Request $request, int $id)
     {
         $profil = QcProfile::findOrFail($id);
-        $this->qc->simpanProfil($this->validasi($request, $profil), $request->user()?->id, $profil);
+        $this->qc->simpanProfil($this->saringToleransi($this->validasi($request, $profil), $profil), $request->user()?->id, $profil);
 
         return redirect()->route('production.qc-acuan.edit', $profil->id)->with('success', 'Profil QC diperbarui.');
     }
@@ -133,6 +134,19 @@ class QcAcuanController extends Controller
         ])->save();
 
         return back()->with('success', 'Setting QC disimpan.');
+    }
+
+    /** Tanpa hak toleransi: nilainya tetap yang sudah tersimpan, profil baru ikut bawaan. */
+    private function saringToleransi(array $data, ?QcProfile $profil = null): array
+    {
+        if (user_can_access('production.qc-toleransi')) {
+            return $data;
+        }
+
+        return array_merge($data, [
+            'tolerance_mode'  => $profil?->tolerance_mode,
+            'tolerance_value' => $profil?->tolerance_value,
+        ]);
     }
 
     private function validasi(Request $request, ?QcProfile $profil = null): array

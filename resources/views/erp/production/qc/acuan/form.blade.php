@@ -110,8 +110,10 @@
                             (<span x-text="persen(saranToleransi())"></span>).
                             Atau cek dulu sampel merah — mungkin kurang komponen.
                         </span>
+                        @if(user_can_access('production.qc-toleransi'))
                         <button type="button" x-show="jumlahLuar()" @click="tolMode = 'gram'; tolValue = saranToleransi()"
                                 class="ml-auto border border-amber-400 text-amber-800 px-2 py-0.5 rounded font-semibold">Pakai ± <span x-text="g(saranToleransi())"></span></button>
+                        @endif
                     </div>
                 </template>
             </div>
@@ -186,6 +188,7 @@
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 grid grid-cols-2 gap-4 text-sm">
                 <div>
                     <label class="block text-xs font-semibold text-gray-600 mb-1">Toleransi</label>
+                    @if(user_can_access('production.qc-toleransi'))
                     <div class="flex items-center gap-2">
                         <select name="tolerance_mode" x-model="tolMode" class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
                             <option value="">Ikut bawaan ({{ $bawaan['value'] }} {{ $bawaan['mode'] === 'gram' ? 'g' : '%' }})</option>
@@ -195,10 +198,15 @@
                         <input type="number" step="0.1" min="0.1" name="tolerance_value" x-model.number="tolValue" x-show="tolMode"
                                class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right">
                     </div>
+                    @endif
                     <div class="text-xs text-gray-500 mt-1">= ± <b x-text="g(toleransi())"></b></div>
+                    @if(user_can_access('production.qc-toleransi'))
                     <button type="button" x-show="jumlahLuar()" x-cloak @click="tolMode = 'gram'; tolValue = saranToleransi()"
                             class="mt-2 text-xs border border-amber-400 bg-amber-50 text-amber-800 px-3 py-1.5 rounded-lg font-semibold">
                         Ikuti saran toleransi (± <span x-text="g(saranToleransi())"></span>)</button>
+                    @else
+                    <p class="mt-1 text-[11px] text-gray-500">Toleransi butuh izin QC — Toleransi. Sampel merah: cek dulu, lalu minta pemegang izin menyesuaikan bila memang wajar.</p>
+                    @endif
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-600 mb-1">Catatan batch lembaran</label>
