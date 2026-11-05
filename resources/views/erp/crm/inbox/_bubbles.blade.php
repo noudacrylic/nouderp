@@ -78,7 +78,7 @@
                         @endif
 
                         @if($m->adaKutipan())
-                            @include('erp.crm.inbox._kutipan', ['dikutip' => $m->pesanDikutip(), 'cadangan' => $m->ringkasKutipanWaha()])
+                            @include('erp.crm.inbox._kutipan', ['dikutip' => $m->pesanDikutip(), 'cadangan' => $m->cadanganKutipan()])
                         @endif
 
                         {{-- Media DI ATAS teks, seperti WhatsApp: di HP pelanggan yang

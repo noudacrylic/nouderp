@@ -283,6 +283,106 @@ class ShopeeChatTest extends TestCase
         $this->assertSame(0, $crm->fresh()->unread_count);
     }
 
+    public function test_kutipan_masuk_tampil_dan_menunjuk_pesan_aslinya(): void
+    {
+        config(['crm.dry_run' => false]);
+        $t = now()->subMinutes(3)->timestamp;
+        $this->cv(7, 'pembeli_tujuh', $t, 'q2');
+        $this->pesan[7] = [
+            $this->m('q2', 'text', ['text' => 'Selamat sore'], detik: $t) + ['quoted_msg' => [
+                'message_id' => 'q1', 'message_type' => 'text', 'content' => ['text' => 'iya gimana kak?'],
+            ]],
+            $this->m('q1', 'text', ['text' => 'iya gimana kak?'], toko: true, sumber: 'new_webchat', detik: $t - 60),
+        ];
+        app(ShopeeChatService::class)->tarikBaru($this->shop);
+
+        $asli    = CrmMessage::where('provider_message_id', 'shopee:q1')->sole();
+        $balasan = CrmMessage::where('provider_message_id', 'shopee:q2')->sole();
+        $this->assertTrue($balasan->adaKutipan());
+        $this->assertTrue($balasan->pesanDikutip()->is($asli));
+
+        $this->actingAs($this->saiful)->get(route('crm.inbox.show', CrmConversation::findOrFail($balasan->conversation_id)))
+            ->assertOk()
+            ->assertSee('data-lompat="' . $asli->id . '"', false)
+            ->assertSee('data-bisa-kutip="1"', false)
+            ->assertSee('kutipan terkirim sebagai teks');
+    }
+
+    public function test_kutipan_yang_pesan_aslinya_tak_ada_di_erp_memakai_isi_titipan_shopee(): void
+    {
+        $t = now()->subMinutes(3)->timestamp;
+        $this->cv(7, 'pembeli_tujuh', $t, 'q2');
+        $this->pesan[7] = [
+            $this->m('q2', 'text', ['text' => 'yang ini'], detik: $t) + ['quoted_msg' => [
+                'message_id' => 'tua1', 'message_type' => 'text', 'content' => ['text' => "ukuran   30x40\nkak"],
+            ]],
+            $this->m('q3', 'text', ['text' => 'dan ini'], detik: $t - 1) + ['quoted_msg' => [
+                'message_id' => 'tua2', 'message_type' => 'image', 'content' => ['url' => 'https://cf.shopee.co.id/file/x'],
+            ]],
+        ];
+        app(ShopeeChatService::class)->tarikBaru($this->shop);
+
+        $teks = CrmMessage::where('provider_message_id', 'shopee:q2')->sole();
+        $this->assertNull($teks->pesanDikutip());
+        $this->assertSame('ukuran 30x40 kak', $teks->cadanganKutipan());
+        $this->assertSame('📷 Foto', CrmMessage::where('provider_message_id', 'shopee:q3')->sole()->cadanganKutipan());
+    }
+
+    public function test_balas_mengirim_kutipan_sebagai_teks_di_awal_pesan(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+        $dikutip = CrmMessage::where('provider_message_id', 'shopee:g1')->sole();
+        $this->assertSame('shopee:g1', $dikutip->idKutipan());
+
+        $this->actingAs($this->saiful)
+            ->postJson(route('crm.inbox.balas', $crm), ['teks' => 'ready kak', 'reply_to' => 'shopee:g1'])
+            ->assertOk();
+
+        $teks = "\"ready kak?\"\nready kak";
+        $this->assertSame(['send_message', ['to_id' => 70, 'message_type' => 'text', 'content' => ['text' => $teks]]], $this->kiriman[0]);
+
+        // Tersimpan apa adanya, tanpa kotak kutipan: sama dengan yang diterima pembeli.
+        $keluar = CrmMessage::where('direction', CrmMessage::KELUAR)->sole();
+        $this->assertSame($teks, $keluar->content);
+        $this->assertFalse($keluar->adaKutipan());
+    }
+
+    public function test_balas_gambar_tanpa_teks_tetap_membawa_kutipan(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+
+        $this->actingAs($this->saiful)
+            ->post(route('crm.inbox.balas', $crm), [
+                'reply_to' => 'shopee:g1',
+                'gambar'   => [UploadedFile::fake()->image('desain.jpg', 200, 200)],
+            ], ['Accept' => 'application/json'])
+            ->assertOk();
+
+        $kirim = array_values(array_filter($this->kiriman, fn ($k) => $k[0] === 'send_message'));
+        $this->assertSame('image', $kirim[0][1]['message_type']);
+        $this->assertSame(['text' => '"ready kak?"'], $kirim[1][1]['content']);
+    }
+
+    public function test_kutipan_dari_chat_lain_ditolak_tanpa_mengirim(): void
+    {
+        config(['crm.dry_run' => false]);
+        $crm = $this->chatSiapDibalas();
+        $lain = CrmConversation::findOrCreateFor('880', CrmConversation::KANAL_SHOPEE, (string) self::TOKO, ['display_name' => 'pembeli_lain']);
+        CrmMessage::create([
+            'conversation_id' => $lain->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'text',
+            'content' => 'rahasia pembeli lain', 'provider_message_id' => 'shopee:lain1', 'sent_at' => now(),
+        ]);
+
+        $this->actingAs($this->saiful)
+            ->postJson(route('crm.inbox.balas', $crm), ['teks' => 'halo', 'reply_to' => 'shopee:lain1'])
+            ->assertJson(['success' => false]);
+
+        $this->assertSame([], $this->kiriman);
+        $this->assertSame(0, CrmMessage::where('direction', CrmMessage::KELUAR)->count());
+    }
+
     public function test_gambar_dan_teks_jadi_dua_pesan_karena_shopee_tanpa_caption(): void
     {
         config(['crm.dry_run' => false]);

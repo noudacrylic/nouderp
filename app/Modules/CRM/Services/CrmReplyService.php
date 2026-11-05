@@ -67,8 +67,20 @@ class CrmReplyService
         }
 
         if ($percakapan->shopee()) {
-            // Shopee tak mengenal caption maupun kutipan: gambar dulu, kalimatnya menyusul
-            // sebagai pesan sendiri.
+            // API Shopee mengabaikan kutipan saat mengirim (diuji 5 Nov 2026), jadi kutipan ditulis
+            // sebagai teks di awal balasan. Isinya dari pesan tersimpan di chat ini, dan baris
+            // ini tersimpan apa adanya: yang dilihat CS sama dengan yang diterima pembeli.
+            if ($replyToWamId) {
+                $dikutip = CrmMessage::where('conversation_id', $percakapan->id)
+                    ->where('provider_message_id', $replyToWamId)
+                    ->first();
+                if (! $dikutip) {
+                    return $this->gagal('Pesan yang dikutip tidak ditemukan di chat ini — batalkan kutipannya lalu kirim ulang.');
+                }
+                $teks = trim('"' . $dikutip->ringkas() . "\"\n" . $teks);
+            }
+
+            // Shopee tak mengenal caption: gambar dulu, kalimatnya menyusul sebagai pesan sendiri.
             return $this->denganKunciShopee($percakapan, function () use ($percakapan, $teks, $berkas, $userId) {
                 if (! $berkas) {
                     return $this->kirimTeks($percakapan, $teks, $userId, null);

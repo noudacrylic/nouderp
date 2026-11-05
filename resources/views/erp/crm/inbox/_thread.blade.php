@@ -597,6 +597,9 @@
                                  :class="kutipan?.masuk ? 'text-sky-700' : 'text-emerald-700'"
                                  x-text="kutipan?.nama"></div>
                             <div class="text-[12px] text-gray-600 truncate" x-text="kutipan?.ringkas"></div>
+                            @if($terpilih->shopee())
+                                <div class="text-[11px] text-amber-700">Di Shopee, kutipan terkirim sebagai teks di awal pesan.</div>
+                            @endif
                         </div>
                         <button type="button" @click="batalKutip()" title="Batalkan kutipan (Esc)"
                                 class="px-3 text-gray-400 hover:text-gray-700 text-lg leading-none">&times;</button>

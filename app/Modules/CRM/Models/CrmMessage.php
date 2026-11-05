@@ -71,7 +71,19 @@ class CrmMessage extends Model
      */
     public function idKutipan(): ?string
     {
-        return $this->wam_id ?? $this->idWaha();
+        return $this->wam_id ?? $this->idWaha() ?? $this->idShopee();
+    }
+
+    /**
+     * Id kutipan chat Shopee. API Shopee tidak menerima kutipan saat mengirim (diuji 5 Nov 2026:
+     * kolomnya diabaikan diam-diam), jadi id ini hanya dipakai CrmReplyService untuk mencari
+     * pesan yang dikutip lalu menuliskannya sebagai teks di awal balasan.
+     */
+    private function idShopee(): ?string
+    {
+        $id = (string) $this->provider_message_id;
+
+        return str_starts_with($id, 'shopee:') ? $id : null;
     }
 
     /**
@@ -194,6 +206,12 @@ class CrmMessage extends Model
             return $this->dikutipWamid ?: $this->dikutipVendor;
         }
 
+        if ($id = $this->idKutipanShopee()) {
+            return self::where('conversation_id', $this->conversation_id)
+                ->where('provider_message_id', 'shopee:' . $id)
+                ->first();
+        }
+
         return ($id = $this->idKutipanWaha()) ? self::cariKutipanWaha($this->conversation_id, $id) : null;
     }
 
@@ -206,7 +224,42 @@ class CrmMessage extends Model
      */
     public function adaKutipan(): bool
     {
-        return (bool) $this->reply_to_wam_id || $this->idKutipanWaha() !== null;
+        return (bool) $this->reply_to_wam_id || $this->idKutipanShopee() !== null || $this->idKutipanWaha() !== null;
+    }
+
+    /** Id pesan yang dikutip menurut `quoted_msg` Shopee; dibaca dari raw, jadi riwayat lama ikut. */
+    public function idKutipanShopee(): ?string
+    {
+        $id = data_get($this->raw, 'quoted_msg.message_id');
+
+        return is_scalar($id) && (string) $id !== '' ? (string) $id : null;
+    }
+
+    /** Isi kutipan titipan vendor — dipakai bila pesan aslinya tak ada di ERP. */
+    public function cadanganKutipan(): ?string
+    {
+        return $this->ringkasKutipanShopee() ?? $this->ringkasKutipanWaha();
+    }
+
+    private function ringkasKutipanShopee(): ?string
+    {
+        if ($this->idKutipanShopee() === null) {
+            return null;
+        }
+
+        $isi = data_get($this->raw, 'quoted_msg.content.text');
+        $isi = is_string($isi) ? trim(preg_replace('/\s+/u', ' ', $isi)) : '';
+
+        if ($isi === '') {
+            return match ((string) data_get($this->raw, 'quoted_msg.message_type')) {
+                'image', 'image_with_text' => '📷 Foto',
+                'video'   => '🎬 Video',
+                'sticker' => '[Stiker]',
+                default   => null,
+            };
+        }
+
+        return mb_strlen($isi) > 90 ? mb_substr($isi, 0, 89) . '…' : $isi;
     }
 
     /** Id pendek ('3EB0…') pesan yang dikutip menurut payload WAHA. */
