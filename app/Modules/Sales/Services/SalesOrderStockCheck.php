@@ -5,6 +5,7 @@ namespace App\Modules\Sales\Services;
 use App\Core\Inventory\Product;
 use App\Core\Inventory\ProductStock;
 use App\Core\Inventory\StockReservation;
+use App\Models\CustomerPayment;
 use App\Modules\Sales\Models\SalesOrder;
 
 /**
@@ -77,10 +78,10 @@ class SalesOrderStockCheck
      * dikecualikan: angka stok SKU-nya tidak berarti apa-apa karena unit di bawahnya bisa
      * berbeda barang — kesiapannya dinilai dari order produksinya sendiri.
      *
-     * Stok dialokasikan URUT PESANAN TERTUA: yang dikurangkan hanya reservasi milik SO yang
-     * lebih dulu (id lebih kecil). Sebelumnya semua reservasi SO lain dikurangkan tanpa
-     * memandang umur, sehingga saat satu unit diperebutkan dua pesanan, KEDUANYA melihat
-     * "tersedia 0" dan sama-sama menunggu — padahal yang tertua sudah bisa jalan.
+     * Stok dialokasikan URUT WAKTU BAYAR PERTAMA (lihat waktuAntre): yang dikurangkan hanya
+     * reservasi milik SO yang lebih dulu membayar. Sebelumnya semua reservasi SO lain dikurangkan
+     * tanpa memandang umur, sehingga saat satu unit diperebutkan dua pesanan, KEDUANYA melihat
+     * "tersedia 0" dan sama-sama menunggu — padahal yang terdepan sudah bisa jalan.
      *
      * SO ber-`allow_backorder` selalu kosong: sudah disepakati boleh jalan walau stok kurang.
      *
@@ -121,6 +122,12 @@ class SalesOrderStockCheck
         // Gudang jualan — dipakai saat SO tidak menyebut gudang, meniru cabang else di tersediaUntuk().
         $gudangJual = \App\Core\Inventory\Warehouse::where('is_sellable', true)->pluck('id')->all();
 
+        $antre = $this->waktuAntre(
+            $reservasi->flatten()->pluck('sales_order_id')->filter()->merge(array_keys($needsPerSo))->unique()->values()->all()
+        );
+        // Belum bayar paling belakang; waktu sama atau sama-sama belum bayar: id lebih kecil dulu.
+        $urutan = fn (int $id) => [$antre[$id] ?? '9999-12-31 23:59:59', $id];
+
         $hasil = [];
         foreach ($needsPerSo as $soId => $entry) {
             $so = $entry['so'];
@@ -142,12 +149,10 @@ class SalesOrderStockCheck
                     $stokRows = $stokRows->whereIn('warehouse_id', $gudangJual);
                 }
 
-                // Alokasi tertua duluan: hanya reservasi milik pesanan yang LEBIH DULU yang
-                // mengurangi jatah. Reservasi tanpa pemilik dikurangkan (umurnya tak diketahui,
-                // pilih yang aman). Urutan pakai id — auto-increment, jadi selalu searah waktu
-                // dan tidak butuh query tanggal tambahan.
+                // Hanya reservasi milik pesanan yang LEBIH DULU mengantre yang mengurangi jatah.
+                // Reservasi tanpa pemilik dikurangkan (umurnya tak diketahui, pilih yang aman).
                 $resRows = $resRows->filter(fn ($r) => $r->sales_order_id === null
-                    || (int) $r->sales_order_id < (int) $so->id);
+                    || $urutan((int) $r->sales_order_id) < $urutan((int) $so->id));
 
                 // Kuota preorder TIDAK ikut: itu izin menjual melampaui stok, bukan barang yang
                 // bisa dimasukkan kardus.
@@ -169,6 +174,40 @@ class SalesOrderStockCheck
             if ($kurang) {
                 $hasil[$soId] = $kurang;
             }
+        }
+
+        return $hasil;
+    }
+
+    /**
+     * Waktu sebuah SO mulai mengantre: pembayaran pertama yang masih berlaku. Pesanan yang lama
+     * tidak dibayar tidak boleh mendahului yang sudah membayar hanya karena SO-nya dibuat lebih dulu.
+     *
+     * Tanpa catatan pembayaran: waktu SO dibuat bila sudah terbayar atau tempo (sudah boleh jalan),
+     * selain itu tidak ada (belum mengantre). Memakai created_at karena kolom date bisa tanggal-saja.
+     *
+     * @param  int[] $soIds
+     * @return array<int, string> sales_order_id => 'Y-m-d H:i:s'; SO belum bayar tidak muncul
+     */
+    public function waktuAntre(array $soIds): array
+    {
+        if (! $soIds) {
+            return [];
+        }
+
+        $bayar = CustomerPayment::whereIn('sales_order_id', $soIds)
+            ->where('status', 'posted')
+            ->selectRaw('sales_order_id, MIN(created_at) AS pertama')
+            ->groupBy('sales_order_id')
+            ->pluck('pertama', 'sales_order_id');
+
+        $tanpaCatatan = SalesOrder::whereIn('id', array_diff($soIds, $bayar->keys()->all()))
+            ->where(fn ($q) => $q->where('paid_amount', '>', 0.01)->orWhere('is_tempo', true))
+            ->get(['id', 'created_at']);
+
+        $hasil = $bayar->map(fn ($t) => (string) $t)->all();
+        foreach ($tanpaCatatan as $so) {
+            $hasil[$so->id] = (string) $so->created_at;
         }
 
         return $hasil;

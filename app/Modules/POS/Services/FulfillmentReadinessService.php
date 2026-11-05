@@ -32,6 +32,9 @@ class FulfillmentReadinessService
     /** Kekurangan stok per sales_order_id — diisi rowsFor(), dibaca buildSoRow(). */
     private array $shortageMap = [];
 
+    /** @var array<int, string> sales_order_id => waktu bayar pertama */
+    private array $waktuAntreMap = [];
+
     /** product_id preorder umum yang kurang stok TANPA BOM auto-produksi (set) — diisi rowsFor(). */
     private array $tanpaBomAuto = [];
 
@@ -882,6 +885,8 @@ class FulfillmentReadinessService
             ? app(\App\Modules\Sales\Services\SalesOrderStockCheck::class)->shortagesForFulfillment($orders)
             : [];
 
+        $this->waktuAntreMap = app(\App\Modules\Sales\Services\SalesOrderStockCheck::class)->waktuAntre($soIds);
+
         // Preorder umum yang kurang stok tapi tak punya BOM auto-produksi: pemicu DP & sapuan
         // terjadwal sama-sama melewatinya, jadi kekurangannya tak akan pernah jadi OP sendiri.
         // Kasus TO-8-M2-2 (13 Okt 2026): 46 dipesan, stok 13, ketahuan saat sudah batas kirim.
@@ -1182,7 +1187,8 @@ class FulfillmentReadinessService
                     }
                 }
             }
-            $deadline  = $so->order_date ? \Carbon\Carbon::parse($so->order_date)->addDays($leadDays) : null;
+            $mulai     = $this->tanggalMulaiAntre($so);
+            $deadline  = $mulai ? $mulai->copy()->startOfDay()->addDays($leadDays) : null;
             $isOverdue = $deadline ? $deadline->lt(\Carbon\Carbon::today()) : false;
         }
 
@@ -1375,7 +1381,8 @@ class FulfillmentReadinessService
             'customer'    => $so->namaTujuan() ?: '-',
             'customer_id' => $so->customer_id,
             'date'        => $so->order_date,
-            'date_sort'   => (string) ($so->order_date ?? $so->created_at),
+            // Pesanan toko diurutkan dari mulai mengantre (bayar), bukan tanggal SO dibuat.
+            'date_sort'   => $link ? (string) ($so->order_date ?? $so->created_at) : (string) ($this->tanggalMulaiAntre($so) ?? $so->created_at),
             'bucket'      => $bucket,
             'reason'      => $reason,
             'archived'    => $archived,
@@ -1573,6 +1580,19 @@ class FulfillmentReadinessService
     private function measureDefaults(SalesOrder $so): array
     {
         return app(\App\Modules\Shipping\Services\PackageDefaults::class)->for($so);
+    }
+
+    /**
+     * Dasar batas kirim & urutan: waktu bayar pertama, kecuali SO belum dibayar atau tanggal SO-nya
+     * memang lebih baru. Tanggal dokumen SO sendiri tidak berubah.
+     */
+    private function tanggalMulaiAntre(SalesOrder $so): ?\Carbon\Carbon
+    {
+        $tanggalSo = $so->order_date ? \Carbon\Carbon::parse($so->order_date) : null;
+        $bayar     = $this->waktuAntreMap[$so->id] ?? null;
+        $bayar     = $bayar ? \Carbon\Carbon::parse($bayar) : null;
+
+        return $bayar && (! $tanggalSo || $bayar->gt($tanggalSo)) ? $bayar : $tanggalSo;
     }
 
     /** Kekurangan stok SO ini, dari peta yang sudah dihitung sekali untuk seluruh halaman. */
