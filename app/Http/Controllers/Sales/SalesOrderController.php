@@ -246,6 +246,21 @@ class SalesOrderController extends Controller
         ];
     }
 
+    /**
+     * "Desain gambar oleh Admin Desain" + brief-nya. Brief tanpa centang tidak disimpan supaya
+     * kartu desain tidak pernah membawa brief lama dari pesanan yang sudah tidak didesainkan.
+     */
+    private function desainGambarFromRequest(Request $request): array
+    {
+        if (! $request->boolean('desain_gambar')) {
+            return ['desain_gambar' => false, 'desain_brief' => null];
+        }
+
+        $brief = trim((string) $request->input('desain_brief', ''));
+
+        return ['desain_gambar' => true, 'desain_brief' => $brief !== '' ? mb_substr($brief, 0, 5000) : null];
+    }
+
     public function create(Request $request)
     {
         $customers = Customer::all();
@@ -557,7 +572,8 @@ class SalesOrderController extends Controller
                 'pph_amount' => $pphAmount,
                 'grand_total' => $grandTotal,
                 'allow_backorder' => $request->boolean('allow_backorder'),
-            ] + $this->minDpFromRequest($request) + $this->tempoFromRequest($request, $date));
+            ] + $this->minDpFromRequest($request) + $this->tempoFromRequest($request, $date)
+              + $this->desainGambarFromRequest($request));
 
             if ($replacesId) {
                 $old = SalesOrder::findOrFail($replacesId);
@@ -746,7 +762,8 @@ class SalesOrderController extends Controller
                 'pph_amount' => $pphAmount,
                 'grand_total' => $grandTotal,
                 'allow_backorder' => $request->boolean('allow_backorder'),
-            ] + $this->minDpFromRequest($request) + $this->tempoFromRequest($request, $date));
+            ] + $this->minDpFromRequest($request) + $this->tempoFromRequest($request, $date)
+              + $this->desainGambarFromRequest($request));
 
             $action = $request->input('_after_save', '');
             if (in_array($action, ['post', 'print'], true) && $so->status === SalesOrderStatus::DRAFT->value) {
@@ -1275,6 +1292,26 @@ class SalesOrderController extends Controller
      * Jatuh tempo dihitung dari TANGGAL SO, bukan hari ini, supaya angkanya sama dengan yang
      * muncul di form dan tidak bergeser hanya karena disepakatinya belakangan.
      */
+    /**
+     * Centang "Desain gambar oleh Admin Desain" + brief dari halaman SO — SO yang sudah
+     * dikonfirmasi tidak bisa diedit lewat form, padahal keputusan menyerahkan desain sering
+     * lahir setelah pesanan jadi. Dilepas = kartu desain yang masih terbuka ikut batal.
+     */
+    public function updateDesainGambar(Request $request, $id)
+    {
+        $so = SalesOrder::findOrFail($id);
+
+        if (in_array($so->status, ['void', 'cancelled'], true)) {
+            return back()->with('error', 'Sales Order ini sudah dibatalkan.');
+        }
+
+        $so->fill($this->desainGambarFromRequest($request))->save();
+
+        return back()->with('success', $so->desain_gambar
+            ? 'Desain gambar diserahkan ke Admin Desain — kartunya muncul setelah pembeli membayar (atau SO tempo).'
+            : 'Desain gambar tidak lagi diserahkan ke Admin Desain.');
+    }
+
     /** Ambil ulang rincian potongan marketplace pesanan ini dari Jubelio (hanya membaca Jubelio). */
     public function ambilBiayaMarketplace($id)
     {

@@ -61,6 +61,7 @@ return [
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [
             'admin.desain'             => \App\Modules\Tasks\MejaKerja\Skills\DesainSkill::class,
+            'admin.desain-gambar'      => \App\Modules\Tasks\MejaKerja\Skills\DesainGambarSkill::class,
             'admin.foto-custom'        => \App\Modules\Tasks\MejaKerja\Skills\FotoCustomSkill::class,
             'admin.qc'                 => \App\Modules\Tasks\MejaKerja\Skills\QcSkill::class,
             'admin.purchasing-ready'   => \App\Modules\Tasks\MejaKerja\Skills\PurchasingReadySkill::class,
@@ -76,7 +77,7 @@ return [
         ],
         // Skill berjadwal sendiri — tidak ikut sinkron Meja Kerja tiap 2 menit (memanggil API luar).
         'jadwal_sendiri' => ['admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur-isi-hasil'],
-        'percobaan' => ['admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.selesaikan-pesanan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil'],
+        'percobaan' => ['admin.desain-gambar', 'admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.selesaikan-pesanan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil'],
     ],
 
     // Mengurus pekerjaan pribadi owner: yang butuh keputusannya masuk Meja Owner (satu klik di

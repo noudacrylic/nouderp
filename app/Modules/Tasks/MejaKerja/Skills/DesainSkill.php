@@ -71,6 +71,8 @@ class DesainSkill implements SkillAdmin
             ->join('sales_order_items as i', 'i.sales_order_id', '=', 's.id')
             ->join('products as p', 'p.id', '=', 'i.product_id')
             ->where('s.status', 'confirmed')
+            // Diserahkan owner ke "Desain gambar" → kartunya dari DesainGambarSkill, jangan dobel.
+            ->where('s.desain_gambar', false)
             ->where('s.created_at', '>=', $sejak)
             ->where(fn ($w) => collect($pola)->each(fn ($p) => $w->orWhere('p.sku', 'like', $p)))
             ->whereNotExists(fn ($q) => $q->from('sales_deliveries as d')->whereColumn('d.sales_order_id', 's.id')->where('d.status', 'posted'))
@@ -102,8 +104,9 @@ class DesainSkill implements SkillAdmin
 
     public function keadaan(Task $task): ?array
     {
-        $so = DB::table('sales_orders')->where('id', $task->taskable_id)->first(['status']);
+        $so = DB::table('sales_orders')->where('id', $task->taskable_id)->first(['status', 'desain_gambar']);
         if (!$so || $so->status === 'void') return ['cancelled', 'Pesanan dibatalkan.'];
+        if ($so->desain_gambar) return ['cancelled', 'Diserahkan ke Desain gambar (kartu terpisah).'];
         if (DB::table('sales_deliveries')->where('sales_order_id', $task->taskable_id)->where('status', 'posted')->exists()) {
             return ['done', 'Otomatis: pesanan sudah dikirim.'];
         }

@@ -2685,6 +2685,8 @@ class CrmInboxController extends Controller
             'allow_backorder' => 'nullable|boolean',
             'is_tempo'        => 'nullable|boolean',
             'tempo_days'      => 'nullable|integer|min:0|max:365',
+            'desain_gambar'   => 'nullable|boolean',
+            'desain_brief'    => 'nullable|string|max:5000',
             'delivery_method' => 'nullable|string|max:30',
             'notes'           => 'nullable|string|max:2000',
 
@@ -2760,6 +2762,9 @@ class CrmInboxController extends Controller
             // Termin boleh kosong: tempo tanpa batas waktu tetap sah, yang hilang
             // cuma peringatan jatuh temponya.
             'tempo_days'      => $data['tempo_days'] ?? null,
+            // Gambar cetak dibuat Admin Desain → kartu di meja Desain setelah pembeli membayar.
+            'desain_gambar'   => ! empty($data['desain_gambar']) ? true : null,
+            'desain_brief'    => ! empty($data['desain_gambar']) ? (trim((string) ($data['desain_brief'] ?? '')) ?: null) : null,
         ], fn ($v) => $v !== null);
 
         if ($kesepakatan) {

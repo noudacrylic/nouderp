@@ -1001,6 +1001,8 @@ class ProductionOrderController extends Controller
             ->whereHas('items.product', fn($qp) => $qp->where('sale_type', 'preorder'))
             // SO yang sudah punya faktur (selain void) dianggap selesai → jangan ditampilkan.
             ->whereDoesntHave('invoices', fn($qi) => $qi->where('status', '!=', 'void'))
+            // Tombol "Buat OP" kartu Desain gambar: langsung SO yang dimaksud.
+            ->when($request->filled('so_id'), fn ($query) => $query->whereKey((int) $request->get('so_id')))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
                     $w->where('order_number', 'LIKE', "%{$q}%")

@@ -135,6 +135,8 @@ class SalesOrder extends Model
         'min_dp_percent',
         'min_dp_amount',
         'allow_backorder',
+        'desain_gambar',
+        'desain_brief',
         'is_tempo',
         'tempo_days',
         'tempo_due_date',
@@ -149,6 +151,7 @@ class SalesOrder extends Model
         'measured_at' => 'datetime',
         'ready_at' => 'datetime',
         'allow_backorder' => 'boolean',
+        'desain_gambar' => 'boolean',
         'is_tempo' => 'boolean',
         'tempo_due_date' => 'date',
     ];

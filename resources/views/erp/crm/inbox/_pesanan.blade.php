@@ -752,6 +752,36 @@
             </div>
         </div>
 
+        {{-- ------------------------------------------------- 7 desain gambar --}}
+        {{-- Gambar cetak (stiker, akrilik sign) dibuat Admin Desain dari brief ini; kartunya
+             masuk meja Desain setelah pembeli membayar. Beda dengan desain PRODUK. --}}
+        <div class="rounded-lg border" :class="desainGambar ? 'border-purple-300 bg-purple-50/40' : 'border-gray-200'">
+            <button type="button" @click="lipat('desain')"
+                    class="w-full flex items-center justify-between gap-2 px-2 py-1.5 text-left">
+                <span class="text-[11px] font-bold text-gray-600 uppercase">7 · Desain Gambar</span>
+                <span class="ml-auto text-[11px] truncate" x-show="!buka.desain"
+                      :class="desainGambar ? 'text-purple-700 font-semibold' : 'text-gray-500'"
+                      x-text="desainGambar ? 'Admin Desain' : '—'"></span>
+                <svg class="w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform duration-150"
+                     :class="buka.desain && 'rotate-180'"
+                     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/>
+                </svg>
+            </button>
+            <div x-show="buka.desain" x-cloak class="px-2 pb-2 space-y-2">
+                <label class="flex items-start gap-2 cursor-pointer">
+                    <input type="checkbox" x-model="desainGambar" class="mt-0.5 rounded border-gray-300 text-purple-600">
+                    <span>
+                        <span class="block text-xs text-gray-700">Desain gambar oleh Admin Desain</span>
+                        <span class="block text-[11px] text-gray-400">Kartu muncul di meja Admin Desain setelah pembeli DP / bayar.</span>
+                    </span>
+                </label>
+                <textarea x-show="desainGambar" x-cloak x-model="desainBrief" rows="3"
+                          placeholder="Brief: bahan akrilik, ukuran, warna, isi tulisan/logo…"
+                          class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm resize-none"></textarea>
+            </div>
+        </div>
+
         <button type="button" @click="buat()" :disabled="sibuk"
                 class="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-60">
             <span x-show="!sibuk">Buat SO Draft</span>
@@ -846,6 +876,8 @@
             keepStok: awal.keepStok ?? false,
             tempo: awal.tempo ?? false,
             tempoHari: awal.tempoHari ?? '',
+            desainGambar: awal.desainGambar ?? false,
+            desainBrief: awal.desainBrief ?? '',
             // Bawaan Ambil di Toko; berubah ke Kurir sendiri begitu ongkir dikirim dari tab Ongkir.
             metode: awal.metode ?? 'ambil_toko',
             catatan: awal.catatan ?? '',
@@ -910,13 +942,13 @@
             // — keranjangnya tetap terbaca di tombol "Lanjutkan Keranjang".
             mode: (awal.baris ?? []).length ? 'buat' : 'daftar',
 
-            buka: { pelanggan: true, produk: true, ongkir: false, catatan: false, lain: false, ringkas: true },
+            buka: { pelanggan: true, produk: true, ongkir: false, catatan: false, lain: false, ringkas: true, desain: false },
 
             init() {
                 if (this.pesanan.length || this.penawaran.length) this.mode = 'daftar';
 
                 ['namaPelanggan', 'baris', 'diskonBelanja', 'diskonBelanjaJenis', 'minDp',
-                 'keepStok', 'tempo', 'tempoHari', 'metode', 'catatan', 'alamat', 'ongkir', 'ongkirSidik',
+                 'keepStok', 'tempo', 'tempoHari', 'desainGambar', 'desainBrief', 'metode', 'catatan', 'alamat', 'ongkir', 'ongkirSidik',
                  'diskonOngkir', 'diskonOngkirJenis', 'diskonBelanjaManual', 'diskonOngkirManual']
                     .forEach(k => this.$watch(k, () => this.simpanNanti()));
 
@@ -1290,6 +1322,7 @@
                             diskonOngkirManual: this.diskonOngkirManual,
                             minDp: this.minDp, keepStok: this.keepStok,
                             tempo: this.tempo, tempoHari: this.tempoHari,
+                            desainGambar: this.desainGambar, desainBrief: this.desainBrief,
                             metode: this.metode, catatan: this.catatan, alamat: this.alamat,
                             ongkir: this.ongkir, ongkirSidik: this.ongkirSidik,
                         },
@@ -1376,6 +1409,8 @@
                     tempo_days: this.tempo && this.tempoHari !== '' ? Number(this.tempoHari) : null,
                     delivery_method: this.metode,
                     notes: this.catatan.trim() || null,
+                    desain_gambar: this.desainGambar,
+                    desain_brief: this.desainGambar ? ((this.desainBrief || '').trim() || null) : null,
                 };
 
                 // Alamat ikut hanya untuk pesanan yang DIKIRIM; barang yang
@@ -1450,6 +1485,8 @@
                     this.keepStok = false;
                     this.tempo = false;
                     this.tempoHari = '';
+                    this.desainGambar = false;
+                    this.desainBrief = '';
                     this.metode = 'ambil_toko';
 
                     window.dispatchEvent(new CustomEvent('pesanan-dibuat'));

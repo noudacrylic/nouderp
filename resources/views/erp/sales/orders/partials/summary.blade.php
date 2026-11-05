@@ -123,6 +123,40 @@
     </div>
 @endif
 
+{{-- Desain gambar oleh Admin Desain — bisa dinyalakan setelah SO dikonfirmasi (form SO terkunci). --}}
+@if($so->status !== 'void')
+    <div class="mt-3 p-3 rounded-lg border text-sm {{ $so->desain_gambar ? 'bg-purple-50 border-purple-200' : 'bg-gray-50 border-gray-200' }}"
+         x-data="{ desain: @js((bool) $so->desain_gambar) }">
+        <form method="POST" action="{{ route('sales.orders.desain-gambar', $so->id) }}">
+            @csrf
+            <input type="hidden" name="desain_gambar" value="0">
+            <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" name="desain_gambar" value="1" x-model="desain"
+                    @change="if (!desain) $el.form.submit()"
+                    class="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-400 cursor-pointer">
+                <span class="flex-1">
+                    <span class="block font-bold {{ $so->desain_gambar ? 'text-purple-800' : 'text-gray-700' }}">Desain gambar oleh Admin Desain</span>
+                    <span class="block text-[11px] text-gray-500 mt-0.5">
+                        @if($so->desain_gambar)
+                            Admin Desain mendesain sampai disetujui pelanggan, lalu membuat OP. Kartunya muncul setelah pembeli membayar (atau SO tempo).
+                        @else
+                            Centang bila gambar cetak pesanan ini (stiker, akrilik sign) dibuat Admin Desain.
+                        @endif
+                    </span>
+                </span>
+            </label>
+            <div x-show="desain" x-cloak class="mt-2 pl-6 space-y-1.5">
+                <textarea name="desain_brief" rows="3" placeholder="Brief: bahan akrilik, ukuran, warna, isi tulisan/logo…"
+                    class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white resize-y focus:ring-purple-400 focus:border-purple-400">{{ $so->desain_brief }}</textarea>
+                <button type="submit"
+                    class="text-[11px] px-2.5 py-1 rounded border border-purple-300 text-purple-700 hover:bg-purple-100 font-semibold">
+                    {{ $so->desain_gambar ? 'Simpan brief' : 'Serahkan ke Admin Desain' }}
+                </button>
+            </div>
+        </form>
+    </div>
+@endif
+
 {{-- Kesepakatan keep stock + kondisi stok saat ini. Ada di sini karena kesepakatannya
      sering lahir setelah SO dikonfirmasi (pembeli menelepon saat pembayarannya tertahan),
      dan SO yang sudah dikonfirmasi tidak bisa diedit lewat form. --}}

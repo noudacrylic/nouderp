@@ -617,6 +617,14 @@
                         <button type="button" @click="addStep()"
                                 class="text-xs text-blue-600 font-bold hover:text-blue-700">+ Tambah</button>
                     </div>
+                    {{-- Template langkah pesanan Desain gambar (akrilik sign): Admin Desain cukup memilih. --}}
+                    <div x-show="type === 'custom' && templateLangkah.length" x-cloak class="mb-3 flex flex-wrap gap-1.5">
+                        <template x-for="t in templateLangkah" :key="t.kunci">
+                            <button type="button" @click="pakaiTemplateLangkah(t.kunci)" :title="t.keterangan"
+                                    class="text-[11px] px-2 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 font-semibold"
+                                    x-text="t.label"></button>
+                        </template>
+                    </div>
                     <div class="space-y-2">
                         <template x-for="(s, idx) in steps" :key="idx">
                             <div class="flex gap-2 items-center p-2.5 bg-gray-50 rounded-xl">
@@ -996,6 +1004,18 @@ $bomOptions = $boms->map(fn ($b) => [
     'typical_cycles' => (int) ($b->typical_cycles ?? 1),
 ])->values();
 @endphp
+@php
+// Template langkah akrilik sign (pesanan Desain gambar). Departemen dicocokkan dari awal namanya;
+// yang tidak ada di master dilewati supaya template tak pernah mengirim departemen kosong.
+$deptAwalan = fn (string $awalan) => $departments->first(fn ($d) => stripos($d->name, $awalan) === 0);
+$templateLangkah = collect([
+    ['kunci' => 'sign-kecil', 'label' => 'Akrilik sign kecil', 'keterangan' => 'CNC bahan → Assembling tempel → CNC potong', 'langkah' => ['CNC', 'Assembling', 'CNC']],
+    ['kunci' => 'sign-besar', 'label' => 'Akrilik sign besar (1 lembar A3)', 'keterangan' => 'CNC bahan → Assembling tempel', 'langkah' => ['CNC', 'Assembling']],
+])->map(fn ($t) => $t + ['steps' => collect($t['langkah'])->map($deptAwalan)->filter()
+        ->map(fn ($d) => ['name' => $d->name, 'department_id' => (string) $d->id, 'department_name' => $d->name])->values()])
+  ->filter(fn ($t) => count($t['steps']) === count($t['langkah']))->values();
+@endphp
+window.__poTemplateLangkah = @json($templateLangkah);
 window.__poBoms = @json($bomOptions);
 window.__poByproducts = @json($byproductOptions ?? []);
 window.__poRawMaterials = @json($rawMaterialOptions ?? []);
@@ -1040,6 +1060,7 @@ function orderForm() {
         materials: [],
         outputs: [],
         steps: [],
+        templateLangkah: window.__poTemplateLangkah || [],
         costs: [],
         images: [],
         _fileList: [],
@@ -1070,6 +1091,10 @@ function orderForm() {
             this.recalcPercentages();
         },
         addStep()     { this.steps.push({ name: '', department_id: '', department_name: '' }); },
+        pakaiTemplateLangkah(kunci) {
+            const t = this.templateLangkah.find(x => x.kunci === kunci);
+            if (t) this.steps = t.steps.map(s => ({ ...s }));
+        },
         addCost()     { this.costs.push({ description: '', amount: '', cash_account_id: '' }); },
 
         // ── Persentase output: utama = sisa (100 − Σ sampingan). ──
@@ -1526,6 +1551,22 @@ function orderForm() {
         async prefillFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const t = params.get('type');
+
+            // Kartu "Desain gambar" (Meja Kerja) → OP custom untuk SO itu, hasil terisi dari SO.
+            if (t === 'custom') {
+                this.type = 'custom';
+                const soId = params.get('so');
+                if (!soId) return;
+                await this.$nextTick();      // biarkan watch type selesai membersihkan SO
+                try {
+                    const res = await fetch(`/erp/production/ajax/sales-orders?so_id=${encodeURIComponent(soId)}`);
+                    const list = await res.json();
+                    const so = list.find(x => String(x.id) === String(soId));
+                    if (so) this.selectSalesOrder(so);
+                    else this.submitError = 'Semua barang pesanan ini sudah masuk OP, atau SO-nya belum dikonfirmasi.';
+                } catch (e) { /* abaikan; user bisa cari SO manual */ }
+                return;
+            }
 
             // Retur / Barang Perbaikan → OP Perbaikan. `kelompok=ID` (tombol "Buat OP" di tab
             // Kelompok) langsung memilih kelompoknya.

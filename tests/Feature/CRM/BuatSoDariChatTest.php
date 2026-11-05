@@ -319,6 +319,20 @@ class BuatSoDariChatTest extends TestCase
         $this->assertNull($so->tempo_days);
     }
 
+    /** Bagian 7: desain gambar diserahkan ke Admin Desain beserta brief-nya. */
+    public function test_desain_gambar_dan_brief_tersimpan_di_so(): void
+    {
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.inbox.buat-so', $this->percakapan()), $this->muatan([
+                'desain_gambar' => true, 'desain_brief' => ' Akrilik 2mm, logo dari chat ',
+            ]))
+            ->assertOk();
+
+        $so = SalesOrder::first();
+        $this->assertTrue($so->desain_gambar);
+        $this->assertSame('Akrilik 2mm, logo dari chat', $so->desain_brief);
+    }
+
     /* --------------------------------------------------------- daftar pesanan */
 
     /**

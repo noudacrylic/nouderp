@@ -1153,6 +1153,7 @@ Route::prefix('erp/sales')->name('sales.')->group(function () {
     Route::post('/orders/{id}/update-notes', [SalesOrderController::class, 'updateNotes'])->name('orders.update-notes');
     Route::post('/orders/{id}/keep-stock', [SalesOrderController::class, 'updateBackorder'])->name('orders.keep-stock');
     Route::post('/orders/{id}/tempo',      [SalesOrderController::class, 'updateTempo'])->name('orders.tempo');
+    Route::post('/orders/{id}/desain-gambar', [SalesOrderController::class, 'updateDesainGambar'])->name('orders.desain-gambar');
     Route::post('/orders/{id}/biaya-marketplace', [SalesOrderController::class, 'ambilBiayaMarketplace'])->name('orders.biaya-marketplace');
     Route::post('/quotations/{id}/update-notes', [QuotationController::class, 'updateNotes'])->name('quotations.update-notes');
     Route::post('/invoices/{id}/update-notes', [\App\Http\Controllers\DebugInvoiceController::class, 'updateNotes'])->name('invoices.update-notes');
