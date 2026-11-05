@@ -31,9 +31,6 @@ class QcService
     /** Tipe OP yang tidak ikut QC timbang: perbaikan/garansi punya alurnya sendiri. */
     private const TIPE_DIKECUALIKAN = ['perbaikan', 'garansi', 'repair'];
 
-    /** @var string[] langkah lain yang dijeda otomatis oleh penimbangan terakhir */
-    public array $jedaOtomatis = [];
-
     // ───────────────────────────── toleransi & acuan ─────────────────────────────
 
     /** Toleransi bawaan: layar Setting → config. */
@@ -232,8 +229,9 @@ class QcService
     }
 
     /**
-     * Tambahkan langkah "QC Timbang" di ujung OP bila hasilnya wajib QC. Pelaksananya divisi
-     * di Setting QC; kosong = divisi langkah sebelumnya (sementara QC dikerjakan Assembling).
+     * Tambahkan langkah "QC Timbang" di ujung OP bila hasilnya wajib QC. Langkah ini hanya penanda
+     * bahwa OP belum boleh ditutup: QC dikerjakan Admin Layanan lewat Meja Kerja, tanpa timer dan
+     * tidak tampil di papan produksi. department_id terisi karena kolomnya wajib.
      */
     public function pastikanLangkahQc(ProductionOrder $order): ?ProductionOrderStep
     {
@@ -246,12 +244,10 @@ class QcService
             return null;
         }
 
-        $deptId = ProductionSetting::first()?->qc_department_id ?: $terakhir->department_id;
-
         return ProductionOrderStep::create([
             'production_order_id' => $order->id,
             'step_number'         => (int) $terakhir->step_number + 1,
-            'department_id'       => $deptId,
+            'department_id'       => $terakhir->department_id,
             'is_qc'               => true,
             'name'                => 'QC Timbang',
             'status'              => 'pending',
@@ -295,15 +291,12 @@ class QcService
      * Lulus → menutup satu catatan gagal tertua; gagal → hanya dicatat, tidak menambah
      * antrean perbaikan (bungkusnya sama).
      *
-     * Penimbangan menjalankan timer langkah QC (lihat ProductionOrderService::runQcTimer);
-     * keterangan langkah lain yang ikut dijeda ditaruh di $this->jedaOtomatis.
-     *
      * Produk dengan beberapa sampel wajib menyebut $profilId; sampelnya boleh berganti di tengah OP
      * dan tiap penimbangan mencatat sampel yang dipakai.
      */
-    public function catatTimbang(int $orderId, int $productId, float $aktual, string $mode, string $source, ?string $raw, ?int $userId, array $executorIds = [], ?int $profilId = null): QcCheck
+    public function catatTimbang(int $orderId, int $productId, float $aktual, string $mode, string $source, ?string $raw, ?int $userId, ?int $profilId = null): QcCheck
     {
-        return DB::transaction(function () use ($orderId, $productId, $aktual, $mode, $source, $raw, $userId, $executorIds, $profilId) {
+        return DB::transaction(function () use ($orderId, $productId, $aktual, $mode, $source, $raw, $userId, $profilId) {
             $order = ProductionOrder::with('outputs')->lockForUpdate()->findOrFail($orderId);
 
             if (!in_array($order->status, self::STATUS_BOLEH_TIMBANG, true)) {
@@ -359,10 +352,7 @@ class QcService
                 $menunggu->update(['repair_status' => 'diperbaiki', 'repaired_by_check_id' => $check->id]);
             }
 
-            $langkah = $this->pastikanLangkahQc($order);
-            $this->jedaOtomatis = $langkah
-                ? app(ProductionOrderService::class)->runQcTimer($langkah->id, $executorIds)
-                : [];
+            $this->pastikanLangkahQc($order);
 
             return $check;
         });

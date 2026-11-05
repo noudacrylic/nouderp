@@ -113,8 +113,6 @@ class QcAcuanController extends Controller
         ]]);
 
         return view('erp.production.qc.acuan.toleransi', [
-            'divisi'   => \App\Modules\Production\Models\Department::orderBy('name')->get(['id', 'name']),
-            'divisiQc' => ProductionSetting::first()?->qc_department_id,
             'bawaan'   => $this->qc->toleransiBawaan(),
             'profiles' => $profiles,
             'info'     => $info,
@@ -126,14 +124,12 @@ class QcAcuanController extends Controller
         $data = $request->validate([
             'mode'  => 'required|in:gram,persen',
             'value' => 'required|numeric|min:0.1|max:1000',
-            'qc_department_id' => 'nullable|integer|exists:production_departments,id',
         ]);
 
         $s = ProductionSetting::first() ?? new ProductionSetting();
         $s->forceFill([
             'qc_tolerance_mode'  => $data['mode'],
             'qc_tolerance_value' => $data['value'],
-            'qc_department_id'   => $data['qc_department_id'] ?? null,
         ])->save();
 
         return back()->with('success', 'Setting QC disimpan.');

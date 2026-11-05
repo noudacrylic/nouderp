@@ -46,8 +46,7 @@ class QcController extends Controller
                 ->latest('id')->limit(30)->get()
             : collect();
 
-        // Langkah QC OP ini (timer) + calon penimbang dari divisi pelaksananya.
-        $langkah = $order ? $order->steps()->with(['department.selectableExecutors', 'executors'])->where('is_qc', true)->first() : null;
+        $langkah = $order ? $order->steps()->where('is_qc', true)->first() : null;
         $produksiSelesai = $order
             ? !$order->steps()->where('is_qc', false)->where('status', '!=', 'completed')->exists()
             : false;
@@ -65,7 +64,6 @@ class QcController extends Controller
             'ringkasan'     => $ringkasan,
             'riwayat'       => $riwayat,
             'langkah'       => $langkah,
-            'penimbang'     => $langkah?->department?->selectableExecutors->map(fn ($e) => ['id' => $e->id, 'name' => $e->name])->values() ?? collect(),
             'produksiSelesai' => $produksiSelesai,
             'isAdmin'       => in_array($request->user()?->role, ['super_admin', 'admin'], true),
         ]);
@@ -82,19 +80,16 @@ class QcController extends Controller
             'source'              => 'required|in:timbangan,simulasi,manual',
             'qc_profile_id'       => 'nullable|integer',
             'raw'                 => 'nullable|string|max:4000',
-            'executor_ids'        => 'nullable|array',
-            'executor_ids.*'      => 'integer|exists:production_department_executors,id',
         ]);
 
         try {
             $check = $this->qc->catatTimbang($data['production_order_id'], $data['product_id'], (float) $data['gram'],
-                $data['mode'], $data['source'], $data['raw'] ?? null, $request->user()?->id, $data['executor_ids'] ?? [], $data['qc_profile_id'] ?? null);
+                $data['mode'], $data['source'], $data['raw'] ?? null, $request->user()?->id, $data['qc_profile_id'] ?? null);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'pesan' => $e->getMessage()], 422);
         }
 
         $order = ProductionOrder::with('outputs')->find($data['production_order_id']);
-        $langkah = $order->steps()->where('is_qc', true)->first();
 
         return response()->json([
             'success'   => true,
@@ -111,8 +106,6 @@ class QcController extends Controller
                 'sampel'    => $check->profil?->label,
             ],
             'ringkasan' => $this->qc->ringkasan($order, $data['product_id']),
-            'timer'     => $langkah?->status,
-            'jeda'      => $this->qc->jedaOtomatis,
         ]);
     }
 

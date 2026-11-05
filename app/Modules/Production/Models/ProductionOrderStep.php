@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class ProductionOrderStep extends Model
 {
     protected $fillable = [
-        'production_order_id', 'bom_step_id', 'step_number', 'department_id', 'is_qc',
+        'production_order_id', 'bom_step_id', 'step_number', 'department_id', 'is_qc', 'qc_diminta_at',
         'name', 'description', 'status', 'executor_id',
         'started_at', 'started_effective_at', 'paused_at', 'completed_at', 'notes',
         // Diisi saat pelaksana diganti di tengah jalan — lihat PergantianPelaksanaService.
@@ -17,6 +17,7 @@ class ProductionOrderStep extends Model
     protected $casts = [
         'step_number'           => 'integer',
         'is_qc'                 => 'boolean',
+        'qc_diminta_at'         => 'datetime',
         'started_at'            => 'datetime',
         'started_effective_at'  => 'datetime',
         'paused_at'             => 'datetime',

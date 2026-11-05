@@ -202,12 +202,12 @@ class QcTimbangTest extends TestCase
         [$tebal, $tipis] = $this->duaSampel();
         $order = $this->op();
 
-        $a = $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tipis->id);
+        $a = $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, $tipis->id);
         $this->assertSame(QcCheck::LULUS, $a->result);
         $this->assertSame($tipis->id, $a->qc_profile_id);
 
         // Sampel boleh berganti di tengah OP; tiap catatan menyimpan sampelnya.
-        $b = $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tebal->id);
+        $b = $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, $tebal->id);
         $this->assertSame(QcCheck::KURANG, $b->result);
         $this->assertSame($tebal->id, $b->qc_profile_id);
         $this->assertSame(855.0, $b->target_gram);
@@ -227,7 +227,7 @@ class QcTimbangTest extends TestCase
 
         $tipis->update(['is_active' => false]);
         try {
-            $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tipis->id);
+            $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, $tipis->id);
             $this->fail('Sampel nonaktif harus ditolak.');
         } catch (\Exception $e) {
             $this->assertStringContainsString('tidak aktif', $e->getMessage());
@@ -243,7 +243,7 @@ class QcTimbangTest extends TestCase
 
         $this->assertNull($this->qc->sampelTerpilih($order->id, $this->produk));
 
-        $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, [], $tipis->id);
+        $this->qc->catatTimbang($order->id, $this->produk, 760, 'normal', 'simulasi', null, null, $tipis->id);
         $this->assertSame($tipis->id, $this->qc->sampelTerpilih($order->id, $this->produk)->id);
         $this->assertSame($tebal->id, $this->qc->sampelTerpilih($order->id, $this->produk, $tebal->id)->id);
     }

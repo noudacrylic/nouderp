@@ -25,15 +25,6 @@
             <p class="text-[11px] text-gray-500">Panel akrilik bervariasi beberapa persen karena tebal lembaran — persen cocok untuk paket panel.
                 Kantong komponen kecil sebaiknya diberi toleransi gram yang ketat di profilnya sendiri.</p>
 
-            <div class="pt-3 border-t border-gray-100 font-bold text-gray-700 text-sm">Divisi pelaksana QC</div>
-            <select name="qc_department_id" class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
-                <option value="">Ikut divisi langkah terakhir (mis. Assembling)</option>
-                @foreach($divisi as $d)
-                    <option value="{{ $d->id }}" @selected((int) $divisiQc === $d->id)>{{ $d->name }}</option>
-                @endforeach
-            </select>
-            <p class="text-[11px] text-gray-500">Langkah "QC Timbang" ditambahkan otomatis di ujung OP yang hasilnya ber-profil QC, masuk antrean divisi ini.
-                Penimbang dipilih dari eksekutor divisi ini. Berlaku untuk langkah QC yang dibuat setelah disimpan.</p>
             <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold">Simpan</button>
         </form>
 

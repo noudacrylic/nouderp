@@ -10,15 +10,17 @@ use App\Modules\Production\Models\DepartmentExecutor;
 use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Production\Models\ProductionOrderOutput;
 use App\Modules\Production\Models\ProductionOrderStep;
-use App\Modules\Production\Models\QcCheck;
 use App\Modules\Production\Services\ProductionOrderService;
 use App\Modules\Production\Services\QcService;
+use App\Modules\Tasks\MejaKerja\Skills\QcSkill;
+use App\Modules\Tasks\Models\Task;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * QC Timbang sebagai langkah terakhir OP (23 Okt 2026): ditambahkan otomatis, timernya
- * berjalan dari penimbangan, dan langkah QC menjadi penutup produksi.
+ * QC Timbang sebagai pemeriksaan (5 Nov 2026), bukan kerja produksi: langkahnya hanya penanda OP
+ * belum boleh ditutup, tanpa timer & penimbang, tidak tampil di papan produksi, dan dikerjakan
+ * Admin Layanan lewat Meja Kerja.
  */
 class QcLangkahTest extends TestCase
 {
@@ -74,91 +76,83 @@ class QcLangkahTest extends TestCase
         return $order->steps()->where('step_number', $nomor)->firstOrFail();
     }
 
-    public function test_mulai_produksi_menambah_langkah_qc_di_ujung(): void
+    private function mulai(ProductionOrder $order): ProductionOrderStep
+    {
+        $asm = $this->langkah($order, 1);
+        $this->svc->startStep($asm->id, [$this->budi->id]);
+
+        return $asm->fresh();
+    }
+
+    private function kartu(): array
+    {
+        return array_values(iterator_to_array(app(QcSkill::class)->pindai(now()->subDay()), false));
+    }
+
+    public function test_mulai_produksi_menambah_langkah_qc_dan_assembling_bukan_penutup(): void
     {
         $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
+        $asm = $this->mulai($order);
 
         $qc = $this->langkah($order, 2);
         $this->assertTrue($qc->is_qc);
         $this->assertSame('pending', $qc->status);
-        $this->assertSame($this->assembling->id, $qc->department_id, 'sementara ikut divisi langkah terakhir');
 
-        // Selesai Assembling bukan lagi penutup: OP berlanjut ke QC.
-        $this->assertFalse($this->svc->completeStep($this->langkah($order, 1)->id));
+        $this->assertFalse($this->svc->completeStep($asm->id));
         $this->assertSame('in_progress', $order->fresh()->status);
     }
 
-    public function test_divisi_qc_dari_setting(): void
-    {
-        $qcDept = Department::create(['code' => 'QC', 'name' => 'QC', 'type' => 'produksi', 'is_active' => true]);
-        ProductionSetting::first()->forceFill(['qc_department_id' => $qcDept->id])->save();
-
-        $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
-
-        $this->assertSame($qcDept->id, $this->langkah($order, 2)->department_id);
-    }
-
-    public function test_timbang_pertama_menjalankan_timer_qc(): void
+    public function test_menimbang_tanpa_penimbang_dan_tanpa_timer(): void
     {
         $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
-        $this->svc->completeStep($this->langkah($order, 1)->id);
-
-        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null, [$this->budi->id]);
-
-        $qc = $this->langkah($order, 2);
-        $this->assertSame('in_progress', $qc->status);
-        $this->assertSame([$this->budi->id], $qc->executors()->pluck('production_department_executors.id')->all());
-        $this->assertSame('started', $qc->timeLogs()->first()->event_type);
-
-        // Jeda (hasil sebagian masuk stok) → timbang lagi melanjutkan timer.
-        $this->svc->pauseQcTimer($order->id);
-        $this->assertSame('paused', $qc->fresh()->status);
-        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null, [$this->budi->id]);
-        $this->assertSame('in_progress', $qc->fresh()->status);
-        $this->assertSame('resumed', $qc->timeLogs()->get()->last()->event_type);
-    }
-
-    public function test_tanpa_penimbang_ditolak_dan_tidak_tercatat(): void
-    {
-        $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
-        $this->svc->completeStep($this->langkah($order, 1)->id);
-
-        try {
-            $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null, []);
-            $this->fail('Seharusnya ditolak');
-        } catch (\Exception $e) {
-            $this->assertStringContainsString('penimbang', $e->getMessage());
-        }
-        $this->assertSame(0, QcCheck::count());
-    }
-
-    public function test_qc_sebagian_menjeda_assembling_penimbang(): void
-    {
-        $order = $this->op();
-        $asm = $this->langkah($order, 1);
-        $this->svc->startStep($asm->id, [$this->budi->id]);
-
-        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null, [$this->budi->id]);
-
-        $this->assertSame('paused', $asm->fresh()->status, 'satu jam tidak dihitung dua kali');
-        $this->assertSame('in_progress', $this->langkah($order, 2)->status);
-        $this->assertCount(1, $this->qc->jedaOtomatis);
-
-        // Assembling dilanjutkan lalu diselesaikan — QC yang sudah jalan tidak kembali ke antre.
-        $asm->update(['status' => 'in_progress', 'paused_at' => null]); // resumeStep tak mengenal mode testing
+        $asm = $this->mulai($order);
         $this->svc->completeStep($asm->id);
-        $this->assertSame('in_progress', $this->langkah($order, 2)->status);
+
+        $user = \App\Models\User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $check = $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, $user->id);
+
+        $this->assertSame($user->id, $check->user_id, 'Yang menimbang tercatat dari akun yang login.');
+        $qc = $this->langkah($order, 2);
+        $this->assertSame('pending', $qc->status, 'Tidak ada status berjalan.');
+        $this->assertNull($qc->started_at);
+        $this->assertSame(0, $qc->executors()->count());
+        $this->assertSame(0, $qc->timeLogs()->count(), 'Kalender Produksi membaca log ini.');
+    }
+
+    public function test_menimbang_tidak_menjeda_langkah_produksi_yang_berjalan(): void
+    {
+        $order = $this->op();
+        $asm = $this->mulai($order);
+
+        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null);
+
+        $this->assertSame('in_progress', $asm->fresh()->status);
+    }
+
+    public function test_alur_penuh_sampai_op_tertutup_tanpa_jejak_waktu_qc(): void
+    {
+        $order = $this->op(2);
+        $asm = $this->mulai($order);
+        $this->svc->completeStep($asm->id);
+        $qc = $this->langkah($order, 2);
+
+        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null);
+        $this->qc->catatTimbang($order->id, $this->produk, 856, 'normal', 'simulasi', null, null);
+
+        $out = $order->outputs->first()->id;
+        $this->assertTrue($this->svc->completeStep($qc->id, null, null, [['output_id' => $out, 'qty_produced' => 2]]));
+        $this->assertSame('completed', $order->fresh()->status);
+        $this->assertSame(0, $qc->timeLogs()->count());
+
+        $this->expectExceptionMessage('belum dimulai');
+        $this->svc->completeStep($qc->id);
     }
 
     public function test_tutup_qc_ditolak_selama_produksi_belum_selesai(): void
     {
         $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
-        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null, [$this->budi->id]);
+        $this->mulai($order);
+        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null);
 
         $this->expectExceptionMessage('belum selesai');
         $this->svc->completeStep($this->langkah($order, 2)->id, null, null,
@@ -168,10 +162,10 @@ class QcLangkahTest extends TestCase
     public function test_tutup_qc_ditolak_melebihi_lulus_atau_ada_perbaikan(): void
     {
         $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
-        $this->svc->completeStep($this->langkah($order, 1)->id);
-        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null, [$this->budi->id]);
-        $this->qc->catatTimbang($order->id, $this->produk, 735, 'normal', 'simulasi', null, null, [$this->budi->id]);
+        $asm = $this->mulai($order);
+        $this->svc->completeStep($asm->id);
+        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null);
+        $this->qc->catatTimbang($order->id, $this->produk, 735, 'normal', 'simulasi', null, null);
 
         $qc = $this->langkah($order, 2);
         $out = $order->outputs->first()->id;
@@ -189,18 +183,91 @@ class QcLangkahTest extends TestCase
         } catch (\Exception $e) {
             $this->assertStringContainsString('menunggu perbaikan', $e->getMessage());
         }
-        $this->assertSame('in_progress', $qc->fresh()->status);
+        $this->assertSame('pending', $qc->fresh()->status);
 
-        // Diperbaiki → lulus → QC boleh ditutup (OP selesai semua langkah).
-        $this->qc->catatTimbang($order->id, $this->produk, 855, 'perbaikan', 'simulasi', null, null, [$this->budi->id]);
+        $this->qc->catatTimbang($order->id, $this->produk, 855, 'perbaikan', 'simulasi', null, null);
         $this->assertTrue($this->svc->completeStep($qc->id, null, null, [['output_id' => $out, 'qty_produced' => 2]]));
-        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_masuk_stok_sebagian_boleh_selagi_produksi_berjalan_dan_setelah_produksi_selesai(): void
+    {
+        $order = $this->op();
+        $asm = $this->mulai($order);
+        $metode = new \ReflectionMethod($this->svc, 'assertPartialAllowed');
+
+        $metode->invoke($this->svc, $order->fresh(['steps']));   // selagi Assembling jalan
+
+        $this->svc->completeStep($asm->id);
+        $metode->invoke($this->svc, $order->fresh(['steps']));   // setelah Assembling selesai
+        $this->addToAssertionCount(2);
+    }
+
+    public function test_kartu_qc_muncul_setelah_produksi_selesai_untuk_admin_layanan(): void
+    {
+        $order = $this->op();
+        $asm = $this->mulai($order);
+        $this->assertSame([], $this->kartu(), 'Produksi jalan & tidak ada permintaan: belum ada kartu.');
+
+        $this->svc->completeStep($asm->id);
+
+        $kartu = $this->kartu();
+        $this->assertCount(1, $kartu);
+        $this->assertSame('qc:step:' . $this->langkah($order, 2)->id, $kartu[0]['kunci']);
+        $this->assertStringStartsWith('QC OP-', $kartu[0]['judul']);
+        $this->assertSame('layanan', app(QcSkill::class)->peranBawaan());
+    }
+
+    public function test_minta_qc_sebagian_memberi_kartu_lalu_selesai_saat_masuk_stok(): void
+    {
+        $order = $this->op();
+        $asm = $this->mulai($order);
+        $qc = $this->langkah($order, 2);
+
+        $this->svc->mintaQcSebagian($asm->id);
+        $this->assertNotNull($qc->fresh()->qc_diminta_at);
+        $this->assertSame('in_progress', $asm->fresh()->status, 'Timer Assembling tidak terganggu.');
+
+        $kartu = $this->kartu();
+        $this->assertCount(1, $kartu);
+        $this->assertStringStartsWith('QC sebagian ', $kartu[0]['judul']);
+        $this->assertTrue($kartu[0]['meta']['sebagian']);
+
+        $task = new Task(['taskable_id' => $order->id, 'meta' => $kartu[0]['meta']]);
+        $this->assertNull(app(QcSkill::class)->keadaan($task), 'Masih menunggu ditimbang.');
+
+        // Hasil sebagian masuk stok (jalur finalizePartial) → permintaan terjawab.
+        $qc->fresh()->update(['qc_diminta_at' => null]);
+        $this->assertSame('done', app(QcSkill::class)->keadaan($task)[0]);
+        $this->assertSame([], $this->kartu());
+    }
+
+    public function test_kartu_sebagian_selesai_bila_produksi_rampung_dan_diganti_kartu_penutup(): void
+    {
+        $order = $this->op();
+        $asm = $this->mulai($order);
+        $this->svc->mintaQcSebagian($asm->id);
+        $task = new Task(['taskable_id' => $order->id, 'meta' => $this->kartu()[0]['meta']]);
+
+        $this->svc->completeStep($asm->id);
+
+        $this->assertSame('done', app(QcSkill::class)->keadaan($task)[0]);
+        $this->assertFalse($this->kartu()[0]['meta']['sebagian']);
+    }
+
+    public function test_minta_qc_ditolak_dari_langkah_yang_tidak_berjalan(): void
+    {
+        $order = $this->op();
+        $asm = $this->mulai($order);
+        $this->svc->completeStep($asm->id);
+
+        $this->expectExceptionMessage('sedang dikerjakan');
+        $this->svc->mintaQcSebagian($asm->id);
     }
 
     public function test_langkah_tambahan_disisipkan_sebelum_qc(): void
     {
         $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
+        $this->mulai($order);
 
         $baru = $this->svc->addStep($order->id, $this->assembling->id);
 
@@ -208,27 +275,45 @@ class QcLangkahTest extends TestCase
         $this->assertTrue($this->langkah($order, 3)->is_qc);
     }
 
-    public function test_kartu_proses_dan_layar_qc_tampil(): void
+    public function test_papan_produksi_tanpa_kartu_qc_dan_layar_qc_tanpa_penimbang(): void
     {
         $order = $this->op();
-        $this->svc->startStep($this->langkah($order, 1)->id, [$this->budi->id]);
-        $this->svc->completeStep($this->langkah($order, 1)->id);
-        $qc = $this->langkah($order, 2);
+        $asm = $this->mulai($order);
         $admin = \App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
 
-        // Antrean: kartu QC tanpa tombol Mulai, ada Timbang QC.
         $this->actingAs($admin)->get(route('production.process.index'))
-            ->assertOk()->assertSee('Timbang QC')->assertSee('QC Timbang');
+            ->assertOk()->assertSee('Minta QC sebagian')->assertDontSee('Timbang QC');
+
+        $this->actingAs($admin)->post(route('production.process.steps.minta-qc', $asm->id));
+        $this->actingAs($admin)->get(route('production.process.index'))
+            ->assertOk()->assertSee('QC sebagian sudah diminta');
+
+        $asm->fresh()->update(['status' => 'in_progress']);
+        $this->svc->completeStep($asm->id);
+        $qc = $this->langkah($order, 2);
+
+        $this->actingAs($admin)->get(route('production.process.index'))->assertOk()->assertDontSee('Timbang QC');
 
         $this->actingAs($admin)->get(route('production.qc.index', ['op' => $order->id]))
-            ->assertOk()->assertSee('Penimbang')->assertSee('Budi');
+            ->assertOk()->assertDontSee('Penimbang')->assertDontSee('Timer QC')->assertSee('Selesai QC')
+            ->assertSee('Kembalikan ke produksi');
 
-        // Setelah ditimbang: tombol tutup QC mengarah ke modal Selesai di Proses Produksi.
-        $this->qc->catatTimbang($order->id, $this->produk, 855, 'normal', 'simulasi', null, null, [$this->budi->id]);
-        $this->actingAs($admin)->get(route('production.qc.index', ['op' => $order->id]))
-            ->assertOk()->assertSee('Selesai QC');
+        // Menutup QC: modal Selesai terbuka untuk langkah yang diminta saja.
         $this->actingAs($admin)->get(route('production.process.index', ['selesai' => $qc->id]))
             ->assertOk()->assertSee('open-selesai', false)->assertSee('lulus QC');
+    }
+
+    public function test_salah_tekan_selesai_bisa_dikembalikan_ke_produksi(): void
+    {
+        $order = $this->op();
+        $asm = $this->mulai($order);
+        $this->svc->completeStep($asm->id);
+        $admin = \App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+
+        $this->actingAs($admin)->post(route('production.process.steps.revert', $this->langkah($order, 2)->id));
+
+        $this->assertSame('pending', $asm->fresh()->status);
+        $this->assertSame([], $this->kartu());
     }
 
     public function test_op_lama_tanpa_langkah_qc(): void

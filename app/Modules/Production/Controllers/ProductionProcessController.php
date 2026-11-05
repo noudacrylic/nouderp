@@ -33,7 +33,9 @@ class ProductionProcessController extends Controller
             'timeLogs',
         ])->whereHas('productionOrder', fn($q) =>
             $q->whereIn('status', ['confirmed', 'in_progress', 'partial'])
-        )->when($departmentId, fn($q) => $q->where('department_id', $departmentId));
+        )->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
+            // QC bukan pekerjaan divisi produksi; hanya muncul saat dibuka untuk menutupnya dari layar QC.
+            ->where(fn ($q) => $q->where('is_qc', false)->orWhere('id', (int) $request->get('selesai')));
 
         // Hanya tampilkan pending step yang step sebelumnya sudah selesai (atau step pertama).
         // Ini mencegah step berikutnya muncul di antrean sebelum gilirannya tiba.
@@ -132,6 +134,7 @@ class ProductionProcessController extends Controller
         ])->whereHas('productionOrder', fn($q) =>
             $q->whereIn('status', ['confirmed', 'in_progress', 'partial'])
         )->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
+         ->where('is_qc', false)
          ->where('status', 'pending')
          ->get()
          ->filter(function ($step) {
@@ -209,6 +212,16 @@ class ProductionProcessController extends Controller
         try {
             $service->revertToPreviousStep($id);
             return back()->with('success', 'Dikembalikan ke langkah sebelumnya. Langkah tersebut kini muncul lagi di antrean divisinya.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function mintaQc(int $id, ProductionOrderService $service)
+    {
+        try {
+            $service->mintaQcSebagian($id);
+            return back()->with('success', 'QC sebagian diminta. Kartu masuk ke Meja Kerja Admin Layanan.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }

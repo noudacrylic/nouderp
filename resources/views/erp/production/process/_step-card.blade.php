@@ -327,7 +327,7 @@
 
     {{-- Action buttons --}}
     <div class="flex items-center gap-1.5 flex-wrap"
-         @if($step->is_qc && (int) request('selesai') === $step->id && $panel !== 'pending')
+         @if($step->is_qc && (int) request('selesai') === $step->id)
              x-init="setTimeout(() => $dispatch('open-selesai', selesaiData), 50)"
          @endif>
         @if($step->is_qc)
@@ -419,11 +419,15 @@
 
         @if(!$step->is_qc && $qcStep && $qcStep->status !== 'completed'
             && (int) $qcStep->step_number === (int) $step->step_number + 1 && in_array($panel, ['in_progress', 'paused'], true))
-            {{-- Hasil yang sudah jadi bisa di-QC & masuk stok duluan selagi sisanya dikerjakan. --}}
-            <a href="{{ $qcUrl }}"
-               class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">
-                ⚖ QC Sebagian
-            </a>
+            {{-- Hasil yang sudah jadi di-QC admin & masuk stok duluan selagi sisanya dikerjakan. --}}
+            @if($qcStep->qc_diminta_at)
+                <span class="px-3 py-1.5 border border-blue-200 text-blue-600 bg-blue-50 text-xs font-semibold rounded-lg">⚖ QC sebagian sudah diminta</span>
+            @else
+                <form action="{{ route('production.process.steps.minta-qc', $step->id) }}" method="POST" class="inline">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-semibold rounded-lg transition">⚖ Minta QC sebagian</button>
+                </form>
+            @endif
         @endif
 
         @if(in_array($panel, ['in_progress', 'paused'], true) && !$step->is_qc && !$tanpaPelaksana && !$gantiMenunggu

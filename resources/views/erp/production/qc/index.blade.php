@@ -83,9 +83,6 @@
                 'sampel'    => $profil->id,
                 'banyakSampel' => $sampel->count() > 1,
                 'ringkasan' => $ringkasan,
-                'timer'     => $langkah?->status,
-                'penimbang' => $penimbang,
-                'aktif'     => $langkah?->executors->pluck('id')->first(),
                 'riwayat'   => $riwayat->map(fn ($c) => [
                     'id' => $c->id, 'result' => $c->result, 'aktual' => $c->actual_gram, 'selisih' => $c->diff_gram,
                     'mode' => $c->mode, 'qty' => $c->qty, 'pesan' => $c->analysis['pesan'] ?? $c->reason,
@@ -95,29 +92,6 @@
 
             {{-- ───────────── tengah: timbangan & hasil ───────────── --}}
             <div class="col-span-5 space-y-4">
-                @if($langkah)
-                    {{-- Langkah QC Timbang: timer jalan sejak penimbangan pertama, dijeda saat hasil sebagian masuk stok. --}}
-                    <div class="flex items-center gap-2 flex-wrap bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3">
-                        <span class="text-xs font-semibold text-gray-600">Penimbang:</span>
-                        <select x-model.number="penimbangId" @change="simpanPenimbang()"
-                                class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                                :class="!penimbangId && timer === 'pending' ? 'border-red-300 bg-red-50' : ''">
-                            <option value="">— pilih —</option>
-                            <template x-for="e in cfg.penimbang" :key="e.id">
-                                <option :value="e.id" x-text="e.name" :selected="e.id === penimbangId"></option>
-                            </template>
-                        </select>
-                        <span class="ml-auto text-xs font-semibold px-2 py-1 rounded-lg"
-                              :class="{ 'bg-gray-100 text-gray-500': timer === 'pending', 'bg-indigo-50 text-indigo-600': timer === 'in_progress',
-                                        'bg-orange-50 text-orange-600': timer === 'paused', 'bg-emerald-50 text-emerald-600': timer === 'completed' }"
-                              x-text="{ pending: '⏱ Timer mulai saat bungkus pertama ditimbang', in_progress: '⏱ Timer QC berjalan',
-                                        paused: '⏸ Timer QC dijeda — lanjut saat menimbang', completed: '✓ Langkah QC selesai' }[timer] || ''"></span>
-                    </div>
-                    <div x-show="jeda.length" x-cloak class="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-2">
-                        <template x-for="j in jeda" :key="j"><div x-text="'⏸ ' + j"></div></template>
-                    </div>
-                @endif
-
                 <div class="flex items-center gap-2">
                     <span class="text-xs font-semibold text-gray-600">Mode:</span>
                     <button type="button" @click="mode = 'normal'"
@@ -188,15 +162,15 @@
                     </div>
 
                     @if($langkah && $langkah->status !== 'completed')
-                        {{-- QC = langkah terakhir OP: masuk stok sebagian, atau tutup langkah QC (modal hasil produksi). --}}
+                        {{-- Masuk stok sebagian, atau tutup QC (modal hasil produksi di Proses Produksi). --}}
                         <a :href="'{{ route('production.process.partial-confirm', $order->id) }}?qc_produk={{ $productId }}&qc_qty=' + ringkasan.boleh"
-                           x-show="ringkasan.boleh > 0 && timer !== 'pending'"
+                           x-show="ringkasan.boleh > 0"
                            class="mt-4 block text-center border border-blue-300 text-blue-700 hover:bg-blue-50 px-4 py-2.5 rounded-xl text-sm font-semibold">
                             Masukkan stok sebagian (<span x-text="n(ringkasan.boleh)"></span> lulus)
                         </a>
                         @if($produksiSelesai)
                             <a href="{{ route('production.process.index', ['department_id' => $langkah->department_id, 'selesai' => $langkah->id]) }}"
-                               x-show="timer !== 'pending' && !ringkasan.menunggu"
+                               x-show="!ringkasan.menunggu"
                                class="mt-2 block text-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold">
                                 ✓ Selesai QC &amp; masukkan stok
                             </a>
@@ -204,7 +178,14 @@
                         @else
                             <p class="mt-2 text-[11px] text-gray-500">Produksi ({{ $order->steps->where('is_qc', false)->where('status', '!=', 'completed')->pluck('name')->implode(', ') }}) masih berjalan — yang sudah lulus bisa dimasukkan stok sebagian.</p>
                         @endif
-                        <p class="mt-2 text-[11px] text-gray-400">Masuk stok hanya sebanyak bungkus yang lulus. Masuk stok sebagian menjeda timer QC.</p>
+                        @if($produksiSelesai)
+                            <form method="POST" action="{{ route('production.process.steps.revert', $langkah->id) }}" x-show="!ringkasan.ditimbang" class="mt-2"
+                                  onsubmit="return confirm('Kembalikan order ini ke produksi?')">
+                                @csrf
+                                <button class="w-full border border-amber-300 text-amber-700 hover:bg-amber-50 px-4 py-2 rounded-xl text-xs font-semibold">← Kembalikan ke produksi (salah tekan Selesai)</button>
+                            </form>
+                        @endif
+                        <p class="mt-2 text-[11px] text-gray-400">Masuk stok hanya sebanyak bungkus yang lulus.</p>
                     @elseif(!$langkah)
                         @php
                             $bisaSebagian = in_array($order->status, ['in_progress', 'partial'], true);
@@ -282,14 +263,6 @@
         return {
             mode: 'normal', hasil: null, galat: '', manual: '', sibuk: false, adaBeban: false,
             ringkasan: cfg.ringkasan, riwayat: cfg.riwayat, cfg,
-            timer: cfg.timer, jeda: [],
-            // Penimbang: yang sedang tercatat di langkah QC, atau pilihan terakhir di komputer ini.
-            penimbangId: cfg.aktif || (() => { try { return Number(localStorage.getItem('qc_penimbang')) || ''; } catch (e) { return ''; } })(),
-
-            init() {
-                if (this.penimbangId && !(cfg.penimbang || []).some((e) => e.id === this.penimbangId)) this.penimbangId = '';
-            },
-            simpanPenimbang() { try { localStorage.setItem('qc_penimbang', this.penimbangId || ''); } catch (e) {} },
 
             // Bungkus diangkat → hasil lama hilang, supaya bungkus berikutnya yang belum stabil
             // tidak terlihat "LULUS" karena kartu bungkus sebelumnya masih tampil.
@@ -305,25 +278,19 @@
 
             async kirim(gram, source, raw) {
                 if (!gram || this.sibuk) return;
-                if (this.timer === 'pending' && !this.penimbangId) {
-                    this.galat = 'Pilih penimbang dulu — timer QC dicatat atas namanya.'; window.bunyiQc(false); return;
-                }
                 this.sibuk = true; this.galat = '';
                 try {
                     const r = await fetch(cfg.url, {
                         method: 'POST',
                         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json',
                                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '' },
-                        body: JSON.stringify({ production_order_id: cfg.op, product_id: cfg.produk, qc_profile_id: cfg.sampel, gram, mode: this.mode, source, raw,
-                                               executor_ids: this.penimbangId ? [this.penimbangId] : [] }),
+                        body: JSON.stringify({ production_order_id: cfg.op, product_id: cfg.produk, qc_profile_id: cfg.sampel, gram, mode: this.mode, source, raw }),
                     });
                     const d = await r.json().catch(() => ({}));
                     if (!d.success) { this.galat = d.pesan || d.message || 'Gagal mencatat timbangan.'; window.bunyiQc(false); return; }
 
                     this.hasil = d.check;
                     this.ringkasan = d.ringkasan;
-                    if (d.timer) this.timer = d.timer;
-                    if (d.jeda && d.jeda.length) this.jeda = d.jeda;
                     // Perbaikan lulus menutup catatan gagal TERTUA (sama seperti di server).
                     if (d.check.mode === 'perbaikan' && d.check.result === 'lulus') {
                         const tua = [...this.riwayat].reverse().find((x) => x.repair === 'menunggu');
