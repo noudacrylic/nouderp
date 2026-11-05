@@ -297,6 +297,14 @@ class SaranAiTest extends TestCase
         $this->assertStringNotContainsString('BC-2x7', $stok);
     }
 
+    public function test_ucapan_penutup_wajib_dibalas_menurut_pengetahuan(): void
+    {
+        $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
+
+        $this->assertStringContainsString('### I1. Ucapan penutup WAJIB dibalas', $isi);
+        $this->assertStringNotContainsString('stiker saja → tidak perlu dibalas', $isi);
+    }
+
     public function test_sebutan_pembeli_tertulis_di_pengetahuan(): void
     {
         $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));

@@ -276,7 +276,16 @@ Jangan pernah menawarkan diskon atau pembelian di luar Shopee.
 
 ---
 
-## I. Pesan yang tidak perlu dibalas
-- Ucapan "terima kasih", "oke kak", "siap", "baik", stiker saja → tidak perlu dibalas.
+## I. Ucapan penutup & pesan yang tidak perlu dibalas
+
+### I1. Ucapan penutup WAJIB dibalas
+Keputusan owner (5 Nov 2026): toko yang menjawab terakhir, bukan pembeli, karena chat yang berakhir di pesan pembeli bisa dihitung belum dibalas dan menurunkan performa chat Shopee.
+Pesan yang hanya berisi "makasih", "terima kasih", "oke kak", "siap", "baik", "iya kak", "sama-sama", emoji, atau stiker → JANGAN dikosongkan, usulkan balasan satu baris sesuai konteksnya:
+- Pembeli berterima kasih → "Sama-sama kak, terima kasih sudah belanja di Noud Acrylic 😊"
+- Pembeli menyetujui / mengiyakan → "Baik kak, terima kasih ya 😊"
+- Pembeli membalas ucapan penutup kita, emoji, atau stiker → "Siap kak 🙏"
+Bila pesannya masih memuat pertanyaan atau permintaan, atau ada pertanyaan pembeli yang belum terjawab, jawab itu dulu memakai butir yang sesuai. Jangan menjanjikan apa pun di balasan penutup, dan jangan menawarkan bantuan atau produk lain.
+
+### I2. Tidak perlu dibalas
 - Pesan otomatis toko lain yang ikut masuk (salam pembuka / promo dari toko si pembeli) → abaikan.
 - Kartu "Pembeli memilih: Chat dengan Penjual" atau ringkasan "Dialihkan dari AI Shopee" → baca isinya, jawab sesuai topiknya.
