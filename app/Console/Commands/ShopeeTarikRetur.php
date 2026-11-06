@@ -7,7 +7,7 @@ use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
 use App\Modules\Marketplace\Shopee\Services\ShopeeReturService;
 use Illuminate\Console\Command;
 
-/** Pengajuan retur Shopee → shopee_returns (bahan kartu retur Meja Kerja). Baca saja. */
+/** Pengajuan retur Shopee → shopee_returns (bahan kartu retur Meja Kerja), lalu isi Jenis draft retur yang kosong. */
 class ShopeeTarikRetur extends Command
 {
     protected $signature = 'shopee:tarik-retur {--hari=60 : Jendela tanggal pengajuan retur ke belakang}';
@@ -22,6 +22,9 @@ class ShopeeTarikRetur extends Command
             return self::SUCCESS;
         }
         $this->line($svc->tarik($shop, (int) $this->option('hari')) . ' pengajuan retur disimpan.');
+        foreach ($svc->isiJenis($shop) as $no => $jenis) {
+            $this->line("Jenis {$no} diisi: {$jenis}");
+        }
 
         return self::SUCCESS;
     }

@@ -14,6 +14,25 @@ class ShopeeReturn extends Model
     /** Penjual sudah menyengketakan / sedang dinilai Shopee. */
     public const STATUS_SENGKETA = ['JUDGING', 'SELLER_DISPUTE'];
 
+    /** Alasan pengajuan retur Shopee (`reason`) dalam bahasa admin. */
+    public const ALASAN = [
+        'BROKEN_PRODUCTS'       => 'Barang pecah / rusak',
+        'PHYSICAL_DMG'          => 'Barang rusak fisik',
+        'ITEM_DAMAGED'          => 'Barang rusak',
+        'SLIGHT_SCRATCH_DENTS'  => 'Lecet / penyok',
+        'FUNCTIONAL_DMG'        => 'Tidak berfungsi',
+        'WRONG_ITEM'            => 'Salah kirim barang',
+        'ITEM_WRONGDAMAGED'     => 'Salah kirim / rusak',
+        'DIFFERENT_DESCRIPTION' => 'Tidak sesuai deskripsi',
+        'ITEM_MISSING'          => 'Barang kurang / tidak lengkap',
+        'NOT_RECEIPT'           => 'Barang tidak diterima',
+        'CHANGE_MIND'           => 'Berubah pikiran',
+        'EXPECTATION_FAILED'    => 'Tidak sesuai harapan',
+        'ITEM_FAKE'             => 'Barang palsu',
+        'MUTUAL_AGREE'          => 'Kesepakatan dengan penjual',
+        'OTHER'                 => 'Lainnya',
+    ];
+
     protected $fillable = [
         'env', 'shop_id', 'return_sn', 'order_sn', 'status', 'reason', 'text_reason', 'refund_amount',
         'needs_logistics', 'negotiation_status', 'seller_proof_status', 'seller_compensation_status',
@@ -97,6 +116,11 @@ class ShopeeReturn extends Model
             'tenggat' => null,
             'catatan' => $list->contains('seller_compensation_status', 'PENDING_REQUEST') ? 'kompensasi bisa diajukan' : null,
         ];
+    }
+
+    public function alasanLabel(): string
+    {
+        return self::ALASAN[$this->reason] ?? ($this->reason ?: 'tanpa alasan');
     }
 
     /** Bentuk yang dipakai ShopeeReturLamaService (sama dengan baris get_return_list). */

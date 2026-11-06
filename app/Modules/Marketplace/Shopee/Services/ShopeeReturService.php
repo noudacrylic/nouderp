@@ -4,6 +4,7 @@ namespace App\Modules\Marketplace\Shopee\Services;
 
 use App\Modules\Marketplace\Shopee\Models\ShopeeReturn;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Sales\Models\SalesReturn;
 use Carbon\Carbon;
 
 /**
@@ -49,5 +50,53 @@ class ShopeeReturService
         }
 
         return $n;
+    }
+    /**
+     * Isi Jenis retur draft yang masih kosong dari pengajuan retur Shopee-nya, plus nomor
+     * retur Shopee & alasan pembeli di catatan. Pilihan manual tak pernah ditimpa (hanya
+     * return_type NULL); Kasus & jurnal tetap urusan shopee:retur-isi-hasil saat dana final.
+     *
+     *   ada pengajuan, alasan "tidak diterima" → Paket Hilang
+     *   ada pengajuan lain                     → Diajukan Konsumen
+     *   semua dibatalkan / tanpa pengajuan     → dibiarkan (gagal kirim vs paket hilang
+     *                                            tak terbaca dari data retur)
+     *
+     * @return array<string, string> nomor retur ERP => jenis yang diisi
+     */
+    public function isiJenis(ShopeeShop $shop): array
+    {
+        $drafts = SalesReturn::with(['salesOrder:id,order_number', 'invoice:id,invoice_number'])
+            ->where('status', 'draft')->whereNull('return_type')->get()
+            ->keyBy(fn (SalesReturn $r) => $r->id)
+            ->map(fn (SalesReturn $r) => [$r, $r->orderSnShopee()])
+            ->filter(fn ($x) => $x[1] !== null);
+        if ($drafts->isEmpty()) {
+            return [];
+        }
+
+        $pengajuan = ShopeeReturn::where('env', $shop->env)->where('shop_id', $shop->shop_id)
+            ->whereIn('order_sn', $drafts->pluck(1)->unique()->values())
+            ->orderBy('dibuat_shopee_at')->get()->groupBy('order_sn');
+
+        $hasil = [];
+        foreach ($drafts as [$retur, $sn]) {
+            $list = ($pengajuan[$sn] ?? collect())->reject(fn (ShopeeReturn $x) => $x->status === 'CANCELLED');
+            if ($list->isEmpty()) {
+                continue;
+            }
+            $jenis = $list->contains('reason', 'NOT_RECEIPT') ? 'paket_hilang' : 'diajukan_konsumen';
+            $alasan = $list->map(fn (ShopeeReturn $x) => $x->alasanLabel() . ($x->text_reason ? ' — "' . trim($x->text_reason) . '"' : ''))
+                ->unique()->implode('; ');
+
+            $retur->forceFill([
+                'return_type'            => $jenis,
+                'external_return_number' => $retur->external_return_number ?: $list->pluck('return_sn')->implode(', '),
+                'notes'                  => trim(($retur->notes ? $retur->notes . "\n" : '')
+                    . '[Data Shopee ' . now()->format('d/m/Y') . '] Alasan pembeli: ' . $alasan),
+            ])->save();
+            $hasil[$retur->return_number] = $jenis;
+        }
+
+        return $hasil;
     }
 }
