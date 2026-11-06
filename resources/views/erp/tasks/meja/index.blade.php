@@ -129,7 +129,7 @@
                                     @endphp
                                     @if ($t->tenggatDariLuar())
                                         {{-- Batas sungguhan (Shopee / jatuh tempo) — merah, hitung mundur. --}}
-                                        <span class="px-1.5 py-0.5 rounded {{ $lewat || $sisaMnt < 24 * 60 ? 'bg-red-600 text-white font-bold' : 'bg-red-50 text-red-700 font-semibold' }}"
+                                        <span class="px-1.5 py-0.5 rounded bg-red-600 text-white font-bold"
                                               title="Batas {{ $t->tenggat_at->format('d/m/Y H:i') }}">
                                             ⏱ {{ $sisaTeks }}
                                         </span>
