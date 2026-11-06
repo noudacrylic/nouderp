@@ -63,6 +63,8 @@ Schedule::command('shopee:retur-tidak-jadi')->hourlyAt(35)->name('shopee-retur-t
 Schedule::command('shopee:retur-paket-hilang')->hourlyAt(50)->name('shopee-retur-paket-hilang')->withoutOverlapping(30);
 // Status pengajuan retur Shopee → shopee_returns (bahan kartu retur Meja Kerja); hasil final → draft diisi Manajer Admin.
 Schedule::command('shopee:tarik-retur')->everyFifteenMinutes()->name('shopee-tarik-retur')->withoutOverlapping(30);
+// Ulasan pembeli Shopee → shopee_ulasan + draf balasan AI ulasan jelek (kartu Balas ulasan, Meja Layanan).
+Schedule::command('shopee:tarik-ulasan')->everyFifteenMinutes()->name('shopee-tarik-ulasan')->withoutOverlapping(30);
 Schedule::command('shopee:retur-isi-hasil')->hourlyAt(10)->name('shopee-retur-isi-hasil')->withoutOverlapping(30);
 Schedule::command('jubelio:sync-orders')->everyFiveMinutes()->name('jubelio-sync-orders')->withoutOverlapping(60);
 Schedule::command('jubelio:sync-returns')->everyFifteenMinutes()->name('jubelio-sync-returns')->withoutOverlapping(60);

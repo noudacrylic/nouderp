@@ -4,7 +4,10 @@ namespace App\Modules\Tasks\MejaKerja;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Models\ShopeeUlasan;
 use App\Modules\Marketplace\Shopee\Services\ShopeeSapaPembeliService;
+use App\Modules\Marketplace\Shopee\Services\ShopeeUlasanService;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
@@ -189,6 +192,34 @@ class MejaKerjaController extends Controller
 
         return redirect()->route('crm.inbox.show', $h['conversation_id'])
             ->with('success', $h['terkirim'] ? 'Sapaan terkirim ke pembeli ' . $no . '.' : 'Chat dengan pembeli ini sudah ada — tidak mengirim ulang.');
+    }
+
+    /**
+     * Kirim balasan publik ulasan Shopee dari kartu "Balas ulasan". Per ulasan, bukan per task:
+     * kartu Bayangan tak tersimpan tapi tombolnya tetap dipakai. Kartunya langsung ditutup.
+     */
+    public function balasUlasan(Request $request, int $ulasan, ShopeeUlasanService $svc)
+    {
+        $u = $request->user();
+        abort_unless($u->role === 'super_admin' || $this->meja->peranUser($u->id) || user_can_access('crm.inbox'), 403, 'Hanya anggota meja kerja atau pemegang akses Inbox CRM.');
+        $data = $request->validate(['teks' => 'required|string|max:' . ShopeeUlasanService::MAKS_BALASAN]);
+
+        $ulas = ShopeeUlasan::findOrFail($ulasan);
+        $shop = ShopeeShop::aktif();
+        if (!$shop || $shop->perluHubungkanUlang()) return back()->with('error', 'Toko Shopee belum terhubung.');
+
+        try {
+            $svc->balas($shop, $ulas, $data['teks'], $u->id);
+        } catch (\Throwable $e) {
+            report($e);
+            return back()->with('error', $e->getMessage());
+        }
+
+        Task::where('skill', 'ulasan-jelek')->where('taskable_type', ShopeeUlasan::class)->where('taskable_id', $ulas->id)
+            ->whereIn('status', ['open', 'in_progress', 'pending'])->get()
+            ->each(fn (Task $t) => $this->meja->ubahStatus($t, 'done', $u, 'Ulasan dibalas di Shopee.'));
+
+        return back()->with('success', "Balasan ulasan SP-{$ulas->order_sn} terkirim ke Shopee.");
     }
 
     public function sinkron(Request $request)

@@ -58,6 +58,8 @@ return [
         'partner_id'  => env('SHOPEE_PARTNER_ID'),
         'partner_key' => env('SHOPEE_PARTNER_KEY'),
         'env'         => env('SHOPEE_ENV', 'test'),
+        // Draf balasan ulasan jelek (ShopeeUlasanService::buatDraf) — tampil publik, pakai model yang cermat.
+        'model_ulasan' => env('SHOPEE_ULASAN_MODEL', 'claude-sonnet-5-5'),
     ],
 
     // "Noud Bot" Telegram — notifikasi keluar (sendMessage) tidak butuh Tunnel.

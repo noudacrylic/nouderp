@@ -26,6 +26,7 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
     Route::post('/{task}/jawab', [MejaKerjaController::class, 'jawab'])->whereNumber('task')->name('jawab');
     // Per SO, bukan per task: kartu Bayangan tidak tersimpan (id negatif) tapi tombolnya tetap dipakai.
     Route::post('/chat-shopee/{so}', [MejaKerjaController::class, 'chatShopee'])->whereNumber('so')->name('chat-shopee');
+    Route::post('/ulasan/{ulasan}/balas', [MejaKerjaController::class, 'balasUlasan'])->whereNumber('ulasan')->name('ulasan.balas');
     Route::post('/{task}/bayar', [KartuPembelianController::class, 'bayar'])->whereNumber('task')->name('bayar');
     Route::post('/{task}/isi-saldo', [KartuPembelianController::class, 'isiSaldo'])->whereNumber('task')->name('isi-saldo');
     Route::post('/{task}/selesaikan', [KartuPembelianController::class, 'selesaikan'])->whereNumber('task')->name('selesaikan');

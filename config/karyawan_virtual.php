@@ -56,7 +56,7 @@ return [
         'nama'       => 'Manajer Admin',
         'ikon'       => '🗂️',
         'divisi'     => 'Admin',
-        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP, retur penjualan), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain). Retur Shopee yang dibatalkan pembeli dan paket hilang yang sudah diganti Shopee diselesaikannya sendiri; hasil retur Shopee yang sudah final ditulisnya ke draft untuk diperiksa admin.',
+        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP, retur penjualan, ulasan Shopee bintang jelek), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain). Retur Shopee yang dibatalkan pembeli dan paket hilang yang sudah diganti Shopee diselesaikannya sendiri; hasil retur Shopee yang sudah final ditulisnya ke draft untuk diperiksa admin.',
         'akses'      => 'tasks.board',
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [
@@ -71,13 +71,14 @@ return [
             'admin.cetak-stiker'       => \App\Modules\Tasks\MejaKerja\Skills\CetakStikerSkill::class,
             'admin.penugasan'          => \App\Modules\Tasks\MejaKerja\Skills\PenugasanSkill::class,
             'admin.retur'              => \App\Modules\Tasks\MejaKerja\Skills\ReturSkill::class,
+            'admin.ulasan-jelek'       => \App\Modules\Tasks\MejaKerja\Skills\UlasanJelekSkill::class,
             'admin.retur-tidak-jadi'   => \App\Modules\KaryawanVirtual\Skills\Admin\ReturTidakJadi::class,
             'admin.retur-paket-hilang' => \App\Modules\KaryawanVirtual\Skills\Admin\ReturPaketHilang::class,
             'admin.retur-isi-hasil'    => \App\Modules\KaryawanVirtual\Skills\Admin\ReturIsiHasil::class,
         ],
         // Skill berjadwal sendiri — tidak ikut sinkron Meja Kerja tiap 2 menit (memanggil API luar).
         'jadwal_sendiri' => ['admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur-isi-hasil'],
-        'percobaan' => ['admin.desain-gambar', 'admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.selesaikan-pesanan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil'],
+        'percobaan' => ['admin.desain-gambar', 'admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.selesaikan-pesanan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil', 'admin.ulasan-jelek'],
     ],
 
     // Mengurus pekerjaan pribadi owner: yang butuh keputusannya masuk Meja Owner (satu klik di
