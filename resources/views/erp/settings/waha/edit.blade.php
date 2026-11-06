@@ -226,6 +226,35 @@
                             nomornya tidak perlu dipindai ulang. Pesan yang masuk selagi cermin
                             belum terpasang <b>tidak tersusul</b> ke Inbox.
                         </p>
+
+                        {{-- Pesan yang masuk saat sesi terputus datang sebagai sinkron riwayat,
+                             bukan webhook — tombol ini yang menyusulkannya ke Inbox. --}}
+                        <div class="mt-4 pt-4 border-t border-gray-200">
+                            <div class="text-sm font-semibold text-gray-800">Pesan tertinggal</div>
+                            <p class="mt-1 text-xs text-gray-600">
+                                Setelah WAHA terputus (server mati, sesi FAILED, tautan ulang), pesan yang masuk
+                                selama terputus <b>tidak</b> lewat cermin. Klik tombol ini setelah status kembali
+                                <b>WORKING</b> &mdash; aman diklik berulang, pesan yang sudah ada tidak digandakan.
+                            </p>
+                            <div class="mt-2 flex flex-wrap items-center gap-3">
+                                <form method="POST" action="{{ route('settings.waha.tarik', ['peran' => $peran]) }}">
+                                    @csrf
+                                    <button type="submit" @disabled($p['tarik']['diminta'])
+                                            class="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded text-sm font-semibold">
+                                        ⬇ Tarik pesan tertinggal
+                                    </button>
+                                </form>
+                                <span class="text-xs text-gray-600">
+                                    @if($p['tarik']['diminta'])
+                                        Menunggu diproses (diminta {{ $p['tarik']['diminta']->format('H:i') }}) &mdash; muat ulang dalam ±1 menit.
+                                    @elseif($p['tarik']['mulai'] && (! $p['tarik']['selesai'] || $p['tarik']['selesai']->lt($p['tarik']['mulai'])))
+                                        Sedang menarik pesan sejak {{ $p['tarik']['sejak'] }} (mulai {{ $p['tarik']['mulai']->format('H:i') }})&hellip;
+                                    @elseif($p['tarik']['selesai'])
+                                        Terakhir {{ $p['tarik']['selesai']->format('d/m H:i') }}: {{ $p['tarik']['hasil'] }}
+                                    @endif
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 @endif
 

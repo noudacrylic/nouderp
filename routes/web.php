@@ -386,6 +386,7 @@ Route::prefix('erp')->group(function () {
         Route::post('/waha',                 [\App\Http\Controllers\Settings\WahaSettingController::class, 'update'])->name('settings.waha.update');
         Route::post('/waha/{peran}/uji',      [\App\Http\Controllers\Settings\WahaSettingController::class, 'uji'])->where('peran', $peranWaha)->name('settings.waha.uji');
         Route::post('/waha/{peran}/cermin',   [\App\Http\Controllers\Settings\WahaSettingController::class, 'pasangWebhook'])->where('peran', $peranWaha)->name('settings.waha.cermin');
+        Route::post('/waha/{peran}/tarik',    [\App\Http\Controllers\Settings\WahaSettingController::class, 'tarikTertinggal'])->where('peran', $peranWaha)->name('settings.waha.tarik');
         Route::post('/waha/{peran}/tautkan',  [\App\Http\Controllers\Settings\WahaSettingController::class, 'tautkan'])->where('peran', $peranWaha)->name('settings.waha.tautkan');
         Route::post('/waha/{peran}/putuskan', [\App\Http\Controllers\Settings\WahaSettingController::class, 'putuskan'])->where('peran', $peranWaha)->name('settings.waha.putuskan');
         Route::get ('/waha/{peran}/qr',       [\App\Http\Controllers\Settings\WahaSettingController::class, 'qr'])->where('peran', $peranWaha)->name('settings.waha.qr');

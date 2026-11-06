@@ -83,6 +83,14 @@ class WahaSettingController extends Controller
                 'tertaut'    => $waha->pernahTertaut($peran),
                 'status'     => (string) ($sesi['last_status'] ?? ''),
                 'diperiksa'  => ($sesi['last_checked_at'] ?? null) ? Carbon::parse($sesi['last_checked_at']) : null,
+                // Tombol "Tarik pesan tertinggal" (crm:tarik-tertinggal-waha).
+                'tarik'      => [
+                    'diminta' => ($sesi['tarik_diminta_at'] ?? null) ? Carbon::parse($sesi['tarik_diminta_at']) : null,
+                    'mulai'   => ($sesi['tarik_mulai_at'] ?? null) ? Carbon::parse($sesi['tarik_mulai_at']) : null,
+                    'selesai' => ($sesi['tarik_selesai_at'] ?? null) ? Carbon::parse($sesi['tarik_selesai_at']) : null,
+                    'hasil'   => $sesi['tarik_hasil'] ?? null,
+                    'sejak'   => $sesi['tarik_sejak'] ?? null,
+                ],
             ];
         }
 
@@ -235,6 +243,34 @@ class WahaSettingController extends Controller
         return back()->with('success', 'Cermin terpasang pada sesi nomor utama. '
             . 'WAHA me-restart sesinya beberapa detik — nomornya TIDAK perlu dipindai ulang. '
             . 'Kirim satu pesan uji dari HP lain untuk memastikannya muncul di Inbox.');
+    }
+
+    /**
+     * Tarik pesan yang tertinggal selama sesi terputus (sinkron riwayat WhatsApp tidak lewat
+     * webhook). Hanya mencatat permintaan — crm:tarik-tertinggal-waha (tiap menit) yang
+     * menjalankan impornya, supaya halaman tidak menggantung.
+     */
+    public function tarikTertinggal(string $peran)
+    {
+        if ($peran !== PeranWaha::UTAMA) {
+            return back()->with('error', 'Tarik pesan hanya untuk nomor utama.');
+        }
+
+        $waha = $this->siap($peran);
+
+        if (! $waha instanceof CrmSetting) {
+            return $waha;
+        }
+
+        if (($waha->sesi($peran)['last_status'] ?? '') !== 'WORKING') {
+            return back()->with('error', 'Sesi nomor utama belum WORKING — tautkan dulu, baru tarik pesannya.');
+        }
+
+        $waha->simpanSesi($peran, ['tarik_diminta_at' => now()->toIso8601String()]);
+
+        return back()->with('success', 'Permintaan dicatat. Pesan sejak '
+            . Carbon::parse(\App\Console\Commands\CrmTarikTertinggalWaha::sejak())->format('d/m/Y')
+            . ' ditarik dalam ±1–2 menit — muat ulang halaman ini untuk melihat hasilnya.');
     }
 
     /**

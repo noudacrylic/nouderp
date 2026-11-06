@@ -122,6 +122,8 @@ Schedule::command('crm:pancing-jendela')->everyFifteenMinutes()->name('crm-panci
 // Close otomatis chat Selesai, Tanya Harga & distributor yang sepi 3 hari. Ada tombol manualnya di layar CRM > Label.
 Schedule::command('crm:tutup-otomatis')->hourly()->name('crm-tutup-otomatis')->withoutOverlapping(60);
 
+// Tombol "Tarik pesan tertinggal" (Pengaturan → WAHA): impor riwayat nomor utama bila diminta.
+Schedule::command('crm:tarik-tertinggal-waha')->everyMinute()->name('crm-tarik-tertinggal-waha')->withoutOverlapping(30)->runInBackground();
 Schedule::command('crm:pantau-waha')->everyFiveMinutes()->name('crm-pantau-waha')->withoutOverlapping(60);
 
 // Lampiran chat diunduh ke penyimpanan sendiri secepat mungkin: media di sisi
