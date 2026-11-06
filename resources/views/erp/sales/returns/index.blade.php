@@ -41,6 +41,7 @@
                 <th class="px-3 py-2 text-left">Pelanggan</th>
                 <th class="px-3 py-2 text-left">Referensi</th>
                 <th class="px-3 py-2 text-left">Jenis</th>
+                <th class="px-3 py-2 text-left" title="Status pengajuan retur di Shopee (diperbarui tiap 15 menit) dan sisa waktu penjual menanggapi / banding">Shopee</th>
                 <th class="px-3 py-2 text-right">Total</th>
                 <th class="px-3 py-2 text-center">Status</th>
                 <th class="px-3 py-2 text-right w-72">Aksi</th>
@@ -82,6 +83,44 @@
                             {{ $return->returnTypeLabel() }}
                         @else
                             <span class="text-gray-400">belum ditentukan</span>
+                        @endif
+                    </td>
+                    <td class="px-3 py-2 text-xs whitespace-nowrap">
+                        @php
+                            $snSp = $return->orderSnShopee();
+                            $sp = $snSp ? $shopee->get($snSp) : null;
+                        @endphp
+                        @if($sp)
+                            @php
+                                $warnaSp = [
+                                    'purple' => 'bg-purple-100 text-purple-700',
+                                    'orange' => 'bg-orange-100 text-orange-700',
+                                    'green'  => 'bg-green-100 text-green-700',
+                                    'gray'   => 'bg-gray-100 text-gray-500',
+                                ][$sp['warna']];
+                                $tg = $sp['tenggat'];
+                                $menit = $tg ? (int) floor(now()->diffInMinutes($tg, false)) : null;
+                            @endphp
+                            <span class="px-1.5 py-0.5 rounded {{ $warnaSp }}">{{ $sp['label'] }}</span>
+                            @if($tg)
+                                <div class="mt-0.5 {{ $menit < 24 * 60 ? 'text-red-600 font-semibold' : 'text-gray-600' }}"
+                                     title="Batas penjual: {{ $tg->format('d M Y H:i') }}">
+                                    @if($menit <= 0)
+                                        Batas lewat ({{ $tg->format('d/m H:i') }})
+                                    @elseif($menit < 48 * 60)
+                                        Sisa {{ intdiv($menit, 60) }} jam {{ $menit % 60 }} mnt
+                                    @else
+                                        Sisa {{ intdiv($menit, 1440) }} hari &middot; {{ $tg->format('d/m H:i') }}
+                                    @endif
+                                </div>
+                            @endif
+                            @if($sp['catatan'])
+                                <div class="text-[11px] text-gray-400 mt-0.5">{{ $sp['catatan'] }}</div>
+                            @endif
+                        @elseif($snSp)
+                            <span class="text-gray-400" title="Tidak ada pengajuan retur di Shopee — biasanya gagal kirim / paket kembali">tanpa pengajuan retur</span>
+                        @else
+                            <span class="text-gray-300">&ndash;</span>
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right">{{ number_format($return->grand_total ?? 0, 0, ',', '.') }}</td>
@@ -130,7 +169,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">Belum ada retur.</td></tr>
+                <tr><td colspan="9" class="px-3 py-6 text-center text-gray-400">Belum ada retur.</td></tr>
             @endforelse
         </tbody>
     </table>

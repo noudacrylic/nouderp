@@ -211,6 +211,22 @@ class SalesReturn extends Model
         return self::RETURN_TYPES[$this->return_type] ?? '—';
     }
 
+    /**
+     * Nomor pesanan Shopee (order_sn) retur ini, dari nomor SO atau — bila retur hanya
+     * menempel ke faktur — nomor faktur; keduanya berbentuk "SP-<order_sn>". Null bila
+     * bukan pesanan Shopee.
+     */
+    public function orderSnShopee(): ?string
+    {
+        foreach ([$this->salesOrder?->order_number, $this->invoice?->invoice_number] as $no) {
+            if (str_starts_with((string) $no, 'SP-')) {
+                return substr($no, 3);
+            }
+        }
+
+        return null;
+    }
+
     public function customer()
     {
         return $this->belongsTo(Customer::class);

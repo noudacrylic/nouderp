@@ -53,7 +53,18 @@ class SalesReturnController extends Controller
             ->paginate(per_page_size())
             ->withQueryString();
 
-        return view('erp.sales.returns.index', compact('returns'));
+        // Status pengajuan retur di Shopee (salinan shopee:tarik-retur, 15 menit sekali)
+        // supaya terlihat mana yang masih bisa dibanding dan sampai kapan.
+        // Banyak retur hanya menempel ke faktur (sales_order_id kosong) — nomor faktur
+        // marketplace juga "SP-<order_sn>".
+        $snRetur = $returns->getCollection()
+            ->map(fn($r) => $r->orderSnShopee())
+            ->filter()->unique()->values();
+        $shopee = $snRetur->isEmpty() ? collect() : \App\Modules\Marketplace\Shopee\Models\ShopeeReturn::whereIn('order_sn', $snRetur)
+            ->where('env', 'live')->get()->groupBy('order_sn')
+            ->map(fn($list) => \App\Modules\Marketplace\Shopee\Models\ShopeeReturn::ringkasan($list));
+
+        return view('erp.sales.returns.index', compact('returns', 'shopee'));
     }
 
     /**
