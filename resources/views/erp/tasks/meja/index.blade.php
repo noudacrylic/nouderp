@@ -117,8 +117,19 @@
                                 <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{{ $t->assignee?->name ?? 'Belum ada pengerja' }}</span>
                                 @if ($t->status === 'in_progress')<span class="px-1.5 py-0.5 rounded bg-blue-600 text-white font-semibold">Sedang dikerjakan · {{ $t->mulai_at?->format('H:i') }}</span>@endif
                                 @if ($t->tenggat_at)
-                                    <span class="px-1.5 py-0.5 rounded {{ $lewat ? 'bg-red-100 text-red-700 font-bold' : 'bg-amber-50 text-amber-700' }}">
-                                        {{ $lewat ? 'Lewat ' . $t->tenggat_at->diffForHumans(null, true) : 'Tenggat ' . $t->tenggat_at->format('d/m H:i') }}
+                                    @php
+                                        // Sisa waktu, bukan jam tenggat — admin langsung tahu seberapa mendesak.
+                                        $sisaMnt = (int) floor(now()->diffInMinutes($t->tenggat_at, false));
+                                        $sisaTeks = match (true) {
+                                            $lewat              => 'Lewat ' . $t->tenggat_at->diffForHumans(null, true),
+                                            $sisaMnt < 60       => "Sisa {$sisaMnt} mnt",
+                                            $sisaMnt < 48 * 60  => 'Sisa ' . intdiv($sisaMnt, 60) . ' jam ' . ($sisaMnt % 60) . ' mnt',
+                                            default             => 'Sisa ' . intdiv($sisaMnt, 1440) . ' hari ' . intdiv($sisaMnt % 1440, 60) . ' jam',
+                                        };
+                                    @endphp
+                                    <span class="px-1.5 py-0.5 rounded {{ $lewat || $sisaMnt < 24 * 60 ? 'bg-red-600 text-white font-bold' : 'bg-red-50 text-red-700 font-semibold' }}"
+                                          title="Tenggat {{ $t->tenggat_at->format('d/m/Y H:i') }}">
+                                        ⏱ {{ $sisaTeks }}
                                     </span>
                                 @endif
                             </div>
