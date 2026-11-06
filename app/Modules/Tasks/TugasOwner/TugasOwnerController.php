@@ -37,11 +37,12 @@ class TugasOwnerController extends Controller
             'jenis'         => ['required', Rule::in(array_keys(config('tugas_owner.jenis')))],
             'pengerja_id'   => 'required|integer|exists:users,id',
             'tenggat'       => 'nullable|date',
+            'prioritas'     => ['nullable', Rule::in(array_keys(\App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS))],
             'tanpa_periksa' => 'nullable|boolean',
         ]);
 
         $t = Tugas::create([
-            'judul' => $data['judul'], 'jenis' => $data['jenis'], 'pengerja_id' => $data['pengerja_id'], 'tenggat' => $data['tenggat'] ?? null,
+            'judul' => $data['judul'], 'jenis' => $data['jenis'], 'pengerja_id' => $data['pengerja_id'], 'tenggat' => $data['tenggat'] ?? null, 'prioritas' => $data['prioritas'] ?? 'normal',
             'wajib_periksa' => !$request->boolean('tanpa_periksa'), 'dibuat_oleh' => $request->user()->id, 'tahap' => Tugas::DRAF,
         ]);
 
@@ -60,7 +61,18 @@ class TugasOwnerController extends Controller
             'tersambung' => $simpan->tersambung(),
             'potongan'  => $simpan->ukuranPotongan(),
             'maksMb'    => (int) config('galeri.maks_mb'),
+            'bolehAturPrioritas' => $this->layanan->owner($u) && !in_array($tugas->tahap, [Tugas::SELESAI, Tugas::BATAL], true),
         ]);
+    }
+
+    /** Owner mengubah letak tugas ini di meja admin (Utama / Normal / Rendah). */
+    public function prioritas(Request $request, Tugas $tugas)
+    {
+        abort_unless($this->layanan->owner($request->user()), 403, 'Hanya owner yang mengatur prioritas.');
+        $data = $request->validate(['prioritas' => ['required', Rule::in(array_keys(\App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS))]]);
+        $tugas->update(['prioritas' => $data['prioritas']]);
+
+        return back()->with('success', 'Prioritas tugas: ' . \App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS[$data['prioritas']] . '. Letak kartunya di meja admin menyesuaikan dalam ±2 menit.');
     }
 
     public function aksi(Request $request, Tugas $tugas, string $aksi)

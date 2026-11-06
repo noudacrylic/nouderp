@@ -40,6 +40,11 @@
                     <label class="text-xs text-gray-500">Tenggat (opsional)
                         <input type="date" name="tenggat" value="{{ old('tenggat') }}" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm text-gray-800">
                     </label>
+                    <label class="text-xs text-gray-500">Prioritas di meja admin
+                        <select name="prioritas" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm text-gray-800 bg-white">
+                            @foreach (\App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS as $k => $l)<option value="{{ $k }}" @selected(old('prioritas', 'normal') === $k)>{{ $l }}{{ ['utama' => ' — paling atas', 'normal' => ' — setelah pekerjaan rutin teratas', 'rendah' => ' — paling bawah'][$k] }}</option>@endforeach
+                        </select>
+                    </label>
                     <label class="flex items-center gap-2 text-sm text-gray-700 self-end pb-2">
                         <input type="checkbox" name="tanpa_periksa" value="1" @checked(old('tanpa_periksa'))> Tugas kecil: tidak perlu saya periksa
                     </label>

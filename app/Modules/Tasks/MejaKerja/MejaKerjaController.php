@@ -45,7 +45,8 @@ class MejaKerjaController extends Controller
         } elseif ($lihat === 'owner') {
             $q->where($this->meja->isiMejaOwner($u));
         } else {
-            $q->where('peran', $lihat);
+            // + kartu yang dioper ke meja ini karena pemegangnya tidak berangkat (PenggantiAdminService).
+            $q->where(fn ($w) => $w->where('peran', $lihat)->orWhere('meta->dioper_ke_peran', $lihat));
         }
 
         $tasks = $q->whereIn('status', ['open', 'in_progress', 'pending'])->get();
@@ -71,10 +72,18 @@ class MejaKerjaController extends Controller
         if ($saringJenis !== '') $tasks = $tasks->filter(fn (Task $t) => $jenisKartu[$t->id]['jenis'] === $saringJenis);
 
         $skor = $tasks->mapWithKeys(fn (Task $t) => [$t->id => $this->meja->skor($t)]);
-        // Yang sedang dikerjakan (skill ber-Mulai) di atas Antre, sisanya urut skor.
+        // Urutan: skill "Prioritas & pengganti admin" (per kategori, config/meja_prioritas.php) untuk
+        // Meja Layanan / Desain — "Meja saya" memakai meja pertama orangnya; selain itu skor lama.
+        $mejaUrut = in_array($lihat, ['layanan', 'desain'], true) ? $lihat
+            : ($lihat === 'saya' ? collect($peranSaya)->first(fn ($p) => in_array($p, ['layanan', 'desain'], true)) : null);
+        $antre = $tasks->where('status', 'open');
+        $antre = $mejaUrut && \App\Modules\Tasks\MejaKerja\Skills\PrioritasSkill::urutanAktif()
+            ? \App\Modules\Tasks\MejaKerja\PrioritasMeja::urutkan($antre, $mejaUrut)
+            : $antre->sortByDesc(fn ($t) => $skor[$t->id]);
+        // Yang sedang dikerjakan (skill ber-Mulai) di atas Antre.
         $kolom = [
             'open'    => $tasks->where('status', 'in_progress')->sortBy('mulai_at')
-                ->concat($tasks->where('status', 'open')->sortByDesc(fn ($t) => $skor[$t->id]))->values(),
+                ->concat($antre)->values(),
             // Hutang: jatuh tempo terdekat di atas.
             'pending' => $tasks->where('status', 'pending')->sortBy(fn ($t) => [$t->meta['jatuh_tempo'] ?? '9999', $t->pending_sejak])->values(),
         ];

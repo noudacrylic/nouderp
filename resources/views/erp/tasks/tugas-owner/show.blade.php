@@ -36,7 +36,17 @@
             @if ($t->tenggat)<span class="{{ $t->lewatTenggat() ? 'text-red-600 font-bold' : '' }}">Tenggat {{ $t->tenggat->format('d/m/Y') }}{{ $t->lewatTenggat() ? ' (lewat)' : '' }}</span>@endif
             @if ($t->jumlah_revisi)<span>{{ $t->jumlah_revisi }}× revisi</span>@endif
             @unless ($t->wajib_periksa)<span>Tanpa pemeriksaan owner</span>@endunless
+            @unless ($bolehAturPrioritas)<span>Prioritas: <b class="text-gray-700">{{ \App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS[$t->prioritas] ?? 'Normal' }}</b></span>@endunless
         </div>
+        @if ($bolehAturPrioritas)
+            {{-- Letak kartu tugas ini di meja admin (skill Prioritas & pengganti admin). --}}
+            <form method="POST" action="{{ route('tasks.meja.tugas.prioritas', $t->id) }}" class="flex items-center gap-2 mt-2 text-xs text-gray-500">@csrf
+                Prioritas di meja admin:
+                <select name="prioritas" onchange="this.form.submit()" class="border rounded px-2 py-1 text-xs text-gray-800 bg-white">
+                    @foreach (\App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS as $k => $l)<option value="{{ $k }}" @selected(($t->prioritas ?: 'normal') === $k)>{{ $l }}</option>@endforeach
+                </select>
+            </form>
+        @endif
     </div>
 
     <div class="space-y-3 mb-5">

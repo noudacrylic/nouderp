@@ -41,7 +41,7 @@ class TugasOwnerService
     ];
 
     /** Yang ditunggu dari siapa di tiap tahap: penentu tombol & lencana di Meja Kerja. */
-    private const GILIRAN_PENGERJA = [Tugas::RINGKASAN, Tugas::DIKERJAKAN];
+    public const GILIRAN_PENGERJA = [Tugas::RINGKASAN, Tugas::DIKERJAKAN];
     private const GILIRAN_OWNER = [Tugas::DRAF, Tugas::CEK_RINGKASAN, Tugas::PERIKSA];
 
     public function __construct(private TelegramNotifier $telegram) {}

@@ -43,6 +43,7 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
         Route::get('/lampiran/{lampiran}', 'lampiran')->whereNumber('lampiran')->name('lampiran');
         Route::get('/{tugas}', 'show')->whereNumber('tugas')->name('show');
         Route::post('/{tugas}/unggah', 'unggah')->whereNumber('tugas')->name('unggah');
+        Route::post('/{tugas}/prioritas', 'prioritas')->whereNumber('tugas')->name('prioritas');
         Route::post('/{tugas}/aksi/{aksi}', 'aksi')->whereNumber('tugas')->where('aksi', '[a-z_]+')->name('aksi');
     });
     // Pengaturan pindah ke karyawan virtual Manajer Admin; tautan lama tetap sampai.

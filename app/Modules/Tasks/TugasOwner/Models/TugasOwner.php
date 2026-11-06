@@ -29,7 +29,7 @@ class TugasOwner extends Model
 
     protected $table = 'tugas_owner';
 
-    protected $fillable = ['judul', 'jenis', 'dibuat_oleh', 'pengerja_id', 'tenggat', 'wajib_periksa', 'tahap', 'jumlah_revisi', 'selesai_at'];
+    protected $fillable = ['judul', 'jenis', 'dibuat_oleh', 'pengerja_id', 'tenggat', 'prioritas', 'wajib_periksa', 'tahap', 'jumlah_revisi', 'selesai_at'];
 
     protected $casts = ['tenggat' => 'date', 'wajib_periksa' => 'boolean', 'selesai_at' => 'datetime'];
 

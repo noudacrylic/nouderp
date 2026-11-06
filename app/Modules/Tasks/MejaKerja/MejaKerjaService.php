@@ -327,7 +327,22 @@ class MejaKerjaService
         $beban = Task::whereIn('assignee_user_id', $anggota)->whereIn('status', ['open', 'in_progress', 'pending'])
             ->groupBy('assignee_user_id')->selectRaw('assignee_user_id, COUNT(*) n')->pluck('n', 'assignee_user_id');
 
-        return $anggota->sortBy(fn ($id, $i) => [(int) ($beban[$id] ?? 0), $i])->first();
+        // Skill pengganti Otomatis: anggota yang tidak berangkat dipilih terakhir (bila semua
+        // tidak masuk tetap dipilih — kartunya menunggu / dioper oleh PenggantiAdminService).
+        $absen = $this->penggantiOtomatis()
+            ? fn ($id) => app(KehadiranAdmin::class)->tidakMasuk((int) $id) ? 1 : 0
+            : fn ($id) => 0;
+
+        return $anggota->sortBy(fn ($id, $i) => [$absen($id), (int) ($beban[$id] ?? 0), $i])->first();
+    }
+
+    private function penggantiOtomatis(): bool
+    {
+        try {
+            return $this->kv->mode(\App\Modules\Tasks\MejaKerja\Skills\PrioritasSkill::KEY) === Skill::OTOMATIS;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -343,6 +358,8 @@ class MejaKerjaService
             ->each(function (Task $t) use ($anggota, &$rows) {
                 $meja = $anggota[$t->peran] ?? [];
                 if (!$meja || in_array((int) $t->assignee_user_id, $meja, true)) return;
+                // Dioper karena pemegangnya tidak berangkat, atau pengerjanya dipilih owner — biarkan.
+                if (!empty($t->meta['dioper_dari']) || ($t->skill === 'tugas-owner' && $t->assignee_user_id)) return;
                 if (!($uid = $this->pilihPengerja($t->peran))) return;
 
                 $t->assignee_user_id = $uid;
@@ -416,14 +433,15 @@ class MejaKerjaService
             'title'            => mb_substr($k['judul'], 0, 255),
             'description'      => $k['deskripsi'] ?? null,
             'creator_user_id'  => $this->kv->akun($skill instanceof SkillOwner ? self::KARYAWAN_OWNER : self::KARYAWAN)->id,
-            'assignee_user_id' => $this->pilihPengerja($atur->peran),
+            // Skill boleh menentukan pengerja & meja sendiri (mis. Tugas dari Owner → pengerja pilihan owner).
+            'assignee_user_id' => $k['assignee_user_id'] ?? $this->pilihPengerja($k['peran'] ?? $atur->peran),
             'status'           => 'open',
             'priority'         => 'normal',
             'taskable_type'    => $k['taskable_type'] ?? null,
             'taskable_id'      => $k['taskable_id'] ?? null,
             'source'           => 'skill',
             'skill'            => $skill->key(),
-            'peran'            => $atur->peran,
+            'peran'            => $k['peran'] ?? $atur->peran,
             'kunci_sumber'     => $k['kunci'],
             // sla_faktor: pekerjaan yang lebih mendesak dari biasanya (mis. laporan barang sudah habis).
             // tenggat_at dari skill: batas dari luar (mis. batas respons penjual di Shopee).
