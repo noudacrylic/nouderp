@@ -131,6 +131,13 @@ class WahaHealthService
             return ['siap' => true, 'status' => $status['status'], 'dilewati' => false];
         }
 
+        // FAILED = engine menyerah menyambung (mis. jaringan belum siap saat server menyala) —
+        // dicoba ulang tiap pemeriksaan, tak menunggu jeda peringatan. Login yang masih utuh
+        // tersambung lagi tanpa scan; yang ter-logout berpindah ke SCAN_QR_CODE.
+        if ($status['status'] === 'FAILED') {
+            $adapter->restartSesi();
+        }
+
         if ($this->bolehMengabari($waha, $peran)) {
             $this->peringatkan($adapter, $status);
             $this->tandaiSudahDikabari($waha, $peran, now());
@@ -183,7 +190,8 @@ class WahaHealthService
 
         $this->kabari($pesan);
 
-        if (in_array($status['status'], ['STOPPED', 'FAILED'], true)) {
+        // FAILED sudah di-restart di periksa(); STOPPED cukup di-start.
+        if ($status['status'] === 'STOPPED') {
             $adapter->mulaiSesi();
         }
 

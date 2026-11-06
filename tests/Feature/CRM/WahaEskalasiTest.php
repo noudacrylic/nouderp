@@ -188,6 +188,31 @@ class WahaEskalasiTest extends TestCase
     }
 
     /**
+     * Kejadian 6 Nov 2026: server menyala, WAHA start sebelum DNS siap, sesi jadi FAILED.
+     * /start tak menolong (WAHA: "already running") — harus /restart, dan dicoba di SETIAP
+     * pemeriksaan, tidak ikut tertahan rem peringatan.
+     */
+    public function test_sesi_failed_direstart_tiap_pemeriksaan_bukan_distart(): void
+    {
+        $this->siapkanWaha();
+
+        Http::fake([
+            '*/api/sessions/notifikasi'         => Http::response(['status' => 'FAILED']),
+            '*/api/sessions/notifikasi/restart' => Http::response(['status' => 'STARTING']),
+            '*/api/sessions/notifikasi/start'   => Http::response(['status' => 'STARTING']),
+            '*/auth/qr*'                        => Http::response('', 422),
+            'api.telegram.org/*'                => Http::response(['ok' => true]),
+        ]);
+
+        $kesehatan = app(WahaHealthService::class);
+        $kesehatan->periksa();
+        $kesehatan->periksa();
+
+        $this->assertCount(2, Http::recorded(fn ($r) => str_ends_with($r->url(), '/sessions/notifikasi/restart')));
+        Http::assertNotSent(fn ($r) => str_ends_with($r->url(), '/sessions/notifikasi/start'));
+    }
+
+    /**
      * Rem pengulangan. Sesi mati semalaman = 300 pesan Telegram, dan
      * peringatan yang terlalu sering berhenti dibaca.
      */

@@ -228,6 +228,17 @@ class WahaProvider implements NotificationProvider
     }
 
     /**
+     * Mulai ulang sesi yang FAILED. /start TIDAK menolongnya: WAHA menganggap sesi FAILED
+     * "already running" dan tak berbuat apa-apa. Kejadian 6 Nov 2026: server menyala, WAHA
+     * start sebelum DNS siap (EAI_AGAIN web.whatsapp.com), kedua sesi menyerah jadi FAILED
+     * padahal login WhatsApp-nya masih utuh — /restart menyambungkan lagi tanpa scan QR.
+     */
+    public function restartSesi(): bool
+    {
+        return $this->request('post', '/api/sessions/' . rawurlencode($this->sesi()) . '/restart')['success'];
+    }
+
+    /**
      * Pastikan sesi bernama ini ADA lalu hidup.
      *
      * Dipisah dari mulaiSesi() karena dua keadaan yang tampak sama menuntut
