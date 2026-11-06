@@ -43,7 +43,7 @@
             @endif
             @if ($bolehSemua)
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
-                    <button class="border text-gray-600 hover:bg-gray-50 px-3 py-2 rounded text-sm">Sinkron sekarang</button>
+                    <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm font-medium">Sinkron sekarang</button>
                 </form>
             @endif
         </div>
