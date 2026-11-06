@@ -12,7 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Ulasan Shopee bintang 1–3 yang belum dibalas → kartu "Balas ulasan" di Meja Layanan.
+ * Ulasan Shopee bintang 1–3 (atau bintang bagus yang menyelipkan keluhan) yang belum dibalas → kartu "Balas ulasan" di Meja Layanan.
  * Draf balasan publik & draf chat dari AI (shopee:tarik-ulasan); admin memeriksa lalu mengirim.
  * Kartu selesai saat ulasan sudah berbalasan — dari kartu ini atau dari Seller Centre.
  */
@@ -30,7 +30,7 @@ class UlasanJelekSkill implements SkillAdmin
 
     public function deskripsi(): string
     {
-        return 'Ulasan Shopee bintang 1–3 yang belum dibalas → kartu berisi ulasan, foto, dan draf balasan AI. Admin memeriksa lalu klik Kirim balasan; bila pembeli masih bisa mengubah ulasannya, kartu juga mengajak chat untuk menyelesaikan masalahnya.';
+        return 'Ulasan Shopee bintang 1–3 (atau bintang bagus yang menyelipkan keluhan) yang belum dibalas → kartu berisi ulasan, foto, dan draf balasan AI. Admin memeriksa lalu klik Kirim balasan; bila pembeli masih bisa mengubah ulasannya, kartu juga mengajak chat untuk menyelesaikan masalahnya.';
     }
 
     public function peranBawaan(): string { return 'layanan'; }
@@ -50,7 +50,7 @@ class UlasanJelekSkill implements SkillAdmin
         foreach (ShopeeUlasan::perluDibalas()->orderBy('dibuat_shopee_at')->get() as $u) {
             yield [
                 'kunci'         => "ulasan:{$u->id}",
-                'judul'         => "Balas ulasan {$u->bintang()} — SP-{$u->order_sn}",
+                'judul'         => "Balas ulasan {$u->bintang()}" . ($u->rating_star > ShopeeUlasan::BINTANG_JELEK ? ' (ada keluhan)' : '') . " — SP-{$u->order_sn}",
                 'deskripsi'     => $this->keterangan($u),
                 'taskable_type' => ShopeeUlasan::class,
                 'taskable_id'   => (int) $u->id,
@@ -76,7 +76,7 @@ class UlasanJelekSkill implements SkillAdmin
         if (!$u) return ['cancelled', 'Ulasan tidak ditemukan.'];
         if ($u->balasan !== null) return ['done', 'Ulasan sudah dibalas.'];
         if ($u->hidden) return ['cancelled', 'Ulasan disembunyikan Shopee.'];
-        if ($u->rating_star > ShopeeUlasan::BINTANG_JELEK) return ['cancelled', "Pembeli mengubah ulasan jadi {$u->rating_star} bintang."];
+        if (!$u->untukAdmin()) return ['cancelled', "Pembeli mengubah ulasan jadi {$u->rating_star} bintang."];
 
         return null;
     }

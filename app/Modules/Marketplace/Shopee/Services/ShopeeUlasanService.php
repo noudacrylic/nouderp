@@ -63,9 +63,10 @@ class ShopeeUlasanService
                     'disinkron_at'     => now(),
                 ]);
                 // Balasan yang dikirim dari ERP tetap dipegang walau Shopee belum memantulkannya.
-                if ($balasan !== null) {
-                    $baris->balasan    = $balasan;
-                    $baris->dibalas_at = $baris->dibalas_at ?? $dibalasAt ?? now();
+                if ($balasan !== null && $baris->balasan === null) {
+                    $baris->balasan        = $balasan;
+                    $baris->dibalas_at     = $dibalasAt ?? now();
+                    $baris->sumber_balasan = 'shopee';
                 }
                 $baris->save();
                 $n++;
@@ -98,7 +99,7 @@ class ShopeeUlasanService
     /**
      * Kirim balasan publik ke Shopee. Melempar RuntimeException berisi pesan Shopee bila ditolak.
      */
-    public function balas(ShopeeShop $shop, ShopeeUlasan $u, string $teks, ?int $userId): void
+    public function balas(ShopeeShop $shop, ShopeeUlasan $u, string $teks, ?int $userId, string $sumber = 'admin'): void
     {
         $teks = trim($teks);
         if ($teks === '') {
@@ -119,7 +120,7 @@ class ShopeeUlasanService
             throw new \RuntimeException('Shopee menolak balasan: ' . ($hasil['fail_message'] ?? $hasil['fail_error']));
         }
 
-        $u->forceFill(['balasan' => $teks, 'dibalas_at' => now(), 'dibalas_oleh' => $userId])->save();
+        $u->forceFill(['balasan' => $teks, 'dibalas_at' => now(), 'dibalas_oleh' => $userId, 'sumber_balasan' => $sumber])->save();
     }
 
     /**
@@ -172,6 +173,121 @@ class ShopeeUlasanService
         return ShopeeUlasan::perluDibalas()
             ->where(fn ($q) => $q->whereNull('draf_at')->orWhere(fn ($q) => $q->whereNotNull('draf_galat')->where('draf_at', '<', now()->subHours(6))))
             ->orderByDesc('dibuat_shopee_at')->limit($batas)->get();
+    }
+
+    /**
+     * Balas ulasan bagus (⭐4–5) yang belum dibalas, dalam jendela config('ulasan_bagus.jendela_hari'):
+     * tanpa tulisan → template; bertulisan → AI. Ulasan bertulisan yang menyelipkan keluhan tidak
+     * dibalas di sini — ditandai `keluhan` lalu jadi kartu "Balas ulasan" di Meja Layanan.
+     * $simulasi (mode Bayangan): balasan disusun & dicatat, tidak dikirim (penilaian AI tetap
+     * disimpan supaya tidak diulang tiap jalan).
+     *
+     * @return array<int, array{ulasan_id: int, sn: string, bintang: int, status: string, sumber: ?string, teks: ?string, pesan: ?string}>
+     */
+    public function balasUlasanBagus(ShopeeShop $shop, bool $simulasi): array
+    {
+        $calon = ShopeeUlasan::bagusBelumDibalas()
+            ->where('env', $shop->env)->where('shop_id', $shop->shop_id)
+            ->where('dibuat_shopee_at', '>=', now()->subDays((int) config('ulasan_bagus.jendela_hari', 7)))
+            // Bayangan: yang sudah tercatat "akan dibalas" tak perlu diulang tiap jalan.
+            ->when($simulasi, fn ($q) => $q->whereNull('draf_balasan'))
+            ->orderBy('dibuat_shopee_at')->limit((int) config('ulasan_bagus.batas_per_jalan', 30))->get();
+
+        $hasil = [];
+        foreach ($calon as $u) {
+            $baris = ['ulasan_id' => (int) $u->id, 'sn' => $u->order_sn, 'bintang' => $u->rating_star, 'status' => 'akan', 'sumber' => null, 'teks' => null, 'pesan' => null];
+
+            if ($u->comment === null) {
+                [$baris['sumber'], $baris['teks']] = ['template', $this->template($u)];
+            } else {
+                if ($u->draf_balasan === null) {
+                    // Gagal belum lama → jangan menembak AI tiap 15 menit; coba lagi setelah 6 jam.
+                    if ($u->draf_galat && $u->draf_at?->gt(now()->subHours(6))) continue;
+                    $this->nilaiUlasanBagus($u);
+                }
+                if ($u->keluhan) {
+                    $hasil[] = ['status' => 'keluhan', 'pesan' => "“{$u->comment}”"] + $baris;
+                    continue;
+                }
+                if ($u->draf_balasan === null) {
+                    $hasil[] = ['status' => 'gagal', 'pesan' => 'Draf AI gagal: ' . ($u->draf_galat ?? '-')] + $baris;
+                    continue;
+                }
+                [$baris['sumber'], $baris['teks']] = ['ai', $u->draf_balasan];
+            }
+
+            if ($simulasi) {
+                // Teks template disimpan sebagai draf supaya Bayangan tidak mencatatnya ulang.
+                $u->forceFill(['draf_balasan' => $baris['teks'], 'draf_at' => $u->draf_at ?? now()])->save();
+                $hasil[] = $baris;
+                continue;
+            }
+
+            try {
+                $this->balas($shop, $u, $baris['teks'], null, $baris['sumber']);
+                $baris['status'] = 'terkirim';
+            } catch (\Throwable $e) {
+                $baris['status'] = 'gagal';
+                $baris['pesan']  = $e->getMessage();
+            }
+            $hasil[] = $baris;
+        }
+
+        return $hasil;
+    }
+
+    /** Template diputar per ulasan; {produk} hanya bila pesanannya satu jenis barang. */
+    public function template(ShopeeUlasan $u): string
+    {
+        $so = SalesOrder::with('items.product')->where('customer_po_number', 'SP-' . $u->order_sn)->first();
+        $nama = $so ? $so->items->map(fn ($i) => trim((string) ($i->description ?: $i->product?->name)))->filter()->unique()->values() : collect();
+        $produk = $nama->count() === 1 ? $nama[0] : null;
+
+        $daftar = collect(config('ulasan_bagus.template', []))
+            ->filter(fn ($t) => $produk !== null || !str_contains($t, '{produk}'))->values();
+        if ($daftar->isEmpty()) {
+            return 'Terima kasih banyak atas ulasannya, Kak! 🙏';
+        }
+
+        return str_replace('{produk}', (string) $produk, $daftar[$u->comment_id % $daftar->count()]);
+    }
+
+    /** AI menilai ulasan bagus bertulisan: pujian → draf balasan; menyelipkan keluhan → keluhan = true. */
+    public function nilaiUlasanBagus(ShopeeUlasan $u): void
+    {
+        $resp = $this->claude->messages([
+            'model'      => config('services.shopee.model_ulasan', 'claude-sonnet-5-5'),
+            'max_tokens' => 512,
+            'system'     => <<<TXT
+Kamu admin layanan toko akrilik Noud Acrylic di Shopee. Pembeli memberi ulasan bintang bagus.
+1. Tentukan apakah ulasan menyelipkan KELUHAN yang perlu ditindaklanjuti (barang retak/pecah/kurang/rusak, salah kirim, bahan tipis, kemasan buruk, dsb.). Saran ringan atau pujian biasa bukan keluhan.
+2. Bila bukan keluhan, tulis balasan publik: bahasa Indonesia hangat, sapa "Kak", 1–2 kalimat, maksimal 250 karakter, tanggapi hal spesifik yang dipuji, tanpa nomor HP/tautan/promo.
+Jawab HANYA JSON: {"keluhan": true|false, "balasan": "..."} (balasan kosong bila keluhan).
+TXT,
+            'messages'   => [['role' => 'user', 'content' => "Bintang: {$u->rating_star} dari 5\nUlasan: \"{$u->comment}\"\n\n" . $this->konteks($u)]],
+        ]);
+
+        $teks = collect($resp['content'] ?? [])->where('type', 'text')->pluck('text')->implode('');
+        $json = preg_match('/\{.*\}/s', $teks, $m) ? json_decode($m[0], true) : null;
+        if (isset($resp['_error']) || !is_array($json) || !array_key_exists('keluhan', $json)) {
+            $u->forceFill(['draf_galat' => mb_substr($resp['_error'] ?? 'AI tidak mengembalikan penilaian yang terbaca.', 0, 255), 'draf_at' => now()])->save();
+
+            return;
+        }
+
+        if ($json['keluhan']) {
+            // Draf permintaan maaf + chat dibuat jalur ulasan jelek (calonDraf) — draf_at dikosongkan.
+            $u->forceFill(['keluhan' => true, 'draf_balasan' => null, 'draf_at' => null, 'draf_galat' => null])->save();
+
+            return;
+        }
+        $balasan = trim((string) ($json['balasan'] ?? ''));
+        $u->forceFill([
+            'keluhan'      => false,
+            'draf_balasan' => $balasan !== '' ? mb_substr($balasan, 0, self::MAKS_BALASAN) : null,
+            'draf_at'      => now(),
+            'draf_galat'   => $balasan !== '' ? null : 'AI mengembalikan balasan kosong.',
+        ])->save();
     }
 
     private function konteks(ShopeeUlasan $u): string

@@ -17,7 +17,7 @@ class ShopeeUlasan extends Model
 
     protected $fillable = [
         'env', 'shop_id', 'comment_id', 'order_sn', 'item_id', 'model_id', 'buyer_username', 'rating_star',
-        'comment', 'media', 'editable', 'hidden', 'balasan', 'dibalas_at', 'dibalas_oleh', 'dibuat_shopee_at',
+        'comment', 'media', 'editable', 'keluhan', 'hidden', 'balasan', 'dibalas_at', 'dibalas_oleh', 'sumber_balasan', 'dibuat_shopee_at',
         'draf_balasan', 'draf_chat', 'draf_at', 'draf_galat', 'raw', 'disinkron_at',
     ];
 
@@ -29,6 +29,7 @@ class ShopeeUlasan extends Model
         'rating_star'      => 'integer',
         'media'            => 'array',
         'hidden'           => 'boolean',
+        'keluhan'          => 'boolean',
         'dibalas_at'       => 'datetime',
         'dibuat_shopee_at' => 'datetime',
         'draf_at'          => 'datetime',
@@ -36,10 +37,25 @@ class ShopeeUlasan extends Model
         'disinkron_at'     => 'datetime',
     ];
 
-    /** Ulasan jelek yang belum dibalas toko. */
+    /** Ulasan yang perlu dibalas admin: bintang jelek, atau bintang bagus yang menyelipkan keluhan. */
     public function scopePerluDibalas(Builder $q): Builder
     {
-        return $q->where('rating_star', '<=', self::BINTANG_JELEK)->whereNull('balasan')->where('hidden', false);
+        return $q->where(fn ($q) => $q->where('rating_star', '<=', self::BINTANG_JELEK)->orWhere('keluhan', true))
+            ->whereNull('balasan')->where('hidden', false);
+    }
+
+    /** Ulasan bagus belum dibalas yang boleh dibalas otomatis (bukan keluhan). */
+    public function scopeBagusBelumDibalas(Builder $q): Builder
+    {
+        return $q->where('rating_star', '>', self::BINTANG_JELEK)
+            ->where(fn ($q) => $q->whereNull('keluhan')->orWhere('keluhan', false))
+            ->whereNull('balasan')->where('hidden', false);
+    }
+
+    /** Masuk kartu admin? */
+    public function untukAdmin(): bool
+    {
+        return $this->rating_star <= self::BINTANG_JELEK || $this->keluhan === true;
     }
 
     /** Pembeli masih bisa mengubah ulasannya — layak diajak chat menyelesaikan masalah. */

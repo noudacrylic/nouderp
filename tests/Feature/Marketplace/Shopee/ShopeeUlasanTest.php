@@ -47,6 +47,12 @@ class ShopeeUlasanTest extends TestCase
         ];
 
         Http::fake(function (Request $r) {
+            if (str_contains($r->url(), 'api.anthropic.com') && str_contains($r->data()['system'] ?? '', 'bintang bagus')) {
+                $keluhan = str_contains(json_encode($r->data()['messages']), 'retak');
+
+                return Http::response(['content' => [['type' => 'text', 'text' => json_encode(
+                    ['keluhan' => $keluhan, 'balasan' => $keluhan ? '' : 'Terima kasih Kak, senang perakitannya mudah!'])]]]);
+            }
             if (str_contains($r->url(), 'api.anthropic.com')) {
                 return Http::response(['content' => [['type' => 'text', 'text' => '{"balasan": "Mohon maaf Kak, kami bantu lewat chat ya.", "chat": "Halo Kak, boleh ceritakan bagian yang kurang?"}']]]);
             }
@@ -180,5 +186,57 @@ class ShopeeUlasanTest extends TestCase
         $status = Task::where('skill', 'ulasan-jelek')->orderBy('taskable_id')->pluck('status')->all();
         $this->assertSame(['done', 'cancelled'], $status);
         $this->assertSame('Dibalas dari Seller Centre', ShopeeUlasan::where('comment_id', 1001)->value('balasan'));
+    }
+    public function test_ulasan_bagus_template_ai_dan_keluhan_ke_kartu(): void
+    {
+        $this->ulasan = [
+            $this->baris(1, 5, '', 'EDITABLE'),                                   // template
+            $this->baris(2, 4, '', 'EDITABLE'),                                   // template, variasi lain
+            $this->baris(3, 5, 'Perakitan sangat mudah, kokoh', 'EDITABLE'),       // AI pujian
+            $this->baris(4, 5, 'Bagus tapi bahan tipis jadi banyak yang retak', 'EDITABLE'), // keluhan
+            $this->baris(9, 5, '', 'EDITABLE'),                                   // di luar jendela 7 hari
+        ];
+        $this->svc()->tarik($this->shop);
+        app(KaryawanVirtualService::class)->ubahMode('admin.ulasan-bagus', Skill::OTOMATIS, null);
+        $this->nyalakan();
+
+        $this->artisan('shopee:tarik-ulasan')->assertSuccessful();
+
+        $u = fn (int $id) => ShopeeUlasan::where('comment_id', 1000 + $id)->first();
+        $this->assertSame('template', $u(1)->sumber_balasan);
+        $this->assertSame('template', $u(2)->sumber_balasan);
+        $this->assertNotSame($u(1)->balasan, $u(2)->balasan, 'template diputar per ulasan');
+        $this->assertStringNotContainsString('{produk}', $u(1)->balasan);
+        $this->assertSame('ai', $u(3)->sumber_balasan);
+        $this->assertSame('Terima kasih Kak, senang perakitannya mudah!', $u(3)->balasan);
+        $this->assertNull($u(9)->balasan, 'ulasan lama di luar jendela tidak dibalas');
+
+        // Keluhan: tidak dibalas otomatis, jadi kartu admin + draf permintaan maaf.
+        $k = $u(4);
+        $this->assertTrue($k->keluhan);
+        $this->assertNull($k->balasan);
+        $this->assertSame('Mohon maaf Kak, kami bantu lewat chat ya.', $k->draf_balasan);
+        app(MejaKerjaService::class)->sinkron();
+        $t = Task::where('skill', 'ulasan-jelek')->where('taskable_id', $k->id)->first();
+        $this->assertNotNull($t);
+        $this->assertStringContainsString('ada keluhan', $t->title);
+        $this->assertSame('open', $t->status);
+    }
+
+    public function test_ulasan_bagus_mode_bayangan_tidak_mengirim(): void
+    {
+        $this->ulasan = [$this->baris(1, 5, '', 'EDITABLE'), $this->baris(3, 5, 'Mantap', 'EDITABLE')];
+        $this->svc()->tarik($this->shop);
+        $kv = app(KaryawanVirtualService::class);
+        $kv->ubahMode('admin.ulasan-bagus', Skill::BAYANGAN, null);
+
+        $jalan = $kv->jalankan('admin.ulasan-bagus', KaryawanVirtualService::PEMICU_JADWAL);
+        $this->assertCount(2, $jalan['hasil']);
+        $this->assertSame(['akan', 'akan'], array_column($jalan['hasil'], 'status'));
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), 'reply_comment'));
+        $this->assertSame(0, ShopeeUlasan::whereNotNull('balasan')->count());
+
+        // Jalan berikutnya tidak mencatat ulang yang sama.
+        $this->assertCount(0, $kv->jalankan('admin.ulasan-bagus', KaryawanVirtualService::PEMICU_JADWAL)['hasil']);
     }
 }
