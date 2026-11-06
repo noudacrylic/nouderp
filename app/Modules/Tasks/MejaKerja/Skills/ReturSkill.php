@@ -118,6 +118,25 @@ class ReturSkill implements SkillAdmin
     public function perbarui(Task $task): ?array
     {
         $m = $task->meta ?? [];
+
+        // Kartu periksa: tenggat mengikuti batas penjual di Shopee (bisa bergeser — mis.
+        // pengajuan baru → barang dikirim balik). Kartu lama tanpa batas Shopee ikut dibetulkan.
+        if (($m['fase'] ?? null) === 'periksa') {
+            $d = $this->draft($task->taskable_id)->first();
+            $f = $d ? $this->fase($d) : null;
+            if (!$f || $f['fase'] !== 'periksa' || !$f['tenggat']) return null;
+            if (!empty($m['tenggat_luar']) && $task->tenggat_at?->equalTo($f['tenggat'])) return null;
+
+            return [
+                'status'      => null,
+                'catatan'     => 'Batas penjual di Shopee: ' . $f['tenggat']->format('d/m H:i'),
+                'title'       => $f['judul'],
+                'description' => $f['deskripsi'],
+                'meta'        => $m,
+                'tenggat_at'  => $f['tenggat'],
+            ];
+        }
+
         if (($m['fase'] ?? null) !== 'hasil' || !empty($m['diisi'])) return null;
 
         $d = $this->draft($task->taskable_id)->first();
@@ -202,7 +221,8 @@ class ReturSkill implements SkillAdmin
             return $hasil('banding', "Banding retur $no", '', null, $sn, $rsn);
         }
         if ($berjalan->isNotEmpty()) {
-            $tenggat = $berjalan->pluck('seller_due_at')->filter()->min();
+            // Batas penjual di Shopee; saat pengajuan baru belum dijawab = due_date (3 hari).
+            $tenggat = $berjalan->map->tenggatPenjual()->filter()->min();
             return $hasil('periksa', "Periksa barang retur $no — SP-$sn: terima atau banding",
                 'Periksa barang & bukti pembeli, lalu terima atau ajukan banding di Seller Centre'
                 . ($tenggat ? ' sebelum ' . $tenggat->format('d/m H:i') : '') . '. Tandai Selesai setelah menjawab di Shopee.'

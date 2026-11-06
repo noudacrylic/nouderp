@@ -387,7 +387,7 @@ class MejaKerjaService
         $t->forceFill(array_filter([
             'title'       => isset($u['title']) ? mb_substr($u['title'], 0, 255) : null,
             'description' => $u['description'] ?? null,
-            'meta'        => $u['meta'] ?? null,
+            'meta'        => !empty($u['tenggat_at']) ? array_merge($u['meta'] ?? $t->meta ?? [], ['tenggat_luar' => true]) : ($u['meta'] ?? null),
             'tenggat_at'  => $u['tenggat_at'] ?? null,
         ], fn ($v) => $v !== null));
 
@@ -428,7 +428,7 @@ class MejaKerjaService
             // sla_faktor: pekerjaan yang lebih mendesak dari biasanya (mis. laporan barang sudah habis).
             // tenggat_at dari skill: batas dari luar (mis. batas respons penjual di Shopee).
             'tenggat_at'       => $k['tenggat_at'] ?? $lahir->copy()->addMinutes((int) round($atur->sla_menit * ($k['sla_faktor'] ?? 1))),
-            'meta'             => $k['meta'] ?? null,
+            'meta'             => !empty($k['tenggat_at']) ? array_merge($k['meta'] ?? [], ['tenggat_luar' => true]) : ($k['meta'] ?? null),
         ]];
     }
 

@@ -299,4 +299,36 @@ class ReturMejaKerjaTest extends TestCase
         $this->assertStringStartsWith('Selesaikan retur', $t->title);
         $this->assertNull(collect(app(MejaKerjaService::class)->skill('retur')->aksi($t))->firstWhere('label', 'Buka di Seller Centre'));
     }
+    public function test_tenggat_shopee_ditandai_dari_luar_dan_mengikuti_batas_terbaru(): void
+    {
+        Http::fake();
+        // Pengajuan baru: Shopee belum memberi batas penjual (0) → batas = due_date.
+        $due = now()->addDays(3)->startOfMinute();
+        $this->shopeeRetur('PROCESSING', ['seller_due_at' => null, 'negotiation_status' => 'PENDING_RESPOND', 'raw' => ['due_date' => $due->getTimestamp()]]);
+        $this->nyalakan(draftBaru: false);
+        $this->sinkron();
+
+        $t = $this->kartu('periksa');
+        $this->assertEquals($due, $t->tenggat_at);
+        $this->assertTrue($t->tenggatDariLuar());
+
+        // Barang dikirim balik → Shopee memberi batas baru; kartu ikut bergeser.
+        $baru = now()->addHours(5)->startOfMinute();
+        $this->shopeeRetur('PROCESSING', ['seller_due_at' => $baru]);
+        $this->sinkron();
+        $this->assertEquals($baru, $t->refresh()->tenggat_at);
+        $this->assertTrue($t->tenggatDariLuar());
+    }
+
+    public function test_kartu_tanpa_batas_shopee_hanya_target_internal(): void
+    {
+        Http::fake();
+        DB::table('sales_orders')->where('order_number', 'SP-' . self::SN)->update(['order_number' => 'SO-2026-0001']);
+        $this->nyalakan(draftBaru: false);
+        $this->sinkron();
+
+        $t = $this->kartu('manual');
+        $this->assertNotNull($t->tenggat_at, 'target bawaan skill tetap ada');
+        $this->assertFalse($t->tenggatDariLuar());
+    }
 }

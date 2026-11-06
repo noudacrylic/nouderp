@@ -32,6 +32,16 @@ class Task extends Model
         'meta'          => 'array',
     ];
 
+    /**
+     * Tenggat datang dari luar (batas respons Shopee, jatuh tempo tagihan) — bukan target
+     * kerja bawaan skill (sla_menit sejak kartu lahir). Hanya yang dari luar ditampilkan
+     * sebagai hitung mundur merah di Meja Kerja.
+     */
+    public function tenggatDariLuar(): bool
+    {
+        return !empty($this->meta['tenggat_luar']) || !empty($this->meta['jatuh_tempo']);
+    }
+
     public function category()
     {
         return $this->belongsTo(TaskCategory::class, 'category_id');

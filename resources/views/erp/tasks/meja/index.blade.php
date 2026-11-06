@@ -127,10 +127,19 @@
                                             default             => 'Sisa ' . intdiv($sisaMnt, 1440) . ' hari ' . intdiv($sisaMnt % 1440, 60) . ' jam',
                                         };
                                     @endphp
-                                    <span class="px-1.5 py-0.5 rounded {{ $lewat || $sisaMnt < 24 * 60 ? 'bg-red-600 text-white font-bold' : 'bg-red-50 text-red-700 font-semibold' }}"
-                                          title="Tenggat {{ $t->tenggat_at->format('d/m/Y H:i') }}">
-                                        ⏱ {{ $sisaTeks }}
-                                    </span>
+                                    @if ($t->tenggatDariLuar())
+                                        {{-- Batas sungguhan (Shopee / jatuh tempo) — merah, hitung mundur. --}}
+                                        <span class="px-1.5 py-0.5 rounded {{ $lewat || $sisaMnt < 24 * 60 ? 'bg-red-600 text-white font-bold' : 'bg-red-50 text-red-700 font-semibold' }}"
+                                              title="Batas {{ $t->tenggat_at->format('d/m/Y H:i') }}">
+                                            ⏱ {{ $sisaTeks }}
+                                        </span>
+                                    @else
+                                        {{-- Target kerja bawaan skill — abu-abu; merah hanya bila terlewat. --}}
+                                        <span class="px-1.5 py-0.5 rounded {{ $lewat ? 'bg-red-100 text-red-700 font-bold' : 'bg-gray-100 text-gray-500' }}"
+                                              title="Target kerja internal (bawaan skill), bukan batas marketplace — {{ $t->tenggat_at->format('d/m/Y H:i') }}">
+                                            Target: {{ $lewat ? 'lewat ' . $t->tenggat_at->diffForHumans(null, true) : lcfirst($sisaTeks) }}
+                                        </span>
+                                    @endif
                                 @endif
                             </div>
                             @if ($status === 'pending' && $t->pending_alasan)
