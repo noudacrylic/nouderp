@@ -3,6 +3,7 @@
 use App\Modules\KaryawanVirtual\Controllers\MinStokController;
 use App\Modules\KaryawanVirtual\Controllers\PengaturanAdminController;
 use App\Modules\KaryawanVirtual\Controllers\ProdukDesainController;
+use App\Modules\Production\PrintRusak\PrintRusakController;
 use App\Modules\Purchasing\Controllers\LaporStokController;
 use App\Modules\Tasks\LaporOwner\LaporOwnerController;
 use App\Modules\Tasks\MejaKerja\KartuPembelianController;
@@ -19,6 +20,12 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
     Route::get('/', [MejaKerjaController::class, 'index'])->name('index');
     Route::get('/lencana', [MejaKerjaController::class, 'lencana'])->name('lencana');
     Route::post('/sinkron', [MejaKerjaController::class, 'sinkron'])->name('sinkron');
+    // Print rusak: lembar bahan print rusak → stok keluar, Dr 5007 (HPP). Lihat PrintRusakService.
+    Route::get('/print-rusak', [PrintRusakController::class, 'index'])->name('print-rusak.index');
+    Route::post('/print-rusak', [PrintRusakController::class, 'store'])->name('print-rusak.store');
+    Route::post('/print-rusak/{printRusak}/batal', [PrintRusakController::class, 'void'])->whereNumber('printRusak')->name('print-rusak.void');
+    Route::post('/print-rusak/bahan', [PrintRusakController::class, 'tambahBahan'])->name('print-rusak.bahan.tambah');
+    Route::delete('/print-rusak/bahan/{product}', [PrintRusakController::class, 'hapusBahan'])->whereNumber('product')->name('print-rusak.bahan.hapus');
     Route::post('/{task}/mulai', [MejaKerjaController::class, 'mulai'])->whereNumber('task')->name('mulai');
     Route::post('/{task}/lanjutkan', [MejaKerjaController::class, 'lanjutkan'])->whereNumber('task')->name('lanjutkan');
     Route::post('/{task}/pending', [MejaKerjaController::class, 'pending'])->whereNumber('task')->name('pending');

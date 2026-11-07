@@ -887,6 +887,14 @@
                             @endif
                         </a>
 
+                        @if(\Illuminate\Support\Facades\Route::has('tasks.meja.print-rusak.index'))
+                            <a href="{{ route('tasks.meja.print-rusak.index', ['op' => $order->id]) }}"
+                               class="block w-full text-center border border-red-200 text-red-600 hover:bg-red-50 py-2 rounded-xl text-sm font-semibold transition"
+                               title="Lembar bahan print rusak (paperjam dll.) — stok keluar, nilainya masuk HPP umum, bukan WIP OP ini">
+                                Lapor print rusak
+                            </a>
+                        @endif
+
                         @if($order->status === 'partial')
                             {{-- Sisa unit boleh ditutup lebih awal (mis. sisanya batal dikerjakan):
                                  batch penutup akan menyapu seluruh sisa WIP. --}}

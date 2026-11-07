@@ -109,6 +109,7 @@ class NumberGeneratorService
             'BOM'       => ['table' => 'boms',              'column' => 'bom_number',       'length' => 5],
             'PO', 'OP'  => ['table' => 'production_orders',             'column' => 'order_number',    'length' => 5],
             'MAT'       => ['table' => 'production_material_additions', 'column' => 'addition_number', 'length' => 5],
+            'PRR'       => ['table' => 'print_rusak',                   'column' => 'nomor',           'length' => 5],
             default => throw new \Exception("Unsupported document type: $type"),
         };
     }

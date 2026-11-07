@@ -89,7 +89,10 @@ class CetakStikerSkill implements SkillAdmin
 
     public function aksi(Task $task): array
     {
-        return [['label' => 'Lihat OP', 'url' => route('production.orders.show', $task->taskable_id), 'utama' => true]];
+        return [
+            ['label' => 'Lihat OP', 'url' => route('production.orders.show', $task->taskable_id), 'utama' => true],
+            ['label' => 'Lapor print rusak', 'url' => route('tasks.meja.print-rusak.index', ['op' => $task->taskable_id])],
+        ];
     }
 
     public function selesaiManual(): bool { return true; }

@@ -18,8 +18,8 @@ use Illuminate\Support\Facades\DB;
 class StokBahanService
 {
     /** Pemakaian nyata: bahan terpakai produksi + terjual, dikurangi yang dibatalkan/kembali. */
-    private const PAKAI_KELUAR = ['production_material', 'production_material_addition', 'sale'];
-    private const PAKAI_BALIK  = ['production_cancel', 'sales_void', 'sales_return'];
+    private const PAKAI_KELUAR = ['production_material', 'production_material_addition', 'sale', 'print_rusak'];
+    private const PAKAI_BALIK  = ['production_cancel', 'sales_void', 'sales_return', 'print_rusak_void'];
 
     /** Tanpa riwayat datang & tanpa lead_time_days produk. */
     public const LEAD_TIME_BAWAAN = 3;
@@ -78,6 +78,12 @@ class StokBahanService
             ->first(['o.supplier_id', 's.name as supplier', 's.code as supplier_code', 'o.po_date', 'i.qty', 'i.unit', 'i.price']);
     }
 
+    /** "?,?,?" sebanyak isi daftar — supaya PAKAI_KELUAR/PAKAI_BALIK bebas ditambah. */
+    private static function tanda(array $daftar): string
+    {
+        return implode(',', array_fill(0, count($daftar), '?'));
+    }
+
     /** @return array<int, float> pemakaian bersih $hari terakhir */
     public function pemakaian(array $ids, int $hari): array
     {
@@ -87,7 +93,7 @@ class StokBahanService
             ->where('created_at', '>=', now()->subDays($hari))
             ->whereIn('transaction_type', [...self::PAKAI_KELUAR, ...self::PAKAI_BALIK])
             ->groupBy('product_id')
-            ->selectRaw('product_id, SUM(CASE WHEN transaction_type IN (?,?,?) THEN qty_out ELSE 0 END) - SUM(CASE WHEN transaction_type IN (?,?,?) THEN qty_in ELSE 0 END) t',
+            ->selectRaw('product_id, SUM(CASE WHEN transaction_type IN (' . self::tanda(self::PAKAI_KELUAR) . ') THEN qty_out ELSE 0 END) - SUM(CASE WHEN transaction_type IN (' . self::tanda(self::PAKAI_BALIK) . ') THEN qty_in ELSE 0 END) t',
                 [...self::PAKAI_KELUAR, ...self::PAKAI_BALIK])
             ->pluck('t', 'product_id');
 

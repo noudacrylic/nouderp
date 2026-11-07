@@ -29,6 +29,7 @@ class AccountCodeEnum
     // pesanannya difakturkan, lalu dipindah ke akun bebannya (bawaan 5008).
     const ORDER_COST_DEFERRED = '1204';
     const ORDER_COST_COGS = '5008'; // HPP Jasa Pihak Ketiga
+    const PRODUCTION_OVERHEAD = '5007'; // Beban Overhead Produksi (masuk HPP) — mis. print rusak
 
     const AP_PAYABLE = '2101'; // Hutang Usaha (dibentuk faktur pembelian)
 

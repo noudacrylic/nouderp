@@ -42,6 +42,9 @@
                 </details>
             @endif
             @if ($bolehSemua || $peranSaya)
+                <a href="{{ route('tasks.meja.print-rusak.index') }}" class="border border-red-300 text-red-700 hover:bg-red-50 px-3 py-2 rounded text-sm font-medium">Lapor print rusak</a>
+            @endif
+            @if ($bolehSemua || $peranSaya)
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
                     <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm font-medium">Sinkron sekarang</button>
                 </form>
