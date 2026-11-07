@@ -233,7 +233,10 @@ class MejaKerjaController extends Controller
 
     public function sinkron(Request $request)
     {
-        $h = $this->meja->sinkron();
+        // Super admin & anggota meja mana pun (sama dengan jadwal 2 menitan, hanya dipercepat).
+        abort_unless($request->user()->role === 'super_admin' || $this->meja->peranUser($request->user()->id), 403);
+        $h = $this->meja->sinkronTerkunci();
+        if ($h === null) return back()->with('warning', 'Sinkron sedang berjalan — tunggu sebentar lalu muat ulang halaman.');
         return back()->with('success', "Disinkron: {$h['dibuat']} baru, {$h['selesai']} selesai otomatis, {$h['batal']} batal, {$h['lanjut']} dilanjutkan.");
     }
 

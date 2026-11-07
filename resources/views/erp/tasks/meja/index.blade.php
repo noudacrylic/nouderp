@@ -41,7 +41,7 @@
                     </form>
                 </details>
             @endif
-            @if ($bolehSemua)
+            @if ($bolehSemua || $peranSaya)
                 <form method="POST" action="{{ route('tasks.meja.sinkron') }}">@csrf
                     <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm font-medium">Sinkron sekarang</button>
                 </form>

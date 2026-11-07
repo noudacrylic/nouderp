@@ -14,7 +14,11 @@ class MejaKerjaSinkron extends Command
 
     public function handle(MejaKerjaService $meja): int
     {
-        $h = $meja->sinkron();
+        $h = $meja->sinkronTerkunci();
+        if ($h === null) {
+            $this->warn('Sinkron lain (tombol Sinkron sekarang) sedang berjalan — dilewati.');
+            return self::SUCCESS;
+        }
         $this->info("baru {$h['dibuat']}, selesai {$h['selesai']}, batal {$h['batal']}, dilanjutkan {$h['lanjut']}");
 
         return self::SUCCESS;

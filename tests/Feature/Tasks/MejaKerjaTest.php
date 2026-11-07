@@ -500,6 +500,26 @@ class MejaKerjaTest extends TestCase
         $this->assertSame(9, MejaKerjaSkill::where('skill', 'desain')->value('bobot'));
     }
 
+    public function test_sinkron_sekarang_untuk_anggota_meja_dan_terkunci(): void
+    {
+        $this->nyalakan('desain', 'desain');
+        $this->soKs();
+        $luar = User::factory()->create(['role' => 'user', 'is_active' => true]);
+
+        $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertSee('Sinkron sekarang');
+        $this->actingAs($luar)->post(route('tasks.meja.sinkron'))->assertForbidden();
+
+        // Sinkron lain sedang jalan → tombol tidak ikut memindai.
+        $kunci = \Illuminate\Support\Facades\Cache::lock('meja-kerja:sinkron', 600);
+        $kunci->get();
+        $this->actingAs($this->desainer)->post(route('tasks.meja.sinkron'))->assertSessionHas('warning');
+        $this->assertSame(0, Task::where('skill', 'desain')->count());
+        $kunci->release();
+
+        $this->actingAs($this->desainer)->post(route('tasks.meja.sinkron'))->assertSessionHas('success');
+        $this->assertSame(1, Task::where('skill', 'desain')->count());
+    }
+
     public function test_calon_anggota_meja_hanya_admin_dan_bermenu_meja_kerja(): void
     {
         $cnc = User::factory()->create(['name' => 'Akun CNC Zz', 'role' => 'user', 'is_active' => true]);

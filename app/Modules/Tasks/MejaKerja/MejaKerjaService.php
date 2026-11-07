@@ -12,6 +12,7 @@ use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
 use App\Modules\Tasks\Models\Task;
 use App\Modules\Tasks\Models\TaskHistory;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -177,6 +178,22 @@ class MejaKerjaService
      *
      * @return array{dibuat: int, selesai: int, batal: int, lanjut: int}
      */
+    /**
+     * sinkron() di bawah satu kunci: tombol "Sinkron sekarang" (admin mana pun) dan jadwal
+     * 2 menitan tidak boleh berjalan bersamaan — dua pemindaian serentak bisa membuat kartu dobel.
+     * null = sinkron lain sedang berjalan.
+     */
+    public function sinkronTerkunci(): ?array
+    {
+        $kunci = Cache::lock('meja-kerja:sinkron', 600);
+        if (!$kunci->get()) return null;
+        try {
+            return $this->sinkron();
+        } finally {
+            $kunci->release();
+        }
+    }
+
     public function sinkron(): array
     {
         $hasil = ['dibuat' => 0, 'selesai' => 0, 'batal' => 0, 'lanjut' => 0];
