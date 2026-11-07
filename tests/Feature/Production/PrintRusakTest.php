@@ -93,6 +93,8 @@ class PrintRusakTest extends TestCase
     {
         $chromo = Product::create(['sku' => 'PRD00007', 'name' => 'Stiker Chromo A3+', 'sale_type' => 'ready', 'base_unit' => 'Lembar', 'base_price' => 0, 'is_active' => true]);
 
+        $this->actingAs($this->owner)->get(route('tasks.meja.print-rusak.index'))->assertOk()->assertSee('+ Tambah bahan')->assertSee('form-tambah-bahan', false);
+        $this->actingAs($this->admin)->get(route('tasks.meja.print-rusak.index'))->assertOk()->assertDontSee('+ Tambah bahan');
         $this->actingAs($this->admin)->post(route('tasks.meja.print-rusak.bahan.tambah'), ['product_id' => $chromo->id])->assertForbidden();
         $this->actingAs($this->owner)->post(route('tasks.meja.print-rusak.bahan.tambah'), ['product_id' => $chromo->id])->assertSessionHas('success');
         $this->assertTrue(DB::table('print_rusak_bahan')->where('product_id', $chromo->id)->exists());

@@ -24,22 +24,47 @@
             @csrf
             <h3 class="font-semibold text-gray-800">Lapor print rusak</h3>
 
-            @if ($bahan->isEmpty())
-                <p class="text-amber-700 text-xs">Belum ada bahan print terdaftar{{ $superAdmin ? ' — tambahkan di bagian Bahan print di bawah.' : '. Minta super admin menambahkannya.' }}</p>
-            @else
-                <div>
-                    <div class="text-xs text-gray-500 mb-1">Bahan</div>
-                    <div class="grid gap-2">
-                        @foreach ($bahan as $b)
-                            <label class="flex items-center gap-2 border rounded px-3 py-2 cursor-pointer has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
-                                <input type="radio" name="product_id" value="{{ $b->id }}" data-gudang="{{ $gudangBawaan[$b->id] ?? '' }}" @checked((string) $bahanAwal === (string) $b->id) required>
-                                <span class="font-medium text-gray-800">{{ $b->name }}</span>
-                                <span class="ml-auto text-[11px] text-gray-400">{{ $b->sku }}</span>
-                            </label>
-                        @endforeach
-                    </div>
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs text-gray-500">Bahan</label>
+                    @if ($superAdmin)
+                        <button type="button" class="text-xs text-blue-600 hover:underline" onclick="document.getElementById('atur-bahan').classList.toggle('hidden')">+ Tambah bahan</button>
+                    @endif
                 </div>
+                <select name="product_id" class="w-full border rounded px-2 py-1.5" required>
+                    @forelse ($bahan as $b)
+                        <option value="{{ $b->id }}" data-gudang="{{ $gudangBawaan[$b->id] ?? '' }}" @selected((string) $bahanAwal === (string) $b->id)>{{ $b->name }}</option>
+                    @empty
+                        <option value="">— belum ada bahan print —</option>
+                    @endforelse
+                </select>
+                @if ($superAdmin)
+                    {{-- Pengaturan daftar bahan: form terpisah di luar form lapor (atribut form=). --}}
+                    <div id="atur-bahan" class="hidden mt-2 border rounded p-2 bg-gray-50 space-y-2">
+                        <div class="flex gap-2">
+                            <select name="product_id" form="form-tambah-bahan" class="border rounded px-2 py-1 flex-1 min-w-0 text-xs" required>
+                                <option value="">— pilih produk berstok —</option>
+                                @foreach ($calonBahan as $p)<option value="{{ $p->id }}">{{ $p->name }} ({{ $p->sku }})</option>@endforeach
+                            </select>
+                            <button form="form-tambah-bahan" class="border border-blue-300 text-blue-700 hover:bg-blue-50 px-2 py-1 rounded text-xs font-semibold">Tambah</button>
+                        </div>
+                        @if ($bahan->isNotEmpty())
+                            <div class="flex flex-wrap gap-1.5 text-xs">
+                                @foreach ($bahan as $b)
+                                    <span class="flex items-center gap-1 border rounded bg-white px-2 py-0.5">{{ $b->name }}
+                                        <button form="form-hapus-bahan" formaction="{{ route('tasks.meja.print-rusak.bahan.hapus', $b->id) }}" class="text-red-500 hover:text-red-700"
+                                                title="Hapus dari pilihan" onclick="return confirm('Hapus {{ $b->name }} dari pilihan bahan? Laporan lama tetap ada.')">×</button>
+                                    </span>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+                @endif
+            </div>
 
+            @if ($bahan->isEmpty())
+                <p class="text-amber-700 text-xs">Belum ada bahan print terdaftar{{ $superAdmin ? ' — klik "+ Tambah bahan".' : '. Minta super admin menambahkannya.' }}</p>
+            @else
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs text-gray-500 mb-1">Jumlah ({{ $bahan->first()->base_unit ?: 'lembar' }})</label>
@@ -180,25 +205,8 @@
     </div>
 
     @if ($superAdmin)
-        <div class="bg-white shadow rounded-lg border p-5 mt-4 text-sm">
-            <h3 class="font-semibold text-gray-800 mb-1">Bahan print</h3>
-            <p class="text-xs text-gray-500 mb-3">Bahan yang bisa dilaporkan rusak. Hanya produk berstok (ready).</p>
-            <div class="flex flex-wrap gap-2 mb-3">
-                @foreach ($bahan as $b)
-                    <form method="POST" action="{{ route('tasks.meja.print-rusak.bahan.hapus', $b->id) }}" class="flex items-center gap-1 border rounded px-2 py-1"
-                          onsubmit="return confirm('Hapus {{ $b->name }} dari daftar bahan print?')">@csrf @method('DELETE')
-                        {{ $b->name }} <button class="text-red-500 hover:text-red-700 ml-1" title="Hapus">×</button>
-                    </form>
-                @endforeach
-            </div>
-            <form method="POST" action="{{ route('tasks.meja.print-rusak.bahan.tambah') }}" class="flex gap-2">@csrf
-                <select name="product_id" class="border rounded px-2 py-1.5 flex-1 min-w-0" required>
-                    <option value="">— pilih produk —</option>
-                    @foreach ($calonBahan as $p)<option value="{{ $p->id }}">{{ $p->name }} ({{ $p->sku }})</option>@endforeach
-                </select>
-                <button class="border border-blue-300 text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded text-xs font-semibold">+ Tambah</button>
-            </form>
-        </div>
+        <form id="form-tambah-bahan" method="POST" action="{{ route('tasks.meja.print-rusak.bahan.tambah') }}" class="hidden">@csrf</form>
+        <form id="form-hapus-bahan" method="POST" class="hidden">@csrf @method('DELETE')</form>
     @endif
 </div>
 
@@ -209,17 +217,17 @@
     const stok = @json($stok);
     const gudang = form.querySelector('select[name=warehouse_id]');
     const info = document.getElementById('info-stok');
-    const bahanTerpilih = () => form.querySelector('input[name=product_id]:checked');
+    const bahan = form.querySelector('select[name=product_id]:not([form])');
     const tampil = () => {
-        const b = bahanTerpilih();
-        if (!b || !gudang) return;
-        const q = (stok[b.value] || {})[gudang.value];
+        if (!bahan || !bahan.value || !gudang) return;
+        const q = (stok[bahan.value] || {})[gudang.value];
         info.textContent = 'Stok: ' + (q === undefined ? 0 : Number(q).toLocaleString('id-ID'));
     };
-    form.querySelectorAll('input[name=product_id]').forEach(r => r.addEventListener('change', () => {
-        if (r.dataset.gudang) gudang.value = r.dataset.gudang;
+    bahan && bahan.addEventListener('change', () => {
+        const g = bahan.selectedOptions[0]?.dataset.gudang;
+        if (g) gudang.value = g;
         tampil();
-    }));
+    });
     gudang && gudang.addEventListener('change', tampil);
     tampil();
 })();
