@@ -46,7 +46,8 @@ class DesainSkill implements SkillAdmin
         return $opsi['pola_sku'] ?? self::POLA_SKU;
     }
 
-    public function urlPengaturan(string $kode): string
+    /** Data skill ini (daftar produk butuh desain) — ditautkan dari halaman pengaturan skill. */
+    public function urlDataPengaturan(string $kode): string
     {
         return route('karyawan-virtual.admin.produk-desain', $kode);
     }

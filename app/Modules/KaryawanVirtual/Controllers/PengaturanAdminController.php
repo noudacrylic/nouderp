@@ -7,13 +7,16 @@ use App\Modules\KaryawanVirtual\Services\KaryawanVirtualService;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillOwner;
 use App\Modules\Tasks\MejaKerja\MejaKerjaService;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
+use App\Modules\Tasks\MejaKerja\Skills\PrioritasSkill;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Pengaturan Manajer Admin & Asisten Owner: anggota meja masing-masing dan, per skill, meja
- * tujuan task (skill Asisten Owner selalu Meja Owner), bobot urutan kerja, dan tenggat.
+ * Pengaturan Manajer Admin & Asisten Owner. Dua halaman:
+ *  - GLOBAL ("⚙ Peran & Pengaturan"): anggota meja milik karyawan ini.
+ *  - PER SKILL ("⚙ Pengaturan" di kartu skill): meja tujuan task (skill Asisten Owner selalu
+ *    Meja Owner), bobot urutan kerja, dan tenggat — hanya skill itu.
  * Nyala/mati skill = mode di kartu skill. Super admin saja — menugaskan orang adalah keputusan pemilik.
  */
 class PengaturanAdminController extends Controller
@@ -23,17 +26,10 @@ class PengaturanAdminController extends Controller
     public function show(Request $request, string $kode)
     {
         $cfg = $this->karyawan($request, $kode);
-        $skills = collect($this->skillKaryawan($kode))->map(fn ($s) => [
-            'skill' => $s,
-            'atur'  => $this->meja->pengaturan($s),
-            'mode'  => $this->kv->mode(MejaKerjaService::kunciKv($s)),
-        ]);
 
         return view('erp.karyawan-virtual.pengaturan-admin', [
             'kode'      => $kode,
             'karyawan'  => $cfg,
-            'skills'    => $skills,
-            'labelMode' => KaryawanVirtualService::LABEL_MODE,
             'mejaDiatur' => array_intersect_key(MejaKerjaPeran::PERAN, array_flip($this->mejaKaryawan($kode))),
             'peran'     => MejaKerjaPeran::with('user:id,name')->orderBy('urutan')->get()->groupBy('peran'),
             'users'     => $this->calonAnggota(),
@@ -60,16 +56,12 @@ class PengaturanAdminController extends Controller
         $cfg = $this->karyawan($request, $kode);
         $mejaDiatur = $this->mejaKaryawan($kode);
         $data = $request->validate([
-            'peran'             => 'array',
-            'peran.*'           => 'array',
-            'peran.*.*'         => 'nullable|integer|exists:users,id',
-            'skill'             => 'array',
-            'skill.*.peran'     => 'required|in:' . implode(',', $mejaDiatur),
-            'skill.*.bobot'     => 'required|integer|min:1|max:10',
-            'skill.*.sla_menit' => 'required|integer|min:5|max:10080',
+            'peran'     => 'array',
+            'peran.*'   => 'array',
+            'peran.*.*' => 'nullable|integer|exists:users,id',
         ]);
 
-        DB::transaction(function () use ($data, $kode, $mejaDiatur) {
+        DB::transaction(function () use ($data, $mejaDiatur) {
             // Hanya meja karyawan ini: anggota meja karyawan lain tidak ada di form-nya.
             foreach ($mejaDiatur as $p) {
                 MejaKerjaPeran::where('peran', $p)->delete();
@@ -77,12 +69,50 @@ class PengaturanAdminController extends Controller
                     MejaKerjaPeran::create(['peran' => $p, 'user_id' => $uid, 'urutan' => $i + 1]);
                 }
             }
-            foreach ($this->skillKaryawan($kode) as $key => $s) {
-                if ($isi = $data['skill'][$key] ?? null) $this->meja->pengaturan($s)->update($isi);
-            }
         });
 
         return redirect()->route('karyawan-virtual.admin.pengaturan', $kode)->with('success', "Pengaturan {$cfg['nama']} disimpan.");
+    }
+
+    /** Pengaturan satu skill: meja tujuan, bobot, tenggat. */
+    public function skill(Request $request, string $kode, string $skill)
+    {
+        $cfg = $this->karyawan($request, $kode);
+        $s = $this->skillMilik($kode, $skill);
+
+        return view('erp.karyawan-virtual.pengaturan-skill', [
+            'kode'       => $kode,
+            'karyawan'   => $cfg,
+            'skill'      => $s,
+            'atur'       => $this->meja->pengaturan($s),
+            'mode'       => $this->kv->mode(MejaKerjaService::kunciKv($s)),
+            'labelMode'  => KaryawanVirtualService::LABEL_MODE,
+            'mejaDiatur' => array_intersect_key(MejaKerjaPeran::PERAN, array_flip($this->mejaKaryawan($kode))),
+            'prioritasAktif' => PrioritasSkill::urutanAktif(),
+            'urutanPrioritas' => (array) config('meja_prioritas.urutan', []),
+        ]);
+    }
+
+    public function simpanSkill(Request $request, string $kode, string $skill)
+    {
+        $this->karyawan($request, $kode);
+        $s = $this->skillMilik($kode, $skill);
+        $data = $request->validate([
+            'peran'     => 'required|in:' . implode(',', $this->mejaKaryawan($kode)),
+            'bobot'     => 'required|integer|min:1|max:10',
+            'sla_menit' => 'required|integer|min:5|max:10080',
+        ]);
+        $this->meja->pengaturan($s)->update($data);
+
+        return redirect()->route('karyawan-virtual.admin.pengaturan.skill', [$kode, $skill])
+            ->with('success', "Pengaturan skill {$s->label()} disimpan.");
+    }
+
+    private function skillMilik(string $kode, string $skill): \App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin
+    {
+        $s = $this->skillKaryawan($kode)[$skill] ?? null;
+        abort_unless($s, 404);
+        return $s;
     }
 
     private function karyawan(Request $request, string $kode): array

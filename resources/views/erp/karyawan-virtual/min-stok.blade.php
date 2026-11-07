@@ -3,7 +3,9 @@
 @section('content')
 @php $fmt = fn ($n) => $n === null ? '' : rtrim(rtrim(number_format($n, 3, ',', '.'), '0'), ','); @endphp
 <div class="max-w-6xl mx-auto">
-    <a href="{{ route('karyawan-virtual.show', $kode) }}" class="inline-block text-xs text-blue-600 hover:underline mb-3">← {{ $karyawan['ikon'] }} {{ $karyawan['nama'] }}</a>
+    <div class="text-xs mb-3"><a href="{{ route('karyawan-virtual.show', $kode) }}" class="inline-block text-xs text-blue-600 hover:underline ">← {{ $karyawan['ikon'] }} {{ $karyawan['nama'] }}</a>
+        <span class="text-xs text-gray-400 mx-1">›</span><a href="{{ route('karyawan-virtual.admin.pengaturan.skill', [$kode, 'purchasing-ready']) }}" class="inline-block text-xs text-blue-600 hover:underline">Pengaturan skill</a>
+    </div>
 
     <div class="bg-white shadow rounded-lg border p-6">
         <h2 class="text-xl font-bold text-gray-800 mb-1">Saran Min Stok Bahan</h2>

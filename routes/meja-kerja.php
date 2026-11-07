@@ -57,6 +57,8 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
 Route::middleware('auth')->prefix('erp/karyawan-virtual/{kode}')->name('karyawan-virtual.admin.')->group(function () {
     Route::get('/pengaturan-admin', [PengaturanAdminController::class, 'show'])->name('pengaturan');
     Route::put('/pengaturan-admin', [PengaturanAdminController::class, 'simpan'])->name('pengaturan.simpan');
+    Route::get('/pengaturan-admin/skill/{skill}', [PengaturanAdminController::class, 'skill'])->where('skill', '[a-z0-9-]+')->name('pengaturan.skill');
+    Route::put('/pengaturan-admin/skill/{skill}', [PengaturanAdminController::class, 'simpanSkill'])->where('skill', '[a-z0-9-]+')->name('pengaturan.skill.simpan');
     Route::get('/min-stok', [MinStokController::class, 'index'])->name('min-stok');
     Route::post('/min-stok', [MinStokController::class, 'simpan'])->name('min-stok.simpan');
     Route::get('/produk-desain', [ProdukDesainController::class, 'index'])->name('produk-desain');

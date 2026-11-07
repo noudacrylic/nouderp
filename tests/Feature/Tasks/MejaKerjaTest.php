@@ -475,8 +475,13 @@ class MejaKerjaTest extends TestCase
 
         $this->actingAs($this->desainer)->get(route('tasks.meja.index'))->assertOk()->assertSee('Meja Kerja')->assertSee('Chat di Seller Centre');
         $this->actingAs($this->owner)->get(route('tasks.meja.pengaturan'))->assertRedirect(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'));
-        $this->actingAs($this->owner)->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertOk()->assertSee('Desain pesanan')->assertSee('Otomatis');
+        $this->actingAs($this->owner)->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertOk()->assertSee('Anggota meja')->assertDontSee('Desain pesanan');
+        $this->actingAs($this->owner)->get(route('karyawan-virtual.admin.pengaturan.skill', ['manajer-admin', 'desain']))->assertOk()
+            ->assertSee('Desain pesanan')->assertSee('Otomatis')->assertDontSee('QC timbang')->assertSee(route('karyawan-virtual.admin.produk-desain', 'manajer-admin'), false);
+        $this->actingAs($this->owner)->get(route('karyawan-virtual.show', 'manajer-admin'))->assertOk()
+            ->assertSee(route('karyawan-virtual.admin.pengaturan.skill', ['manajer-admin', 'qc']), false);
         $this->actingAs($this->desainer)->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertForbidden();
+        $this->actingAs($this->desainer)->get(route('karyawan-virtual.admin.pengaturan.skill', ['manajer-admin', 'desain']))->assertForbidden();
         $this->actingAs($this->owner)->get(route('karyawan-virtual.show', 'manajer-admin'))->assertOk()->assertSee('Purchasing ready stok')->assertSee('Peran & Pengaturan', false);
         $this->actingAs($this->owner)->get(route('tasks.index'))->assertOk()->assertDontSee('Desain SO-1');
         // Riwayat task Meja Kerja ada di Daftar (filter Sumber), tidak di Daftar bawaan.
@@ -487,8 +492,10 @@ class MejaKerjaTest extends TestCase
 
         $this->actingAs($this->owner)->put(route('karyawan-virtual.admin.pengaturan.simpan', 'manajer-admin'), [
             'peran' => ['desain' => [$this->owner->id, $this->desainer->id]],
-            'skill' => ['desain' => ['peran' => 'desain', 'bobot' => 9, 'sla_menit' => 60]],
         ])->assertRedirect();
+        $this->actingAs($this->owner)->put(route('karyawan-virtual.admin.pengaturan.skill.simpan', ['manajer-admin', 'desain']), [
+            'peran' => 'desain', 'bobot' => 9, 'sla_menit' => 60,
+        ])->assertRedirect(route('karyawan-virtual.admin.pengaturan.skill', ['manajer-admin', 'desain']));
         $this->assertSame([$this->owner->id, $this->desainer->id], MejaKerjaPeran::where('peran', 'desain')->orderBy('urutan')->pluck('user_id')->all());
         $this->assertSame(9, MejaKerjaSkill::where('skill', 'desain')->value('bobot'));
     }

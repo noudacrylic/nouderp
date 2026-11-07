@@ -92,11 +92,11 @@ class PurchasingReadySkill implements SkillAdmin, PunyaJawaban
 
     public function aksi(Task $task): array
     {
-        return $this->aksiBayar($task) ?? [...$this->aksiBeli($task), ['label' => 'Saran min stok', 'url' => $this->urlPengaturan(MejaKerjaService::KARYAWAN)]];
+        return $this->aksiBayar($task) ?? [...$this->aksiBeli($task), ['label' => 'Saran min stok', 'url' => $this->urlDataPengaturan(MejaKerjaService::KARYAWAN)]];
     }
 
-    /** Pengaturan skill ini = min stok bahan (peran/bobot/tenggat tetap di Pengaturan Manajer Admin). */
-    public function urlPengaturan(string $kode): string
+    /** Data skill ini (min stok bahan) — ditautkan dari halaman pengaturan skill. */
+    public function urlDataPengaturan(string $kode): string
     {
         return route('karyawan-virtual.admin.min-stok', $kode);
     }

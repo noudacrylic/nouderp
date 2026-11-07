@@ -31,6 +31,6 @@ trait JadiSkillManajer
 
     public function urlPengaturan(string $kode): string
     {
-        return route('karyawan-virtual.admin.pengaturan', $kode) . '#skill-' . $this->key();
+        return route('karyawan-virtual.admin.pengaturan.skill', [$kode, $this->key()]);
     }
 }

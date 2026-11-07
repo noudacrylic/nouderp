@@ -266,24 +266,29 @@ class AsistenOwnerTest extends TestCase
         $this->actingAs($this->owner);
 
         $this->get(route('karyawan-virtual.admin.pengaturan', 'asisten-owner'))->assertOk()
-            ->assertSee('Meja Owner')->assertDontSee('Meja Layanan')->assertSee('Pengajuan izin karyawan')->assertDontSee('QC timbang');
+            ->assertSee('Meja Owner')->assertDontSee('Meja Layanan');
         $this->get(route('karyawan-virtual.admin.pengaturan', 'manajer-admin'))->assertOk()
-            ->assertDontSee('Meja Owner')->assertDontSee('Pengajuan izin karyawan');
+            ->assertDontSee('Meja Owner');
+        // Pengaturan skill per karyawan: skill karyawan lain = 404.
+        $this->get(route('karyawan-virtual.admin.pengaturan.skill', ['asisten-owner', 'pengajuan-izin']))->assertOk()->assertSee('Pengajuan izin karyawan');
+        $this->get(route('karyawan-virtual.admin.pengaturan.skill', ['asisten-owner', 'qc']))->assertNotFound();
+        $this->get(route('karyawan-virtual.admin.pengaturan.skill', ['manajer-admin', 'pengajuan-izin']))->assertNotFound();
 
         // Simpan Asisten Owner tidak menyentuh anggota Meja Layanan.
         $this->put(route('karyawan-virtual.admin.pengaturan.simpan', 'asisten-owner'), [
-            'peran' => ['owner' => [$this->owner->id]], 'skill' => ['pengajuan-izin' => $bobot('owner')],
+            'peran' => ['owner' => [$this->owner->id]],
         ])->assertRedirect();
         $this->assertTrue(MejaKerjaPeran::where('peran', 'layanan')->where('user_id', $this->admin->id)->exists());
+        $this->put(route('karyawan-virtual.admin.pengaturan.skill.simpan', ['asisten-owner', 'pengajuan-izin']), $bobot('owner'))->assertRedirect();
         $this->assertSame(9, MejaKerjaSkill::where('skill', 'pengajuan-izin')->value('bobot'));
 
         // Simpan Manajer Admin tidak menghapus anggota Meja Owner & tak bisa mengarahkan skill ke sana.
         $this->put(route('karyawan-virtual.admin.pengaturan.simpan', 'manajer-admin'), [
-            'peran' => ['layanan' => [$this->admin->id]], 'skill' => ['qc' => $bobot('layanan')],
+            'peran' => ['layanan' => [$this->admin->id]],
         ])->assertRedirect();
         $this->assertTrue(MejaKerjaPeran::where('peran', 'owner')->where('user_id', $this->owner->id)->exists());
 
-        $this->put(route('karyawan-virtual.admin.pengaturan.simpan', 'manajer-admin'), ['skill' => ['qc' => $bobot('owner')]])
-            ->assertSessionHasErrors('skill.qc.peran');
+        $this->put(route('karyawan-virtual.admin.pengaturan.skill.simpan', ['manajer-admin', 'qc']), $bobot('owner'))
+            ->assertSessionHasErrors('peran');
     }
 }
