@@ -495,6 +495,15 @@
                 <div class="rounded border border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700">
                     Chat ini dipegang <b>{{ $terpilih->owner->name ?? 'agen lain' }}</b> — Anda hanya bisa membacanya.
                     Minta dioper lewat chip pemilik di daftar kalau perlu membalas.
+                    {{-- Kartu Desain membuka chat milik Admin Layanan: anggota meja boleh mengambilnya. --}}
+                    @if(\App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran::where('user_id', auth()->id())->whereIn('peran', ['layanan', 'desain'])->exists())
+                        <form method="POST" action="{{ route('crm.inbox.oper', $terpilih->id) }}" class="mt-2">
+                            @csrf
+                            @if($modePwa)<input type="hidden" name="aplikasi" value="cs">@endif
+                            <input type="hidden" name="owner_user_id" value="{{ auth()->id() }}">
+                            <button class="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">Ambil chat ini</button>
+                        </form>
+                    @endif
                 </div>
             @elseif($terpilih->shopee() && ! $terbuka)
                 {{-- Toko Shopee belum/tak lagi terhubung. Kotak "jendela tertutup" di bawah TIDAK
@@ -550,7 +559,7 @@
                             <span class="font-semibold">💡 Saran AI</span>
                             <span x-show="saran?.butir" class="px-1.5 rounded bg-white border border-violet-200" x-text="'butir ' + (saran?.butir ?? '')"></span>
                             <span x-show="saran?.lempar_ke" class="px-1.5 rounded bg-amber-100 text-amber-800 font-semibold"
-                                  x-text="'🙋 perlu ' + (saran?.lempar_ke === 'owner' ? 'owner' : 'admin')"></span>
+                                  x-text="'🙋 perlu ' + (saran?.lempar_ke === 'owner' ? 'owner' : (saran?.lempar_ke === 'desain' ? 'admin desain' : 'admin'))"></span>
                             <span class="text-violet-500" x-text="saran?.alasan ?? ''"></span>
                         </div>
                         <div x-show="saran?.teks" class="mt-1 whitespace-pre-line text-gray-800" x-text="saran?.teks ?? ''"></div>

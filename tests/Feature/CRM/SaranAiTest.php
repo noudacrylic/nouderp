@@ -9,6 +9,7 @@ use App\Modules\Assistant\Services\FakeClaudeClient;
 use App\Modules\CRM\Agents\AgenPrompt;
 use App\Modules\CRM\Agents\AgenTools;
 use App\Modules\SDM\Models\NationalHoliday;
+use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use Carbon\Carbon;
 use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentRun;
@@ -217,10 +218,103 @@ class SaranAiTest extends TestCase
         $this->assertSame(CrmSaranAi::DIPAKAI, $s->fresh()->status);
     }
 
+    /** @return array{0:User,1:User} [admin layanan, admin desain] */
+    private function duaMeja(): array
+    {
+        $layanan = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $desain  = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        MejaKerjaPeran::create(['peran' => 'layanan', 'user_id' => $layanan->id, 'urutan' => 1]);
+        MejaKerjaPeran::create(['peran' => 'desain', 'user_id' => $desain->id, 'urutan' => 1]);
+
+        return [$layanan, $desain];
+    }
+
+    public function test_masalah_desain_pindah_ke_admin_desain_masalah_lain_ke_admin_layanan(): void
+    {
+        [$layanan, $desain] = $this->duaMeja();
+        $c = $this->chat('tulisannya mau diganti kak');
+        $c->forceFill(['owner_user_id' => $layanan->id])->save();
+
+        $this->claude->antrekan($this->usul('C1', 'baik kak', 'desain'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame($desain->id, (int) $c->fresh()->owner_user_id);
+        $this->assertGreaterThanOrEqual(1, $c->fresh()->unread_count);
+
+        $this->pesan($c, CrmMessage::MASUK, 'barang saya pecah kak', now()->subMinute());
+        $c->forceFill(['last_inbound_at' => now()->subMinute()])->save();
+        $this->claude->antrekan($this->usul('G1', 'mohon maaf kak', 'admin'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame($layanan->id, (int) $c->fresh()->owner_user_id);
+    }
+
+    public function test_produk_custom_pindah_ke_owner_dan_tetap_di_owner(): void
+    {
+        [$layanan] = $this->duaMeja();
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        MejaKerjaPeran::create(['peran' => 'owner', 'user_id' => $owner->id, 'urutan' => 1]);
+        $c = $this->chat('bisa ukuran 20x30 kak?');
+        $c->forceFill(['owner_user_id' => $layanan->id])->save();
+
+        $this->claude->antrekan($this->usul('D1', 'kami tanyakan dulu ya kak', 'owner'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame($owner->id, (int) $c->fresh()->owner_user_id);
+
+        $this->pesan($c, CrmMessage::MASUK, 'kapan dikirim kak', now()->subMinute());
+        $c->forceFill(['last_inbound_at' => now()->subMinute()])->save();
+        $this->claude->antrekan($this->usul('-', 'bentar ya kak', 'admin'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame($owner->id, (int) $c->fresh()->owner_user_id, 'Chat yang dipegang owner dioper manual oleh owner.');
+    }
+
+    public function test_jawaban_ai_tanpa_lempar_dan_chat_owner_tidak_digeser(): void
+    {
+        [$layanan] = $this->duaMeja();
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $c = $this->chat('tulisannya mau diganti kak');
+        $c->forceFill(['owner_user_id' => $owner->id])->save();
+
+        $this->claude->antrekan($this->usul('C1', 'baik kak', 'desain'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame($owner->id, (int) $c->fresh()->owner_user_id, 'Dipegang di luar meja: tidak digeser.');
+
+        $c2 = CrmConversation::findOrCreateFor('779', CrmConversation::KANAL_SHOPEE, '101');
+        $this->pesan($c2, CrmMessage::MASUK, 'buka jam berapa?', now()->subMinutes(2));
+        $c2->forceFill(['last_inbound_at' => now()->subMinutes(2), 'owner_user_id' => $layanan->id])->save();
+        $this->claude->antrekan($this->usul('A7', 'jam 8 kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame($layanan->id, (int) $c2->fresh()->owner_user_id, 'Bisa dijawab AI: tetap.');
+    }
+
+    public function test_meja_desain_kosong_chat_tetap_di_pemegang(): void
+    {
+        $layanan = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        MejaKerjaPeran::create(['peran' => 'layanan', 'user_id' => $layanan->id, 'urutan' => 1]);
+        $c = $this->chat('tulisannya mau diganti kak');
+        $c->forceFill(['owner_user_id' => $layanan->id])->save();
+
+        $this->claude->antrekan($this->usul('C1', 'baik kak', 'desain'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $this->assertSame($layanan->id, (int) $c->fresh()->owner_user_id);
+        $this->assertSame('desain', CrmSaranAi::firstOrFail()->lempar_ke);
+    }
+
+    public function test_admin_desain_bisa_mengambil_chat_milik_admin_layanan(): void
+    {
+        [$layanan, $desain] = $this->duaMeja();
+        $c = $this->chat();
+        $c->forceFill(['owner_user_id' => $layanan->id])->save();
+
+        $this->actingAs($desain)->get(route('crm.inbox.show', $c))->assertOk()->assertSee('Ambil chat ini');
+        $this->actingAs($desain)->post(route('crm.inbox.oper', $c), ['owner_user_id' => $desain->id]);
+        $this->assertSame($desain->id, (int) $c->fresh()->owner_user_id);
+    }
+
     public function test_beli_offline_dijawab_bila_pembeli_bertanya(): void
     {
         $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
 
+        $this->assertStringContainsString('## Siapa menangani bila tidak bisa dijawab AI', $isi);
         $this->assertStringContainsString('### A6b. Beli langsung / ambil offline di toko', $isi);
         $this->assertStringContainsString('istirahat 11.30–12.30', $isi);
         $this->assertStringContainsString('Pembeli yang bertanya sendiri soal beli langsung di toko: pakai A6b', $isi);

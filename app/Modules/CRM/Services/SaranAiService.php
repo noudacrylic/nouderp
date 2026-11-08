@@ -9,6 +9,8 @@ use App\Modules\CRM\Models\CrmAgentRun;
 use App\Modules\CRM\Models\CrmConversation;
 use App\Modules\CRM\Models\CrmMessage;
 use App\Modules\CRM\Models\CrmSaranAi;
+use App\Modules\Tasks\MejaKerja\MejaKerjaService;
+use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -87,10 +89,10 @@ class SaranAiService
         }
 
         $teks   = trim((string) ($usul['teks'] ?? ''));
-        $lempar = in_array($usul['lempar_ke'] ?? null, ['admin', 'owner'], true) ? $usul['lempar_ke'] : null;
+        $lempar = in_array($usul['lempar_ke'] ?? null, ['admin', 'desain', 'owner'], true) ? $usul['lempar_ke'] : null;
         $butir  = mb_substr(trim((string) ($usul['butir'] ?? '')), 0, 10) ?: null;
 
-        return CrmSaranAi::create([
+        $saran = CrmSaranAi::create([
             'conversation_id'  => $c->id,
             'untuk_message_id' => $pesan->id,
             'agent_run_id'     => $hasil['run']?->id,
@@ -100,6 +102,47 @@ class SaranAiService
             'alasan'           => mb_substr(trim((string) ($usul['alasan'] ?? '')), 0, 255) ?: null,
             'status'           => $teks === '' && !$lempar ? CrmSaranAi::TAK_PERLU : CrmSaranAi::BARU,
         ]);
+
+        try {
+            $this->arahkanKePeran($c, $lempar);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return $saran;
+    }
+
+    /**
+     * Desain produk yang ada ke Admin Desain, produk custom ke owner, lainnya ke Admin Layanan.
+     * Layar chat hanya mengizinkan pemegang membalas, jadi pemegangnya ikut berpindah.
+     * Chat yang dipegang orang di luar meja layanan & desain (mis. owner) tidak digeser otomatis.
+     */
+    private function arahkanKePeran(CrmConversation $c, ?string $lempar): void
+    {
+        $peran = ['desain' => 'desain', 'admin' => 'layanan', 'owner' => 'owner'][$lempar] ?? null;
+        if (!$peran) {
+            return;
+        }
+
+        $penerimaId = app(MejaKerjaService::class)->pilihPengerja($peran);
+        $penerima   = $penerimaId ? User::bisaChatCrm()->find($penerimaId) : null;
+        $pemegang   = $c->owner_user_id ? (int) $c->owner_user_id : null;
+        if (!$penerima || $pemegang === $penerima->id) {
+            return;
+        }
+
+        $anggotaMeja = MejaKerjaPeran::whereIn('peran', ['layanan', 'desain'])->pluck('user_id')->map(fn ($id) => (int) $id);
+        if ($pemegang && !$anggotaMeja->contains($pemegang)) {
+            return;
+        }
+
+        $c->forceFill([
+            'owner_user_id' => $penerima->id,
+            'queue_state'   => $c->labelSaatDioperKe($penerima->id),
+            'unread_count'  => max(1, (int) $c->unread_count),
+        ])->save();
+
+        app(NotifikasiChatService::class)->dioper($c, $penerima);
     }
 
     /** Saran yang sedang berlaku untuk ditampilkan di layar chat. */
