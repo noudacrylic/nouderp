@@ -2985,6 +2985,41 @@ class CrmInboxController extends Controller
         return 'Chat ini sekarang milik Anda' . ($lama ? " (sebelumnya $lama)" : '') . ' — dibuka dari Meja Kerja.';
     }
 
+    /**
+     * Pelanggan WA yang lupa PIN toko online (noudakrilik.com). PIN tersimpan teracak, jadi tak
+     * bisa dibacakan — dikosongkan saja; checkout berikutnya otomatis menyimpan PIN baru yang ia
+     * ketik (CheckoutController::resolveCustomer). Hanya akun yang nomornya SAMA dengan nomor WA
+     * chat ini: pemilik nomor sudah terbukti lewat WhatsApp-nya, orang lain tak bisa mereset akun
+     * orang.
+     */
+    public function resetPinToko(Request $request, CrmConversation $conversation)
+    {
+        $akun = $this->akunPinToko($conversation);
+        if ($akun->isEmpty()) {
+            return back()->with('error', 'Nomor WhatsApp ini tidak punya akun ber-PIN di toko online.');
+        }
+
+        foreach ($akun as $c) {
+            $c->forceFill(['web_order_pin' => null])->save();
+        }
+        \Illuminate\Support\Facades\Log::info('CRM reset PIN toko', [
+            'conversation' => $conversation->id, 'customer' => $akun->pluck('id')->all(), 'oleh' => $request->user()?->id,
+        ]);
+
+        return back()->with('success', 'PIN toko online nomor ini dikosongkan. Minta pelanggan checkout lagi dan membuat PIN baru di kolom PIN.');
+    }
+
+    /** Akun toko online ber-PIN dengan nomor yang sama dengan chat WhatsApp ini. */
+    public static function akunPinToko(CrmConversation $conversation): \Illuminate\Support\Collection
+    {
+        if (! str_starts_with((string) $conversation->channel, 'whatsapp')) {
+            return collect();
+        }
+
+        return \App\Models\Customer::denganNomor($conversation->contact_key)
+            ->filter(fn (\App\Models\Customer $c) => filled($c->web_order_pin))->values();
+    }
+
     /** Oper percakapan ke admin lain — pengganti rotator otomatis yang ditunda. */
     /**
      * Oper percakapan ke agen lain — dan tandai BELUM DIBACA untuk yang menerima.

@@ -290,6 +290,7 @@ Route::prefix('erp')->group(function () {
         // Dipanggil berkala oleh thread supaya pesan masuk muncul tanpa muat ulang.
         Route::get('/{conversation}/pesan-baru', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pesanBaru'])->name('inbox.pesan-baru');
         Route::post('/{conversation}/oper', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'oper'])->name('inbox.oper');
+        Route::post('/{conversation}/reset-pin-toko', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'resetPinToko'])->name('inbox.reset-pin-toko');
         Route::post('/{conversation}/antrean', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'antrean'])->name('inbox.antrean');
         Route::post('/{conversation}/arsip', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'arsip'])->name('inbox.arsip');
         Route::post('/{conversation}/selalu-tutup', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'selaluTutup'])->name('inbox.selalu-tutup');

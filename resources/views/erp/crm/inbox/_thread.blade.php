@@ -228,6 +228,16 @@
                         <button class="w-full text-left px-3 py-2 hover:bg-gray-50">Tandai belum dibaca</button>
                     </form>
 
+                    {{-- Lupa PIN toko online: hanya akun bernomor sama dengan WA ini. --}}
+                    @if(\App\Modules\CRM\Controllers\CrmInboxController::akunPinToko($terpilih)->isNotEmpty())
+                        <form method="POST" action="{{ route('crm.inbox.reset-pin-toko', $terpilih->id) }}"
+                              onsubmit="return confirm('Kosongkan PIN toko online untuk nomor ini?\n\nPelanggan cukup checkout lagi dan membuat PIN baru.')">
+                            @csrf
+                            <button class="w-full text-left px-3 py-2 hover:bg-gray-50"
+                                    title="Pelanggan lupa PIN noudakrilik.com — PIN dikosongkan, pelanggan membuat PIN baru saat checkout">Reset PIN toko online</button>
+                        </form>
+                    @endif
+
                     {{-- Oper tanpa harus kembali ke daftar dulu (22 Okt 2026). --}}
                     <button type="button" @click="menu = false; oper = true"
                             class="w-full text-left px-3 py-2 hover:bg-gray-50">Oper chat…</button>

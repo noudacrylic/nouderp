@@ -862,10 +862,11 @@ class CheckoutController extends Controller
     {
         $data = $request->validate(['phone' => 'required|string|max:30']);
 
-        $registered = Customer::where('phone', trim($data['phone']))
-            ->where(fn ($q) => $q->whereNull('is_marketplace')->orWhere('is_marketplace', false))
-            ->whereNotNull('web_order_pin')
-            ->exists();
+        // Dinormalkan seperti lookup & checkout: '0812…' = '+62 812-…'. Dulu dicocokkan apa
+        // adanya — nomor ber-PIN yang diketik beda format dianggap "belum punya akun", pembeli
+        // diminta MEMBUAT PIN, lalu checkout ditolak "PIN salah" oleh akun lamanya.
+        $registered = Customer::denganNomor($data['phone'])
+            ->contains(fn (Customer $c) => filled($c->web_order_pin));
 
         return response()->json(['data' => ['registered' => $registered]]);
     }
