@@ -43,6 +43,9 @@ class ShopeeChatTest extends TestCase
     private array $kiriman = [];
     private int $nomorKirim = 0;
 
+    /** Tiruan Shopee yang mengabaikan type=unread (pengaman selaraskanDibaca). */
+    private bool $abaikanTipe = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -57,7 +60,12 @@ class ShopeeChatTest extends TestCase
         Http::fake(function (Request $r) {
             parse_str((string) parse_url($r->url(), PHP_URL_QUERY), $q);
             if (str_contains($r->url(), 'get_conversation_list')) {
-                return Http::response(['response' => ['conversations' => array_values($this->percakapan), 'page_result' => ['more' => false]]]);
+                $daftar = array_values($this->percakapan);
+                if (($q['type'] ?? 'all') === 'unread' && !$this->abaikanTipe) {
+                    $daftar = array_values(array_filter($daftar, fn ($cv) => ($cv['unread_count'] ?? 0) > 0));
+                }
+
+                return Http::response(['response' => ['conversations' => $daftar, 'page_result' => ['more' => false]]]);
             }
             if (str_contains($r->url(), 'get_message')) {
                 return Http::response(['response' => ['messages' => $this->pesan[$q['conversation_id']] ?? [], 'page_result' => ['next_offset' => '']]]);
@@ -914,5 +922,40 @@ class ShopeeChatTest extends TestCase
             ->assertOk()->assertSee('08998844666')->assertSee('Tampilkan kontak toko');
         $this->actingAs($admin)->get(route('sales.invoices.print', [$faktur->id, 'tanpa_kontak' => 1]))
             ->assertOk()->assertDontSee('08998844666')->assertDontSee('noudacrylic@gmail.com');
+    }
+
+    public function test_chat_yang_dibaca_di_seller_centre_dinolkan_di_erp(): void
+    {
+        $t = now()->subMinutes(30)->timestamp;
+        $this->cv(1, 'sudah_dibaca', $t, 'x1');
+        $this->pesan[1] = [$this->m('x1', 'text', ['text' => 'ok kak makasih'], detik: $t)];
+        $this->cv(2, 'masih_baru', $t, 'y1');
+        $this->pesan[2] = [$this->m('y1', 'text', ['text' => 'kak ready?'], detik: $t)];
+
+        $layanan = app(ShopeeChatService::class);
+        $layanan->tarikBaru($this->shop);
+        $id = fn ($nama) => CrmConversation::where('display_name', $nama)->value('id');
+        $this->assertSame(1, CrmConversation::find($id('sudah_dibaca'))->unread_count);
+        $this->assertSame(1, CrmConversation::find($id('masih_baru'))->unread_count);
+
+        // Admin membuka chat 1 di Seller Centre; chat 2 masih belum dibaca di Shopee.
+        $this->percakapan[1]['unread_count'] = 0;
+        $this->percakapan[2]['unread_count'] = 1;
+
+        // Shopee yang mengabaikan type=unread → tak satu pun dinolkan.
+        $this->abaikanTipe = true;
+        $this->assertSame(0, $layanan->selaraskanDibaca($this->shop));
+        $this->assertSame(1, CrmConversation::find($id('sudah_dibaca'))->unread_count);
+
+        $this->abaikanTipe = false;
+        $this->assertSame(1, $layanan->selaraskanDibaca($this->shop));
+        $this->assertSame(0, CrmConversation::find($id('sudah_dibaca'))->unread_count);
+        $this->assertSame(1, CrmConversation::find($id('masih_baru'))->unread_count);
+
+        // Pesan masuk SESUDAH daftar diambil tidak ikut dinolkan.
+        CrmConversation::whereKey($id('masih_baru'))->update(['last_inbound_at' => now()]);
+        $this->percakapan[2]['unread_count'] = 0;
+        $this->assertSame(0, $layanan->selaraskanDibaca($this->shop));
+        $this->assertSame(1, CrmConversation::find($id('masih_baru'))->unread_count);
     }
 }

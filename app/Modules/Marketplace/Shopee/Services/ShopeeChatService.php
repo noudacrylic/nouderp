@@ -167,6 +167,73 @@ class ShopeeChatService
     }
 
     /**
+     * Status baca ikut Seller Centre: chat Shopee yang TIDAK lagi belum dibaca di Shopee
+     * (dibuka admin di Seller Centre/HP) dinolkan lencananya di ERP.
+     *
+     * Tanpa ini lencana ERP hanya turun bila ada balasan manusia: chat yang cukup dibaca
+     * ("ok kak makasih") atau dijawab AI Shopee menumpuk selamanya — 9 Nov 2026 Saiful
+     * 234 belum dibaca di ERP vs 15 di Seller Centre. Arah sebaliknya (ERP → Shopee) sudah
+     * ada: membalas dari ERP memanggil read_conversation.
+     *
+     * Hanya MENOLKAN, tidak pernah menaikkan: menaikkan tetap tugas sinkron pesan. Chat
+     * yang pesan masuknya datang sesudah daftar diambil dilewati (daftarnya mungkin basi).
+     *
+     * @return int jumlah chat yang dinolkan
+     */
+    public function selaraskanDibaca(ShopeeShop $shop, int $maksHalaman = 10): int
+    {
+        $diambil  = now();
+        $belum    = [];
+        $kursor   = '';
+        $lengkap  = false;
+
+        for ($hal = 0; $hal < $maksHalaman; $hal++) {
+            $q = ['direction' => 'older', 'type' => 'unread', 'page_size' => self::UKURAN_HALAMAN];
+            if ($kursor !== '') {
+                $q['next_timestamp_nano'] = $kursor;
+            }
+            $r = $this->client->panggil($shop, 'GET', '/api/v2/sellerchat/get_conversation_list', $q);
+
+            foreach ($r['conversations'] ?? [] as $cv) {
+                // Pengaman: bila Shopee mengabaikan type=unread, daftar berisi chat yang sudah
+                // dibaca dan halamannya bisa terpotong — jangan menolkan apa pun.
+                if ((int) ($cv['unread_count'] ?? 0) <= 0) {
+                    return 0;
+                }
+                $belum[] = (int) $cv['conversation_id'];
+            }
+
+            $kursor = (string) data_get($r, 'page_result.next_cursor.next_message_time_nano', '');
+            if (!($r['page_result']['more'] ?? false) || $kursor === '') {
+                $lengkap = true;
+                break;
+            }
+        }
+
+        if (!$lengkap) {
+            return 0;   // daftar terpotong: yang tak terlihat belum tentu sudah dibaca
+        }
+
+        $crmIds = ShopeeChat::where('env', $shop->env)
+            ->where('shop_id', $shop->shop_id)
+            ->whereNotNull('crm_conversation_id')
+            ->whereNotIn('conversation_id', $belum ?: [0])
+            ->pluck('crm_conversation_id');
+
+        $jumlah = 0;
+        foreach ($crmIds->chunk(500) as $potong) {
+            $jumlah += CrmConversation::whereIn('id', $potong)
+                ->where('channel', CrmConversation::KANAL_SHOPEE)
+                ->where('unread_count', '>', 0)
+                ->where(fn ($w) => $w->whereNull('last_inbound_at')
+                    ->orWhere('last_inbound_at', '<', $diambil->copy()->subMinute()))
+                ->update(['unread_count' => 0]);
+        }
+
+        return $jumlah;
+    }
+
+    /**
      * Sinkronkan satu percakapan dari daftar Shopee.
      *
      * @return array{status:string, pesan:int} status: lewat|tersembunyi|tampil

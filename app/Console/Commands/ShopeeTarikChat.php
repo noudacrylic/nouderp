@@ -42,6 +42,10 @@ class ShopeeTarikChat extends Command
             } else {
                 $h = $chat->tarikBaru($shop);
                 $this->info("Chat: {$h['diperiksa']} percakapan berubah — tampil {$h['tampil']}, tersembunyi (AI) {$h['tersembunyi']}, {$h['pesan']} pesan baru.");
+
+                // Status baca ikut Seller Centre (chat yang dibuka di sana tak lagi berlencana di ERP).
+                $nol = $chat->selaraskanDibaca($shop);
+                $this->info("Dibaca di Seller Centre: {$nol} chat dinolkan.");
             }
         } catch (ShopeeException $e) {
             $this->error('Gagal: ' . $e->getMessage());
