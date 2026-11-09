@@ -193,7 +193,14 @@
                                                 </form>
                                             </details>
                                         @else
-                                        <a href="{{ $a['url'] ?? '#' }}" @if (!empty($a['url'])) target="_blank" rel="noopener" @endif
+                                        @php
+                                            // Chat CRM dibuka dari kartu → ?meja=<kartu>: pemegang kartu otomatis jadi pemilik chat.
+                                            $urlAksi = $a['url'] ?? null;
+                                            if ($urlAksi && !$bayang && preg_match('#/erp/crm/\d+$#', parse_url($urlAksi, PHP_URL_PATH) ?? '')) {
+                                                $urlAksi .= (str_contains($urlAksi, '?') ? '&' : '?') . 'meja=' . $t->id;
+                                            }
+                                        @endphp
+                                        <a href="{{ $urlAksi ?? '#' }}" @if (!empty($urlAksi)) target="_blank" rel="noopener" @endif
                                            @if (!empty($a['salin'])) data-salin="{{ $a['salin'] }}" @endif
                                            class="meja-aksi px-2 py-1 rounded text-xs font-semibold {{ $warnaAksi }}">{{ $a['label'] }}</a>
                                         @endif

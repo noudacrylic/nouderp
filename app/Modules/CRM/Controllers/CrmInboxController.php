@@ -716,6 +716,11 @@ class CrmInboxController extends Controller
             }
         }
 
+        if ($pesan = $this->ambilDariMeja($request, $conversation)) {
+            // URL dibersihkan dari ?meja= supaya muat ulang tidak mengambil ulang.
+            return redirect()->route('crm.inbox.show', $conversation)->with('success', $pesan);
+        }
+
         $conversation->load(['customer', 'owner']);
 
         /*
@@ -2942,6 +2947,42 @@ class CrmInboxController extends Controller
         if ($ubah) {
             $customer->forceFill($ubah)->save();
         }
+    }
+
+    /**
+     * Chat dibuka dari tombol kartu Meja Kerja (?meja=<task>) oleh pemegang kartu itu → chat
+     * otomatis jadi miliknya, tanpa oper manual: yang mengerjakan pesanannya-lah yang menjawab
+     * pelanggan, jadi kepemilikan chat jelas. Pemilik/owner yang sekadar melihat kartu orang
+     * lain TIDAK mengambil (kartu bukan miliknya). Di luar Meja Kerja tetap lewat "Ambil chat ini".
+     *
+     * @return string|null pesan sukses bila chat berpindah
+     */
+    private function ambilDariMeja(Request $request, CrmConversation $conversation): ?string
+    {
+        $taskId = (int) $request->query('meja');
+        $u = $request->user();
+        if (! $taskId || ! $u || (int) $conversation->owner_user_id === (int) $u->id) {
+            return null;
+        }
+
+        $kartu = \App\Modules\Tasks\Models\Task::whereKey($taskId)
+            ->where('assignee_user_id', $u->id)
+            ->whereIn('status', ['open', 'in_progress', 'pending'])
+            ->exists();
+        if (! $kartu || $conversation->status !== CrmConversation::STATUS_AKTIF
+            || ! User::bisaChatCrm()->whereKey($u->id)->exists()) {
+            return null;
+        }
+
+        $lama = $conversation->owner?->name;
+        $conversation->forceFill([
+            'owner_user_id'       => $u->id,
+            'queue_state'         => $conversation->labelSaatDioperKe((int) $u->id),
+            // Diambil sendiri = bukan titipan pengganti admin; jangan dikembalikan otomatis.
+            'dioper_dari_user_id' => null,
+        ])->save();
+
+        return 'Chat ini sekarang milik Anda' . ($lama ? " (sebelumnya $lama)" : '') . ' — dibuka dari Meja Kerja.';
     }
 
     /** Oper percakapan ke admin lain — pengganti rotator otomatis yang ditunda. */
