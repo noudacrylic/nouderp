@@ -75,6 +75,7 @@ class ProductionProcessController extends Controller
             ->orderBy('started_at')->get();
 
         $pausedSteps = $base()->where('status', 'paused')
+            ->with(['timeLogs' => fn ($q) => $q->where('event_type', 'paused')])   // alasan pending terakhir di kartu
             ->orderBy('paused_at')->get();
 
         // Tandai tiap kartu dengan info penggabungan (checkbox muncul bila eligible).
@@ -104,6 +105,7 @@ class ProductionProcessController extends Controller
             ->toArray();
 
         $testingMode = \App\Models\ProductionSetting::isTestingMode();
+        $alasanPendingWajib = \App\Models\ProductionSetting::isAlasanPendingWajib();
 
         // Langkah yang pergantian pelaksananya masih menunggu persetujuan owner.
         $pergantianMenunggu = \App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan::menunggu()
@@ -116,7 +118,7 @@ class ProductionProcessController extends Controller
         $defaultWarehouseId = Warehouse::defaultId();
 
         return view('erp.production.process.index', compact(
-            'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode',
+            'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode', 'alasanPendingWajib',
             'pergantianMenunggu',
             'warehouses', 'defaultWarehouseId'
         ));
@@ -227,10 +229,16 @@ class ProductionProcessController extends Controller
         }
     }
 
-    public function pauseStep(int $id, ProductionOrderService $service)
+    public function pauseStep(Request $request, int $id, ProductionOrderService $service)
     {
+        $wajib = \App\Models\ProductionSetting::isAlasanPendingWajib();
+        $request->validate([
+            'alasan'     => [$wajib ? 'required' : 'nullable', \Illuminate\Validation\Rule::in(array_keys(\App\Modules\Production\Models\ProductionStepTimeLog::ALASAN_PENDING))],
+            'keterangan' => ['nullable', 'string', 'max:255'],
+        ], ['alasan.required' => 'Pilih dulu alasan pending.']);
+
         try {
-            $service->pauseStep($id);
+            $service->pauseStep($id, $request->input('alasan'), $request->input('keterangan'));
             return back()->with('success', 'Langkah dipending.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());

@@ -955,9 +955,24 @@ class ProductionOrderService
         });
     }
 
-    public function pauseStep(int $stepId): void
+    /**
+     * Pending manual. $alasan = kunci ProductionStepTimeLog::ALASAN_PENDING (wajib dari layar
+     * Proses Produksi; null hanya untuk pemanggil internal/uji lama).
+     */
+    public function pauseStep(int $stepId, ?string $alasan = null, ?string $keterangan = null): void
     {
-        DB::transaction(function () use ($stepId) {
+        $keterangan = trim((string) $keterangan) ?: null;
+        if ($alasan !== null) {
+            $def = ProductionStepTimeLog::ALASAN_PENDING[$alasan] ?? null;
+            if (!$def) {
+                throw new Exception('Alasan pending tidak dikenal.');
+            }
+            if ($def['keterangan'] && !$keterangan) {
+                throw new Exception('Tulis keterangan untuk alasan "' . $def['label'] . '".');
+            }
+        }
+
+        DB::transaction(function () use ($stepId, $alasan, $keterangan) {
             $step = ProductionOrderStep::lockForUpdate()->findOrFail($stepId);
 
             if ($step->status !== 'in_progress') {
@@ -976,7 +991,9 @@ class ProductionOrderService
             ProductionStepTimeLog::create([
                 'production_order_step_id' => $step->id,
                 'event_type'               => 'paused',
+                'alasan'                   => $alasan,
                 'occurred_at'              => now(),
+                'notes'                    => $keterangan ? mb_substr($keterangan, 0, 255) : null,
             ]);
         });
     }

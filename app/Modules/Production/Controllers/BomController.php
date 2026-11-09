@@ -403,6 +403,18 @@ class BomController extends Controller
             : 'Mode testing dimatikan — scan sidik jari kembali diwajibkan.');
     }
 
+    /** Sakelar: Pause manual wajib memilih alasan (dasar penilaian Assembling). */
+    public function updateAlasanPending(Request $request)
+    {
+        $setting = ProductionSetting::first() ?? new ProductionSetting(['score_sales_period' => 1]);
+        $setting->alasan_pending_wajib = $request->boolean('alasan_pending_wajib');
+        $setting->save();
+
+        return back()->with('success', $setting->alasan_pending_wajib
+            ? 'Alasan Pause AKTIF — pelaksana wajib memilih alasan saat menekan Pause.'
+            : 'Alasan Pause dimatikan — Pause langsung tanpa alasan.');
+    }
+
     /** Trigger manual: hitung ulang score semua BOM aktif (logic di BomScoreService). */
     public function recalculate(BomScoreService $scoreService)
     {

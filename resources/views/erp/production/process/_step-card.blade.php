@@ -132,6 +132,17 @@
         'notes'        => $order->notes ?? '',
     ];
 
+    $pendingPayload = [
+        'action_url'   => route('production.process.steps.pause', $step->id),
+        'order_number' => $order->order_number,
+        'langkah'      => $step->name,
+    ];
+
+    // Alasan pending manual terakhir (hanya dimuat untuk panel paused).
+    $pendingTerakhir = $panel === 'paused' && $step->relationLoaded('timeLogs')
+        ? $step->timeLogs->where('event_type', 'paused')->sortByDesc('occurred_at')->first()
+        : null;
+
     $busy = $busyExecutorIds ?? [];
     $mulaiPayload = [
         'action_url'   => route('production.process.steps.start', $step->id),
@@ -179,7 +190,8 @@
          selesaiData: {{ Js::from($selesaiPayload) }},
          mulaiData: {{ Js::from($mulaiPayload) }},
          gantiData: {{ Js::from($gantiPayload) }},
-         catatanData: {{ Js::from($catatanPayload) }}
+         catatanData: {{ Js::from($catatanPayload) }},
+         pendingData: {{ Js::from($pendingPayload) }}
      }">
 
     {{-- Row 1: queue/step number + PRODUCT NAME · SKU + (sub) step name + PO + type --}}
@@ -322,6 +334,10 @@
                           data-timer-seconds="{{ $elapsedSeconds }}">⏸ {{ $dur }}</span>
                 @endif
             @endif
+            @if($pendingTerakhir && $pendingTerakhir->alasan)
+                <span class="bg-orange-50 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded"
+                      title="Dipending {{ $pendingTerakhir->occurred_at->format('d/m H:i') }}">{{ $pendingTerakhir->labelAlasan() }}{{ $pendingTerakhir->notes ? ': ' . $pendingTerakhir->notes : '' }}</span>
+            @endif
         @endif
     </div>
 
@@ -364,13 +380,22 @@
             @endif
 
         @elseif($panel === 'in_progress')
-            <form action="{{ route('production.process.steps.pause', $step->id) }}" method="POST" class="inline">
-                @csrf
-                <button type="submit"
+            @if($alasanPendingWajib ?? false)
+                {{-- Pause wajib alasan (modal di index) — dasar neraca jam kerja penilaian. --}}
+                <button type="button"
+                        @click="$dispatch('open-pending', pendingData)"
                         class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition">
                     Pause
                 </button>
-            </form>
+            @else
+                <form action="{{ route('production.process.steps.pause', $step->id) }}" method="POST" class="inline">
+                    @csrf
+                    <button type="submit"
+                            class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition">
+                        Pause
+                    </button>
+                </form>
+            @endif
             <button type="button"
                     @click="$dispatch('open-selesai', selesaiData)"
                     class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition">

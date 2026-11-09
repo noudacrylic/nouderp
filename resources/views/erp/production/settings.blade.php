@@ -132,6 +132,30 @@
                 </div>
             @endif
         </div>
+
+        {{-- Wajib alasan Pause --}}
+        <div class="bg-white border rounded-2xl shadow-sm p-5 {{ ($setting->alasan_pending_wajib ?? false) ? 'border-orange-300' : 'border-gray-100' }}">
+            <form action="{{ route('production.settings.alasan-pending.update') }}" method="POST">
+                @csrf
+                <input type="hidden" name="alasan_pending_wajib" value="0">
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <span class="flex-1">
+                        <span class="block font-bold text-gray-700 text-sm">Wajib Alasan Pause</span>
+                        <span class="block text-[11px] text-gray-500 mt-1 leading-relaxed">
+                            Bila aktif, pelaksana <b>wajib memilih alasan</b> (bongkar barang, belanja, bantu divisi, …)
+                            saat menekan <b>Pause</b>. Dasar neraca jam kerja &amp; penilaian. Pause otomatis (istirahat/pulang) tidak terpengaruh.
+                        </span>
+                    </span>
+                    <span class="relative inline-flex items-center flex-shrink-0 mt-0.5">
+                        <input type="checkbox" name="alasan_pending_wajib" value="1" class="sr-only peer"
+                               {{ ($setting->alasan_pending_wajib ?? false) ? 'checked' : '' }}
+                               onchange="this.form.submit()">
+                        <span class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-orange-500 transition"></span>
+                        <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition peer-checked:translate-x-5"></span>
+                    </span>
+                </label>
+            </form>
+        </div>
       </div>
 
       {{-- Kolom kanan: Bahan Baku + Produk Sampingan (by-product) --}}

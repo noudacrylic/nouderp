@@ -8,6 +8,8 @@
          mulai: null,
          ganti: null,
          catatan: null,
+         pending: null, pendingAlasan: '', pendingKet: '',
+         alasanPending: {{ Js::from(\App\Modules\Production\Models\ProductionStepTimeLog::ALASAN_PENDING) }},
          warehouses: {{ Js::from($warehouses) }},
          defaultWh: {{ (int) $defaultWarehouseId }} || null,
          openSelesai(d) {
@@ -153,7 +155,8 @@
      @open-selesai.window="openSelesai($event.detail)"
      @open-mulai.window="mulai = $event.detail"
      @open-ganti.window="ganti = $event.detail"
-     @open-catatan.window="catatan = $event.detail">
+     @open-catatan.window="catatan = $event.detail"
+     @open-pending.window="pending = $event.detail; pendingAlasan = ''; pendingKet = ''">
 
     {{-- Flash message (mis. gagal Mulai: belum scan check-in, di luar jam kerja, dll.) --}}
 
@@ -453,6 +456,63 @@
                         Ajukan
                     </button>
                     <button type="button" @click="ganti = null"
+                            class="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 transition">
+                        Batal
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- ===== MODAL: PENDING (wajib alasan) ===== --}}
+    <div x-show="pending !== null"
+         x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+         @click.self="pending = null"
+         style="display:none;">
+
+        <div x-show="pending !== null"
+             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                    <h3 class="font-black text-gray-800 text-sm">Pending — sedang mengerjakan apa?</h3>
+                    <p class="text-xs text-gray-400 mt-0.5" x-text="pending ? pending.order_number + ' · ' + pending.langkah : ''"></p>
+                </div>
+                <button type="button" @click="pending = null"
+                        class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center text-sm">✕</button>
+            </div>
+
+            <form method="POST" class="p-5" :action="pending ? pending.action_url : '#'">
+                @csrf
+                <div class="space-y-1.5 mb-3">
+                    <template x-for="(a, kunci) in alasanPending" :key="kunci">
+                        <label class="flex items-center gap-2 px-3 py-2 border rounded-xl cursor-pointer text-sm transition"
+                               :class="pendingAlasan === kunci ? 'border-orange-400 bg-orange-50 font-semibold text-orange-800' : 'border-gray-200 hover:bg-gray-50 text-gray-700'">
+                            <input type="radio" name="alasan" :value="kunci" x-model="pendingAlasan" class="text-orange-500">
+                            <span x-text="a.label"></span>
+                        </label>
+                    </template>
+                </div>
+                <div class="mb-4" x-show="pendingAlasan">
+                    <label class="block text-xs font-bold text-gray-600 mb-1.5">
+                        Keterangan
+                        <span class="font-normal" :class="alasanPending[pendingAlasan]?.keterangan ? 'text-red-500' : 'text-gray-400'"
+                              x-text="alasanPending[pendingAlasan]?.keterangan ? '(wajib)' : '(boleh dikosongkan)'"></span>
+                    </label>
+                    <input type="text" name="keterangan" x-model="pendingKet" maxlength="255"
+                           placeholder="Mis. bantu packing, beli galon 2, ..."
+                           class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300">
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit"
+                            :disabled="!pendingAlasan || (alasanPending[pendingAlasan]?.keterangan && !pendingKet.trim())"
+                            class="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        Pending
+                    </button>
+                    <button type="button" @click="pending = null"
                             class="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 transition">
                         Batal
                     </button>

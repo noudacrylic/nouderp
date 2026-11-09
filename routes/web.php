@@ -1458,6 +1458,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('settings/byproducts', [\App\Modules\Production\Controllers\BomController::class, 'updateByproductSettings'])->name('settings.byproducts.update');
     Route::post('settings/raw-materials', [\App\Modules\Production\Controllers\BomController::class, 'updateRawMaterialSettings'])->name('settings.raw-materials.update');
     Route::post('settings/testing-mode', [\App\Modules\Production\Controllers\BomController::class, 'updateTestingMode'])->name('settings.testing.update');
+    Route::post('settings/alasan-pending', [\App\Modules\Production\Controllers\BomController::class, 'updateAlasanPending'])->name('settings.alasan-pending.update');
 
     // Production Orders
     Route::get('ajax/repair-sources', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'getRepairSources'])->name('ajax.repair-sources');
