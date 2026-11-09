@@ -96,7 +96,7 @@ class MejaKerjaController extends Controller
         }
 
         return view('erp.tasks.meja.index', [
-            'kolom' => $kolom, 'skor' => $skor, 'skills' => $skills, 'jenisKartu' => $jenisKartu, 'catatanSo' => MejaKerjaService::catatanSo($tasks), 'jumlahJenis' => $jumlahJenis, 'saringJenis' => $saringJenis, 'lihat' => $lihat, 'mejaUtama' => $mejaUtama,
+            'kolom' => $kolom, 'skor' => $skor, 'skills' => $skills, 'jenisKartu' => $jenisKartu, 'catatanSo' => MejaKerjaService::catatanSo($tasks), 'resiRetur' => MejaKerjaService::resiRetur($tasks), 'jumlahJenis' => $jumlahJenis, 'saringJenis' => $saringJenis, 'lihat' => $lihat, 'mejaUtama' => $mejaUtama,
             'peranSaya' => $peranSaya, 'bolehSemua' => $bolehSemua, 'tabPeran' => $tabPeran,
             'bayangan' => $bayangan, 'tampilBayangan' => $tampilBayangan,
             'bayanganPerMeja' => $semuaBayangan->countBy('peran'),

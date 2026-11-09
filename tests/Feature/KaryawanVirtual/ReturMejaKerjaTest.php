@@ -331,4 +331,32 @@ class ReturMejaKerjaTest extends TestCase
         $this->assertNotNull($t->tenggat_at, 'target bawaan skill tetap ada');
         $this->assertFalse($t->tenggatDariLuar());
     }
+
+    public function test_resi_pengembalian_tampil_di_kartu_meja_dan_halaman_retur(): void
+    {
+        Http::fake();
+        $owner = \App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->shopeeRetur('PROCESSING', ['raw' => ['tracking_number' => '', 'is_arrived_at_warehouse' => false,
+            'return_ship_due_date' => now()->addDays(2)->timestamp]]);
+        $this->nyalakan(draftBaru: false);
+        $this->sinkron();
+
+        // Pembeli belum kirim → batas kirim pembeli.
+        $this->actingAs($owner)->get(route('tasks.meja.index', ['lihat' => 'layanan']))
+            ->assertOk()->assertSee('Pembeli belum kirim barang');
+
+        // Resi terisi di tarikan berikutnya → tampil (meja dibaca langsung, bukan salinan deskripsi).
+        $this->shopeeRetur('PROCESSING', ['raw' => ['tracking_number' => 'ID268311704631I', 'is_arrived_at_warehouse' => false]]);
+        $this->actingAs($owner)->get(route('tasks.meja.index', ['lihat' => 'layanan']))
+            ->assertOk()->assertSee('ID268311704631I')->assertSee('dalam perjalanan');
+
+        $this->shopeeRetur('PROCESSING', ['raw' => ['tracking_number' => 'ID268311704631I', 'is_arrived_at_warehouse' => true]]);
+        foreach ([route('sales.returns.show', $this->retur->id), route('sales.returns.edit', $this->retur->id)] as $url) {
+            $this->actingAs($owner)->get($url)->assertOk()->assertSee('ID268311704631I')->assertSee('sampai gudang');
+        }
+
+        // Retur dibatalkan → tidak ada baris paket.
+        $this->shopeeRetur('CANCELLED');
+        $this->assertSame([], ShopeeReturn::kirimBalikPerPesanan([self::SN]));
+    }
 }

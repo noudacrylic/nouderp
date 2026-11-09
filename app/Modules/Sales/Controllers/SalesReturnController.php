@@ -250,6 +250,7 @@ class SalesReturnController extends Controller
             'customers'    => $customers,
             'return'       => $return,
             'pindahFaktur' => $pindahFaktur,
+            'kirimBalik'   => $this->kirimBalikShopee($return),
             'cashAccounts' => $this->cashAccounts(),
             'akunJurnal'   => $this->akunJurnal(),
         ]);
@@ -591,6 +592,14 @@ class SalesReturnController extends Controller
             return back()->with('error', $e->getMessage())->withInput();
         }
     }
+    /** Resi pengembalian & status paket retur Shopee untuk retur ini (kosong bila bukan Shopee). */
+    private function kirimBalikShopee(SalesReturn $return): array
+    {
+        $sn = $return->orderSnShopee();
+
+        return $sn ? (\App\Modules\Marketplace\Shopee\Models\ShopeeReturn::kirimBalikPerPesanan([$sn])[$sn] ?? []) : [];
+    }
+
     public function show($id)
     {
         $return = SalesReturn::with([
@@ -609,7 +618,9 @@ class SalesReturnController extends Controller
             ? \App\Core\Journal\Journal::with('lines.account')->find($return->settlement_journal_id)
             : null;
 
-        return view('erp.sales.returns.show', compact('return', 'journal', 'pencairan'));
+        $kirimBalik = $this->kirimBalikShopee($return);
+
+        return view('erp.sales.returns.show', compact('return', 'journal', 'pencairan', 'kirimBalik'));
     }
 
     public function destroy($id)

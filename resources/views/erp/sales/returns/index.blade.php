@@ -117,6 +117,7 @@
                             @if($sp['catatan'])
                                 <div class="text-[11px] text-gray-400 mt-0.5">{{ $sp['catatan'] }}</div>
                             @endif
+                            @include('erp.sales.returns._resi_shopee', ['kirimBalik' => $sp['kirim_balik'] ?? []])
                         @elseif($snSp)
                             <span class="text-gray-400" title="Tidak ada pengajuan retur di Shopee — biasanya gagal kirim / paket kembali">tanpa pengajuan retur</span>
                         @else

@@ -95,7 +95,7 @@ class ShopeeReturn extends Model
         $tenggat  = $berjalan->map->tenggatPenjual()->filter()->min();
 
         if ($berjalan->contains->disengketakan()) {
-            return ['label' => 'Sedang banding', 'warna' => 'purple', 'tenggat' => $tenggat, 'catatan' => null];
+            return ['label' => 'Sedang banding', 'warna' => 'purple', 'tenggat' => $tenggat, 'catatan' => null, 'kirim_balik' => self::kirimBalikDari($list)];
         }
         if ($berjalan->isNotEmpty()) {
             $tawaran = $berjalan->contains('negotiation_status', 'PENDING_RESPOND');
@@ -104,10 +104,11 @@ class ShopeeReturn extends Model
                 'warna'   => 'orange',
                 'tenggat' => $tenggat,
                 'catatan' => $berjalan->contains('needs_logistics', true) ? 'barang dikirim balik' : null,
+                'kirim_balik' => self::kirimBalikDari($list),
             ];
         }
         if ($list->every(fn ($x) => $x->status === 'CANCELLED')) {
-            return ['label' => 'Dibatalkan pembeli', 'warna' => 'gray', 'tenggat' => null, 'catatan' => null];
+            return ['label' => 'Dibatalkan pembeli', 'warna' => 'gray', 'tenggat' => null, 'catatan' => null, 'kirim_balik' => []];
         }
 
         return [
@@ -115,7 +116,49 @@ class ShopeeReturn extends Model
             'warna'   => 'green',
             'tenggat' => null,
             'catatan' => $list->contains('seller_compensation_status', 'PENDING_REQUEST') ? 'kompensasi bisa diajukan' : null,
+        ] + ['kirim_balik' => self::kirimBalikDari($list)];
+    }
+
+    /**
+     * Paket yang dikirim balik pembeli (hanya retur ber-logistik yang tidak dibatalkan), dari
+     * salinan get_return_list: `tracking_number` = resi pengembalian (kosong selama pembeli
+     * belum kirim), `is_arrived_at_warehouse`, `return_ship_due_date` = batas pembeli kirim.
+     *
+     * @return array{return_sn: string, resi: ?string, sampai: bool, batas: ?Carbon}|null
+     */
+    public function kirimBalik(): ?array
+    {
+        if (!$this->needs_logistics || $this->status === 'CANCELLED') {
+            return null;
+        }
+        $raw = $this->raw ?? [];
+        $batas = (int) ($raw['return_ship_due_date'] ?? 0);
+
+        return [
+            'return_sn' => (string) $this->return_sn,
+            'resi'      => trim((string) ($raw['tracking_number'] ?? '')) ?: null,
+            'sampai'    => (bool) ($raw['is_arrived_at_warehouse'] ?? false),
+            'batas'     => $batas > 0 ? Carbon::createFromTimestamp($batas, config('app.timezone')) : null,
         ];
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, self>  $list
+     * @return array<int, array{return_sn: string, resi: ?string, sampai: bool, batas: ?Carbon}>
+     */
+    public static function kirimBalikDari($list): array
+    {
+        return collect($list)->map->kirimBalik()->filter()->values()->all();
+    }
+
+    /** Paket kirim balik per order_sn (tanpa saring env, sama dengan ReturSkill — order_sn sandbox tak bertabrakan) — untuk daftar/kartu yang memuat banyak retur. */
+    public static function kirimBalikPerPesanan(array $orderSn): array
+    {
+        $orderSn = array_values(array_unique(array_filter($orderSn)));
+        if (!$orderSn) return [];
+
+        return self::whereIn('order_sn', $orderSn)->orderBy('dibuat_shopee_at')->get()
+            ->groupBy('order_sn')->map(fn ($l) => self::kirimBalikDari($l))->filter()->all();
     }
 
     public function alasanLabel(): string

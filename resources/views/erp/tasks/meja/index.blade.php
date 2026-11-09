@@ -148,6 +148,9 @@
                             @if ($status === 'pending' && $t->pending_alasan)
                                 <div class="mt-2 text-xs text-orange-700 bg-orange-50 rounded px-2 py-1">⏸ {{ $t->pending_alasan }} · sejak {{ $t->pending_sejak?->format('d/m H:i') }}</div>
                             @endif
+                            @if (!empty(($resiRetur ?? [])[$t->id]))
+                                <div class="mt-2">@include('erp.sales.returns._resi_shopee', ['kirimBalik' => $resiRetur[$t->id]])</div>
+                            @endif
                             @php
                                 // Catatan pembeli & Instruksi diambil langsung dari SO (selalu terbaru); salinan
                                 // "Catatan pembeli:" di deskripsi kartu lama dibuang supaya tidak dobel.

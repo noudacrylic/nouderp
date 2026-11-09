@@ -24,6 +24,13 @@
         </a>
     </div>
 
+    @if(!empty($kirimBalik))
+        <div class="mb-4 bg-white border border-orange-200 rounded-xl px-4 py-3">
+            <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Paket Retur Shopee</div>
+            @include('erp.sales.returns._resi_shopee', ['kirimBalik' => $kirimBalik])
+        </div>
+    @endif
+
     {{-- ALERT: Error --}}
 
     @if(!empty($pindahFaktur['invoice']))

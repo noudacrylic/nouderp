@@ -86,6 +86,12 @@
                         <div class="font-bold text-gray-800">{{ $return->external_return_number }}</div>
                     </div>
                     @endif
+                    @if(!empty($kirimBalik))
+                    <div>
+                        <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Paket Retur Shopee</div>
+                        @include('erp.sales.returns._resi_shopee', ['kirimBalik' => $kirimBalik])
+                    </div>
+                    @endif
                     @if($return->caseLabel())
                     <div>
                         <div class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Kasus</div>

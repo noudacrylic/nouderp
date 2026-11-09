@@ -205,6 +205,23 @@ class MejaKerjaService
         return $hasil;
     }
 
+    /**
+     * Resi pengembalian & status paket retur Shopee untuk kartu retur — dibaca saat meja dibuka
+     * (bukan disalin ke deskripsi kartu) karena resi baru terisi setelah pembeli mengirim.
+     *
+     * @param  \Illuminate\Support\Collection<int, Task>  $tasks
+     * @return array<int, array> task id => daftar paket (ShopeeReturn::kirimBalik)
+     */
+    public static function resiRetur(\Illuminate\Support\Collection $tasks): array
+    {
+        $retur = $tasks->filter(fn (Task $t) => $t->skill === 'retur' && !empty($t->meta['order_sn']));
+        if ($retur->isEmpty()) return [];
+
+        $per = \App\Modules\Marketplace\Shopee\Models\ShopeeReturn::kirimBalikPerPesanan($retur->map(fn ($t) => (string) $t->meta['order_sn'])->all());
+
+        return $retur->mapWithKeys(fn (Task $t) => [$t->id => $per[(string) $t->meta['order_sn']] ?? []])->filter()->all();
+    }
+
     /** Kelas warna lencana jenis pekerjaan; jenis baru tanpa warna memakai abu-abu. */
     public static function warnaJenis(string $jenis): string
     {
