@@ -178,6 +178,33 @@ class MejaKerjaService
         return $hasil;
     }
 
+    /**
+     * Catatan pembeli & Instruksi packing TERBARU dari SO kartu (bukan salinan saat kartu dibuat):
+     * catatan bisa diisi belakangan, Instruksi ditulis CS dari chat/Pemrosesan. Untuk Rincian kartu
+     * supaya desainer & packing punya gambaran awal tanpa membuka SO.
+     *
+     * @param  \Illuminate\Support\Collection<int, Task>  $tasks
+     * @return array<int, array{catatan: ?string, instruksi: ?string}> task id => isi (hanya yang berisi)
+     */
+    public static function catatanSo(\Illuminate\Support\Collection $tasks): array
+    {
+        $so = $tasks->filter(fn (Task $t) => $t->taskable_type === \App\Modules\Sales\Models\SalesOrder::class && $t->taskable_id);
+        if ($so->isEmpty()) return [];
+
+        $baris = \Illuminate\Support\Facades\DB::table('sales_orders')->whereIn('id', $so->pluck('taskable_id')->unique()->all())
+            ->get(['id', 'notes', 'seller_notes'])->keyBy('id');
+
+        $hasil = [];
+        foreach ($so as $t) {
+            $b = $baris[$t->taskable_id] ?? null;
+            $catatan = trim((string) ($b->notes ?? '')) ?: null;
+            $instruksi = trim((string) ($b->seller_notes ?? '')) ?: null;
+            if ($catatan || $instruksi) $hasil[$t->id] = ['catatan' => $catatan, 'instruksi' => $instruksi];
+        }
+
+        return $hasil;
+    }
+
     /** Kelas warna lencana jenis pekerjaan; jenis baru tanpa warna memakai abu-abu. */
     public static function warnaJenis(string $jenis): string
     {

@@ -148,9 +148,23 @@
                             @if ($status === 'pending' && $t->pending_alasan)
                                 <div class="mt-2 text-xs text-orange-700 bg-orange-50 rounded px-2 py-1">⏸ {{ $t->pending_alasan }} · sejak {{ $t->pending_sejak?->format('d/m H:i') }}</div>
                             @endif
-                            @if ($t->description)
-                                <details class="mt-2 text-xs text-gray-600"><summary class="cursor-pointer text-gray-400">Rincian</summary>
-                                    <div class="whitespace-pre-line mt-1">{{ $t->description }}</div>
+                            @php
+                                // Catatan pembeli & Instruksi diambil langsung dari SO (selalu terbaru); salinan
+                                // "Catatan pembeli:" di deskripsi kartu lama dibuang supaya tidak dobel.
+                                $cso = ($catatanSo ?? [])[$t->id] ?? null;
+                                $rincian = $cso ? trim(preg_replace('/\n?Catatan pembeli:.*$/su', '', (string) $t->description)) : $t->description;
+                            @endphp
+                            @if ($rincian || $cso)
+                                <details class="mt-2 text-xs text-gray-600" @if ($cso) open @endif><summary class="cursor-pointer text-gray-400">Rincian</summary>
+                                    @if ($rincian)<div class="whitespace-pre-line mt-1">{{ $rincian }}</div>@endif
+                                    @if ($cso['catatan'] ?? null)
+                                        <div class="mt-1"><span class="text-gray-400 font-semibold">💬 Catatan pembeli</span>
+                                            <div class="whitespace-pre-line break-words text-gray-800">{{ $cso['catatan'] }}</div></div>
+                                    @endif
+                                    @if ($cso['instruksi'] ?? null)
+                                        <div class="mt-1"><span class="text-gray-400 font-semibold">🏷 Instruksi</span>
+                                            <div class="whitespace-pre-line break-words text-gray-800 font-semibold">{{ $cso['instruksi'] }}</div></div>
+                                    @endif
                                 </details>
                             @endif
 

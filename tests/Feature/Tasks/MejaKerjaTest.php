@@ -609,4 +609,21 @@ class MejaKerjaTest extends TestCase
         \Illuminate\Support\Facades\DB::table('crm_pesanan_chat')->insert(['conversation_id' => $c->id, 'sales_order_id' => $so->id, 'created_at' => now(), 'updated_at' => now()]);
         $this->assertSame([$t->id => 'pembeli_shopee'], MejaKerjaService::namaPelanggan(collect([$t])));
     }
+
+    public function test_rincian_kartu_memuat_catatan_pembeli_dan_instruksi_terbaru(): void
+    {
+        $this->nyalakan('desain', 'desain');
+        $so = $this->soKs();   // notes: "Logo terlampir" — tersalin ke deskripsi saat kartu dibuat
+        app(MejaKerjaService::class)->sinkron();
+        $t = Task::where('skill', 'desain')->firstOrFail();
+        $this->assertStringContainsString('Catatan pembeli: Logo terlampir', $t->description);
+
+        $so->forceFill(['notes' => 'Logo warna putih', 'seller_notes' => 'Packing kayu'])->save();
+        $this->assertSame([$t->id => ['catatan' => 'Logo warna putih', 'instruksi' => 'Packing kayu']], MejaKerjaService::catatanSo(collect([$t])));
+
+        $html = $this->actingAs($this->owner)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->getContent();
+        $this->assertStringContainsString('Logo warna putih', $html);
+        $this->assertStringContainsString('Packing kayu', $html);
+        $this->assertStringNotContainsString('Logo terlampir', $html, 'salinan lama di deskripsi tidak ikut tampil');
+    }
 }
