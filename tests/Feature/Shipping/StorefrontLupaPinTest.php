@@ -100,4 +100,20 @@ class StorefrontLupaPinTest extends TestCase
         $this->api('api.storefront.orders.pin-reset.minta', ['phone' => '081252527212'])->assertStatus(503);
         $this->assertNull(Cache::get('pinreset:kode:6281252527212'));
     }
+
+    public function test_rem_per_ip_memakai_ip_pembeli_bukan_ip_server_etalase(): void
+    {
+        $kirim = fn (string $ip) => $this->withHeaders(['Authorization' => 'Bearer ' . $this->key,
+            'Accept' => 'application/json', 'X-Client-IP' => $ip])
+            ->postJson(route('api.storefront.orders.pin-reset.minta'), ['phone' => '081200000001']);
+
+        // Pembeli A menghabiskan jatah 5/menit miliknya…
+        for ($i = 0; $i < 5; $i++) {
+            $kirim('203.0.113.7')->assertNotFound();
+        }
+        $kirim('203.0.113.7')->assertStatus(429);
+
+        // …pembeli B (IP lain, lewat server etalase yang sama) tidak ikut terkunci.
+        $kirim('198.51.100.20')->assertNotFound();
+    }
 }

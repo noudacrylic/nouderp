@@ -47,6 +47,23 @@ class AppServiceProvider extends ServiceProvider
     {
         \Carbon\Carbon::setLocale('id');
 
+        /*
+         * Rem per IP endpoint PIN toko online. Etalase memanggil ERP dari server Cloudflare,
+         * jadi $request->ip() = IP server etalase untuk SEMUA pembeli — `throttle:5,1` biasa
+         * menjadi jatah bersama dan satu pembeli mengunci yang lain ("Too Many Attempts",
+         * 9 Nov 2026). Etalase meneruskan IP pembeli di X-Client-IP; tanpa header itu
+         * (pemanggil lain) kembali ke IP biasa. Memalsukan header tak memberi apa-apa:
+         * endpoint-nya tetap butuh kunci rahasia etalase.
+         */
+        $ipPembeli = function (\Illuminate\Http\Request $r): string {
+            $ip = trim((string) $r->header('X-Client-IP'));
+            return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : (string) $r->ip();
+        };
+        foreach (['toko-pin-minta' => 5, 'toko-pin-simpan' => 10, 'toko-lookup' => 8, 'toko-profile' => 8, 'toko-pin-status' => 30] as $nama => $perMenit) {
+            \Illuminate\Support\Facades\RateLimiter::for($nama, fn (\Illuminate\Http\Request $r) =>
+                \Illuminate\Cache\RateLimiting\Limit::perMinute($perMenit)->by($nama . '|' . $ipPembeli($r)));
+        }
+
         // Pengaturan CRM yang bisa diubah lewat layar (saklar jangan-kirim, daftar
         // putih penerima, jam toko, masa simpan lampiran) disiram ke atas
         // config('crm.*') — supaya seluruh modul tetap punya SATU sumber bacaan.
