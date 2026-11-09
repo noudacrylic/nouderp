@@ -760,4 +760,28 @@ class BuatSoDariChatTest extends TestCase
 
         $this->assertSame('JB-77', $c->fresh()->jubelio_area_id);
     }
+
+    public function test_instruksi_packing_disunting_dari_panel_pesanan(): void
+    {
+        $percakapan = $this->percakapan();
+        $admin = $this->admin();
+        $this->actingAs($admin)->postJson(route('crm.inbox.buat-so', $percakapan), $this->muatan())->assertOk();
+        $so = SalesOrder::first();
+        $so->forceFill(['status' => 'confirmed', 'notes' => 'Tulisan warna putih'])->save();
+
+        $r = $this->actingAs($admin)->postJson(route('crm.inbox.pesanan.instruksi', [$percakapan, $so]), ['instruksi' => '  Packing kayu  '])->assertOk();
+        $this->assertSame('Packing kayu', $so->fresh()->seller_notes, 'sama dengan kolom Instruksi Pemrosesan Pesanan');
+        $kartu = collect($r->json('pesanan'))->firstWhere('id', $so->id);
+        $this->assertSame('Packing kayu', $kartu['instruksi']);
+        $this->assertSame('Tulisan warna putih', $kartu['catatan_pembeli']);
+
+        $this->actingAs($admin)->postJson(route('crm.inbox.pesanan.instruksi', [$percakapan, $so]), ['instruksi' => ''])->assertOk();
+        $this->assertNull($so->fresh()->seller_notes);
+
+        // Pesanan yang tidak tampil di chat ini ditolak.
+        $lain = CrmConversation::findOrCreateFor('628111222333');
+        $this->actingAs($admin)->postJson(route('crm.inbox.pesanan.instruksi', [$lain, $so]), ['instruksi' => 'x'])->assertNotFound();
+
+        $this->actingAs($admin)->get(route('crm.inbox.show', $percakapan))->assertOk()->assertSee('Instruksi packing');
+    }
 }

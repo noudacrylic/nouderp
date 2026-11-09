@@ -317,6 +317,7 @@ Route::prefix('erp')->group(function () {
         Route::post('/{conversation}/pesanan/{order}/nota', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'notaPesanan'])->name('inbox.pesanan.nota');
         Route::post('/{conversation}/pesanan/{order}/tautkan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tautkanPesanan'])->name('inbox.pesanan.tautkan');
         Route::post('/{conversation}/pesanan/{order}/lepas', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'lepasPesanan'])->name('inbox.pesanan.lepas');
+        Route::post('/{conversation}/pesanan/{order}/instruksi', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'instruksiPesanan'])->name('inbox.pesanan.instruksi');
     });
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/dashboard/chart', [\App\Http\Controllers\DashboardController::class, 'chartData'])->name('dashboard.chart');

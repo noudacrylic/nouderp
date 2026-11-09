@@ -2316,6 +2316,24 @@ class CrmInboxController extends Controller
         ]);
     }
 
+    /**
+     * Instruksi packing/pengiriman (sales_orders.seller_notes) dari panel Pesanan chat — kolom
+     * yang sama dengan "Instruksi" di kartu Pemrosesan Pesanan. Hanya untuk pesanan yang
+     * memang tampil di chat ini.
+     */
+    public function instruksiPesanan(Request $request, CrmConversation $conversation, SalesOrder $order)
+    {
+        $data = $request->validate(['instruksi' => ['nullable', 'string', 'max:2000']]);
+
+        if (! collect($this->ringkasPesanan($conversation))->contains('id', $order->id)) {
+            return response()->json(['success' => false, 'error' => 'Pesanan ini tidak ada di chat ini.'], 404);
+        }
+
+        $order->update(['seller_notes' => trim((string) ($data['instruksi'] ?? '')) ?: null]);
+
+        return response()->json(['success' => true, 'pesanan' => $this->ringkasPesanan($conversation)]);
+    }
+
     public function lepasPesanan(Request $request, CrmConversation $conversation, SalesOrder $order)
     {
         if ($alasan = $conversation->alasanTakBolehDibalas($request->user())) {
@@ -2530,6 +2548,10 @@ class CrmInboxController extends Controller
                     // yang belum pernah dikirimkan.
                     'status'  => $so->status === 'draft' ? 'Draft' : ($tahap['label'] ?? '—'),
                     'catatan' => $so->status === 'draft' ? 'Belum dikonfirmasi' : ($tahap['note'] ?? ''),
+                    // Catatan pembeli & Instruksi packing — sama dengan kartu Pemrosesan Pesanan,
+                    // supaya CS meneruskan permintaan pembeli ke packing tanpa membuka POS.
+                    'catatan_pembeli' => $so->notes,
+                    'instruksi'       => $so->seller_notes,
                     'selesai' => $p['current'] === 'selesai',
                     // Halaman SO = tempat SEMUA perubahan dikerjakan: ubah item,
                     // ongkir, kesepakatan, sampai posting. Panel chat sengaja

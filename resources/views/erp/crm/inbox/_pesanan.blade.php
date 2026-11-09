@@ -146,6 +146,38 @@
                     <span x-show="!p.ambil && p.ongkir > 0" x-text="rupiah(p.ongkir)"></span>
                 </div>
 
+                {{-- Catatan pembeli + Instruksi packing: sama dengan kartu Pemrosesan Pesanan.
+                     Instruksi disunting di sini supaya permintaan pembeli dari chat sampai ke
+                     packing tanpa membuka POS. --}}
+                <div x-show="!p.draft" class="mt-1 pt-1 border-t border-gray-200/70 space-y-1 text-[11px]">
+                    <div x-show="p.catatan_pembeli" x-cloak>
+                        <span class="text-gray-400 font-semibold">💬 Catatan pembeli</span>
+                        <div class="text-gray-700 whitespace-pre-line break-words" x-text="p.catatan_pembeli"></div>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-gray-400 font-semibold">🏷 Instruksi packing</span>
+                            <button type="button" x-show="instruksiUntuk !== p.id" @click="instruksiUntuk = p.id; instruksiTeks = p.instruksi || ''; instruksiGalat = ''"
+                                    class="text-indigo-600 hover:underline" title="Ubah instruksi untuk packing">✎</button>
+                        </div>
+                        <div x-show="instruksiUntuk !== p.id" class="whitespace-pre-line break-words"
+                             :class="p.instruksi ? 'text-gray-800 font-semibold' : 'text-gray-400'"
+                             x-text="p.instruksi || '—'"></div>
+                        <div x-show="instruksiUntuk === p.id" x-cloak class="space-y-1 mt-0.5">
+                            <textarea x-model="instruksiTeks" rows="2" maxlength="2000"
+                                      placeholder="Mis. warna tulisan putih, packing kayu, kirim sebelum jam 12"
+                                      class="w-full border rounded px-2 py-1 text-[11px]"></textarea>
+                            <div class="flex gap-1">
+                                <button type="button" @click="simpanInstruksi(p)" :disabled="sibukInstruksi"
+                                        class="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded px-2 py-1 disabled:opacity-60">Simpan</button>
+                                <button type="button" @click="instruksiUntuk = null"
+                                        class="text-[11px] border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">Batal</button>
+                            </div>
+                            <div x-show="instruksiGalat" class="text-red-600" x-text="instruksiGalat"></div>
+                        </div>
+                    </div>
+                </div>
+
                 {{-- Lacak: pesanan WA & web yang dikirim (kurir/instant). "Lacak"
                      membuka halaman pembeli untuk dilihat sendiri; "Kirim link"
                      menyisipkan tautannya ke kotak balasan — tidak langsung
@@ -895,6 +927,7 @@
             sibuk: false, galat: '', jamSimpan: null, sibukRincian: null, sibukLacak: null,
             // Kirim nota (gambar): kartu yang formulirnya terbuka, yang sedang dibuat, dan galatnya.
             notaUntuk: null, notaNama: '', sibukNota: null, notaGalat: '',
+            instruksiUntuk: null, instruksiTeks: '', sibukInstruksi: false, instruksiGalat: '',
 
             // Tautan pesanan ↔ chat (CRM Tahap 3).
             tautCari: '', tautHasil: [], tautSibuk: null, tautInfo: '',
@@ -1568,6 +1601,37 @@
                     this.cekInfo = 'Jaringan bermasalah — coba lagi.';
                 } finally {
                     this.cekSibuk = false;
+                }
+            },
+
+            async simpanInstruksi(p) {
+                if (this.sibukInstruksi) return;
+                this.sibukInstruksi = true;
+                this.instruksiGalat = '';
+
+                try {
+                    const r = await fetch('{{ $terpilih ? url('/erp/crm/' . $terpilih->id . '/pesanan') : '' }}/' + p.id + '/instruksi', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                        },
+                        body: JSON.stringify({ instruksi: this.instruksiTeks }),
+                    });
+                    const d = await r.json().catch(() => ({}));
+
+                    if (!r.ok || !d.success) {
+                        this.instruksiGalat = d.error || d.message || 'Gagal menyimpan instruksi.';
+                        return;
+                    }
+
+                    this.pesanan = d.pesanan ?? this.pesanan;
+                    this.instruksiUntuk = null;
+                } catch (e) {
+                    this.instruksiGalat = 'Jaringan bermasalah — coba lagi.';
+                } finally {
+                    this.sibukInstruksi = false;
                 }
             },
 
