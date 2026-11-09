@@ -590,4 +590,23 @@ class MejaKerjaTest extends TestCase
         $meja->sinkron();
         $this->assertSame(1, KaryawanVirtualJurnal::where('skill', 'admin.desain')->count(), 'Jalan berikutnya tidak menulis jurnal yang sama.');
     }
+
+    public function test_judul_kartu_desain_memuat_nama_pelanggan(): void
+    {
+        $this->nyalakan('desain', 'desain');
+        $so = $this->soKs();
+        app(MejaKerjaService::class)->sinkron();
+        $t = Task::where('skill', 'desain')->firstOrFail();
+        $nama = \App\Models\Customer::find($so->customer_id)->name;
+
+        $this->assertSame([$t->id => $nama], MejaKerjaService::namaPelanggan(collect([$t])));
+        $this->actingAs($this->owner)->get(route('tasks.meja.index', ['lihat' => 'desain']))->assertOk()->assertSee('KS-K3-M4 nomor SO-1 — ' . $nama);
+
+        // Pelanggan marketplace: nama dari chat yang tertaut; tanpa chat, tanpa nama.
+        \App\Models\Customer::whereKey($so->customer_id)->update(['is_marketplace' => true]);
+        $this->assertSame([], MejaKerjaService::namaPelanggan(collect([$t])));
+        $c = \App\Modules\CRM\Models\CrmConversation::create(['channel' => 'shopee', 'contact_key' => '99', 'display_name' => 'pembeli_shopee', 'status' => 'aktif']);
+        \Illuminate\Support\Facades\DB::table('crm_pesanan_chat')->insert(['conversation_id' => $c->id, 'sales_order_id' => $so->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertSame([$t->id => 'pembeli_shopee'], MejaKerjaService::namaPelanggan(collect([$t])));
+    }
 }

@@ -66,7 +66,8 @@ class MejaKerjaController extends Controller
 
         // Lencana & saringan jenis pekerjaan. Hitungannya dari sebelum disaring, supaya pilihan lain tetap terlihat.
         $skills = $this->meja->skills();
-        $jenisKartu = $tasks->mapWithKeys(fn (Task $t) => [$t->id => MejaKerjaService::jenisKartu($t, $skills[$t->skill] ?? null)]);
+        $namaPelanggan = MejaKerjaService::namaPelanggan($tasks);
+        $jenisKartu = $tasks->mapWithKeys(fn (Task $t) => [$t->id => MejaKerjaService::jenisKartu($t, $skills[$t->skill] ?? null, $namaPelanggan[$t->id] ?? null)]);
         $jumlahJenis = $jenisKartu->pluck('jenis')->countBy()->sortKeys();
         $saringJenis = (string) $request->input('jenis');
         if ($saringJenis !== '') $tasks = $tasks->filter(fn (Task $t) => $jenisKartu[$t->id]['jenis'] === $saringJenis);

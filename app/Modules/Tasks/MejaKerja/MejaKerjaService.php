@@ -118,7 +118,7 @@ class MejaKerjaService
      *
      * @return array{jenis: string, isi: string}
      */
-    public static function jenisKartu(Task $t, ?SkillAdmin $s): array
+    public static function jenisKartu(Task $t, ?SkillAdmin $s, ?string $pelanggan = null): array
     {
         if (!$s) {
             $sendiri = $t->source !== 'event' && (int) $t->creator_user_id === (int) $t->assignee_user_id;
@@ -130,7 +130,7 @@ class MejaKerjaService
 
         // "Desain SO-1 — KS-K1, KS-K2" → "KS-K1, KS-K2 nomor SO-1"
         if ($s->key() === 'desain' && preg_match('/^Desain (.+?) — (.+)$/u', $t->title, $m)) {
-            return ['jenis' => 'Desain pesanan', 'isi' => "{$m[2]} nomor {$m[1]}"];
+            return ['jenis' => 'Desain pesanan', 'isi' => "{$m[2]} nomor {$m[1]}" . ($pelanggan ? " — {$pelanggan}" : '')];
         }
 
         [$awalan, $buang] = self::AWALAN_JUDUL[$s->key()] ?? [$s->label(), ''];
@@ -144,6 +144,38 @@ class MejaKerjaService
         }
 
         return ['jenis' => $awalan, 'isi' => $peringatan . $sisa];
+    }
+
+    /**
+     * Nama pelanggan per task SO (untuk judul kartu Desain pesanan), dimuat sekaligus. Pesanan
+     * marketplace berpelanggan "Shopee"/"Tokopedia" — yang berguna nama pembeli, jadi diambil
+     * dari chat yang tertaut ke pesanan itu; tanpa chat, tanpa nama.
+     *
+     * @param  \Illuminate\Support\Collection<int, Task>  $tasks
+     * @return array<int, string> task id => nama
+     */
+    public static function namaPelanggan(\Illuminate\Support\Collection $tasks): array
+    {
+        $so = $tasks->filter(fn (Task $t) => $t->skill === 'desain' && $t->taskable_type === \App\Modules\Sales\Models\SalesOrder::class && $t->taskable_id);
+        if ($so->isEmpty()) return [];
+
+        $ids = $so->pluck('taskable_id')->unique()->all();
+        $pelanggan = \Illuminate\Support\Facades\DB::table('sales_orders as s')->join('customers as c', 'c.id', '=', 's.customer_id')
+            ->whereIn('s.id', $ids)->get(['s.id', 'c.name', 'c.is_marketplace'])->keyBy('id');
+        $chat = \Illuminate\Support\Facades\DB::table('crm_pesanan_chat as pc')->join('crm_conversations as k', 'k.id', '=', 'pc.conversation_id')
+            ->leftJoin('customers as c', 'c.id', '=', 'k.customer_id')
+            ->whereIn('pc.sales_order_id', $ids)->orderBy('pc.id')
+            ->get(['pc.sales_order_id', 'c.name', 'c.is_marketplace', 'k.display_name'])
+            ->mapWithKeys(fn ($r) => [$r->sales_order_id => ($r->name && !$r->is_marketplace ? $r->name : $r->display_name)]);
+
+        $hasil = [];
+        foreach ($so as $t) {
+            $p = $pelanggan[$t->taskable_id] ?? null;
+            $nama = $p && !$p->is_marketplace ? $p->name : ($chat[$t->taskable_id] ?? null);
+            if ($nama) $hasil[$t->id] = $nama;
+        }
+
+        return $hasil;
     }
 
     /** Kelas warna lencana jenis pekerjaan; jenis baru tanpa warna memakai abu-abu. */
