@@ -5,6 +5,8 @@ namespace App\Modules\Tasks\MejaKerja;
 use App\Models\User;
 use App\Modules\SDM\Models\FingerprintLog;
 use App\Modules\SDM\Models\IzinRequest;
+use App\Modules\SDM\Models\KaryawanSchedule;
+use App\Modules\SDM\Models\NationalHoliday;
 use Illuminate\Support\Carbon;
 
 /**
@@ -44,9 +46,22 @@ class KehadiranAdmin
             ->exists();
         if ($izin) return true;
 
+        // Hari libur (jadwal SDM is_off atau libur nasional) bukan "tidak berangkat". Tanpa ini
+        // Minggu 8 Nov 2026 jam 09:00 seluruh 241 chat Saiful dioper ke Farid.
+        if ($this->libur($karyawanId, $saat)) return false;
+
         [$jam, $menit] = array_map('intval', explode(':', (string) config('meja_prioritas.jam_batas_scan', '09:00')) + [0, 0]);
 
         return $saat->gte($saat->copy()->setTime($jam, $menit));
+    }
+
+    /** Tanpa baris jadwal untuk hari itu = hari kerja (perilaku lama). */
+    private function libur(int $karyawanId, Carbon $saat): bool
+    {
+        return NationalHoliday::isLibur($saat->toDateString())
+            || (bool) KaryawanSchedule::where('karyawan_id', $karyawanId)
+                ->where('day_of_week', (int) $saat->format('w'))
+                ->value('is_off');
     }
 
     private function scan(int $karyawanId, Carbon $saat): bool

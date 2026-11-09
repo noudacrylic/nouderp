@@ -62,7 +62,10 @@ class PenggantiAdminService
         $chat = CrmConversation::where('owner_user_id', $uid)->where('status', CrmConversation::STATUS_AKTIF)->get();
         foreach ($chat as $c) {
             if (!$simulasi) {
-                $c->forceFill(['owner_user_id' => $ke->id, 'dioper_dari_user_id' => $uid, 'unread_count' => max(1, (int) $c->unread_count)])->save();
+                // Angka belum dibaca TIDAK dipaksa 1: ini oper seluruh isi inbox, bukan satu chat
+                // yang perlu disorot — memaksanya membuat ratusan chat lama tampak baru (8 Nov 2026)
+                // dan tandanya tertinggal saat chat dikembalikan.
+                $c->forceFill(['owner_user_id' => $ke->id, 'dioper_dari_user_id' => $uid])->save();
             }
         }
         if ($chat->isNotEmpty()) {

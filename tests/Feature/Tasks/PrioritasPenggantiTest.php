@@ -108,6 +108,21 @@ class PrioritasPenggantiTest extends TestCase
                              'alasan' => 'cuti', 'status' => 'approved']);
         $this->assertTrue(app(KehadiranAdmin::class)->tidakMasuk($this->farid->id, now()->setTime(7, 0)), 'cuti disetujui = tidak masuk sejak pagi');
 
+        // Hari libur di jadwal SDM / libur nasional: belum scan bukan berarti tidak berangkat.
+        $hari = (int) now()->format('w');
+        DB::table('sdm_karyawan_schedule')->insert(['karyawan_id' => $this->kFarid, 'day_of_week' => $hari, 'is_off' => true, 'created_at' => now(), 'updated_at' => now()]);
+        $kLibur = DB::table('sdm_karyawan')->insertGetId(['staf_code' => 'LBR', 'name' => 'Libur', 'created_at' => now(), 'updated_at' => now()]);
+        $uLibur = User::factory()->create(['karyawan_id' => $kLibur]);
+        DB::table('sdm_karyawan_schedule')->insert(['karyawan_id' => $kLibur, 'day_of_week' => $hari, 'is_off' => true, 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertFalse(app(KehadiranAdmin::class)->tidakMasuk($uLibur->id, now()->setTime(10, 0)), 'jadwal libur = bukan tidak masuk');
+        $this->assertTrue(app(KehadiranAdmin::class)->tidakMasuk($this->farid->id, now()->setTime(10, 0)), 'cuti tetap menang atas jadwal libur');
+
+        $kNas = DB::table('sdm_karyawan')->insertGetId(['staf_code' => 'NAS', 'name' => 'Nasional', 'created_at' => now(), 'updated_at' => now()]);
+        $uNas = User::factory()->create(['karyawan_id' => $kNas]);
+        $this->assertTrue(app(KehadiranAdmin::class)->tidakMasuk($uNas->id, now()->setTime(10, 0)));
+        DB::table('sdm_national_holidays')->insert(['tanggal' => today()->toDateString(), 'nama' => 'Libur', 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertFalse(app(KehadiranAdmin::class)->tidakMasuk($uNas->id, now()->setTime(10, 0)), 'libur nasional = bukan tidak masuk');
+
         $tanpaData = User::factory()->create(['karyawan_id' => null]);
         $this->assertFalse(app(KehadiranAdmin::class)->tidakMasuk($tanpaData->id), 'tanpa data kehadiran dianggap hadir');
     }
@@ -129,6 +144,7 @@ class PrioritasPenggantiTest extends TestCase
         $this->assertSame($this->saiful->id, $beli->refresh()->assignee_user_id, 'kartu lain tetap menunggu Saiful');
         $this->assertSame($this->farid->id, $chat->refresh()->owner_user_id);
         $this->assertSame($this->saiful->id, $chat->dioper_dari_user_id);
+        $this->assertSame(0, $chat->unread_count, 'oper karena tidak masuk tidak menandai chat lama belum dibaca');
 
         // Atur penugasan tidak boleh menarik kartu pindahan kembali ke meja asalnya.
         app(MejaKerjaService::class)->aturPenugasan();
