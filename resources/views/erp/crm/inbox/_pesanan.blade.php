@@ -146,6 +146,13 @@
                     <span x-show="!p.ambil && p.ongkir > 0" x-text="rupiah(p.ongkir)"></span>
                 </div>
 
+                {{-- Batas kirim (selama produksi/packing) — sama dengan kartu Pemrosesan Pesanan. --}}
+                <div x-show="p.batas_kirim" x-cloak class="mt-1 flex items-center justify-between gap-2 text-[11px] rounded px-1.5 py-0.5"
+                     :class="{ 'bg-red-50 text-red-700': p.batas_kirim?.nada === 'lewat', 'bg-amber-50 text-amber-800': p.batas_kirim?.nada === 'mepet', 'bg-gray-50 text-gray-600': p.batas_kirim?.nada === 'aman' }">
+                    <span><span class="font-semibold" x-text="'⏰ ' + (p.batas_kirim?.judul || '')"></span> <span x-text="p.batas_kirim?.teks"></span></span>
+                    <span class="font-semibold whitespace-nowrap" x-text="p.batas_kirim?.relatif"></span>
+                </div>
+
                 {{-- Catatan pembeli + Instruksi packing: sama dengan kartu Pemrosesan Pesanan.
                      Instruksi disunting di sini supaya permintaan pembeli dari chat sampai ke
                      packing tanpa membuka POS. --}}

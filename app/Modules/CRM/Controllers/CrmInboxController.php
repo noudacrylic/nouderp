@@ -2486,9 +2486,12 @@ class CrmInboxController extends Controller
              * tampak kosong justru saat ada yang perlu ditindaklanjuti.
              */
             ->limit(25)
-            ->with(['items.product:id,name,sku', 'customer:id,is_marketplace'])
+            ->with(['items.product:id,name,sku,sale_type,lead_time_days', 'customer:id,is_marketplace'])
             ->get()
-            ->map(function (SalesOrder $so) use ($progress, $tertaut) {
+            ->pipe(function ($daftar) use ($progress, $tertaut) {
+              // Batas kirim — rumus yang sama dengan kartu Pemrosesan Pesanan (dihitung sekali).
+              $batas = app(\App\Modules\POS\Services\FulfillmentReadinessService::class)->batasKirim($daftar);
+              return $daftar->map(function (SalesOrder $so) use ($progress, $tertaut, $batas) {
                 $p = $progress->for($so);
 
                 $tahap = collect($p['steps'])->firstWhere('key', $p['current']);
@@ -2569,9 +2572,38 @@ class CrmInboxController extends Controller
                     // Faktur posted terbaru — syarat tombol "Kirim nota" (gambar).
                     'faktur'  => $so->invoices()->where('status', 'posted')->latest('id')->value('invoice_number'),
                     'url_lacak' => route('sales.orders.public-tracking', $so->id),
+                    // Hanya selama barang belum berangkat (produksi/packing): admin tahu
+                    // tenggatnya tanpa membuka Pemrosesan Pesanan.
+                    'batas_kirim' => in_array($p['current'], ['produksi', 'packing'], true) && $so->status !== 'draft'
+                        ? $this->labelBatasKirim($batas[$so->id] ?? null, $so->delivery_method === 'ambil_toko') : null,
                 ];
+              });
             })
             ->all();
+    }
+
+    /** @param  array{deadline: ?\Carbon\Carbon, terlambat: bool}|null  $b */
+    private function labelBatasKirim(?array $b, bool $ambil): ?array
+    {
+        $d = $b['deadline'] ?? null;
+        if (! $d) return null;
+
+        $d = \Illuminate\Support\Carbon::parse($d)->timezone(config('app.timezone'));
+        $berjam = $d->format('H:i') !== '00:00';      // marketplace: tenggat berjam; lokal: per tanggal
+        $hari = (int) now()->startOfDay()->diffInDays($d->copy()->startOfDay(), false);
+        $relatif = match (true) {
+            $b['terlambat'] => 'lewat',
+            $hari === 0     => 'hari ini',
+            $hari === 1     => 'besok',
+            default         => "$hari hari lagi",
+        };
+
+        return [
+            'judul'   => $ambil ? 'Batas siap' : 'Batas kirim',
+            'teks'    => $d->translatedFormat($berjam ? 'D, d M H:i' : 'D, d M Y'),
+            'relatif' => $relatif,
+            'nada'    => $b['terlambat'] ? 'lewat' : ($hari <= 0 ? 'mepet' : 'aman'),
+        ];
     }
 
     /**

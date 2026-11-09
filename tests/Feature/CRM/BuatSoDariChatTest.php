@@ -784,4 +784,35 @@ class BuatSoDariChatTest extends TestCase
 
         $this->actingAs($admin)->get(route('crm.inbox.show', $percakapan))->assertOk()->assertSee('Instruksi packing');
     }
+
+    public function test_batas_kirim_tampil_di_kartu_pesanan_selama_belum_dikirim(): void
+    {
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-11-09 10:00:00'));
+        $percakapan = $this->percakapan();
+        $admin = $this->admin();
+        $this->actingAs($admin)->postJson(route('crm.inbox.buat-so', $percakapan), $this->muatan())->assertOk();
+        $so = SalesOrder::first();
+
+        // Belum dibayar → belum ada tenggat kerja.
+        $so->forceFill(['status' => 'confirmed', 'order_date' => '2026-11-09'])->save();
+        $r = $this->actingAs($admin)->postJson(route('crm.inbox.pesanan.instruksi', [$percakapan, $so]), ['instruksi' => 'x'])->assertOk();
+        $this->assertNull(collect($r->json('pesanan'))->firstWhere('id', $so->id)['batas_kirim']);
+
+        // Tempo (lolos gerbang bayar), ready stock → tanggal SO + 1 hari, sama dengan Pemrosesan.
+        $so->forceFill(['is_tempo' => true])->save();
+        $r = $this->actingAs($admin)->postJson(route('crm.inbox.pesanan.instruksi', [$percakapan, $so]), ['instruksi' => 'x'])->assertOk();
+        $b = collect($r->json('pesanan'))->firstWhere('id', $so->id)['batas_kirim'];
+        $this->assertSame('Batas kirim', $b['judul']);
+        $this->assertSame('besok', $b['relatif']);
+        $this->assertStringContainsString('10 Nov 2026', $b['teks']);
+
+        // Marketplace: tenggat asli Jubelio (berjam) yang dipakai.
+        \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::create([
+            'sales_order_id' => $so->id, 'jubelio_salesorder_id' => 999001, 'mp_due_date' => '2026-11-09 08:00:00',
+        ]);
+        $r = $this->actingAs($admin)->postJson(route('crm.inbox.pesanan.instruksi', [$percakapan, $so]), ['instruksi' => 'x'])->assertOk();
+        $b = collect($r->json('pesanan'))->firstWhere('id', $so->id)['batas_kirim'];
+        $this->assertSame('lewat', $b['nada']);
+        $this->assertStringContainsString('08:00', $b['teks']);
+    }
 }

@@ -1148,7 +1148,6 @@ class FulfillmentReadinessService
         // bertanya pada dokumen, bukan pada barang: unit sisa pesanan yang batal tidak pernah
         // dianggap ada, pesanan baru ditahan sampai OP barunya jadi, dan unit lama mengendap.
         // Sekarang produk semacam itu dinilai lewat $shortages seperti barang lain.
-        $adaPreorder = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder');
         $isCustom = $so->items->contains(fn ($i) => optional($i->product)->sale_type === 'preorder'
             && optional($i->product)->made_to_order);
 
@@ -1173,24 +1172,7 @@ class FulfillmentReadinessService
         // Batas waktu kirim. Order marketplace: pakai batas kirim ASLI dari Jubelio (due_date),
         // bukan estimasi lokal. Lainnya: ready stock = order_date + 1 hari; preorder = order_date +
         // lead_time_days terbesar dari item preorder (minimal 1 hari).
-        if ($link && $link->mp_due_date) {
-            $deadline  = $link->mp_due_date;
-            $isOverdue = $deadline->isPast();
-        } else {
-            // Batas kirim ikut SEMUA item preorder, bukan cuma yang dibuat khusus — barang
-            // preorder berspesifikasi tetap pun tetap butuh waktu kerja.
-            $leadDays = 1;
-            if ($adaPreorder) {
-                foreach ($so->items as $i) {
-                    if (optional($i->product)->sale_type === 'preorder') {
-                        $leadDays = max($leadDays, (int) ($i->product->lead_time_days ?? 0));
-                    }
-                }
-            }
-            $mulai     = $this->tanggalMulaiAntre($so);
-            $deadline  = $mulai ? $mulai->copy()->startOfDay()->addDays($leadDays) : null;
-            $isOverdue = $deadline ? $deadline->lt(\Carbon\Carbon::today()) : false;
-        }
+        [$deadline, $isOverdue] = $this->hitungBatasKirim($so, $link);
 
         // Finalized: ada minimal 1 OP non-cancelled & SEMUA finalized.
         $prodFinalized = false;
@@ -1580,6 +1562,58 @@ class FulfillmentReadinessService
     private function measureDefaults(SalesOrder $so): array
     {
         return app(\App\Modules\Shipping\Services\PackageDefaults::class)->for($so);
+    }
+
+    /**
+     * Batas kirim beberapa SO di luar layar Pemrosesan (mis. panel Pesanan chat CRM) — rumus
+     * yang SAMA dengan kartu Pemrosesan, supaya admin & packing melihat tenggat yang sama.
+     *
+     * @param  \Illuminate\Support\Collection<int, SalesOrder>  $orders  items.product sebaiknya sudah dimuat
+     * @return array<int, array{deadline: ?\Carbon\Carbon, terlambat: bool}> so id => batas kirim
+     */
+    public function batasKirim(Collection $orders): array
+    {
+        $soIds = $orders->pluck('id')->all();
+        if (! $soIds) return [];
+
+        $links = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::whereIn('sales_order_id', $soIds)
+            ->get()->keyBy('sales_order_id');
+        $this->waktuAntreMap = app(\App\Modules\Sales\Services\SalesOrderStockCheck::class)->waktuAntre($soIds);
+
+        $hasil = [];
+        foreach ($orders as $so) {
+            [$deadline, $terlambat] = $this->hitungBatasKirim($so, $links->get($so->id));
+            $hasil[$so->id] = ['deadline' => $deadline, 'terlambat' => $terlambat];
+        }
+
+        return $hasil;
+    }
+
+    /**
+     * Batas waktu kirim. Order marketplace: batas kirim ASLI dari Jubelio (due_date), bukan
+     * estimasi lokal. Lainnya: ready stock = mulai antre + 1 hari; preorder = mulai antre +
+     * lead_time_days terbesar dari item preorder (minimal 1 hari).
+     *
+     * @return array{0: ?\Carbon\Carbon, 1: bool} [batas kirim, sudah lewat]
+     */
+    private function hitungBatasKirim(SalesOrder $so, ?\App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink $link): array
+    {
+        if ($link && $link->mp_due_date) {
+            return [$link->mp_due_date, $link->mp_due_date->isPast()];
+        }
+
+        // Batas kirim ikut SEMUA item preorder, bukan cuma yang dibuat khusus — barang
+        // preorder berspesifikasi tetap pun tetap butuh waktu kerja.
+        $leadDays = 1;
+        foreach ($so->items as $i) {
+            if (optional($i->product)->sale_type === 'preorder') {
+                $leadDays = max($leadDays, (int) ($i->product->lead_time_days ?? 0));
+            }
+        }
+        $mulai    = $this->tanggalMulaiAntre($so);
+        $deadline = $mulai ? $mulai->copy()->startOfDay()->addDays($leadDays) : null;
+
+        return [$deadline, $deadline ? $deadline->lt(\Carbon\Carbon::today()) : false];
     }
 
     /**
