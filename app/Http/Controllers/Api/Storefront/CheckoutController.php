@@ -857,6 +857,28 @@ class CheckoutController extends Controller
         return $customer;
     }
 
+    /** "Lupa PIN?" langkah 1: kirim kode ke WhatsApp nomor akun (StorefrontPinResetService). */
+    public function pinResetMinta(Request $request, \App\Services\StorefrontPinResetService $svc)
+    {
+        $data = $request->validate(['phone' => 'required|string|max:30']);
+        $h = $svc->minta($data['phone']);
+
+        return response()->json(['message' => $h['pesan']], $h['status']);
+    }
+
+    /** "Lupa PIN?" langkah 2: kode benar → PIN baru tersimpan. */
+    public function pinResetSimpan(Request $request, \App\Services\StorefrontPinResetService $svc)
+    {
+        $data = $request->validate([
+            'phone' => 'required|string|max:30',
+            'kode'  => 'required|digits:6',
+            'pin'   => 'required|digits_between:4,6',
+        ], ['pin.digits_between' => 'PIN baru harus 4-6 angka.', 'kode.digits' => 'Kode terdiri dari 6 angka.']);
+        $h = $svc->simpan($data['phone'], $data['kode'], $data['pin']);
+
+        return response()->json(['message' => $h['pesan']], $h['status']);
+    }
+
     /** Apakah nomor HP ini sudah punya akun (PIN)? → checkout tahu "buat" vs "masukkan" PIN. */
     public function pinStatus(Request $request)
     {

@@ -157,6 +157,18 @@ class TemplateResmi
                         . 'menghubungi admin kami di nomor yang sama. Terima kasih, Kak.',
         ],
         [
+            'nama'     => 'kode_reset_pin',
+            'kategori' => 'AUTHENTICATION',
+            'guna'     => '"Lupa PIN?" di toko online (StorefrontPinResetService). HANYA jalur WAHA nomor '
+                        . 'notifikasi — kode sekali pakai tak perlu template berbayar, dan tak boleh '
+                        . 'tertahan lalu terkirim belakangan (dikirim langsung, bukan lewat outbox).',
+            'contoh'   => ['482913'],
+            'hanya_waha' => true,
+            'body'     => 'Halo Kak, ini kode reset PIN toko online noudakrilik.com: *{{1}}*. Berlaku 10 menit. '
+                        . 'Jangan berikan kode ini kepada siapa pun, termasuk admin kami. '
+                        . 'Abaikan pesan ini bila Kakak tidak memintanya.',
+        ],
+        [
             'nama'     => 'pesanan_dikirim',
             'kategori' => 'UTILITY',
             'guna'     => 'Tombol URL dinamis → halaman lacak pesanan.',
