@@ -814,5 +814,13 @@ class BuatSoDariChatTest extends TestCase
         $b = collect($r->json('pesanan'))->firstWhere('id', $so->id)['batas_kirim'];
         $this->assertSame('lewat', $b['nada']);
         $this->assertStringContainsString('08:00', $b['teks']);
+        $this->assertSame('lewat 2 jam', $b['relatif']);
+
+        // Hitung mundur seperti kartu POS: < 12 jam = mendesak.
+        \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::where('sales_order_id', $so->id)->update(['mp_due_date' => '2026-11-09 15:30:00']);
+        $r = $this->actingAs($admin)->postJson(route('crm.inbox.pesanan.instruksi', [$percakapan, $so]), ['instruksi' => 'x'])->assertOk();
+        $b = collect($r->json('pesanan'))->firstWhere('id', $so->id)['batas_kirim'];
+        $this->assertSame('5 jam 30 mnt lagi', $b['relatif']);
+        $this->assertSame('mepet', $b['nada']);
     }
 }

@@ -2591,18 +2591,31 @@ class CrmInboxController extends Controller
         $d = \Illuminate\Support\Carbon::parse($d)->timezone(config('app.timezone'));
         $berjam = $d->format('H:i') !== '00:00';      // marketplace: tenggat berjam; lokal: per tanggal
         $hari = (int) now()->startOfDay()->diffInDays($d->copy()->startOfDay(), false);
-        $relatif = match (true) {
-            $b['terlambat'] => 'lewat',
-            $hari === 0     => 'hari ini',
-            $hari === 1     => 'besok',
-            default         => "$hari hari lagi",
-        };
+
+        if ($berjam) {
+            // Hitung mundur seperti kartu Pemrosesan Pesanan (_so_card): "5 jam lagi" / "lewat 2 jam";
+            // < 12 jam = mendesak.
+            $mnt = (int) now()->diffInMinutes($d, false);
+            $abs = abs($mnt);
+            $cd  = $abs >= 1440 ? intdiv($abs, 1440) . ' hari'
+                 : ($abs >= 60 ? intdiv($abs, 60) . ' jam' . ($abs % 60 ? ' ' . ($abs % 60) . ' mnt' : '') : max(1, $abs) . ' mnt');
+            $relatif = $b['terlambat'] ? "lewat $cd" : "$cd lagi";
+            $nada = $b['terlambat'] ? 'lewat' : ($mnt <= 720 ? 'mepet' : 'aman');
+        } else {
+            $relatif = match (true) {
+                $b['terlambat'] => 'lewat',
+                $hari === 0     => 'hari ini',
+                $hari === 1     => 'besok',
+                default         => "$hari hari lagi",
+            };
+            $nada = $b['terlambat'] ? 'lewat' : ($hari <= 0 ? 'mepet' : 'aman');
+        }
 
         return [
             'judul'   => $ambil ? 'Batas siap' : 'Batas kirim',
             'teks'    => $d->translatedFormat($berjam ? 'D, d M H:i' : 'D, d M Y'),
             'relatif' => $relatif,
-            'nada'    => $b['terlambat'] ? 'lewat' : ($hari <= 0 ? 'mepet' : 'aman'),
+            'nada'    => $nada,
         ];
     }
 
