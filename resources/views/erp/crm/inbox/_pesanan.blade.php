@@ -82,7 +82,9 @@
         <template x-for="p in pesananTampil" :key="p.id">
             <div class="rounded-lg border px-2 py-1.5"
                  :class="p.draft ? 'border-amber-300 bg-amber-50/60'
-                                 : (p.selesai ? 'border-gray-200 opacity-70' : 'border-emerald-300 bg-emerald-50/50')">
+                                 : (p.selesai ? 'border-gray-200 opacity-70'
+                                 {{-- Pesanan Shopee selalu oranye, juga di chat WA, serasi dengan chat Shopee. --}}
+                                 : ((p.mp || '').startsWith('SP-') ? 'border-orange-300 bg-orange-50/60' : 'border-emerald-300 bg-emerald-50/50'))">
                 <div class="flex items-baseline justify-between gap-2">
                     <a :href="p.url" class="text-xs font-semibold truncate underline" x-text="p.nomor"></a>
                     <span class="shrink-0 text-xs font-bold" x-text="rupiah(p.total)"></span>
@@ -93,7 +95,8 @@
                 <div class="flex items-center justify-between gap-2 mt-0.5 text-[10px]">
                     <span class="truncate text-gray-500" x-text="p.mp && p.mp !== p.nomor ? 'Marketplace · ' + p.mp : ''"></span>
                     <span class="shrink-0 flex items-center gap-1">
-                        <span x-show="p.tertaut" class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">tertaut</span>
+                        <span x-show="p.tertaut" class="px-1.5 py-0.5 rounded"
+                              :class="(p.mp || '').startsWith('SP-') ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'">tertaut</span>
                         <button type="button" @click="ubahTautan(p.id, p.tertaut ? 'lepas' : 'tautkan')"
                                 :disabled="tautSibuk === p.id"
                                 class="text-gray-500 underline hover:no-underline disabled:opacity-60"
@@ -106,7 +109,7 @@
                 <div x-show="p.cabang" class="text-[11px] text-indigo-600 truncate mt-0.5" x-text="p.cabang"></div>
                 <div class="flex items-baseline justify-between gap-2 mt-0.5">
                     <span class="text-[11px] font-semibold shrink-0"
-                          :class="p.draft ? 'text-amber-700' : (p.selesai ? 'text-gray-500' : 'text-emerald-700')"
+                          :class="p.draft ? 'text-amber-700' : (p.selesai ? 'text-gray-500' : ((p.mp || '').startsWith('SP-') ? 'text-orange-700' : 'text-emerald-700'))"
                           x-text="p.status"></span>
                     <span class="text-[11px] text-gray-500 truncate text-right" x-text="p.catatan"></span>
                 </div>
