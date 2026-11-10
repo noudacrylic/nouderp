@@ -59,6 +59,23 @@ class QcHalamanTest extends TestCase
             ->assertOk()->assertSee('OP/2026/10/00099')->assertSee('855,0 g')->assertSee('timbangan.js');
     }
 
+    /** Produk sampingan tanpa sampel acuan tetap tampil di pilihan produk, dengan ajakan membuat acuannya. */
+    public function test_produk_sampingan_tanpa_acuan_tetap_tampil(): void
+    {
+        $sampingan = Product::create(['sku' => 'kn-t1-m2', 'name' => 'Kotak Nama', 'sale_type' => 'ready',
+            'base_unit' => 'pcs', 'base_price' => 1, 'is_active' => true, 'is_sellable' => true])->id;
+        ProductionOrderOutput::create(['production_order_id' => $this->order->id, 'product_id' => $sampingan,
+            'qty_planned' => 4, 'qty_produced' => 0, 'output_type' => 'by_product', 'percentage' => 0, 'unit_percentage' => 0.7]);
+
+        // Bawaan tetap produk yang punya acuan; sampingan terlihat di daftar.
+        $this->actingAs($this->admin())->get(route('production.qc.index', ['op' => $this->order->id]))
+            ->assertOk()->assertSee('855,0 g')->assertSee('kn-t1-m2')->assertSee('belum ada acuan');
+
+        $this->actingAs($this->admin())->get(route('production.qc.index', ['op' => $this->order->id, 'produk' => $sampingan]))
+            ->assertOk()->assertSee('belum punya sampel acuan QC')
+            ->assertSee(route('production.qc-acuan.create', ['produk' => $sampingan]), false);
+    }
+
     public function test_timbang_lewat_json_mengembalikan_hasil_dan_ringkasan(): void
     {
         $this->actingAs($this->petugas())->postJson(route('production.qc.timbang'), [

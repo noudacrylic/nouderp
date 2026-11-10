@@ -33,6 +33,12 @@
                             <a href="{{ route('production.qc.index', ['op' => $order->id, 'produk' => $out->product_id]) }}"
                                class="block px-3 py-2 rounded-lg text-sm border {{ $productId === $out->product_id ? 'border-blue-400 bg-blue-50 font-semibold' : 'border-gray-200 hover:bg-gray-50' }}">
                                 {{ $out->product?->sku }} <span class="text-gray-400 text-xs">{{ $out->product?->name }}</span>
+                                @if($out->output_type === 'by_product')
+                                    <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-normal">sampingan</span>
+                                @endif
+                                @unless($out->punya_acuan)
+                                    <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-normal">belum ada acuan</span>
+                                @endunless
                             </a>
                         @endforeach
                     </div>
@@ -245,6 +251,20 @@
         @elseif($productId && $sampel->count() > 1 && !$profil)
             <div class="col-span-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 h-fit">
                 Produk ini punya {{ $sampel->count() }} sampel acuan. Pilih sampel yang sesuai bahan OP ini di sebelah kiri sebelum menimbang.
+            </div>
+        @elseif($order && $productId && $sampel->isEmpty())
+            @php $outTanpaAcuan = $produkPilihan->firstWhere('product_id', $productId); @endphp
+            <div class="col-span-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 h-fit space-y-2">
+                <div>
+                    <b>{{ $outTanpaAcuan?->product?->sku }}</b> belum punya sampel acuan QC, jadi belum bisa ditimbang.
+                    Hasil ini tetap ikut masuk stok saat finalisasi — ambil sampel acuannya dulu supaya ikut diperiksa.
+                </div>
+                @if(user_can_access('production.qc-acuan'))
+                    <a href="{{ route('production.qc-acuan.create', ['produk' => $productId]) }}"
+                       class="inline-block px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700">+ Buat sampel acuan</a>
+                @else
+                    <div class="text-xs">Minta pemegang menu Sampel Acuan untuk membuatnya.</div>
+                @endif
             </div>
         @elseif($order && $productId && !$target)
             <div class="col-span-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 h-fit">

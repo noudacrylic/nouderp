@@ -31,11 +31,16 @@ class QcController extends Controller
 
         $order = $request->filled('op') ? $orders->firstWhere('id', (int) $request->op) : null;
 
+        // Semua hasil OP tampil — termasuk produk sampingan yang belum punya sampel acuan,
+        // supaya petugas tahu ada hasil lain yang ikut masuk stok dan bisa dibuatkan acuannya.
         $produkPilihan = $order
-            ? $order->outputs->filter(fn ($o) => $produkQc->contains($o->product_id))->values()
+            ? $order->outputs->unique('product_id')->each(function ($o) use ($produkQc) { $o->punya_acuan = $produkQc->contains($o->product_id); })->values()
             : collect();
 
-        $productId = (int) $request->input('produk', $produkPilihan->count() === 1 ? $produkPilihan->first()->product_id : 0);
+        $bawaan = $produkPilihan->count() === 1
+            ? $produkPilihan->first()
+            : ($produkPilihan->where('punya_acuan', true)->count() === 1 ? $produkPilihan->firstWhere('punya_acuan', true) : null);
+        $productId = (int) $request->input('produk', $bawaan?->product_id ?? 0);
         $output    = $produkPilihan->firstWhere('product_id', $productId);
 
         $sampel = $output ? $this->qc->sampelAktif($productId) : collect();
