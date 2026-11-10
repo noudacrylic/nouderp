@@ -3,6 +3,7 @@
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
 use App\Modules\CRM\Services\ChatPesananService;
+use App\Modules\POS\Services\FulfillmentReadinessService;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
@@ -97,10 +98,45 @@ class DesainSkill implements SkillAdmin
                     'order_number' => $so->order_number,
                     'no_marketplace' => $so->customer_po_number,
                     'crm_conversation_id' => $chat ? (int) $chat : null,
+                    'batas_kirim' => true,
                 ]),
                 'dibuat_at'     => Carbon::parse($so->created_at),
+                // Target = batas kirim kartu Pemrosesan Pesanan; kosong → SLA skill.
+                'tenggat_at'    => $this->batasKirim((int) $soId),
             ];
         }
+    }
+
+    /**
+     * Target kartu ikut batas kirim Pemrosesan Pesanan (rumus yang sama). Batas kirim bisa
+     * bergeser — mis. due date Shopee masuk belakangan, atau pesanan baru dibayar — jadi kartu
+     * yang sudah ada ikut dibetulkan.
+     */
+    public function perbarui(Task $task): ?array
+    {
+        $batas = $this->batasKirim((int) $task->taskable_id);
+        if (!$batas || $task->tenggat_at?->equalTo($batas)) return null;
+
+        return [
+            'status'     => null,
+            'catatan'    => 'Target ikut batas kirim: ' . $batas->format('d/m H:i'),
+            'meta'       => array_merge($task->meta ?? [], ['batas_kirim' => true]),
+            'tenggat_at' => $batas,
+        ];
+    }
+
+    private function batasKirim(int $soId): ?Carbon
+    {
+        $so = SalesOrder::with('items.product')->find($soId);
+        if (!$so) return null;
+
+        $d = app(FulfillmentReadinessService::class)->batasKirim(collect([$so]))[$soId]['deadline'] ?? null;
+
+        if (!$d) return null;
+        $d = Carbon::parse($d);
+
+        // Non-marketplace: batas kirim berupa tanggal saja (00:00) = paling lambat hari itu.
+        return $d->format('H:i:s') === '00:00:00' ? $d->endOfDay()->startOfMinute() : $d;
     }
 
     public function keadaan(Task $task): ?array

@@ -130,7 +130,13 @@
                                             default             => 'Sisa ' . intdiv($sisaMnt, 1440) . ' hari ' . intdiv($sisaMnt % 1440, 60) . ' jam',
                                         };
                                     @endphp
-                                    @if ($t->tenggatDariLuar())
+                                    @if (!empty($t->meta['batas_kirim']))
+                                        {{-- Batas kirim Pemrosesan Pesanan — warnanya sama dengan kartu Pemrosesan: < 12 jam kuning, lewat merah. --}}
+                                        <span class="px-1.5 py-0.5 rounded {{ $lewat ? 'bg-red-600 text-white font-bold' : ($sisaMnt <= 720 ? 'bg-amber-200 text-amber-900 font-bold' : 'bg-gray-100 text-gray-600') }}"
+                                              title="Batas kirim (sama dengan Pemrosesan Pesanan) — {{ $t->tenggat_at->format('d/m/Y H:i') }}">
+                                            ⏱ Batas kirim {{ $t->tenggat_at->format('d/m H:i') }} · {{ $lewat ? 'lewat ' . $t->tenggat_at->diffForHumans(null, true) : lcfirst($sisaTeks) }}
+                                        </span>
+                                    @elseif ($t->tenggatDariLuar())
                                         {{-- Batas sungguhan (Shopee / jatuh tempo) — merah, hitung mundur. --}}
                                         <span class="px-1.5 py-0.5 rounded bg-red-600 text-white font-bold"
                                               title="Batas {{ $t->tenggat_at->format('d/m/Y H:i') }}">
