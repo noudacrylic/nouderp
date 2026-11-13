@@ -650,6 +650,27 @@
                         </div>
                     </template>
 
+                    {{-- c. Dana pesanan sudah cair SEBELUM retur: tak ada jurnal Penyelesaian baru —
+                         tampilkan pencairan yang sudah terjadi + sisa dana pesanan setelah retur ini,
+                         angka yang sama dengan "Total Penghasilan" & "Penghasilan Akhir" Seller Centre. --}}
+                    <div class="mb-5" x-show="returnType === 'invoice' && blok.penyelesaian.rows === null && bawaan.konteks?.pencairan" x-cloak>
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-xs font-black text-gray-600 uppercase tracking-widest">c. Penyelesaian Pesanan</span>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-gray-100 text-gray-600"
+                                  x-text="'sudah cair ' + tglPendek(bawaan.konteks?.pencairan?.tanggal)"></span>
+                        </div>
+                        <p class="text-[11px] text-gray-400 mb-3">Dana pesanan ini sudah masuk Saldo Penjualan sebelum retur — tidak ada jurnal baru di sini. Cocokkan angkanya dengan rincian pesanan di Seller Centre.</p>
+                        <div class="rounded-xl border border-gray-200 bg-gray-50/60 px-4 py-3 text-xs font-mono space-y-1">
+                            <div class="flex justify-between"><span class="font-sans text-gray-600">Nilai pesanan (faktur)</span><span x-text="formatNumber(bawaan.konteks?.pencairan?.nilai_faktur || 0)"></span></div>
+                            <div class="flex justify-between"><span class="font-sans text-gray-600">Biaya admin, layanan &amp; promosi</span><span x-text="'−' + formatNumber(bawaan.konteks?.pencairan?.admin || 0)"></span></div>
+                            <div class="flex justify-between" x-show="(bawaan.konteks?.pencairan?.pajak || 0) !== 0"><span class="font-sans text-gray-600">Pajak</span><span x-text="'−' + formatNumber(bawaan.konteks?.pencairan?.pajak || 0)"></span></div>
+                            <div class="flex justify-between font-bold border-t border-gray-200 pt-1"><span class="font-sans">Dana pesanan masuk Saldo Penjualan <span class="font-normal text-gray-400">(Total Penghasilan)</span></span><span x-text="formatNumber(bawaan.konteks?.pencairan?.dana_masuk || 0)"></span></div>
+                            <div class="flex justify-between text-gray-600" x-show="(bawaan.konteks?.pencairan?.retur_lalu || 0) !== 0"><span class="font-sans">Retur sebelumnya</span><span x-text="formatNumber(bawaan.konteks?.pencairan?.retur_lalu || 0)"></span></div>
+                            <div class="flex justify-between text-red-600"><span class="font-sans">Retur ini — dipotong dari Saldo Penjualan (blok b)</span><span x-text="formatNumber(mutasi(selectedDoc?.akun?.dompet?.id, ['pembalikan']))"></span></div>
+                            <div class="flex justify-between font-black text-sm border-t border-gray-300 pt-1"><span class="font-sans">Sisa dana pesanan <span class="font-normal text-gray-400 text-xs">(Penghasilan Akhir)</span></span><span x-text="formatNumber(sisaDanaPesanan())"></span></div>
+                        </div>
+                    </div>
+
                     {{-- Uji akhir yang sama dengan MarketplaceSiklusPenuhTest: setelah pesanan tuntas,
                          Piutang / Uang Muka / Saldo Ditahan pesanan ini WAJIB nol. --}}
                     <div class="rounded-xl border px-4 py-3 text-xs" x-show="cekSaldo().length"
@@ -1927,6 +1948,19 @@ function returForm(initialData = null, prefill = null) {
             return (this.blok.pembalikan.rows || [])
                 .filter(r => r.account_id && this.kodeAkun(r.account_id).startsWith('4'))
                 .reduce((s, r) => s + this.angka(r.debit) - this.angka(r.credit), 0);
+        },
+
+        /** Dana pesanan yang sudah cair + retur sebelumnya + mutasi Saldo Penjualan di blok Pembalikan. */
+        sisaDanaPesanan() {
+            const p = this.bawaan.konteks?.pencairan;
+            if (!p) return 0;
+            return Number(p.dana_masuk || 0) + Number(p.retur_lalu || 0) + this.mutasi(this.selectedDoc?.akun?.dompet?.id, ['pembalikan']);
+        },
+
+        tglPendek(t) {
+            if (!t) return '';
+            const [y, m, d] = String(t).split('-');
+            return `${d}/${m}/${y}`;
         },
 
         danaCair() {

@@ -469,12 +469,53 @@ class SalesReturnService
                 'sisa_tagihan' => $sisaTagihan,
                 'sisa_ditahan' => $sisaDitahan,
                 'uang_muka'    => $uangMuka,
+                // Dana pesanan sudah cair sebelum retur → tak ada blok Penyelesaian; form
+                // menampilkan pencairan yang sudah terjadi sebagai pembanding Seller Centre.
+                'pencairan'    => ($config && $penyelesaian === null && $inv->marketplace_processed)
+                    ? $this->pencairanLalu($inv, $akun, $config) : null,
                 'akun'         => [
                     'piutang'   => $akun['piutang']['id'] ?? null,
                     'uang_muka' => $akun['uang_muka']['id'] ?? null,
                     'ditahan'   => $config?->account_receivable_hold_id ? (int) $config->account_receivable_hold_id : null,
                 ],
             ],
+        ];
+    }
+
+    /**
+     * Pencairan pesanan yang SUDAH terjadi (jurnal settlement + koreksi potongan rekonsiliasi)
+     * dan retur lain yang sudah memotong Saldo Penjualan — angka "Total Penghasilan" Seller
+     * Centre. null bila tak ada jurnal pencairannya.
+     *
+     * @return array{tanggal:string, nilai_faktur:float, admin:float, pajak:float, dana_masuk:float, retur_lalu:float}|null
+     */
+    private function pencairanLalu(SalesInvoice $inv, array $akun, \App\Models\MarketplaceConfig $config): ?array
+    {
+        $dompetId = $akun['dompet']['id'] ?? null;
+        $adminId  = $akun['admin']['id'] ?? null;
+        $pajakId  = $config->account_tax_id ? (int) $config->account_tax_id : null;
+
+        $jurnal = DB::table('journals')->where('status', '!=', 'void')->where('reference_id', $inv->id)
+            ->whereIn('reference_type', ['sales_invoice_settlement', MarketplaceEngineService::REF_KOREKSI]);
+        $tanggal = (clone $jurnal)->where('reference_type', 'sales_invoice_settlement')->min('date');
+        if (!$tanggal || !$dompetId) {
+            return null;
+        }
+
+        $mutasi = fn ($q, ?int $akunId) => $akunId ? (float) DB::table('journal_lines')
+            ->whereIn('journal_id', $q->pluck('id'))->where('account_id', $akunId)
+            ->selectRaw('COALESCE(SUM(debit) - SUM(credit), 0) v')->value('v') : 0.0;
+
+        $returLalu = DB::table('journals')->where('status', '!=', 'void')->where('reference_type', 'sales_return')
+            ->whereIn('reference_id', SalesReturn::where('invoice_id', $inv->id)->where('status', 'posted')->pluck('id'));
+
+        return [
+            'tanggal'      => \Carbon\Carbon::parse($tanggal)->toDateString(),
+            'nilai_faktur' => round((float) $inv->grand_total, 2),
+            'admin'        => round($mutasi(clone $jurnal, $adminId), 2),
+            'pajak'        => round($mutasi(clone $jurnal, $pajakId), 2),
+            'dana_masuk'   => round($mutasi(clone $jurnal, $dompetId), 2),
+            'retur_lalu'   => round($mutasi($returLalu, $dompetId), 2),
         ];
     }
 

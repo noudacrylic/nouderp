@@ -332,6 +332,29 @@ class ReturJurnalTigaBlokTest extends TestCase
         ]);
     }
 
+    /** Dana sudah cair (SR/2026/11/00001): form menampilkan pencairan lalu sebagai blok c baca-saja. */
+    public function test_dana_sudah_cair_konteks_memuat_pencairan_lalu(): void
+    {
+        $inv = $this->faktur(sudahCair: true);
+        $jurnal = function (string $ref, array $baris) use ($inv) {
+            app(\App\Core\Journal\JournalPostingService::class)->post(new \App\DTO\JournalEntryDTO(
+                date: now()->toDateString(), reference_type: $ref, reference_id: $inv->id, description: 'uji',
+                lines: array_map(fn ($r) => new \App\DTO\JournalLineDTO(account_id: $r[0], debit: $r[1], credit: $r[2], description: ''), $baris)));
+        };
+        $jurnal('sales_invoice_settlement', [[$this->walletId, 88500, 0], [$this->adminId, 11000, 0], [$this->pajakId, 500, 0], [$this->holdId, 0, 100000]]);
+        $jurnal(\App\Modules\Sales\Services\MarketplaceEngineService::REF_KOREKSI, [[$this->adminId, 1000, 0], [$this->walletId, 0, 1000]]);
+
+        $b = app(SalesReturnService::class)->jurnalBawaan($inv, $this->items($inv, 'tidak_kembali', 1), 'diajukan_konsumen', null);
+
+        $this->assertNull($b['penyelesaian']);
+        $p = $b['konteks']['pencairan'];
+        $this->assertEquals(100000, $p['nilai_faktur']);
+        $this->assertEquals(87500, $p['dana_masuk'], 'Settlement + koreksi rekonsiliasi = Total Penghasilan Seller Centre.');
+        $this->assertEquals(12000, $p['admin']);
+        $this->assertEquals(500, $p['pajak']);
+        $this->assertEquals(0, $p['retur_lalu']);
+    }
+
     public function test_saldo_ditahan_melebihi_titipan_ditolak(): void
     {
         $inv = $this->faktur();
