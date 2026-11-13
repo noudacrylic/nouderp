@@ -85,6 +85,8 @@
     // (operator yang isi qty hasil produksi, bukan admin saat finalisasi).
     $totalSteps = $order->steps->count();
     $isLastStep = (int) $step->step_number === (int) $totalSteps;
+    // Stiker dicetak Admin Desain di langkah sebelumnya, menempelnya tugas divisi ini.
+    $tempelDariDesain = $order->steps->first(fn ($s) => $s->desain === 'cetak' && (int) $s->step_number === (int) $step->step_number - 1);
 
     // QC Timbang = langkah terakhir OP yang hasilnya wajib QC. Qty penutup dibatasi bungkus lulus.
     $qcStep    = $order->steps->firstWhere('is_qc', true);
@@ -303,6 +305,9 @@
                 </span>
             @endif
             <span class="text-gray-400">Langkah {{ $step->step_number }}: <span class="font-semibold text-gray-600">{{ $step->name }}</span></span>
+            @if($tempelDariDesain)
+                <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
+            @endif
         @else
             @php
                 $execNames = $step->executors->isNotEmpty()
@@ -310,6 +315,9 @@
                     : $step->executor?->name;
             @endphp
             <span class="text-gray-400">Langkah {{ $step->step_number }}: <span class="font-semibold text-gray-600">{{ $step->name }}</span></span>
+            @if($tempelDariDesain)
+                <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
+            @endif
             @if($tanpaPelaksana)
                 <span class="bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded font-bold"
                       title="{{ $step->sample_excluded_reason }}">⚠ Tanpa pelaksana</span>

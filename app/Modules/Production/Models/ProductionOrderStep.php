@@ -6,8 +6,44 @@ use Illuminate\Database\Eloquent\Model;
 
 class ProductionOrderStep extends Model
 {
+    /**
+     * Langkah Desain (bukan divisi produksi): Admin Desain mencetak stiker — dan menempelnya,
+     * atau menyerahkan tempelnya ke Assembling. Tanpa timer; ditutup dari kartu Meja Kerja.
+     * Di form langkah dipilih sebagai "desain:tempel" / "desain:cetak" di kotak divisi.
+     */
+    public const DESAIN = [
+        'tempel' => 'Desain — cetak & tempel stiker',
+        'cetak'  => 'Desain — cetak stiker (ditempel Assembling)',
+    ];
+
+    /**
+     * Pilihan kotak divisi di form langkah → kolom langkah. Angka = id divisi; "desain:<jenis>"
+     * = langkah Desain tanpa divisi.
+     *
+     * @return array{department_id: ?int, desain: ?string}
+     */
+    public static function uraiPilihan(mixed $pilihan): array
+    {
+        $pilihan = (string) $pilihan;
+        if (str_starts_with($pilihan, 'desain:') && isset(self::DESAIN[substr($pilihan, 7)])) {
+            return ['department_id' => null, 'desain' => substr($pilihan, 7)];
+        }
+        return ['department_id' => ctype_digit($pilihan) ? (int) $pilihan : null, 'desain' => null];
+    }
+
+    /** Nilai kotak divisi untuk langkah ini (kebalikan uraiPilihan). */
+    public function getPilihanAttribute(): string
+    {
+        return $this->desain ? 'desain:' . $this->desain : (string) $this->department_id;
+    }
+
+    public function isDesain(): bool
+    {
+        return $this->desain !== null;
+    }
+
     protected $fillable = [
-        'production_order_id', 'bom_step_id', 'step_number', 'department_id', 'is_qc', 'qc_diminta_at',
+        'production_order_id', 'bom_step_id', 'step_number', 'department_id', 'is_qc', 'desain', 'qc_diminta_at',
         'name', 'description', 'status', 'executor_id',
         'started_at', 'started_effective_at', 'paused_at', 'completed_at', 'notes',
         // Diisi saat pelaksana diganti di tengah jalan — lihat PergantianPelaksanaService.

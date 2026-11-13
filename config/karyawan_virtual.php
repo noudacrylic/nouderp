@@ -56,12 +56,14 @@ return [
         'nama'       => 'Manajer Admin',
         'ikon'       => '🗂️',
         'divisi'     => 'Admin',
-        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP, retur penjualan, ulasan Shopee bintang jelek), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain). Retur Shopee yang dibatalkan pembeli dan paket hilang yang sudah diganti Shopee diselesaikannya sendiri; hasil retur Shopee yang sudah final ditulisnya ke draft untuk diperiksa admin. Ulasan Shopee bintang bagus dibalasnya sendiri (template atau AI).',
+        'deskripsi'  => 'Memantau pekerjaan admin yang muncul di ERP (desain pesanan, QC, purchasing bahan ready stok & non stok, barang PO yang belum datang, cetak stiker untuk OP, desain gambar & langkah cetak/tempel stiker OP custom, retur penjualan, ulasan Shopee bintang jelek), lalu memasukkannya ke meja peran yang tepat di Meja Kerja (Layanan, Desain). Retur Shopee yang dibatalkan pembeli dan paket hilang yang sudah diganti Shopee diselesaikannya sendiri; hasil retur Shopee yang sudah final ditulisnya ke draft untuk diperiksa admin. Ulasan Shopee bintang bagus dibalasnya sendiri (template atau AI).',
         'akses'      => 'tasks.board',
         'pengaturan' => 'karyawan-virtual.admin.pengaturan',
         'skills'     => [
             'admin.desain'             => \App\Modules\Tasks\MejaKerja\Skills\DesainSkill::class,
             'admin.desain-gambar'      => \App\Modules\Tasks\MejaKerja\Skills\DesainGambarSkill::class,
+            'admin.desain-gambar-op'   => \App\Modules\Tasks\MejaKerja\Skills\DesainGambarOpSkill::class,
+            'admin.langkah-desain'     => \App\Modules\Tasks\MejaKerja\Skills\LangkahDesainSkill::class,
             'admin.foto-custom'        => \App\Modules\Tasks\MejaKerja\Skills\FotoCustomSkill::class,
             'admin.qc'                 => \App\Modules\Tasks\MejaKerja\Skills\QcSkill::class,
             'admin.purchasing-ready'   => \App\Modules\Tasks\MejaKerja\Skills\PurchasingReadySkill::class,
@@ -81,7 +83,7 @@ return [
         ],
         // Skill berjadwal sendiri — tidak ikut sinkron Meja Kerja tiap 2 menit (memanggil API luar).
         'jadwal_sendiri' => ['admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur-isi-hasil', 'admin.ulasan-bagus'],
-        'percobaan' => ['admin.desain-gambar', 'admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.selesaikan-pesanan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil', 'admin.ulasan-jelek', 'admin.ulasan-bagus', 'admin.prioritas', 'admin.tugas-owner'],
+        'percobaan' => ['admin.desain-gambar', 'admin.desain-gambar-op', 'admin.langkah-desain', 'admin.purchasing-ready', 'admin.purchasing-nonstok', 'admin.purchasing-laporan', 'admin.selesaikan-pesanan', 'admin.cetak-stiker', 'admin.retur-tidak-jadi', 'admin.retur-paket-hilang', 'admin.retur', 'admin.retur-isi-hasil', 'admin.ulasan-jelek', 'admin.ulasan-bagus', 'admin.prioritas', 'admin.tugas-owner'],
     ],
 
     // Mengurus pekerjaan pribadi owner: yang butuh keputusannya masuk Meja Owner (satu klik di

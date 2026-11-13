@@ -296,14 +296,18 @@ class ProductionOrderService
      */
     private function syncSteps(ProductionOrder $order, array $steps): void
     {
-        foreach ($steps as $i => $s) {
-            if (empty($s['name'])) continue;
+        $no = 0;
+        foreach ($steps as $s) {
+            // "desain:tempel"/"desain:cetak" = langkah Desain tanpa divisi (ProductionOrderStep::DESAIN).
+            $p = ProductionOrderStep::uraiPilihan($s['department_id'] ?? '');
+            if (empty($s['name']) && !$p['desain']) continue;
             ProductionOrderStep::create([
                 'production_order_id' => $order->id,
                 'bom_step_id'         => $s['bom_step_id'] ?? null,
-                'step_number'         => $i + 1,
-                'department_id'       => $s['department_id'] ?? null,
-                'name'                => $s['name'],
+                'step_number'         => ++$no,
+                'department_id'       => $p['department_id'],
+                'desain'              => $p['desain'],
+                'name'                => $p['desain'] ? ProductionOrderStep::DESAIN[$p['desain']] : $s['name'],
                 'description'         => $s['description'] ?? null,
                 'status'              => 'pending',
             ]);
@@ -462,19 +466,23 @@ class ProductionOrderService
         DB::transaction(function () use ($order, $steps) {
             $order->steps()->delete();
 
-            foreach ($steps as $i => $s) {
-                $deptId = $s['department_id'] ?? null;
-                if (empty($deptId)) continue; // langkah wajib punya divisi
+            $no = 0;
+            foreach ($steps as $s) {
+                // Langkah wajib punya divisi — atau langkah Desain (tanpa divisi).
+                $p = ProductionOrderStep::uraiPilihan($s['department_id'] ?? '');
+                if (!$p['department_id'] && !$p['desain']) continue;
 
                 // Nama langkah diturunkan otomatis dari nama divisi (fallback ke nama manual bila ada)
-                $dept = Department::find($deptId);
-                $name = !empty($s['name']) ? $s['name'] : ($dept?->name ?? 'Langkah ' . ($i + 1));
+                $dept = $p['department_id'] ? Department::find($p['department_id']) : null;
+                $name = $p['desain'] ? ProductionOrderStep::DESAIN[$p['desain']]
+                    : (!empty($s['name']) ? $s['name'] : ($dept?->name ?? 'Langkah ' . ($no + 1)));
 
                 ProductionOrderStep::create([
                     'production_order_id' => $order->id,
                     'bom_step_id'         => $s['bom_step_id'] ?? null,
-                    'step_number'         => $i + 1,
-                    'department_id'       => $deptId,
+                    'step_number'         => ++$no,
+                    'department_id'       => $p['department_id'],
+                    'desain'              => $p['desain'],
                     'name'                => $name,
                     'description'         => $s['description'] ?? null,
                     'status'              => 'pending',
@@ -484,39 +492,113 @@ class ProductionOrderService
     }
 
     /**
-     * Tambah satu langkah baru (append di urutan akhir) — boleh saat produksi
-     * sedang berjalan. Langkah baru selalu pending; langkah lama tidak disentuh
-     * agar progress timer/eksekutor aman.
+     * Tambah satu langkah baru — boleh saat produksi sedang berjalan. Bawaan di urutan akhir
+     * (sebelum QC); $setelah = nomor langkah yang mendahuluinya bila disisipkan di tengah (mis.
+     * Desain di antara dua CNC). Hanya boleh di depan langkah yang SEMUANYA masih antre, supaya
+     * timer/pelaksana langkah yang sudah berjalan tak tersentuh.
+     *
+     * $pilihan = id divisi, atau "desain:tempel" / "desain:cetak" (lihat ProductionOrderStep::DESAIN).
      */
-    public function addStep(int $orderId, int $departmentId): ProductionOrderStep
+    public function addStep(int $orderId, int|string $pilihan, ?int $setelah = null): ProductionOrderStep
     {
-        $order = ProductionOrder::findOrFail($orderId);
+        return DB::transaction(function () use ($orderId, $pilihan, $setelah) {
+            $order = ProductionOrder::lockForUpdate()->findOrFail($orderId);
 
-        if (!in_array($order->status, ['draft', 'confirmed', 'in_progress'])) {
-            throw new Exception('Langkah hanya bisa ditambah saat order draft, dikonfirmasi, atau sedang berjalan.');
-        }
+            if (!in_array($order->status, ['draft', 'confirmed', 'in_progress'])) {
+                throw new Exception('Langkah hanya bisa ditambah saat order draft, dikonfirmasi, atau sedang berjalan.');
+            }
 
-        $dept = Department::find($departmentId);
-        if (!$dept) {
-            throw new Exception('Divisi tidak ditemukan.');
-        }
+            $p = ProductionOrderStep::uraiPilihan($pilihan);
+            $dept = $p['department_id'] ? Department::find($p['department_id']) : null;
+            if (!$dept && !$p['desain']) {
+                throw new Exception('Divisi tidak ditemukan.');
+            }
 
-        $nextNumber = (int) ($order->steps()->max('step_number') ?? 0) + 1;
+            $steps = $order->steps()->orderBy('step_number')->get();
+            $nextNumber = (int) ($steps->max('step_number') ?? 0) + 1;
 
-        // QC Timbang selalu paling akhir: langkah tambahan masuk sebelum QC.
-        $qcStep = $order->steps()->where('is_qc', true)->where('status', '!=', 'completed')->first();
-        if ($qcStep) {
-            $nextNumber = (int) $qcStep->step_number;
-            $qcStep->update(['step_number' => $nextNumber + 1]);
-        }
+            // QC Timbang selalu paling akhir: langkah tambahan masuk sebelum QC.
+            $qcStep = $steps->first(fn ($s) => $s->is_qc && $s->status !== 'completed');
+            if ($qcStep) {
+                $nextNumber = (int) $qcStep->step_number;
+            }
 
-        return ProductionOrderStep::create([
-            'production_order_id' => $order->id,
-            'step_number'         => $nextNumber,
-            'department_id'       => $dept->id,
-            'name'                => $dept->name,
-            'status'              => 'pending',
-        ]);
+            if ($setelah !== null && $setelah + 1 < $nextNumber) {
+                $setelah = max(0, $setelah);
+                if ($steps->contains(fn ($s) => $s->step_number > $setelah && $s->status !== 'pending')) {
+                    throw new Exception('Langkah hanya bisa disisipkan di depan langkah yang belum dikerjakan.');
+                }
+                $nextNumber = $setelah + 1;
+            }
+
+            // Geser nomor dari belakang supaya tak bertabrakan (QC ikut tergeser).
+            $steps->filter(fn ($s) => $s->step_number >= $nextNumber)->sortByDesc('step_number')
+                ->each(fn ($s) => $s->update(['step_number' => $s->step_number + 1]));
+
+            return ProductionOrderStep::create([
+                'production_order_id' => $order->id,
+                'step_number'         => $nextNumber,
+                'department_id'       => $dept?->id,
+                'desain'              => $p['desain'],
+                'name'                => $p['desain'] ? ProductionOrderStep::DESAIN[$p['desain']] : $dept->name,
+                'status'              => 'pending',
+            ]);
+        });
+    }
+
+    /**
+     * Admin Desain menutup langkah Desain dari kartu Meja Kerja. Tanpa timer & tanpa log waktu
+     * (bukan kerja divisi produksi). Bila ini langkah terakhir, hasil dicatat sesuai rencana —
+     * jumlah sebenarnya tetap bisa diubah di layar Finalisasi.
+     *
+     * @return bool true bila ini langkah terakhir (OP menunggu finalisasi)
+     */
+    public function selesaikanLangkahDesain(int $stepId, ?string $catatan = null): bool
+    {
+        return DB::transaction(function () use ($stepId, $catatan) {
+            $step = ProductionOrderStep::with('productionOrder.outputs')->lockForUpdate()->findOrFail($stepId);
+            $order = $step->productionOrder;
+
+            if (!$step->isDesain()) {
+                throw new Exception('Bukan langkah Desain.');
+            }
+            if ($step->status === 'completed') {
+                throw new Exception('Langkah ini sudah selesai.');
+            }
+            if (!in_array($order->status, ['confirmed', 'in_progress', 'partial'], true)) {
+                throw new Exception('Order belum dikonfirmasi atau sudah ditutup.');
+            }
+            $prev = $order->steps()->where('step_number', $step->step_number - 1)->first();
+            if ($prev && $prev->status !== 'completed') {
+                throw new Exception("Langkah {$prev->step_number} ({$prev->name}) belum selesai.");
+            }
+
+            $step->update([
+                'status'       => 'completed',
+                'started_at'   => $step->started_at ?? now(),
+                'completed_at' => now(),
+                'notes'        => $catatan,
+            ]);
+
+            // Sama seperti completeStep: OP wajib QC mendapat langkah QC di ujung lebih dulu.
+            app(QcService::class)->pastikanLangkahQc($order);
+
+            if ($order->steps()->where('step_number', '>', $step->step_number)->exists()) {
+                if ($order->status === 'confirmed') $order->update(['status' => 'in_progress']);
+                return false;
+            }
+
+            // Langkah terakhir: qty hasil = rencana (kecuali sebagian sudah dilepas ke stok —
+            // akumulasinya dipegang batch, lihat completeStep).
+            $sudahDilepas = ProductionFinalization::where('production_order_id', $order->id)->whereNull('voided_at')->exists();
+            if (!$sudahDilepas) {
+                foreach ($order->outputs as $o) {
+                    if ((float) $o->qty_produced <= 0) $o->update(['qty_produced' => $o->qty_planned]);
+                }
+            }
+            $order->update(['status' => 'completed']);
+            return true;
+        });
     }
 
     /**

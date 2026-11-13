@@ -638,6 +638,9 @@
                                     @foreach($departments as $dept)
                                         <option value="{{ $dept->id }}">{{ $dept->name }}</option>
                                     @endforeach
+                                    @foreach(\App\Modules\Production\Models\ProductionOrderStep::DESAIN as $kunci => $labelDesain)
+                                        <option value="desain:{{ $kunci }}">{{ $labelDesain }}</option>
+                                    @endforeach
                                 </select>
                                 <button type="button" @click="steps.splice(idx, 1)"
                                         class="text-red-400 hover:text-red-600 transition flex-shrink-0 text-sm">✕</button>
@@ -1005,14 +1008,24 @@ $bomOptions = $boms->map(fn ($b) => [
 ])->values();
 @endphp
 @php
-// Template langkah akrilik sign (pesanan Desain gambar). Departemen dicocokkan dari awal namanya;
-// yang tidak ada di master dilewati supaya template tak pernah mengirim departemen kosong.
-$deptAwalan = fn (string $awalan) => $departments->first(fn ($d) => stripos($d->name, $awalan) === 0);
+// Template langkah pesanan bergambar (akrilik sign, cetak stiker). Departemen dicocokkan dari awal
+// namanya; "desain:<jenis>" = langkah Desain (tanpa divisi). Template yang departemennya tak ada di
+// master dilewati supaya tak pernah mengirim departemen kosong.
+$desainLangkah = \App\Modules\Production\Models\ProductionOrderStep::DESAIN;
+$langkahTemplate = function (string $x) use ($departments, $desainLangkah) {
+    if (str_starts_with($x, 'desain:')) {
+        $label = $desainLangkah[substr($x, 7)] ?? null;
+        return $label ? ['name' => $label, 'department_id' => $x, 'department_name' => $label] : null;
+    }
+    $d = $departments->first(fn ($d) => stripos($d->name, $x) === 0);
+    return $d ? ['name' => $d->name, 'department_id' => (string) $d->id, 'department_name' => $d->name] : null;
+};
 $templateLangkah = collect([
-    ['kunci' => 'sign-kecil', 'label' => 'Akrilik sign kecil', 'keterangan' => 'CNC bahan → Assembling tempel → CNC potong', 'langkah' => ['CNC', 'Assembling', 'CNC']],
-    ['kunci' => 'sign-besar', 'label' => 'Akrilik sign besar (1 lembar A3)', 'keterangan' => 'CNC bahan → Assembling tempel', 'langkah' => ['CNC', 'Assembling']],
-])->map(fn ($t) => $t + ['steps' => collect($t['langkah'])->map($deptAwalan)->filter()
-        ->map(fn ($d) => ['name' => $d->name, 'department_id' => (string) $d->id, 'department_name' => $d->name])->values()])
+    ['kunci' => 'sign-kecil', 'label' => 'Sign kecil — tempel Desain', 'keterangan' => 'CNC bahan → Desain cetak & tempel → CNC potong (jumlah sedikit)', 'langkah' => ['CNC', 'desain:tempel', 'CNC']],
+    ['kunci' => 'sign-kecil-asm', 'label' => 'Sign kecil — tempel Assembling', 'keterangan' => 'CNC bahan → Desain cetak → Assembling tempel → CNC potong (jumlah banyak)', 'langkah' => ['CNC', 'desain:cetak', 'Assembling', 'CNC']],
+    ['kunci' => 'sign-besar', 'label' => 'Sign besar (1 lembar A3)', 'keterangan' => 'CNC bahan → Desain cetak → Assembling tempel', 'langkah' => ['CNC', 'desain:cetak', 'Assembling']],
+    ['kunci' => 'cetak-akhir', 'label' => 'Stiker setelah jadi', 'keterangan' => 'CNC → Assembling → Desain cetak & tempel (mis. tempat kartu bertulisan)', 'langkah' => ['CNC', 'Assembling', 'desain:tempel']],
+])->map(fn ($t) => $t + ['steps' => collect($t['langkah'])->map($langkahTemplate)->filter()->values()])
   ->filter(fn ($t) => count($t['steps']) === count($t['langkah']))->values();
 @endphp
 window.__poTemplateLangkah = @json($templateLangkah);

@@ -333,6 +333,8 @@
                                     <div class="flex gap-2 text-xs text-gray-500 mt-1 flex-wrap items-center">
                                         @if($step->department)
                                             <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold text-[10px]">{{ $step->department->name }}</span>
+                                        @elseif($step->isDesain())
+                                            <span class="bg-fuchsia-100 text-fuchsia-700 px-2 py-0.5 rounded font-bold text-[10px]" title="Ditutup Admin Desain dari Meja Kerja — tanpa timer">Desain · Meja Kerja</span>
                                         @endif
                                         <span class="font-bold {{ $statusColor }}">{{ $step->status_label }}</span>
                                         @if($stepExecs)
@@ -370,7 +372,7 @@
                             {{ $order->steps->isEmpty() ? '+ Tambah Langkah Produksi' : '✎ Edit Langkah' }}
                         </button>
 
-                        <div x-show="addStep" x-data="stepForm({{ json_encode($order->steps->map(fn($s)=>['name'=>$s->name,'department_id'=>$s->department_id,'bom_step_id'=>$s->bom_step_id])->values()) }})" class="mt-3">
+                        <div x-show="addStep" x-data="stepForm({{ json_encode($order->steps->where('is_qc', false)->map(fn($s)=>['name'=>$s->name,'department_id'=>$s->pilihan,'bom_step_id'=>$s->bom_step_id])->values()) }})" class="mt-3">
                             <form action="{{ route('production.orders.steps.store', $order->id) }}" method="POST">
                                 @csrf
                                 <div class="space-y-2" id="step-list">
@@ -382,6 +384,9 @@
                                                 <option value="">— Pilih Divisi —</option>
                                                 @foreach($departments as $dept)
                                                     <option value="{{ $dept->id }}">{{ $dept->name }}</option>
+                                                @endforeach
+                                                @foreach(\App\Modules\Production\Models\ProductionOrderStep::DESAIN as $kunci => $labelDesain)
+                                                    <option value="desain:{{ $kunci }}">{{ $labelDesain }}</option>
                                                 @endforeach
                                             </select>
                                             <button type="button" @click="steps.splice(idx,1)" class="text-red-400 hover:text-red-600 text-sm">✕</button>
@@ -410,10 +415,28 @@
                                 @foreach($departments as $dept)
                                     <option value="{{ $dept->id }}">{{ $dept->name }}</option>
                                 @endforeach
+                                @foreach(\App\Modules\Production\Models\ProductionOrderStep::DESAIN as $kunci => $labelDesain)
+                                    <option value="desain:{{ $kunci }}">{{ $labelDesain }}</option>
+                                @endforeach
                             </select>
+                            @php
+                                // Posisi sisip: hanya di depan langkah yang SEMUANYA masih antre (langkah berjalan tak tersentuh).
+                                $urut = $order->steps->sortBy('step_number')->values();
+                                $posisi = $urut->filter(fn ($s) => !$s->is_qc
+                                    && !$urut->contains(fn ($x) => $x->step_number > $s->step_number && !$x->is_qc && $x->status !== 'pending'))
+                                    ->filter(fn ($s) => $urut->contains(fn ($x) => $x->step_number > $s->step_number && !$x->is_qc));
+                            @endphp
+                            @if($posisi->isNotEmpty())
+                                <select name="setelah" class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400" title="Letak langkah baru">
+                                    <option value="">di urutan akhir</option>
+                                    @foreach($posisi as $s)
+                                        <option value="{{ $s->step_number }}">setelah {{ $s->step_number }}. {{ $s->name }}</option>
+                                    @endforeach
+                                </select>
+                            @endif
                             <button type="submit" class="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition">Tambah</button>
                         </form>
-                        <p class="text-[11px] text-gray-400 mt-1.5">Langkah baru masuk ke urutan akhir sebagai "Antre". Langkah yang sudah berjalan tidak bisa diubah atau dihapus.</p>
+                        <p class="text-[11px] text-gray-400 mt-1.5">Langkah baru masuk sebagai "Antre" — di urutan akhir, atau disisipkan di depan langkah yang belum dikerjakan. Langkah yang sudah berjalan tidak bisa diubah atau dihapus.</p>
                     </div>
                 @endif
             </div>

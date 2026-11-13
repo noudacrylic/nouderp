@@ -35,6 +35,8 @@ class ProductionProcessController extends Controller
             $q->whereIn('status', ['confirmed', 'in_progress', 'partial'])
         )->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
             // QC bukan pekerjaan divisi produksi; hanya muncul saat dibuka untuk menutupnya dari layar QC.
+            // Langkah Desain (cetak/tempel stiker) ditutup Admin Desain dari Meja Kerja — bukan antrean divisi.
+            ->whereNull('desain')
             ->where(fn ($q) => $q->where('is_qc', false)->orWhere('id', (int) $request->get('selesai')));
 
         // Hanya tampilkan pending step yang step sebelumnya sudah selesai (atau step pertama).
@@ -136,7 +138,7 @@ class ProductionProcessController extends Controller
         ])->whereHas('productionOrder', fn($q) =>
             $q->whereIn('status', ['confirmed', 'in_progress', 'partial'])
         )->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
-         ->where('is_qc', false)
+         ->where('is_qc', false)->whereNull('desain')
          ->where('status', 'pending')
          ->get()
          ->filter(function ($step) {

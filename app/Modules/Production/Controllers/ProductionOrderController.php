@@ -161,6 +161,7 @@ class ProductionOrderController extends Controller
             }
 
             $order = $service->create($data);
+            $this->segarkanKartuDesain();
             return redirect()->route('production.orders.show', $order->id)
                 ->with('success', "Order produksi {$order->order_number} berhasil dibuat.");
         } catch (\Exception $e) {
@@ -226,7 +227,7 @@ class ProductionOrderController extends Controller
             ])->values(),
             'steps'           => $order->steps->sortBy('step_number')->map(fn ($s) => [
                 'name'          => $s->name,
-                'department_id' => $s->department_id,
+                'department_id' => $s->pilihan,   // langkah Desain → "desain:<jenis>"
                 'bom_step_id'   => $s->bom_step_id,
                 'description'   => $s->description,
             ])->values(),
@@ -273,6 +274,7 @@ class ProductionOrderController extends Controller
 
         try {
             $order = $service->update($order->id, $request->all());
+            $this->segarkanKartuDesain();
             return redirect()->route('production.orders.show', $order->id)
                 ->with('success', "Order produksi {$order->order_number} berhasil diperbarui.");
         } catch (\Exception $e) {
@@ -512,6 +514,7 @@ class ProductionOrderController extends Controller
     {
         try {
             $deferred = $service->confirm($id);
+            $this->segarkanKartuDesain();
 
             if (!empty($deferred)) {
                 return back()->with('warning',
@@ -761,26 +764,58 @@ class ProductionOrderController extends Controller
         $request->validate([
             'steps'                   => 'required|array|min:1',
             // Cukup pilih divisi; nama langkah diturunkan otomatis dari nama divisi
-            'steps.*.department_id'   => 'required|exists:production_departments,id',
+            'steps.*.department_id'   => ['required', $this->aturanPilihanLangkah()],
             'steps.*.name'            => 'nullable|string',
         ]);
 
         try {
             $service->updateSteps($id, $request->steps);
+            $this->segarkanKartuDesain();
             return back()->with('success', 'Langkah produksi berhasil disimpan.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }
     }
 
+    /**
+     * Kartu Meja Kerja untuk langkah Desain (desain gambar + giliran cetak/tempel) langsung
+     * mengikuti OP yang baru diposting / langkahnya diubah — tak menunggu sinkron 2 menitan.
+     * Mengikuti mode skill (Nonaktif = diam); gagal di sini tak menggagalkan simpan OP.
+     */
+    private function segarkanKartuDesain(): void
+    {
+        $kv = app(\App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::class);
+        foreach (['admin.desain-gambar-op', 'admin.langkah-desain'] as $key) {
+            try {
+                $kv->jalankan($key, \App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::PEMICU_PERISTIWA);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('OP: kartu desain gagal disegarkan', ['skill' => $key, 'error' => $e->getMessage()]);
+            }
+        }
+    }
+
+    /** Pilihan kotak divisi langkah: id divisi, atau langkah Desain ("desain:tempel"/"desain:cetak"). */
+    private function aturanPilihanLangkah(): \Closure
+    {
+        return function (string $attr, $nilai, \Closure $gagal) {
+            $p = \App\Modules\Production\Models\ProductionOrderStep::uraiPilihan($nilai);
+            if (!$p['desain'] && !($p['department_id'] && \App\Modules\Production\Models\Department::whereKey($p['department_id'])->exists())) {
+                $gagal('Divisi langkah tidak dikenal.');
+            }
+        };
+    }
+
     public function addStep(Request $request, int $id, ProductionOrderService $service)
     {
         $request->validate([
-            'department_id' => 'required|exists:production_departments,id',
+            'department_id' => ['required', $this->aturanPilihanLangkah()],
+            'setelah'       => 'nullable|integer|min:0',
         ]);
 
         try {
-            $service->addStep($id, (int) $request->department_id);
+            $service->addStep($id, (string) $request->department_id,
+                $request->filled('setelah') ? (int) $request->setelah : null);
+            $this->segarkanKartuDesain();
             return back()->with('success', 'Langkah produksi berhasil ditambahkan.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
@@ -791,6 +826,7 @@ class ProductionOrderController extends Controller
     {
         try {
             $service->deleteStep($id, $stepId);
+            $this->segarkanKartuDesain();
             return back()->with('success', 'Langkah produksi dihapus.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());

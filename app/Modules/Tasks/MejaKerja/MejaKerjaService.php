@@ -41,6 +41,8 @@ class MejaKerjaService
     /** Awalan judul kartu per skill => [awalan, kata pembuka judul yang jadi berlebih]. */
     private const AWALAN_JUDUL = [
         'cetak-stiker'       => ['Cetak stiker', 'Cetak stiker '],
+        'langkah-desain'     => ['Cetak stiker', 'Cetak stiker '],
+        'desain-gambar-op'   => ['Desain pesanan', 'Desain gambar '],
         'foto-custom'        => ['Foto custom', 'Foto '],
         'bayar-owner'        => ['Bayar', ''],
         'isi-saldo'          => ['Isi saldo', ''],
