@@ -102,6 +102,30 @@ class QcLangkahTest extends TestCase
         $this->assertSame('in_progress', $order->fresh()->status);
     }
 
+    /** Regresi OP/2026/11/00044: CNC → Assembling; QC sempat bernomor 2 lalu terlewat saat Assembling ditutup. */
+    public function test_op_dua_langkah_qc_bernomor_terakhir_dan_tidak_terlewat(): void
+    {
+        $cnc = Department::create(['code' => 'CNC', 'name' => 'CNC', 'type' => 'produksi', 'is_active' => true]);
+        $andi = DepartmentExecutor::create(['department_id' => $cnc->id, 'name' => 'Andi', 'is_active' => true]);
+        $order = $this->op();
+        $this->langkah($order, 1)->update(['step_number' => 2]);
+        ProductionOrderStep::create(['production_order_id' => $order->id, 'step_number' => 1,
+            'department_id' => $cnc->id, 'name' => 'CNC', 'status' => 'pending']);
+
+        $langkahCnc = $this->langkah($order, 1);
+        $this->svc->startStep($langkahCnc->id, [$andi->id]);
+
+        $qc = $order->steps()->where('is_qc', true)->firstOrFail();
+        $this->assertSame(3, $qc->step_number);
+        $this->assertSame($this->assembling->id, $qc->department_id);
+
+        $this->assertFalse($this->svc->completeStep($langkahCnc->id));
+        $asm = $this->langkah($order, 2);
+        $this->svc->startStep($asm->id, [$this->budi->id]);
+        $this->assertFalse($this->svc->completeStep($asm->id), 'Masih ada langkah QC.');
+        $this->assertSame('in_progress', $order->fresh()->status);
+    }
+
     public function test_menimbang_tanpa_penimbang_dan_tanpa_timer(): void
     {
         $order = $this->op();

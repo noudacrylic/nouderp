@@ -239,7 +239,9 @@ class QcService
             return $ada;
         }
 
-        $terakhir = $order->steps()->orderByDesc('step_number')->first();
+        // reorder(): relasi steps() sudah ORDER BY step_number ASC — orderByDesc saja tak berlaku
+        // dan yang terambil langkah 1 (QC jadi bernomor 2, dobel dengan langkah 2).
+        $terakhir = $order->steps()->reorder()->where('is_qc', false)->orderByDesc('step_number')->first();
         if (!$terakhir || !$this->perluQc($order)) {
             return null;
         }

@@ -78,6 +78,7 @@ class QcSkill implements SkillAdmin
         $op   = DB::table('production_orders')->where('id', $task->taskable_id)->value('status');
         if (!$step || in_array($op, ['cancelled', 'merged'], true)) return ['cancelled', 'OP dibatalkan/digabung.'];
         if ($step->status === 'completed') return ['done', 'Hasil QC tersimpan.'];
+        if ($op === 'finalized') return ['done', 'Otomatis: OP sudah difinalisasi.'];
         if (!empty($task->meta['sebagian'])) {
             if (!$step->qc_diminta_at) return ['done', 'Hasil sebagian sudah masuk stok.'];
             if ($this->produksiSelesai((int) $task->taskable_id)) return ['done', 'Produksi selesai, lanjut di kartu QC penutup.'];
