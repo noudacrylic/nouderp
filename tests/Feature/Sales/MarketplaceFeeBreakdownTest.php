@@ -244,4 +244,46 @@ class MarketplaceFeeBreakdownTest extends TestCase
         $this->assertStringContainsString('Biaya affiliate', $html);
         $this->assertStringContainsString('126.751', $html);
     }
+
+    /** order_income get_escrow_detail SP-261028S95T2B44 (13 Nov 2026) — retur setelah dana dilepas. */
+    private const SHOPEE_ESCROW_RETUR = [
+        'escrow_amount' => 313884, 'escrow_amount_after_adjustment' => 275328, 'commission_fee' => 37050,
+        'service_fee' => 15600, 'seller_order_processing_fee' => 1250, 'shipping_seller_protection_fee_amount' => 350,
+        'order_ams_commission_fee' => 19913, 'withholding_tax' => 1950, 'voucher_from_shopee' => 31200,
+        'order_adjustment' => [['adjustment_reason' => 'Pengembalian Barang/Dana setelah Dana Dilepaskan', 'amount' => -38556, 'currency' => 'IDR', 'date' => 1793587575]],
+    ];
+
+    public function test_rincian_langsung_dari_shopee_memuat_penyesuaian_retur_setelah_cair(): void
+    {
+        $b = $this->svc()->dariShopee(self::SHOPEE_ESCROW_RETUR, 389997, true);
+
+        $this->assertSame('shopee', $b['sumber']);
+        $this->assertEqualsWithDelta(54250, $b['admin'], 0.01, 'komisi + layanan + proses + premi');
+        $this->assertEqualsWithDelta(19913, $b['affiliate'], 0.01);
+        $this->assertEqualsWithDelta(1950, $b['pajak'], 0.01);
+        $this->assertEqualsWithDelta(313884, $b['saldo_masuk'], 0.01, 'Total Penghasilan — dana saat cair');
+        $this->assertEqualsWithDelta(0, $b['lain'], 0.01);
+        $this->assertCount(1, $b['penyesuaian']);
+        $this->assertEqualsWithDelta(-38556, $b['penyesuaian'][0]['nilai'], 0.01);
+        $this->assertSame('2026-11-02', $b['penyesuaian'][0]['tanggal']);
+        $this->assertEqualsWithDelta(275328, $b['saldo_akhir'], 0.01, 'Penghasilan Akhir Seller Centre');
+    }
+
+    public function test_rincian_shopee_menimpa_jubelio_tapi_tidak_sebaliknya(): void
+    {
+        $so = $this->so(389997);
+        $this->svc()->simpan($so, $this->svc()->dariJubelio(self::SHOPEE_SELESAI, 389997, true, $this->cfg, '2026-10-09'));
+        $this->svc()->simpan($so, $this->svc()->dariShopee(self::SHOPEE_ESCROW_RETUR, 389997, true));
+        $this->svc()->simpan($so, $this->svc()->dariJubelio(self::SHOPEE_SELESAI, 389997, true, $this->cfg, '2026-10-09'));
+
+        $row = MarketplaceOrderFee::where('sales_order_id', $so->id)->first();
+        $this->assertSame('shopee', $row->sumber);
+        $this->assertEqualsWithDelta(275328, $row->saldo_akhir, 0.01);
+
+        $html = $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]))
+            ->get(route('sales.orders.show', $so->id))->assertOk()->getContent();
+        $this->assertStringContainsString('Final · dari Shopee', $html);
+        $this->assertStringContainsString('Pengembalian Barang/Dana setelah Dana Dilepaskan', $html);
+        $this->assertStringContainsString('275.328', $html);
+    }
 }

@@ -355,6 +355,30 @@ class ReturJurnalTigaBlokTest extends TestCase
         $this->assertEquals(0, $p['retur_lalu']);
     }
 
+    /** Kartu "perjalanan dana" faktur: retur setelah cair ikut → nilai − dibalik − admin − pajak = dompet. */
+    public function test_jejak_dana_menghitung_retur_setelah_cair(): void
+    {
+        $inv = $this->faktur(sudahCair: true);
+        app(\App\Core\Journal\JournalPostingService::class)->post(new \App\DTO\JournalEntryDTO(
+            date: now()->toDateString(), reference_type: 'sales_invoice_settlement', reference_id: $inv->id, description: 'uji',
+            lines: array_map(fn ($r) => new \App\DTO\JournalLineDTO(account_id: $r[0], debit: $r[1], credit: $r[2], description: ''),
+                [[$this->walletId, 88500, 0], [$this->adminId, 11000, 0], [$this->pajakId, 500, 0], [$this->holdId, 0, 100000]])));
+
+        $items = $this->items($inv, 'tidak_kembali', 1);
+        $pembalikan = [
+            ['account_id' => (int) Account::where('code', '4004')->value('id'), 'debit' => 50000, 'credit' => 0, 'memo' => null],
+            ['account_id' => $this->walletId, 'debit' => 0, 'credit' => 44000, 'memo' => null],
+            ['account_id' => $this->adminId, 'debit' => 0, 'credit' => 6000, 'memo' => null],
+        ];
+        $this->posting($inv, $items, 'diajukan_konsumen', null, $pembalikan, null);
+
+        $mp = app(\App\Modules\Sales\Services\InvoiceTrailService::class)->untuk($inv->fresh())['marketplace'];
+        $this->assertEquals(50000, $mp['dibalik']);
+        $this->assertEquals(5000, $mp['admin'], 'admin 11.000 − 6.000 dikembalikan lewat retur');
+        $this->assertEquals(44500, $mp['dompet'], 'Saldo Penjualan 88.500 − 44.000 dipotong retur');
+        $this->assertEquals($mp['kotor'] - $mp['dibalik'] - $mp['admin'] - $mp['pajak'], $mp['dompet']);
+    }
+
     public function test_saldo_ditahan_melebihi_titipan_ditolak(): void
     {
         $inv = $this->faktur();

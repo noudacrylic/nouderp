@@ -12,6 +12,9 @@ use App\Modules\Sales\Models\SalesOrder;
  * ke Saldo Penjualan.
  *
  * Sumber, dari yang paling dipercaya:
+ *  0. Shopee langsung (`shopee`, get_escrow_detail) / laporan penghasilan (`laporan`) — angka
+ *     asli marketplace. Shopee juga membawa penyesuaian SETELAH dana dilepas (retur/refund
+ *     setelah cair, kompensasi) → `penyesuaian` + `saldo_akhir`.
  *  1. Jubelio `escrow_list` — Shopee: rincian lengkap begitu pesanan selesai. TikTok: baru
  *     terisi ±7–10 hari setelah selesai, hanya 3 angka (fee_and_tax_amount gabungan komisi +
  *     affiliate + pajak, shipping_cost_amount, settlement_amount); pajaknya ditaksir 0,5%
@@ -102,6 +105,47 @@ class MarketplaceFeeBreakdownService
         return $this->susun($kotor, $rincian, 0.0, $pajak, $saldo, 'jubelio', false);
     }
 
+    /**
+     * Rincian dari `order_income` get_escrow_detail Shopee. saldo_masuk = escrow_amount (dana
+     * pesanan saat cair); penyesuaian setelah cair dicatat terpisah — saldo_akhir = angka
+     * "Penghasilan Akhir" Seller Centre.
+     */
+    public function dariShopee(array $oi, float $kotor, bool $selesai): array
+    {
+        $rincian = [];
+        foreach (self::ADMIN_KEYS as $k => $label) {
+            $v = round(abs((float) ($oi[$k] ?? 0)), 2);
+            if ($v > 0) {
+                $rincian[$label] = $v;
+            }
+        }
+        $pajak = (float) ($oi['withholding_tax'] ?? 0)
+            ?: (float) ($oi['withholding_pit_tax'] ?? 0) + (float) ($oi['withholding_cit_tax'] ?? 0);
+        $saldo = (float) ($oi['escrow_amount'] ?? 0);
+
+        $penyesuaian = [];
+        foreach ((array) ($oi['order_adjustment'] ?? []) as $a) {
+            if (!is_array($a) || abs((float) ($a['amount'] ?? 0)) < 1) {
+                continue;
+            }
+            $penyesuaian[] = [
+                'tanggal' => !empty($a['date']) ? \Carbon\Carbon::createFromTimestamp((int) $a['date'], config('app.timezone'))->toDateString() : null,
+                'alasan'  => (string) ($a['adjustment_reason'] ?? 'Penyesuaian'),
+                'nilai'   => round((float) $a['amount'], 2),
+            ];
+        }
+        $saldoAkhir = array_key_exists('escrow_amount_after_adjustment', $oi)
+            ? (float) $oi['escrow_amount_after_adjustment']
+            : $saldo + array_sum(array_column($penyesuaian, 'nilai'));
+
+        return [
+            ...$this->susun($kotor, $rincian, abs((float) ($oi['order_ams_commission_fee'] ?? 0)), abs($pajak), $saldo, 'shopee', $selesai),
+            'pajak_asli'  => true,
+            'penyesuaian' => $penyesuaian,
+            'saldo_akhir' => round($saldoAkhir, 2),
+        ];
+    }
+
     /** Estimasi dari setingan integrasi marketplace. */
     public function taksiran(MarketplaceConfig $cfg, float $kotor, $tanggalPesanan = null): array
     {
@@ -124,18 +168,21 @@ class MarketplaceFeeBreakdownService
             + ['pajak_asli' => true];
     }
 
+    /** Peringkat kepercayaan sumber: angka asli marketplace (Shopee langsung, laporan) di atas Jubelio. */
+    private const PERINGKAT = ['jubelio' => 1, 'laporan' => 2, 'shopee' => 2];
+
     /**
-     * Simpan rincian. Urutan kepercayaan: laporan penghasilan > Jubelio final > Jubelio estimasi;
-     * yang lebih rendah tidak menimpa yang lebih tinggi. Pajak asli mengisi faktur pesanan ini
-     * (dibaca Laporan Pajak).
+     * Simpan rincian. Urutan kepercayaan: Shopee langsung / laporan penghasilan > Jubelio final >
+     * Jubelio estimasi; yang lebih rendah tidak menimpa yang lebih tinggi. Pajak asli mengisi
+     * faktur pesanan ini (dibaca Laporan Pajak).
      */
     public function simpan(SalesOrder $so, array $b): ?MarketplaceOrderFee
     {
-        if (!in_array($b['sumber'], ['jubelio', 'laporan'], true)) {
+        if (!isset(self::PERINGKAT[$b['sumber']])) {
             return null;
         }
         $ada = MarketplaceOrderFee::where('sales_order_id', $so->id)->first();
-        if ($ada && (($ada->final && !$b['final']) || ($ada->sumber === 'laporan' && $b['sumber'] !== 'laporan'))) {
+        if ($ada && (($ada->final && !$b['final']) || (self::PERINGKAT[$ada->sumber] ?? 0) > self::PERINGKAT[$b['sumber']])) {
             return $ada;
         }
 
@@ -147,6 +194,8 @@ class MarketplaceFeeBreakdownService
             'pajak'         => $b['pajak'],
             'lain'          => $b['lain'],
             'saldo_masuk'   => $b['saldo_masuk'],
+            'penyesuaian'   => ($b['penyesuaian'] ?? []) ?: null,
+            'saldo_akhir'   => $b['saldo_akhir'] ?? null,
             'sumber'        => $b['sumber'],
             'final'         => $b['final'],
             'pajak_asli'    => !empty($b['pajak_asli']),
@@ -162,7 +211,7 @@ class MarketplaceFeeBreakdownService
 
         // Rincian final bisa tiba SETELAH pesanan dicairkan dengan rincian yang belum lengkap
         // (affiliate/premi menyusul) → samakan dana masuk wallet dengan saldo masuk aktual.
-        if ($row->final && $row->sumber === 'jubelio') {
+        if ($row->final && in_array($row->sumber, ['jubelio', 'shopee'], true)) {
             $engine = app(MarketplaceEngineService::class);
             SalesInvoice::where('sales_order_id', $so->id)->where('status', '!=', 'void')
                 ->where('marketplace_processed', true)->get()
@@ -210,6 +259,7 @@ class MarketplaceFeeBreakdownService
                 'kotor' => $kotor, 'admin' => $row->admin, 'admin_rincian' => $row->admin_rincian ?? [],
                 'affiliate' => $row->affiliate, 'pajak' => $row->pajak, 'lain' => round($lain, 2),
                 'saldo_masuk' => $row->saldo_masuk, 'sumber' => $row->sumber, 'final' => $row->final,
+                'penyesuaian' => $row->penyesuaian ?? [], 'saldo_akhir' => $row->saldo_akhir,
                 'diambil_at' => $row->diambil_at,
             ];
         }
@@ -261,6 +311,8 @@ class MarketplaceFeeBreakdownService
             'saldo_masuk'   => round($saldo, 2),
             'sumber'        => $sumber,
             'final'         => $final,
+            'penyesuaian'   => [],
+            'saldo_akhir'   => null,
         ];
     }
 }

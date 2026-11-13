@@ -85,12 +85,17 @@ class InvoiceTrailService
     private function ringkasMarketplace(SalesInvoice $inv, MarketplaceConfig $config, Collection $jurnal, Collection $retur): array
     {
         $cair = $jurnal->whereIn('reference_type', ['sales_invoice_settlement', MarketplaceEngineService::REF_KOREKSI])->where('status', '!=', 'void');
-        $mutasi = function (?int $akun, string $sisi = 'debit') use ($cair): float {
+        // Retur SETELAH dana cair memotong Saldo Penjualan (dan mengembalikan sebagian admin) lewat
+        // jurnal returnya sendiri — ikut dihitung supaya nilai − dibalik − admin − pajak = dompet,
+        // sama dengan "Penghasilan Akhir" Seller Centre.
+        $aliran = $cair->merge($jurnal->where('reference_type', 'sales_return')->where('status', '!=', 'void')
+            ->whereIn('reference_id', $retur->where('status', 'posted')->pluck('id')->all()));
+        $mutasi = function (?int $akun, string $sisi = 'debit') use ($aliran): float {
             if (!$akun) {
                 return 0.0;
             }
 
-            return round($cair->flatMap->lines->where('account_id', $akun)
+            return round($aliran->flatMap->lines->where('account_id', $akun)
                 ->sum(fn ($l) => $sisi === 'debit' ? $l->debit - $l->credit : $l->credit - $l->debit), 2);
         };
 

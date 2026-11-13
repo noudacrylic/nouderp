@@ -1316,6 +1316,21 @@ class SalesOrderController extends Controller
     public function ambilBiayaMarketplace($id)
     {
         $so = SalesOrder::findOrFail($id);
+
+        // Pesanan Shopee: langsung dari Shopee (angka Seller Centre + penyesuaian retur).
+        $shopee = app(\App\Modules\Marketplace\Shopee\Services\ShopeeRincianDanaService::class);
+        if (\App\Modules\Marketplace\Shopee\Services\ShopeeRincianDanaService::orderSn($so) && $shopee->toko()) {
+            try {
+                $row = $shopee->ambil($so);
+            } catch (\Throwable $e) {
+                return back()->with('error', 'Gagal menghubungi Shopee: ' . $e->getMessage());
+            }
+
+            return $row
+                ? back()->with('success', 'Rincian potongan diambil dari Shopee' . ($row->final ? '.' : ' (pesanan belum selesai — angka masih bisa berubah).'))
+                : back()->with('error', 'Shopee belum membawa rincian dana untuk pesanan ini.');
+        }
+
         $link = \App\Modules\Marketplace\Jubelio\Models\JubelioOrderLink::where('sales_order_id', $so->id)->first();
         if (!$link) {
             return back()->with('error', 'Pesanan ini tidak tertaut ke Jubelio.');

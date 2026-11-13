@@ -57,6 +57,8 @@ Schedule::command('shopee:tarik-bayangan --katalog --jam=1')->hourlyAt(40)->name
 Schedule::command('shopee:tarik-chat')->everyMinute()->name('shopee-tarik-chat')->withoutOverlapping(10);
 // Tahap 1b — mutasi saldo Shopee via API → draft Transfer (penarikan) & Pengeluaran (iklan).
 Schedule::command('shopee:tarik-saldo')->hourlyAt(20)->name('shopee-tarik-saldo')->withoutOverlapping(30);
+// Rincian potongan pesanan Shopee (escrow) + penyesuaian retur setelah dana dilepas — angka kartu Potongan Marketplace.
+Schedule::command('shopee:tarik-rincian-dana')->everyThirtyMinutes()->name('shopee-tarik-rincian-dana')->withoutOverlapping(30);
 // Manajer Admin — retur Shopee yang dibatalkan pembeli ditutup & fakturnya dicairkan sesuai rincian dana.
 Schedule::command('shopee:retur-tidak-jadi')->hourlyAt(35)->name('shopee-retur-tidak-jadi')->withoutOverlapping(30);
 // Manajer Admin — paket hilang yang sudah diganti Shopee diposting sesuai rincian dana.

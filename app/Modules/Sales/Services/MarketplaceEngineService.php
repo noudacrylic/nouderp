@@ -324,7 +324,7 @@ class MarketplaceEngineService
      */
     public function koreksiKeRincianFinal($invoice, MarketplaceOrderFee $rincian): ?Journal
     {
-        if (!$rincian->final || $rincian->sumber !== 'jubelio') {
+        if (!$rincian->final || !in_array($rincian->sumber, ['jubelio', 'shopee'], true)) {
             return null;
         }
         $status = $invoice->status instanceof \BackedEnum ? $invoice->status->value : $invoice->status;

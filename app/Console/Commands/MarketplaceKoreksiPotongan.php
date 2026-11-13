@@ -38,7 +38,7 @@ class MarketplaceKoreksiPotongan extends Command
             ->where('marketplace_processed', true)
             ->whereExists(fn ($w) => $w->select(DB::raw(1))->from('marketplace_order_fees as f')
                 ->whereColumn('f.sales_order_id', 'sales_invoices.sales_order_id')
-                ->where('f.final', true)->where('f.sumber', 'jubelio'))
+                ->where('f.final', true)->whereIn('f.sumber', ['jubelio', 'shopee']))
             ->orderBy('id');
         if ($c = $this->option('customer')) {
             $q->where('customer_id', (int) $c);
