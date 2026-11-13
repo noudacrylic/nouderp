@@ -1804,7 +1804,11 @@ function orderForm() {
         async searchProduct(idx, list) {
             const q = this[list][idx].productQuery;
             if (q.length < 2) { this[list][idx].results = []; return; }
-            const res = await fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}`);
+            // Bahan OP hanya produk berstok (ready) supaya bahan non-stok/bundle tak salah masuk;
+            // perbaikan/garansi boleh juga barang jadi pre-order (barang yang diperbaiki).
+            const filter = list !== 'materials' ? ''
+                : (this.type === 'perbaikan' || this.type === 'garansi' ? '&byproduct_only=1' : '&ready_only=1');
+            const res = await fetch(`/erp/api/products/search?q=${encodeURIComponent(q)}${filter}`);
             this[list][idx].results = await res.json();
             this[list][idx].showDrop = true;
         },
