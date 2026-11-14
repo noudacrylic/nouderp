@@ -433,6 +433,68 @@ class DashboardService
         return round($assets->sum('balance'), 2);
     }
 
+    /**
+     * Saldo akun kas/bank/saldo marketplace per akhir sebuah tanggal, plus uang
+     * masuk (debit) & keluar (kredit) PADA tanggal itu. Calon akun = aset leaf
+     * aktif berkategori cash/cash_equivalent (termasuk saldo ditahan marketplace).
+     * Satu kueri ber-GROUP BY — selaras AccountBalanceService (aset: debit − kredit).
+     *
+     * @param  array<int>|null  $pilihan  id akun yang ditampilkan; null = bawaan (is_cash_account)
+     */
+    public function saldoKasBank(?string $tanggal = null, ?array $pilihan = null): array
+    {
+        try {
+            $tgl = $tanggal ? Carbon::parse($tanggal)->startOfDay() : Carbon::today();
+        } catch (\Throwable) {
+            $tgl = Carbon::today();
+        }
+        $hari = $tgl->toDateString();
+
+        $induk = \App\Core\Accounting\Account::whereNotNull('parent_id')->distinct()->pluck('parent_id')->all();
+        $akun = \App\Core\Accounting\Account::query()
+            ->where('type', AccountTypeEnum::ASSET)
+            ->where('is_active', 1)
+            ->whereIn('account_category', ['cash', 'cash_equivalent'])
+            ->whereNotIn('id', $induk)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name', 'is_cash_account']);
+
+        $angka = DB::table('journal_lines as jl')
+            ->join('journals as j', 'j.id', '=', 'jl.journal_id')
+            ->where('j.status', 'posted')
+            ->whereIn('jl.account_id', $akun->pluck('id'))
+            ->whereDate('j.date', '<=', $hari)
+            ->groupBy('jl.account_id')
+            ->selectRaw('jl.account_id,
+                COALESCE(SUM(jl.debit - jl.credit), 0) AS saldo,
+                COALESCE(SUM(CASE WHEN DATE(j.date) = ? THEN jl.debit ELSE 0 END), 0) AS masuk,
+                COALESCE(SUM(CASE WHEN DATE(j.date) = ? THEN jl.credit ELSE 0 END), 0) AS keluar', [$hari, $hari])
+            ->get()
+            ->keyBy('account_id');
+
+        $ids = $akun->pluck('id')->all();
+        $pilihan = $pilihan === null
+            ? $akun->where('is_cash_account', 1)->pluck('id')->all()
+            : array_values(array_intersect($ids, array_map('intval', $pilihan)));
+
+        return [
+            'tanggal'    => $hari,
+            'rangeLabel' => $tgl->isoFormat('dddd, D MMM Y'),
+            'pilihan'    => $pilihan,
+            'akun'       => $akun->map(function ($a) use ($angka) {
+                $r = $angka->get($a->id);
+                return [
+                    'id'     => $a->id,
+                    'code'   => $a->code,
+                    'name'   => $a->name,
+                    'saldo'  => round((float) ($r->saldo ?? 0), 2),
+                    'masuk'  => round((float) ($r->masuk ?? 0), 2),
+                    'keluar' => round((float) ($r->keluar ?? 0), 2),
+                ];
+            })->values()->all(),
+        ];
+    }
+
     /** Top produk by omzet (invoice posted) dalam rentang. */
     public function topProducts(Carbon $from, Carbon $to, int $limit = 10): array
     {

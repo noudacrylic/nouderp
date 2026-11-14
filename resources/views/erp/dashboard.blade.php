@@ -158,6 +158,33 @@
     </div>
 </div>
 
+{{-- ───────── Saldo Kas & Bank (termasuk saldo marketplace) ───────── --}}
+<div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-4">
+    <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div>
+            <h2 class="font-semibold text-gray-800">Saldo Kas &amp; Bank</h2>
+            <p class="text-xs text-gray-400"><span id="saldo-range">{{ $saldoKas['rangeLabel'] }}</span> · saldo akhir hari, <span class="text-emerald-600">+ masuk</span> / <span class="text-rose-600">− keluar</span> pada hari itu</p>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+            <button type="button" id="saldoMundur" title="Hari sebelumnya" class="border rounded px-2 py-1.5 text-sm bg-white hover:bg-gray-50 text-gray-600">‹</button>
+            <input type="date" id="saldoTanggal" value="{{ $saldoKas['tanggal'] }}" class="border rounded px-2 py-1.5 text-sm bg-white">
+            <button type="button" id="saldoMaju" title="Hari berikutnya" class="border rounded px-2 py-1.5 text-sm bg-white hover:bg-gray-50 text-gray-600">›</button>
+            <button type="button" id="saldoHariIni" class="ml-1 border rounded px-3 py-1.5 text-sm bg-white hover:bg-gray-50 text-gray-600">Hari ini</button>
+            <div class="relative ml-1">
+                <button type="button" id="saldoPilihBtn" class="border rounded px-3 py-1.5 text-sm bg-white hover:bg-gray-50 text-gray-600">Pilih akun ▾</button>
+                <div id="saldoPilihPanel" class="hidden absolute right-0 z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] bg-white border rounded-lg shadow-lg p-2">
+                    <div class="flex justify-between text-xs px-1 pb-1.5 mb-1 border-b">
+                        <button type="button" id="saldoPilihSemua" class="text-blue-600 hover:underline">Pilih semua</button>
+                        <button type="button" id="saldoPilihKosong" class="text-gray-500 hover:underline">Kosongkan</button>
+                    </div>
+                    <div id="saldoPilihDaftar" class="max-h-72 overflow-y-auto text-sm"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="saldoGrid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2"></div>
+</div>
+
 {{-- ───────── Baris 1: Laba/Rugi · Beban · Total Aset ───────── --}}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
     {{-- Laba/Rugi tahun ini --}}
@@ -519,6 +546,126 @@
         mulai.value = sampai.value = HARI_INI;
         muat();
     });
+})();
+
+// Kartu Saldo Kas & Bank — tanggal sendiri; pilihan akun disimpan per pengguna.
+(function () {
+    const URL_SALDO  = @json(route('dashboard.saldo-kas'));
+    const URL_PILIH  = @json(route('dashboard.saldo-kas.pilihan'));
+    const URL_AUDIT  = @json(route('dashboard.audit', ['metric' => 'aset']));
+    const CSRF       = document.querySelector('meta[name="csrf-token"]')?.content || @json(csrf_token());
+    const HARI_INI   = @json(now()->toDateString());
+    const fmtRp = n => (n < 0 ? '−' : '') + 'Rp ' + Math.round(Math.abs(n || 0)).toLocaleString('id-ID');
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const tgl    = document.getElementById('saldoTanggal');
+    const grid   = document.getElementById('saldoGrid');
+    const panel  = document.getElementById('saldoPilihPanel');
+    const daftar = document.getElementById('saldoPilihDaftar');
+
+    let data = @json($saldoKas);
+    let pilihan = new Set(data.pilihan);
+
+    // Warna aksen kiri mengikuti nama akun (marketplace/bank) supaya cepat dikenali.
+    function aksen(nama) {
+        const n = nama.toLowerCase();
+        if (n.includes('shopee')) return '#f53d2d';
+        if (n.includes('tiktok')) return '#111111';
+        if (n.includes('lazada')) return '#4f2ff0';
+        if (n.includes('midtrans') || n.includes('jubelio')) return '#0ea5e9';
+        if (n.includes('kas')) return '#059669';
+        return '#6366f1';
+    }
+
+    function render() {
+        document.getElementById('saldo-range').textContent = data.rangeLabel;
+        const tampil = data.akun.filter(a => pilihan.has(a.id));
+        let tSaldo = 0, tMasuk = 0, tKeluar = 0;
+        const kartu = tampil.map(a => {
+            tSaldo += a.saldo; tMasuk += a.masuk; tKeluar += a.keluar;
+            return `<a href="${URL_AUDIT}&account_id=${a.id}" title="${esc(a.code)} · ${esc(a.name)} — rincian buku besar"
+                       class="block rounded-lg border border-gray-200 hover:border-indigo-300 p-2.5 border-l-4" style="border-left-color:${aksen(a.name)}">
+                <div class="text-[11px] text-gray-500 truncate">${esc(a.name)}</div>
+                <div class="font-bold ${a.saldo < 0 ? 'text-rose-600' : 'text-gray-800'}">${fmtRp(a.saldo)}</div>
+                <div class="text-[11px] mt-0.5 flex gap-2 flex-wrap">
+                    <span class="${a.masuk ? 'text-emerald-600' : 'text-gray-300'}">+${fmtRp(a.masuk).replace('Rp ', '')}</span>
+                    <span class="${a.keluar ? 'text-rose-600' : 'text-gray-300'}">−${fmtRp(a.keluar).replace('Rp ', '')}</span>
+                </div>
+            </a>`;
+        });
+        if (!tampil.length) {
+            grid.innerHTML = '<div class="col-span-full text-sm text-gray-400 py-3 text-center">Belum ada akun dipilih — klik "Pilih akun".</div>';
+            return;
+        }
+        kartu.push(`<div class="rounded-lg border bg-sky-50 border-sky-200 p-2.5">
+            <div class="text-[11px] text-gray-500">Total (${tampil.length} akun)</div>
+            <div class="font-bold ${tSaldo < 0 ? 'text-rose-600' : 'text-sky-800'}">${fmtRp(tSaldo)}</div>
+            <div class="text-[11px] mt-0.5 flex gap-2 flex-wrap">
+                <span class="text-emerald-600">+${fmtRp(tMasuk).replace('Rp ', '')}</span>
+                <span class="text-rose-600">−${fmtRp(tKeluar).replace('Rp ', '')}</span>
+            </div>
+        </div>`);
+        grid.innerHTML = kartu.join('');
+    }
+
+    function renderDaftar() {
+        daftar.innerHTML = data.akun.map(a => `
+            <label class="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer">
+                <input type="checkbox" value="${a.id}" ${pilihan.has(a.id) ? 'checked' : ''}>
+                <span class="text-gray-400 text-xs w-9 shrink-0">${esc(a.code)}</span>
+                <span class="truncate">${esc(a.name)}</span>
+            </label>`).join('');
+    }
+
+    let timerSimpan = null;
+    function simpan() {
+        render();
+        clearTimeout(timerSimpan);
+        timerSimpan = setTimeout(() => {
+            fetch(URL_PILIH, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF },
+                body: JSON.stringify({ akun: [...pilihan] }),
+            }).catch(() => {});
+        }, 400);
+    }
+
+    daftar.addEventListener('change', e => {
+        const id = parseInt(e.target.value, 10);
+        e.target.checked ? pilihan.add(id) : pilihan.delete(id);
+        simpan();
+    });
+    document.getElementById('saldoPilihSemua').addEventListener('click', () => {
+        pilihan = new Set(data.akun.map(a => a.id)); renderDaftar(); simpan();
+    });
+    document.getElementById('saldoPilihKosong').addEventListener('click', () => {
+        pilihan = new Set(); renderDaftar(); simpan();
+    });
+    document.getElementById('saldoPilihBtn').addEventListener('click', e => {
+        e.stopPropagation();
+        panel.classList.toggle('hidden');
+    });
+    document.addEventListener('click', e => {
+        if (!panel.contains(e.target)) panel.classList.add('hidden');
+    });
+
+    function muat() {
+        if (!tgl.value) return;
+        fetch(URL_SALDO + '?tanggal=' + tgl.value, { headers: { 'Accept': 'application/json' } })
+            .then(r => r.json()).then(d => { data = d; render(); }).catch(() => {});
+    }
+    function geser(hari) {
+        const d = new Date(tgl.value + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + hari);
+        tgl.value = d.toISOString().slice(0, 10);
+        muat();
+    }
+    tgl.addEventListener('change', muat);
+    document.getElementById('saldoMundur').addEventListener('click', () => geser(-1));
+    document.getElementById('saldoMaju').addEventListener('click', () => geser(1));
+    document.getElementById('saldoHariIni').addEventListener('click', () => { tgl.value = HARI_INI; muat(); });
+
+    renderDaftar();
+    render();
 })();
 </script>
 @endif

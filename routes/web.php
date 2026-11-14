@@ -323,6 +323,8 @@ Route::prefix('erp')->group(function () {
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/dashboard/chart', [\App\Http\Controllers\DashboardController::class, 'chartData'])->name('dashboard.chart');
     Route::get('/dashboard/kanal', [\App\Http\Controllers\DashboardController::class, 'channelData'])->name('dashboard.kanal');
+    Route::get('/dashboard/saldo-kas', [\App\Http\Controllers\DashboardController::class, 'saldoKasData'])->name('dashboard.saldo-kas');
+    Route::post('/dashboard/saldo-kas/pilihan', [\App\Http\Controllers\DashboardController::class, 'simpanPilihanSaldo'])->name('dashboard.saldo-kas.pilihan');
     Route::get('/dashboard/audit',[\App\Http\Controllers\DashboardController::class, 'audit'])->name('dashboard.audit');
 
     // Panduan penggunaan in-app (semua user yang login)

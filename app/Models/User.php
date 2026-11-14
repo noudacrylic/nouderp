@@ -13,7 +13,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name', 'username', 'email', 'password',
-        'role', 'is_active', 'karyawan_id', 'last_login_at', 'pwa_crm', 'crm_label_tampil',
+        'role', 'is_active', 'karyawan_id', 'last_login_at', 'pwa_crm', 'crm_label_tampil', 'dashboard_akun_saldo',
     ];
 
     protected $hidden = [
@@ -31,6 +31,7 @@ class User extends Authenticatable
             'is_virtual'        => 'boolean',
             'pwa_crm'           => 'boolean',
             'crm_label_tampil'  => 'array',
+            'dashboard_akun_saldo' => 'array',
         ];
     }
 

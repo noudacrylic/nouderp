@@ -39,6 +39,7 @@ class DashboardController extends Controller
             $data += [
                 'sales'      => $this->svc->salesSeries('monthly'),
                 'kanal'      => $this->svc->salesByChannel(),
+                'saldoKas'   => $this->svc->saldoKasBank(null, auth()->user()->dashboard_akun_saldo),
                 'pl'         => $this->svc->profitLoss(),
                 'expenses'   => $this->svc->expenses(),
                 'totalAsset' => $this->svc->totalAssets(),
@@ -55,6 +56,30 @@ class DashboardController extends Controller
         abort_unless($this->isAdmin(), 403);
 
         return response()->json($this->svc->salesByChannel($request->query('start'), $request->query('end')));
+    }
+
+    /** Saldo kas/bank per tanggal (AJAX). Khusus admin. */
+    public function saldoKasData(Request $request): JsonResponse
+    {
+        abort_unless($this->isAdmin(), 403);
+
+        return response()->json($this->svc->saldoKasBank($request->query('tanggal'), auth()->user()->dashboard_akun_saldo));
+    }
+
+    /** Simpan akun yang ditampilkan di kartu Saldo Kas & Bank (per pengguna). */
+    public function simpanPilihanSaldo(Request $request): JsonResponse
+    {
+        abort_unless($this->isAdmin(), 403);
+
+        $data = $request->validate([
+            'akun'   => 'array',
+            'akun.*' => 'integer',
+        ]);
+        $user = auth()->user();
+        $user->dashboard_akun_saldo = array_values(array_unique(array_map('intval', $data['akun'] ?? [])));
+        $user->save();
+
+        return response()->json(['ok' => true, 'pilihan' => $user->dashboard_akun_saldo]);
     }
 
     /** Data grafik + top produk untuk rentang terpilih (AJAX). Khusus admin (data penjualan sensitif). */
