@@ -3,6 +3,7 @@
 namespace App\Modules\CRM\Services;
 
 use App\Models\User;
+use App\Modules\CRM\Agents\AgenPrompt;
 use App\Modules\CRM\Agents\AgenRunner;
 use App\Modules\CRM\Models\CrmAgent;
 use App\Modules\CRM\Models\CrmAgentRun;
@@ -18,9 +19,13 @@ use Illuminate\Support\Facades\Log;
  * Karyawan virtual CS Shopee, mode SARAN: agen `cs-shopee` mengusulkan balasan untuk pesan
  * pembeli Shopee yang belum dibalas manusia; admin memilih Pakai / Abaikan di layar chat.
  *
- * Tidak ada yang dikirim ke pembeli dari kelas ini. Yang dicatat — dipakai utuh, dipakai
- * diubah, diabaikan, beserta teks yang sebenarnya dikirim admin — adalah bahan evaluasi per
- * butir daftar tanya-jawab sebelum butirnya dilepas jadi otomatis (rencana Tahap 3).
+ * Di jam kerja tidak ada yang dikirim ke pembeli dari kelas ini. Yang dicatat — dipakai utuh,
+ * dipakai diubah, diabaikan, beserta teks yang sebenarnya dikirim admin — adalah bahan evaluasi.
+ *
+ * Tahap 3 (keputusan owner 14 Nov 2026): DI LUAR JAM KERJA saran langsung dikirim sendiri bila
+ * agen cs-shopee bermode kirim `otomatis` — jawaban apa adanya, lemparan dengan kabar kapan
+ * admin aktif. Mode `bayangan` hanya menandai saran yang akan terkirim. Istirahat siang tetap
+ * admin. Yang terkirim dicek admin pagi harinya di Periksa Saran AI (filter "Terkirim AI").
  */
 class SaranAiService
 {
@@ -31,6 +36,9 @@ class SaranAiService
     public const BATAS_JAM = 24;
 
     private const TUNGGU_LAMPIRAN_MENIT = 5;
+
+    /** Pesan yang lebih tua dari ini tidak dijawab otomatis (mis. penjadwal sempat mati). */
+    public const BATAS_OTOMATIS_MENIT = 60;
 
     public function __construct(private AgenRunner $runner) {}
 
@@ -109,7 +117,76 @@ class SaranAiService
             report($e);
         }
 
+        try {
+            $this->kirimOtomatis($c->refresh(), $pesan, $saran, $agen);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         return $saran;
+    }
+
+    /**
+     * Di luar jam kerja: saran yang berisi balasan dikirim sendiri (mode otomatis) atau
+     * ditandai saja (mode bayangan). Dijaga ulang tepat sebelum kirim: pembeli belum menulis
+     * lagi, belum ada yang membalas, dan pesannya masih segar.
+     */
+    private function kirimOtomatis(CrmConversation $c, CrmMessage $pesan, CrmSaranAi $saran, CrmAgent $agen): void
+    {
+        $mode = $agen->kirim_otomatis ?: CrmAgent::KIRIM_MATI;
+        if ($mode === CrmAgent::KIRIM_MATI || $saran->status !== CrmSaranAi::BARU || !AgenPrompt::diLuarJamKerja()) {
+            return;
+        }
+
+        $teks = $this->teksOtomatis($saran);
+        if ($teks === null
+            || $pesan->sent_at?->lt(now()->subMinutes(self::BATAS_OTOMATIS_MENIT))
+            || $this->pesanTerakhir($c)?->id !== $pesan->id
+            || ($c->last_outbound_at && $pesan->sent_at && $c->last_outbound_at->gt($pesan->sent_at))) {
+            return;
+        }
+
+        if ($mode === CrmAgent::KIRIM_BAYANGAN) {
+            $saran->update(['otomatis' => CrmSaranAi::OTO_BAYANGAN]);
+
+            return;
+        }
+
+        $hasil = app(CrmReplyService::class)->balas($c, $teks);
+        if (!$hasil['success']) {
+            Log::warning('[CRM] kirim otomatis saran AI gagal', ['conversation' => $c->id, 'error' => $hasil['error'] ?? null]);
+            $saran->update(['otomatis' => CrmSaranAi::OTO_GAGAL, 'catatan' => mb_substr('Kirim otomatis gagal: ' . ($hasil['error'] ?? '?'), 0, 255)]);
+
+            return;
+        }
+
+        $hasil['message']?->update(['source' => CrmMessage::SOURCE_AI]);
+        $saran->update([
+            'status'        => CrmSaranAi::DIPAKAI,
+            'otomatis'      => CrmSaranAi::OTO_TERKIRIM,
+            'teks_terkirim' => $teks,
+            'diubah'        => $this->rapikan($teks) !== $this->rapikan((string) $saran->teks),
+            'diputus_at'    => now(),
+        ]);
+
+        // Membalas mengosongkan tanda belum dibaca. Chat yang dilempar masih menunggu manusia,
+        // jadi tandanya dikembalikan supaya tampil di daftar admin pagi harinya.
+        if ($saran->lempar_ke) {
+            $c->refresh()->forceFill(['unread_count' => max(1, (int) $c->unread_count)])->save();
+        }
+    }
+
+    /** Teks yang dikirim otomatis; lemparan tanpa balasan sementara diberi kabar jam admin. */
+    private function teksOtomatis(CrmSaranAi $saran): ?string
+    {
+        $teks = trim((string) $saran->teks);
+        if ($teks !== '') {
+            return $teks;
+        }
+
+        return $saran->lempar_ke
+            ? 'Pesan kakak sudah kami terima 🙏 admin aktif lagi ' . AgenPrompt::adminAktifLagi() . ' ya kak, nanti kami bantu cek.'
+            : null;
     }
 
     /**

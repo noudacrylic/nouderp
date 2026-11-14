@@ -225,6 +225,8 @@
                             @endif
                             @if($m->source === \App\Modules\CRM\Models\CrmMessage::SOURCE_SELLER_CENTRE)
                                 <span class="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800" title="Dibalas dari Seller Centre Shopee">Seller Centre</span>
+                            @elseif($m->source === \App\Modules\CRM\Models\CrmMessage::SOURCE_AI)
+                                <span class="px-1.5 py-0.5 rounded bg-violet-100 text-violet-800" title="Dikirim sendiri oleh AI di luar jam kerja">🤖 AI</span>
                             @elseif($m->source === \App\Modules\CRM\Models\CrmMessage::SOURCE_SHOPEE_OTOMATIS)
                                 <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600" title="Pesan otomatis Shopee (sambutan / balasan di luar jam) — bukan balasan admin">Otomatis Shopee</span>
                             @endif

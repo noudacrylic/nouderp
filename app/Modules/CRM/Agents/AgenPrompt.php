@@ -105,16 +105,13 @@ class AgenPrompt
             $baris[] = $fokus;
         }
 
-        $jam = (int) now()->format('H');
         $buka  = (int) config('crm.store_open_hour', 8);
-        $tutup = (int) config('crm.store_close_hour', 16);
-        $libur = self::hariLibur(now());
 
-        if ($libur) {
+        if (self::hariLibur(now())) {
             $baris[] = 'Hari ini toko libur (Minggu atau tanggal merah).';
         }
 
-        if ($libur || $jam < $buka || $jam >= $tutup) {
+        if (self::diLuarJamKerja()) {
             $baris[] = 'Di luar jam operasional — tim baru bisa menindaklanjuti pada jam kerja berikutnya. '
                 . 'Jangan berpura-pura ada orang di bengkel sekarang.';
             $baris[] = 'Admin aktif lagi: ' . self::adminAktifLagi($buka);
@@ -125,14 +122,29 @@ class AgenPrompt
         return "[Keterangan untukmu, bukan dari pelanggan]\n" . implode("\n", $baris);
     }
 
+    /**
+     * Di luar jam kerja admin: Minggu/tanggal merah, sebelum jam buka, atau sejak jam tutup.
+     * Istirahat siang TIDAK termasuk (keputusan owner 14 Nov 2026: tetap ditangani admin).
+     */
+    public static function diLuarJamKerja(?CarbonInterface $saat = null): bool
+    {
+        $saat ??= now();
+        $jam = (int) $saat->format('H');
+
+        return self::hariLibur($saat)
+            || $jam < (int) config('crm.store_open_hour', 8)
+            || $jam >= (int) config('crm.store_close_hour', 16);
+    }
+
     private static function hariLibur(CarbonInterface $hari): bool
     {
         return $hari->isSunday() || NationalHoliday::isLibur($hari->toDateString());
     }
 
     /** Jam buka berikutnya, dihitung di sini karena model tidak tahu daftar tanggal merah. */
-    private static function adminAktifLagi(int $buka): string
+    public static function adminAktifLagi(?int $buka = null): string
     {
+        $buka ??= (int) config('crm.store_open_hour', 8);
         $hari = now()->startOfDay();
         if (self::hariLibur($hari) || (int) now()->format('H') >= $buka) {
             do {

@@ -23,11 +23,16 @@ class CrmSaranAi extends Model
     public const TEPAT = 'tepat';
     public const SALAH = 'salah';
 
+    // Kolom otomatis: jejak kirim otomatis di luar jam kerja.
+    public const OTO_BAYANGAN = 'bayangan';
+    public const OTO_TERKIRIM = 'terkirim';
+    public const OTO_GAGAL    = 'gagal';
+
     protected $table = 'crm_saran_ai';
 
     protected $fillable = [
         'conversation_id', 'untuk_message_id', 'agent_run_id', 'butir', 'teks', 'lempar_ke', 'alasan',
-        'status', 'teks_terkirim', 'diubah', 'catatan', 'diputus_oleh', 'diputus_at',
+        'status', 'otomatis', 'teks_terkirim', 'diubah', 'catatan', 'diputus_oleh', 'diputus_at',
         'tinjauan', 'koreksi', 'ditinjau_oleh', 'ditinjau_at',
     ];
 

@@ -30,6 +30,8 @@ class CrmMessage extends Model
     // Chat Shopee: dibalas admin dari Seller Centre, atau pesan otomatis Shopee (sambutan, luar jam).
     public const SOURCE_SELLER_CENTRE   = 'seller_centre';
     public const SOURCE_SHOPEE_OTOMATIS = 'shopee_otomatis';
+    // Dikirim sendiri oleh AI kita di luar jam kerja (SaranAiService, Tahap 3).
+    public const SOURCE_AI = 'ai';
 
     protected $fillable = [
         'conversation_id', 'direction', 'message_type', 'content', 'source',

@@ -33,6 +33,15 @@
             <option value="owner" @selected(request('lempar') === 'owner')>Owner</option>
         </select>
     </div>
+    <div>
+        <label class="block text-xs text-gray-500 mb-1">Kirim otomatis</label>
+        <select name="otomatis" class="border rounded px-2 py-1.5">
+            <option value="">Semua</option>
+            <option value="terkirim" @selected(request('otomatis') === 'terkirim')>Terkirim AI (luar jam)</option>
+            <option value="bayangan" @selected(request('otomatis') === 'bayangan')>Bayangan (akan terkirim)</option>
+            <option value="gagal" @selected(request('otomatis') === 'gagal')>Gagal kirim</option>
+        </select>
+    </div>
     @include('erp._partials.per-page-select')
 </form>
 
@@ -48,6 +57,9 @@
                     @if($s->butir)<span class="px-1.5 rounded bg-gray-100">butir {{ $s->butir }}</span>@endif
                     @if($s->lempar_ke)<span class="px-1.5 rounded bg-amber-100 text-amber-800 font-semibold">perlu {{ ['admin' => 'admin layanan', 'desain' => 'admin desain', 'owner' => 'owner'][$s->lempar_ke] ?? $s->lempar_ke }}</span>@endif
                     <span class="px-1.5 rounded bg-gray-100">{{ $s->status }}</span>
+                    @if($s->otomatis === 'terkirim')<span class="px-1.5 rounded bg-violet-100 text-violet-800 font-semibold" title="Dikirim sendiri oleh AI di luar jam kerja">🤖 terkirim AI</span>
+                    @elseif($s->otomatis === 'bayangan')<span class="px-1.5 rounded bg-violet-50 text-violet-700" title="Mode bayangan: akan terkirim bila mode Otomatis">🤖 bayangan</span>
+                    @elseif($s->otomatis === 'gagal')<span class="px-1.5 rounded bg-red-100 text-red-700" title="{{ $s->catatan }}">🤖 gagal kirim</span>@endif
                 </div>
                 @if($s->tinjauan)
                     <span class="font-semibold {{ $s->tinjauan === 'tepat' ? 'text-emerald-700' : 'text-red-600' }}">

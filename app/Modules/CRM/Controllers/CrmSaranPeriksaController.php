@@ -18,6 +18,7 @@ class CrmSaranPeriksaController extends Controller
         $periksa = $request->input('periksa', 'belum');
         $butir   = trim((string) $request->input('butir', ''));
         $lempar  = (string) $request->input('lempar', '');
+        $oto     = (string) $request->input('otomatis', '');
 
         $dasar = CrmSaranAi::query()->where(fn ($q) => $q->whereNotNull('teks')->orWhereNotNull('lempar_ke'));
 
@@ -28,6 +29,7 @@ class CrmSaranPeriksaController extends Controller
             ->when($butir !== '', fn ($q) => $q->where('butir', 'like', $butir . '%'))
             ->when($lempar === 'tidak', fn ($q) => $q->whereNull('lempar_ke'))
             ->when(in_array($lempar, ['admin', 'desain', 'owner'], true), fn ($q) => $q->where('lempar_ke', $lempar))
+            ->when(in_array($oto, [CrmSaranAi::OTO_TERKIRIM, CrmSaranAi::OTO_BAYANGAN, CrmSaranAi::OTO_GAGAL], true), fn ($q) => $q->where('otomatis', $oto))
             ->orderByDesc('id')
             ->paginate(per_page_size())
             ->withQueryString();

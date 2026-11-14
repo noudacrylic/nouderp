@@ -63,6 +63,24 @@
                 </span>
             </label>
 
+            @if($agen->kode === \App\Modules\CRM\Models\CrmAgent::CS_SHOPEE)
+                <div class="rounded border border-amber-200 bg-amber-50 p-3">
+                    <label class="block text-xs font-semibold text-amber-900 mb-1">Kirim otomatis di luar jam kerja</label>
+                    <select name="kirim_otomatis" class="w-full border rounded px-3 py-2 text-sm bg-white">
+                        <option value="mati" @selected($agen->kirim_otomatis === 'mati')>Mati — hanya saran (admin klik Pakai)</option>
+                        <option value="bayangan" @selected($agen->kirim_otomatis === 'bayangan')>Bayangan — tandai yang akan terkirim, tidak dikirim</option>
+                        <option value="otomatis" @selected($agen->kirim_otomatis === 'otomatis')>Otomatis — AI membalas sendiri di luar jam kerja</option>
+                    </select>
+                    <p class="mt-1 text-[11px] text-amber-900/80">
+                        Luar jam kerja = sebelum {{ sprintf('%02d.00', config('crm.store_open_hour', 8)) }}, sejak {{ sprintf('%02d.00', config('crm.store_close_hour', 16)) }},
+                        Minggu, dan tanggal merah. Istirahat siang tetap admin. Pertanyaan yang tak bisa dijawab dilempar ke admin
+                        dengan kabar kapan admin aktif. Saat memilih <b>Otomatis</b>, matikan <b>Asisten AI Chat</b> dan
+                        <b>balasan otomatis luar jam</b> di Seller Centre di hari yang sama supaya pembeli tidak menerima jawaban dobel.
+                        Cek hasilnya tiap pagi di <a href="{{ route('crm.agen.saran.index', ['otomatis' => 'terkirim', 'periksa' => 'semua']) }}" class="underline">Periksa Saran AI › Terkirim AI</a>.
+                    </p>
+                </div>
+            @endif
+
             <button class="border border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm">
                 Simpan Pengaturan
             </button>

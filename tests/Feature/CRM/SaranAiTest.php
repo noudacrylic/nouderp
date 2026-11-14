@@ -218,6 +218,96 @@ class SaranAiTest extends TestCase
         $this->assertSame(CrmSaranAi::DIPAKAI, $s->fresh()->status);
     }
 
+    private function modeKirim(string $mode): void
+    {
+        CrmAgent::where('kode', CrmAgent::CS_SHOPEE)->update(['kirim_otomatis' => $mode]);
+    }
+
+    private function pesanAi(): \Illuminate\Support\Collection
+    {
+        return CrmMessage::where('source', CrmMessage::SOURCE_AI)->get();
+    }
+
+    public function test_luar_jam_mode_otomatis_jawaban_dikirim_sendiri(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 20:00')); // Selasa malam
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $c = $this->chat();
+        $this->claude->antrekan($this->usul('A7', 'Kami buka Senin–Sabtu jam 08.00–16.00 kak 🙏'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $s = CrmSaranAi::firstOrFail();
+        $this->assertSame([CrmSaranAi::DIPAKAI, CrmSaranAi::OTO_TERKIRIM, false], [$s->status, $s->otomatis, $s->diubah]);
+        $this->assertSame(['Kami buka Senin–Sabtu jam 08.00–16.00 kak 🙏'], $this->pesanAi()->pluck('content')->all());
+        $this->assertSame(0, (int) $c->fresh()->unread_count, 'Sudah terjawab AI.');
+        $this->assertNull(app(\App\Modules\CRM\Services\SaranAiService::class)->berlaku($c->fresh()), 'Saran tidak tampil lagi.');
+    }
+
+    public function test_luar_jam_lemparan_tanpa_teks_diberi_kabar_admin_aktif_dan_tetap_belum_dibaca(): void
+    {
+        NationalHoliday::create(['tanggal' => '2026-11-09', 'nama' => 'Libur uji']);
+        $this->travelTo(Carbon::parse('2026-11-08 10:00')); // Minggu, besoknya tanggal merah
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $c = $this->chat('kak barangnya pecah');
+        $this->claude->antrekan($this->usul('G1', '', 'admin'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $teks = $this->pesanAi()->first()?->content;
+        $this->assertStringContainsString('admin aktif lagi ' . Carbon::parse('2026-11-10')->translatedFormat('l, d M') . ' jam 08.00', (string) $teks);
+        $this->assertSame(CrmSaranAi::OTO_TERKIRIM, CrmSaranAi::firstOrFail()->otomatis);
+        $this->assertGreaterThanOrEqual(1, (int) $c->fresh()->unread_count, 'Lemparan masih menunggu admin.');
+    }
+
+    public function test_jam_kerja_dan_istirahat_siang_tidak_dikirim_otomatis(): void
+    {
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        foreach (['2026-11-10 09:00', '2026-11-10 12:00', '2026-11-10 15:59'] as $i => $saat) {
+            $this->travelTo(Carbon::parse($saat));
+            CrmMessage::query()->delete();
+            $c = $this->chat('tanya ' . $i);
+            $this->claude->antrekan($this->usul('A7', 'buka jam 8 kak'));
+            $this->artisan('crm:saran-ai')->assertSuccessful();
+            $this->assertCount(0, $this->pesanAi(), "Jam kerja ($saat): admin yang membalas.");
+            $this->assertSame(CrmSaranAi::BARU, CrmSaranAi::where('conversation_id', $c->id)->latest('id')->first()->status);
+        }
+    }
+
+    public function test_mode_bayangan_menandai_tanpa_mengirim_dan_mode_mati_diam(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 21:00'));
+        $this->modeKirim(CrmAgent::KIRIM_BAYANGAN);
+        $c = $this->chat();
+        $this->claude->antrekan($this->usul('A7', 'buka jam 8 kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $s = CrmSaranAi::firstOrFail();
+        $this->assertSame([CrmSaranAi::BARU, CrmSaranAi::OTO_BAYANGAN], [$s->status, $s->otomatis]);
+        $this->assertCount(0, $this->pesanAi());
+
+        CrmSaranAi::query()->delete();
+        $this->modeKirim(CrmAgent::KIRIM_MATI);
+        $this->claude->antrekan($this->usul('A7', 'buka jam 8 kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertNull(CrmSaranAi::firstOrFail()->otomatis);
+        $this->assertCount(0, $this->pesanAi());
+    }
+
+    public function test_pesan_basi_tidak_dijawab_otomatis(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 22:00'));
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $c = $this->chat();
+        $c->messages()->update(['sent_at' => now()->subMinutes(90)]);
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(90)])->save();
+        $this->claude->antrekan($this->usul('A7', 'buka jam 8 kak'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $this->assertSame(CrmSaranAi::BARU, CrmSaranAi::firstOrFail()->status, 'Tetap jadi saran untuk admin.');
+        $this->assertCount(0, $this->pesanAi());
+    }
+
     /** @return array{0:User,1:User} [admin layanan, admin desain] */
     private function duaMeja(): array
     {
