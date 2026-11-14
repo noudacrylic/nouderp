@@ -15,7 +15,9 @@ class ProductionStepTimeLog extends Model
      */
     public const ALASAN_PENDING = [
         'bongkar_barang'   => ['label' => '📦 Bongkar / turunkan barang datang', 'keterangan' => false],
-        'bantu_divisi'     => ['label' => '🤝 Bantu divisi lain', 'keterangan' => true],
+        'bantu_divisi'     => ['label' => '🤝 Bantu rekan / divisi lain', 'keterangan' => true],
+        'mengajari'        => ['label' => '🎓 Mengajari karyawan baru', 'keterangan' => true],
+        'perbaikan_kecil'  => ['label' => '🛠 Memperbaiki kerusakan kecil (alat, barang, tempat)', 'keterangan' => true],
         'belanja'          => ['label' => '🛒 Belanja keperluan (galon, komponen, plastik, …)', 'keterangan' => true],
         'perintah_owner'   => ['label' => '👑 Diperintah owner', 'keterangan' => false],
         'tunggu_bahan'     => ['label' => '⏳ Menunggu bahan / komponen', 'keterangan' => false],
