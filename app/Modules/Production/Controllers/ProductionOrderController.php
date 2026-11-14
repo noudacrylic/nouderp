@@ -31,7 +31,7 @@ class ProductionOrderController extends Controller
         $type     = $request->get('type');
 
         $orders = ProductionOrder::with(['bom', 'salesOrder', 'warehouse', 'steps.department'])
-            ->whereNotIn('status', ['cancelled'])
+            ->when($status !== 'cancelled', fn($query) => $query->whereNotIn('status', ['cancelled']))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($w) use ($q) {
                     $w->where('order_number', 'LIKE', "%{$q}%")

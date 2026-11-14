@@ -40,6 +40,7 @@
                     'completed'   => 'Menunggu Finalisasi',
                     'pending'     => 'Menunggu Stok',
                     'finalized'   => 'Selesai',
+                    'cancelled'   => 'Batal',
                 ];
             @endphp
             @foreach($statusOptions as $val => $label)
