@@ -62,7 +62,7 @@ class CrmAgenController extends Controller
             'model'        => ['nullable', 'string', 'max:60'],
             'maks_giliran' => ['required', 'integer', 'min:1', 'max:12'],
             'is_active'    => ['nullable', 'boolean'],
-            'kirim_otomatis' => ['nullable', 'in:' . implode(',', [CrmAgent::KIRIM_MATI, CrmAgent::KIRIM_BAYANGAN, CrmAgent::KIRIM_OTOMATIS])],
+            'kirim_otomatis' => ['nullable', 'in:' . implode(',', [CrmAgent::KIRIM_MATI, CrmAgent::KIRIM_BAYANGAN, CrmAgent::KIRIM_OTOMATIS, CrmAgent::KIRIM_PENUH])],
         ]);
 
         // Kirim otomatis luar jam hanya ada untuk CS Shopee (Saran AI Tahap 3).

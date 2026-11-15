@@ -58,23 +58,26 @@
                     Hidupkan agen ini
                     <span class="block text-[11px] text-gray-500">
                         Masih butuh saklar induk <span class="font-mono">CRM_AGEN_AKTIF</span> menyala.
-                        Ronde ini belum ada jalur balas otomatis, jadi tanda ini belum berefek apa pun.
+                        Tanpa tanda ini agen tidak memberi saran maupun membalas.
                     </span>
                 </span>
             </label>
 
             @if($agen->kode === \App\Modules\CRM\Models\CrmAgent::CS_SHOPEE)
                 <div class="rounded border border-amber-200 bg-amber-50 p-3">
-                    <label class="block text-xs font-semibold text-amber-900 mb-1">Kirim otomatis di luar jam kerja</label>
+                    <label class="block text-xs font-semibold text-amber-900 mb-1">Kirim otomatis</label>
                     <select name="kirim_otomatis" class="w-full border rounded px-3 py-2 text-sm bg-white">
                         <option value="mati" @selected($agen->kirim_otomatis === 'mati')>Mati — hanya saran (admin klik Pakai)</option>
                         <option value="bayangan" @selected($agen->kirim_otomatis === 'bayangan')>Bayangan — tandai yang akan terkirim, tidak dikirim</option>
                         <option value="otomatis" @selected($agen->kirim_otomatis === 'otomatis')>Otomatis — AI membalas sendiri di luar jam kerja</option>
+                        <option value="penuh" @selected($agen->kirim_otomatis === 'penuh')>Penuh — AI membalas 24 jam, admin hanya yang dilempar</option>
                     </select>
                     <p class="mt-1 text-[11px] text-amber-900/80">
                         Luar jam kerja = sebelum {{ sprintf('%02d.00', config('crm.store_open_hour', 8)) }}, sejak {{ sprintf('%02d.00', config('crm.store_close_hour', 16)) }},
-                        Minggu, dan tanggal merah. Istirahat siang tetap admin. Pertanyaan yang tak bisa dijawab dilempar ke admin
-                        dengan kabar kapan admin aktif. Saat memilih <b>Otomatis</b>, matikan <b>Asisten AI Chat</b> dan
+                        Minggu, dan tanggal merah. Pertanyaan yang tak bisa dijawab diteruskan ke admin bagian
+                        (gudang/produksi/desain/keuangan) dengan kabar kapan admin aktif. <b>Penuh</b>: di jam kerja pun AI membalas;
+                        yang dilempar diberi kalimat penahan lalu chat pindah ke admin. AI mundur dari chat yang dibalas manusia
+                        dalam 2 jam terakhir. Saat memilih <b>Otomatis</b> atau <b>Penuh</b>, matikan <b>Asisten AI Chat</b> dan
                         <b>balasan otomatis luar jam</b> di Seller Centre di hari yang sama supaya pembeli tidak menerima jawaban dobel.
                         Cek hasilnya tiap pagi di <a href="{{ route('crm.agen.saran.index', ['otomatis' => 'terkirim', 'periksa' => 'semua']) }}" class="underline">Periksa Saran AI › Terkirim AI</a>.
                     </p>

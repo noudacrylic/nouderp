@@ -29,6 +29,9 @@ use Illuminate\Support\Facades\Log;
  */
 class SaranAiService
 {
+    /** AI tidak mengirim sendiri ke chat yang dibalas manusia dalam rentang ini. */
+    public const JAM_MANUSIA_MEMEGANG = 2;
+
     /** Pembeli sering mengetik beberapa pesan beruntun — tunggu dulu sebelum menyarankan. */
     public const JEDA_DETIK = 30;
 
@@ -127,29 +130,38 @@ class SaranAiService
     }
 
     /**
-     * Di luar jam kerja: saran yang berisi balasan dikirim sendiri (mode otomatis) atau
-     * ditandai saja (mode bayangan). Dijaga ulang tepat sebelum kirim: pembeli belum menulis
-     * lagi, belum ada yang membalas, dan pesannya masih segar.
+     * Mode otomatis/bayangan: di luar jam kerja saran dikirim sendiri (atau ditandai saja).
+     * Mode penuh (keputusan owner 16 Nov 2026): 24 jam — admin hanya menangani yang dilempar.
+     * Dijaga ulang tepat sebelum kirim: pembeli belum menulis lagi, belum ada yang membalas,
+     * pesannya masih segar, dan tidak ada manusia yang sedang memegang obrolan ini.
      */
     private function kirimOtomatis(CrmConversation $c, CrmMessage $pesan, CrmSaranAi $saran, CrmAgent $agen): void
     {
-        $mode = $agen->kirim_otomatis ?: CrmAgent::KIRIM_MATI;
-        if ($mode === CrmAgent::KIRIM_MATI || $saran->status !== CrmSaranAi::BARU || !AgenPrompt::diLuarJamKerja()) {
+        $mode     = $agen->kirim_otomatis ?: CrmAgent::KIRIM_MATI;
+        $luarJam  = AgenPrompt::diLuarJamKerja();
+        if ($mode === CrmAgent::KIRIM_MATI || $saran->status !== CrmSaranAi::BARU
+            || (!$luarJam && $mode !== CrmAgent::KIRIM_PENUH)) {
             return;
         }
 
-        $teks = $this->teksOtomatis($saran);
+        $teks = $this->teksOtomatis($saran, $luarJam);
         if ($teks === null
             || $pesan->sent_at?->lt(now()->subMinutes(self::BATAS_OTOMATIS_MENIT))
             || $this->pesanTerakhir($c)?->id !== $pesan->id
-            || ($c->last_outbound_at && $pesan->sent_at && $c->last_outbound_at->gt($pesan->sent_at))) {
+            || ($c->last_outbound_at && $pesan->sent_at && $c->last_outbound_at->gt($pesan->sent_at))
+            || $this->dipegangManusia($c)) {
             return;
         }
 
         // Kabar "admin aktif lagi" cukup sekali semalam: lemparan yang isinya hanya kabar itu
         // (teks cadangan atau butir A8) tidak dikirim lagi bila chat ini sudah menerimanya.
-        if ($saran->lempar_ke && (trim((string) $saran->teks) === '' || $saran->butir === 'A8')
+        if ($luarJam && $saran->lempar_ke && (trim((string) $saran->teks) === '' || $saran->butir === 'A8')
             && AgenPrompt::kabarJamSudahDisampaikan($c->id)) {
+            return;
+        }
+
+        // Jam kerja: chat yang sudah diteruskan sedang menunggu admin — kalimat penahan tidak diulang.
+        if (!$luarJam && $saran->lempar_ke && $this->baruDiteruskan($c)) {
             return;
         }
 
@@ -183,12 +195,15 @@ class SaranAiService
         }
     }
 
-    /** Teks yang dikirim otomatis; lemparan tanpa balasan sementara diberi kabar jam admin. */
-    private function teksOtomatis(CrmSaranAi $saran): ?string
+    /** Teks yang dikirim otomatis; lemparan tanpa balasan sementara diberi kalimat penahan. */
+    private function teksOtomatis(CrmSaranAi $saran, bool $luarJam = true): ?string
     {
         $teks = trim((string) $saran->teks);
         if ($teks !== '') {
             return $teks;
+        }
+        if ($saran->lempar_ke && !$luarJam) {
+            return 'saya teruskan ke admin yang menangani ya kak, ditunggu sebentar 🙏';
         }
 
         return $saran->lempar_ke
@@ -285,6 +300,27 @@ class SaranAiService
             'status' => CrmSaranAi::DIABAIKAN, 'catatan' => mb_substr(trim((string) $catatan), 0, 255) ?: null,
             'diputus_oleh' => $u?->id, 'diputus_at' => now(),
         ]);
+    }
+
+    /** Manusia membalas chat ini dalam 2 jam terakhir — AI mundur, cukup memberi saran. */
+    private function dipegangManusia(CrmConversation $c): bool
+    {
+        return CrmMessage::where('conversation_id', $c->id)
+            ->where('direction', CrmMessage::KELUAR)
+            ->where('sent_at', '>=', now()->subHours(self::JAM_MANUSIA_MEMEGANG))
+            ->where(fn ($q) => $q->whereNull('source')
+                ->orWhereNotIn('source', [CrmMessage::SOURCE_AI, CrmMessage::SOURCE_SHOPEE_OTOMATIS]))
+            ->exists();
+    }
+
+    /** AI sudah meneruskan chat ini ke admin dalam 2 jam terakhir. */
+    private function baruDiteruskan(CrmConversation $c): bool
+    {
+        return CrmSaranAi::where('conversation_id', $c->id)
+            ->whereNotNull('lempar_ke')
+            ->where('otomatis', CrmSaranAi::OTO_TERKIRIM)
+            ->where('diputus_at', '>=', now()->subHours(self::JAM_MANUSIA_MEMEGANG))
+            ->exists();
     }
 
     private function pesanTerakhir(CrmConversation $c): ?CrmMessage

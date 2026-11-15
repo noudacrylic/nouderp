@@ -19,10 +19,11 @@ class CrmAgent extends Model
     public const CETAK       = 'cetak';
     public const CS_SHOPEE   = 'cs-shopee';
 
-    // Kirim otomatis saran di luar jam kerja (Saran AI Tahap 3).
+    // Kirim otomatis saran (Saran AI Tahap 3): bayangan/otomatis = luar jam kerja, penuh = 24 jam.
     public const KIRIM_MATI     = 'mati';
     public const KIRIM_BAYANGAN = 'bayangan';
     public const KIRIM_OTOMATIS = 'otomatis';
+    public const KIRIM_PENUH    = 'penuh';
 
     protected $fillable = [
         'kode', 'nama', 'deskripsi', 'persona', 'model', 'maks_giliran', 'is_active', 'kirim_otomatis',
