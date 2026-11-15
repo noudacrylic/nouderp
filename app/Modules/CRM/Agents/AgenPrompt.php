@@ -167,11 +167,15 @@ class AgenPrompt
      */
     public static function kabarJamSudahDisampaikan(int $conversationId): bool
     {
+        // Hanya lemparan yang teksnya benar-benar menyebut jam (atau teks cadangan, yang selalu
+        // menyebutnya). Uji 16 Nov: "admin segera membalas" terhitung kabar, padahal jamnya tak ada.
         return CrmSaranAi::where('conversation_id', $conversationId)
             ->whereNotNull('lempar_ke')
             ->whereIn('otomatis', [CrmSaranAi::OTO_BAYANGAN, CrmSaranAi::OTO_TERKIRIM])
             ->where('created_at', '>=', self::awalLuarJam())
-            ->exists();
+            ->get(['teks', 'teks_terkirim'])
+            ->contains(fn ($s) => trim((string) $s->teks) === ''
+                || preg_match('/\bjam\s*\d{1,2}([.:]\d{2})?\b/iu', (string) ($s->teks_terkirim ?: $s->teks)));
     }
 
     private static function hariLibur(CarbonInterface $hari): bool

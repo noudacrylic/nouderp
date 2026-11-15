@@ -192,7 +192,7 @@ class SaranAiService
         }
 
         return $saran->lempar_ke
-            ? 'Pesan kakak sudah kami terima 🙏 admin aktif lagi ' . AgenPrompt::adminAktifLagi() . ' ya kak, nanti kami bantu cek.'
+            ? 'Pesan kakak sudah kami terima & diteruskan ke admin yang menangani 🙏 admin aktif lagi ' . AgenPrompt::adminAktifLagi() . ' ya kak.'
             : null;
     }
 

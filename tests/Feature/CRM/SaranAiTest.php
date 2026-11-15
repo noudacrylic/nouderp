@@ -283,6 +283,28 @@ class SaranAiTest extends TestCase
         $this->assertStringNotContainsString('SUDAH kami sampaikan', \App\Modules\CRM\Agents\AgenPrompt::keterangan($c->fresh()));
     }
 
+    public function test_lemparan_tanpa_jam_tidak_dihitung_kabar(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-16 05:19')); // Senin subuh
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $c = $this->chat('saya mau beli 30 kak');
+        $this->claude->antrekan($this->usul('B4', 'baik kak, untuk 30 pcs kami cek dulu ya', 'admin'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertFalse(\App\Modules\CRM\Agents\AgenPrompt::kabarJamSudahDisampaikan($c->id), 'Belum menyebut jam.');
+
+        CrmSaranAi::query()->update(['teks_terkirim' => 'saya teruskan ke admin gudang ya kak, mulai kerja Senin, 16 Nov jam 08.00 🙏']);
+        $this->assertTrue(\App\Modules\CRM\Agents\AgenPrompt::kabarJamSudahDisampaikan($c->id));
+    }
+
+    public function test_pengetahuan_menyebut_admin_per_bagian_tanpa_segera(): void
+    {
+        $isi = file_get_contents(resource_path('agen/cs-shopee-pengetahuan.md'));
+        foreach (['admin gudang', 'admin produksi', 'admin desain', 'admin keuangan'] as $bagian) {
+            $this->assertStringContainsString($bagian, $isi);
+        }
+        $this->assertStringNotContainsString('admin segera membalas 🙏"', $isi);
+    }
+
     public function test_awal_luar_jam_melewati_hari_libur(): void
     {
         $p = \App\Modules\CRM\Agents\AgenPrompt::class;
