@@ -115,6 +115,10 @@ class AgenPrompt
             $baris[] = 'Di luar jam operasional — tim baru bisa menindaklanjuti pada jam kerja berikutnya. '
                 . 'Jangan berpura-pura ada orang di bengkel sekarang.';
             $baris[] = 'Admin aktif lagi: ' . self::adminAktifLagi($buka);
+            if ($percakapan && self::kabarJamSudahDisampaikan($percakapan->id)) {
+                $baris[] = 'Kabar kapan admin aktif SUDAH kami sampaikan di chat ini sejak toko tutup — jangan diulang. '
+                    . 'Kalau perlu manusia, cukup konfirmasi singkat, misalnya "baik kak, sudah kami catat ya 🙏".';
+            }
         } else {
             $baris[] = 'Admin sedang aktif sekarang.';
         }
@@ -134,6 +138,40 @@ class AgenPrompt
         return self::hariLibur($saat)
             || $jam < (int) config('crm.store_open_hour', 8)
             || $jam >= (int) config('crm.store_close_hour', 16);
+    }
+
+    /**
+     * Sejak kapan toko tutup kali ini: jam tutup hari kerja terakhir. Satu "malam" bisa
+     * membentang Sabtu sore sampai Senin pagi bila ada Minggu/tanggal merah di tengahnya.
+     */
+    public static function awalLuarJam(?CarbonInterface $saat = null): CarbonInterface
+    {
+        $saat ??= now();
+        $tutup = (int) config('crm.store_close_hour', 16);
+        if (!self::hariLibur($saat) && (int) $saat->format('H') >= $tutup) {
+            return $saat->copy()->setTime($tutup, 0);
+        }
+
+        $hari = $saat->copy()->startOfDay()->subDay();
+        for ($i = 0; $i < 14 && self::hariLibur($hari); $i++) {
+            $hari = $hari->subDay();
+        }
+
+        return $hari->setTime($tutup, 0);
+    }
+
+    /**
+     * Sudah adakah lemparan yang dikirim AI (atau ditandai bayangan) ke chat ini sejak toko
+     * tutup — lemparan itulah yang membawa kabar "admin aktif lagi …". Pembeli yang mengetik
+     * beberapa pesan beruntun cukup diberi kabar itu sekali.
+     */
+    public static function kabarJamSudahDisampaikan(int $conversationId): bool
+    {
+        return CrmSaranAi::where('conversation_id', $conversationId)
+            ->whereNotNull('lempar_ke')
+            ->whereIn('otomatis', [CrmSaranAi::OTO_BAYANGAN, CrmSaranAi::OTO_TERKIRIM])
+            ->where('created_at', '>=', self::awalLuarJam())
+            ->exists();
     }
 
     private static function hariLibur(CarbonInterface $hari): bool

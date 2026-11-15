@@ -260,6 +260,38 @@ class SaranAiTest extends TestCase
         $this->assertGreaterThanOrEqual(1, (int) $c->fresh()->unread_count, 'Lemparan masih menunggu admin.');
     }
 
+    public function test_kabar_admin_aktif_cukup_sekali_semalam(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-14 22:00')); // Sabtu malam, besok Minggu
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $c = $this->chat('🙋 Pembeli memilih: Chat dengan Penjual');
+        $this->claude->antrekan($this->usul('A8', '', 'admin'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertCount(1, $this->pesanAi());
+
+        // Pembeli mengetik lagi Minggu pagi — masih "malam" yang sama sejak Sabtu 16.00.
+        $this->travelTo(Carbon::parse('2026-11-15 07:00'));
+        $this->assertStringContainsString('SUDAH kami sampaikan', \App\Modules\CRM\Agents\AgenPrompt::keterangan($c->fresh()));
+        $this->pesan($c, CrmMessage::MASUK, 'halo kak?', now()->subMinutes(2));
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(2)])->save();
+        $this->claude->antrekan($this->usul('A8', 'Pesan kakak sudah kami terima 🙏 admin aktif lagi Senin', 'admin'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertCount(1, $this->pesanAi(), 'Kabar admin aktif tidak dikirim dua kali.');
+
+        // Malam berikutnya (setelah hari kerja) kabar boleh dikirim lagi.
+        $this->travelTo(Carbon::parse('2026-11-16 17:00'));
+        $this->assertStringNotContainsString('SUDAH kami sampaikan', \App\Modules\CRM\Agents\AgenPrompt::keterangan($c->fresh()));
+    }
+
+    public function test_awal_luar_jam_melewati_hari_libur(): void
+    {
+        $p = \App\Modules\CRM\Agents\AgenPrompt::class;
+        $this->assertSame('2026-11-14 16:00', $p::awalLuarJam(Carbon::parse('2026-11-14 22:00'))->format('Y-m-d H:i'));
+        $this->assertSame('2026-11-14 16:00', $p::awalLuarJam(Carbon::parse('2026-11-15 12:00'))->format('Y-m-d H:i'));
+        $this->assertSame('2026-11-14 16:00', $p::awalLuarJam(Carbon::parse('2026-11-16 06:00'))->format('Y-m-d H:i'));
+        $this->assertSame('2026-11-16 16:00', $p::awalLuarJam(Carbon::parse('2026-11-17 05:00'))->format('Y-m-d H:i'));
+    }
+
     public function test_jam_kerja_dan_istirahat_siang_tidak_dikirim_otomatis(): void
     {
         $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);

@@ -146,6 +146,13 @@ class SaranAiService
             return;
         }
 
+        // Kabar "admin aktif lagi" cukup sekali semalam: lemparan yang isinya hanya kabar itu
+        // (teks cadangan atau butir A8) tidak dikirim lagi bila chat ini sudah menerimanya.
+        if ($saran->lempar_ke && (trim((string) $saran->teks) === '' || $saran->butir === 'A8')
+            && AgenPrompt::kabarJamSudahDisampaikan($c->id)) {
+            return;
+        }
+
         if ($mode === CrmAgent::KIRIM_BAYANGAN) {
             $saran->update(['otomatis' => CrmSaranAi::OTO_BAYANGAN]);
 
