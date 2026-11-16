@@ -122,8 +122,25 @@ class MejaKerjaTest extends TestCase
         $this->assertSame('in_progress', $t->status, 'Dibalas → kembali Dikerjakan, bukan Antre.');
         $this->assertGreaterThanOrEqual(590, $t->pending_detik);
 
-        $this->actingAs($this->desainer)->post(route('tasks.meja.selesai', $t->id))->assertRedirect();
+        // Tombol Selesai polos tak berlaku lagi: kartu desain ditutup per tahap (16 Nov 2026).
+        $this->actingAs($this->desainer)->post(route('tasks.meja.selesai', $t->id))->assertStatus(422);
+        $jawab = fn (string $k) => $this->actingAs($this->desainer)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => $k]);
+
+        $jenis = fn () => MejaKerjaService::jenisKartu($t->fresh(), $meja->skill('desain'))['jenis'];
+        $this->assertSame('Desain pesanan', $jenis());
+        $jawab('desain-ok')->assertSessionHas('success');
+        $this->assertSame('Cetak stiker', $jenis());
+        $jawab('cetak-ok')->assertSessionHas('success');
+        $t->refresh();
+        $this->assertSame('in_progress', $t->status, 'KS wajib difoto → masuk tahap foto.');
+        $this->assertSame('Foto produk', $jenis());
+        $this->assertSame(route('cs.galeri', ['so' => $so->id]), collect($meja->skill('desain')->aksi($t))->firstWhere('utama')['url']);
+
+        $jawab('foto-selesai')->assertSessionHas('error');
+        $this->assertSame('in_progress', $t->fresh()->status);
+        $jawab('tanpa-foto:kamera')->assertSessionHas('success');
         $this->assertSame('done', $t->fresh()->status);
+        $this->assertSame('HP/kamera bermasalah', \App\Modules\Galeri\Models\GaleriKarya::where('sales_order_id', $so->id)->value('tanpa_foto_alasan'));
     }
 
     public function test_persetujuan_usulan_ke_owner_dan_selesai_sendiri(): void

@@ -80,7 +80,7 @@ class FotoCustomTest extends TestCase
     {
         DB::table('production_orders')->insert(['order_number' => 'OP-F' . (++$this->nomor), 'type' => $tipe, 'sales_order_id' => $so->id, 'warehouse_id' => $so->warehouse_id,
             'status' => $status, 'production_date' => now()->toDateString(), 'finalized_at' => $status === 'finalized' ? ($selesai ?? now()) : null,
-            'created_at' => now(), 'updated_at' => now()]);
+            'created_at' => now(), 'updated_at' => $selesai ?? now()]);
     }
 
     private function unggah(string $nama, string $folder = '', ?int $so = null)
@@ -110,19 +110,53 @@ class FotoCustomTest extends TestCase
         $this->assertStringContainsString('Akrilik Sign 20x5', $t->description);
         $this->assertSame(route('cs.galeri', ['so' => $so->id]), collect($meja->skill('foto-custom')->aksi($t))->firstWhere('utama')['url']);
 
-        // Tombol di kartu membuka Galeri dalam mode pesanan; unggahan di folder tertaut.
-        File::makeDirectory($this->root . '/Tent Holder/Custom', 0775, true);
-        $this->actingAs($this->admin)->get(route('cs.galeri', ['so' => $so->id]))->assertOk()->assertSee('Foto untuk ' . $so->order_number);
-        $this->actingAs($this->admin)->get(route('cs.galeri', ['p' => 'Tent Holder/Custom']))->assertOk()->assertSee('Foto untuk ' . $so->order_number)->assertSee('so: ' . $so->id, false);
-        $this->unggah('hasil.jpg', 'Tent Holder/Custom', $so->id)->assertOk()->assertJson(['selesai' => true]);
-        $this->assertFileExists($this->root . '/Tent Holder/Custom/hasil.jpg');
-        $this->assertSame(['Tent Holder/Custom/hasil.jpg'], GaleriFoto::where('sales_order_id', $so->id)->pluck('path')->all());
+        // Tombol di kartu membuka Galeri dalam mode pesanan: info foto wajib diisi sebelum mengunggah.
+        File::makeDirectory($this->root . '/Tent Holder', 0775, true);
+        $this->actingAs($this->admin)->get(route('cs.galeri', ['so' => $so->id]))->assertOk()
+            ->assertSee('Foto untuk ' . $so->order_number)->assertSee('Isi info foto dulu');
+        $this->unggah('hasil.jpg', '', $so->id)->assertStatus(422);
+        $jawab = fn (string $k) => $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => $k]);
+        $jawab('foto-selesai')->assertSessionHas('error');
+
+        // Layak Galeri tanpa nama instansi ditolak.
+        $this->post(route('cs.galeri.karya'), ['lini' => 'Tent Holder', 'layak_galeri' => 1])->assertSessionHasErrors('nama_instansi');
+        $folder = 'Tent Holder/porto/SO-F1 SMA N 3 Semarang';
+        $this->post(route('cs.galeri.karya'), ['lini' => 'Tent Holder', 'layak_galeri' => 1, 'nama_instansi' => 'SMA N 3 Semarang', 'jenis_produk' => 'Akrilik Sign'])
+            ->assertRedirect(route('cs.galeri', ['p' => $folder]));
+        $this->assertDirectoryExists($this->root . '/' . $folder);
+        $this->get(route('cs.galeri', ['so' => $so->id]))->assertRedirect(route('cs.galeri', ['p' => $folder]));
+
+        // Unggahan mode pesanan selalu masuk folder pesanannya, apa pun folder yang sedang dibuka.
+        $this->unggah('hasil.jpg', 'Tent Holder', $so->id)->assertOk()->assertJson(['selesai' => true]);
+        $this->assertSame([$folder . '/hasil.jpg'], GaleriFoto::where('sales_order_id', $so->id)->pluck('path')->all());
+        $this->post(route('cs.galeri.foto-utama'), ['p' => $folder . '/hasil.jpg'])->assertSessionHas('success');
 
         $meja->sinkron();
+        $this->assertSame('open', $t->fresh()->status, 'Tak selesai sendiri — admin menekan Foto selesai.');
+        $jawab('foto-selesai')->assertSessionHas('success');
         $this->assertSame('done', $t->fresh()->status);
+
+        // Ganti lini: folder pesanan ikut pindah, tautan & foto utama ikut.
+        File::makeDirectory($this->root . '/Custom', 0775, true);
+        $this->post(route('cs.galeri.karya'), ['lini' => 'Custom', 'layak_galeri' => 0])->assertRedirect();
+        $baru = 'Custom/porto/SO-F1 SMA N 3 Semarang';
+        $this->assertSame([$baru . '/hasil.jpg'], GaleriFoto::where('sales_order_id', $so->id)->pluck('path')->all());
+        $this->assertSame($baru . '/hasil.jpg', \App\Modules\Galeri\Models\GaleriKarya::where('sales_order_id', $so->id)->value('foto_utama'));
 
         // Selesai: mode pesanan berakhir.
         $this->actingAs($this->admin)->get(route('cs.galeri', ['so' => 0]))->assertOk()->assertDontSee('Foto untuk');
+    }
+
+    public function test_op_dengan_langkah_tempel_difoto_di_kartu_cetak_bukan_foto_custom(): void
+    {
+        $this->nyalakan();
+        $so = $this->so();
+        $this->op($so, 'completed');
+        $opId = (int) DB::table('production_orders')->where('sales_order_id', $so->id)->value('id');
+        DB::table('production_order_steps')->insert(['production_order_id' => $opId, 'step_number' => 1, 'name' => 'Desain — cetak & tempel stiker',
+            'desain' => 'tempel', 'status' => 'completed', 'created_at' => now(), 'updated_at' => now()]);
+        app(MejaKerjaService::class)->sinkron();
+        $this->assertSame(0, Task::where('skill', 'foto-custom')->count());
     }
 
     public function test_hanya_sku_custom_yang_baru_selesai_dan_batal_saat_terkirim(): void
@@ -185,7 +219,8 @@ class FotoCustomTest extends TestCase
     {
         $so = $this->so();
         $this->actingAs($this->admin)->post(route('cs.galeri.folder.store'), ['p' => '', 'nama' => 'Lini'])->assertRedirect();
-        $this->unggah('a.jpg', 'Lini', $so->id)->assertOk();
+        $this->unggah('a.jpg', 'Lini')->assertOk();
+        app(FotoProdukService::class)->tautkan('Lini/a.jpg', $so->id);
         $path = fn () => GaleriFoto::where('sales_order_id', $so->id)->value('path');
 
         $this->post(route('cs.galeri.ganti-nama'), ['p' => 'Lini/a.jpg', 'nama' => 'b'])->assertSessionHas('success');
@@ -194,7 +229,8 @@ class FotoCustomTest extends TestCase
         // Folder induk berganti nama: isinya ikut. "Lini" tak boleh menyeret "Lini 2".
         $lain = $this->so();
         $this->post(route('cs.galeri.folder.store'), ['p' => '', 'nama' => 'Lini 2']);
-        $this->unggah('c.jpg', 'Lini 2', $lain->id)->assertOk();
+        $this->unggah('c.jpg', 'Lini 2')->assertOk();
+        app(FotoProdukService::class)->tautkan('Lini 2/c.jpg', $lain->id);
         $this->post(route('cs.galeri.ganti-nama'), ['p' => 'Lini', 'nama' => 'Baru'])->assertSessionHas('success');
         $this->assertSame('Baru/b.jpg', $path());
         $this->assertSame('Lini 2/c.jpg', GaleriFoto::where('sales_order_id', $lain->id)->value('path'));

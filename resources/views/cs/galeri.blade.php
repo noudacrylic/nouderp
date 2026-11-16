@@ -58,13 +58,71 @@
                 <a href="{{ route('cs.galeri', ['so' => 0] + ($path === '' ? [] : ['p' => $path])) }}" class="shrink-0 text-xs font-semibold underline">Selesai</a>
             </div>
             @if ($soAktif['barang'])<p class="text-xs">{{ $soAktif['barang'] }}</p>@endif
-            <p class="text-[11px]">Buka folder lini produknya, lalu folder <b>Custom</b> di dalamnya (buat bila belum ada). Produk yang belum punya lini: folder <b>Custom</b> di akar. Unggahan di sini otomatis tertaut ke pesanan ini.</p>
-            <p class="text-[11px] font-semibold">{{ $soAktif['jumlah'] }} foto sudah tertaut.</p>
+            @php $karya = $soAktif['karya']; @endphp
+
+            {{-- Info foto: wajib diisi sebelum mengunggah. Menentukan folder <lini>/porto/<SO instansi>
+                 dan bahan Galeri web (layak tampil, nama instansi). --}}
+            <details @if (! $karya || $errors->any()) open @endif class="bg-white/70 rounded-xl border border-amber-200">
+                <summary class="cursor-pointer px-2.5 py-2 text-xs font-bold">
+                    @if ($karya)
+                        ✓ Info foto: {{ $karya->lini }} · {{ $karya->layak_galeri ? ($karya->nama_instansi ?: '—') . ' · tampil di Galeri' : 'tidak tampil di Galeri' }}
+                        <span class="font-normal underline">ubah</span>
+                    @else
+                        ① Isi info foto dulu
+                    @endif
+                </summary>
+                <form method="POST" action="{{ route('cs.galeri.karya') }}" class="px-2.5 pb-2.5 space-y-2" x-data="{ layak: @js((bool) old('layak_galeri', $karya?->layak_galeri ?? true)) }">
+                    @csrf
+                    @if ($errors->any())
+                        <p class="text-[11px] text-red-700 font-semibold">{{ $errors->first() }}</p>
+                    @endif
+                    <label class="block text-[11px] font-semibold">Lini produk (folder)
+                        <select name="lini" required class="mt-0.5 w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+                            <option value="">Pilih lini…</option>
+                            @foreach (collect($soAktif['lini'])->push('Custom')->unique() as $l)
+                                <option value="{{ $l }}" @selected(old('lini', $soAktif['usulan']) === $l)>{{ $l }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <label class="flex items-start gap-2 text-xs">
+                        <input type="hidden" name="layak_galeri" value="0">
+                        <input type="checkbox" name="layak_galeri" value="1" x-model="layak" class="mt-0.5">
+                        <span><b>Layak tampil di Galeri web</b><br><span class="text-[11px]">Pesanan instansi, foto rapi. Pesanan perorangan (nama orang / cetak foto) jangan dicentang.</span></span>
+                    </label>
+                    <label x-show="layak" class="block text-[11px] font-semibold">Nama instansi (tampil di web)
+                        <input name="nama_instansi" value="{{ old('nama_instansi', $karya?->nama_instansi) }}" maxlength="150" placeholder="mis. SMA N 3 Semarang"
+                               class="mt-0.5 w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm">
+                    </label>
+                    <label class="block text-[11px] font-semibold">Jenis produk
+                        <input name="jenis_produk" list="jenis-produk" value="{{ old('jenis_produk', $karya?->jenis_produk) }}" maxlength="100" placeholder="mis. Kotak Saran"
+                               class="mt-0.5 w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm">
+                        <datalist id="jenis-produk">@foreach ($soAktif['jenis'] as $j)<option value="{{ $j }}">@endforeach</datalist>
+                    </label>
+                    <label class="block text-[11px] font-semibold">Catatan (opsional)
+                        <input name="catatan" value="{{ old('catatan', $karya?->catatan) }}" maxlength="1000" placeholder="mis. untuk acara purna tugas"
+                               class="mt-0.5 w-full border border-amber-200 rounded-lg px-2 py-1.5 text-sm">
+                    </label>
+                    <button class="w-full rounded-lg bg-amber-500 text-white text-sm font-bold py-2">{{ $karya ? 'Simpan perubahan' : 'Simpan & buka folder' }}</button>
+                </form>
+            </details>
+
+            @if ($karya)
+                <p class="text-[11px]">Folder: <a href="{{ route('cs.galeri', ['p' => $karya->folder]) }}" class="font-semibold underline">{{ $karya->folder }}</a>. Unggahan otomatis masuk ke sini & tertaut ke pesanan.
+                    Ketuk foto lalu <b>⭐ Utama</b> untuk foto "Sudah Dipercaya Oleh".</p>
+            @endif
+            <p class="text-[11px] font-semibold">
+                {{ $soAktif['jumlah'] }} berkas tertaut{{ $karya?->foto_utama ? ' · ⭐ ' . basename($karya->foto_utama) : '' }}.
+                @if ($soAktif['wajib'])
+                    {!! $soAktif['kurang'] ? '<span class="text-red-700">⚠ ' . e($soAktif['kurang']) . '</span>' : '<span class="text-emerald-700">✓ Lengkap — tekan "Foto selesai" di kartu Meja.</span>' !!}
+                @endif
+            </p>
         </div>
     @endif
 
     {{-- Tombol unggah. Kamera foto & video dipisah: satu input dengan
-         accept image+video membuat sebagian HP langsung membuka kamera foto. --}}
+         accept image+video membuat sebagian HP langsung membuka kamera foto.
+         Mode pesanan: baru muncul setelah info foto diisi (foldernya dari situ). --}}
+    @if (! $soAktif || $soAktif['karya'])
     <div class="grid grid-cols-3 gap-2">
         <label class="flex flex-col items-center gap-1 rounded-2xl bg-teal-700 active:bg-teal-800 text-white py-3 cursor-pointer select-none">
             <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -82,7 +140,8 @@
             <input type="file" accept="image/*,video/*" multiple class="hidden" @change="pilihBerkas($event, 'galeri')">
         </label>
     </div>
-    <p class="text-[11px] text-slate-500 px-1">Masuk ke folder <b>{{ $namaFolder }}</b> dengan kualitas asli.</p>
+    <p class="text-[11px] text-slate-500 px-1">Masuk ke folder <b>{{ $soAktif ? basename($soAktif['karya']->folder) : $namaFolder }}</b> dengan kualitas asli.</p>
+    @endif
 
     {{-- Antrian unggah --}}
     <template x-if="antrian.length">
@@ -176,7 +235,15 @@
                     <p class="text-white/70 text-sm px-6 text-center">Berkas ini tidak bisa ditampilkan di HP. Unduh untuk membukanya.</p>
                 </template>
             </div>
-            <div class="grid {{ $soAktif ? 'grid-cols-5' : 'grid-cols-4' }} text-white text-[11px] font-semibold border-t border-white/10" style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+            <div class="grid {{ $soAktif ? ($soAktif['karya'] ? 'grid-cols-6' : 'grid-cols-5') : 'grid-cols-4' }} text-white text-[11px] font-semibold border-t border-white/10" style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+                @if ($soAktif && $soAktif['karya'])
+                    <form method="POST" action="{{ route('cs.galeri.foto-utama') }}">
+                        @csrf
+                        <input type="hidden" name="p" :value="lihat.path">
+                        <input type="hidden" name="kembali" value="{{ $path }}">
+                        <button type="submit" :disabled="lihat.jenis !== 'gambar'" class="w-full flex flex-col items-center gap-1 py-3 text-yellow-300 active:bg-white/10 disabled:opacity-30"><span class="text-lg">⭐</span>Utama</button>
+                    </form>
+                @endif
                 @if ($soAktif)
                     <form method="POST" action="{{ route('cs.galeri.tautkan') }}">
                         @csrf

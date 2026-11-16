@@ -131,6 +131,42 @@ class LangkahDesainTest extends TestCase
         $this->assertSame(0, $this->langkah($op, 2)->timeLogs()->count(), 'Tanpa timer.');
     }
 
+    public function test_tempel_barang_wajib_foto_masuk_tahap_foto_sebelum_selesai(): void
+    {
+        $so = $this->so(['paid_amount' => 450000]);
+        Product::whereKey($so->items->first()->product_id)->update(['sku' => 'CS5']); // SKU custom asli: tepat 3 huruf
+        $op = $this->op($so, [(string) $this->cnc->id, 'desain:tempel', (string) $this->asm->id], ['status' => 'in_progress']);
+        $this->selesai($this->langkah($op, 1));
+        $meja = app(MejaKerjaService::class);
+        $meja->sinkron();
+        $t = Task::where('skill', 'langkah-desain')->firstOrFail();
+        $jawab = fn (string $k) => $this->actingAs($this->desainer)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => $k]);
+
+        $jawab('selesai')->assertSessionHas('success');
+        $t->refresh();
+        $this->assertSame('completed', $this->langkah($op, 2)->status, 'Langkah OP tetap ditutup — produksi lanjut.');
+        $this->assertNotSame('done', $t->status);
+        $this->assertSame('Foto produk', MejaKerjaService::jenisKartu($t, $meja->skill('langkah-desain'))['jenis']);
+        $this->assertSame(route('cs.galeri', ['so' => $so->id]), collect($meja->skill('langkah-desain')->aksi($t))->firstWhere('utama')['url']);
+
+        $meja->sinkron();
+        $this->assertNotSame('done', $t->fresh()->status, 'Sinkron tak menutup kartu tahap foto.');
+        $jawab('foto-selesai')->assertSessionHas('error');
+
+        \App\Modules\Galeri\Models\GaleriKarya::create(['sales_order_id' => $so->id, 'lini' => 'Custom', 'folder' => 'Custom/porto/x']);
+        $dir = sys_get_temp_dir() . '/ld-' . uniqid();
+        mkdir($dir . '/Custom/porto/x', 0775, true);
+        file_put_contents($dir . '/Custom/porto/x/a.jpg', 'x');
+        config(['galeri.root' => $dir, 'galeri.wajib_mount' => false]);
+        app()->forgetInstance(\App\Modules\Galeri\Services\GaleriService::class);
+        app()->forgetInstance(\App\Modules\Galeri\Services\FotoProdukService::class);
+        app(\App\Modules\Galeri\Services\FotoProdukService::class)->tautkan('Custom/porto/x/a.jpg', $so->id);
+
+        $jawab('foto-selesai')->assertSessionHas('success');
+        $this->assertSame('done', $t->fresh()->status);
+        \Illuminate\Support\Facades\File::deleteDirectory($dir);
+    }
+
     public function test_desain_di_akhir_menutup_op_dengan_qty_rencana(): void
     {
         $op = $this->op($this->so(), [(string) $this->cnc->id, (string) $this->asm->id, 'desain:tempel'], ['status' => 'in_progress']);

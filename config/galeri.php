@@ -38,6 +38,24 @@ return [
     // produk standar buatan per pesanan (mis. Box Charger), yang tak perlu difoto ulang.
     'sku_custom' => ['CS_'],
 
+    // Pola SKU (LIKE) yang WAJIB difoto sebelum kartu desain/cetak-tempel ditutup (keputusan
+    // 16 Nov 2026): Kotak Saran, Box Charger, custom CS1–CS6. NM cetak & FF cetak foto tidak.
+    'wajib_foto' => ['KS-%', 'BC-%', 'CS_'],
+
+    // Folder foto pesanan: <lini>/<folder_porto>/<nomor SO + instansi>.
+    'folder_porto' => 'porto',
+
+    // Awalan SKU → folder lini di akar NAS (ditawarkan lebih dulu; admin tetap bisa memilih lain).
+    'lini_sku' => [
+        'KS-' => 'Kotak Saran', 'BC-' => 'BC', 'NM-' => 'Nama Meja', 'TB' => 'Tempat Brosur',
+        'AM-' => 'AM - Akrilik Mahar', 'FF-' => 'frame foto', 'RP-' => 'Rak Pulpen', 'TS-' => 'Tempat tisu',
+        'TH-' => 'Tent Holder', 'KN-' => 'Kartu Nama',
+    ],
+
+    // Usulan isian "Jenis produk" (boleh diketik bebas).
+    'jenis_produk' => ['Kotak Saran', 'Box Charger', 'Plakat', 'Papan Nama', 'Akrilik Sign', 'Display',
+        'Tempat Brosur', 'Nama Meja', 'Frame', 'Box Akrilik', 'Lainnya'],
+
     // Disk server: thumbnail & potongan unggahan.
     'thumb_dir' => storage_path('app/galeri-thumbs'),
     'tmp_dir'   => storage_path('app/galeri-tmp'),

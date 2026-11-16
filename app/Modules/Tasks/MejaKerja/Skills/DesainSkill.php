@@ -2,10 +2,12 @@
 
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
+use App\Models\User;
 use App\Modules\CRM\Services\ChatPesananService;
 use App\Modules\POS\Services\FulfillmentReadinessService;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
+use App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban;
 use App\Modules\Tasks\MejaKerja\Contracts\SkillAdmin;
 use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
 use App\Modules\Tasks\Models\Task;
@@ -17,12 +19,13 @@ use Illuminate\Support\Facades\DB;
  * produknya = pola SKU yang diatur admin di halaman Pengaturan skill (bawaan: semua KS & BC,
  * NM cetak, FF cetak foto). ±12–16 per hari (data Jul–Okt 2026), 97% marketplace.
  *
- * Selesai ditandai admin (desain disetujui pembeli). Otomatis selesai bila pesanan sudah
+ * Tahap kartu (16 Nov 2026): Desain disetujui pembeli → Print & tempel stiker → Foto (hanya
+ * barang wajib foto: KS, BC — lihat TahapFoto) → selesai. Otomatis selesai bila pesanan sudah
  * dikirim, batal bila SO di-void.
  */
-class DesainSkill implements SkillAdmin
+class DesainSkill implements SkillAdmin, PunyaJawaban
 {
-    use JadiSkillManajer;
+    use JadiSkillManajer, TahapFoto;
 
     /** Pola SKU (LIKE) bawaan sebelum admin mengubahnya. */
     public const POLA_SKU = ['KS-%', 'BC-%', 'NM-%TXT', 'FF-%Foto%'];
@@ -145,9 +148,39 @@ class DesainSkill implements SkillAdmin
         if (!$so || $so->status === 'void') return ['cancelled', 'Pesanan dibatalkan.'];
         if ($so->desain_gambar) return ['cancelled', 'Diserahkan ke Desain gambar (kartu terpisah).'];
         if (DB::table('sales_deliveries')->where('sales_order_id', $task->taskable_id)->where('status', 'posted')->exists()) {
-            return ['done', 'Otomatis: pesanan sudah dikirim.'];
+            return ['done', $this->tahap($task) === 'foto' ? 'Otomatis: pesanan dikirim sebelum difoto.' : 'Otomatis: pesanan sudah dikirim.'];
         }
         return null;
+    }
+
+    /** Tombol per tahap. Kartu yang belum dimulai belum punya jawaban (Mulai dulu). */
+    public function jawaban(Task $task): array
+    {
+        if ($task->status === 'open') return [];
+
+        return match ($this->tahap($task)) {
+            'cetak' => [['kunci' => 'cetak-ok', 'label' => '✓ Print & tempel selesai', 'utama' => true]],
+            'foto'  => $this->jawabanFoto(),
+            default => [['kunci' => 'desain-ok', 'label' => '✓ Desain disetujui', 'utama' => true]],
+        };
+    }
+
+    public function jawab(Task $task, string $kunci, User $u): string
+    {
+        $no = ($task->meta ?? [])['order_number'] ?? 'Pesanan';
+
+        if ($kunci === 'desain-ok') {
+            $this->keTahap($task, 'cetak');
+            return "$no: desain disetujui — lanjut print & tempel stiker.";
+        }
+        if ($kunci === 'cetak-ok') {
+            return $this->lanjutKeFotoAtauSelesai($task, $u, (int) $task->taskable_id, 'Desain, print & tempel selesai')
+                ? "$no: print & tempel selesai — tinggal foto produknya."
+                : "$no: selesai.";
+        }
+
+        return $this->jawabFoto($task, $kunci, $u, (int) $task->taskable_id)
+            ?? throw new \RuntimeException('Jawaban tidak dikenal.');
     }
 
     /**
@@ -159,6 +192,10 @@ class DesainSkill implements SkillAdmin
     {
         $m = $task->meta ?? [];
         $aksi = [['label' => 'Lihat SO', 'url' => route('sales.orders.show', $task->taskable_id)]];
+        if ($this->tahap($task) === 'foto') {
+            // Tahap foto: tak perlu chat lagi — tombol pokoknya membuka Galeri untuk pesanan ini.
+            return [$this->aksiFoto((int) $task->taskable_id), ...$aksi];
+        }
         $no = (string) ($m['no_marketplace'] ?? '');
         $shopee = str_starts_with($no, 'SP-');
         $chat = app(ChatPesananService::class)->untuk([(int) $task->taskable_id => $no])[(int) $task->taskable_id];
@@ -188,5 +225,6 @@ class DesainSkill implements SkillAdmin
         return $aksi;
     }
 
-    public function selesaiManual(): bool { return true; }
+    /** Ditutup lewat jawaban per tahap (desain → print & tempel → foto). */
+    public function selesaiManual(): bool { return false; }
 }

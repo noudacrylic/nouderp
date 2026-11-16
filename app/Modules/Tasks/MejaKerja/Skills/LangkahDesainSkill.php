@@ -3,6 +3,7 @@
 namespace App\Modules\Tasks\MejaKerja\Skills;
 
 use App\Models\User;
+use App\Modules\Galeri\Services\FotoProdukService;
 use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Production\Models\ProductionOrderStep;
 use App\Modules\Production\Services\ProductionOrderService;
@@ -29,7 +30,7 @@ use Illuminate\Support\Facades\Schema;
  */
 class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
 {
-    use JadiSkillManajer;
+    use JadiSkillManajer, TahapFoto;
 
     private const PERINGATAN = '⚠️ ';
 
@@ -92,7 +93,24 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
         if (!$step || !$step->productionOrder || in_array($step->productionOrder->status, ['cancelled', 'merged'], true)) {
             return ['cancelled', 'OP dibatalkan/digabung atau langkahnya dihapus.'];
         }
-        if ($step->status === 'completed') return ['done', 'Langkah Desain di OP sudah ditutup.'];
+        // Tahap foto: langkah OP sudah ditutup, kartu menunggu foto produknya.
+        if ($this->tahap($task) === 'foto') {
+            $soId = $step->productionOrder->sales_order_id;
+            if ($soId && DB::table('sales_deliveries')->where('sales_order_id', $soId)->where('status', 'posted')->exists()) {
+                return ['done', 'Otomatis: pesanan dikirim sebelum difoto.'];
+            }
+            return null;
+        }
+        if ($step->status === 'completed') {
+            // Ditutup dari halaman OP: barang tempel sendiri yang wajib difoto tetap masuk tahap foto.
+            $soId = $step->productionOrder->sales_order_id;
+            $foto = app(FotoProdukService::class);
+            if ($step->desain === 'tempel' && $soId && $foto->wajibFoto($soId) && $foto->kekuranganFoto($soId)) {
+                $this->keTahap($task, 'foto');
+                return null;
+            }
+            return ['done', 'Langkah Desain di OP sudah ditutup.'];
+        }
         if (!$step->isDesain()) return ['cancelled', 'Langkah bukan lagi langkah Desain.'];
 
         // Tanda ⚠️ dilepas begitu gambar disetujui (kartu desain gambarnya ditutup).
@@ -105,7 +123,16 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
 
     public function aksi(Task $task): array
     {
-        return [['label' => 'Lihat OP', 'url' => route('production.orders.show', $task->taskable_id)]];
+        $op = ['label' => 'Lihat OP', 'url' => route('production.orders.show', $task->taskable_id)];
+        $soId = $this->soId($task);
+
+        return $this->tahap($task) === 'foto' && $soId ? [$this->aksiFoto($soId), $op] : [$op];
+    }
+
+    private function soId(Task $task): ?int
+    {
+        $id = DB::table('production_orders')->where('id', $task->taskable_id)->value('sales_order_id');
+        return $id ? (int) $id : null;
     }
 
     /** Ditutup lewat jawaban — yang juga menutup langkah OP-nya. */
@@ -113,6 +140,8 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
 
     public function jawaban(Task $task): array
     {
+        if ($this->tahap($task) === 'foto') return $this->jawabanFoto();
+
         $step = ProductionOrderStep::find((int) (($task->meta ?? [])['step_id'] ?? 0));
         if (!$step || $step->status === 'completed') return [];
 
@@ -121,16 +150,33 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
 
     public function jawab(Task $task, string $kunci, User $u): string
     {
+        $soId = $this->soId($task);
+        if ($this->tahap($task) === 'foto') {
+            return $this->jawabFoto($task, $kunci, $u, (int) $soId) ?? throw new \RuntimeException('Jawaban tidak dikenal.');
+        }
+
         $stepId = (int) (($task->meta ?? [])['step_id'] ?? 0);
+        $step = ProductionOrderStep::find($stepId);
         try {
             $terakhir = app(ProductionOrderService::class)->selesaikanLangkahDesain($stepId, "Ditutup {$u->name} dari Meja Kerja");
         } catch (\Exception $e) {
             throw new \RuntimeException($e->getMessage());
         }
-        app(MejaKerjaService::class)->ubahStatus($task, 'done', $u, 'Langkah Desain OP ditutup');
 
         $no = ($task->meta ?? [])['order_number'] ?? 'OP';
-        return $terakhir ? "$no: langkah Desain selesai — OP menunggu finalisasi." : "$no: langkah Desain selesai, produksi lanjut ke langkah berikutnya.";
+        $lanjut = $terakhir ? 'OP menunggu finalisasi' : 'produksi lanjut ke langkah berikutnya';
+
+        // Tempel sendiri → barang sudah berstiker, langsung difoto. Cetak saja → ditempel Assembling,
+        // fotonya lewat kartu Foto custom sesudah OP selesai.
+        if ($step?->desain === 'tempel'
+            && $this->lanjutKeFotoAtauSelesai($task, $u, $soId, 'Langkah Desain OP ditutup')) {
+            return "$no: langkah Desain selesai ($lanjut) — tinggal foto produknya.";
+        }
+        if ($step?->desain !== 'tempel') {
+            app(MejaKerjaService::class)->ubahStatus($task, 'done', $u, 'Langkah Desain OP ditutup');
+        }
+
+        return "$no: langkah Desain selesai — $lanjut.";
     }
 
     private function judul(ProductionOrderStep $step, ProductionOrder $op): string

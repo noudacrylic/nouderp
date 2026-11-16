@@ -175,6 +175,22 @@ class GaleriService
         return $rel;
     }
 
+    /** Folder bertingkat dibuat bila belum ada (seperti mkdir -p); mengembalikan path relatifnya. */
+    public function pastikanFolder(string $rel): string
+    {
+        $this->pastikanTersambung();
+        $jadi = '';
+        foreach (explode('/', $this->normalisasi($rel)) as $seg) {
+            if ($seg === '') continue;
+            $jadi = ltrim($jadi . '/' . $this->namaAman($seg), '/');
+            if (is_dir($this->abs($jadi))) continue;
+            if (file_exists($this->abs($jadi)) || ! @mkdir($this->abs($jadi), 0775)) {
+                throw new GaleriException("Folder \"{$jadi}\" gagal dibuat.");
+            }
+        }
+        return $jadi;
+    }
+
     /** Ganti nama. Untuk berkas, ekstensi lama dipertahankan bila tidak ditulis. */
     public function gantiNama(string $rel, string $namaBaru): string
     {

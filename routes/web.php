@@ -1799,6 +1799,8 @@ Route::prefix('cs')->name('cs.')->group(function () {
             Route::post('/pindah',     'pindah')->name('.pindah');
             Route::post('/hapus',      'hapus')->name('.hapus');
             Route::post('/tautkan',    'tautkan')->name('.tautkan');
+            Route::post('/karya',      'simpanKarya')->name('.karya');
+            Route::post('/foto-utama', 'fotoUtama')->name('.foto-utama');
             Route::post('/unggah',     'unggah')->name('.unggah');
         });
 

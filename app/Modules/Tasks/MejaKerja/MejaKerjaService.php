@@ -63,6 +63,7 @@ class MejaKerjaService
         'Tugas'              => 'bg-slate-200 text-slate-800',
         'Desain pesanan'     => 'bg-fuchsia-100 text-fuchsia-800',
         'Foto custom'        => 'bg-pink-100 text-pink-800',
+        'Foto produk'        => 'bg-pink-100 text-pink-800',
         'Cetak stiker'       => 'bg-violet-100 text-violet-800',
         'QC'                 => 'bg-teal-100 text-teal-800',
         'Purchasing'         => 'bg-amber-100 text-amber-800',
@@ -130,9 +131,12 @@ class MejaKerjaService
 
         if ($s->key() === 'bayar-owner' && $t->status === 'pending') return ['jenis' => 'Hutang tempo', 'isi' => $t->title];
 
+        // Kartu bertahap (TahapFoto): lencana mengikuti tahap yang sedang berjalan.
+        $jenisTahap = ['cetak' => 'Cetak stiker', 'foto' => 'Foto produk'][($t->meta ?? [])['tahap'] ?? ''] ?? null;
+
         // "Desain SO-1 — KS-K1, KS-K2" → "KS-K1, KS-K2 nomor SO-1"
         if ($s->key() === 'desain' && preg_match('/^Desain (.+?) — (.+)$/u', $t->title, $m)) {
-            return ['jenis' => 'Desain pesanan', 'isi' => "{$m[2]} nomor {$m[1]}" . ($pelanggan ? " — {$pelanggan}" : '')];
+            return ['jenis' => $jenisTahap ?? 'Desain pesanan', 'isi' => "{$m[2]} nomor {$m[1]}" . ($pelanggan ? " — {$pelanggan}" : '')];
         }
 
         [$awalan, $buang] = self::AWALAN_JUDUL[$s->key()] ?? [$s->label(), ''];
@@ -145,7 +149,7 @@ class MejaKerjaService
             }
         }
 
-        return ['jenis' => $awalan, 'isi' => $peringatan . $sisa];
+        return ['jenis' => $jenisTahap ?? $awalan, 'isi' => $peringatan . $sisa];
     }
 
     /**
