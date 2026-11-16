@@ -93,20 +93,32 @@ class SaranAiService
      * Percakapan yang menunggu saran: pesan masuk terakhir 30 detik – 24 jam lalu,
      * belum dibalas manusia, dan pesan itu belum punya saran.
      *
-     * WhatsApp tidak disaring lewat last_outbound_at: sambutan otomatis ikut mengisinya.
-     * Yang memutuskan sudah dibalas atau belum di sana adalah pesanTerakhir().
+     * WhatsApp (WAHA) tidak mengisi last_inbound_at, dan last_outbound_at-nya ikut terisi sambutan
+     * otomatis — jadi di sana yang dipakai last_message_at, dan yang memutuskan sudah dibalas
+     * atau belum adalah pesanTerakhir(). Dua kueri terpisah, bukan satu OR bersyarat.
      *
      * @return Collection<int, CrmConversation>
      */
     public function calon(int $batas = 10): Collection
     {
-        return CrmConversation::whereIn('channel', $this->kanalAktif())
-            ->whereBetween('last_inbound_at', [now()->subHours(self::BATAS_JAM), now()->subSeconds(self::JEDA_DETIK)])
-            ->where(fn ($q) => $q->where('channel', CrmConversation::KANAL_CERMIN)
-                ->orWhereNull('last_outbound_at')->orWhereColumn('last_outbound_at', '<', 'last_inbound_at'))
-            ->orderByDesc('last_inbound_at')
-            ->limit($batas * 5)
-            ->get()
+        $rentang = [now()->subHours(self::BATAS_JAM), now()->subSeconds(self::JEDA_DETIK)];
+        $kanal   = $this->kanalAktif();
+
+        $shopee = in_array(CrmConversation::KANAL_SHOPEE, $kanal, true)
+            ? CrmConversation::where('channel', CrmConversation::KANAL_SHOPEE)
+                ->whereBetween('last_inbound_at', $rentang)
+                ->where(fn ($q) => $q->whereNull('last_outbound_at')->orWhereColumn('last_outbound_at', '<', 'last_inbound_at'))
+                ->orderByDesc('last_inbound_at')->limit($batas * 3)->get()
+            : collect();
+
+        $wa = in_array(CrmConversation::KANAL_CERMIN, $kanal, true)
+            ? CrmConversation::where('channel', CrmConversation::KANAL_CERMIN)
+                ->whereBetween('last_message_at', $rentang)
+                ->orderByDesc('last_message_at')->limit($batas * 3)->get()
+            : collect();
+
+        return $shopee->concat($wa)
+            ->sortByDesc(fn (CrmConversation $c) => ($c->last_inbound_at ?? $c->last_message_at)?->timestamp)
             ->filter(fn (CrmConversation $c) => ($m = $this->pesanTerakhir($c))
                 && !CrmSaranAi::where('untuk_message_id', $m->id)->exists()
                 && !$this->lampiranMasihDiunduh($m))

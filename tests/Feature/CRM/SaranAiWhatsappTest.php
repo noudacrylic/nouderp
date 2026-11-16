@@ -45,7 +45,9 @@ class SaranAiWhatsappTest extends TestCase
         $c = CrmConversation::findOrCreateFor('6281234567890', CrmConversation::KANAL_CERMIN);
         $this->pesan($c, CrmMessage::MASUK, $isi, now()->subMinutes(2));
         $this->pesan($c, CrmMessage::KELUAR, self::SAMBUTAN, now()->subMinutes(2)->addSeconds(2), CrmMessage::SOURCE_WHATSAPP_APP);
-        $c->forceFill(['last_inbound_at' => now()->subMinutes(2), 'last_outbound_at' => now()->subMinutes(2)->addSeconds(2)])->save();
+        // Seperti data WAHA sungguhan: last_inbound_at TIDAK diisi kanal ini (hanya kanal resmi/Shopee).
+        $c->forceFill(['last_inbound_at' => null, 'last_outbound_at' => now()->subMinutes(2)->addSeconds(2),
+            'last_message_at' => now()->subMinutes(2)->addSeconds(2)])->save();
 
         return $c;
     }
