@@ -169,6 +169,17 @@
         $mulaiPayload['tombol']     = '▶ Lanjutkan Sekarang';
     }
 
+    // Langkah CNC: operator memilih merk akrilik saat Mulai (boleh campur; di tengah jalan tak berganti).
+    $mulaiPayload['butuh_merk'] = !$tanpaPelaksana && $panel === 'pending' && $step->butuhMerkAkrilik() && !empty($merkAkrilik);
+    $mulaiPayload['merk']       = $order->merk_bahan ?: ($merkTerakhir ?? []);
+
+    // Merk OP bisa dibetulkan dari kartu mana pun (mis. Assembling melihat CNC salah pilih).
+    $merkPayload = [
+        'action_url'   => route('production.process.steps.merk', $step->id),
+        'order_number' => $order->order_number,
+        'merk'         => $order->merk_bahan ?? [],
+    ];
+
     // Oper tugas ke pelaksana lain — diajukan, diputus owner lewat Telegram.
     $gantiMenunggu = in_array($step->id, $pergantianMenunggu ?? [], true);
     $sekarangIds   = $step->executors->pluck('id')->all();
@@ -193,7 +204,8 @@
          mulaiData: {{ Js::from($mulaiPayload) }},
          gantiData: {{ Js::from($gantiPayload) }},
          catatanData: {{ Js::from($catatanPayload) }},
-         pendingData: {{ Js::from($pendingPayload) }}
+         pendingData: {{ Js::from($pendingPayload) }},
+         merkData: {{ Js::from($merkPayload) }}
      }">
 
     {{-- Row 1: queue/step number + PRODUCT NAME · SKU + (sub) step name + PO + type --}}
@@ -305,6 +317,11 @@
                 </span>
             @endif
             <span class="text-gray-400">Langkah {{ $step->step_number }}: <span class="font-semibold text-gray-600">{{ $step->name }}</span></span>
+            @if(!empty($order->merk_bahan))
+                <button type="button" @click="$dispatch('open-merk', merkData)"
+                        class="bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded font-bold hover:bg-sky-100"
+                        title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ implode(' + ', $order->merk_bahan) }}</button>
+            @endif
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
             @endif
@@ -315,6 +332,11 @@
                     : $step->executor?->name;
             @endphp
             <span class="text-gray-400">Langkah {{ $step->step_number }}: <span class="font-semibold text-gray-600">{{ $step->name }}</span></span>
+            @if(!empty($order->merk_bahan))
+                <button type="button" @click="$dispatch('open-merk', merkData)"
+                        class="bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded font-bold hover:bg-sky-100"
+                        title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ implode(' + ', $order->merk_bahan) }}</button>
+            @endif
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
             @endif

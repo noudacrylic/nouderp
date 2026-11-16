@@ -15,6 +15,8 @@ class ProductionSetting extends Model
         'score_period_end',
         'testing_mode',
         'alasan_pending_wajib',
+        'merk_akrilik',
+        'merk_akrilik_wajib',
     ];
 
     protected $casts = [
@@ -23,6 +25,8 @@ class ProductionSetting extends Model
         'score_period_end'   => 'date',
         'testing_mode'       => 'boolean',
         'alasan_pending_wajib' => 'boolean',
+        'merk_akrilik'       => 'array',
+        'merk_akrilik_wajib' => 'boolean',
     ];
 
     /** Mode testing aktif → start/lanjut task tidak butuh scan sidik jari. */
@@ -35,6 +39,18 @@ class ProductionSetting extends Model
     public static function isAlasanPendingWajib(): bool
     {
         return (bool) (static::first()?->alasan_pending_wajib ?? false);
+    }
+
+    /** Daftar merk akrilik yang bisa dipilih operator CNC saat Mulai. */
+    public static function daftarMerkAkrilik(): array
+    {
+        return array_values(static::first()?->merk_akrilik ?? []);
+    }
+
+    /** Mulai langkah CNC wajib memilih merk akrilik. */
+    public static function isMerkAkrilikWajib(): bool
+    {
+        return (bool) (static::first()?->merk_akrilik_wajib ?? false);
     }
 
     public static function getSalesPeriod(): int

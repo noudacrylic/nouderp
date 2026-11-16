@@ -415,6 +415,27 @@ class BomController extends Controller
             : 'Alasan Pause dimatikan — Pause langsung tanpa alasan.');
     }
 
+    /**
+     * Daftar merk akrilik (dipilih operator CNC saat Mulai) + sakelar wajib.
+     * Satu nama per baris; merk dihapus dari daftar tidak mengubah OP lama.
+     */
+    public function updateMerkAkrilik(Request $request)
+    {
+        $request->validate(['daftar' => 'nullable|string|max:2000']);
+
+        $daftar = collect(preg_split('/\r\n|\r|\n|,/', (string) $request->input('daftar')))
+            ->map(fn ($m) => mb_substr(trim($m), 0, 50))->filter()
+            ->unique(fn ($m) => mb_strtolower($m))->values()->all();
+
+        $setting = ProductionSetting::first() ?? new ProductionSetting(['score_sales_period' => 1]);
+        $setting->merk_akrilik       = $daftar;
+        $setting->merk_akrilik_wajib = $request->boolean('merk_akrilik_wajib') && $daftar;
+        $setting->save();
+
+        return back()->with('success', 'Merk akrilik disimpan (' . count($daftar) . ' merk'
+            . ($setting->merk_akrilik_wajib ? ', wajib dipilih saat Mulai CNC' : '') . ').');
+    }
+
     /** Trigger manual: hitung ulang score semua BOM aktif (logic di BomScoreService). */
     public function recalculate(BomScoreService $scoreService)
     {

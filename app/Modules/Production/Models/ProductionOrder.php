@@ -12,6 +12,7 @@ class ProductionOrder extends Model
         'repair_source_type', 'repair_source_ref', 'repair_source_id',
         'score_type', 'priority_level',
         'status', 'created_via', 'kv_skill', 'merged_into_id', 'finalized_at', 'notes', 'description', 'image_paths',
+        'merk_bahan',
     ];
 
     protected $casts = [
@@ -20,6 +21,7 @@ class ProductionOrder extends Model
         'planned_cycles'  => 'decimal:4',
         'planned_qty'     => 'decimal:4',
         'image_paths'     => 'array',
+        'merk_bahan'      => 'array',   // merk akrilik dipilih operator CNC saat Mulai
     ];
 
     /**

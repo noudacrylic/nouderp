@@ -156,6 +156,30 @@
                 </label>
             </form>
         </div>
+
+        {{-- Merk akrilik (dipilih operator CNC saat Mulai) --}}
+        <div class="bg-white border rounded-2xl shadow-sm p-5 {{ ($setting->merk_akrilik_wajib ?? false) ? 'border-sky-300' : 'border-gray-100' }}">
+            <form action="{{ route('production.settings.merk-akrilik.update') }}" method="POST">
+                @csrf
+                <span class="block font-bold text-gray-700 text-sm">Merk Akrilik</span>
+                <span class="block text-[11px] text-gray-500 mt-1 mb-3 leading-relaxed">
+                    Operator CNC memilih merk yang dipakai saat menekan <b>Mulai</b> (boleh lebih dari 1).
+                    Tidak perlu ubah BOM saat ganti merk. Dasar membandingkan lama kerja per merk di penilaian.
+                    Satu merk per baris.
+                </span>
+                <textarea name="daftar" rows="6"
+                          class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300">{{ implode("\n", $setting->merk_akrilik ?? []) }}</textarea>
+                <label class="flex items-center gap-2 mt-3 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" name="merk_akrilik_wajib" value="1" class="w-4 h-4 rounded accent-sky-600"
+                           {{ ($setting->merk_akrilik_wajib ?? false) ? 'checked' : '' }}>
+                    <span><b>Wajib</b> dipilih saat Mulai langkah CNC</span>
+                </label>
+                <button type="submit"
+                        class="mt-3 w-full bg-sky-600 hover:bg-sky-700 text-white py-2 rounded-xl text-sm font-bold transition">
+                    Simpan Merk
+                </button>
+            </form>
+        </div>
       </div>
 
       {{-- Kolom kanan: Bahan Baku + Produk Sampingan (by-product) --}}

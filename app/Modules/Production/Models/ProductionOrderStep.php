@@ -70,6 +70,12 @@ class ProductionOrderStep extends Model
         return $this->belongsTo(Department::class);
     }
 
+    /** Langkah divisi CNC → operator memilih merk akrilik saat Mulai. */
+    public function butuhMerkAkrilik(): bool
+    {
+        return !$this->desain && str_starts_with(strtoupper((string) $this->department?->name), 'CNC');
+    }
+
     public function executor()
     {
         return $this->belongsTo(DepartmentExecutor::class);

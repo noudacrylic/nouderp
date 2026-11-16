@@ -826,12 +826,22 @@ class ProductionOrderService
     /**
      * Mulai proses — mendukung 1 atau lebih operator mengerjakan step bersamaan.
      * $force=true → bypass scan check (untuk override saat mesin fingerprint rusak). Audit di notes step.
+     * $merk = merk akrilik yang dipakai (langkah CNC saja; boleh campur) → production_orders.merk_bahan.
+     *         null = tidak dikirim (pemanggil internal) → merk OP tidak diubah. Gagal Mulai → ikut rollback.
      */
-    public function startStep(int $stepId, array $executorIds = [], bool $force = false): void
+    public function startStep(int $stepId, array $executorIds = [], bool $force = false, ?array $merk = null): void
     {
-        DB::transaction(function () use ($stepId, $executorIds, $force) {
-            $step = ProductionOrderStep::with('productionOrder')->lockForUpdate()->findOrFail($stepId);
+        DB::transaction(function () use ($stepId, $executorIds, $force, $merk) {
+            $step = ProductionOrderStep::with(['productionOrder', 'department'])->lockForUpdate()->findOrFail($stepId);
             $order = $step->productionOrder;
+
+            if ($step->butuhMerkAkrilik()) {
+                $merk = $this->validasiMerkAkrilik($merk, $order);
+                if ($merk !== null) {
+                    $order->merk_bahan = $merk;
+                    $order->save();
+                }
+            }
 
             $testing = \App\Models\ProductionSetting::isTestingMode();
 
@@ -1034,6 +1044,53 @@ class ProductionOrderService
 
             $qc->qc_diminta_at ??= now();
             $qc->save();
+        });
+    }
+
+    /**
+     * Merk akrilik langkah CNC: harus dari daftar Pengaturan Produksi; wajib bila sakelar nyala
+     * (kecuali OP sudah punya merk, mis. CNC kedua setelah Assembling). Urutan mengikuti daftar.
+     */
+    private function validasiMerkAkrilik(?array $merk, ProductionOrder $order): ?array
+    {
+        if ($merk === null && !\App\Models\ProductionSetting::isMerkAkrilikWajib()) {
+            return null;
+        }
+        $daftar = \App\Models\ProductionSetting::daftarMerkAkrilik();
+        $merk   = array_values(array_unique(array_filter(array_map('trim', (array) $merk), 'strlen')));
+
+        $asing = array_diff($merk, $daftar);
+        if ($asing) {
+            throw new Exception('Merk akrilik tidak dikenal: ' . implode(', ', $asing) . '.');
+        }
+        if (!$merk) {
+            if (\App\Models\ProductionSetting::isMerkAkrilikWajib() && empty($order->merk_bahan)) {
+                throw new Exception('Pilih dulu merk akrilik yang dipakai.');
+            }
+            return null;
+        }
+
+        return array_values(array_intersect($daftar, $merk));
+    }
+
+    /** Betulkan merk akrilik OP lewat kartu langkah mana pun milik OP itu. Jejak di log aplikasi. */
+    public function ubahMerkBahan(int $stepId, array $merk): void
+    {
+        DB::transaction(function () use ($stepId, $merk) {
+            $order = ProductionOrderStep::findOrFail($stepId)->productionOrder()->lockForUpdate()->firstOrFail();
+            $baru  = $this->validasiMerkAkrilik($merk, $order);
+            if ($baru === null) {
+                throw new Exception('Pilih minimal satu merk.');
+            }
+            $lama = $order->merk_bahan ?? [];
+            if ($lama === $baru) {
+                return;
+            }
+            $order->merk_bahan = $baru;
+            $order->save();
+            \Illuminate\Support\Facades\Log::info('Merk akrilik OP dibetulkan', [
+                'op' => $order->order_number, 'lama' => $lama, 'baru' => $baru, 'oleh' => auth()->user()?->name,
+            ]);
         });
     }
 

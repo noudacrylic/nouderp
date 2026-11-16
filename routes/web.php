@@ -1462,6 +1462,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('settings/raw-materials', [\App\Modules\Production\Controllers\BomController::class, 'updateRawMaterialSettings'])->name('settings.raw-materials.update');
     Route::post('settings/testing-mode', [\App\Modules\Production\Controllers\BomController::class, 'updateTestingMode'])->name('settings.testing.update');
     Route::post('settings/alasan-pending', [\App\Modules\Production\Controllers\BomController::class, 'updateAlasanPending'])->name('settings.alasan-pending.update');
+    Route::post('settings/merk-akrilik', [\App\Modules\Production\Controllers\BomController::class, 'updateMerkAkrilik'])->name('settings.merk-akrilik.update');
 
     // Production Orders
     Route::get('ajax/repair-sources', [\App\Modules\Production\Controllers\ProductionOrderController::class, 'getRepairSources'])->name('ajax.repair-sources');
@@ -1526,6 +1527,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('process/steps/{id}/start',    [\App\Modules\Production\Controllers\ProductionProcessController::class, 'startStep'])->name('process.steps.start');
     Route::post('process/steps/{id}/revert',   [\App\Modules\Production\Controllers\ProductionProcessController::class, 'revertStep'])->name('process.steps.revert');
     Route::post('process/steps/{id}/minta-qc', [\App\Modules\Production\Controllers\ProductionProcessController::class, 'mintaQc'])->name('process.steps.minta-qc');
+    Route::post('process/steps/{id}/merk',     [\App\Modules\Production\Controllers\ProductionProcessController::class, 'ubahMerk'])->name('process.steps.merk');
     Route::post('process/steps/{id}/pause',    [\App\Modules\Production\Controllers\ProductionProcessController::class, 'pauseStep'])->name('process.steps.pause');
     Route::post('process/steps/{id}/resume',   [\App\Modules\Production\Controllers\ProductionProcessController::class, 'resumeStep'])->name('process.steps.resume');
     Route::post('process/steps/{id}/complete', [\App\Modules\Production\Controllers\ProductionProcessController::class, 'completeStep'])->name('process.steps.complete');

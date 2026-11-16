@@ -109,6 +109,13 @@ class ProductionProcessController extends Controller
         $testingMode = \App\Models\ProductionSetting::isTestingMode();
         $alasanPendingWajib = \App\Models\ProductionSetting::isAlasanPendingWajib();
 
+        // Merk akrilik (langkah CNC): daftar dari Pengaturan Produksi; isian awal = merk OP itu
+        // sendiri, atau merk yang terakhir dipilih operator CNC (stok yang sedang dipakai).
+        $merkAkrilik      = \App\Models\ProductionSetting::daftarMerkAkrilik();
+        $merkAkrilikWajib = \App\Models\ProductionSetting::isMerkAkrilikWajib();
+        $merkTerakhir     = array_values(array_intersect($merkAkrilik, (array) (\App\Modules\Production\Models\ProductionOrder::whereNotNull('merk_bahan')
+            ->latest('updated_at')->value('merk_bahan') ?? [])));
+
         // Langkah yang pergantian pelaksananya masih menunggu persetujuan owner.
         $pergantianMenunggu = \App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan::menunggu()
             ->where('skill', PergantianPelaksanaService::SKILL)
@@ -121,6 +128,7 @@ class ProductionProcessController extends Controller
 
         return view('erp.production.process.index', compact(
             'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode', 'alasanPendingWajib',
+            'merkAkrilik', 'merkAkrilikWajib', 'merkTerakhir',
             'pergantianMenunggu',
             'warehouses', 'defaultWarehouseId'
         ));
@@ -200,11 +208,15 @@ class ProductionProcessController extends Controller
             'executor_ids'   => 'required|array|min:1',
             'executor_ids.*' => 'exists:production_department_executors,id',
             'force'          => 'nullable|boolean',
+            'merk'           => 'nullable|array',
+            'merk.*'         => 'string|max:50',
         ]);
 
         try {
             $force = (bool) $request->input('force', false);
-            $service->startStep($id, $request->executor_ids, $force);
+            // merk_dikirim = form Mulai langkah CNC menampilkan pilihan merk (kosong pun tetap dikirim).
+            $merk  = $request->boolean('merk_dikirim') ? (array) $request->input('merk', []) : null;
+            $service->startStep($id, $request->executor_ids, $force, $merk);
             return back()->with('success', $force ? 'Langkah dimulai (override manual).' : 'Langkah dimulai.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
@@ -226,6 +238,22 @@ class ProductionProcessController extends Controller
         try {
             $service->mintaQcSebagian($id);
             return back()->with('success', 'QC sebagian diminta. Kartu masuk ke Meja Kerja Admin Layanan.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /** Betulkan merk akrilik OP dari kartu langkah (mis. Assembling melihat CNC salah pilih). */
+    public function ubahMerk(Request $request, int $id, ProductionOrderService $service)
+    {
+        $request->validate([
+            'merk'   => 'required|array|min:1',
+            'merk.*' => 'string|max:50',
+        ], ['merk.required' => 'Pilih minimal satu merk.']);
+
+        try {
+            $service->ubahMerkBahan($id, (array) $request->input('merk'));
+            return back()->with('success', 'Merk akrilik diperbarui.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }
