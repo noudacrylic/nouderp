@@ -253,6 +253,13 @@ return [
             'production.qc-toleransi'        => ['label' => 'QC — Toleransi', 'url' => '/erp/production/qc/toleransi', 'route_patterns' => ['production.qc-acuan.toleransi*'], 'hidden' => true],
             'production.material-additions'  => ['label' => 'Penambahan Bahan',  'url' => '/erp/production/material-additions', 'route_patterns' => ['production.material-additions.*']],
             'production.completed'           => ['label' => 'Finalisasi',        'url' => '/erp/production/completed',          'route_patterns' => ['production.completed.*']],
+            // Dasar penilaian kinerja & bonus karyawan produksi — owner saja.
+            'production.waktu-standar'       => ['label' => 'Waktu Standar',     'url' => '/erp/production/waktu-standar',      'route_patterns' => ['production.waktu-standar.*'], 'role_gate' => ['super_admin'],
+                'subtabs' => [
+                    ['label' => 'Waktu Standar', 'url' => '/erp/production/waktu-standar',           'route_patterns' => ['production.waktu-standar.index', 'production.waktu-standar.simpan']],
+                    ['label' => 'Dashboard Penilaian', 'url' => '/erp/production/waktu-standar/penilaian', 'route_patterns' => ['production.waktu-standar.penilaian*']],
+                ],
+            ],
         ],
     ],
 

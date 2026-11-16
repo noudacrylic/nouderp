@@ -1475,6 +1475,13 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::post('perbaikan/kelompok/{id}/batal', [\App\Modules\Production\Controllers\RepairQueueController::class, 'cancelGroup'])->name('perbaikan.kelompok.cancel');
     Route::get('ajax/sales-orders',   [\App\Modules\Production\Controllers\ProductionOrderController::class, 'searchSalesOrders'])->name('ajax.sales-orders');
 
+    // Waktu Standar — menit/pcs per SKU, dasar penilaian kinerja (owner saja, role_gate di menu).
+    Route::get ('waktu-standar', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'index'])->name('waktu-standar.index');
+    Route::post('waktu-standar', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'simpan'])->name('waktu-standar.simpan');
+    Route::get ('waktu-standar/penilaian', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'penilaian'])->name('waktu-standar.penilaian');
+    Route::post('waktu-standar/penilaian/pengaturan', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'simpanParam'])->name('waktu-standar.penilaian.simpan');
+    Route::post('waktu-standar/sampel/{stepId}/coret', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'coretSampel'])->whereNumber('stepId')->name('waktu-standar.sampel.coret');
+
     // QC Timbang — layar timbang (petugas QC) & acuan/toleransi (admin, role_gate di menu).
     Route::get ('qc',                    [\App\Modules\Production\Controllers\QcController::class, 'index'])->name('qc.index');
     Route::post('qc/timbang',            [\App\Modules\Production\Controllers\QcController::class, 'timbang'])->name('qc.timbang');

@@ -17,6 +17,7 @@ class ProductionSetting extends Model
         'alasan_pending_wajib',
         'merk_akrilik',
         'merk_akrilik_wajib',
+        'penilaian_param',
     ];
 
     protected $casts = [
@@ -27,6 +28,7 @@ class ProductionSetting extends Model
         'alasan_pending_wajib' => 'boolean',
         'merk_akrilik'       => 'array',
         'merk_akrilik_wajib' => 'boolean',
+        'penilaian_param'    => 'array',
     ];
 
     /** Mode testing aktif → start/lanjut task tidak butuh scan sidik jari. */
