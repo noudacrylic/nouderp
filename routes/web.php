@@ -263,10 +263,10 @@ Route::prefix('erp')->group(function () {
         // akan menelannya sebagai id percakapan dan membalas 404 yang sunyi.
         Route::get('/daftar-segar', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'daftarSegar'])->name('inbox.daftar-segar');
         Route::get('/pesanan-cari', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'cariPesananTautan'])->name('inbox.pesanan.cari');
-        // Referensi foto produk custom di panel Produk. WAJIB di atas '/{conversation}'.
+        // Tab Foto panel Produk: telusur folder Foto Produk (NAS), hanya lihat. WAJIB di atas '/{conversation}'.
         Route::get('/foto-referensi', [\App\Modules\Galeri\Controllers\FotoReferensiController::class, 'cari'])->name('inbox.foto.cari');
-        Route::get('/foto-referensi/{foto}/thumb', [\App\Modules\Galeri\Controllers\FotoReferensiController::class, 'thumb'])->whereNumber('foto')->name('inbox.foto.thumb');
-        Route::get('/foto-referensi/{foto}/berkas', [\App\Modules\Galeri\Controllers\FotoReferensiController::class, 'berkas'])->whereNumber('foto')->name('inbox.foto.berkas');
+        Route::get('/foto-referensi/thumb', [\App\Modules\Galeri\Controllers\FotoReferensiController::class, 'thumb'])->name('inbox.foto.thumb');
+        Route::get('/foto-referensi/berkas', [\App\Modules\Galeri\Controllers\FotoReferensiController::class, 'berkas'])->name('inbox.foto.berkas');
         // Tombol "Chat" di kartu Pemrosesan Pesanan → chat pembeli pesanan itu.
         Route::get('/pesanan/{order}/chat', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'chatPesanan'])->name('inbox.chat-pesanan');
         Route::post('/tutup-otomatis', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tutupOtomatis'])->name('inbox.tutup-otomatis');

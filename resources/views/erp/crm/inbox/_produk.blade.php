@@ -67,21 +67,65 @@
          PERBANDINGANNYA: mana yang lebih murah, mana yang stoknya ada.
          Sebagai baris di bawah satu nama, jawabannya terbaca sekilas. --}}
     {{-- =============================================================== FOTO --}}
-    {{-- Referensi foto produk custom yang pernah dibuat, tertaut pesanannya (Galeri). Untuk dilihat
-         saat ada pesanan mirip; berkasnya dibuka di tab baru. --}}
+    {{-- Folder Foto Produk di NAS (sama dengan menu Galeri), hanya untuk dilihat: telusuri folder lini/SKU
+         atau ketik nama folder/berkas, nomor pesanan, SKU. Foto custom yang tertaut pesanan membawa nomor
+         pesanan & barangnya. Berkasnya dibuka di tab baru. --}}
     <template x-if="sub === 'foto'">
-        <div class="grid grid-cols-2 gap-2">
-            <template x-for="f in foto" :key="f.id">
-                <a :href="f.url" target="_blank" rel="noopener" class="block border border-gray-200 rounded overflow-hidden hover:border-emerald-500">
-                    <div class="aspect-square bg-gray-100 flex items-center justify-center">
-                        <img :src="f.thumb" alt="" loading="lazy" class="w-full h-full object-cover" x-show="f.jenis !== 'lain'">
+        <div class="space-y-2">
+            <div x-show="!kata" class="flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
+                <button type="button" @click="bukaFolder('')" class="hover:text-emerald-700" :class="folder === '' ? 'font-semibold text-gray-800' : ''">Foto Produk</button>
+                <template x-for="r in remah()" :key="r.path">
+                    <span class="flex items-center gap-1">
+                        <span>›</span>
+                        <button type="button" @click="bukaFolder(r.path)" class="hover:text-emerald-700" :class="r.path === folder ? 'font-semibold text-gray-800' : ''" x-text="r.nama"></button>
+                    </span>
+                </template>
+            </div>
+
+            <div x-show="subfolder.length" class="grid grid-cols-2 gap-1.5">
+                <template x-for="d in subfolder" :key="d.path">
+                    <button type="button" @click="kata = ''; bukaFolder(d.path)"
+                            class="flex items-start gap-1.5 text-left border border-gray-200 rounded px-2 py-1.5 hover:border-emerald-500 hover:bg-emerald-50">
+                        <span>📁</span>
+                        <span class="min-w-0">
+                            <span class="block text-[11px] font-medium truncate" x-text="d.nama"></span>
+                            <span x-show="kata && d.induk" class="block text-[10px] text-gray-400 truncate" x-text="d.induk"></span>
+                        </span>
+                    </button>
+                </template>
+            </div>
+
+            <template x-if="fotoCustom.length">
+                <div class="space-y-1">
+                    <div class="text-[11px] font-semibold text-gray-600">Foto pesanan custom terbaru</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <template x-for="f in fotoCustom" :key="'c' + f.path">
+                            <a :href="f.url" target="_blank" rel="noopener" class="block border border-gray-200 rounded overflow-hidden hover:border-emerald-500">
+                                <div class="aspect-square bg-gray-100"><img :src="f.thumb" alt="" loading="lazy" class="w-full h-full object-cover"></div>
+                                <div class="px-1.5 py-1">
+                                    <div class="text-[11px] font-semibold truncate" x-text="(f.jenis === 'video' ? '▶ ' : '') + f.pesanan"></div>
+                                    <div class="text-[10px] text-gray-500 truncate" :title="f.barang" x-text="f.barang"></div>
+                                </div>
+                            </a>
+                        </template>
                     </div>
-                    <div class="px-1.5 py-1">
-                        <div class="text-[11px] font-semibold truncate" x-text="(f.jenis === 'video' ? '▶ ' : '') + f.pesanan"></div>
-                        <div class="text-[10px] text-gray-500 truncate" :title="f.barang" x-text="f.barang"></div>
-                    </div>
-                </a>
+                </div>
             </template>
+
+            <div class="grid grid-cols-2 gap-2">
+                <template x-for="f in foto" :key="f.path">
+                    <a :href="f.url" target="_blank" rel="noopener" class="block border border-gray-200 rounded overflow-hidden hover:border-emerald-500">
+                        <div class="aspect-square bg-gray-100 relative">
+                            <img :src="f.thumb" alt="" loading="lazy" class="w-full h-full object-cover" onerror="this.style.visibility='hidden'">
+                            <span x-show="f.jenis === 'video'" class="absolute inset-0 flex items-center justify-center text-2xl text-white drop-shadow">▶</span>
+                        </div>
+                        <div class="px-1.5 py-1">
+                            <div class="text-[11px] font-semibold truncate" :title="f.nama" x-text="f.pesanan || f.nama"></div>
+                            <div class="text-[10px] text-gray-500 truncate" :title="f.barang || f.induk" x-text="f.barang || (kata ? f.induk : '')"></div>
+                        </div>
+                    </a>
+                </template>
+            </div>
         </div>
     </template>
 
@@ -541,7 +585,7 @@ function panelProduk(percakapanId) {
         sub: 'web',
         percakapan: percakapanId,
 
-        kata: '', hasil: [], grup: [], pasar: [], foto: [], hanyaShopee: false, sibuk: false, galat: '', kabar: '',
+        kata: '', hasil: [], grup: [], pasar: [], foto: [], fotoCustom: [], subfolder: [], folder: '', hanyaShopee: false, sibuk: false, galat: '', kabar: '',
         menyimpan: false, mengirimFoto: null,
         // Tombol di bawah Market Place: 'shopee' atau 'lain'. Datanya satu daftar dari server.
         subPasar: 'shopee',
@@ -573,9 +617,14 @@ function panelProduk(percakapanId) {
             this.galat = '';
             try {
                 if (this.sub === 'foto') {
-                    const r = await fetch('{{ route('crm.inbox.foto.cari') }}?q=' + encodeURIComponent(this.kata),
+                    const r = await fetch('{{ route('crm.inbox.foto.cari') }}?q=' + encodeURIComponent(this.kata)
+                                          + '&folder=' + encodeURIComponent(this.folder),
                                           { headers: { 'Accept': 'application/json' } });
-                    this.foto = (await r.json()).foto || [];
+                    const j = await r.json();
+                    this.foto = j.foto || [];
+                    this.fotoCustom = j.custom || [];
+                    this.subfolder = j.subfolder || [];
+                    if (j.galat) { this.galat = j.galat; this.folder = ''; }
                 } else if (this.sub === 'pasar') {
                     const r = await fetch('{{ route('crm.pasar.index') }}?chat=' + (this.percakapan ?? '')
                                           + '&q=' + encodeURIComponent(this.kata),
@@ -607,6 +656,8 @@ function panelProduk(percakapanId) {
                 this.grup = [];
                 this.pasar = [];
                 this.foto = [];
+                this.fotoCustom = [];
+                this.subfolder = [];
                 this.galat = 'Daftar gagal dimuat. Coba muat ulang.';
             } finally {
                 this.sibuk = false;
@@ -614,10 +665,22 @@ function panelProduk(percakapanId) {
         },
 
         kosong() {
-            if (this.sub === 'foto')  return this.foto.length === 0;
+            if (this.sub === 'foto')  return this.foto.length + this.fotoCustom.length + this.subfolder.length === 0;
             if (this.sub === 'pasar') return this.pasarTampil.length === 0;
             if (this.sub === 'web')   return this.grup.length === 0;
             return this.hasil.length === 0;
+        },
+
+        /** Tab Foto: masuk ke satu folder NAS. */
+        bukaFolder(path) {
+            this.folder = path;
+            this.muat();
+        },
+
+        /** Tab Foto: potongan breadcrumb folder yang sedang dibuka. */
+        remah() {
+            const bagian = this.folder ? this.folder.split('/') : [];
+            return bagian.map((nama, i) => ({ nama, path: bagian.slice(0, i + 1).join('/') }));
         },
 
         /** Baris yang sedang dipilih di sebuah kelompok. */
@@ -627,7 +690,7 @@ function panelProduk(percakapanId) {
 
         pesanKosong() {
             if (this.sub === 'foto') {
-                return this.kata ? 'Tidak ada foto yang cocok.' : 'Belum ada foto produk custom.';
+                return this.kata ? 'Tidak ada folder atau foto yang cocok.' : 'Folder ini kosong.';
             }
             if (this.sub === 'pasar') {
                 return this.kata ? 'Tidak ada produk yang cocok.' : 'Belum ada link marketplace. Tambahkan di bawah.';

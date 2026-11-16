@@ -18,6 +18,7 @@ use App\Modules\Tasks\MejaKerja\Models\MejaKerjaSkill;
 use App\Modules\Tasks\Models\Task;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Tests\TestCase;
@@ -220,27 +221,47 @@ class FotoCustomTest extends TestCase
         $this->post(route('cs.galeri.tautkan'), ['p' => 'tidak-ada.jpg'])->assertSessionHas('error');
     }
 
-    public function test_cari_referensi_dari_chat_hanya_berkas_tertaut(): void
+    public function test_tab_foto_chat_menelusuri_folder_nas_hanya_lihat(): void
     {
+        Cache::flush();
         $cs = User::factory()->create(['role' => 'user', 'is_active' => true]);
         $cs->menuPermissions()->create(['menu_key' => 'crm.inbox']);
         $orangLain = User::factory()->create(['role' => 'user', 'is_active' => true]);
 
         $so = $this->so('CS5', 'Plakat Wisuda Biru');
+        File::makeDirectory($this->root . '/Tempat Brosur/TBKD-A4', 0775, true);
+        File::makeDirectory($this->root . '/#recycle', 0775, true);
         file_put_contents($this->root . '/plakat.jpg', 'x');
-        file_put_contents($this->root . '/rahasia.jpg', 'y');
-        $f = app(FotoProdukService::class)->tautkan('plakat.jpg', $so->id);
+        file_put_contents($this->root . '/Tempat Brosur/TBKD-A4/depan.jpg', 'x');
+        file_put_contents($this->root . '/Tempat Brosur/harga.xlsx', 'x');
+        file_put_contents($this->root . '/#recycle/buang.jpg', 'x');
+        app(FotoProdukService::class)->tautkan('plakat.jpg', $so->id);
         app(FotoProdukService::class)->tautkan('sudah-dipindah.jpg', $so->id);
-        $cari = fn (string $q) => $this->actingAs($cs)->getJson(route('crm.inbox.foto.cari', ['q' => $q]))->assertOk()->json('foto');
+        $cari = fn (array $q) => $this->actingAs($cs)->getJson(route('crm.inbox.foto.cari', $q))->assertOk()->json();
 
-        foreach (['wisuda', 'CS5', $so->order_number, 'plakat.jpg'] as $q) {
-            $this->assertSame(['plakat.jpg'], array_column($cari($q), 'path'), "cari: $q");
+        // Akar: folder lini + foto lepas; foto custom tertaut tampil terpisah dengan barangnya.
+        $akar = $cari([]);
+        $this->assertSame(['Tempat Brosur'], array_column($akar['subfolder'], 'nama'), '#recycle tersembunyi.');
+        $this->assertSame(['plakat.jpg'], array_column($akar['foto'], 'path'));
+        $this->assertSame('Plakat Wisuda Biru', $akar['custom'][0]['barang'], 'Berkas yang sudah tak ada dilewati.');
+
+        $lini = $cari(['folder' => 'Tempat Brosur']);
+        $this->assertSame(['TBKD-A4'], array_column($lini['subfolder'], 'nama'));
+        $this->assertSame([], $lini['foto'], 'xlsx tidak ditampilkan.');
+
+        // Cari: nama folder/berkas di seluruh NAS + nomor pesanan/SKU/barang untuk foto custom.
+        $this->assertSame(['Tempat Brosur/TBKD-A4/depan.jpg'], array_column($cari(['q' => 'tbkd'])['foto'], 'path'));
+        $this->assertSame(['Tempat Brosur/TBKD-A4'], array_column($cari(['q' => 'tbkd'])['subfolder'], 'path'));
+        foreach (['wisuda', 'CS5', $so->order_number, 'plakat'] as $q) {
+            $this->assertSame(['plakat.jpg'], array_column($cari(['q' => $q])['foto'], 'path'), "cari: $q");
         }
-        $this->assertSame([], $cari('tidak-ada-apa-apa'));
-        $this->assertSame('Plakat Wisuda Biru', $cari('')[0]['barang'], 'Berkas yang sudah tak ada dilewati.');
+        $this->assertSame([], $cari(['q' => 'buang'])['foto']);
 
-        $this->actingAs($cs)->get(route('crm.inbox.foto.berkas', $f->id))->assertOk();
-        $this->actingAs($cs)->get(route('cs.galeri.berkas', ['p' => 'rahasia.jpg']))->assertForbidden();
-        $this->actingAs($orangLain)->get(route('crm.inbox.foto.berkas', $f->id))->assertForbidden();
+        $this->actingAs($cs)->get(route('crm.inbox.foto.berkas', ['p' => 'Tempat Brosur/TBKD-A4/depan.jpg']))->assertOk();
+        $this->actingAs($cs)->get(route('crm.inbox.foto.berkas', ['p' => 'Tempat Brosur/harga.xlsx']))->assertNotFound();
+        $this->actingAs($cs)->get(route('crm.inbox.foto.berkas', ['p' => '#recycle/buang.jpg']))->assertNotFound();
+        $this->actingAs($cs)->get(route('crm.inbox.foto.berkas', ['p' => '../../etc/passwd.jpg']))->assertNotFound();
+        $this->actingAs($cs)->get(route('cs.galeri.berkas', ['p' => 'plakat.jpg']))->assertForbidden();
+        $this->actingAs($orangLain)->get(route('crm.inbox.foto.berkas', ['p' => 'plakat.jpg']))->assertForbidden();
     }
 }
