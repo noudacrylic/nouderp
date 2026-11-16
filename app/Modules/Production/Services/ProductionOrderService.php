@@ -826,7 +826,7 @@ class ProductionOrderService
     /**
      * Mulai proses — mendukung 1 atau lebih operator mengerjakan step bersamaan.
      * $force=true → bypass scan check (untuk override saat mesin fingerprint rusak). Audit di notes step.
-     * $merk = merk akrilik yang dipakai (langkah CNC saja; boleh campur) → production_orders.merk_bahan.
+     * $merk = merk akrilik => jumlah lembar (langkah CNC saja; boleh campur) → merk_bahan + merk_jumlah.
      *         null = tidak dikirim (pemanggil internal) → merk OP tidak diubah. Gagal Mulai → ikut rollback.
      */
     public function startStep(int $stepId, array $executorIds = [], bool $force = false, ?array $merk = null): void
@@ -838,7 +838,8 @@ class ProductionOrderService
             if ($step->butuhMerkAkrilik()) {
                 $merk = $this->validasiMerkAkrilik($merk, $order);
                 if ($merk !== null) {
-                    $order->merk_bahan = $merk;
+                    $order->merk_bahan  = $merk['merk'];
+                    $order->merk_jumlah = $merk['jumlah'];
                     $order->save();
                 }
             }
@@ -1048,29 +1049,48 @@ class ProductionOrderService
     }
 
     /**
-     * Merk akrilik langkah CNC: harus dari daftar Pengaturan Produksi; wajib bila sakelar nyala
-     * (kecuali OP sudah punya merk, mis. CNC kedua setelah Assembling). Urutan mengikuti daftar.
+     * Merk akrilik langkah CNC: merk => jumlah lembar ({"MAG":2,"NN":1}); daftar polos ['MAG']
+     * dianggap 1 lembar per merk. Merk harus dari daftar Pengaturan Produksi; total lembar tidak
+     * boleh melebihi bahan lembaran OP (dibulatkan ke atas). Wajib bila sakelar nyala (kecuali OP
+     * sudah punya merk, mis. CNC kedua setelah Assembling). Urutan mengikuti daftar.
+     *
+     * @return array{merk: list<string>, jumlah: array<string,int>}|null
      */
     private function validasiMerkAkrilik(?array $merk, ProductionOrder $order): ?array
     {
         if ($merk === null && !\App\Models\ProductionSetting::isMerkAkrilikWajib()) {
             return null;
         }
-        $daftar = \App\Models\ProductionSetting::daftarMerkAkrilik();
-        $merk   = array_values(array_unique(array_filter(array_map('trim', (array) $merk), 'strlen')));
+        $jumlah = [];
+        foreach ((array) $merk as $k => $v) {
+            [$nama, $n] = is_int($k) ? [$v, 1] : [$k, $v];
+            $nama = trim((string) $nama);
+            $n    = (int) $n;
+            if ($nama === '' || $n <= 0) continue;
+            $jumlah[$nama] = ($jumlah[$nama] ?? 0) + $n;
+        }
 
-        $asing = array_diff($merk, $daftar);
+        $daftar = \App\Models\ProductionSetting::daftarMerkAkrilik();
+        $asing  = array_diff(array_keys($jumlah), $daftar);
         if ($asing) {
             throw new Exception('Merk akrilik tidak dikenal: ' . implode(', ', $asing) . '.');
         }
-        if (!$merk) {
+        if (!$jumlah) {
             if (\App\Models\ProductionSetting::isMerkAkrilikWajib() && empty($order->merk_bahan)) {
                 throw new Exception('Pilih dulu merk akrilik yang dipakai.');
             }
             return null;
         }
 
-        return array_values(array_intersect($daftar, $merk));
+        $maks  = ProductionOrder::maksLembarAkrilik([$order->id])[$order->id] ?? null;
+        $total = array_sum($jumlah);
+        if ($maks !== null && $total > $maks) {
+            throw new Exception("Jumlah lembar akrilik {$total} melebihi bahan OP (maks {$maks} lembar).");
+        }
+
+        $urut = array_values(array_intersect($daftar, array_keys($jumlah)));
+
+        return ['merk' => $urut, 'jumlah' => array_combine($urut, array_map(fn ($m) => $jumlah[$m], $urut))];
     }
 
     /** Betulkan merk akrilik OP lewat kartu langkah mana pun milik OP itu. Jejak di log aplikasi. */
@@ -1082,14 +1102,15 @@ class ProductionOrderService
             if ($baru === null) {
                 throw new Exception('Pilih minimal satu merk.');
             }
-            $lama = $order->merk_bahan ?? [];
-            if ($lama === $baru) {
+            $lama = $order->merk_jumlah ?: array_fill_keys($order->merk_bahan ?? [], null);
+            if ($lama === $baru['jumlah']) {
                 return;
             }
-            $order->merk_bahan = $baru;
+            $order->merk_bahan  = $baru['merk'];
+            $order->merk_jumlah = $baru['jumlah'];
             $order->save();
             \Illuminate\Support\Facades\Log::info('Merk akrilik OP dibetulkan', [
-                'op' => $order->order_number, 'lama' => $lama, 'baru' => $baru, 'oleh' => auth()->user()?->name,
+                'op' => $order->order_number, 'lama' => $lama, 'baru' => $baru['jumlah'], 'oleh' => auth()->user()?->name,
             ]);
         });
     }

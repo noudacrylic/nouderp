@@ -68,15 +68,43 @@ class MerkAkrilikTest extends TestCase
 
     public function test_mulai_cnc_menyimpan_merk_campur_urut_daftar(): void
     {
-        $this->mulai($this->cnc, $this->exCnc, ['Tiger', 'MAG'])->assertSessionHas('success');
+        $this->mulai($this->cnc, $this->exCnc, ['Tiger' => 1, 'MAG' => 1])->assertSessionHas('success');
 
         $this->assertSame('in_progress', $this->cnc->fresh()->status);
         $this->assertSame(['MAG', 'Tiger'], $this->order->fresh()->merk_bahan);
     }
 
+    public function test_jumlah_lembar_per_merk_dibatasi_bahan_lembaran_op(): void
+    {
+        // Bahan lembaran 1,6 + 0,5 = 2,1 lembar → maks 3 (dibulatkan ke atas); bahan non-LBR tak dihitung.
+        foreach (['LBR-122x244-2-TR' => 1.6, 'LBR-122x244-3-PK' => 0.5, 'ENG-1' => 10] as $sku => $qty) {
+            $p = Product::create(['sku' => $sku, 'name' => $sku, 'sale_type' => 'ready', 'base_unit' => 'lembar',
+                'base_price' => 1, 'is_active' => true, 'is_sellable' => true]);
+            \App\Modules\Production\Models\ProductionOrderMaterial::create(['production_order_id' => $this->order->id,
+                'product_id' => $p->id, 'qty_required' => $qty, 'qty_consumed' => 0, 'unit' => 'lembar']);
+        }
+        $this->assertSame([$this->order->id => 3], ProductionOrder::maksLembarAkrilik([$this->order->id]));
+
+        $this->mulai($this->cnc, $this->exCnc, ['MAG' => 3, 'NN' => 1])->assertSessionHas('error');
+        $this->assertSame('pending', $this->cnc->fresh()->status);
+
+        $this->mulai($this->cnc, $this->exCnc, ['NN' => 1, 'MAG' => 2, 'Tiger' => 0])->assertSessionHas('success');
+        $op = $this->order->fresh();
+        $this->assertSame(['MAG', 'NN'], $op->merk_bahan);
+        $this->assertSame(['MAG' => 2, 'NN' => 1], $op->merk_jumlah);
+
+        // Kartu menampilkan jumlah; dibetulkan dari Assembling juga tunduk batas.
+        $this->actingAs($this->admin)->get(route('production.process.index'))->assertSee('🧱 MAG 2 + NN 1', false);
+        $this->actingAs($this->admin)->from(route('production.process.index'))
+            ->post(route('production.process.steps.merk', $this->asm->id), ['merk' => ['MAG' => 4]])->assertSessionHas('error');
+        $this->actingAs($this->admin)->from(route('production.process.index'))
+            ->post(route('production.process.steps.merk', $this->asm->id), ['merk' => ['MAG' => 3]])->assertSessionHas('success');
+        $this->assertSame(['MAG' => 3], $this->order->fresh()->merk_jumlah);
+    }
+
     public function test_merk_di_luar_daftar_ditolak(): void
     {
-        $this->mulai($this->cnc, $this->exCnc, ['Acrylite'])->assertSessionHas('error');
+        $this->mulai($this->cnc, $this->exCnc, ['Acrylite' => 1])->assertSessionHas('error');
         $this->assertSame('pending', $this->cnc->fresh()->status);
         $this->assertNull($this->order->fresh()->merk_bahan);
     }
@@ -95,7 +123,7 @@ class MerkAkrilikTest extends TestCase
     public function test_langkah_bukan_cnc_tidak_mengubah_merk(): void
     {
         ProductionSetting::first()->update(['merk_akrilik_wajib' => true]);
-        $this->mulai($this->cnc, $this->exCnc, ['NN']);
+        $this->mulai($this->cnc, $this->exCnc, ['NN' => 1]);
         $this->cnc->update(['status' => 'completed', 'completed_at' => now()]);
 
         $this->mulai($this->asm, $this->exAsm, null)->assertSessionHas('success');
@@ -104,13 +132,13 @@ class MerkAkrilikTest extends TestCase
 
     public function test_kartu_tampil_merk_dan_bisa_dibetulkan(): void
     {
-        $this->mulai($this->cnc, $this->exCnc, ['NN']);
+        $this->mulai($this->cnc, $this->exCnc, ['NN' => 1]);
 
         $this->actingAs($this->admin)->get(route('production.process.index'))->assertOk()
             ->assertSee('🧱 NN', false);
 
         $this->actingAs($this->admin)->from(route('production.process.index'))
-            ->post(route('production.process.steps.merk', $this->asm->id), ['merk' => ['MAG', 'NN']])
+            ->post(route('production.process.steps.merk', $this->asm->id), ['merk' => ['MAG' => 1, 'NN' => 1]])
             ->assertSessionHas('success');
         $this->assertSame(['MAG', 'NN'], $this->order->fresh()->merk_bahan);
     }

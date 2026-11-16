@@ -110,11 +110,21 @@ class ProductionProcessController extends Controller
         $alasanPendingWajib = \App\Models\ProductionSetting::isAlasanPendingWajib();
 
         // Merk akrilik (langkah CNC): daftar dari Pengaturan Produksi; isian awal = merk OP itu
-        // sendiri, atau merk yang terakhir dipilih operator CNC (stok yang sedang dipakai).
+        // sendiri, atau merk terbanyak yang terakhir dipilih operator CNC (stok yang sedang dipakai).
         $merkAkrilik      = \App\Models\ProductionSetting::daftarMerkAkrilik();
         $merkAkrilikWajib = \App\Models\ProductionSetting::isMerkAkrilikWajib();
-        $merkTerakhir     = array_values(array_intersect($merkAkrilik, (array) (\App\Modules\Production\Models\ProductionOrder::whereNotNull('merk_bahan')
-            ->latest('updated_at')->value('merk_bahan') ?? [])));
+        $opTerakhir       = \App\Modules\Production\Models\ProductionOrder::whereNotNull('merk_bahan')
+            ->latest('updated_at')->first(['id', 'merk_bahan', 'merk_jumlah']);
+        $jumlahTerakhir   = $opTerakhir ? ($opTerakhir->merk_jumlah ?: array_fill_keys($opTerakhir->merk_bahan ?? [], 1)) : [];
+        arsort($jumlahTerakhir);
+        $merkTerakhir     = collect(array_keys($jumlahTerakhir))->first(fn ($m) => in_array($m, $merkAkrilik, true));
+
+        // Batas lembar akrilik per OP (Σ bahan LBR- dibulatkan ke atas) untuk kartu di layar.
+        $maksLembar = \App\Modules\Production\Models\ProductionOrder::maksLembarAkrilik(
+            $pendingSteps->pluck('production_order_id')
+                ->merge($inProgressSteps->pluck('production_order_id'))
+                ->merge($pausedSteps->pluck('production_order_id'))->unique()->values()->all()
+        );
 
         // Langkah yang pergantian pelaksananya masih menunggu persetujuan owner.
         $pergantianMenunggu = \App\Modules\KaryawanVirtual\Models\KaryawanVirtualUsulan::menunggu()
@@ -128,7 +138,7 @@ class ProductionProcessController extends Controller
 
         return view('erp.production.process.index', compact(
             'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode', 'alasanPendingWajib',
-            'merkAkrilik', 'merkAkrilikWajib', 'merkTerakhir',
+            'merkAkrilik', 'merkAkrilikWajib', 'merkTerakhir', 'maksLembar',
             'pergantianMenunggu',
             'warehouses', 'defaultWarehouseId'
         ));
@@ -209,7 +219,7 @@ class ProductionProcessController extends Controller
             'executor_ids.*' => 'exists:production_department_executors,id',
             'force'          => 'nullable|boolean',
             'merk'           => 'nullable|array',
-            'merk.*'         => 'string|max:50',
+            'merk.*'         => 'integer|min:0|max:99',
         ]);
 
         try {
@@ -248,7 +258,7 @@ class ProductionProcessController extends Controller
     {
         $request->validate([
             'merk'   => 'required|array|min:1',
-            'merk.*' => 'string|max:50',
+            'merk.*' => 'integer|min:0|max:99',
         ], ['merk.required' => 'Pilih minimal satu merk.']);
 
         try {

@@ -12,7 +12,7 @@ class ProductionOrder extends Model
         'repair_source_type', 'repair_source_ref', 'repair_source_id',
         'score_type', 'priority_level',
         'status', 'created_via', 'kv_skill', 'merged_into_id', 'finalized_at', 'notes', 'description', 'image_paths',
-        'merk_bahan',
+        'merk_bahan', 'merk_jumlah',
     ];
 
     protected $casts = [
@@ -22,6 +22,7 @@ class ProductionOrder extends Model
         'planned_qty'     => 'decimal:4',
         'image_paths'     => 'array',
         'merk_bahan'      => 'array',   // merk akrilik dipilih operator CNC saat Mulai
+        'merk_jumlah'     => 'array',   // lembar per merk, mis. {"MAG":2,"NN":1}
     ];
 
     /**
@@ -60,6 +61,29 @@ class ProductionOrder extends Model
     public function materials()
     {
         return $this->hasMany(ProductionOrderMaterial::class);
+    }
+
+    /**
+     * Batas lembar akrilik per OP (untuk jumlah per merk): Σ bahan lembaran (SKU LBR-…)
+     * dibulatkan ke atas — 0,51 lembar → 1. order_id => maks; OP tanpa bahan lembaran tak muncul.
+     *
+     * @param  array<int>  $orderIds
+     * @return array<int, int>
+     */
+    public static function maksLembarAkrilik(array $orderIds): array
+    {
+        if (!$orderIds) return [];
+
+        return \Illuminate\Support\Facades\DB::table('production_order_materials as m')
+            ->join('products as p', 'p.id', '=', 'm.product_id')
+            ->whereIn('m.production_order_id', $orderIds)
+            ->where('p.sku', 'like', 'LBR-%')
+            ->groupBy('m.production_order_id')
+            ->selectRaw('m.production_order_id as id, SUM(m.qty_required) as qty')
+            ->pluck('qty', 'id')
+            ->map(fn ($q) => (int) ceil((float) $q - 1e-6))
+            ->filter(fn ($n) => $n > 0)
+            ->all();
     }
 
     public function outputs()

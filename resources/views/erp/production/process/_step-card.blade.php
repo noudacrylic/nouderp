@@ -171,13 +171,19 @@
 
     // Langkah CNC: operator memilih merk akrilik saat Mulai (boleh campur; di tengah jalan tak berganti).
     $mulaiPayload['butuh_merk'] = !$tanpaPelaksana && $panel === 'pending' && $step->butuhMerkAkrilik() && !empty($merkAkrilik);
-    $mulaiPayload['merk']       = $order->merk_bahan ?: ($merkTerakhir ?? []);
+    // Jumlah lembar per merk: data OP (lama tanpa jumlah = 1 per merk), atau merk terakhir CNC
+    // sejumlah batas lembar OP (kasus umum 1 merk). Batas = Σ bahan LBR- dibulatkan ke atas.
+    $maksLembarOp  = ($maksLembar ?? [])[$order->id] ?? null;
+    $jumlahMerkOp  = $order->merk_jumlah ?: array_fill_keys($order->merk_bahan ?? [], 1);
+    $mulaiPayload['maks'] = $maksLembarOp;
+    $mulaiPayload['merk'] = (object) ($jumlahMerkOp ?: (($merkTerakhir ?? null) ? [$merkTerakhir => $maksLembarOp ?? 1] : []));
 
     // Merk OP bisa dibetulkan dari kartu mana pun (mis. Assembling melihat CNC salah pilih).
     $merkPayload = [
         'action_url'   => route('production.process.steps.merk', $step->id),
         'order_number' => $order->order_number,
-        'merk'         => $order->merk_bahan ?? [],
+        'merk'         => (object) $jumlahMerkOp,
+        'maks'         => $maksLembarOp,
     ];
 
     // Oper tugas ke pelaksana lain — diajukan, diputus owner lewat Telegram.
@@ -320,7 +326,7 @@
             @if(!empty($order->merk_bahan))
                 <button type="button" @click="$dispatch('open-merk', merkData)"
                         class="bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded font-bold hover:bg-sky-100"
-                        title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ implode(' + ', $order->merk_bahan) }}</button>
+                        title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ collect($order->merk_bahan)->map(fn ($m) => $m . (isset($order->merk_jumlah[$m]) ? ' ' . $order->merk_jumlah[$m] : ''))->implode(' + ') }}</button>
             @endif
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
@@ -335,7 +341,7 @@
             @if(!empty($order->merk_bahan))
                 <button type="button" @click="$dispatch('open-merk', merkData)"
                         class="bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded font-bold hover:bg-sky-100"
-                        title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ implode(' + ', $order->merk_bahan) }}</button>
+                        title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ collect($order->merk_bahan)->map(fn ($m) => $m . (isset($order->merk_jumlah[$m]) ? ' ' . $order->merk_jumlah[$m] : ''))->implode(' + ') }}</button>
             @endif
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>

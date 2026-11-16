@@ -9,7 +9,24 @@
          ganti: null,
          catatan: null,
          pending: null, pendingAlasan: '', pendingKet: '',
-         merk: null, merkUbah: [], merkWajib: {{ $merkAkrilikWajib ? 'true' : 'false' }},
+         merk: null, merkUbah: {}, merkWajib: {{ $merkAkrilikWajib ? 'true' : 'false' }},
+         // Merk akrilik + jumlah lembar (objek {merk: n}); dipakai _merk-chips.
+         totalMerk(o) { return Object.values(o || {}).reduce((s, n) => s + (Number(n) || 0), 0); },
+         tambahMerk(o, m, maks) {
+             if (maks && this.totalMerk(o) >= maks) {
+                 // Penuh → pindahkan 1 lembar dari merk terbanyak lain ke merk yang diketuk.
+                 const lain = Object.entries(o).filter(([k, n]) => k !== m && n > 0).sort((a, b) => b[1] - a[1])[0];
+                 if (!lain) return;
+                 this.kurangMerk(o, lain[0]);
+             }
+             o[m] = (o[m] || 0) + 1;
+         },
+         kurangMerk(o, m) { if ((o[m] || 0) <= 1) delete o[m]; else o[m]--; },
+         merkTakSah(d, o) {
+             if (!d || !d.butuh_merk) return false;
+             const t = this.totalMerk(o);
+             return (this.merkWajib && t === 0) || (d.maks && t > d.maks);
+         },
          alasanPending: {{ Js::from(\App\Modules\Production\Models\ProductionStepTimeLog::ALASAN_PENDING) }},
          warehouses: {{ Js::from($warehouses) }},
          defaultWh: {{ (int) $defaultWarehouseId }} || null,
@@ -158,7 +175,7 @@
      @open-ganti.window="ganti = $event.detail"
      @open-catatan.window="catatan = $event.detail"
      @open-pending.window="pending = $event.detail; pendingAlasan = ''; pendingKet = ''"
-     @open-merk.window="merk = $event.detail; merkUbah = [...$event.detail.merk]">
+     @open-merk.window="merk = $event.detail; merkUbah = { ...$event.detail.merk }">
 
     {{-- Flash message (mis. gagal Mulai: belum scan check-in, di luar jam kerja, dll.) --}}
 
@@ -330,8 +347,8 @@
             </div>
 
             <form id="form-mulai" method="POST" class="p-5" :action="mulai ? mulai.action_url : '#'"
-                  x-data="{ selected: [], merkPilih: [] }"
-                  x-effect="merkPilih = (mulai && mulai.butuh_merk) ? [...mulai.merk] : []">
+                  x-data="{ selected: [], merkPilih: {} }"
+                  x-effect="merkPilih = (mulai && mulai.butuh_merk) ? { ...mulai.merk } : {}">
                 @csrf
                 {{-- Langkah CNC: merk akrilik yang dipakai (boleh campur) → dasar penilaian per merk. --}}
                 <template x-if="mulai && mulai.butuh_merk">
@@ -341,15 +358,7 @@
                             Merk Akrilik
                             <span class="font-normal {{ $merkAkrilikWajib ? 'text-red-500' : 'text-gray-400' }}">{{ $merkAkrilikWajib ? '(wajib · bisa lebih dari 1)' : '(bisa lebih dari 1)' }}</span>
                         </label>
-                        <div class="flex flex-wrap gap-1.5">
-                            @foreach($merkAkrilik as $m)
-                                <label class="px-3 py-1.5 border rounded-xl cursor-pointer text-sm transition"
-                                       :class="merkPilih.includes(@js($m)) ? 'border-sky-400 bg-sky-50 font-semibold text-sky-800' : 'border-gray-200 hover:bg-gray-50 text-gray-700'">
-                                    <input type="checkbox" name="merk[]" value="{{ $m }}" x-model="merkPilih" class="sr-only">
-                                    {{ $m }}
-                                </label>
-                            @endforeach
-                        </div>
+                        @include('erp.production.process._merk-chips', ['model' => 'merkPilih', 'maks' => 'mulai.maks'])
                     </div>
                 </template>
                 <div class="mb-4">
@@ -390,8 +399,8 @@
 
                 <div class="flex gap-2">
                     <button type="submit"
-                            :disabled="selected.length === 0 || (merkWajib && mulai && mulai.butuh_merk && merkPilih.length === 0)"
-                            :class="(selected.length > 0 && !(merkWajib && mulai && mulai.butuh_merk && merkPilih.length === 0)) ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer' : 'bg-indigo-300 cursor-not-allowed'"
+                            :disabled="selected.length === 0 || merkTakSah(mulai, merkPilih)"
+                            :class="(selected.length > 0 && !merkTakSah(mulai, merkPilih)) ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer' : 'bg-indigo-300 cursor-not-allowed'"
                             class="flex-1 py-2 text-white text-sm font-bold rounded-xl transition">
                         <span x-text="(mulai && mulai.tombol) || '▶ Mulai Sekarang'"></span>
                     </button>
@@ -503,17 +512,11 @@
             <form method="POST" class="p-5" :action="merk ? merk.action_url : '#'">
                 @csrf
                 <p class="text-[11px] text-gray-500 mb-2">Betulkan bila merk yang dipilih CNC tidak sesuai bahan yang dipakai.</p>
-                <div class="flex flex-wrap gap-1.5 mb-4">
-                    @foreach($merkAkrilik as $m)
-                        <label class="px-3 py-1.5 border rounded-xl cursor-pointer text-sm transition"
-                               :class="merkUbah.includes(@js($m)) ? 'border-sky-400 bg-sky-50 font-semibold text-sky-800' : 'border-gray-200 hover:bg-gray-50 text-gray-700'">
-                            <input type="checkbox" name="merk[]" value="{{ $m }}" x-model="merkUbah" class="sr-only">
-                            {{ $m }}
-                        </label>
-                    @endforeach
+                <div class="mb-4">
+                    @include('erp.production.process._merk-chips', ['model' => 'merkUbah', 'maks' => '(merk && merk.maks)'])
                 </div>
                 <div class="flex gap-2">
-                    <button type="submit" :disabled="merkUbah.length === 0"
+                    <button type="submit" :disabled="totalMerk(merkUbah) === 0 || (merk && merk.maks && totalMerk(merkUbah) > merk.maks)"
                             class="flex-1 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed">
                         Simpan
                     </button>
