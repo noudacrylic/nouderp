@@ -401,9 +401,9 @@
                                 @if($p->shopee())
                                     <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 uppercase"
                                           title="Chat Shopee">Shopee</span>
-                                @elseif(! $p->customer_id)
-                                    <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 uppercase"
-                                          title="Belum tertaut pelanggan mana pun di ERP">Lead</span>
+                                @else
+                                    <span class="shrink-0 px-1 rounded text-[10px] font-semibold bg-green-100 text-green-700 uppercase"
+                                          title="Chat WhatsApp{{ $p->customer_id ? '' : ' — belum tertaut pelanggan di ERP' }}">WhatsApp</span>
                                 @endif
                             </div>
                             <div class="text-xs truncate {{ $belum ? 'text-gray-800 font-semibold' : 'text-gray-500' }}">

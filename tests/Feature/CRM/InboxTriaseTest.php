@@ -77,14 +77,14 @@ class InboxTriaseTest extends TestCase
             ->assertDontSee('628111222333');
     }
 
-    public function test_percakapan_tanpa_pelanggan_ditandai_lead(): void
+    public function test_percakapan_wa_ditandai_whatsapp(): void
     {
         $this->percakapan(['owner_user_id' => null]);
 
         $this->actingAs($this->admin())
             ->get(route('crm.inbox.index'))
             ->assertOk()
-            ->assertSee('Lead');
+            ->assertSee('WhatsApp</span>', false);
     }
 
     /* --------------------------------------------------------------- buka thread */
