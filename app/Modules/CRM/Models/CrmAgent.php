@@ -18,6 +18,7 @@ class CrmAgent extends Model
     public const PENJUALAN   = 'penjualan';
     public const CETAK       = 'cetak';
     public const CS_SHOPEE   = 'cs-shopee';
+    public const CS_WHATSAPP = 'cs-whatsapp';
 
     // Kirim otomatis saran (Saran AI Tahap 3): bayangan/otomatis = luar jam kerja, penuh = 24 jam.
     public const KIRIM_MATI     = 'mati';

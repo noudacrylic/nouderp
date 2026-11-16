@@ -761,10 +761,10 @@ class CrmInboxController extends Controller
         return view('cs.thread', $this->ruangKerja($request, $conversation));
     }
 
-    /** Saran AI CS Shopee yang berlaku untuk percakapan ini (kotak 💡, dibaca berkala). */
+    /** Saran AI (CS Shopee / CS WhatsApp) yang berlaku untuk percakapan ini (kotak 💡, dibaca berkala). */
     public function saranAi(CrmConversation $conversation, \App\Modules\CRM\Services\SaranAiService $layanan)
     {
-        $s = $conversation->shopee() ? $layanan->berlaku($conversation) : null;
+        $s = $layanan->agenUntuk($conversation) ? $layanan->berlaku($conversation) : null;
 
         return response()->json(['saran' => $s ? [
             'id'        => $s->id,

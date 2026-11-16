@@ -11,6 +11,14 @@
 
 <form method="GET" class="filter-auto flex flex-wrap items-end gap-2 mb-3 text-sm">
     <div>
+        <label class="block text-xs text-gray-500 mb-1">Kanal</label>
+        <select name="kanal" class="border rounded px-2 py-1.5">
+            <option value="">Semua</option>
+            <option value="shopee" @selected(request('kanal') === 'shopee')>Shopee</option>
+            <option value="whatsapp_waha" @selected(request('kanal') === 'whatsapp_waha')>WhatsApp</option>
+        </select>
+    </div>
+    <div>
         <label class="block text-xs text-gray-500 mb-1">Pemeriksaan</label>
         <select name="periksa" class="border rounded px-2 py-1.5">
             <option value="belum" @selected($periksa === 'belum')>Belum diperiksa ({{ $jumlah['belum'] }})</option>
@@ -53,6 +61,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs text-gray-500">
                 <div class="flex flex-wrap items-center gap-2">
                     <a href="{{ route('crm.inbox.show', $s->conversation_id) }}" class="font-semibold text-emerald-700 hover:underline">{{ $s->conversation?->display_name ?: $s->conversation?->contact_key }}</a>
+                    <span class="px-1.5 rounded text-[11px] {{ $s->conversation?->shopee() ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700' }}">{{ $s->conversation?->shopee() ? 'Shopee' : 'WhatsApp' }}</span>
                     <span>{{ $s->created_at?->format('d/m H:i') }}</span>
                     @if($s->butir)<span class="px-1.5 rounded bg-gray-100">butir {{ $s->butir }}</span>@endif
                     @if($s->lempar_ke)<span class="px-1.5 rounded bg-amber-100 text-amber-800 font-semibold">perlu {{ ['admin' => 'admin layanan', 'desain' => 'admin desain', 'owner' => 'owner'][$s->lempar_ke] ?? $s->lempar_ke }}</span>@endif

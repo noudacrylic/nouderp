@@ -57,7 +57,8 @@
                 <span>
                     Hidupkan agen ini
                     <span class="block text-[11px] text-gray-500">
-                        Masih butuh saklar induk <span class="font-mono">CRM_AGEN_AKTIF</span> menyala.
+                        Masih butuh saklar induk menyala:
+                        <span class="font-mono">{{ in_array($agen->kode, [\App\Modules\CRM\Models\CrmAgent::CS_SHOPEE, \App\Modules\CRM\Models\CrmAgent::CS_WHATSAPP], true) ? 'CRM_AGEN_SARAN_AKTIF' : 'CRM_AGEN_AKTIF' }}</span>.
                         Tanpa tanda ini agen tidak memberi saran maupun membalas.
                     </span>
                 </span>

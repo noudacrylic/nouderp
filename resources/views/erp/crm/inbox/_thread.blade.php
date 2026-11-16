@@ -558,11 +558,13 @@
                         Mode aman menyala — balasan dicatat di thread, tidak dikirim ke pelanggan.
                     </div>
                 @endif
-                {{-- 💡 Saran AI CS Shopee (mode saran): usulan dari daftar tanya-jawab. Pakai =
-                     teks masuk kotak ketik (masih bisa disunting); kirimannya dicatat sebagai
+                {{-- 💡 Saran AI CS Shopee & CS WhatsApp (mode saran): usulan dari daftar tanya-jawab.
+                     Pakai = teks masuk kotak ketik (masih bisa disunting); kirimannya dicatat sebagai
                      bahan evaluasi sebelum butirnya dilepas jadi otomatis. --}}
                 @if($terpilih->shopee())
                     @include('erp.crm.inbox._produk_dibahas', ['percakapan' => $terpilih])
+                @endif
+                @if(array_key_exists($terpilih->channel, \App\Modules\CRM\Services\SaranAiService::AGEN_PER_KANAL))
                     <div x-data="saranAiCrm(@js(route('crm.inbox.saran-ai', $terpilih->id)))" x-show="saran" x-cloak
                          class="mb-2 rounded border border-violet-300 bg-violet-50 px-3 py-2 text-sm">
                         <div class="flex flex-wrap items-center gap-2 text-xs text-violet-800">

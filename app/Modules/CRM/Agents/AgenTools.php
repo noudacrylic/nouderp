@@ -59,6 +59,9 @@ class AgenTools
         return match ($agen->kode) {
             CrmAgent::PENYAMBUTAN => [$this->skemaCariProduk(), $this->skemaLempar()],
             CrmAgent::CS_SHOPEE   => [$this->skemaCekStok(), $this->skemaInfoPesanan(), $this->skemaDeskripsiProduk(), $this->skemaUsulkan()],
+            // Nama alat sama dengan CS Shopee (daftar tanya-jawab menyebutnya), isinya untuk WhatsApp:
+            // harga & link web boleh, pesanan = SO ERP pelanggan ini.
+            CrmAgent::CS_WHATSAPP => [$this->skemaCekStokWa(), $this->skemaInfoPesananWa(), $this->skemaDeskripsiProduk(), $this->skemaUsulkan(true)],
             // Penjualan & cetak belum dikerjakan; keduanya minimal punya pintu
             // menyerah supaya tidak pernah terjebak mengarang jawaban.
             default => [$this->skemaLempar()],
@@ -68,14 +71,16 @@ class AgenTools
     /**
      * @return array{content: string, _lempar?: bool}
      */
-    public function jalankan(string $nama, array $input, ?CrmConversation $percakapan): array
+    public function jalankan(string $nama, array $input, ?CrmConversation $percakapan, ?CrmAgent $agen = null): array
     {
+        $wa = $agen?->kode === CrmAgent::CS_WHATSAPP;
+
         return match ($nama) {
             'cari_produk'       => $this->cariProduk($input),
             'lempar_ke_manusia' => $this->lempar($input, $percakapan),
-            'cek_stok'          => $this->cekStok($input),
-            'info_pesanan'      => $this->infoPesanan($percakapan),
-            'deskripsi_produk'  => $this->deskripsiProduk($input),
+            'cek_stok'          => $wa ? $this->cekStokWa($input) : $this->cekStok($input),
+            'info_pesanan'      => $wa ? $this->infoPesananWa($percakapan) : $this->infoPesanan($percakapan),
+            'deskripsi_produk'  => $this->deskripsiProduk($input, ! $wa),
             'usulkan_balasan'   => $this->usulkan($input),
             default             => ['content' => 'Alat "' . $nama . '" tidak ada. Jangan panggil lagi.'],
         };
@@ -300,8 +305,11 @@ class AgenTools
         ];
     }
 
-    /** Deskripsi halaman web produk (lebih lengkap dari deskripsi listing Shopee). */
-    private function deskripsiProduk(array $input): array
+    /**
+     * Deskripsi halaman web produk (lebih lengkap dari deskripsi listing Shopee).
+     * $untukShopee: buang ajakan WA/tautan luar — di WhatsApp kalimat itu boleh tetap ada.
+     */
+    private function deskripsiProduk(array $input, bool $untukShopee = true): array
     {
         $kata = trim((string) ($input['kata_kunci'] ?? ''));
         if ($kata === '') {
@@ -330,7 +338,7 @@ class AgenTools
 
         $sku = fn (StoreProduct $p) => $p->variants->map(fn ($v) => trim(($v->variant_label ?: 'tanpa varian') . ' = ' . $v->product?->sku))->implode('; ');
         $isi = $produk->take(2)->map(fn (StoreProduct $p) => $p->name . "\nVarian & SKU: " . $sku($p)
-            . "\n\n" . $this->deskripsiUntukShopee((string) $p->description));
+            . "\n\n" . ($untukShopee ? $this->deskripsiUntukShopee((string) $p->description) : $this->deskripsiPolos((string) $p->description)));
         $lain = $produk->slice(2)->map(fn (StoreProduct $p) => '- ' . $p->name . ': ' . $sku($p));
 
         return ['content' => "Deskripsi produk (SKU hanya untukmu, jangan disebut ke pembeli):\n\n" . $isi->implode("\n\n---\n\n")
@@ -353,6 +361,119 @@ class AgenTools
         }
 
         return trim(preg_replace("/\n{3,}/", "\n\n", implode("\n", $bersih)));
+    }
+
+    /** Deskripsi web sebagai teks biasa (tanpa HTML). */
+    private function deskripsiPolos(string $deskripsi): string
+    {
+        return trim(preg_replace("/\n{3,}/", "\n\n", html_entity_decode(strip_tags($deskripsi))));
+    }
+
+    /* ------------------------------------------------------------ CS WhatsApp */
+
+    private function skemaCekStokWa(): array
+    {
+        return [
+            'name'        => 'cek_stok',
+            'description' => 'Cek stok, harga, dan link halaman web sebuah barang katalog (nama atau SKU). Harga sudah '
+                . 'termasuk diskon web. WAJIB dipakai sebelum menyebut stok, harga, atau mengirim link produk — jangan '
+                . 'menjawab dari ingatan. Hasil lebih dari satu dan ragu yang dimaksud → tanya pembeli dulu.',
+            'input_schema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'kata_kunci' => ['type' => 'string', 'description' => 'Nama barang atau SKU, mis. "kotak saran 3 kotak" atau "BC-2x2".'],
+                ],
+                'required' => ['kata_kunci'],
+            ],
+        ];
+    }
+
+    /** Pencarian luas CS Shopee (nama ERP, listing, teks web), dengan harga & link web. */
+    private function cekStokWa(array $input): array
+    {
+        $kata = trim((string) ($input['kata_kunci'] ?? ''));
+        if ($kata === '') {
+            return ['content' => 'Kata kunci kosong. Sebutkan nama barang atau SKU-nya.'];
+        }
+
+        $hasil = $this->cariBarangShopee($kata);
+        if (! $hasil) {
+            return ['content' => 'Tidak ada barang yang cocok dengan "' . $kata . '". Jangan mengarang — tanya pembeli atau lempar ke admin.'];
+        }
+
+        $baris = array_map(function ($p) {
+            $harga = 'harga Rp' . number_format((float) $p['harga'], 0, ',', '.');
+            if ($p['harga_coret']) {
+                $harga .= ' (turun dari Rp' . number_format((float) $p['harga_coret'], 0, ',', '.') . ')';
+            }
+
+            return '- ' . $p['nama'] . ($p['sku'] ? ' | SKU ' . $p['sku'] : '') . ' | ' . ($p['custom']
+                ? 'barang custom (dibuat setelah dipesan)'
+                : ($p['preorder'] ? 'PRE-ORDER, stok ' : 'ready, stok ') . $this->angka($p['stok']))
+                . ' | ' . $harga . ($p['url'] ? ' | link ' . $p['url'] : '');
+        }, $hasil);
+
+        return ['content' => "Hasil cek stok (sebutkan apa adanya, jangan dibulatkan; SKU hanya untukmu):\n" . implode("\n", $baris)];
+    }
+
+    private function skemaInfoPesananWa(): array
+    {
+        return [
+            'name'        => 'info_pesanan',
+            'description' => 'Pesanan ERP pelanggan WhatsApp ini (90 hari terakhir, maksimal 5): nomor nota, barang, '
+                . 'tahap (pembayaran/produksi/packing/siap diambil/kirim/selesai), status bayar & sisa tagihan, '
+                . 'diambil atau dikirim, kurir & resi. Pakai untuk "sudah jadi?", "sudah bisa diambil?", "resinya?", '
+                . '"sudah masuk pembayarannya?".',
+            'input_schema' => ['type' => 'object', 'properties' => (object) []],
+        ];
+    }
+
+    /** SO milik pelanggan chat ini + SO tertaut ke chat (pesanan marketplace yang dibahas di WA). */
+    private function infoPesananWa(?CrmConversation $percakapan): array
+    {
+        if (! $percakapan) {
+            return ['content' => 'Tidak ada percakapan — tidak ada data pesanan.'];
+        }
+
+        $tertaut = app(\App\Modules\CRM\Services\LabelPesananService::class)->idTertaut($percakapan);
+        if (! $percakapan->customer_id && ! $tertaut) {
+            return ['content' => 'Nomor ini belum terhubung ke pelanggan ERP dan belum ada pesanan yang tertaut. '
+                . 'Jangan menebak: tanya nomor nota / nomor pesanan atau nama pemesan, lalu lempar ke admin.'];
+        }
+
+        $pesanan = \App\Modules\Sales\Models\SalesOrder::query()
+            ->where(fn ($q) => $q
+                ->when($percakapan->customer_id, fn ($w) => $w->where('customer_id', $percakapan->customer_id))
+                ->orWhereIn('id', $tertaut ?: [0]))
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->where('order_date', '>=', now()->subDays(90)->toDateString())
+            ->with('items.product:id,name,sku')
+            ->latest('id')->limit(5)->get();
+
+        if ($pesanan->isEmpty()) {
+            return ['content' => 'Pelanggan ini belum punya pesanan dalam 90 hari terakhir. Bila ia menyebut pesanan, '
+                . 'tanya nomor notanya lalu lempar ke admin.'];
+        }
+
+        $progres = app(\App\Modules\Sales\Services\OrderProgressService::class);
+        $baris = $pesanan->map(function ($so) use ($progres) {
+            $p = $progres->for($so);
+            $tahap = collect($p['steps'])->firstWhere('key', $p['current']);
+            $barang = $so->items->map(fn ($i) => rtrim(rtrim(number_format((float) $i->qty, 2, ',', '.'), '0'), ',') . '× '
+                . ($i->description ?: ($i->product?->name ?? 'Produk')))->implode('; ');
+            $sisa = $so->status === 'draft' ? null : $so->sisaTagihan();
+
+            return '- ' . $so->order_number . ($so->customer_po_number ? ' (no. marketplace ' . $so->customer_po_number . ')' : '')
+                . ' | tanggal ' . optional($so->order_date)->format('d/m/Y')
+                . ' | ' . ($so->status === 'draft' ? 'DRAFT, belum dikonfirmasi admin' : 'tahap ' . ($tahap['label'] ?? '—') . (($tahap['note'] ?? '') ? ' (' . $tahap['note'] . ')' : ''))
+                . ' | pembayaran ' . ($p['payment']['label'] ?? '—') . ($sisa !== null && $sisa > 0 ? ', sisa Rp' . number_format($sisa, 0, ',', '.') : '')
+                . ' | ' . ($so->delivery_method === 'ambil_toko' ? 'diambil di toko' : 'dikirim' . (($p['courier'] ?? null) ? ' ' . $p['courier'] : ''))
+                . (($p['tracking_number'] ?? null) ? ' | resi ' . $p['tracking_number'] : '')
+                . ' | total Rp' . number_format((float) $so->grand_total, 0, ',', '.')
+                . " | {$barang}";
+        });
+
+        return ['content' => "Pesanan pelanggan ini (terbaru dulu; sebut status apa adanya, jangan menjanjikan tanggal):\n" . $baris->implode("\n")];
     }
 
     private function skemaInfoPesanan(): array
@@ -460,8 +581,12 @@ class AgenTools
             ->filter(fn (string $p) => $p !== '' && ! str_contains($p, '*'))->all();
     }
 
-    private function skemaUsulkan(): array
+    private function skemaUsulkan(bool $wa = false): array
     {
+        $butir = $wa
+            ? 'Kode butir daftar tanya-jawab yang dipakai, mis. "A1", "D1". "-" bila tidak ada yang cocok. "Z1" untuk ucapan penutup (wajib dibalas). "Z2" bila pesan tak perlu dibalas (notifikasi, OTP, spam, kurir, pemasok).'
+            : 'Kode butir daftar tanya-jawab yang dipakai, mis. "A1", "F2". "-" bila tidak ada yang cocok. "I1" untuk ucapan penutup (wajib dibalas). "I2" bila pesan tak perlu dibalas.';
+
         return [
             'name'        => 'usulkan_balasan',
             'description' => 'WAJIB dipanggil tepat sekali di akhir: saran balasan untuk admin. Admin yang '
@@ -469,7 +594,7 @@ class AgenTools
             'input_schema' => [
                 'type'       => 'object',
                 'properties' => [
-                    'butir' => ['type' => 'string', 'description' => 'Kode butir daftar tanya-jawab yang dipakai, mis. "A1", "F2". "-" bila tidak ada yang cocok. "I1" untuk ucapan penutup (wajib dibalas). "I2" bila pesan tak perlu dibalas.'],
+                    'butir' => ['type' => 'string', 'description' => $butir],
                     'teks' => ['type' => 'string', 'description' => 'Saran balasan untuk pembeli: satu baris pendek gaya admin di HP. Boleh kosong bila tak perlu dibalas, atau bila dilempar tanpa balasan sementara.'],
                     'lempar_ke' => ['type' => 'string', 'enum' => ['tidak', 'desain', 'admin', 'owner'], 'description' => 'Siapa yang harus menangani: tidak (cukup saran ini), desain (desain untuk produk yang sudah ada, ke Admin Desain), owner (produk custom: bentuk, ukuran, atau bahan lain), atau admin (selain itu, ke Admin Layanan).'],
                     'alasan' => ['type' => 'string', 'description' => 'Satu kalimat untuk admin: kenapa butir ini / kenapa dilempar.'],

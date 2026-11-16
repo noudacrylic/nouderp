@@ -6,19 +6,19 @@ use App\Modules\CRM\Services\SaranAiService;
 use Illuminate\Console\Command;
 
 /**
- * Karyawan virtual CS Shopee (mode saran): buat saran balasan untuk chat Shopee yang
+ * Karyawan virtual CS Shopee & WhatsApp (mode saran): buat saran balasan untuk chat yang
  * menunggu dibalas. Tiap menit; mati selama CRM_AGEN_SARAN_AKTIF=false.
  */
 class CrmSaranAi extends Command
 {
     protected $signature = 'crm:saran-ai {--batas=10 : Maksimal percakapan per putaran}';
 
-    protected $description = 'Buat saran balasan AI untuk chat Shopee yang belum dibalas (mode saran)';
+    protected $description = 'Buat saran balasan AI untuk chat Shopee & WhatsApp yang belum dibalas (mode saran)';
 
     public function handle(SaranAiService $saran): int
     {
         if (!$saran->aktif()) {
-            $this->line('Saran AI mati (CRM_AGEN_SARAN_AKTIF) atau agen cs-shopee belum ada.');
+            $this->line('Saran AI mati (CRM_AGEN_SARAN_AKTIF) atau belum ada agen CS yang aktif.');
             return self::SUCCESS;
         }
 

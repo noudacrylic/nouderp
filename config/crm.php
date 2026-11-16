@@ -315,6 +315,7 @@ return [
             'penjualan'   => env('CRM_AGEN_MODEL_PENJUALAN', 'claude-sonnet-5'),
             'cetak'       => env('CRM_AGEN_MODEL_CETAK', 'claude-sonnet-5'),
             'cs-shopee'   => env('CRM_AGEN_MODEL_CS_SHOPEE', 'claude-haiku-5-5'),
+            'cs-whatsapp' => env('CRM_AGEN_MODEL_CS_WHATSAPP', 'claude-haiku-5-5'),
         ],
 
         /*
@@ -322,7 +323,8 @@ return [
          | tanya-jawab: pekerjaan pendek, 'low' cukup dan menekan token berpikir.
          */
         'effort' => [
-            'cs-shopee' => env('CRM_AGEN_EFFORT_CS_SHOPEE', 'low'),
+            'cs-shopee'   => env('CRM_AGEN_EFFORT_CS_SHOPEE', 'low'),
+            'cs-whatsapp' => env('CRM_AGEN_EFFORT_CS_WHATSAPP', 'low'),
         ],
 
         // Dipakai kalau kodenya tidak ada di peta di atas.
@@ -331,10 +333,13 @@ return [
         'maks_token_keluar' => (int) env('CRM_AGEN_MAKS_TOKEN', 1024),
 
         // Agen yang ikut membaca gambar terbaru dari pelanggan (AgenRunner::gambarTerbaca).
-        'baca_gambar' => ['cs-shopee' => (bool) env('CRM_AGEN_BACA_GAMBAR_CS_SHOPEE', true)],
+        'baca_gambar' => [
+            'cs-shopee'   => (bool) env('CRM_AGEN_BACA_GAMBAR_CS_SHOPEE', true),
+            'cs-whatsapp' => (bool) env('CRM_AGEN_BACA_GAMBAR_CS_WHATSAPP', true),
+        ],
 
         // Per agen — model berpikir (Opus 5.5) memakai jatah ini juga untuk berpikirnya.
-        'maks_token_per' => ['cs-shopee' => 4096],
+        'maks_token_per' => ['cs-shopee' => 4096, 'cs-whatsapp' => 4096],
 
         /*
          | Tarif per 1 juta token, dalam USD, apa adanya dari daftar harga

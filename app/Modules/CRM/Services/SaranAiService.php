@@ -16,8 +16,9 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Karyawan virtual CS Shopee, mode SARAN: agen `cs-shopee` mengusulkan balasan untuk pesan
- * pembeli Shopee yang belum dibalas manusia; admin memilih Pakai / Abaikan di layar chat.
+ * Karyawan virtual CS, mode SARAN: agen `cs-shopee` (chat Shopee) dan `cs-whatsapp` (nomor
+ * utama WAHA, sejak 16 Nov 2026) mengusulkan balasan untuk pesan yang belum dibalas manusia;
+ * admin memilih Pakai / Abaikan di layar chat.
  *
  * Di jam kerja tidak ada yang dikirim ke pembeli dari kelas ini. Yang dicatat — dipakai utuh,
  * dipakai diubah, diabaikan, beserta teks yang sebenarnya dikirim admin — adalah bahan evaluasi.
@@ -43,26 +44,68 @@ class SaranAiService
     /** Pesan yang lebih tua dari ini tidak dijawab otomatis (mis. penjadwal sempat mati). */
     public const BATAS_OTOMATIS_MENIT = 60;
 
+    /** Kanal → agen yang menyarankan balasannya. */
+    public const AGEN_PER_KANAL = [
+        CrmConversation::KANAL_SHOPEE => CrmAgent::CS_SHOPEE,
+        CrmConversation::KANAL_CERMIN => CrmAgent::CS_WHATSAPP,
+    ];
+
+    /**
+     * Sambutan otomatis WhatsApp Business: dikirim aplikasi HP 1–4 detik setelah pesan pertama,
+     * tercatat sebagai pesan keluar `whatsapp_app`. Itu bukan jawaban — tanpa pengecualian ini
+     * setiap chat baru terbaca sudah dibalas dan sarannya langsung basi.
+     */
+    public const SAMBUTAN_WA = 'Terima kasih sudah menghubungi Noud Acrylic';
+
     public function __construct(private AgenRunner $runner) {}
 
     public function aktif(): bool
     {
-        return (bool) config('crm.agen.saran_aktif', false) && CrmAgent::kode(CrmAgent::CS_SHOPEE) !== null;
+        return (bool) config('crm.agen.saran_aktif', false) && $this->kanalAktif() !== [];
+    }
+
+    /** @return string[] kanal yang agennya tersedia */
+    public function kanalAktif(): array
+    {
+        return array_keys(array_filter(self::AGEN_PER_KANAL, fn (string $kode) => $this->agenKode($kode) !== null));
+    }
+
+    /** Agen untuk percakapan ini; null bila kanalnya tidak diberi saran. */
+    public function agenUntuk(CrmConversation $c): ?CrmAgent
+    {
+        $kode = self::AGEN_PER_KANAL[$c->channel] ?? null;
+
+        return $kode ? $this->agenKode($kode) : null;
     }
 
     /**
-     * Percakapan Shopee yang menunggu saran: pesan masuk terakhir 30 detik – 24 jam lalu,
+     * CS Shopee sudah berjalan sebelum saklar per agen dipakai di sini, jadi ia hanya butuh ada.
+     * Agen lain (CS WhatsApp) wajib aktif — bisa dimatikan dari layar Agen tanpa deploy.
+     */
+    private function agenKode(string $kode): ?CrmAgent
+    {
+        $agen = CrmAgent::kode($kode);
+
+        return $agen && ($kode === CrmAgent::CS_SHOPEE || $agen->is_active) ? $agen : null;
+    }
+
+    /**
+     * Percakapan yang menunggu saran: pesan masuk terakhir 30 detik – 24 jam lalu,
      * belum dibalas manusia, dan pesan itu belum punya saran.
+     *
+     * WhatsApp tidak disaring lewat last_outbound_at: sambutan otomatis ikut mengisinya.
+     * Yang memutuskan sudah dibalas atau belum di sana adalah pesanTerakhir().
      *
      * @return Collection<int, CrmConversation>
      */
     public function calon(int $batas = 10): Collection
     {
-        return CrmConversation::where('channel', CrmConversation::KANAL_SHOPEE)
+        return CrmConversation::whereIn('channel', $this->kanalAktif())
             ->whereBetween('last_inbound_at', [now()->subHours(self::BATAS_JAM), now()->subSeconds(self::JEDA_DETIK)])
-            ->where(fn ($q) => $q->whereNull('last_outbound_at')->orWhereColumn('last_outbound_at', '<', 'last_inbound_at'))
+            ->where(fn ($q) => $q->where('channel', CrmConversation::KANAL_CERMIN)
+                ->orWhereNull('last_outbound_at')->orWhereColumn('last_outbound_at', '<', 'last_inbound_at'))
             ->orderByDesc('last_inbound_at')
-            ->limit($batas * 3)
+            ->limit($batas * 5)
             ->get()
             ->filter(fn (CrmConversation $c) => ($m = $this->pesanTerakhir($c))
                 && !CrmSaranAi::where('untuk_message_id', $m->id)->exists()
@@ -74,7 +117,7 @@ class SaranAiService
     /** Buat saran untuk pesan masuk terakhir percakapan ini; null bila tak perlu / sudah ada. */
     public function buat(CrmConversation $c): ?CrmSaranAi
     {
-        $agen  = CrmAgent::kode(CrmAgent::CS_SHOPEE);
+        $agen  = $this->agenUntuk($c);
         $pesan = $this->pesanTerakhir($c);
         if (!$agen || !$pesan || CrmSaranAi::where('untuk_message_id', $pesan->id)->exists()) {
             return null;
@@ -137,7 +180,8 @@ class SaranAiService
      */
     private function kirimOtomatis(CrmConversation $c, CrmMessage $pesan, CrmSaranAi $saran, CrmAgent $agen): void
     {
-        $mode     = $agen->kirim_otomatis ?: CrmAgent::KIRIM_MATI;
+        // WhatsApp baru mode saran (16 Nov 2026): kirim otomatis dikunci di kode, bukan hanya di layar.
+        $mode     = $c->shopee() ? ($agen->kirim_otomatis ?: CrmAgent::KIRIM_MATI) : CrmAgent::KIRIM_MATI;
         $luarJam  = AgenPrompt::diLuarJamKerja();
         if ($mode === CrmAgent::KIRIM_MATI || $saran->status !== CrmSaranAi::BARU
             || (!$luarJam && $mode !== CrmAgent::KIRIM_PENUH)) {
@@ -148,7 +192,7 @@ class SaranAiService
         if ($teks === null
             || $pesan->sent_at?->lt(now()->subMinutes(self::BATAS_OTOMATIS_MENIT))
             || $this->pesanTerakhir($c)?->id !== $pesan->id
-            || ($c->last_outbound_at && $pesan->sent_at && $c->last_outbound_at->gt($pesan->sent_at))
+            || $this->sudahDibalas($c, $pesan)
             || $this->dipegangManusia($c)) {
             return;
         }
@@ -218,8 +262,9 @@ class SaranAiService
      */
     private function arahkanKePeran(CrmConversation $c, ?string $lempar): void
     {
+        // WhatsApp (mode saran, 16 Nov 2026): chat belum dioper otomatis — sarannya dinilai dulu.
         $peran = ['desain' => 'desain', 'admin' => 'layanan', 'owner' => 'owner'][$lempar] ?? null;
-        if (!$peran) {
+        if (!$peran || !$c->shopee()) {
             return;
         }
 
@@ -252,9 +297,9 @@ class SaranAiService
             return null;
         }
 
-        // Dibalas dari Seller Centre: pertanyaannya sudah terjawab, sarannya tidak perlu tampil lagi.
+        // Dibalas dari Seller Centre / HP: pertanyaannya sudah terjawab, sarannya tidak perlu tampil lagi.
         $pesan = CrmMessage::find($saran->untuk_message_id);
-        if ($pesan && $c->last_outbound_at && $c->last_outbound_at->gt($pesan->sent_at)) {
+        if ($pesan && $this->sudahDibalas($c, $pesan)) {
             $saran->update(['status' => CrmSaranAi::KEDALUWARSA, 'catatan' => 'Sudah dibalas tanpa lewat saran.']);
 
             return null;
@@ -308,9 +353,37 @@ class SaranAiService
         return CrmMessage::where('conversation_id', $c->id)
             ->where('direction', CrmMessage::KELUAR)
             ->where('sent_at', '>=', now()->subHours(self::JAM_MANUSIA_MEMEGANG))
-            ->where(fn ($q) => $q->whereNull('source')
-                ->orWhereNotIn('source', [CrmMessage::SOURCE_AI, CrmMessage::SOURCE_SHOPEE_OTOMATIS]))
+            ->where(fn ($q) => $q->whereNull('source')->orWhere('source', '!=', CrmMessage::SOURCE_AI))
+            ->where(fn ($q) => self::bukanOtomatis($q))
             ->exists();
+    }
+
+    /**
+     * Ada balasan sungguhan sesudah pesan ini? Shopee memakai last_outbound_at (balasan otomatis
+     * Shopee tidak mengisinya); WhatsApp membaca pesannya, karena sambutan otomatis ikut mengisi.
+     */
+    private function sudahDibalas(CrmConversation $c, CrmMessage $pesan): bool
+    {
+        if (!$pesan->sent_at) {
+            return false;
+        }
+        if ($c->shopee()) {
+            return $c->last_outbound_at && $c->last_outbound_at->gt($pesan->sent_at);
+        }
+
+        return CrmMessage::where('conversation_id', $c->id)
+            ->where('direction', CrmMessage::KELUAR)
+            ->where('sent_at', '>', $pesan->sent_at)
+            ->where(fn ($q) => self::bukanOtomatis($q))
+            ->exists();
+    }
+
+    /** Pesan keluar yang bukan balasan otomatis: sambutan Shopee & sambutan WhatsApp Business. */
+    private static function bukanOtomatis($q): void
+    {
+        $q->where(fn ($w) => $w->whereNull('source')->orWhere('source', '!=', CrmMessage::SOURCE_SHOPEE_OTOMATIS))
+            ->where(fn ($w) => $w->whereNull('source')->orWhere('source', '!=', CrmMessage::SOURCE_WHATSAPP_APP)
+                ->orWhereNull('content')->orWhere('content', 'not like', '%' . self::SAMBUTAN_WA . '%'));
     }
 
     /** AI sudah meneruskan chat ini ke admin dalam 2 jam terakhir. */
@@ -325,10 +398,9 @@ class SaranAiService
 
     private function pesanTerakhir(CrmConversation $c): ?CrmMessage
     {
-        // Balasan otomatis Shopee (sambutan, luar jam) bukan jawaban — lewati.
+        // Balasan otomatis (sambutan Shopee / WhatsApp Business) bukan jawaban — lewati.
         $m = CrmMessage::where('conversation_id', $c->id)
-            ->where(fn ($q) => $q->where('direction', CrmMessage::MASUK)
-                ->orWhereNull('source')->orWhere('source', '!=', CrmMessage::SOURCE_SHOPEE_OTOMATIS))
+            ->where(fn ($q) => $q->where('direction', CrmMessage::MASUK)->orWhere(fn ($k) => self::bukanOtomatis($k)))
             ->latest('sent_at')->latest('id')->first();
 
         return $m && $m->direction === CrmMessage::MASUK ? $m : null;

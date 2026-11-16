@@ -19,8 +19,10 @@ class CrmSaranPeriksaController extends Controller
         $butir   = trim((string) $request->input('butir', ''));
         $lempar  = (string) $request->input('lempar', '');
         $oto     = (string) $request->input('otomatis', '');
+        $kanal   = (string) $request->input('kanal', '');
 
-        $dasar = CrmSaranAi::query()->where(fn ($q) => $q->whereNotNull('teks')->orWhereNotNull('lempar_ke'));
+        $dasar = CrmSaranAi::query()->where(fn ($q) => $q->whereNotNull('teks')->orWhereNotNull('lempar_ke'))
+            ->when(in_array($kanal, ['shopee', 'whatsapp_waha'], true), fn ($q) => $q->whereHas('conversation', fn ($c) => $c->where('channel', $kanal)));
 
         $daftar = (clone $dasar)
             ->with(['conversation:id,display_name,contact_key,channel', 'pesan:id,conversation_id,content,sent_at', 'pesan.attachments:id,message_id', 'peninjau:id,name'])

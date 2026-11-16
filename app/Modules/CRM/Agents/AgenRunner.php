@@ -124,7 +124,8 @@ class AgenRunner
                 $keluaran = $this->tools->jalankan(
                     (string) $blok['name'],
                     (array) ($blok['input'] ?? []),
-                    $percakapan
+                    $percakapan,
+                    $agen
                 );
 
                 $lempar = $lempar || ! empty($keluaran['_lempar']);
