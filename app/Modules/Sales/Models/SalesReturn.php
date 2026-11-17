@@ -63,11 +63,15 @@ class SalesReturn extends Model
             'K3' => 'Barang tidak dikirim balik, dana penuh ke pembeli',
             'K4' => 'Barang tetap di pembeli, dana sebagian ke pembeli',
             'K6' => 'Banding menang — dana tetap ke kita',
+            // Pembeli tetap direfund penuh oleh marketplace, tapi banding kita menang dan
+            // marketplace/kurir membayar KOMPENSASI (bisa kurang dari harga, mis. "Kompensasi
+            // Jasa Kirim" atas barang retur yang datang patah). Nilai dibalik = refund − kompensasi.
+            'K8' => 'Banding menang — pembeli direfund, kita diganti kompensasi',
         ],
     ];
 
     /** Hasil banding yang tersirat dari kasus — dipakai SalesReturnService::jurnalBawaan. */
-    public const CASE_APPEAL = ['PH2' => 'kalah', 'GK2' => 'menang', 'K6' => 'menang'];
+    public const CASE_APPEAL = ['PH2' => 'kalah', 'GK2' => 'menang', 'K6' => 'menang', 'K8' => 'menang'];
 
     public function caseLabel(): ?string
     {

@@ -206,7 +206,7 @@ class ShopeeReturLamaService
             'draft' => $draft, 'invoice' => $inv, 'sn' => $sn, 'kelompok' => '-', 'alasan' => null,
             'retur_shopee' => array_map(fn ($x) => ['sn' => $x['return_sn'], 'status' => $x['status'], 'alasan' => $x['reason'], 'refund' => (float) $x['refund_amount'], 'needs_logistics' => !empty($x['needs_logistics'])], $returSn),
             'nilai' => (float) ($inv?->grand_total ?? 0), 'refund' => 0.0, 'ganti' => 0.0, 'cair' => 0.0,
-            'dibalik' => 0.0, 'potongan' => 0.0, 'jenis' => null, 'kasus' => null, 'lama' => null,
+            'dibalik' => 0.0, 'potongan' => 0.0, 'jenis' => null, 'kasus' => null, 'lama' => null, 'penyesuaian' => '',
         ];
         $lewati = function (string $alasan) use (&$r) {
             $r['kelompok'] = '-';
@@ -237,7 +237,11 @@ class ShopeeReturLamaService
         $nilai   = (float) $inv->grand_total;
         $dibalik = round(min($nilai, max(0.0, $refund - $ganti)), 2);
         $sisa    = round($nilai - $dibalik, 2);
-        $r = array_merge($r, ['refund' => $refund, 'ganti' => $ganti, 'cair' => $cair, 'dibalik' => $dibalik, 'potongan' => round($sisa - $cair, 2)]);
+        // Alasan penyesuaian Seller Centre ("Kompensasi Jasa Kirim" dsb.) — ikut ke catatan retur.
+        $penyesuaian = collect($esc['order_adjustment'] ?? [])
+            ->map(fn ($a) => trim(($a['adjustment_reason'] ?? 'Penyesuaian') . ' ' . rupiah((float) ($a['amount'] ?? 0))))
+            ->implode(', ');
+        $r = array_merge($r, ['refund' => $refund, 'ganti' => $ganti, 'cair' => $cair, 'dibalik' => $dibalik, 'potongan' => round($sisa - $cair, 2), 'penyesuaian' => $penyesuaian]);
 
         $semuaBatal = $returSn && collect($returSn)->every(fn ($x) => $x['status'] === 'CANCELLED');
         $lama = SalesReturn::where('sales_order_id', $draft->_so)->whereNull('invoice_id')->where('status', 'posted')->get();
@@ -294,6 +298,8 @@ class ShopeeReturLamaService
             $dibalik <= 0.5 && ($tanpaRetur || $tidakSampai) => ['paket_hilang', 'PH1'],
             $dibalik <= 0.5                                  => ['diajukan_konsumen', 'K6'],
             $tidakSampai                                     => ['paket_hilang', 'PH2'],
+            // Pembeli direfund, tapi Shopee/kurir mengganti SEBAGIAN ke kita (banding menang).
+            !$tanpaRetur && $ganti > 0.5                     => ['diajukan_konsumen', 'K8'],
             $tanpaRetur && $sisa <= 0.5                      => ['gagal_kirim', 'GK1'],
             $tanpaRetur                                      => ['paket_hilang', 'PH1'],
             $sisa <= 0.5                                     => ['diajukan_konsumen', 'K3'],
@@ -403,7 +409,12 @@ class ShopeeReturLamaService
         $hasil = [];
         foreach ($this->rencana($shop, now()->subDays($hariMundur), now(), [], $saring, $returShopee) as $r) {
             $d = $r['draft'];
-            if ($d->return_case || $d->journal_reversal !== null || $d->journal_settlement !== null) {
+            $diisi = $d->return_case || $d->journal_reversal !== null || $d->journal_settlement !== null;
+            // Draft yang sudah terisi hanya disentuh lagi bila DULU diisi skill ini dan angka
+            // Shopee berubah sesudahnya — mis. kompensasi banding ("Kompensasi Jasa Kirim")
+            // masuk berhari-hari setelah refund. Isian manusia tak pernah ditimpa.
+            $isiUlang = $diisi && $this->perluIsiUlang($d, $r);
+            if ($diisi && !$isiUlang) {
                 continue;
             }
             $baris = [
@@ -419,7 +430,7 @@ class ShopeeReturLamaService
                     $baris['status'] = 'akan';
                 } else {
                     try {
-                        DB::transaction(fn () => $this->isiDraft($r));
+                        DB::transaction(fn () => $this->isiDraft($r, $isiUlang));
                         $baris['status'] = 'selesai';
                     } catch (Throwable $e) {
                         $baris['status'] = 'gagal';
@@ -444,7 +455,31 @@ class ShopeeReturLamaService
         return $r;
     }
 
-    private function isiDraft(array $r): void
+    /** Penanda catatan draft yang diisi isiDraft() — pembeda isian skill dari isian manusia. */
+    private const PENANDA_ISI = 'Draft diisi dari rincian dana Shopee';
+
+    /**
+     * Draft yang dulu diisi skill ini, tapi angka Shopee kini berbeda (nilai dibalik atau dana
+     * cair berubah). Draft yang pernah diedit lewat form tetap memuat penanda di catatannya,
+     * jadi yang dibandingkan adalah ANGKA tersimpan — bila sama, tak ada yang ditimpa.
+     */
+    private function perluIsiUlang(SalesReturn $d, array $r): bool
+    {
+        if ($r['kelompok'] !== 'A' || !str_contains((string) $d->notes, self::PENANDA_ISI)) {
+            return false;
+        }
+        $akun = $this->retur->akunDana($r['invoice']->customer_id);
+        $jumlah = fn (?array $rows, ?int $akunId, string $sisi) => round(collect($rows ?? [])
+            ->where('account_id', $akunId)->sum(fn ($x) => (float) ($x[$sisi] ?? 0)), 2);
+
+        $dibalikLama = $jumlah($d->journal_reversal, $akun['retur']['id'] ?? null, 'debit');
+        $cairLama    = $jumlah($d->journal_settlement, $akun['dompet']['id'] ?? null, 'debit')
+            - $jumlah($d->journal_settlement, $akun['dompet']['id'] ?? null, 'credit');
+
+        return abs($dibalikLama - $r['dibalik']) > 0.5 || abs($cairLama - $r['cair']) > 0.5;
+    }
+
+    private function isiDraft(array $r, bool $ulang = false): void
     {
         /** @var SalesReturn $d */
         $d = $r['draft'];
@@ -464,8 +499,9 @@ class ShopeeReturLamaService
             'journal_reversal'       => $rev ?? [],
             'journal_settlement'     => $set,
             'external_return_number' => $this->nomorReturShopee($r),
-            'notes'                  => $this->catatan($d, 'Draft diisi dari rincian dana Shopee: refund ' . rupiah($r['refund'])
-                . ', diganti ' . rupiah($r['ganti']) . ', dibalik ' . rupiah($r['dibalik']) . ', cair ' . rupiah($r['cair'])
+            'notes'                  => $this->catatan($d, ($ulang ? 'Diisi ulang — angka Shopee berubah. ' : '') . self::PENANDA_ISI . ': refund ' . rupiah($r['refund'])
+                . ', diganti ' . rupiah($r['ganti']) . ($r['penyesuaian'] ? ' (' . $r['penyesuaian'] . ')' : '')
+                . ', dibalik ' . rupiah($r['dibalik']) . ', cair ' . rupiah($r['cair'])
                 . '. Periksa kondisi barang lalu posting.'),
         ])->save();
     }
