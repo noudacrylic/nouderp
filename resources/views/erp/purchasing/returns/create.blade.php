@@ -30,6 +30,7 @@
         <input type="hidden" name="purchase_invoice_id" :value="returnType === 'invoice' ? (selectedDocId || '') : ''">
         <input type="hidden" name="purchase_order_id" :value="returnType === 'po' ? (selectedDocId || '') : ''">
         <input type="hidden" name="refund_amount" :value="returnType === 'po' ? poRefundAmount : ''">
+        <input type="hidden" name="fee_withheld" :value="returnType === 'invoice' ? feeValue : 0">
 
         <div class="grid grid-cols-12 gap-5">
 
@@ -208,6 +209,29 @@
                                     </tbody>
                                 </table>
                             </div>
+
+                            {{-- Biaya yang tidak dikembalikan pemasok (mis. biaya layanan Shopee) --}}
+                            <div class="mt-4 grid grid-cols-12 gap-3 items-end">
+                                <div class="col-span-4">
+                                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Biaya tidak dikembalikan</label>
+                                    <input type="text" inputmode="numeric" x-model="feeInput" @input="formatFee()" placeholder="0"
+                                        class="w-full border rounded-xl px-3.5 py-2.5 text-sm text-right font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        :class="feeError ? 'border-red-400 bg-red-50' : 'border-gray-200'">
+                                </div>
+                                <div class="col-span-8">
+                                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Dibebankan ke akun</label>
+                                    <select name="fee_account_id" x-model="feeAccountId"
+                                        class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                        @foreach($expenseAccounts as $a)
+                                            <option value="{{ $a->id }}">{{ $a->code }} — {{ $a->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div class="col-span-12 text-[10px] text-gray-500 italic" x-show="!feeError">
+                                    Isi bila dana yang benar-benar diterima lebih kecil dari Total Refund (mis. biaya layanan Shopee hanya dikembalikan sebagian). Contoh: refund ERP 180.467, diterima 180.197 → isi 270.
+                                </div>
+                                <div class="col-span-12 text-[10px] text-red-500 font-bold" x-show="feeError" x-text="feeError"></div>
+                            </div>
                         </div>
                     </template>
 
@@ -278,6 +302,14 @@
                             <div class="flex justify-between items-center text-sm">
                                 <span class="text-gray-500 font-medium">Total Refund</span>
                                 <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(summary.total)"></span></span>
+                            </div>
+                            <div class="flex justify-between items-center text-sm" x-show="returnType === 'invoice' && feeValue > 0">
+                                <span class="text-gray-500 font-medium">Biaya tidak dikembalikan</span>
+                                <span class="font-bold text-red-600">− Rp <span x-text="formatNumber(feeValue)"></span></span>
+                            </div>
+                            <div class="flex justify-between items-center text-sm" x-show="returnType === 'invoice' && feeValue > 0">
+                                <span class="text-gray-500 font-medium">Dana diterima dari pemasok</span>
+                                <span class="font-bold text-gray-700">Rp <span x-text="formatNumber(summary.tagih)"></span></span>
                             </div>
                             <div class="flex justify-between items-center text-sm" x-show="returnType === 'invoice'">
                                 <span class="text-gray-500 font-medium">Hutang faktur berkurang</span>
@@ -381,6 +413,7 @@
 @push('scripts')
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script>
+const EXPENSE_ACCOUNTS = @json($expenseAccounts);
 function returForm(initialData = null) {
     return {
         returnId: initialData?.id || null,
@@ -407,6 +440,9 @@ function returForm(initialData = null) {
         returnDate: initialData?.return_date ? initialData.return_date.split('T')[0] : '{{ now()->format("Y-m-d") }}',
         today: '{{ now()->format("Y-m-d") }}',
         notes: initialData?.notes || '',
+        feeInput: parseFloat(initialData?.fee_withheld || 0) > 0 ? Math.round(parseFloat(initialData.fee_withheld)).toLocaleString('id-ID') : '',
+        feeAccountId: initialData?.fee_account_id ? String(initialData.fee_account_id) : '',
+        feeError: null,
 
         summary: { total: 0 },
         journalPreview: [],
@@ -415,12 +451,15 @@ function returForm(initialData = null) {
         async init() {
             this.$watch('items', () => this.recompute(), { deep: true });
             this.$watch('poRefundAmount', () => this.recompute());
+            this.$watch('feeInput', () => this.recompute());
+            this.$watch('feeAccountId', () => this.recompute());
 
             if (this.returnId && initialData) {
                 this.loadingDocs = true;
                 try {
                     await this.loadDocuments();
                     this.selectedDoc = this.documents.find(d => d.id == this.selectedDocId);
+                    if (!this.feeAccountId && this.selectedDoc?.fee_account_id) this.feeAccountId = String(this.selectedDoc.fee_account_id);
                     if (this.selectedDoc && this.returnType === 'invoice') {
                         this.items = this.selectedDoc.items.map(docItem => {
                             const ri = (initialData.items || []).find(x => x.purchase_invoice_item_id == docItem.id);
@@ -510,6 +549,7 @@ function returForm(initialData = null) {
             this.selectedDocId = doc.id;
             this.selectedDoc = doc;
             this.showDocDropdown = false;
+            if (doc.fee_account_id) this.feeAccountId = String(doc.fee_account_id);
             if (this.returnType === 'invoice') {
                 this.items = (doc.items || []).map(it => ({
                     id: it.id,
@@ -558,13 +598,17 @@ function returForm(initialData = null) {
             total = Math.round(total * 100) / 100;
             // Sama dengan PurchaseReturnService::postInvoiceReturn: kurangi sisa hutang
             // faktur (2101) dulu, kelebihannya (porsi yang sudah dibayar/DP) ke 1108.
+            // Biaya yang tidak dikembalikan pemasok mengurangi tagihan, bukan nilai persediaan.
+            const fee = this.returnType === 'invoice' ? this.feeValue : 0;
+            this.feeError = fee > total + 0.001 ? 'Biaya melebihi nilai retur.' : null;
+            const tagih = Math.round(Math.max(0, total - fee) * 100) / 100;
             let apReduction = 0;
             if (this.returnType === 'invoice') {
                 const outstanding = parseFloat(this.selectedDoc?.outstanding_amount || 0);
-                apReduction = Math.round(Math.min(outstanding, total) * 100) / 100;
+                apReduction = Math.round(Math.min(outstanding, tagih) * 100) / 100;
             }
-            const overpay = Math.round((total - apReduction) * 100) / 100;
-            this.summary = { total, apReduction, overpay };
+            const overpay = Math.round((tagih - apReduction) * 100) / 100;
+            this.summary = { total, tagih, fee, apReduction, overpay };
             this.journalPreview = this.buildJournalPreview();
         },
 
@@ -585,6 +629,9 @@ function returForm(initialData = null) {
             if (this.summary.overpay > 0) {
                 lines.push({ label: 'Dr. 1108 Piutang Lebih Bayar Pemasok', amount: this.summary.overpay, cssClass: 'text-purple-700 font-bold', indent: false });
             }
+            if (this.summary.fee > 0) {
+                lines.push({ label: 'Dr. ' + this.feeAccountLabel(), amount: this.summary.fee, cssClass: 'text-red-700 font-bold', indent: false });
+            }
             lines.push({ label: 'Cr. 1130 Persediaan', amount: total, cssClass: 'text-gray-500 italic', indent: true });
             return lines;
         },
@@ -594,7 +641,7 @@ function returForm(initialData = null) {
             if (this.returnType === 'invoice') {
                 const hasItem = this.items.some(i => parseFloat(i.qty_return) > 0);
                 const hasErr = this.items.some(i => i.qty_error);
-                return hasItem && !hasErr && this.summary.total > 0;
+                return hasItem && !hasErr && !this.feeError && this.summary.total > 0;
             }
             return this.summary.total > 0 && !this.poRefundError;
         },
@@ -612,6 +659,19 @@ function returForm(initialData = null) {
         doSubmit() {
             this.showConfirm = false;
             document.getElementById('returnForm').submit();
+        },
+
+        /** Nilai biaya dari isian berformat ribuan ("1.170" -> 1170). */
+        get feeValue() {
+            return parseInt(String(this.feeInput || '').replace(/\D/g, ''), 10) || 0;
+        },
+        formatFee() {
+            const v = this.feeValue;
+            this.feeInput = v > 0 ? v.toLocaleString('id-ID') : '';
+        },
+        feeAccountLabel() {
+            const a = EXPENSE_ACCOUNTS.find(x => String(x.id) === String(this.feeAccountId));
+            return a ? (a.code + ' ' + a.name) : 'Beban';
         },
 
         formatNumber(n) {

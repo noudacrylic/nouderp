@@ -43,7 +43,14 @@ class PurchaseReturnController extends Controller
 
     public function create()
     {
-        return view('erp.purchasing.returns.create');
+        return view('erp.purchasing.returns.create', ['expenseAccounts' => $this->akunBeban()]);
+    }
+
+    /** Pilihan akun untuk "Biaya tidak dikembalikan pemasok". */
+    private function akunBeban()
+    {
+        return \App\Core\Accounting\Account::where('type', 'expense')->where('is_active', 1)
+            ->orderBy('code')->get(['id', 'code', 'name']);
     }
 
     public function edit($id)
@@ -59,7 +66,7 @@ class PurchaseReturnController extends Controller
             return redirect(list_url('purchasing.returns.index'))
                 ->with('error', 'Hanya retur draft yang bisa diedit.');
         }
-        return view('erp.purchasing.returns.create', compact('return'));
+        return view('erp.purchasing.returns.create', ['return' => $return, 'expenseAccounts' => $this->akunBeban()]);
     }
 
     public function store(Request $request)
@@ -78,12 +85,14 @@ class PurchaseReturnController extends Controller
             'items.*.purchase_invoice_item_id' => 'required_with:items|exists:purchase_invoice_items,id',
             'items.*.qty'         => 'required_with:items|numeric|min:0',
             'notes'               => 'nullable|string',
+            'fee_withheld'        => 'nullable|string|max:30',
+            'fee_account_id'      => 'nullable|exists:accounts,id',
         ]);
 
         $data = $request->only([
             'return_type', 'supplier_id', 'return_date',
             'purchase_invoice_id', 'purchase_order_id', 'refund_amount',
-            'items', 'notes',
+            'items', 'notes', 'fee_withheld', 'fee_account_id',
         ]);
 
         // Filter item qty = 0 (form submit semua row, termasuk yang tidak diisi).
@@ -212,6 +221,7 @@ class PurchaseReturnController extends Controller
                     'grand_total'        => (float) $inv->total,
                     'outstanding_amount' => (float) $inv->outstanding_amount,
                     'status'             => strtoupper($inv->status),
+                    'fee_account_id'     => PurchaseReturnService::akunBiayaBawaan($inv),
                     'items'              => $items,
                 ];
             })

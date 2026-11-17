@@ -108,6 +108,7 @@ class PurchaseReturnService
             'total'               => $subtotal,
             'refund_amount'       => $subtotal,
             'status'              => 'draft',
+            ...$this->biayaDitahan($data, $invoice, $subtotal),
             'notes'               => $data['notes'] ?? null,
         ]);
         foreach ($rows as $r) {
@@ -189,10 +190,37 @@ class PurchaseReturnService
                     'total'         => $subtotal,
                     'refund_amount' => $subtotal,
                     'notes'         => $data['notes'] ?? null,
+                    ...$this->biayaDitahan($data, $invoice, $subtotal),
                 ]);
             }
             return $return;
         });
+    }
+
+    /**
+     * Biaya yang tidak dikembalikan pemasok (mis. biaya layanan Shopee yang hanya dikembalikan
+     * sebagian). Bawaan akunnya = akun biaya pertama di faktur asal, lalu 5103.
+     *
+     * @return array{fee_withheld: float, fee_account_id: ?int}
+     */
+    protected function biayaDitahan(array $data, PurchaseInvoice $invoice, float $subtotal): array
+    {
+        $fee = round(max(0, (float) clean_number($data['fee_withheld'] ?? 0)), 2);
+        if ($fee > $subtotal + 0.001) {
+            throw new DomainException('Biaya tidak dikembalikan melebihi nilai retur.');
+        }
+        $akun = !empty($data['fee_account_id']) ? (int) $data['fee_account_id'] : self::akunBiayaBawaan($invoice);
+
+        return ['fee_withheld' => $fee, 'fee_account_id' => $fee > 0 ? $akun : null];
+    }
+
+    /** Akun biaya bawaan retur faktur: akun biaya pertama di faktur asal, lalu 5103. */
+    public static function akunBiayaBawaan(PurchaseInvoice $invoice): ?int
+    {
+        $id = \Illuminate\Support\Facades\DB::table('purchase_invoice_expenses')
+            ->where('purchase_invoice_id', $invoice->id)->orderBy('id')->value('account_id');
+
+        return $id ? (int) $id : (Account::where('code', '5103')->value('id') ?: null);
     }
 
     /**
@@ -321,7 +349,9 @@ class PurchaseReturnService
         $journal = $this->createJournal($return, $returnDate);
         $return->journal_id = $journal->id;
 
-        $refund = (float) $return->refund_amount;
+        // Yang ditagih balik ke pemasok = HPP barang − biaya yang tidak dikembalikannya.
+        $fee    = round((float) $return->fee_withheld, 2);
+        $refund = round((float) $return->refund_amount - $fee, 2);
 
         // Routing receivable: pakai outstanding invoice dulu (Dr 2101), sisanya Dr 1108
         $invOutstanding = (float) $invoice->outstanding_amount;
@@ -334,6 +364,9 @@ class PurchaseReturnService
         }
         if ($overpayAdd > 0) {
             $this->createLine($journal, $return, $this->getAccountIdByCode($this->account('overpay_supplier')), 'debit', $overpayAdd, 'Piutang lebih bayar supplier (retur)');
+        }
+        if ($fee > 0) {
+            $this->createLine($journal, $return, (int) ($return->fee_account_id ?: $this->getAccountIdByCode('5103')), 'debit', $fee, 'Biaya tidak dikembalikan pemasok (retur)');
         }
         if ($residualLoss > 0) {
             $this->createLine($journal, $return, $this->getAccountIdByCode($this->account('loss_return')), 'debit', $residualLoss, 'Sisa landed cost layer habis');
@@ -637,7 +670,7 @@ class PurchaseReturnService
             $overpayAmount = (float) (SupplierOverpayment::where('supplier_id', $return->supplier_id)
                 ->where('reference', $return->return_number)
                 ->value('amount') ?? 0);
-            $apReduction = max(0, round((float) $return->refund_amount - $overpayAmount, 2));
+            $apReduction = max(0, round((float) $return->refund_amount - (float) $return->fee_withheld - $overpayAmount, 2));
             if ($apReduction > 0) {
                 $invoice->outstanding_amount = (float) $invoice->outstanding_amount + $apReduction;
                 $invoice->save();

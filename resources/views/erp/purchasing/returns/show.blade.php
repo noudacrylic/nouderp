@@ -86,6 +86,10 @@
                     <span class="font-black text-gray-700">Total Refund</span>
                     <span class="font-black text-purple-600 text-lg">Rp {{ number_format($return->total, 0, ',', '.') }}</span>
                 </div>
+                @if((float) $return->fee_withheld > 0)
+                    <div class="flex justify-between"><span class="text-gray-500">Biaya tidak dikembalikan</span><span class="font-bold text-red-600">− Rp {{ number_format($return->fee_withheld, 0, ',', '.') }}</span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">Dana diterima dari pemasok</span><span class="font-bold">Rp {{ number_format($return->total - $return->fee_withheld, 0, ',', '.') }}</span></div>
+                @endif
             </div>
         </div>
     </div>

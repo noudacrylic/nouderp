@@ -20,6 +20,8 @@ class PurchaseReturn extends Model
         'ppn_amount',
         'total',
         'refund_amount',
+        'fee_withheld',
+        'fee_account_id',
         'dp_allocation',
         'status',
         'posted_at',
