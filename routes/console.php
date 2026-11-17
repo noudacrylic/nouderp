@@ -20,6 +20,12 @@ Schedule::command('period:ensure-current')
 Schedule::command('periode-gaji:ensure-current')
     ->monthlyOn(1, '00:01')->name('ensure-current-payroll-period')->withoutOverlapping();
 
+// Kotak Porto: unggahan HP yang tak pernah dilampirkan ke kartu Meja dibuang (config galeri.kotak_hari).
+Artisan::command('galeri:sapu-kotak', function () {
+    $this->info(app(\App\Modules\Galeri\Services\KotakPortoService::class)->sapu() . ' berkas Kotak Porto dibuang.');
+})->purpose('Buang berkas Kotak Porto yang tak dilampirkan');
+Schedule::command('galeri:sapu-kotak')->dailyAt('03:30')->name('galeri-sapu-kotak')->withoutOverlapping();
+
 // Hutang PPh Final UMKM masa bulan lalu (Dr 5012 / Cr 2114). Tombol manual: rincian masa Laporan Pajak.
 Schedule::command('pajak:bukukan-hutang')
     ->monthlyOn(1, '02:15')->name('pajak-bukukan-hutang')->withoutOverlapping();

@@ -214,8 +214,8 @@
                             @endif
 
                             @unless ($bayang)
-                                @if ($skill && method_exists($skill, 'formKartu'))
-                                    @include('erp.tasks.meja._form-kartu', ['form' => $skill->formKartu($t)])
+                                @if ($skill && method_exists($skill, 'formKartu') && ($formKartu = $skill->formKartu($t)))
+                                    @include('erp.tasks.meja._form-kartu', ['form' => $formKartu])
                                 @endif
                                 @if ($skill instanceof \App\Modules\Tasks\MejaKerja\Contracts\PunyaJawaban && ($jawaban = $skill->jawaban($t)))
                                     <form method="POST" action="{{ route('tasks.meja.jawab', $t->id) }}" class="contents">@csrf
@@ -281,4 +281,6 @@ document.querySelectorAll('.meja-aksi[data-salin]').forEach(function (a) {
     });
 });
 </script>
+
+@include('erp.tasks.meja._porto-lampir')
 @endsection

@@ -129,6 +129,11 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
         return $this->tahap($task) === 'foto' && $soId ? [$this->aksiFoto($soId), $op] : [$op];
     }
 
+    public function soUntukFoto(Task $task): ?int
+    {
+        return $this->soId($task);
+    }
+
     private function soId(Task $task): ?int
     {
         $id = DB::table('production_orders')->where('id', $task->taskable_id)->value('sales_order_id');

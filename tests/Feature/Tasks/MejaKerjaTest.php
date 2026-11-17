@@ -134,7 +134,7 @@ class MejaKerjaTest extends TestCase
         $t->refresh();
         $this->assertSame('in_progress', $t->status, 'KS wajib difoto → masuk tahap foto.');
         $this->assertSame('Foto produk', $jenis());
-        $this->assertSame(route('cs.galeri', ['so' => $so->id]), collect($meja->skill('desain')->aksi($t))->firstWhere('utama')['url']);
+        $this->assertSame('porto', $meja->skill('desain')->formKartu($t)['jenis']);
 
         $jawab('foto-selesai')->assertSessionHas('error');
         $this->assertSame('in_progress', $t->fresh()->status);

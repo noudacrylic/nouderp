@@ -147,7 +147,7 @@ class LangkahDesainTest extends TestCase
         $this->assertSame('completed', $this->langkah($op, 2)->status, 'Langkah OP tetap ditutup — produksi lanjut.');
         $this->assertNotSame('done', $t->status);
         $this->assertSame('Foto produk', MejaKerjaService::jenisKartu($t, $meja->skill('langkah-desain'))['jenis']);
-        $this->assertSame(route('cs.galeri', ['so' => $so->id]), collect($meja->skill('langkah-desain')->aksi($t))->firstWhere('utama')['url']);
+        $this->assertSame(route('tasks.meja.porto.lampirkan', $t->id), $meja->skill('langkah-desain')->formKartu($t)['url']);
 
         $meja->sinkron();
         $this->assertNotSame('done', $t->fresh()->status, 'Sinkron tak menutup kartu tahap foto.');

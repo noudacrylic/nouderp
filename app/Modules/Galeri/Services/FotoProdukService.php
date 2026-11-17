@@ -69,71 +69,75 @@ class FotoProdukService
     }
 
     /**
-     * Apa yang masih kurang sebelum kartu foto boleh ditutup; null = lengkap. Lengkap = info foto
-     * terisi (lini; nama instansi bila layak Galeri) dan minimal satu foto tertaut.
+     * Apa yang masih kurang sebelum kartu foto boleh ditutup; null = lengkap (minimal satu foto
+     * tertaut & berkasnya masih ada).
      */
     public function kekuranganFoto(int $soId): ?string
     {
-        $karya = GaleriKarya::where('sales_order_id', $soId)->first();
-        if (!$karya) return 'Isi info foto dulu (tombol 📷 Foto produk).';
-        if ($karya->layak_galeri && blank($karya->nama_instansi)) return 'Nama instansi belum diisi.';
-
         $foto = GaleriFoto::where('sales_order_id', $soId)->pluck('path')
             ->contains(fn ($p) => $this->galeri->jenis(basename($p)) === 'gambar' && $this->ada($p));
 
         return $foto ? null : 'Belum ada foto yang terunggah untuk pesanan ini.';
     }
 
-    /** Lini yang ditawarkan untuk pesanan ini (dari awalan SKU barangnya). */
-    public function liniUsulan(int $soId): ?string
+    /**
+     * Folder porto pesanan ini di NAS (dibuat bila belum ada), tanpa isian dari admin — produknya
+     * sudah jelas dari pesanan (keputusan 17 Nov 2026):
+     *   - KS/BC/produk berlini: `<Lini>/porto/<SKU>` (dipakai bersama semua pesanan SKU itu)
+     *   - custom CS1–CS6:       `porto/<nama produk di SO>`, sendiri per pesanan; nama sudah
+     *                            dipakai pesanan lain → "… 2", "… 3".
+     * Folder yang pernah dipilih untuk pesanan ini disimpan di galeri_karya dan dipakai lagi.
+     */
+    public function folderPorto(int $soId, ?int $userId = null): string
     {
-        $skus = DB::table('sales_order_items as i')->join('products as x', 'x.id', '=', 'i.product_id')
-            ->where('i.sales_order_id', $soId)->pluck('x.sku');
-        foreach ($skus as $sku) {
-            foreach (config('galeri.lini_sku', []) as $awal => $lini) {
-                if (stripos((string) $sku, $awal) === 0) return $lini;
+        $karya = GaleriKarya::where('sales_order_id', $soId)->where('folder', '!=', '')->first();
+        if ($karya && is_dir($this->galeri->abs($karya->folder))) return $karya->folder;
+
+        $porto = config('galeri.folder_porto', 'porto');
+        $items = DB::table('sales_order_items as i')->leftJoin('products as x', 'x.id', '=', 'i.product_id')
+            ->where('i.sales_order_id', $soId)->orderBy('i.id')
+            ->get(['x.sku', 'x.name', 'i.description']);
+
+        // Custom dulu: pesanan campuran custom + KS tetap difoto sebagai karya custom.
+        $custom = $items->first(fn ($i) => $this->cocok((string) $i->sku, config('galeri.sku_custom', [])));
+        if ($custom) {
+            $nama = $this->galeri->namaAman(trim((string) ($custom->description ?: $custom->name)) ?: (string) $custom->sku);
+            $folder = $porto . '/' . $nama;
+            // Folder pesanan ini sendiri sudah dikembalikan di atas, jadi yang sudah ada = milik lain.
+            for ($n = 2; is_dir($this->galeri->abs($folder)); $n++) {
+                $folder = $porto . '/' . $nama . ' ' . $n;
             }
+            $lini = '-';
+        } else {
+            $item = $items->first(fn ($i) => $this->cocok((string) $i->sku, config('galeri.wajib_foto', []))) ?? $items->first();
+            $sku = (string) ($item?->sku ?: 'Tanpa SKU');
+            $lini = $this->liniDariSku($sku);
+            $folder = ($lini ? $lini . '/' : '') . $porto . '/' . $this->galeri->namaAman($sku);
+        }
+
+        $folder = $this->galeri->pastikanFolder($folder);
+        GaleriKarya::updateOrCreate(['sales_order_id' => $soId], ['lini' => $lini ?: '-', 'folder' => $folder, 'user_id' => $userId]);
+
+        return $folder;
+    }
+
+    private function liniDariSku(string $sku): ?string
+    {
+        foreach (config('galeri.lini_sku', []) as $awal => $lini) {
+            if (stripos($sku, $awal) === 0) return $lini;
         }
         return null;
     }
 
-    /**
-     * Simpan info foto + pastikan folder `<lini>/porto/<SO instansi>` ada. Lini diganti setelah ada
-     * foto → folder pesanan ikut dipindah (tautan foto ikut lewat pathBerubah).
-     */
-    public function simpanKarya(int $soId, array $data, ?int $userId = null): GaleriKarya
+    /** SKU cocok salah satu pola LIKE (% dan _). */
+    private function cocok(string $sku, array $pola): bool
     {
-        $nomor = (string) DB::table('sales_orders')->where('id', $soId)->value('order_number');
-        $lini = $this->galeri->namaAman((string) $data['lini']);
-        $karya = GaleriKarya::firstOrNew(['sales_order_id' => $soId]);
-
-        $porto = $lini . '/' . config('galeri.folder_porto', 'porto');
-        if (!$karya->exists) {
-            $nama = trim(str_replace('/', '-', $nomor) . ' ' . ($data['nama_instansi'] ?? ''));
-            $karya->folder = $this->galeri->pastikanFolder($porto . '/' . $this->galeri->namaAman($nama));
-        } elseif ($karya->lini !== $lini) {
-            $tujuan = $this->galeri->pastikanFolder($porto);
-            $lama = $karya->folder;
-            $karya->folder = is_dir($this->galeri->abs($lama))
-                ? $this->galeri->pindah($lama, $tujuan)
-                : $this->galeri->pastikanFolder($tujuan . '/' . basename($lama));
-            $this->pathBerubah($lama, $karya->folder);
-            if ($karya->foto_utama && str_starts_with($karya->foto_utama, $lama . '/')) {
-                $karya->foto_utama = $karya->folder . substr($karya->foto_utama, strlen($lama));
-            }
+        foreach ($pola as $p) {
+            $re = '/^' . str_replace(['%', '_'], ['.*', '.'], preg_quote($p, '/')) . '$/i';
+            // preg_quote meloloskan % dan _ apa adanya, jadi ganti setelahnya.
+            if (preg_match($re, $sku)) return true;
         }
-
-        $karya->fill([
-            'lini'          => $lini,
-            'layak_galeri'  => (bool) ($data['layak_galeri'] ?? false),
-            'nama_instansi' => filled($data['nama_instansi'] ?? null) ? trim($data['nama_instansi']) : null,
-            'jenis_produk'  => filled($data['jenis_produk'] ?? null) ? trim($data['jenis_produk']) : null,
-            'catatan'       => filled($data['catatan'] ?? null) ? trim($data['catatan']) : null,
-        ]);
-        $karya->user_id ??= $userId;
-        $karya->save();
-
-        return $karya;
+        return false;
     }
 
     /** Kartu ditutup tanpa foto — alasannya tercatat (bahan penilaian & supaya tak dicari lagi). */

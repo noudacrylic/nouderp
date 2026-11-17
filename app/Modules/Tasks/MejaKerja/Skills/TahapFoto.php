@@ -76,8 +76,28 @@ trait TahapFoto
         return false;
     }
 
+    /** Folder porto pesanan di Galeri PWA (cadangan: unggah langsung dari HP ke foldernya). */
     protected function aksiFoto(int $soId): array
     {
-        return ['label' => '📷 Foto produk', 'url' => route('cs.galeri', ['so' => $soId]), 'utama' => true];
+        return ['label' => '📁 Folder porto', 'url' => route('cs.galeri', ['so' => $soId])];
+    }
+
+    /** Pesanan yang difoto kartu ini. */
+    abstract public function soUntukFoto(Task $task): ?int;
+
+    /**
+     * Tahap foto: tombol "🖼 Gambar belum dilampirkan" → pilih dari Kotak Porto (unggahan HP),
+     * potong/putar, simpan → pindah ke NAS & kartu selesai. Seperti nota: wajib ada lampirannya.
+     */
+    public function formKartu(Task $task): ?array
+    {
+        if ($this->tahap($task) !== 'foto' || !$this->soUntukFoto($task)) return null;
+
+        return [
+            'jenis'  => 'porto',
+            'label'  => '🖼 Gambar belum dilampirkan',
+            'url'    => route('tasks.meja.porto.lampirkan', $task->id),
+            'judul'  => ($task->meta ?? [])['order_number'] ?? $task->title,
+        ];
     }
 }

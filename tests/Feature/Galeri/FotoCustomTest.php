@@ -108,40 +108,26 @@ class FotoCustomTest extends TestCase
         $this->assertSame('desain', $t->peran);
         $this->assertSame('open', $t->status);
         $this->assertStringContainsString('Akrilik Sign 20x5', $t->description);
-        $this->assertSame(route('cs.galeri', ['so' => $so->id]), collect($meja->skill('foto-custom')->aksi($t))->firstWhere('utama')['url']);
+        $this->assertSame('porto', $meja->skill('foto-custom')->formKartu($t)['jenis'], 'Kartu foto: tombol lampirkan dari Kotak Porto.');
 
-        // Tombol di kartu membuka Galeri dalam mode pesanan: info foto wajib diisi sebelum mengunggah.
-        File::makeDirectory($this->root . '/Tent Holder', 0775, true);
-        $this->actingAs($this->admin)->get(route('cs.galeri', ['so' => $so->id]))->assertOk()
-            ->assertSee('Foto untuk ' . $so->order_number)->assertSee('Isi info foto dulu');
-        $this->unggah('hasil.jpg', '', $so->id)->assertStatus(422);
+        // Cadangan dari HP: Galeri mode pesanan langsung membuka folder porto otomatis
+        // (custom → porto/<nama produk di SO>), unggahan selalu masuk ke sana.
         $jawab = fn (string $k) => $this->actingAs($this->admin)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => $k]);
         $jawab('foto-selesai')->assertSessionHas('error');
-
-        // Layak Galeri tanpa nama instansi ditolak.
-        $this->post(route('cs.galeri.karya'), ['lini' => 'Tent Holder', 'layak_galeri' => 1])->assertSessionHasErrors('nama_instansi');
-        $folder = 'Tent Holder/porto/SO-F1 SMA N 3 Semarang';
-        $this->post(route('cs.galeri.karya'), ['lini' => 'Tent Holder', 'layak_galeri' => 1, 'nama_instansi' => 'SMA N 3 Semarang', 'jenis_produk' => 'Akrilik Sign'])
-            ->assertRedirect(route('cs.galeri', ['p' => $folder]));
+        $folder = 'porto/Akrilik Sign 20x5';
+        $this->actingAs($this->admin)->get(route('cs.galeri', ['so' => $so->id]))->assertRedirect(route('cs.galeri', ['p' => $folder]));
         $this->assertDirectoryExists($this->root . '/' . $folder);
-        $this->get(route('cs.galeri', ['so' => $so->id]))->assertRedirect(route('cs.galeri', ['p' => $folder]));
+        $this->get(route('cs.galeri', ['p' => $folder]))->assertOk()->assertSee('Foto untuk ' . $so->order_number);
 
-        // Unggahan mode pesanan selalu masuk folder pesanannya, apa pun folder yang sedang dibuka.
-        $this->unggah('hasil.jpg', 'Tent Holder', $so->id)->assertOk()->assertJson(['selesai' => true]);
+        $this->unggah('hasil.jpg', 'Lain', $so->id)->assertOk()->assertJson(['selesai' => true]);
         $this->assertSame([$folder . '/hasil.jpg'], GaleriFoto::where('sales_order_id', $so->id)->pluck('path')->all());
         $this->post(route('cs.galeri.foto-utama'), ['p' => $folder . '/hasil.jpg'])->assertSessionHas('success');
+        $this->assertSame($folder . '/hasil.jpg', \App\Modules\Galeri\Models\GaleriKarya::where('sales_order_id', $so->id)->value('foto_utama'));
 
         $meja->sinkron();
         $this->assertSame('open', $t->fresh()->status, 'Tak selesai sendiri — admin menekan Foto selesai.');
         $jawab('foto-selesai')->assertSessionHas('success');
         $this->assertSame('done', $t->fresh()->status);
-
-        // Ganti lini: folder pesanan ikut pindah, tautan & foto utama ikut.
-        File::makeDirectory($this->root . '/Custom', 0775, true);
-        $this->post(route('cs.galeri.karya'), ['lini' => 'Custom', 'layak_galeri' => 0])->assertRedirect();
-        $baru = 'Custom/porto/SO-F1 SMA N 3 Semarang';
-        $this->assertSame([$baru . '/hasil.jpg'], GaleriFoto::where('sales_order_id', $so->id)->pluck('path')->all());
-        $this->assertSame($baru . '/hasil.jpg', \App\Modules\Galeri\Models\GaleriKarya::where('sales_order_id', $so->id)->value('foto_utama'));
 
         // Selesai: mode pesanan berakhir.
         $this->actingAs($this->admin)->get(route('cs.galeri', ['so' => 0]))->assertOk()->assertDontSee('Foto untuk');
@@ -250,7 +236,8 @@ class FotoCustomTest extends TestCase
         $this->actingAs($this->admin)->post(route('cs.galeri.tautkan'), ['p' => 'lama.jpg'])->assertSessionHas('error');
         $this->assertSame(0, GaleriFoto::count());
 
-        $this->get(route('cs.galeri', ['so' => $so->id]))->assertOk()->assertSee('Tautkan');
+        $this->get(route('cs.galeri', ['so' => $so->id]))->assertRedirect(); // → folder porto pesanan
+        $this->get(route('cs.galeri'))->assertOk()->assertSee('Tautkan');
         $this->post(route('cs.galeri.tautkan'), ['p' => 'lama.jpg'])->assertSessionHas('success');
         $this->post(route('cs.galeri.tautkan'), ['p' => 'lama.jpg'])->assertSessionHas('success');
         $this->assertSame(1, GaleriFoto::where('sales_order_id', $so->id)->count());

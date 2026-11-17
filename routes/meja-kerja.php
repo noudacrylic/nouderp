@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Galeri\Controllers\PortoController;
 use App\Modules\KaryawanVirtual\Controllers\MinStokController;
 use App\Modules\KaryawanVirtual\Controllers\PengaturanAdminController;
 use App\Modules\KaryawanVirtual\Controllers\ProdukDesainController;
@@ -31,6 +32,14 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
     Route::post('/{task}/pending', [MejaKerjaController::class, 'pending'])->whereNumber('task')->name('pending');
     Route::post('/{task}/selesai', [MejaKerjaController::class, 'selesai'])->whereNumber('task')->name('selesai');
     Route::post('/{task}/jawab', [MejaKerjaController::class, 'jawab'])->whereNumber('task')->name('jawab');
+    // Kotak Porto: lampirkan foto unggahan HP ke kartu tahap foto (lihat KotakPortoService).
+    Route::prefix('porto')->name('porto.')->controller(PortoController::class)->group(function () {
+        Route::get('/', 'daftar')->name('daftar');
+        Route::get('/{kotak}/thumb', 'thumb')->whereNumber('kotak')->name('thumb');
+        Route::get('/{kotak}/berkas', 'berkas')->whereNumber('kotak')->name('berkas');
+        Route::get('/{kotak}/pratinjau', 'pratinjau')->whereNumber('kotak')->name('pratinjau');
+        Route::post('/lampirkan/{task}', 'lampirkan')->whereNumber('task')->name('lampirkan');
+    });
     // Per SO, bukan per task: kartu Bayangan tidak tersimpan (id negatif) tapi tombolnya tetap dipakai.
     Route::post('/chat-shopee/{so}', [MejaKerjaController::class, 'chatShopee'])->whereNumber('so')->name('chat-shopee');
     Route::post('/ulasan/{ulasan}/balas', [MejaKerjaController::class, 'balasUlasan'])->whereNumber('ulasan')->name('ulasan.balas');

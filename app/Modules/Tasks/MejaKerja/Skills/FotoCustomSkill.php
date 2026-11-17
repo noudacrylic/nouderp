@@ -114,5 +114,10 @@ class FotoCustomSkill implements SkillAdmin, PunyaJawaban
             ?? throw new \RuntimeException('Jawaban tidak dikenal.');
     }
 
+    public function soUntukFoto(Task $task): ?int
+    {
+        return $task->taskable_id ? (int) $task->taskable_id : null;
+    }
+
     public function selesaiManual(): bool { return false; }
 }

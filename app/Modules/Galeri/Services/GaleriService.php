@@ -277,15 +277,52 @@ class GaleriService
     public function terimaPotongan(int $userId, string $idUnggah, int $offset, int $total, string $nama, string $folder, UploadedFile $potongan): array
     {
         $this->pastikanTersambung();
+        $folder = $this->normalisasi($folder);
+        if (! is_dir($this->abs($folder))) throw new GaleriException('Folder tujuan tidak ditemukan.');
+
+        $hasil = $this->rakitPotongan($userId, $idUnggah, $offset, $total, $nama, $potongan);
+        if (! $hasil['selesai']) return $hasil;
+
+        try {
+            $tujuan = $this->pindahMasuk($hasil['part'], $folder, $hasil['nama']);
+        } finally {
+            @unlink($hasil['part']); // sudah pindah = tak ada lagi; gagal = potongan dibuang
+        }
+        return ['selesai' => true, 'diterima' => $hasil['diterima'], 'path' => $tujuan];
+    }
+
+    /**
+     * Pindahkan berkas di disk server ke folder NAS dengan nama bebas bentrok ("x (2).jpg").
+     * rename() PHP menyalin+menghapus sendiri bila beda perangkat (disk server → NAS).
+     */
+    public function pindahMasuk(string $absSumber, string $folder, string $nama, bool $salin = false): string
+    {
+        $this->pastikanTersambung();
+        $folder = $this->normalisasi($folder);
+        if (! is_dir($this->abs($folder))) throw new GaleriException('Folder tujuan tidak ditemukan.');
+
+        $tujuan = $this->namaUnik($folder, $this->namaAman($nama));
+        // Gagal → sumber dibiarkan (bisa berkas asli Kotak Porto); pemanggil yang membereskan.
+        $ok = $salin ? @copy($absSumber, $this->abs($tujuan)) : @rename($absSumber, $this->abs($tujuan));
+        if (! $ok) throw new GaleriException('Gagal menyimpan ke NAS.');
+        @chmod($this->abs($tujuan), 0664);
+        return $tujuan;
+    }
+
+    /**
+     * Rakit potongan unggahan di disk server (tmp_dir). Selesai → `part` = path absolut berkas
+     * utuh, pemanggil yang memindahkannya (ke NAS, atau ke Kotak Porto).
+     *
+     * @return array{selesai: bool, diterima: int, part?: string, nama?: string}
+     */
+    public function rakitPotongan(int $userId, string $idUnggah, int $offset, int $total, string $nama, UploadedFile $potongan): array
+    {
         if (! preg_match('/^[A-Za-z0-9_-]{8,64}$/', $idUnggah)) throw new GaleriException('ID unggahan tidak valid.');
 
         $nama = $this->namaAman($nama);
         if ($this->jenis($nama) === 'lain') throw new GaleriException("\"{$nama}\" bukan foto/video.");
         $maks = (int) config('galeri.maks_mb') * 1024 * 1024;
         if ($total <= 0 || $total > $maks) throw new GaleriException('Ukuran berkas melebihi batas ' . config('galeri.maks_mb') . ' MB.');
-
-        $folder = $this->normalisasi($folder);
-        if (! is_dir($this->abs($folder))) throw new GaleriException('Folder tujuan tidak ditemukan.');
 
         $dir = rtrim(config('galeri.tmp_dir'), '/\\') . '/' . $userId;
         if (! is_dir($dir)) @mkdir($dir, 0775, true);
@@ -318,15 +355,7 @@ class GaleriService
             return ['selesai' => false, 'diterima' => $diterima];
         }
 
-        $tujuan = $this->namaUnik($folder, $nama);
-        // rename() PHP menyalin+menghapus sendiri bila beda perangkat (disk server → NAS).
-        if (! @rename($part, $this->abs($tujuan))) {
-            @unlink($part);
-            throw new GaleriException('Gagal menyimpan ke NAS.');
-        }
-        @chmod($this->abs($tujuan), 0664);
-
-        return ['selesai' => true, 'diterima' => $diterima, 'path' => $tujuan];
+        return ['selesai' => true, 'diterima' => $diterima, 'part' => $part, 'nama' => $nama];
     }
 
     /**
@@ -372,8 +401,14 @@ class GaleriService
      */
     public function thumbnail(string $rel): ?string
     {
-        $abs = $this->berkas($rel);
-        $kunci = sha1($this->normalisasi($rel) . '|' . @filemtime($abs) . '|' . @filesize($abs));
+        return $this->thumbnailAbs($this->berkas($rel), $this->normalisasi($rel));
+    }
+
+    /** Thumbnail berkas mana pun di disk (mis. Kotak Porto di disk server). */
+    public function thumbnailAbs(string $abs, ?string $kunciNama = null): ?string
+    {
+        if (! is_file($abs)) return null;
+        $kunci = sha1(($kunciNama ?? $abs) . '|' . @filemtime($abs) . '|' . @filesize($abs));
         $dir = rtrim(config('galeri.thumb_dir'), '/\\') . '/' . substr($kunci, 0, 2);
         $out = $dir . '/' . $kunci . '.jpg';
         if (is_file($out)) return $out;

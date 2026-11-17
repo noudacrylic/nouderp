@@ -34,11 +34,12 @@ class GaleriController extends Controller
                 ? session(['galeri_so' => $request->integer('so')])
                 : session()->forget('galeri_so');
 
-            // Info foto pesanan ini sudah diisi → langsung buka folder pesanannya.
-            $folder = $request->integer('so') > 0
-                ? GaleriKarya::where('sales_order_id', $request->integer('so'))->where('folder', '!=', '')->value('folder') : null;
-            if ($folder && !$request->has('p') && $this->galeri->tersambung() && is_dir($this->galeri->abs($folder))) {
-                return redirect()->route('cs.galeri', ['p' => $folder]);
+            // Langsung buka folder porto pesanan ini (dibuat otomatis dari produknya).
+            if ($request->integer('so') > 0 && !$request->has('p') && $this->galeri->tersambung()) {
+                try {
+                    return redirect()->route('cs.galeri', ['p' => $this->foto->folderPorto($request->integer('so'), (int) $request->user()->id)]);
+                } catch (GaleriException) {
+                }
             }
         }
 
@@ -88,38 +89,15 @@ class GaleriController extends Controller
         });
     }
 
-    /** Info foto pesanan yang sedang difoto: lini, layak Galeri, nama instansi, jenis. Membuat foldernya. */
-    public function simpanKarya(Request $request)
-    {
-        $this->jaga();
-        $so = $this->soAktif();
-        if (!$so) return redirect()->route('cs.galeri')->with('error', 'Tidak ada pesanan yang sedang difoto.');
-
-        $data = $request->validate([
-            'lini'          => 'required|string|max:150',
-            'layak_galeri'  => 'nullable|boolean',
-            'nama_instansi' => 'nullable|required_if:layak_galeri,1|string|max:150',
-            'jenis_produk'  => 'nullable|string|max:100',
-            'catatan'       => 'nullable|string|max:1000',
-        ], ['nama_instansi.required_if' => 'Nama instansi wajib diisi bila foto layak tampil di Galeri web.']);
-
-        try {
-            $karya = $this->foto->simpanKarya($so['id'], $data, (int) $request->user()->id);
-        } catch (GaleriException $e) {
-            return back()->withInput()->with('error', $e->getMessage());
-        }
-
-        return redirect()->route('cs.galeri', ['p' => $karya->folder])->with('success', 'Info foto tersimpan. Unggahan masuk ke folder ini.');
-    }
-
     /** Foto utama pesanan (dipakai untuk "Sudah Dipercaya Oleh"). */
     public function fotoUtama(Request $request)
     {
         $this->jaga();
         $request->validate(['p' => 'required|string']);
         $so = $this->soAktif();
-        $karya = $so ? GaleriKarya::where('sales_order_id', $so['id'])->first() : null;
-        if (!$karya) return $this->kembali($request)->with('error', 'Isi info foto pesanan ini dulu.');
+        if (!$so) return $this->kembali($request)->with('error', 'Tidak ada pesanan yang sedang difoto.');
+        $this->foto->folderPorto($so['id'], (int) $request->user()->id);
+        $karya = GaleriKarya::where('sales_order_id', $so['id'])->first();
 
         return $this->aksi($request, function () use ($request, $karya, $so) {
             $path = $this->galeri->normalisasi((string) $request->input('p'));
@@ -245,17 +223,12 @@ class GaleriController extends Controller
             'potongan' => 'required|file',
         ]);
 
-        // Mode pesanan: unggahan selalu ke folder pesanannya (info foto wajib diisi dulu).
-        $folder = (string) $request->input('folder');
-        if ($request->filled('so')) {
-            $karyaFolder = GaleriKarya::where('sales_order_id', $request->integer('so'))->where('folder', '!=', '')->value('folder');
-            if (!$karyaFolder) {
-                return response()->json(['pesan' => 'Isi info foto pesanan ini dulu (kotak kuning di atas).'], 422);
-            }
-            $folder = $karyaFolder;
-        }
-
         try {
+            // Mode pesanan: unggahan selalu ke folder porto pesanannya.
+            $folder = $request->filled('so')
+                ? $this->foto->folderPorto($request->integer('so'), (int) $request->user()->id)
+                : (string) $request->input('folder');
+
             $hasil = $this->galeri->terimaPotongan(
                 (int) $request->user()->id,
                 (string) $request->input('id'),
@@ -287,26 +260,14 @@ class GaleriController extends Controller
         $so = ($id = (int) session('galeri_so')) ? SalesOrder::with('items.product:id,name')->find($id) : null;
         if (!$so) return null;
 
-        $karya = GaleriKarya::where('sales_order_id', $so->id)->where('folder', '!=', '')->first();
-        $lini = [];
-        if ($this->galeri->tersambung()) {
-            try {
-                $lini = array_column($this->galeri->subfolder(''), 'nama');
-            } catch (GaleriException) {
-            }
-        }
-
         return [
             'id'     => $so->id,
             'nomor'  => $so->order_number,
             'barang' => $so->items->map(fn ($i) => $i->description ?: $i->product?->name)->filter()->unique()->implode(', '),
             'jumlah' => GaleriFoto::where('sales_order_id', $so->id)->count(),
-            'karya'  => $karya,
+            'karya'  => GaleriKarya::where('sales_order_id', $so->id)->where('folder', '!=', '')->first(),
             'wajib'  => $this->foto->wajibFoto($so->id),
             'kurang' => $this->foto->kekuranganFoto($so->id),
-            'lini'   => $lini,
-            'usulan' => $karya?->lini ?? $this->foto->liniUsulan($so->id),
-            'jenis'  => config('galeri.jenis_produk', []),
         ];
     }
 

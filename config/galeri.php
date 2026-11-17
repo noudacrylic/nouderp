@@ -42,6 +42,10 @@ return [
     // 16 Nov 2026): Kotak Saran, Box Charger, custom CS1–CS6. NM cetak & FF cetak foto tidak.
     'wajib_foto' => ['KS-%', 'BC-%', 'CS_'],
 
+    // Rasio foto porto [lebar, tinggi] (keputusan 17 Nov 2026: 4:5 tegak). Dikunci di editor
+    // potong; foto yang tidak diedit dipotong tengah oleh server. Arsip NAS tetap resolusi penuh.
+    'rasio_porto' => [4, 5],
+
     // Folder foto pesanan: <lini>/<folder_porto>/<nomor SO + instansi>.
     'folder_porto' => 'porto',
 
@@ -55,6 +59,11 @@ return [
     // Usulan isian "Jenis produk" (boleh diketik bebas).
     'jenis_produk' => ['Kotak Saran', 'Box Charger', 'Plakat', 'Papan Nama', 'Akrilik Sign', 'Display',
         'Tempat Brosur', 'Nama Meja', 'Frame', 'Box Akrilik', 'Lainnya'],
+
+    // Kotak Porto: unggahan menu Porto (PWA) menunggu dilampirkan ke kartu Meja — disk server,
+    // berkas utuh. Yang tak dipakai sekian hari dibuang galeri:sapu-kotak.
+    'kotak_dir'  => storage_path('app/galeri-kotak'),
+    'kotak_hari' => (int) env('GALERI_KOTAK_HARI', 14),
 
     // Disk server: thumbnail & potongan unggahan.
     'thumb_dir' => storage_path('app/galeri-thumbs'),

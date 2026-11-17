@@ -225,6 +225,11 @@ class DesainSkill implements SkillAdmin, PunyaJawaban
         return $aksi;
     }
 
+    public function soUntukFoto(Task $task): ?int
+    {
+        return $task->taskable_id ? (int) $task->taskable_id : null;
+    }
+
     /** Ditutup lewat jawaban per tahap (desain → print & tempel → foto). */
     public function selesaiManual(): bool { return false; }
 }

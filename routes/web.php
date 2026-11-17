@@ -1799,9 +1799,17 @@ Route::prefix('cs')->name('cs.')->group(function () {
             Route::post('/pindah',     'pindah')->name('.pindah');
             Route::post('/hapus',      'hapus')->name('.hapus');
             Route::post('/tautkan',    'tautkan')->name('.tautkan');
-            Route::post('/karya',      'simpanKarya')->name('.karya');
             Route::post('/foto-utama', 'fotoUtama')->name('.foto-utama');
             Route::post('/unggah',     'unggah')->name('.unggah');
+        });
+
+        // Kotak Porto: foto/video dari galeri HP (utuh) menunggu dilampirkan ke kartu Meja di laptop.
+        Route::prefix('porto')->name('porto')->controller(\App\Modules\Galeri\Controllers\PortoController::class)->group(function () {
+            Route::get ('/',               'index');
+            Route::post('/unggah',         'unggah')->name('.unggah');
+            Route::delete('/{kotak}',      'hapus')->whereNumber('kotak')->name('.hapus');
+            Route::get ('/{kotak}/thumb',  'thumb')->whereNumber('kotak')->name('.thumb');
+            Route::get ('/{kotak}/berkas', 'berkas')->whereNumber('kotak')->name('.berkas');
         });
 
         // Penampil PDF lampiran chat; berkasnya disimpan service worker di HP.

@@ -1,5 +1,9 @@
 {{-- Form di kartu Meja Kerja dari SkillAdmin::formKartu(). --}}
-@if ($form['jenis'] === 'selesaikan')
+@if ($form['jenis'] === 'porto')
+    {{-- Tahap foto: pilih foto dari Kotak Porto (unggahan HP) → jendela _porto-lampir. --}}
+    <button type="button" class="porto-buka bg-orange-500 text-white hover:bg-orange-600 px-2 py-1 rounded text-xs font-semibold"
+            data-url="{{ $form['url'] }}" data-judul="{{ $form['judul'] }}">{{ $form['label'] }}</button>
+@elseif ($form['jenis'] === 'selesaikan')
     <form method="POST" action="{{ $form['url'] }}"
           onsubmit="return confirm('Selesaikan pesanan? Faktur dibuat dan stok masuk sesuai PO. Kalau ada barang kurang atau rusak, tetap selesaikan lalu buat retur dari fakturnya.')">@csrf
         <button class="bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">✓ Selesaikan pesanan</button>
