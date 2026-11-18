@@ -194,10 +194,10 @@
             @if(user_can_access('crm.galeri'))
                 <a href="{{ route('cs.galeri', ['so' => $r['id']]) }}" target="_blank" rel="noopener"
                    class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-amber-700 ring-1 ring-amber-400 hover:bg-amber-50"
-                   title="Produk custom ini belum difoto — foto dulu sebelum dikirim">📷 Belum difoto</a>
+                   title="Produk ini wajib difoto (custom/KS/BC) — foto dulu sebelum dikirim">📷 Belum difoto</a>
             @else
                 <span class="px-2 py-0.5 rounded text-[10px] font-black bg-white text-amber-700 ring-1 ring-amber-400"
-                      title="Produk custom ini belum difoto — kabari admin sebelum dikirim">📷 Belum difoto</span>
+                      title="Produk ini wajib difoto (custom/KS/BC) — kabari Admin Desain sebelum dikirim">📷 Belum difoto</span>
             @endif
         @endif
         @if($isDone && ($pickupDone || $allDelivered))

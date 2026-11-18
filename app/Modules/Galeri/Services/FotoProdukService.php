@@ -45,12 +45,21 @@ class FotoProdukService
     public function pengingat(array $soIds): array
     {
         $kv = app(KaryawanVirtualService::class);
-        if (!$soIds || $kv->mode(self::KUNCI_SKILL) !== SkillAdmin::OTOMATIS) return [];
+        $pola = config('galeri.wajib_foto', []);
+        if (!$soIds || !$pola || $kv->mode(self::KUNCI_SKILL) !== SkillAdmin::OTOMATIS) return [];
 
-        return $this->opBelumDifoto()
-            ->whereIn('p.sales_order_id', $soIds)
-            ->where('p.finalized_at', '>=', $kv->state(self::KUNCI_SKILL)->mode_diubah_at ?? now())
-            ->distinct()->pluck('p.sales_order_id')
+        // Semua barang wajib foto (custom CS, KS, BC — 18 Nov 2026), pesanan sejak foto ditugaskan.
+        // Ditutup "tak bisa difoto" (alasan tercatat) = tak diingatkan lagi.
+        return DB::table('sales_orders as s')
+            ->whereIn('s.id', $soIds)
+            ->where('s.created_at', '>=', $kv->state(self::KUNCI_SKILL)->mode_diubah_at ?? now())
+            ->whereExists(fn ($q) => $q->from('sales_order_items as i')
+                ->join('products as x', 'x.id', '=', 'i.product_id')
+                ->whereColumn('i.sales_order_id', 's.id')
+                ->where(fn ($w) => collect($pola)->each(fn ($p) => $w->orWhere('x.sku', 'like', $p))))
+            ->whereNotExists(fn ($q) => $q->from('galeri_foto as f')->whereColumn('f.sales_order_id', 's.id'))
+            ->whereNotExists(fn ($q) => $q->from('galeri_karya as k')->whereColumn('k.sales_order_id', 's.id')->whereNotNull('k.tanpa_foto_alasan'))
+            ->pluck('s.id')
             ->mapWithKeys(fn ($id) => [(int) $id => true])->all();
     }
 

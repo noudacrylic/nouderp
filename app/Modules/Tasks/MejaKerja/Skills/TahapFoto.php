@@ -16,9 +16,13 @@ use App\Modules\Tasks\Models\Task;
  */
 trait TahapFoto
 {
+    /**
+     * "Sudah dikirim" sengaja TIDAK ada (18 Nov 2026): pengiriman terdeteksi sendiri dari Surat
+     * Jalan dan menutup kartu otomatis; sebagai tombol, ia dipakai menutup kartu yang barangnya
+     * belum dikirim.
+     */
     private static array $ALASAN_TANPA_FOTO = [
-        'sudah-dikirim' => 'Barang sudah dikirim sebelum difoto',
-        'kamera'        => 'HP/kamera bermasalah',
+        'kamera' => 'HP/kamera bermasalah',
     ];
 
     protected function tahap(Task $task): ?string

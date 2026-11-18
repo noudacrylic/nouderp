@@ -201,6 +201,25 @@ class FotoCustomTest extends TestCase
         $this->assertFalse($baris()['belum_difoto']);
     }
 
+    public function test_pengingat_packing_juga_untuk_ks_bc_dan_tanpa_tombol_sudah_dikirim(): void
+    {
+        $this->nyalakan();
+        $foto = app(FotoProdukService::class);
+        $ks = $this->so('KS-K3-M4');
+        $bc = $this->so('BC-3x1');
+        $nm = $this->so('NM-A-TXT');
+        $lama = $this->so('KS-K3-M4');
+        $lama->forceFill(['created_at' => now()->subDays(3)])->save(); // sebelum foto ditugaskan
+
+        $this->assertEqualsCanonicalizing([$ks->id, $bc->id], array_keys($foto->pengingat([$ks->id, $bc->id, $nm->id, $lama->id])));
+
+        $foto->tandaiTanpaFoto($bc->id, 'HP/kamera bermasalah');
+        $this->assertSame([$ks->id], array_keys($foto->pengingat([$ks->id, $bc->id])));
+
+        $kunci = array_column(app(MejaKerjaService::class)->skill('foto-custom')->jawaban(new Task(['meta' => ['tahap' => 'foto']])), 'kunci');
+        $this->assertSame(['foto-selesai', 'tanpa-foto:kamera'], $kunci, 'Pengiriman terdeteksi sendiri — tak ada tombol "sudah dikirim".');
+    }
+
     public function test_ganti_nama_pindah_hapus_menjaga_tautan(): void
     {
         $so = $this->so();
