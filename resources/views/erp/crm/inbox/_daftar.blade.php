@@ -133,6 +133,7 @@
             <form method="GET" class="contents">
                 <input type="hidden" name="antrean" value="{{ request('antrean') }}">
                 <input type="hidden" name="belum_dibaca" value="{{ request('belum_dibaca') }}">
+                <input type="hidden" name="menunggu_admin" value="{{ request('menunggu_admin') }}">
                 <input type="hidden" name="status" value="{{ request('status') }}">
                 <input type="hidden" name="search" value="{{ request('search') }}">
                 <input type="hidden" name="kanal" value="{{ request('kanal') }}">
@@ -164,6 +165,7 @@
     <form method="GET" class="flex gap-1">
         <input type="hidden" name="antrean" value="{{ request('antrean') }}">
         <input type="hidden" name="belum_dibaca" value="{{ request('belum_dibaca') }}">
+                <input type="hidden" name="menunggu_admin" value="{{ request('menunggu_admin') }}">
         <input type="hidden" name="status" value="{{ request('status') }}">
         <input type="hidden" name="pemilik" value="{{ request('pemilik') }}">
         <input type="hidden" name="kanal" value="{{ request('kanal') }}">
@@ -234,21 +236,33 @@
     @php
         $antreanAktif     = request('antrean');
         $belumDibacaAktif = request()->boolean('belum_dibaca');
-        $semuaAktif       = ! $antreanAktif && ! $belumDibacaAktif;
+        $menungguAktif    = request()->boolean('menunggu_admin');
+        $jumlahMenungguAdmin = $jumlahMenungguAdmin ?? 0;
+        $semuaAktif       = ! $antreanAktif && ! $belumDibacaAktif && ! $menungguAktif;
         $chip             = 'px-1.5 py-0.5 rounded border text-[11px] leading-4';
     @endphp
     <div class="relative flex flex-wrap gap-1">
-        <a href="{{ $tautanSaring(['antrean' => null, 'belum_dibaca' => null]) }}"
+        <a href="{{ $tautanSaring(['antrean' => null, 'belum_dibaca' => null, 'menunggu_admin' => null]) }}"
            class="{{ $chip }} {{ $semuaAktif ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
             Semua <span class="{{ $semuaAktif ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlahSemua }}</span>
         </a>
 
         {{-- "Belum dibaca" berdiri di sebelah "Semua", bukan di tengah label:
              ini bukan keadaan chat, melainkan pekerjaan yang belum disentuh. --}}
-        <a href="{{ $tautanSaring(['belum_dibaca' => 1, 'antrean' => null]) }}"
+        <a href="{{ $tautanSaring(['belum_dibaca' => 1, 'antrean' => null, 'menunggu_admin' => null]) }}"
            class="{{ $chip }} {{ $belumDibacaAktif ? 'border-red-600 bg-red-600 text-white' : ($jumlahBelumDibaca > 0 ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100' : 'border-gray-300 bg-white hover:bg-gray-50') }}">
             Belum dibaca <span class="{{ $belumDibacaAktif ? 'text-red-100' : '' }}">{{ $jumlahBelumDibaca }}</span>
         </a>
+
+        {{-- Lemparan AI yang belum dibalas orang (18 Nov 2026). Hanya muncul bila ada:
+             daftar inilah yang dibuka admin pagi hari untuk menjawab chat semalam. --}}
+        @if($jumlahMenungguAdmin > 0 || $menungguAktif)
+            <a href="{{ $tautanSaring(['menunggu_admin' => 1, 'belum_dibaca' => null, 'antrean' => null]) }}"
+               title="Chat yang dilempar AI ke admin dan belum dibalas orang"
+               class="{{ $chip }} {{ $menungguAktif ? 'border-amber-600 bg-amber-600 text-white' : 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100' }}">
+                ⏳ Menunggu admin <span class="{{ $menungguAktif ? 'text-amber-100' : '' }}">{{ $jumlahMenungguAdmin }}</span>
+            </a>
+        @endif
 
         {{-- Chip label PER ADMIN: yang disematkan tampil di sini, sisanya di
              dropdown "Lainnya". Tiap admin bekerja dengan label yang berbeda,
@@ -260,7 +274,7 @@
             $aktifDiLainnya = $labelLainnya->firstWhere('kode', $antreanAktif);
         @endphp
         @foreach($labelDisemat as $l)
-            <a href="{{ $tautanSaring(['antrean' => $l->kode, 'belum_dibaca' => null]) }}"
+            <a href="{{ $tautanSaring(['antrean' => $l->kode, 'belum_dibaca' => null, 'menunggu_admin' => null]) }}"
                class="{{ $chip }} {{ $antreanAktif === $l->kode ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white hover:bg-gray-50' }}">
                 {{ $l->nama }}
                 <span class="{{ $antreanAktif === $l->kode ? 'text-emerald-100' : 'text-gray-500' }}">{{ $jumlah[$l->kode] ?? 0 }}</span>
@@ -297,7 +311,7 @@
                 @if($labelLainnya->isNotEmpty())
                     <div class="grid grid-cols-2 gap-1">
                         @foreach($labelLainnya as $l)
-                            <a href="{{ $tautanSaring(['antrean' => $l->kode, 'belum_dibaca' => null]) }}"
+                            <a href="{{ $tautanSaring(['antrean' => $l->kode, 'belum_dibaca' => null, 'menunggu_admin' => null]) }}"
                                class="flex items-center justify-between gap-1 px-2 py-1 rounded border
                                       {{ $antreanAktif === $l->kode ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 hover:bg-gray-50' }}">
                                 <span class="truncate">{{ $l->nama }}</span>
@@ -354,7 +368,7 @@
                    sepanjang 500 baris satu titik sekecil itu hilang begitu saja:
                    yang dicari mata saat menggulir cepat adalah baris yang
                    BERBEDA, bukan angka yang harus ditemukan dulu. */
-                $belum = (int) $p->unread_count > 0;
+                $belum = $p->perluDibaca();
 
                 /* Satu berkas data untuk SEMUA pintu masuk aksi cepat di baris ini
                    (titik tiga, chip label, chip pemilik). Ditulis sekali karena
@@ -425,7 +439,11 @@
                              kirim tidak tertimpa olehnya di kolom sesempit ini. --}}
                         <div class="text-right shrink-0 pr-7">
                             <div class="text-[11px] {{ $belum ? 'text-emerald-700 font-semibold' : 'text-gray-400' }}">{{ $p->last_message_at?->diffForHumans() ?? '—' }}</div>
-                            @if($belum)
+                            @if($p->menunggu_admin_at)
+                                <span class="inline-flex items-center mt-1 h-5 px-1.5 rounded-full text-[10px] font-bold bg-amber-500 text-white shadow-sm"
+                                      title="Dilempar AI ke admin {{ $p->menunggu_admin_at->translatedFormat('j M H:i') }} — hilang setelah dibalas orang">⏳ Admin</span>
+                            @endif
+                            @if((int) $p->unread_count > 0)
                                 {{-- Padat berisi, bukan pucat: lencana ini satu-satunya
                                      yang menyebut BERAPA, dan angkanya yang membedakan
                                      "satu sapaan" dari "sudah menunggu lima pesan". --}}
@@ -510,7 +528,7 @@
         {{-- Jalan keluar dari antrean kerja ke seluruh chat — disepakati di
              ujung daftar "Belum dioper", tempat orang tiba saat antreannya habis. --}}
         @if($belumTab && ! $sedangCari)
-            <a href="{{ $tautanSaring(['pemilik' => 'semua', 'antrean' => null, 'belum_dibaca' => null, 'muat' => null]) }}"
+            <a href="{{ $tautanSaring(['pemilik' => 'semua', 'antrean' => null, 'belum_dibaca' => null, 'menunggu_admin' => null, 'muat' => null]) }}"
                class="ml-auto px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-600">
                 Semua pesan →
             </a>

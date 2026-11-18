@@ -99,7 +99,7 @@ class CrmConversation extends Model
         'customer_id', 'owner_user_id', 'queue_state', 'status',
         'window_expires_at', 'pancingan_untuk_jendela_at',
         'last_inbound_at', 'last_outbound_at', 'last_message_at',
-        'unread_count', 'notes', 'order_draft',
+        'unread_count', 'menunggu_admin_at', 'notes', 'order_draft',
         'closed_at', 'is_distributor', 'selalu_tutup',
     ];
 
@@ -112,6 +112,7 @@ class CrmConversation extends Model
         'last_outbound_at'  => 'datetime',
         'last_message_at'   => 'datetime',
         'unread_count'      => 'integer',
+        'menunggu_admin_at' => 'datetime',
         'closed_at'         => 'datetime',
         'is_distributor'    => 'boolean',
         'selalu_tutup'      => 'boolean',
@@ -416,7 +417,7 @@ class CrmConversation extends Model
     /** Kolom yang diubah saat chat ditutup — dipakai tombol Close & penjadwal. */
     public static function nilaiTutup(): array
     {
-        return ['status' => self::STATUS_ARSIP, 'closed_at' => now()];
+        return ['status' => self::STATUS_ARSIP, 'closed_at' => now(), 'menunggu_admin_at' => null];
     }
 
     /**
@@ -523,6 +524,21 @@ class CrmConversation extends Model
         if ($ubah) {
             $this->forceFill($ubah)->save();
         }
+    }
+
+    /**
+     * Chat yang menunggu dikerjakan: ada pesan belum dibaca ATAU dilempar AI ke admin dan
+     * belum dibalas manusia. Dipakai semua hitungan & saringan "Belum dibaca", supaya lemparan
+     * semalam tetap terlihat walau tanda belum dibacanya terhapus balasan AI berikutnya.
+     */
+    public function scopePerluDibaca($query)
+    {
+        return $query->where(fn ($q) => $q->where('unread_count', '>', 0)->orWhereNotNull('menunggu_admin_at'));
+    }
+
+    public function perluDibaca(): bool
+    {
+        return (int) $this->unread_count > 0 || $this->menunggu_admin_at !== null;
     }
 
     public function scopeAktif($query)

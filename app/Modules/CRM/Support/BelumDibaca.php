@@ -30,7 +30,7 @@ class BelumDibaca
 
         return CrmConversation::query()
             ->where('status', CrmConversation::STATUS_AKTIF)
-            ->where('unread_count', '>', 0)
+            ->perluDibaca()
             ->where(fn ($q) => $q
                 ->whereNull('owner_user_id')
                 ->orWhere('owner_user_id', $pengguna->id))

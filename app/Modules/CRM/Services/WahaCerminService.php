@@ -186,6 +186,9 @@ class WahaCerminService
          */
         if ($hidup) {
             $ubah['unread_count'] = $dariKita ? 0 : $percakapan->unread_count + 1;
+            if ($dariKita) {
+                $ubah['menunggu_admin_at'] = null;   // dijawab CS dari HP
+            }
 
             /*
              * Pesan pelanggan membuka kembali chat yang tertutup — aturannya

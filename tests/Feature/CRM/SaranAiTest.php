@@ -257,7 +257,39 @@ class SaranAiTest extends TestCase
         $teks = $this->pesanAi()->first()?->content;
         $this->assertStringContainsString('admin aktif lagi ' . Carbon::parse('2026-11-10')->translatedFormat('l, d M') . ' jam 08.00', (string) $teks);
         $this->assertSame(CrmSaranAi::OTO_TERKIRIM, CrmSaranAi::firstOrFail()->otomatis);
-        $this->assertGreaterThanOrEqual(1, (int) $c->fresh()->unread_count, 'Lemparan masih menunggu admin.');
+        $this->assertNotNull($c->fresh()->menunggu_admin_at, 'Lemparan masih menunggu admin.');
+        $this->assertTrue($c->fresh()->perluDibaca());
+    }
+
+    public function test_tanda_menunggu_admin_bertahan_sampai_dibalas_orang(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-17 20:10')); // Selasa malam
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $admin = User::factory()->create();
+        $c = $this->chat('rencananya 20 box jika ada');
+        $c->forceFill(['owner_user_id' => $admin->id])->save();
+        $this->claude->antrekan($this->usul('B4', 'untuk 20 pcs saya teruskan ke admin gudang ya kak', 'admin'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertNotNull($c->fresh()->menunggu_admin_at);
+
+        // Pembeli berterima kasih, AI menjawab penutup — lemparan tetap menunggu admin.
+        $this->travelTo(now()->addMinutes(18));
+        $this->pesan($c, CrmMessage::MASUK, 'Baik ka terima kasih', now()->subMinute());
+        $c->forceFill(['last_inbound_at' => now()->subMinute()])->save();
+        $this->claude->antrekan($this->usul('I1', 'sama-sama kak 🙏'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertCount(2, $this->pesanAi());
+        $c->refresh();
+        $this->assertSame(0, (int) $c->unread_count);
+        $this->assertNotNull($c->menunggu_admin_at, 'Ucapan penutup AI tidak menuntaskan lemparan.');
+        $this->assertSame(1, \App\Modules\CRM\Support\BelumDibaca::untuk($admin), 'Tetap terhitung di lencana pemegang.');
+
+        // Admin membalas dari ERP → tanda hilang.
+        $this->travelTo(Carbon::parse('2026-11-18 08:05'));
+        $hasil = app(\App\Modules\CRM\Services\CrmReplyService::class)->balas($c, 'stok 20 ready kak', $admin->id);
+        $this->assertTrue($hasil['success'], (string) ($hasil['error'] ?? ''));
+        $this->assertNull($c->fresh()->menunggu_admin_at);
+        $this->assertSame(0, \App\Modules\CRM\Support\BelumDibaca::untuk($admin));
     }
 
     public function test_kabar_admin_aktif_cukup_sekali_semalam(): void
@@ -318,7 +350,7 @@ class SaranAiTest extends TestCase
         $this->claude->antrekan($this->usul('G1', '', 'admin'));
         $this->artisan('crm:saran-ai')->assertSuccessful();
         $this->assertSame(['saya teruskan ke admin yang menangani ya kak, ditunggu sebentar 🙏'], $this->pesanAi()->pluck('content')->all());
-        $this->assertGreaterThanOrEqual(1, (int) $c->fresh()->unread_count, 'Masih menunggu admin.');
+        $this->assertNotNull($c->fresh()->menunggu_admin_at, 'Masih menunggu admin.');
 
         $this->travelTo(now()->addMinutes(5));
         $this->pesan($c, CrmMessage::MASUK, 'halo kak?', now()->subMinutes(2));

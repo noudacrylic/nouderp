@@ -391,6 +391,7 @@ class ShopeeChatService
         $waktuTerakhir = null;
         $masukTerakhir = null;
         $keluarTerakhir = null;
+        $balasanSellerCentre = false;
 
         foreach ($pesan as $m) {
             $u = $this->uraikan($shop, $m);
@@ -438,6 +439,7 @@ class ShopeeChatService
                 $masukBaru = true;
             } elseif ($u['sumber'] !== CrmMessage::SOURCE_SHOPEE_OTOMATIS) {
                 $keluarTerakhir = $waktu;
+                $balasanSellerCentre = $balasanSellerCentre || $u['sumber'] === CrmMessage::SOURCE_SELLER_CENTRE;
             }
         }
 
@@ -454,6 +456,10 @@ class ShopeeChatService
         }
         if ($keluarTerakhir && (!$crm->last_outbound_at || $keluarTerakhir->gt($crm->last_outbound_at))) {
             $ubah['last_outbound_at'] = $keluarTerakhir;
+        }
+
+        if ($hidup && $balasanSellerCentre && $crm->menunggu_admin_at) {
+            $ubah['menunggu_admin_at'] = null;   // admin sudah menjawab lemparan AI dari Seller Centre
         }
 
         if ($hidup) {

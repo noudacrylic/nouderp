@@ -213,11 +213,13 @@ class SaranAiService
         // (teks cadangan atau butir A8) tidak dikirim lagi bila chat ini sudah menerimanya.
         if ($luarJam && $saran->lempar_ke && (trim((string) $saran->teks) === '' || $saran->butir === 'A8')
             && AgenPrompt::kabarJamSudahDisampaikan($c->id)) {
+            $this->tandaiMenungguAdmin($c);
             return;
         }
 
         // Jam kerja: chat yang sudah diteruskan sedang menunggu admin — kalimat penahan tidak diulang.
         if (!$luarJam && $saran->lempar_ke && $this->baruDiteruskan($c)) {
+            $this->tandaiMenungguAdmin($c);
             return;
         }
 
@@ -244,10 +246,20 @@ class SaranAiService
             'diputus_at'    => now(),
         ]);
 
-        // Membalas mengosongkan tanda belum dibaca. Chat yang dilempar masih menunggu manusia,
-        // jadi tandanya dikembalikan supaya tampil di daftar admin pagi harinya.
+        // Membalas mengosongkan tanda belum dibaca. Chat yang dilempar masih menunggu manusia:
+        // ditandai "Menunggu admin" — tanda yang hanya hilang oleh balasan orang atau chat ditutup.
+        // (unread saja tidak cukup: 17 Nov ucapan penutup AI & penyelarasan baca Seller Centre
+        // menolkannya, lemparan semalam lenyap dari daftar admin.)
         if ($saran->lempar_ke) {
-            $c->refresh()->forceFill(['unread_count' => max(1, (int) $c->unread_count)])->save();
+            $this->tandaiMenungguAdmin($c);
+        }
+    }
+
+    private function tandaiMenungguAdmin(CrmConversation $c): void
+    {
+        $c->refresh();
+        if ($c->menunggu_admin_at === null) {
+            $c->forceFill(['menunggu_admin_at' => now()])->save();
         }
     }
 

@@ -293,7 +293,8 @@ class CrmInboxController extends Controller
             'labelOpsi'         => CrmLabel::terpakai(),
             'labelTampil'       => $this->labelTampil($pengguna),
             'jumlahSemua'       => (clone $dasar())->count(),
-            'jumlahBelumDibaca' => (clone $dasar())->where('unread_count', '>', 0)->count(),
+            'jumlahBelumDibaca' => (clone $dasar())->perluDibaca()->count(),
+            'jumlahMenungguAdmin' => (clone $dasar())->whereNotNull('menunggu_admin_at')->count(),
             'lihatSemua'        => $lihatSemua,
             /*
              * Hanya yang memegang akses CRM — sama dengan penerima notifikasi
@@ -346,7 +347,7 @@ class CrmInboxController extends Controller
                 ? CrmConversation::query()
                     ->where('status', CrmConversation::STATUS_AKTIF)
                     ->where('owner_user_id', $pengguna->id)
-                    ->where('unread_count', '>', 0)
+                    ->perluDibaca()
                     ->count()
                 : 0,
             /*
@@ -357,7 +358,7 @@ class CrmInboxController extends Controller
              */
             'belumDibacaPerPemilik' => CrmConversation::query()
                 ->where('status', CrmConversation::STATUS_AKTIF)
-                ->where('unread_count', '>', 0)
+                ->perluDibaca()
                 ->selectRaw('owner_user_id, COUNT(*) AS n')
                 ->groupBy('owner_user_id')
                 ->pluck('n', 'owner_user_id')
@@ -516,10 +517,12 @@ class CrmInboxController extends Controller
     {
         $antrean     = $request->string('antrean')->toString();
         $belumDibaca = $request->boolean('belum_dibaca');
+        $menunggu    = $request->boolean('menunggu_admin');
 
         return $dasar()
             ->when($antrean, fn ($q) => $q->where('queue_state', $antrean))
-            ->when($belumDibaca, fn ($q) => $q->where('unread_count', '>', 0))
+            ->when($belumDibaca, fn ($q) => $q->perluDibaca())
+            ->when($menunggu, fn ($q) => $q->whereNotNull('menunggu_admin_at'))
             ->when($request->filled('search'), function ($q) use ($request) {
                 $cari = trim((string) $request->search);
                 $q->where(fn ($w) => $w
@@ -1952,6 +1955,7 @@ class CrmInboxController extends Controller
             $p->id,
             $p->last_message_at?->getTimestamp(),
             $p->unread_count,
+            $p->menunggu_admin_at?->getTimestamp(),
             $p->queue_state,
             $p->status,
             $p->owner_user_id,
@@ -1973,6 +1977,7 @@ class CrmInboxController extends Controller
             $data['percakapan']->total(),
             $data['jumlahSemua'],
             $data['jumlahBelumDibaca'],
+            $data['jumlahMenungguAdmin'],
             $data['belumDioper'],
             $data['belumDibacaSaya'],
             json_encode($data['belumDibacaPerPemilik']),

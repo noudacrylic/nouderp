@@ -167,7 +167,7 @@ class CrmReplyService
 
         /* Kita sudah menyapa; sekarang menunggu ia membalas — dan balasannya
            itulah yang membuka jendela 24 jam. */
-        $this->catatKeluar($percakapan);
+        $this->catatKeluar($percakapan, $userId);
 
         return ['success' => true, 'conversation' => $percakapan, 'error' => null];
     }
@@ -343,7 +343,7 @@ class CrmReplyService
             'raw' => ['tombol' => [TemplateResmi::TOMBOL_PANCINGAN]] + (array) $pesan->raw,
         ])->save();
 
-        $this->catatKeluar($percakapan);
+        $this->catatKeluar($percakapan, $userId);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -367,7 +367,7 @@ class CrmReplyService
 
         $pesan = $this->catatTemplate($percakapan, $nama, $variabel, TemplateResmi::body($nama), $hasil, $userId);
 
-        $this->catatKeluar($percakapan);
+        $this->catatKeluar($percakapan, $userId);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -434,7 +434,7 @@ class CrmReplyService
 
         $pesan = $this->catat($percakapan, 'text', $teks, $hasil, $userId, $replyTo);
 
-        $this->catatKeluar($percakapan);
+        $this->catatKeluar($percakapan, $userId);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -507,7 +507,7 @@ class CrmReplyService
             $terakhir = $pesan;
         }
 
-        $this->catatKeluar($percakapan);
+        $this->catatKeluar($percakapan, $userId);
 
         return ['success' => true, 'message' => $terakhir, 'error' => null];
     }
@@ -583,7 +583,7 @@ class CrmReplyService
             'raw'                 => $hasil['raw'] ?? [],
         ])->save();
 
-        $this->catatKeluar($percakapan);
+        $this->catatKeluar($percakapan, $userId);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -673,7 +673,7 @@ class CrmReplyService
 
         $pesan = $this->catat($tujuan, 'text', $teks, $hasil, $userId, null, $sumber->id);
 
-        $this->catatKeluar($tujuan);
+        $this->catatKeluar($tujuan, $userId);
 
         return ['success' => true, 'message' => $pesan, 'error' => null];
     }
@@ -735,7 +735,7 @@ class CrmReplyService
             $terakhir = $pesan;
         }
 
-        $this->catatKeluar($tujuan);
+        $this->catatKeluar($tujuan, $userId);
 
         return ['success' => true, 'message' => $terakhir, 'error' => null];
     }
@@ -878,13 +878,16 @@ class CrmReplyService
      * kali ada yang membalas tidak akan pernah dipakai siapa pun. Tugas
      * "menandai ada pekerjaan" dipegang unread_count.
      */
-    private function catatKeluar(CrmConversation $percakapan): void
+    private function catatKeluar(CrmConversation $percakapan, ?int $userId = null): void
     {
         $percakapan->forceFill([
             'last_outbound_at' => now(),
             'last_message_at'  => now(),
             'unread_count'     => 0,
-        ])->save();
+        ] + ($userId !== null
+            // Balasan orang (bukan AI / kiriman sistem) menuntaskan lemparan AI.
+            ? ['menunggu_admin_at' => null]
+            : []))->save();
 
         // Membalas = sudah membaca, sama seperti membalas dari Seller Centre. Gagal tak apa —
         // balasannya sendiri sudah terkirim.
