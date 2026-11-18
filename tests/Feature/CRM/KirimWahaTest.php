@@ -327,6 +327,44 @@ class KirimWahaTest extends TestCase
         $this->assertTrue((bool) config('crm.waha.tandai_dibaca'));
     }
 
+    /** Membalas dari ERP = sudah dibaca: chat ikut ditandai dibaca di HP (saklar menyala). */
+    public function test_membalas_menandai_dibaca_di_hp_saat_saklar_menyala(): void
+    {
+        config()->set('crm.waha.tandai_dibaca', true);
+        $this->wahaSehat();
+
+        $hasil = app(CrmReplyService::class)->balas($this->cermin(), 'siap kak');
+
+        $this->assertTrue($hasil['success'], (string) ($hasil['error'] ?? ''));
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/api/sendSeen')
+            && $req['chatId'] === '6281234000111@c.us');
+    }
+
+    /** Saklar mati: membalas TIDAK memicu sendSeen. */
+    public function test_membalas_tidak_menandai_dibaca_saat_saklar_mati(): void
+    {
+        $this->wahaSehat();
+
+        $this->assertTrue(app(CrmReplyService::class)->balas($this->cermin(), 'siap kak')['success']);
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/api/sendSeen'));
+    }
+
+    /** sendSeen gagal tak boleh menggagalkan balasan yang sudah terkirim. */
+    public function test_tandai_dibaca_gagal_tidak_menggagalkan_balasan(): void
+    {
+        config()->set('crm.waha.tandai_dibaca', true);
+        Http::fake([
+            '*/api/sessions/utama' => Http::response(['status' => 'WORKING'], 200),
+            '*/api/sendSeen'       => Http::response(['message' => 'boom'], 500),
+            '*/api/send*'          => Http::response(['id' => 'ABC123'], 201),
+        ]);
+
+        $hasil = app(CrmReplyService::class)->balas($this->cermin(), 'siap kak');
+
+        $this->assertTrue($hasil['success'], (string) ($hasil['error'] ?? ''));
+        $this->assertSame(1, CrmMessage::where('direction', CrmMessage::KELUAR)->count());
+    }
+
     /**
      * Jalur RESMI tidak punya notifikasi HP untuk dibersihkan — nomornya
      * dicabut dari aplikasi WhatsApp oleh Cloud API. Menyalakannya di sana

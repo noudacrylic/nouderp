@@ -14,6 +14,7 @@ use App\Modules\CRM\Support\TemplateResmi;
 use App\Modules\Marketplace\Shopee\Services\ShopeeChatService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Http\UploadedFile;
 
@@ -893,6 +894,32 @@ class CrmReplyService
         // balasannya sendiri sudah terkirim.
         if ($percakapan->shopee()) {
             $this->tandaiDibacaShopee($percakapan);
+        }
+
+        /*
+         * Sama untuk nomor utama (WAHA), bila saklar "Tandai dibaca di HP"
+         * menyala — keputusan user 19 Nov 2026. Centang biru bukan masalah di
+         * sini: pelanggan memang sedang menerima balasan kita. Yang tetap
+         * TIDAK memicu: sekadar membuka/mengintip thread (lihat tandaiDibaca).
+         * Tanpa ini, chat yang dijawab dari ERP menumpuk "belum dibaca" di HP.
+         * Gagal (sesi putus, WAHA lambat) tak boleh menggagalkan balasan.
+         */
+        if ($percakapan->cermin() && (bool) config('crm.waha.tandai_dibaca', false)) {
+            try {
+                $hasil = $this->tandaiDibaca($percakapan);
+
+                if (! $hasil['success']) {
+                    Log::info('[CRM] tandai dibaca di HP gagal setelah membalas', [
+                        'conversation_id' => $percakapan->id,
+                        'error'           => $hasil['error'],
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[CRM] tandai dibaca di HP galat setelah membalas', [
+                    'conversation_id' => $percakapan->id,
+                    'error'           => $e->getMessage(),
+                ]);
+            }
         }
     }
 

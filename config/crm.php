@@ -124,11 +124,11 @@ return [
          | dibaca di HP CS, jadi notifikasinya menumpuk di sana. Harganya juga
          | nyata: sendSeen memunculkan CENTANG BIRU di HP pelanggan.
          |
-         | Karena itu ia tidak pernah otomatis — bahkan saat saklar ini
-         | menyala, yang memicunya tetap tombol yang ditekan manusia. Chat yang
-         | cuma diintip di ERP jangan sampai terbaca sebagai "sudah dilihat";
-         | "dibaca tapi didiamkan" terasa lebih buruk bagi pelanggan daripada
-         | "belum dibaca".
+         | Saat saklar ini menyala, pemicunya: tombol manual DAN setiap balasan
+         | yang terkirim dari ERP (sejak 19 Nov 2026 — pelanggan memang sedang
+         | dibalas, jadi centang biru wajar). Membuka/mengintip thread TIDAK
+         | memicu: "dibaca tapi didiamkan" terasa lebih buruk bagi pelanggan
+         | daripada "belum dibaca".
          |
          | Tuas di luar kode yang mencapai tujuan sama TANPA centang biru:
          | matikan "laporan telah dibaca" di setelan privasi nomor utama.
