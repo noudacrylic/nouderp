@@ -311,6 +311,23 @@ class KirimWahaTest extends TestCase
     }
 
     /**
+     * Centang di layar Pengaturan WhatsApp Self-Host (baris 'waha') benar-benar
+     * menyalakan saklarnya. Dulu tersimpan di DB tetapi dibuang
+     * CrmRuntimeConfig, sehingga tombolnya tak pernah muncul (19 Nov 2026).
+     */
+    public function test_saklar_tandai_dibaca_dari_baris_waha_terbaca(): void
+    {
+        $waha = \App\Models\CrmSetting::for('waha');
+        $waha->config = array_merge((array) $waha->config, ['tandai_dibaca' => true]);
+        $waha->save();
+
+        config()->set('crm.waha.tandai_dibaca', false);
+        \App\Modules\CRM\Support\CrmRuntimeConfig::apply(true);
+
+        $this->assertTrue((bool) config('crm.waha.tandai_dibaca'));
+    }
+
+    /**
      * Jalur RESMI tidak punya notifikasi HP untuk dibersihkan — nomornya
      * dicabut dari aplikasi WhatsApp oleh Cloud API. Menyalakannya di sana
      * berarti memanggil sesi WAHA untuk percakapan yang bukan miliknya.

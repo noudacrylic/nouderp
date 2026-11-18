@@ -91,8 +91,15 @@ class CrmRuntimeConfig
         }
     }
 
-    /** Kunci yang boleh datang dari baris 'waha'. */
-    private const KUNCI_WAHA = ['notifikasi_driver'];
+    /**
+     * Kunci yang boleh datang dari baris 'waha'.
+     *
+     * ⚠️ Setiap kunci yang DISIMPAN oleh WahaSettingController wajib ada di
+     * sini. 'tandai_dibaca' dulu terlupa: centangnya tersimpan di DB dan
+     * tampak menyala di layar, tetapi config tetap false — tombol "Tandai
+     * dibaca di HP" tak pernah muncul (ditemukan 19 Nov 2026).
+     */
+    private const KUNCI_WAHA = ['notifikasi_driver', 'tandai_dibaca'];
 
     private static function siram(array $config): void
     {
