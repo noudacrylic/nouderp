@@ -5,10 +5,12 @@ namespace App\Modules\CRM\Models;
 use App\Models\Customer;
 use App\Models\User;
 use App\Modules\CRM\Support\PhoneNumber;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -233,28 +235,50 @@ class CrmConversation extends Model
             ? (PhoneNumber::normalize($contact) ?? $contact)
             : ltrim(trim($contact), '@');
 
-        /*
-         * Nomor bisnis tidak disebut? Pakai percakapan yang sudah ada untuk
-         * kontak ini, jangan bikin yang baru. Sebagian peristiwa webhook
-         * memuat field itu dan sebagian tidak — kalau ketiadaannya dianggap
-         * identitas tersendiri, satu orang pecah jadi dua thread dan balasan
-         * admin mendarat di thread yang bukan tempat pelanggan menulis.
-         */
-        if ($businessNumberId === null) {
-            $adaDuluan = static::where('channel', $channel)
-                ->where('contact_key', $key)
-                ->orderBy('id')
-                ->first();
+        $cariAtauBuat = function () use ($channel, $key, $businessNumberId, $attributes): self {
+            /*
+             * Nomor bisnis tidak disebut? Pakai percakapan yang sudah ada untuk
+             * kontak ini, jangan bikin yang baru. Sebagian peristiwa webhook
+             * memuat field itu dan sebagian tidak — kalau ketiadaannya dianggap
+             * identitas tersendiri, satu orang pecah jadi dua thread dan balasan
+             * admin mendarat di thread yang bukan tempat pelanggan menulis.
+             */
+            if ($businessNumberId === null) {
+                $adaDuluan = static::where('channel', $channel)
+                    ->where('contact_key', $key)
+                    ->orderBy('id')
+                    ->first();
 
-            if ($adaDuluan) {
-                return $adaDuluan;
+                if ($adaDuluan) {
+                    return $adaDuluan;
+                }
             }
-        }
 
-        return static::firstOrCreate(
-            ['channel' => $channel, 'contact_key' => $key, 'business_number_id' => $businessNumberId],
-            $attributes
-        );
+            return static::firstOrCreate(
+                ['channel' => $channel, 'contact_key' => $key, 'business_number_id' => $businessNumberId],
+                $attributes
+            );
+        };
+
+        /*
+         * ⚠️ Kunci per kontak — WAJIB. Indeks unik (channel, contact_key,
+         * business_number_id) TIDAK melindungi apa pun saat business_number_id
+         * NULL (kanal cermin WAHA selalu NULL): MariaDB menganggap NULL ≠ NULL.
+         * Tanpa kunci, dua webhook yang tiba bersamaan untuk chat BARU —
+         * pesan pertama pelanggan + sambutan otomatis WA Business dari HP,
+         * selisih <1 detik — sama-sama "tidak menemukan" lalu sama-sama
+         * membuat. Hasilnya dua thread: pelanggan menulis di satu, sambutan
+         * di yang lain, dan CS membuka thread yang isinya cuma sambutan kita
+         * (kejadian nyata 18 Nov 2026, 628164882975).
+         *
+         * Kalau kunci tak kunjung didapat, tetap jalan tanpa kunci: thread
+         * kembar masih bisa digabung, pesan yang hilang tidak.
+         */
+        try {
+            return Cache::lock('crm-percakapan:' . $channel . ':' . $key, 10)->block(5, $cariAtauBuat);
+        } catch (LockTimeoutException) {
+            return $cariAtauBuat();
+        }
     }
 
     /**
