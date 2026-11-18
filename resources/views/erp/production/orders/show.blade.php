@@ -352,10 +352,20 @@
                                     </div>
                                     @if($step->notes) <div class="text-xs text-gray-400 mt-1 italic">{{ $step->notes }}</div> @endif
                                 </div>
-                                {{-- Hapus langkah: hanya sebelum produksi dimulai (draft/confirmed) & langkah masih antre --}}
-                                @if(in_array($order->status, ['draft', 'confirmed']) && $step->status === 'pending')
+                                {{-- Hapus langkah antre. Saat produksi berjalan: bukan QC, langkah sesudahnya belum
+                                     dikerjakan, & masih ada langkah lain yang belum selesai (cek ulang di service). --}}
+                                @php
+                                    $bolehHapus = $step->status === 'pending' && (in_array($order->status, ['draft', 'confirmed'])
+                                        || ($order->status === 'in_progress' && !$step->is_qc
+                                            && !$order->steps->contains(fn ($x) => $x->step_number > $step->step_number && $x->status !== 'pending')
+                                            && $order->steps->contains(fn ($x) => $x->id !== $step->id && !$x->is_qc && $x->status !== 'completed')));
+                                    $pesanHapus = $order->status === 'in_progress'
+                                        ? "Hapus langkah {$step->name}? Sampel waktu OP ini akan dicoret karena alurnya tidak sesuai standar BOM."
+                                        : "Hapus langkah {$step->name}?";
+                                @endphp
+                                @if($bolehHapus)
                                     <form method="POST" action="{{ route('production.orders.steps.delete', [$order->id, $step->id]) }}"
-                                          onsubmit="return confirm('Hapus langkah {{ $step->name }}?')" class="flex-shrink-0">
+                                          onsubmit="return confirm(@js($pesanHapus))" class="flex-shrink-0">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="text-gray-300 hover:text-red-500 text-base leading-none" title="Hapus langkah">✕</button>
                                     </form>

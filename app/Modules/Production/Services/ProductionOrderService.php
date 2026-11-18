@@ -602,15 +602,19 @@ class ProductionOrderService
     }
 
     /**
-     * Hapus satu langkah — hanya boleh selama produksi BELUM dimulai
-     * (order masih draft/confirmed) dan langkah masih pending.
+     * Hapus satu langkah yang masih antre.
+     *
+     * Saat produksi BERJALAN juga boleh (mis. Assembling OP koin diganti langkah Desain tempel
+     * stiker): syaratnya tak ada langkah sesudahnya yang sudah dikerjakan, bukan langkah QC, dan
+     * masih tersisa langkah yang belum selesai (tambah penggantinya dulu, baru hapus). Alurnya
+     * kini menyimpang dari BOM, jadi OP dicoret dari sampel Analisa Waktu Produksi.
      */
-    public function deleteStep(int $orderId, int $stepId): void
+    public function deleteStep(int $orderId, int $stepId, ?int $userId = null): void
     {
         $order = ProductionOrder::findOrFail($orderId);
 
-        if (!in_array($order->status, ['draft', 'confirmed'])) {
-            throw new Exception('Langkah tidak bisa dihapus setelah produksi dimulai.');
+        if (!in_array($order->status, ['draft', 'confirmed', 'in_progress'])) {
+            throw new Exception('Langkah hanya bisa dihapus saat order draft, dikonfirmasi, atau sedang berjalan.');
         }
 
         $step = ProductionOrderStep::where('production_order_id', $order->id)
@@ -621,7 +625,28 @@ class ProductionOrderService
             throw new Exception('Hanya langkah yang belum dikerjakan yang bisa dihapus.');
         }
 
-        DB::transaction(function () use ($order, $step) {
+        $berjalan = $order->status === 'in_progress';
+        if ($berjalan) {
+            $steps = $order->steps()->get();
+            if ($step->is_qc) {
+                throw new Exception('Langkah QC tidak bisa dihapus saat produksi berjalan.');
+            }
+            if ($steps->contains(fn ($s) => $s->step_number > $step->step_number && $s->status !== 'pending')) {
+                throw new Exception('Langkah hanya bisa dihapus bila langkah sesudahnya belum dikerjakan.');
+            }
+            if (!$steps->contains(fn ($s) => $s->id !== $step->id && !$s->is_qc && $s->status !== 'completed')) {
+                throw new Exception('Ini langkah terakhir yang belum selesai — tambahkan langkah penggantinya dulu, baru hapus.');
+            }
+        }
+
+        DB::transaction(function () use ($order, $step, $berjalan, $userId) {
+            if ($berjalan) {
+                \App\Modules\Analysis\Models\ProductionTimeSampleExclusion::firstOrCreate(
+                    ['production_order_id' => $order->id],
+                    ['reason' => "Langkah {$step->name} dihapus saat produksi berjalan — alur tidak sesuai standar BOM",
+                     'excluded_by' => $userId],
+                );
+            }
             $step->delete();
             // Rapikan nomor urut langkah yang tersisa
             $order->steps()->orderBy('step_number')->get()

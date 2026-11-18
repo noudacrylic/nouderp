@@ -825,9 +825,12 @@ class ProductionOrderController extends Controller
     public function deleteStep(int $id, int $stepId, ProductionOrderService $service)
     {
         try {
-            $service->deleteStep($id, $stepId);
+            $berjalan = ProductionOrder::whereKey($id)->value('status') === 'in_progress';
+            $service->deleteStep($id, $stepId, auth()->id());
             $this->segarkanKartuDesain();
-            return back()->with('success', 'Langkah produksi dihapus.');
+            return back()->with('success', $berjalan
+                ? 'Langkah produksi dihapus. Sampel waktu OP ini dicoret karena alurnya tidak sesuai standar.'
+                : 'Langkah produksi dihapus.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
         }
