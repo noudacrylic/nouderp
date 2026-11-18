@@ -293,6 +293,31 @@ class CerminWahaTest extends TestCase
     }
 
     /**
+     * Pesan yang isinya disembunyikan WhatsApp dari perangkat tertaut (OTP
+     * "DANA OTP", 19 Nov 2026) — dulu tampil sebagai gelembung kosong.
+     */
+    public function test_pesan_tersembunyi_dari_perangkat_tertaut_diberi_keterangan(): void
+    {
+        $this->kirim($this->payload(pesan: [
+            'body'  => null,
+            '_data' => [
+                'message'         => ['placeholderMessage' => ['type' => 'MASK_LINKED_DEVICES']],
+                'verifiedBizName' => 'DANA OTP',
+            ],
+        ]))->assertOk();
+
+        $pesan = CrmMessage::sole();
+
+        $this->assertTrue($pesan->tersembunyiDiHp());
+        $this->assertSame('DANA OTP', $pesan->namaBisnisTerverifikasi());
+        $this->assertSame('🔒 Pesan hanya bisa dibuka di HP', $pesan->ringkas());
+
+        $html = view('erp.crm.inbox._bubbles', ['pesan' => collect([$pesan]), 'percakapan' => $pesan->conversation])->render();
+        $this->assertStringContainsString('Pesan hanya bisa dibuka di HP nomor utama', $html);
+        $this->assertStringContainsString('DANA OTP', $html);
+    }
+
+    /**
      * Balasan pelanggan yang mengutip pesan lain — WAHA hanya memberi id
      * pendek di `replyTo.id`, sedangkan baris kita menyimpan bentuk panjang.
      * Dulu kutipannya hilang sama sekali (dilaporkan 2 Okt 2026).

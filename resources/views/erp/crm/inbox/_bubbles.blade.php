@@ -151,6 +151,15 @@
                              kenapa urutannya tidak boleh dibalik. --}}
                         @if($m->content)
                             <div class="whitespace-pre-wrap">{!! \App\Modules\CRM\Support\TeksPesan::tautkan($m->content) !!}</div>
+                        @elseif($m->tersembunyiDiHp())
+                            {{-- Isi disembunyikan WhatsApp dari perangkat tertaut (mis. OTP) —
+                                 lihat CrmMessage::tersembunyiDiHp(). --}}
+                            <div class="text-sm text-gray-600 italic">
+                                🔒 Pesan hanya bisa dibuka di HP nomor utama — WhatsApp menyembunyikan isinya dari perangkat tertaut (biasanya kode OTP).
+                                @if($biz = $m->namaBisnisTerverifikasi())
+                                    <div class="not-italic text-xs text-gray-500 mt-0.5">Dari akun bisnis: <span class="font-medium">{{ $biz }}</span></div>
+                                @endif
+                            </div>
                         @endif
                         {{-- Kartu produk Shopee: SKU dibaca dari katalog saat tampil, jadi pesan lama ikut. --}}
                         @if(!empty($skuKartu[$m->id]))

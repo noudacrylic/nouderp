@@ -335,7 +335,7 @@ class CrmMessage extends Model
                 'document' => '📄 ' . ($this->attachments->first()?->original_name ?: 'Dokumen'),
                 default    => ($lokasi = $this->lokasi())
                     ? '📍 ' . ($lokasi['nama'] ?: $lokasi['alamat'] ?: 'Lokasi')
-                    : 'Pesan',
+                    : ($this->tersembunyiDiHp() ? '🔒 Pesan hanya bisa dibuka di HP' : 'Pesan'),
             };
         }
 
@@ -389,6 +389,32 @@ class CrmMessage extends Model
         }
 
         return null;
+    }
+
+    /**
+     * Pesan yang isinya DISEMBUNYIKAN WhatsApp dari perangkat tertaut (WAHA).
+     *
+     * WhatsApp hanya mengirim penanda `placeholderMessage` (tipe
+     * MASK_LINKED_DEVICES) untuk pesan sensitif — contohnya kode OTP dari
+     * akun bisnis seperti "DANA OTP". Isinya memang tak pernah sampai ke
+     * server dan tak bisa diambil ulang; hanya HP nomor utama yang bisa
+     * membukanya. Tanpa penanda ini gelembungnya tampil kosong dan CS
+     * menyangka ERP kehilangan pesan.
+     *
+     * Dibaca dari `raw` (seperti lokasi()) supaya pesan lama ikut terbaca
+     * tanpa backfill.
+     */
+    public function tersembunyiDiHp(): bool
+    {
+        return data_get((array) ($this->raw ?? []), '_data.message.placeholderMessage') !== null;
+    }
+
+    /** Nama akun bisnis terverifikasi pengirim (mis. "DANA OTP"), bila ada. */
+    public function namaBisnisTerverifikasi(): ?string
+    {
+        $nama = data_get((array) ($this->raw ?? []), '_data.verifiedBizName');
+
+        return is_string($nama) && trim($nama) !== '' ? trim($nama) : null;
     }
 
     /**
