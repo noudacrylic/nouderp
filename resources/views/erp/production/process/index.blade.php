@@ -1112,7 +1112,12 @@
         sesuai: 'bg-amber-50 text-amber-700 border-amber-300',
         lewat:  'bg-red-50 text-red-700 border-red-300',
     };
-    function fmtMnt(sec){ const m = sec / 60; return (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10).toLocaleString('id-ID'); }
+    // ≥ 60 mnt → "2 jam 31 mnt"; di bawahnya menit (desimal bila < 10). Sama dengan teks awal di _step-card.
+    function fmtMnt(sec){
+        const m = sec / 60;
+        if (m >= 59.5) { const t = Math.round(m), j = Math.floor(t / 60), s = t % 60; return j + ' jam' + (s ? ' ' + s + ' mnt' : ''); }
+        return (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10).toLocaleString('id-ID') + ' mnt';
+    }
     function perbaruiTarget(){
         document.querySelectorAll('[data-target-step]').forEach(function(t){
             const timer = document.querySelector('[data-timer-step="' + t.dataset.targetStep + '"]');
@@ -1126,7 +1131,7 @@
             Object.values(WARNA_TARGET).join(' ').split(' ').forEach(c => t.classList.remove(c));
             WARNA_TARGET[keadaan].split(' ').forEach(c => t.classList.add(c));
             const sisa = target - sec;
-            teks.textContent = fmtMnt(target) + ' mnt · ' + (sisa >= 0 ? 'sisa ' + fmtMnt(sisa) : 'lewat ' + fmtMnt(-sisa)) + ' mnt';
+            teks.textContent = fmtMnt(target) + ' · ' + (sisa >= 0 ? 'sisa ' + fmtMnt(sisa) : 'lewat ' + fmtMnt(-sisa));
         });
     }
     perbaruiTarget();

@@ -333,7 +333,7 @@
                 <span class="border px-1.5 py-0.5 rounded font-bold bg-gray-50 text-gray-700 border-gray-200"
                       data-target-step="{{ $step->id }}" data-target-detik="{{ (int) round($target['menit'] * 60) }}" data-pita="{{ $target['pita'] }}"
                       title="Target = {{ $target['rincian'] }} mnt{{ $target['faktor'] != 1 ? ' × ' . number_format($target['faktor'], 2, ',', '') . ' (merk akrilik)' : '' }}">
-                    🎯 Target <span data-target-teks>{{ $target['menit'] >= 10 ? number_format($target['menit'], 0, ',', '.') : number_format($target['menit'], 1, ',', '.') }} mnt</span>
+                    🎯 Target <span data-target-teks>{{ \App\Modules\Production\Services\PenilaianKinerjaService::teksMenit($target['menit']) }}</span>
                 </span>
             @endif
             @if($tempelDariDesain)
@@ -356,7 +356,7 @@
                 <span class="border px-1.5 py-0.5 rounded font-bold bg-gray-50 text-gray-700 border-gray-200"
                       data-target-step="{{ $step->id }}" data-target-detik="{{ (int) round($target['menit'] * 60) }}" data-pita="{{ $target['pita'] }}"
                       title="Target = {{ $target['rincian'] }} mnt{{ $target['faktor'] != 1 ? ' × ' . number_format($target['faktor'], 2, ',', '') . ' (merk akrilik)' : '' }}">
-                    🎯 Target <span data-target-teks>{{ $target['menit'] >= 10 ? number_format($target['menit'], 0, ',', '.') : number_format($target['menit'], 1, ',', '.') }} mnt</span>
+                    🎯 Target <span data-target-teks>{{ \App\Modules\Production\Services\PenilaianKinerjaService::teksMenit($target['menit']) }}</span>
                 </span>
             @endif
             @if($tempelDariDesain)

@@ -277,6 +277,17 @@ class PenilaianKinerjaService
         return $hasil;
     }
 
+    /** Teks durasi untuk kartu: ≥ 60 mnt → "2 jam 31 mnt"; di bawahnya menit. Kembar fmtMnt() di layar Proses. */
+    public static function teksMenit(float $menit): string
+    {
+        if ($menit >= 59.5) {
+            $m = (int) round($menit);
+            return intdiv($m, 60) . ' jam' . ($m % 60 ? ' ' . ($m % 60) . ' mnt' : '');
+        }
+
+        return ($menit >= 10 ? number_format($menit, 0, ',', '.') : number_format($menit, 1, ',', '.')) . ' mnt';
+    }
+
     /** Jatah, timer, dan poin satu langkah. */
     public function nilaiLangkah(ProductionOrderStep $s, Collection $standar): array
     {
