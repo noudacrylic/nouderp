@@ -42,6 +42,14 @@ return [
     // 16 Nov 2026): Kotak Saran, Box Charger, custom CS1–CS6. NM cetak & FF cetak foto tidak.
     'wajib_foto' => ['KS-%', 'BC-%', 'CS_'],
 
+    // Alasan siap pilih untuk "⏭ Lewati foto" di kartu tahap foto (boleh juga ketik sendiri).
+    // "Sudah dikirim" sengaja tidak ada: pengiriman menutup kartu sendiri.
+    'alasan_lewati_foto' => [
+        'Tanpa stiker / polos — tidak perlu difoto',
+        'Pesanan perorangan / desain pribadi',
+        'HP/kamera bermasalah',
+    ],
+
     // Rasio foto porto [lebar, tinggi] (keputusan 17 Nov 2026: 4:5 tegak). Dikunci di editor
     // potong; foto yang tidak diedit dipotong tengah oleh server. Arsip NAS tetap resolusi penuh.
     'rasio_porto' => [4, 5],

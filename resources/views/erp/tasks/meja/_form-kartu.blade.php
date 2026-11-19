@@ -3,6 +3,20 @@
     {{-- Tahap foto: pilih foto dari Kotak Porto (unggahan HP) → jendela _porto-lampir. --}}
     <button type="button" class="porto-buka bg-orange-500 text-white hover:bg-orange-600 px-2 py-1 rounded text-xs font-semibold"
             data-url="{{ $form['url'] }}" data-judul="{{ $form['judul'] }}">{{ $form['label'] }}</button>
+    {{-- Tidak perlu/tidak bisa difoto (mis. KS tanpa stiker): alasan wajib, tercatat. --}}
+    <details class="relative">
+        <summary class="list-none cursor-pointer border border-gray-300 text-gray-700 hover:bg-gray-50 px-2 py-1 rounded text-xs font-semibold">⏭ Lewati foto</summary>
+        <form method="POST" action="{{ $form['lewati'] }}" class="absolute z-10 mt-1 w-72 bg-white border rounded shadow p-2 space-y-1">@csrf
+            <div class="text-[11px] text-gray-500">Kartu selesai tanpa foto. Alasannya tercatat.</div>
+            @foreach ($form['alasan'] as $al)
+                <button name="alasan" value="{{ $al }}" class="block w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-100">{{ $al }}</button>
+            @endforeach
+            <div class="flex gap-1 pt-1 border-t">
+                <input name="alasan_lain" maxlength="150" placeholder="Alasan lain…" class="border rounded px-2 py-1 text-xs flex-1">
+                <button class="bg-gray-700 text-white px-2 rounded text-xs">OK</button>
+            </div>
+        </form>
+    </details>
 @elseif ($form['jenis'] === 'selesaikan')
     <form method="POST" action="{{ $form['url'] }}"
           onsubmit="return confirm('Selesaikan pesanan? Faktur dibuat dan stok masuk sesuai PO. Kalau ada barang kurang atau rusak, tetap selesaikan lalu buat retur dari fakturnya.')">@csrf

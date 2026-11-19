@@ -142,6 +142,24 @@ class PortoController extends Controller
         return response()->json(['pesan' => "$n berkas dilampirkan — kartu selesai."]);
     }
 
+    /** "⏭ Lewati foto" dengan alasan (pilihan atau ketik sendiri) — kartu selesai tanpa foto. */
+    public function lewati(Request $request, Task $task)
+    {
+        $u = $request->user();
+        $this->bolehPegang($u, $task);
+        abort_unless(in_array($task->status, ['open', 'in_progress', 'pending'], true), 422, 'Kartu sudah ditutup.');
+        $skill = $this->meja->skill($task->skill);
+        abort_unless($skill && method_exists($skill, 'lewatiFoto') && (($task->meta ?? [])['tahap'] ?? null) === 'foto', 422, 'Kartu ini belum di tahap foto.');
+
+        $data = $request->validate(['alasan' => 'nullable|string|max:150', 'alasan_lain' => 'nullable|string|max:150']);
+        $alasan = trim((string) ($data['alasan_lain'] ?? '')) ?: trim((string) ($data['alasan'] ?? ''));
+        if ($alasan === '') return back()->with('error', 'Pilih atau tulis alasannya dulu.');
+
+        $skill->lewatiFoto($task, $u, $alasan);
+
+        return back()->with('success', "Foto dilewati ($alasan) — kartu selesai.");
+    }
+
     // ───────────── Penjaga ─────────────
 
     private function jagaPwa(): void

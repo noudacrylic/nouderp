@@ -217,7 +217,15 @@ class FotoCustomTest extends TestCase
         $this->assertSame([$ks->id], array_keys($foto->pengingat([$ks->id, $bc->id])));
 
         $kunci = array_column(app(MejaKerjaService::class)->skill('foto-custom')->jawaban(new Task(['meta' => ['tahap' => 'foto']])), 'kunci');
-        $this->assertSame(['foto-selesai', 'tanpa-foto:kamera'], $kunci, 'Pengiriman terdeteksi sendiri — tak ada tombol "sudah dikirim".');
+        $this->assertSame(['foto-selesai'], $kunci, 'Tanpa foto hanya lewat ⏭ Lewati foto beralasan.');
+        $this->assertNotContains('Barang sudah dikirim sebelum difoto', config('galeri.alasan_lewati_foto'), 'Pengiriman terdeteksi sendiri.');
+
+        // KS tanpa stiker: dilewati dengan alasan → kartu selesai & lencana packing hilang.
+        $t = Task::create(['title' => 'Foto KS', 'skill' => 'foto-custom', 'peran' => 'desain', 'status' => 'open', 'source' => 'event', 'creator_user_id' => $this->admin->id,
+            'taskable_type' => SalesOrder::class, 'taskable_id' => $ks->id, 'meta' => ['tahap' => 'foto']]);
+        $this->actingAs($this->admin)->post(route('tasks.meja.porto.lewati', $t->id), ['alasan' => 'Tanpa stiker / polos — tidak perlu difoto'])->assertSessionHas('success');
+        $this->assertSame('done', $t->fresh()->status);
+        $this->assertSame([], $foto->pengingat([$ks->id]));
     }
 
     public function test_ganti_nama_pindah_hapus_menjaga_tautan(): void

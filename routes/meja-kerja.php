@@ -39,6 +39,7 @@ Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(
         Route::get('/{kotak}/berkas', 'berkas')->whereNumber('kotak')->name('berkas');
         Route::get('/{kotak}/pratinjau', 'pratinjau')->whereNumber('kotak')->name('pratinjau');
         Route::post('/lampirkan/{task}', 'lampirkan')->whereNumber('task')->name('lampirkan');
+        Route::post('/lewati/{task}', 'lewati')->whereNumber('task')->name('lewati');
     });
     // Per SO, bukan per task: kartu Bayangan tidak tersimpan (id negatif) tapi tombolnya tetap dipakai.
     Route::post('/chat-shopee/{so}', [MejaKerjaController::class, 'chatShopee'])->whereNumber('so')->name('chat-shopee');

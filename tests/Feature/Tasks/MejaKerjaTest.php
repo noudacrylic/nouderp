@@ -138,7 +138,10 @@ class MejaKerjaTest extends TestCase
 
         $jawab('foto-selesai')->assertSessionHas('error');
         $this->assertSame('in_progress', $t->fresh()->status);
-        $jawab('tanpa-foto:kamera')->assertSessionHas('success');
+        // ⏭ Lewati foto: alasan wajib (pilihan atau ketik sendiri), tercatat di pesanan.
+        $this->actingAs($this->desainer)->post(route('tasks.meja.porto.lewati', $t->id), ['alasan_lain' => '  '])->assertSessionHas('error');
+        $this->assertSame('in_progress', $t->fresh()->status);
+        $this->actingAs($this->desainer)->post(route('tasks.meja.porto.lewati', $t->id), ['alasan' => 'HP/kamera bermasalah'])->assertSessionHas('success');
         $this->assertSame('done', $t->fresh()->status);
         $this->assertSame('HP/kamera bermasalah', \App\Modules\Galeri\Models\GaleriKarya::where('sales_order_id', $so->id)->value('tanpa_foto_alasan'));
     }

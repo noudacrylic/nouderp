@@ -9,22 +9,18 @@ use App\Modules\Tasks\Models\Task;
 
 /**
  * Tahap terakhir kartu desain / cetak-tempel / foto custom (keputusan 16 Nov 2026): barang yang
- * wajib difoto (config galeri.wajib_foto) baru boleh ditutup setelah info foto terisi dan minimal
- * satu foto tertaut pesanan. Tanpa foto hanya lewat alasan yang tercatat.
+ * wajib difoto (config galeri.wajib_foto) baru boleh ditutup setelah minimal satu foto tertaut
+ * pesanan. Tanpa foto hanya lewat "⏭ Lewati foto" dengan alasan yang tercatat (20 Nov 2026:
+ * mis. KS tanpa stiker tak perlu difoto).
+ *
+ * "Sudah dikirim" sengaja BUKAN alasan pilihan (18 Nov 2026): pengiriman terdeteksi sendiri dari
+ * Surat Jalan dan menutup kartu otomatis; sebagai tombol, ia dipakai menutup kartu yang barangnya
+ * belum dikirim.
  *
  * Tahap kartu disimpan di meta 'tahap'; lencana jenis kartu mengikutinya (MejaKerjaService::jenisKartu).
  */
 trait TahapFoto
 {
-    /**
-     * "Sudah dikirim" sengaja TIDAK ada (18 Nov 2026): pengiriman terdeteksi sendiri dari Surat
-     * Jalan dan menutup kartu otomatis; sebagai tombol, ia dipakai menutup kartu yang barangnya
-     * belum dikirim.
-     */
-    private static array $ALASAN_TANPA_FOTO = [
-        'kamera' => 'HP/kamera bermasalah',
-    ];
-
     protected function tahap(Task $task): ?string
     {
         return ($task->meta ?? [])['tahap'] ?? null;
@@ -38,34 +34,25 @@ trait TahapFoto
 
     protected function jawabanFoto(): array
     {
-        $j = [['kunci' => 'foto-selesai', 'label' => '✓ Foto selesai', 'utama' => true]];
-        foreach (self::$ALASAN_TANPA_FOTO as $k => $label) {
-            $j[] = ['kunci' => "tanpa-foto:$k", 'label' => "Tak bisa difoto: " . lcfirst($label)];
-        }
-        return $j;
+        return [['kunci' => 'foto-selesai', 'label' => '✓ Foto selesai', 'utama' => true]];
     }
 
     /** Jawaban tahap foto; null bila kuncinya bukan milik tahap foto. */
     protected function jawabFoto(Task $task, string $kunci, User $u, int $soId): ?string
     {
-        $foto = app(FotoProdukService::class);
-        $meja = app(MejaKerjaService::class);
+        if ($kunci !== 'foto-selesai') return null;
 
-        if ($kunci === 'foto-selesai') {
-            if ($kurang = $foto->kekuranganFoto($soId)) throw new \RuntimeException($kurang);
-            $meja->ubahStatus($task, 'done', $u, 'Foto pesanan lengkap');
-            return 'Foto tersimpan — kartu selesai.';
-        }
+        if ($kurang = app(FotoProdukService::class)->kekuranganFoto($soId)) throw new \RuntimeException($kurang);
+        app(MejaKerjaService::class)->ubahStatus($task, 'done', $u, 'Foto pesanan lengkap');
+        return 'Foto tersimpan — kartu selesai.';
+    }
 
-        if (str_starts_with($kunci, 'tanpa-foto:')) {
-            $alasan = self::$ALASAN_TANPA_FOTO[substr($kunci, 11)] ?? null;
-            if (!$alasan) return null;
-            $foto->tandaiTanpaFoto($soId, $alasan, $u->id);
-            $meja->ubahStatus($task, 'done', $u, "Tanpa foto: $alasan");
-            return "Ditutup tanpa foto ($alasan).";
-        }
-
-        return null;
+    /** "⏭ Lewati foto": kartu ditutup tanpa foto, alasannya tercatat di pesanan & riwayat kartu. */
+    public function lewatiFoto(Task $task, User $u, string $alasan): void
+    {
+        $soId = $this->soUntukFoto($task);
+        if ($soId) app(FotoProdukService::class)->tandaiTanpaFoto($soId, $alasan, $u->id);
+        app(MejaKerjaService::class)->ubahStatus($task, 'done', $u, "Tanpa foto: $alasan");
     }
 
     /** Selesai tahap kerja sebelumnya: masuk tahap foto bila wajib & belum lengkap, kalau tidak langsung selesai. */
@@ -91,17 +78,20 @@ trait TahapFoto
 
     /**
      * Tahap foto: tombol "🖼 Gambar belum dilampirkan" → pilih dari Kotak Porto (unggahan HP),
-     * potong/putar, simpan → pindah ke NAS & kartu selesai. Seperti nota: wajib ada lampirannya.
+     * potong/putar, simpan → pindah ke NAS & kartu selesai. Seperti nota: wajib ada lampirannya,
+     * kecuali dilewati dengan alasan.
      */
     public function formKartu(Task $task): ?array
     {
         if ($this->tahap($task) !== 'foto' || !$this->soUntukFoto($task)) return null;
 
         return [
-            'jenis'  => 'porto',
-            'label'  => '🖼 Gambar belum dilampirkan',
-            'url'    => route('tasks.meja.porto.lampirkan', $task->id),
-            'judul'  => ($task->meta ?? [])['order_number'] ?? $task->title,
+            'jenis'   => 'porto',
+            'label'   => '🖼 Gambar belum dilampirkan',
+            'url'     => route('tasks.meja.porto.lampirkan', $task->id),
+            'lewati'  => route('tasks.meja.porto.lewati', $task->id),
+            'alasan'  => config('galeri.alasan_lewati_foto', []),
+            'judul'   => ($task->meta ?? [])['order_number'] ?? $task->title,
         ];
     }
 }
