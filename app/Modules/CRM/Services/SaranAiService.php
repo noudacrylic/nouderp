@@ -33,6 +33,12 @@ class SaranAiService
     /** AI tidak mengirim sendiri ke chat yang dibalas manusia dalam rentang ini. */
     public const JAM_MANUSIA_MEMEGANG = 2;
 
+    /**
+     * Di luar jam kerja AI hanya mundur bila orang membalas SESUDAH toko tutup dan masih dalam
+     * 1 jam (keputusan owner 20 Nov 2026): balasan sore tak lagi membuat chat malam tak terjawab.
+     */
+    public const MENIT_MANUSIA_MEMEGANG_LUAR_JAM = 60;
+
     /** Pembeli sering mengetik beberapa pesan beruntun — tunggu dulu sebelum menyarankan. */
     public const JEDA_DETIK = 30;
 
@@ -205,8 +211,20 @@ class SaranAiService
             || $pesan->sent_at?->lt(now()->subMinutes(self::BATAS_OTOMATIS_MENIT))
             || $this->pesanTerakhir($c)?->id !== $pesan->id
             || $this->sudahDibalas($c, $pesan)
-            || $this->dipegangManusia($c)) {
+            || $this->dipegangManusia($c, $luarJam)) {
             return;
+        }
+
+        // Chat yang dipegang owner (biasanya custom yang sedang dirundingkan): di luar jam AI tidak
+        // menjawab isinya, cukup kalimat penahan sekali semalam supaya chat tetap terbalas.
+        if ($luarJam && $this->dipegangOwner($c)) {
+            if ($this->sudahDitahanMalamIni($c)) {
+                $this->tandaiMenungguAdmin($c);
+
+                return;
+            }
+            $teks = self::teksPenahanLuarJam();
+            $saran->lempar_ke ??= 'owner';
         }
 
         // Kabar "admin aktif lagi" cukup sekali semalam: lemparan yang isinya hanya kabar itu
@@ -274,9 +292,28 @@ class SaranAiService
             return 'saya teruskan ke admin yang menangani ya kak, ditunggu sebentar 🙏';
         }
 
-        return $saran->lempar_ke
-            ? 'Pesan kakak sudah kami terima & diteruskan ke admin yang menangani 🙏 admin aktif lagi ' . AgenPrompt::adminAktifLagi() . ' ya kak.'
-            : null;
+        return $saran->lempar_ke ? self::teksPenahanLuarJam() : null;
+    }
+
+    private static function teksPenahanLuarJam(): string
+    {
+        return 'Pesan kakak sudah kami terima & diteruskan ke admin yang menangani 🙏 admin aktif lagi ' . AgenPrompt::adminAktifLagi() . ' ya kak.';
+    }
+
+    /** Pemegang chat anggota meja Owner. */
+    private function dipegangOwner(CrmConversation $c): bool
+    {
+        return $c->owner_user_id
+            && MejaKerjaPeran::where('peran', 'owner')->where('user_id', $c->owner_user_id)->exists();
+    }
+
+    /** AI sudah mengirim (atau menandai bayangan) sesuatu ke chat ini sejak toko tutup. */
+    private function sudahDitahanMalamIni(CrmConversation $c): bool
+    {
+        return CrmSaranAi::where('conversation_id', $c->id)
+            ->whereIn('otomatis', [CrmSaranAi::OTO_BAYANGAN, CrmSaranAi::OTO_TERKIRIM])
+            ->where('created_at', '>=', AgenPrompt::awalLuarJam())
+            ->exists();
     }
 
     /**
@@ -371,12 +408,19 @@ class SaranAiService
         ]);
     }
 
-    /** Manusia membalas chat ini dalam 2 jam terakhir — AI mundur, cukup memberi saran. */
-    private function dipegangManusia(CrmConversation $c): bool
+    /**
+     * Manusia sedang memegang chat ini — AI mundur, cukup memberi saran. Jam kerja: ada balasan
+     * orang dalam 2 jam terakhir. Luar jam: balasan orang sesudah toko tutup, dalam 1 jam terakhir.
+     */
+    private function dipegangManusia(CrmConversation $c, bool $luarJam = false): bool
     {
+        $sejak = $luarJam
+            ? now()->subMinutes(self::MENIT_MANUSIA_MEMEGANG_LUAR_JAM)->max(AgenPrompt::awalLuarJam())
+            : now()->subHours(self::JAM_MANUSIA_MEMEGANG);
+
         return CrmMessage::where('conversation_id', $c->id)
             ->where('direction', CrmMessage::KELUAR)
-            ->where('sent_at', '>=', now()->subHours(self::JAM_MANUSIA_MEMEGANG))
+            ->where('sent_at', '>=', $sejak)
             ->where(fn ($q) => $q->whereNull('source')->orWhere('source', '!=', CrmMessage::SOURCE_AI))
             ->where(fn ($q) => self::bukanOtomatis($q))
             ->exists();

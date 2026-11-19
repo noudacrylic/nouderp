@@ -342,6 +342,65 @@ class SaranAiTest extends TestCase
         $this->assertSame([CrmSaranAi::BARU, null], [CrmSaranAi::firstOrFail()->status, CrmSaranAi::firstOrFail()->otomatis]);
     }
 
+    public function test_luar_jam_balasan_sore_tidak_menghalangi_ai(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 16:20')); // Selasa, toko tutup 16.00
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $c = CrmConversation::findOrCreateFor('777', CrmConversation::KANAL_SHOPEE, '101');
+        $this->pesan($c, CrmMessage::KELUAR, 'baik kak saya cek', now()->subMinutes(50), CrmMessage::SOURCE_SELLER_CENTRE);
+        $this->pesan($c, CrmMessage::MASUK, 'kak buka jam berapa?', now()->subMinutes(2));
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(2), 'last_outbound_at' => now()->subMinutes(50)])->save();
+        $this->claude->antrekan($this->usul('A7', 'buka jam 8 kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $this->assertSame(['buka jam 8 kak'], $this->pesanAi()->pluck('content')->all(), 'Balasan 15.30 dari jam kerja.');
+    }
+
+    public function test_luar_jam_ai_mundur_satu_jam_bila_orang_membalas_malam_itu(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 20:00'));
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $c = CrmConversation::findOrCreateFor('777', CrmConversation::KANAL_SHOPEE, '101');
+        $this->pesan($c, CrmMessage::KELUAR, 'iya kak', now()->subMinutes(30), CrmMessage::SOURCE_SELLER_CENTRE);
+        $this->pesan($c, CrmMessage::MASUK, 'kak buka jam berapa?', now()->subMinutes(2));
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(2), 'last_outbound_at' => now()->subMinutes(30)])->save();
+        $this->claude->antrekan($this->usul('A7', 'buka jam 8 kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertCount(0, $this->pesanAi(), 'Owner sedang membalas malam ini.');
+
+        $this->travelTo(now()->addMinutes(40)); // balasan orang kini 70 menit lalu
+        $this->pesan($c, CrmMessage::MASUK, 'halo kak?', now()->subMinutes(2));
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(2)])->save();
+        $this->claude->antrekan($this->usul('A7', 'buka jam 8 kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertCount(1, $this->pesanAi(), 'Lewat 1 jam: AI mengambil alih.');
+    }
+
+    public function test_luar_jam_chat_owner_hanya_kalimat_penahan_sekali_semalam(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 20:00'));
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        MejaKerjaPeran::create(['peran' => 'owner', 'user_id' => $owner->id, 'urutan' => 1]);
+        $c = $this->chat('jadi berapa kak yang 20x30?');
+        $c->forceFill(['owner_user_id' => $owner->id])->save();
+        $this->claude->antrekan($this->usul('B1', 'Rp150rb kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $kirim = $this->pesanAi()->pluck('content')->all();
+        $this->assertCount(1, $kirim);
+        $this->assertStringContainsString('admin aktif lagi', $kirim[0], 'Isi tidak dijawab AI.');
+        $this->assertNotNull($c->fresh()->menunggu_admin_at);
+        $this->assertSame($owner->id, (int) $c->fresh()->owner_user_id);
+
+        $this->travelTo(now()->addMinutes(10));
+        $this->pesan($c, CrmMessage::MASUK, 'kak?', now()->subMinutes(2));
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(2)])->save();
+        $this->claude->antrekan($this->usul('-', 'iya kak'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertCount(1, $this->pesanAi(), 'Penahan cukup sekali semalam.');
+    }
+
     public function test_mode_penuh_lemparan_jam_kerja_kalimat_penahan_sekali(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 10:00'));
