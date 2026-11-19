@@ -72,7 +72,11 @@ class StorefrontInstantPointTest extends TestCase
             '*/auth/generate-token' => Http::response(['token' => 'token-uji', 'expires_in' => 86400]),
             '*/regions*'            => Http::response(['data' => [[
                 'area_id'  => '4823',
-                'name'     => 'Semarang Tengah, Kota Semarang',
+                'name'     => 'Sekayu, Semarang Tengah, KOTA SEMARANG, JAWA TENGAH. 50132',
+                'province' => 'JAWA TENGAH',
+                'city'     => 'KOTA SEMARANG',
+                'district' => 'Semarang Tengah',
+                'area'     => 'Sekayu',
                 'zipcode'  => '50132',
             ]]]),
         ]);
@@ -86,6 +90,71 @@ class StorefrontInstantPointTest extends TestCase
         // Area kurir ikut terbawa: tanpa ini pesanan kurir biasa dari titik peta tidak
         // bisa dihitung ongkirnya.
         $this->assertSame('4823', $res->json('data.area_id'));
+    }
+
+    /**
+     * Kasus nyata 19 Nov 2026: titik Polda Jateng. OSM memberi kode pos 50228 (keliru)
+     * dan ejaan "Mugassari"; Jubelio mengeja "Mugasari" dan "50228" → Kemijen,
+     * Semarang Timur (4 km jauhnya). Area wajib dipilih dari kecamatan + kelurahan,
+     * bukan hasil pertama kode pos.
+     */
+    public function test_kode_pos_osm_keliru_tidak_menyeret_area_ke_kelurahan_lain(): void
+    {
+        $baris = fn ($id, $kel, $kec, $pos) => [
+            'area_id' => $id, 'name' => "$kel, $kec, KOTA SEMARANG, JAWA TENGAH. $pos",
+            'province' => 'JAWA TENGAH', 'city' => 'KOTA SEMARANG', 'district' => $kec, 'area' => $kel, 'zipcode' => $pos,
+        ];
+
+        Http::fake([
+            'nominatim.openstreetmap.org/*' => Http::response([
+                'display_name' => 'Polda Jawa Tengah, Jalan Pahlawan, RW 06, Mugassari, Semarang Selatan, Kota Semarang, Jawa Tengah, 50228, Indonesia',
+                'address'      => [
+                    'neighbourhood' => 'RW 06',
+                    'suburb'        => 'Mugassari',
+                    'district'      => 'Semarang Selatan',
+                    'city'          => 'Kota Semarang',
+                    'postcode'      => '50228',
+                ],
+            ]),
+            '*/auth/generate-token'          => Http::response(['token' => 'token-uji', 'expires_in' => 86400]),
+            '*/regions*name=50228*'          => Http::response(['data' => [
+                $baris('3374031001', 'Kemijen', 'Semarang Timur', '50228'),
+            ]]),
+            '*/regions*name=Semarang*'       => Http::response(['data' => [
+                $baris('3374071001', 'Randusari', 'Semarang Selatan', '50244'),
+                $baris('3374071004', 'Mugasari', 'Semarang Selatan', '50249'),
+            ]]),
+            '*/regions*'                     => Http::response(['data' => []]),
+        ]);
+
+        $res = $this->withHeaders($this->headers())
+            ->postJson('/api/storefront/shipping/point', ['latitude' => -6.99696, 'longitude' => 110.41732]);
+
+        $res->assertOk();
+        $this->assertSame('3374071004', $res->json('data.area_id'));
+        $this->assertStringStartsWith('Mugasari', (string) $res->json('data.area_label'));
+    }
+
+    public function test_hanya_kode_pos_yang_cocok_area_dibiarkan_kosong(): void
+    {
+        Http::fake([
+            'nominatim.openstreetmap.org/*' => Http::response([
+                'display_name' => 'Mugassari, Semarang Selatan, Kota Semarang',
+                'address'      => ['suburb' => 'Mugassari', 'district' => 'Semarang Selatan', 'city' => 'Kota Semarang', 'postcode' => '50228'],
+            ]),
+            '*/auth/generate-token' => Http::response(['token' => 'token-uji', 'expires_in' => 86400]),
+            '*/regions*name=50228*' => Http::response(['data' => [[
+                'area_id' => '3374031001', 'name' => 'Kemijen, Semarang Timur, KOTA SEMARANG, JAWA TENGAH. 50228',
+                'city' => 'KOTA SEMARANG', 'district' => 'Semarang Timur', 'area' => 'Kemijen', 'zipcode' => '50228',
+            ]]]),
+            '*/regions*'            => Http::response(['data' => []]),
+        ]);
+
+        $res = $this->withHeaders($this->headers())
+            ->postJson('/api/storefront/shipping/point', ['latitude' => -6.99696, 'longitude' => 110.41732]);
+
+        $res->assertOk();
+        $this->assertNull($res->json('data.area_id'));
     }
 
     public function test_ongkir_instant_boleh_tanpa_area_id_tapi_wajib_kode_pos_dan_koordinat(): void
