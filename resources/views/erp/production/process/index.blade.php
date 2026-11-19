@@ -242,7 +242,7 @@
     {{-- Banner: urutan antrean berubah --}}
     <div id="queue-changed-banner"
          class="hidden mb-4 bg-amber-50 border border-amber-300 text-amber-800 px-5 py-3 rounded-xl text-sm font-medium flex items-center justify-between gap-4">
-        <span>⚡ Urutan antrean berubah (skor produk diperbarui). Reload untuk melihat urutan terbaru.</span>
+        <span id="queue-changed-teks">⚡ Urutan antrean berubah (skor produk diperbarui). Reload untuk melihat urutan terbaru.</span>
         <button onclick="window.location.reload()"
                 class="flex-shrink-0 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition">
             Refresh Sekarang
@@ -1092,9 +1092,9 @@
     setInterval(poll, INTERVAL);
 
     // ──────────────────────────────────────────────────────────────────
-    // TIMER VISUAL (kosmetik) — tick per detik untuk task in_progress.
-    // Sumber kebenaran tetap di server (dihitung dari time logs + now()),
-    // jadi nilai display di-resync tiap 30 menit untuk koreksi drift.
+    // TIMER VISUAL — tampilan per detik untuk task in_progress.
+    // Sumber kebenaran tetap di server (dihitung dari time logs + now());
+    // tampilan dihitung dari jam perangkat & dicocokkan ke server tiap 1 menit.
     // ──────────────────────────────────────────────────────────────────
     function fmtHMS(sec){
         sec = Math.max(0, Math.floor(sec));
@@ -1136,18 +1136,34 @@
     }
     perbaruiTarget();
 
-    setInterval(function(){
+    // Detik tampilan dihitung dari JAM PERANGKAT sejak angka server terakhir (bukan +1 per detik):
+    // browser memperlambat setInterval saat layar mati / tab tak aktif, sehingga cara +1 bisa
+    // tertinggal. Dengan selisih jam, begitu layar menyala angkanya langsung benar.
+    function patokan(el, detik){
+        el.dataset.timerSeconds = detik;
+        el.dataset.dasarDetik   = detik;
+        el.dataset.dasarPada    = Date.now();
+    }
+    document.querySelectorAll('[data-timer-step]').forEach(function(el){
+        patokan(el, parseInt(el.dataset.timerSeconds, 10) || 0);
+    });
+
+    function detak(){
         document.querySelectorAll('[data-timer-state="in_progress"]').forEach(function(el){
-            const cur  = parseInt(el.dataset.timerSeconds, 10) || 0;
-            const next = cur + 1;
-            el.dataset.timerSeconds = next;
-            el.textContent = fmtHMS(next);
+            const dasar = parseInt(el.dataset.dasarDetik, 10) || 0;
+            const pada  = parseInt(el.dataset.dasarPada, 10) || Date.now();
+            const kini  = dasar + Math.max(0, Math.floor((Date.now() - pada) / 1000));
+            el.dataset.timerSeconds = kini;
+            el.textContent = fmtHMS(kini);
         });
         perbaruiTarget();
-    }, 1000);
+    }
+    setInterval(detak, 1000);
 
+    // Cocokkan ke server (sumber kebenaran: cap waktu log) tiap 1 menit & saat layar aktif lagi —
+    // jeda/lanjut otomatis jam istirahat (cron tiap menit) terlihat paling lambat ±1 menit.
     const TIMER_RESYNC_URL = '{{ route('production.process.step-timers') }}';
-    const TIMER_RESYNC_INTERVAL = 30 * 60 * 1000; // 30 menit
+    const TIMER_RESYNC_INTERVAL = 60 * 1000; // 1 menit
 
     function resyncTimers(){
         const url = new URL(TIMER_RESYNC_URL, window.location.origin);
@@ -1155,18 +1171,32 @@
         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(r => r.json())
             .then(function(data){
+                // Timer di layar yang tak lagi dilaporkan server = langkahnya sudah selesai/dikembalikan
+                // dari perangkat lain → hentikan detaknya & minta muat ulang.
+                const ada = new Set(data.map(t => String(t.step_id)));
+                document.querySelectorAll('[data-timer-step]').forEach(function(el){
+                    if (ada.has(el.dataset.timerStep) || el.dataset.timerState === 'berubah') return;
+                    el.dataset.timerState = 'berubah';
+                    document.getElementById('queue-changed-teks').textContent = '⚡ Ada langkah yang sudah diselesaikan / diubah dari perangkat lain. Muat ulang untuk melihat keadaan terbaru.';
+                    document.getElementById('queue-changed-banner').classList.remove('hidden');
+                });
                 data.forEach(function(t){
                     const el = document.querySelector('[data-timer-step="' + t.step_id + '"]');
                     if (!el) return;
-                    el.dataset.timerSeconds = t.elapsed_seconds;
-                    el.dataset.timerState   = t.state;
+                    patokan(el, t.elapsed_seconds);
+                    el.dataset.timerState = t.state;
                     const prefix = t.state === 'paused' ? '⏸ ' : '';
                     el.textContent = prefix + fmtHMS(t.elapsed_seconds);
                 });
+                perbaruiTarget();
             })
             .catch(function(){}); // abaikan error jaringan
     }
     setInterval(resyncTimers, TIMER_RESYNC_INTERVAL);
+    document.addEventListener('visibilitychange', function(){
+        if (document.visibilityState === 'visible') { detak(); resyncTimers(); }
+    });
+    window.addEventListener('online', resyncTimers);
 })();
 </script>
 @endpush
