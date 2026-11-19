@@ -195,6 +195,27 @@ class PenilaianKinerjaTest extends TestCase
         $this->assertSame(0, $nn['poin']);
     }
 
+    public function test_target_waktu_tampil_di_kartu_assembling_sama_dengan_jatah(): void
+    {
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $mk = fn (array $isi, string $no) => tap(ProductionOrder::create(['order_number' => $no, 'type' => 'ready_stock',
+            'warehouse_id' => $this->gudang, 'planned_cycles' => 1, 'planned_qty' => 0, 'production_date' => '2026-11-11',
+            'status' => 'confirmed']), function ($op) use ($isi) {
+                foreach ($isi as $pid => $qty) {
+                    ProductionOrderOutput::create(['production_order_id' => $op->id, 'product_id' => $pid,
+                        'qty_planned' => $qty, 'qty_produced' => 0, 'output_type' => 'main', 'percentage' => 100]);
+                }
+                ProductionOrderStep::create(['production_order_id' => $op->id, 'step_number' => 1, 'department_id' => 2,
+                    'name' => 'Rakit', 'status' => 'pending']);
+            });
+        $mk([$this->a->id => 20, $this->b->id => 4], 'OP-TARGET-1');   // 20×2 + 4×3 = 52 mnt
+        $mk([$this->c->id => 5], 'OP-TANPA-STD');                       // SKU-C tanpa standar → tanpa target
+
+        $r = $this->actingAs($owner)->get(route('production.process.index', ['department_id' => 2]))->assertOk();
+        $r->assertSee('OP-TARGET-1')->assertSee('data-target-detik="3120"', false)->assertSee('52 mnt');
+        $this->assertSame(1, substr_count($r->getContent(), 'data-target-step='), 'OP tanpa standar tidak bertarget.');
+    }
+
     public function test_faktor_merk_ditimbang_jumlah_lembar(): void
     {
         // MAG 2 + NN 1, MAG 1,25 → faktor (2×1,25 + 1)/3 = 1,1667; jatah 100 → 116,7 mnt.

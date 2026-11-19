@@ -4,6 +4,7 @@ namespace App\Modules\Production\Services;
 
 use App\Models\ProductionSetting;
 use App\Modules\Production\Models\DepartmentExecutor;
+use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Production\Models\ProductionOrderStep;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -212,15 +213,19 @@ class PenilaianKinerjaService
         return $peta;
     }
 
-    /** Jatah, timer, dan poin satu langkah. */
-    public function nilaiLangkah(ProductionOrderStep $s, Collection $standar): array
+    /**
+     * Jatah waktu OP = Σ (pcs × waktu standar) × faktor merk akrilik. Dipakai penilaian DAN target
+     * di kartu Assembling — satu rumus supaya angka yang dilihat karyawan sama dengan yang dinilai.
+     * Butuh relasi outputs (main) + product termuat. Custom bebas CS → kosong (tak bertarget).
+     *
+     * @return array{jatah: float, rincian: array, kurang: array, merk: array, mj: array, faktor: float}
+     */
+    public function hitungJatah(ProductionOrder $order, Collection $standar): array
     {
-        $p     = $this->param();
-        $outs  = $s->productionOrder->outputs;
+        $outs = $order->outputs->where('output_type', 'main');
         if ($outs->contains(fn ($o) => WaktuStandarService::skuCustomBebas($o->product?->sku))) {
-            $outs = collect(); // custom bebas CS → tidak dinilai sama sekali (status kosong)
+            $outs = collect();
         }
-        $menit = round($s->elapsed_working_seconds / 60, 1);
 
         $rincian = [];
         $jatah = 0.0;
@@ -236,10 +241,49 @@ class PenilaianKinerjaService
             $jatah += $qty * $st['menit'];
             $rincian[] = ['sku' => $o->product?->sku, 'qty' => $qty, 'standar' => $st['menit'], 'sumber' => $st['sumber']];
         }
-        $merk   = $s->productionOrder->merk_bahan ?: [];
-        $mj     = $s->productionOrder->merk_jumlah ?: [];
+        $merk   = $order->merk_bahan ?: [];
+        $mj     = $order->merk_jumlah ?: [];
         $faktor = $this->faktorMerk($merk, $mj);
-        $jatah *= $faktor;
+
+        return ['jatah' => $jatah * $faktor, 'rincian' => $rincian, 'kurang' => $kurang, 'merk' => $merk, 'mj' => $mj, 'faktor' => $faktor];
+    }
+
+    /**
+     * Target waktu untuk kartu di layar Proses Produksi: step_id => [menit, rincian, pita].
+     * Hanya divisi yang punya waktu standar disetujui & OP yang semua produknya bertarget.
+     *
+     * @param  Collection<int, ProductionOrderStep>  $steps  (productionOrder.outputs.product termuat)
+     */
+    public function targetKartu(Collection $steps): array
+    {
+        $peta = [];
+        $hasil = [];
+        foreach ($steps as $s) {
+            $order = $s->productionOrder;
+            if (!$order || $s->is_qc || in_array($order->type, WaktuStandarService::TIPE_DIKECUALIKAN, true)) continue;
+            $standar = $peta[$s->department_id] ??= $this->petaStandar((int) $s->department_id, now(), false);
+            if ($standar->isEmpty()) continue;
+
+            $j = $this->hitungJatah($order, $standar);
+            if ($j['kurang'] || !$j['rincian'] || $j['jatah'] <= 0) continue;
+            $hasil[$s->id] = [
+                'menit'   => round($j['jatah'], 1),
+                'rincian' => collect($j['rincian'])->map(fn ($r) => rtrim(rtrim(number_format($r['qty'], 2, ',', ''), '0'), ',') . ' × ' . number_format($r['standar'], 2, ',', '.'))->implode(' + '),
+                'faktor'  => $j['faktor'],
+                'pita'    => $this->param()['pita'],
+            ];
+        }
+
+        return $hasil;
+    }
+
+    /** Jatah, timer, dan poin satu langkah. */
+    public function nilaiLangkah(ProductionOrderStep $s, Collection $standar): array
+    {
+        $p     = $this->param();
+        $menit = round($s->elapsed_working_seconds / 60, 1);
+        ['jatah' => $jatah, 'rincian' => $rincian, 'kurang' => $kurang, 'merk' => $merk, 'mj' => $mj, 'faktor' => $faktor]
+            = $this->hitungJatah($s->productionOrder, $standar);
 
         $dasar = [
             'step_id'   => $s->id,

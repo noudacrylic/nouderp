@@ -1104,6 +1104,33 @@
         return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
     }
 
+    // TARGET WAKTU (Assembling): warna mengikuti posisi timer terhadap target.
+    // Hijau = masih lebih cepat dari pita (selesai sekarang = 2 poin), kuning = dalam pita, merah = lewat.
+    const WARNA_TARGET = {
+        netral: 'bg-gray-50 text-gray-700 border-gray-200',
+        cepat:  'bg-emerald-50 text-emerald-700 border-emerald-300',
+        sesuai: 'bg-amber-50 text-amber-700 border-amber-300',
+        lewat:  'bg-red-50 text-red-700 border-red-300',
+    };
+    function fmtMnt(sec){ const m = sec / 60; return (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10).toLocaleString('id-ID'); }
+    function perbaruiTarget(){
+        document.querySelectorAll('[data-target-step]').forEach(function(t){
+            const timer = document.querySelector('[data-timer-step="' + t.dataset.targetStep + '"]');
+            const target = parseInt(t.dataset.targetDetik, 10) || 0;
+            const pita = parseFloat(t.dataset.pita) || 0.1;
+            const teks = t.querySelector('[data-target-teks]');
+            if (!timer || !target) return;           // belum dimulai: tampil netral apa adanya
+            const sec = parseInt(timer.dataset.timerSeconds, 10) || 0;
+            const r = sec / target;
+            const keadaan = r <= 1 - pita ? 'cepat' : (r <= 1 + pita ? 'sesuai' : 'lewat');
+            Object.values(WARNA_TARGET).join(' ').split(' ').forEach(c => t.classList.remove(c));
+            WARNA_TARGET[keadaan].split(' ').forEach(c => t.classList.add(c));
+            const sisa = target - sec;
+            teks.textContent = fmtMnt(target) + ' mnt · ' + (sisa >= 0 ? 'sisa ' + fmtMnt(sisa) : 'lewat ' + fmtMnt(-sisa)) + ' mnt';
+        });
+    }
+    perbaruiTarget();
+
     setInterval(function(){
         document.querySelectorAll('[data-timer-state="in_progress"]').forEach(function(el){
             const cur  = parseInt(el.dataset.timerSeconds, 10) || 0;
@@ -1111,6 +1138,7 @@
             el.dataset.timerSeconds = next;
             el.textContent = fmtHMS(next);
         });
+        perbaruiTarget();
     }, 1000);
 
     const TIMER_RESYNC_URL = '{{ route('production.process.step-timers') }}';

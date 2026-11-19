@@ -119,6 +119,11 @@ class ProductionProcessController extends Controller
         arsort($jumlahTerakhir);
         $merkTerakhir     = collect(array_keys($jumlahTerakhir))->first(fn ($m) => in_array($m, $merkAkrilik, true));
 
+        // Target waktu per langkah (Σ pcs × waktu standar × faktor merk) — sama dengan jatah penilaian,
+        // ditampilkan supaya pelaksana terbiasa dengan target. Hanya divisi yang standarnya disetujui.
+        $targetWaktu = app(\App\Modules\Production\Services\PenilaianKinerjaService::class)
+            ->targetKartu($pendingSteps->concat($inProgressSteps)->concat($pausedSteps));
+
         // Batas lembar akrilik per OP (Σ bahan LBR- dibulatkan ke atas) untuk kartu di layar.
         $maksLembar = \App\Modules\Production\Models\ProductionOrder::maksLembarAkrilik(
             $pendingSteps->pluck('production_order_id')
@@ -138,7 +143,7 @@ class ProductionProcessController extends Controller
 
         return view('erp.production.process.index', compact(
             'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode', 'alasanPendingWajib',
-            'merkAkrilik', 'merkAkrilikWajib', 'merkTerakhir', 'maksLembar',
+            'merkAkrilik', 'merkAkrilikWajib', 'merkTerakhir', 'maksLembar', 'targetWaktu',
             'pergantianMenunggu',
             'warehouses', 'defaultWarehouseId'
         ));

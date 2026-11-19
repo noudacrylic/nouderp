@@ -328,6 +328,14 @@
                         class="bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded font-bold hover:bg-sky-100"
                         title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ collect($order->merk_bahan)->map(fn ($m) => $m . (isset($order->merk_jumlah[$m]) ? ' ' . $order->merk_jumlah[$m] : ''))->implode(' + ') }}</button>
             @endif
+            @if($target = ($targetWaktu ?? [])[$step->id] ?? null)
+                {{-- Target waktu (= jatah penilaian). Warna & sisa waktu diperbarui tiap detik oleh timer di index. --}}
+                <span class="border px-1.5 py-0.5 rounded font-bold bg-gray-50 text-gray-700 border-gray-200"
+                      data-target-step="{{ $step->id }}" data-target-detik="{{ (int) round($target['menit'] * 60) }}" data-pita="{{ $target['pita'] }}"
+                      title="Target = {{ $target['rincian'] }} mnt{{ $target['faktor'] != 1 ? ' × ' . number_format($target['faktor'], 2, ',', '') . ' (merk akrilik)' : '' }}">
+                    🎯 Target <span data-target-teks>{{ $target['menit'] >= 10 ? number_format($target['menit'], 0, ',', '.') : number_format($target['menit'], 1, ',', '.') }} mnt</span>
+                </span>
+            @endif
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
             @endif
@@ -342,6 +350,14 @@
                 <button type="button" @click="$dispatch('open-merk', merkData)"
                         class="bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded font-bold hover:bg-sky-100"
                         title="Merk akrilik dipilih CNC saat Mulai — klik untuk membetulkan">🧱 {{ collect($order->merk_bahan)->map(fn ($m) => $m . (isset($order->merk_jumlah[$m]) ? ' ' . $order->merk_jumlah[$m] : ''))->implode(' + ') }}</button>
+            @endif
+            @if($target = ($targetWaktu ?? [])[$step->id] ?? null)
+                {{-- Target waktu (= jatah penilaian). Warna & sisa waktu diperbarui tiap detik oleh timer di index. --}}
+                <span class="border px-1.5 py-0.5 rounded font-bold bg-gray-50 text-gray-700 border-gray-200"
+                      data-target-step="{{ $step->id }}" data-target-detik="{{ (int) round($target['menit'] * 60) }}" data-pita="{{ $target['pita'] }}"
+                      title="Target = {{ $target['rincian'] }} mnt{{ $target['faktor'] != 1 ? ' × ' . number_format($target['faktor'], 2, ',', '') . ' (merk akrilik)' : '' }}">
+                    🎯 Target <span data-target-teks>{{ $target['menit'] >= 10 ? number_format($target['menit'], 0, ',', '.') : number_format($target['menit'], 1, ',', '.') }} mnt</span>
+                </span>
             @endif
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
