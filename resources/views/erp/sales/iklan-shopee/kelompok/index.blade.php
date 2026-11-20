@@ -46,6 +46,21 @@
     </table>
 </div>
 
+<div class="bg-white rounded shadow p-3 mb-3 text-sm">
+    <div class="font-semibold mb-1">Uji perintah ke Shopee</div>
+    <p class="text-xs text-gray-500 mb-2">Sebelum mode Otomatis dibuka, perintah jeda &amp; lanjut perlu dibuktikan ke iklan sungguhan. Tombol ini menjeda satu iklan yang sedang berjalan, menunggu 3 detik, lalu melanjutkannya lagi — status tiap langkah dibaca langsung dari Shopee. Pilih iklan bermodal kecil.</p>
+    <form method="POST" action="{{ route('sales.iklan-shopee.uji-jeda') }}" class="flex gap-2 items-center flex-wrap"
+          onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Menguji…';">
+        @csrf
+        <select name="campaign_id" required class="border rounded px-2 py-1.5 text-xs max-w-full w-[32rem]">
+            @foreach ($calonUji as $c)
+                <option value="{{ $c->campaign_id }}">Rp{{ number_format((float) $c->modal_harian, 0, ',', '.') }} · {{ \Illuminate\Support\Str::limit($c->nama, 80) }}</option>
+            @endforeach
+        </select>
+        <button class="border border-amber-400 text-amber-800 bg-amber-50 px-3 py-1.5 rounded text-xs">Uji jeda &amp; lanjut</button>
+    </form>
+</div>
+
 <div class="bg-white rounded shadow">
     <div class="px-3 py-2 border-b font-semibold text-sm">Catatan aksi terbaru</div>
     <div class="overflow-x-auto">

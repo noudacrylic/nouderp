@@ -5,7 +5,10 @@ namespace App\Modules\Marketplace\Shopee\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Marketplace\Shopee\Models\ShopeeIklan;
 use App\Modules\Marketplace\Shopee\Models\ShopeeIklanKelompok as Kelompok;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
 use App\Modules\Marketplace\Shopee\Services\ShopeeClient;
+use App\Modules\Marketplace\Shopee\Services\ShopeeException;
+use App\Modules\Marketplace\Shopee\Services\ShopeeIklanAksiService;
 use App\Modules\Marketplace\Shopee\Services\ShopeeIklanJadwalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +42,7 @@ class IklanKelompokController extends Controller
             'ringkas'    => $ringkas,
             'log'        => $log,
             'maksAksi'   => (int) config('services.shopee.iklan_maks_aksi', 100),
+            'calonUji'   => ShopeeIklan::where('env', $env)->where('status', 'ongoing')->orderBy('modal_harian')->orderBy('nama')->get(['campaign_id', 'nama', 'modal_harian']),
             'aksiHariIni' => DB::table('shopee_iklan_aksi')->where('env', $env)->where('created_at', '>=', now()->startOfDay())
                 ->whereIn('hasil', ['bayangan', 'berhasil'])->count(),
         ]);
@@ -98,6 +102,42 @@ class IklanKelompokController extends Controller
         $kelompok->update(['jadwal_manual' => $manual ?: null]);
 
         return back()->with('success', $request->filled('otomatis') ? 'Iklan dikembalikan ke giliran otomatis.' : 'Jadwal manual disimpan.');
+    }
+
+    /**
+     * Uji perintah tulis: jeda satu iklan berjalan, tunggu sebentar, lanjutkan lagi. Hasil per
+     * langkah dibaca balik dari Shopee. Dasar sebelum mode Otomatis dibuka.
+     */
+    public function ujiJeda(Request $request, ShopeeIklanAksiService $aksi)
+    {
+        $iklan = ShopeeIklan::where('env', $this->client->env())->where('campaign_id', (int) $request->input('campaign_id'))->firstOrFail();
+        $shop  = ShopeeShop::aktif();
+        if (!$shop || $shop->perluHubungkanUlang()) {
+            return back()->with('error', 'Toko Shopee belum terhubung.');
+        }
+
+        try {
+            $awal = $aksi->statusDiShopee($shop, $iklan);
+        } catch (ShopeeException $e) {
+            return back()->with('error', 'Gagal membaca status iklan: ' . $e->getMessage());
+        }
+        if ($awal !== 'ongoing') {
+            return back()->with('error', "Pilih iklan yang sedang berjalan (status iklan ini di Shopee: {$awal}).");
+        }
+
+        $jeda = $aksi->ubah($shop, $iklan, 'jeda', 'uji', null, 'uji jeda & lanjut');
+        sleep(3);
+        $lanjut = $aksi->ubah($shop, $iklan, 'lanjut', 'uji', null, 'uji jeda & lanjut');
+
+        $ringkas = "Jeda: {$jeda['pesan']} → {$jeda['status']}. Lanjut: {$lanjut['pesan']} → {$lanjut['status']}.";
+        if ($jeda['ok'] && $lanjut['ok']) {
+            return back()->with('success', 'Uji berhasil — iklan sempat dijeda lalu berjalan lagi. ' . $ringkas);
+        }
+        if ($lanjut['status'] !== 'ongoing') {
+            return back()->with('error', "PERHATIAN: iklan \"{$iklan->nama}\" belum berjalan lagi — lanjutkan manual di Seller Centre. {$ringkas}");
+        }
+
+        return back()->with('warning', 'Uji belum berhasil sepenuhnya. ' . $ringkas);
     }
 
     public function destroy(Kelompok $kelompok)
