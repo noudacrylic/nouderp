@@ -98,8 +98,9 @@ class ProductionOrderStep extends Model
 
     public function timeLogs()
     {
+        // id sebagai penentu urutan log berjam sama (koreksi owner disisipkan di masa lalu).
         return $this->hasMany(ProductionStepTimeLog::class, 'production_order_step_id')
-                    ->orderBy('occurred_at');
+                    ->orderBy('occurred_at')->orderBy('id');
     }
 
     public function executorStatuses()

@@ -247,8 +247,9 @@ class ProductionTimerSync
 
     private function lastTimerLog(int $stepId): ?ProductionStepTimeLog
     {
+        // Urut jam kejadian, bukan id: koreksi timer owner menyisipkan log lama ber-id besar.
         return ProductionStepTimeLog::where('production_order_step_id', $stepId)
-            ->orderByDesc('id')->first();
+            ->orderByDesc('occurred_at')->orderByDesc('id')->first();
     }
 
     private function logPause(ProductionOrderStep $step, Carbon $now, string $reason): void

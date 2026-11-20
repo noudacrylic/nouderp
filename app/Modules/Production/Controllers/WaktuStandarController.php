@@ -174,6 +174,7 @@ class WaktuStandarController extends Controller
                     'sim'    => $o['simulasi'],
                     'merk'   => $o['merk'],
                     'mj'     => (object) $o['mj'],
+                    'putusan' => $o['putusan'] ?? null,
                     'isi'    => collect($o['rincian'])->map(fn ($x) => $x['sku'] . ' ' . rtrim(rtrim(number_format($x['qty'], 2, ',', ''), '0'), ',') . '×' . number_format($x['standar'], 2, ',', '.'))->implode(', '),
                 ];
             }

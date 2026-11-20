@@ -104,12 +104,13 @@ return [
             'owner.bayar-owner'         => \App\Modules\Tasks\MejaKerja\Skills\BayarOwnerSkill::class,
             'owner.penarikan-saldo'     => \App\Modules\Tasks\MejaKerja\Skills\PenarikanSaldoSkill::class,
             'owner.pesanan-custom-dibayar' => \App\Modules\Tasks\MejaKerja\Skills\PesananCustomDibayarSkill::class,
+            'owner.pengawasan-produksi' => \App\Modules\Tasks\MejaKerja\Skills\PengawasanProduksiSkill::class,
             'owner.pencatatan-telegram' => \App\Modules\KaryawanVirtual\Skills\Owner\PencatatanTelegram::class,
         ],
         // Pencatatan berjalan saat ada pesan Telegram — tak ikut sinkron & tak punya "Jalankan sekarang".
         'jadwal_sendiri' => ['owner.pencatatan-telegram'],
         'tanpa_jalankan' => ['owner.pencatatan-telegram'],
-        'percobaan' => ['owner.pengajuan-izin', 'owner.pesanan-custom-dibayar'],
+        'percobaan' => ['owner.pengajuan-izin', 'owner.pesanan-custom-dibayar', 'owner.pengawasan-produksi'],
     ],
 
 ];

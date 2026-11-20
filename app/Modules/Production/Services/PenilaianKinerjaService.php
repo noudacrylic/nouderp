@@ -311,18 +311,89 @@ class PenilaianKinerjaService
             'faktor'    => $faktor,
         ];
 
+        $dasar['putusan'] = $s->penilaian_putusan;
+
         if (!$rincian && !$kurang) return $dasar + ['status' => 'kosong'];
         if ($kurang)               return $dasar + ['status' => 'tanpa_standar', 'jatah' => null, 'rasio' => null, 'poin' => null];
-        if ($menit <= 0 || $jatah <= 0) return $dasar + ['status' => 'cek', 'jatah' => round($jatah, 1), 'rasio' => null, 'poin' => null, 'alasan' => 'timer kosong'];
 
-        $rasio = $menit / $jatah; // < 1 = lebih cepat dari jatah
+        $rasio = $menit > 0 && $jatah > 0 ? $menit / $jatah : null; // < 1 = lebih cepat dari jatah
+        $jatah = round($jatah, 1);
 
+        // Putusan owner (skill Pengawasan) menimpa penahanan otomatis.
+        if ($s->penilaian_putusan === 'abaikan' || ($s->penilaian_putusan === 'wajar' && $rasio === null)) {
+            return $dasar + ['status' => 'diabaikan', 'jatah' => $jatah, 'rasio' => $rasio, 'poin' => null];
+        }
+        if ($s->penilaian_putusan === 'curang') {
+            return $dasar + ['status' => 'dinilai', 'jatah' => $jatah, 'rasio' => $rasio, 'poin' => 0];
+        }
+        if ($s->penilaian_putusan === 'wajar') {
+            return $dasar + ['status' => 'dinilai', 'jatah' => $jatah, 'rasio' => $rasio, 'poin' => $this->poin($rasio)];
+        }
+
+        if ($rasio === null) return $dasar + ['status' => 'cek', 'jatah' => $jatah, 'rasio' => null, 'poin' => null, 'alasan' => 'timer kosong'];
         if ($rasio < 1 / $p['faktor_cek'] || $rasio > $p['faktor_cek']) {
-            return $dasar + ['status' => 'cek', 'jatah' => round($jatah, 1), 'rasio' => $rasio, 'poin' => $this->poin($rasio),
+            return $dasar + ['status' => 'cek', 'jatah' => $jatah, 'rasio' => $rasio, 'poin' => $this->poin($rasio),
                 'alasan' => $rasio < 1 ? 'jauh lebih cepat dari jatah' : 'jauh lebih lambat dari jatah'];
         }
 
-        return $dasar + ['status' => 'dinilai', 'jatah' => round($jatah, 1), 'rasio' => $rasio, 'poin' => $this->poin($rasio)];
+        return $dasar + ['status' => 'dinilai', 'jatah' => $jatah, 'rasio' => $rasio, 'poin' => $this->poin($rasio)];
+    }
+
+    /** Putusan owner atas langkah yang ditahan (kunci => label tombol). */
+    public const PUTUSAN = [
+        'wajar'   => 'Wajar — hitung sesuai timer',
+        'abaikan' => 'Abaikan — tidak ikut penilaian',
+        'curang'  => 'Tidak wajar — 0 poin',
+    ];
+
+    /**
+     * Langkah yang ditahan otomatis (timer janggal) & belum diputus owner, selesai sejak $sejak.
+     * Sumber kartu skill Pengawasan. Divisi = yang punya waktu standar disetujui.
+     *
+     * @return Collection<int, array> hasil nilaiLangkah() + 'department_id'
+     */
+    public function perluDiputus(Carbon $sejak): Collection
+    {
+        $depts = \App\Modules\Production\Models\ProductionStandardTime::query()->distinct()->pluck('department_id');
+        $hasil = collect();
+        foreach ($depts as $dept) {
+            for ($b = $sejak->copy()->startOfMonth(); $b->lte(now()); $b->addMonth()) {
+                foreach ($this->opBulan((int) $dept, $b)['op'] as $o) {
+                    if ($o['status'] === 'cek' && !$o['putusan'] && $o['selesai'] && $o['selesai']->gte($sejak)) {
+                        $hasil->push($o + ['department_id' => (int) $dept]);
+                    }
+                }
+            }
+        }
+
+        return $hasil;
+    }
+
+    /** Nilai ulang satu langkah dengan standar bulan selesainya (untuk cek kartu masih relevan). */
+    public function nilaiSatuLangkah(int $stepId): ?array
+    {
+        $s = ProductionOrderStep::with([
+            'timeLogs', 'executors:id,name',
+            'productionOrder:id,order_number,type,merk_bahan,merk_jumlah',
+            'productionOrder.outputs' => fn ($q) => $q->where('output_type', 'main'),
+            'productionOrder.outputs.product:id,sku,name',
+        ])->find($stepId);
+        if (!$s || $s->status !== 'completed' || !$s->completed_at) return null;
+
+        return $this->nilaiLangkah($s, $this->petaStandar((int) $s->department_id, $s->completed_at->copy()->endOfMonth(), false));
+    }
+
+    /** Simpan putusan owner untuk satu langkah. */
+    public function putuskan(int $stepId, string $putusan, ?int $userId): void
+    {
+        if (!array_key_exists($putusan, self::PUTUSAN)) {
+            throw new \InvalidArgumentException("Putusan tidak dikenal: $putusan");
+        }
+        \Illuminate\Support\Facades\DB::table('production_order_steps')->where('id', $stepId)->update([
+            'penilaian_putusan'    => $putusan,
+            'penilaian_putusan_at' => now(),
+            'penilaian_putusan_by' => $userId,
+        ]);
     }
 
     public function poin(float $rasio): int

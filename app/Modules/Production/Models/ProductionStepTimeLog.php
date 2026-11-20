@@ -27,7 +27,7 @@ class ProductionStepTimeLog extends Model
     ];
 
     protected $fillable = [
-        'production_order_step_id', 'event_type', 'alasan', 'occurred_at', 'notes',
+        'production_order_step_id', 'event_type', 'alasan', 'occurred_at', 'notes', 'koreksi_grup', 'koreksi_by',
     ];
 
     public function labelAlasan(): ?string

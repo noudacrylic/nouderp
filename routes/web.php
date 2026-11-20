@@ -1493,6 +1493,9 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     Route::get ('waktu-standar/penilaian', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'penilaian'])->name('waktu-standar.penilaian');
     Route::post('waktu-standar/penilaian/pengaturan', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'simpanParam'])->name('waktu-standar.penilaian.simpan');
     Route::post('waktu-standar/sampel/{stepId}/coret', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'coretSampel'])->whereNumber('stepId')->name('waktu-standar.sampel.coret');
+    // Koreksi timer langkah (owner) — keluarkan rentang jam lupa Pending, bisa dibatalkan.
+    Route::post  ('waktu-standar/timer/{stepId}/koreksi',        [\App\Modules\Production\Controllers\KoreksiTimerController::class, 'keluarkan'])->whereNumber('stepId')->name('waktu-standar.timer.koreksi');
+    Route::delete('waktu-standar/timer/{stepId}/koreksi/{grup}', [\App\Modules\Production\Controllers\KoreksiTimerController::class, 'batalkan'])->whereNumber('stepId')->name('waktu-standar.timer.batal');
 
     // QC Timbang — layar timbang (petugas QC) & acuan/toleransi (admin, role_gate di menu).
     Route::get ('qc',                    [\App\Modules\Production\Controllers\QcController::class, 'index'])->name('qc.index');

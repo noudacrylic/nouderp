@@ -435,9 +435,9 @@
                                     <span x-text="fmt(o.jatah, 0) + ' mnt'"></span><span x-show="o.f" class="text-sky-700" x-text="' ×' + fmt(o.f, 2)"></span></td>
                                 <td class="text-right" x-text="fmt(o.menit, 0) + ' mnt'"></td>
                                 <td class="text-right" x-text="pct(o.rasio)"></td>
-                                <td class="text-right font-bold" :class="status(o, p) === 'cek' ? 'text-gray-300 line-through' : warnaPoin(poin(o.rasio, p))"
-                                    x-text="o.rasio === null ? '—' : poin(o.rasio, p)"></td>
-                                <td class="pl-3 text-amber-700" x-text="status(o, p) === 'cek' ? (o.rasio === null ? 'Perlu dicek: timer kosong' : (o.rasio < 1 ? 'Perlu dicek: jauh lebih cepat dari jatah' : 'Perlu dicek: jauh lebih lambat dari jatah')) : ''"></td>
+                                <td class="text-right font-bold" :class="status(o, p) !== 'ok' ? 'text-gray-300 line-through' : warnaPoin(poinOp(o, p))"
+                                    x-text="status(o, p) !== 'ok' && o.rasio === null ? '—' : poinOp(o, p)"></td>
+                                <td class="pl-3 text-amber-700" x-text="o.putusan ? ({ wajar: 'Diputus owner: wajar', abaikan: 'Diputus owner: diabaikan', curang: 'Diputus owner: tidak wajar (0 poin)' })[o.putusan] : status(o, p) === 'cek' ? (o.rasio === null ? 'Perlu dicek: timer kosong' : (o.rasio < 1 ? 'Perlu dicek: jauh lebih cepat dari jatah' : 'Perlu dicek: jauh lebih lambat dari jatah')) : ''"></td>
                             </tr>
                         </template>
                         </tbody>
@@ -535,10 +535,14 @@ function penilaianDash() {
             const i = this.urutTingkat(p).findIndex(x => x.label === t.label && x.min === t.min);
             return WARNA[Math.max(0, i)] || WARNA[5];
         },
+        // Putusan owner (skill Pengawasan di Meja Owner) menimpa penahanan otomatis.
         status(o, p) {
+            if (o.putusan === 'abaikan' || (o.putusan === 'wajar' && o.rasio === null)) return 'abaikan';
+            if (o.putusan === 'wajar' || o.putusan === 'curang') return 'ok';
             if (o.rasio === null) return 'cek';
             return (o.rasio < 1 / p.faktor || o.rasio > p.faktor) ? 'cek' : 'ok';
         },
+        poinOp(o, p) { return o.putusan === 'curang' ? 0 : this.poin(o.rasio, p); },
         poin(r, p) {
             const pita = p.pitaPct / 100;
             if (r <= 1 - pita + 1e-9) return 2;
@@ -591,7 +595,7 @@ function penilaianDash() {
         nilai(id, bulan, p) {
             const semua = this.opOrang(id, bulan, p);
             const ok = semua.filter(o => this.status(o, p) === 'ok');
-            const poin = ok.map(o => this.poin(o.rasio, p));
+            const poin = ok.map(o => this.poinOp(o, p));
             let rata = null;
             if (ok.length) {
                 if (p.bobot === 'jatah') {
@@ -639,7 +643,7 @@ function penilaianDash() {
             return Object.entries(grup).map(([minggu, g]) => ({
                 minggu,
                 n: g.length,
-                rata: g.reduce((s, o) => s + this.poin(o.rasio, p), 0) / g.length,
+                rata: g.reduce((s, o) => s + this.poinOp(o, p), 0) / g.length,
                 efisiensi: g.reduce((s, o) => s + o.jatah, 0) / Math.max(1e-9, g.reduce((s, o) => s + o.menit, 0)),
             }));
         },

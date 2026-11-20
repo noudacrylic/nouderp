@@ -351,6 +351,99 @@
                                         @endif
                                     </div>
                                     @if($step->notes) <div class="text-xs text-gray-400 mt-1 italic">{{ $step->notes }}</div> @endif
+                                    {{-- Koreksi timer (owner): keluarkan rentang lupa Pending, mis. lembur bongkar barang. --}}
+                                    @if(auth()->user()?->role === 'super_admin' && $step->status !== 'pending' && $step->timeLogs->isNotEmpty())
+                                        @php
+                                            $segTimer = app(\App\Modules\Production\Services\KoreksiTimerService::class)->segmen($step);
+                                            $koreksiTimer = $step->timeLogs->whereNotNull('koreksi_grup')->groupBy('koreksi_grup');
+                                            $durTeks = fn ($d) => \App\Modules\Production\Services\PenilaianKinerjaService::teksMenit($d / 60);
+                                        @endphp
+                                        <details class="mt-2 text-xs" @if(old('_koreksi_step') == $step->id || $koreksiTimer->isNotEmpty()) open @endif>
+                                            <summary class="cursor-pointer text-gray-500 hover:text-indigo-600 font-semibold select-none">
+                                                ⏱ Riwayat & koreksi timer
+                                                @if($koreksiTimer->isNotEmpty())
+                                                    <span class="ml-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-bold">{{ $koreksiTimer->count() }} koreksi</span>
+                                                @endif
+                                            </summary>
+                                            <div class="mt-2 p-2.5 bg-white rounded-lg border border-gray-200 space-y-2" x-data>
+                                                <div>
+                                                    <div class="font-bold text-gray-600 mb-1">Timer berjalan</div>
+                                                    @forelse($segTimer as $sg)
+                                                        <div class="flex items-center gap-2 py-0.5">
+                                                            <span class="font-mono text-gray-700">
+                                                                {{ $sg['mulai']->format('d/m H:i') }} – {{ $sg['selesai'] ? ($sg['selesai']->isSameDay($sg['mulai']) ? $sg['selesai']->format('H:i') : $sg['selesai']->format('d/m H:i')) : 'sekarang' }}
+                                                            </span>
+                                                            <span class="text-gray-500">{{ $durTeks($sg['detik']) }}</span>
+                                                            <button type="button" class="text-indigo-600 hover:underline"
+                                                                    title="Isi rentang ini ke formulir di bawah"
+                                                                    @click="$refs.dari{{ $step->id }}.value = @js($sg['mulai']->format('Y-m-d\TH:i')); $refs.sampai{{ $step->id }}.value = @js(($sg['selesai'] ?? now())->format('Y-m-d\TH:i'))">pilih</button>
+                                                        </div>
+                                                    @empty
+                                                        <div class="text-gray-400">Belum ada waktu berjalan.</div>
+                                                    @endforelse
+                                                </div>
+
+                                                @if($koreksiTimer->isNotEmpty())
+                                                    <div>
+                                                        <div class="font-bold text-amber-700 mb-1">Koreksi owner</div>
+                                                        @foreach($koreksiTimer as $grup => $lg)
+                                                            @php $p0 = $lg->firstWhere('event_type', 'paused'); $r0 = $lg->where('event_type', 'resumed')->last(); @endphp
+                                                            <div class="flex items-center gap-2 py-0.5 flex-wrap">
+                                                                <span class="font-mono text-gray-700">{{ $p0?->occurred_at->format('d/m H:i') }}{{ $r0 ? ' – ' . $r0->occurred_at->format('H:i') : ' – akhir segmen' }}</span>
+                                                                <span class="text-gray-600">{{ $p0?->labelAlasan() }}</span>
+                                                                @if($p0?->notes && $p0->notes !== 'Koreksi owner')
+                                                                    <span class="text-gray-400 italic">{{ \Illuminate\Support\Str::after($p0->notes, 'Koreksi owner: ') }}</span>
+                                                                @endif
+                                                                <form method="POST" action="{{ route('production.waktu-standar.timer.batal', [$step->id, $grup]) }}"
+                                                                      onsubmit="return confirm('Batalkan koreksi ini? Waktunya kembali dihitung di timer.')">
+                                                                    @csrf @method('DELETE')
+                                                                    <button type="submit" class="text-red-500 hover:underline">batalkan</button>
+                                                                </form>
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
+
+                                                <form method="POST" action="{{ route('production.waktu-standar.timer.koreksi', $step->id) }}"
+                                                      class="pt-2 border-t border-gray-100 grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
+                                                    @csrf
+                                                    <input type="hidden" name="_koreksi_step" value="{{ $step->id }}">
+                                                    <label class="block">
+                                                        <span class="text-gray-500">Dari</span>
+                                                        <input type="datetime-local" name="dari" x-ref="dari{{ $step->id }}" required
+                                                               value="{{ old('_koreksi_step') == $step->id ? old('dari') : '' }}"
+                                                               class="w-full border border-gray-300 rounded px-1.5 py-1 text-xs">
+                                                    </label>
+                                                    <label class="block">
+                                                        <span class="text-gray-500">Sampai</span>
+                                                        <input type="datetime-local" name="sampai" x-ref="sampai{{ $step->id }}" required
+                                                               value="{{ old('_koreksi_step') == $step->id ? old('sampai') : '' }}"
+                                                               class="w-full border border-gray-300 rounded px-1.5 py-1 text-xs">
+                                                    </label>
+                                                    <label class="block">
+                                                        <span class="text-gray-500">Alasan</span>
+                                                        <select name="alasan" class="w-full border border-gray-300 rounded px-1.5 py-1 text-xs">
+                                                            @foreach(\App\Modules\Production\Models\ProductionStepTimeLog::ALASAN_PENDING as $k => $a)
+                                                                <option value="{{ $k }}" @selected((old('_koreksi_step') == $step->id ? old('alasan') : 'bongkar_barang') === $k)>{{ $a['label'] }}</option>
+                                                            @endforeach
+                                                        </select>
+                                                    </label>
+                                                    <label class="block">
+                                                        <span class="text-gray-500">Keterangan</span>
+                                                        <input type="text" name="keterangan" maxlength="200" placeholder="mis. lembur, lupa pending"
+                                                               value="{{ old('_koreksi_step') == $step->id ? old('keterangan') : '' }}"
+                                                               class="w-full border border-gray-300 rounded px-1.5 py-1 text-xs">
+                                                    </label>
+                                                    <div class="col-span-2 sm:col-span-4 flex items-center gap-2">
+                                                        <button type="submit" class="px-3 py-1.5 rounded border border-indigo-300 text-indigo-700 font-bold hover:bg-indigo-50">
+                                                            Keluarkan dari timer
+                                                        </button>
+                                                        <span class="text-gray-400">Rentang ini dianggap Pending beralasan — tidak dihitung di timer & penilaian.</span>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </details>
+                                    @endif
                                 </div>
                                 {{-- Hapus langkah antre. Saat produksi berjalan: bukan QC, langkah sesudahnya belum
                                      dikerjakan, & masih ada langkah lain yang belum selesai (cek ulang di service). --}}
