@@ -36,6 +36,7 @@
                 @endforeach
             </select>
         </form>
+        <a href="{{ route('sales.iklan-shopee.kelompok.index') }}" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">Kelompok &amp; Jadwal</a>
         <form method="POST" action="{{ route('sales.iklan-shopee.tarik') }}">@csrf
             <button class="border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm hover:bg-gray-50">↻ Tarik sekarang</button>
         </form>
@@ -181,7 +182,7 @@
                 <tr class="border-b border-gray-100 hover:bg-gray-50">
                     <td class="px-3 py-1.5 max-w-[22rem]">
                         <div class="truncate" title="{{ $i->nama }}">{{ $i->nama ?: 'Iklan ' . $i->campaign_id }}</div>
-                        <div class="text-[10px] text-gray-400">#{{ $i->campaign_id }} · {{ $i->bidding_method === 'auto' ? 'otomatis' . ($i->roas_target ? ' (target ROAS ' . (float) $i->roas_target . ')' : '') : 'manual' }}</div>
+                        <div class="text-[10px] text-gray-400">@if ($i->kelompok_id)<span class="text-blue-700">{{ $namaKelompok[$i->kelompok_id] ?? '' }}</span> · @endif#{{ $i->campaign_id }} · {{ $i->bidding_method === 'auto' ? 'otomatis' . ($i->roas_target ? ' (target ROAS ' . (float) $i->roas_target . ')' : '') : 'manual' }}</div>
                     </td>
                     <td class="px-2">
                         <span class="rounded px-1.5 py-0.5 {{ $i->status === 'ongoing' ? 'bg-green-100 text-green-800' : ($i->status === 'paused' ? 'bg-gray-100 text-gray-700' : 'bg-gray-50 text-gray-400') }}">{{ $i->labelStatus() }}</span>

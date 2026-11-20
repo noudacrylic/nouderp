@@ -60,6 +60,8 @@ return [
         'env'         => env('SHOPEE_ENV', 'test'),
         // Draf balasan ulasan jelek (ShopeeUlasanService::buatDraf) — tampil publik, pakai model yang cermat.
         'model_ulasan' => env('SHOPEE_ULASAN_MODEL', 'claude-sonnet-5-5'),
+        // Jadwal iklan: batas aksi pause/lanjut per hari (semua kelompok). Batas resmi Shopee ID belum diketahui.
+        'iklan_maks_aksi' => (int) env('SHOPEE_IKLAN_MAKS_AKSI', 100),
     ],
 
     // "Noud Bot" Telegram — notifikasi keluar (sendMessage) tidak butuh Tunnel.

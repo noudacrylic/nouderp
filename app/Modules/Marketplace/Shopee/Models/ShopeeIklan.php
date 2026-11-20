@@ -21,7 +21,7 @@ class ShopeeIklan extends Model
     ];
 
     protected $fillable = [
-        'env', 'shop_id', 'campaign_id', 'ad_type', 'nama', 'status', 'bidding_method', 'placement',
+        'env', 'shop_id', 'kelompok_id', 'campaign_id', 'ad_type', 'nama', 'status', 'bidding_method', 'placement',
         'modal_harian', 'roas_target', 'item_ids', 'mulai_at', 'selesai_at', 'disinkron_at',
     ];
 
@@ -35,6 +35,17 @@ class ShopeeIklan extends Model
         'selesai_at'   => 'datetime',
         'disinkron_at' => 'datetime',
     ];
+
+    public function kelompok(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(ShopeeIklanKelompok::class, 'kelompok_id');
+    }
+
+    /** Hanya iklan yang berjalan/dijeda yang boleh diatur jadwal (selesai/ditutup tak bisa dilanjutkan). */
+    public function bisaDiatur(): bool
+    {
+        return in_array($this->status, ['ongoing', 'paused'], true);
+    }
 
     public function labelStatus(): string
     {

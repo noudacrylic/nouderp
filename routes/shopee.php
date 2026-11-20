@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Marketplace\Shopee\Controllers\IklanKelompokController;
 use App\Modules\Marketplace\Shopee\Controllers\IklanShopeeController;
 use App\Modules\Marketplace\Shopee\Controllers\MutasiShopeeController;
 use App\Modules\Marketplace\Shopee\Controllers\ShopeeBayanganController;
@@ -42,6 +43,13 @@ Route::middleware('auth')->group(function () {
     Route::prefix('erp/sales/iklan-shopee')->name('sales.iklan-shopee.')->group(function () {
         Route::get('/', [IklanShopeeController::class, 'index'])->name('index');
         Route::post('/tarik', [IklanShopeeController::class, 'tarik'])->name('tarik');
+        // Tahap 2: kelompok iklan + jadwal jam ramai & rotasi jam sepi.
+        Route::get('/kelompok', [IklanKelompokController::class, 'index'])->name('kelompok.index');
+        Route::get('/kelompok/baru', [IklanKelompokController::class, 'create'])->name('kelompok.create');
+        Route::post('/kelompok', [IklanKelompokController::class, 'store'])->name('kelompok.store');
+        Route::get('/kelompok/{kelompok}', [IklanKelompokController::class, 'edit'])->whereNumber('kelompok')->name('kelompok.edit');
+        Route::put('/kelompok/{kelompok}', [IklanKelompokController::class, 'update'])->whereNumber('kelompok')->name('kelompok.update');
+        Route::delete('/kelompok/{kelompok}', [IklanKelompokController::class, 'destroy'])->whereNumber('kelompok')->name('kelompok.destroy');
     });
 
     Route::prefix('erp/finance/cash-bank/settlements/mutasi-shopee')->name('finance.cash-bank.settlements.mutasi-shopee.')->group(function () {
