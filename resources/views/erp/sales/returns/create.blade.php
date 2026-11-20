@@ -667,8 +667,23 @@
                             <div class="flex justify-between font-bold border-t border-gray-200 pt-1"><span class="font-sans">Dana pesanan masuk Saldo Penjualan <span class="font-normal text-gray-400">(Total Penghasilan)</span></span><span x-text="formatNumber(bawaan.konteks?.pencairan?.dana_masuk || 0)"></span></div>
                             <div class="flex justify-between text-gray-600" x-show="(bawaan.konteks?.pencairan?.retur_lalu || 0) !== 0"><span class="font-sans">Retur sebelumnya</span><span x-text="formatNumber(bawaan.konteks?.pencairan?.retur_lalu || 0)"></span></div>
                             <div class="flex justify-between text-red-600"><span class="font-sans">Retur ini — dipotong dari Saldo Penjualan (blok b)</span><span x-text="formatNumber(mutasi(selectedDoc?.akun?.dompet?.id, ['pembalikan']))"></span></div>
+                            <template x-for="(p, i) in (bawaan.konteks?.pencairan?.penyesuaian_luar || [])" :key="i">
+                                <div class="flex justify-between gap-3 text-emerald-700">
+                                    <span class="font-sans">
+                                        Penyesuaian Shopee di luar retur <span class="text-gray-400" x-text="'(' + tglPendek(p.tanggal) + ')'"></span>
+                                        <span class="block text-[10px] text-gray-500" x-text="p.deskripsi"></span>
+                                        <span class="block text-[10px] font-semibold" :class="p.tercatat ? 'text-emerald-600' : 'text-amber-600'"
+                                              x-text="p.tercatat ? '✓ sudah dicatat terpisah (' + p.tercatat + ')' : '⚠ belum dicatat — buat Penerimaan Kas: Dr Saldo Penjualan / Cr Retur Penjualan'"></span>
+                                    </span>
+                                    <span class="whitespace-nowrap" x-text="(p.jumlah > 0 ? '+' : '') + formatNumber(p.jumlah)"></span>
+                                </div>
+                            </template>
                             <div class="flex justify-between font-black text-sm border-t border-gray-300 pt-1"><span class="font-sans">Sisa dana pesanan <span class="font-normal text-gray-400 text-xs">(Penghasilan Akhir)</span></span><span x-text="formatNumber(sisaDanaPesanan())"></span></div>
                         </div>
+                        <p class="text-[10px] text-gray-500 mt-1.5" x-show="(bawaan.konteks?.pencairan?.penyesuaian_luar || []).length">
+                            Penyesuaian di luar retur (mis. kompensasi / penggantian dana barang rusak dari Shopee) tidak masuk jurnal retur ini —
+                            dicatat terpisah, tapi ikut dihitung agar Penghasilan Akhir sama dengan Seller Centre.
+                        </p>
                     </div>
 
                     {{-- Uji akhir yang sama dengan MarketplaceSiklusPenuhTest: setelah pesanan tuntas,
@@ -1965,7 +1980,8 @@ function returForm(initialData = null, prefill = null) {
         sisaDanaPesanan() {
             const p = this.bawaan.konteks?.pencairan;
             if (!p) return 0;
-            return Number(p.dana_masuk || 0) + Number(p.retur_lalu || 0) + this.mutasi(this.selectedDoc?.akun?.dompet?.id, ['pembalikan']);
+            const luar = (p.penyesuaian_luar || []).reduce((s, x) => s + Number(x.jumlah || 0), 0);
+            return Number(p.dana_masuk || 0) + Number(p.retur_lalu || 0) + luar + this.mutasi(this.selectedDoc?.akun?.dompet?.id, ['pembalikan']);
         },
 
         tglPendek(t) {

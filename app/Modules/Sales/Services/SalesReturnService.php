@@ -516,7 +516,53 @@ class SalesReturnService
             'pajak'        => round($mutasi(clone $jurnal, $pajakId), 2),
             'dana_masuk'   => round($mutasi(clone $jurnal, $dompetId), 2),
             'retur_lalu'   => round($mutasi($returLalu, $dompetId), 2),
+            'penyesuaian_luar' => $this->penyesuaianLuarRetur($inv, $dompetId),
         ];
+    }
+
+    /**
+     * Mutasi Saldo Penjual Shopee milik pesanan ini yang TIDAK lewat jurnal retur — terutama
+     * "Penggantian Dana Barang Hilang/Rusak" / kompensasi banding yang dibayar setelah dana
+     * pesanan ditarik. Shopee sering mengirimnya tanpa nomor pesanan (nomornya hanya di
+     * deskripsi), jadi tak terbaca sebagai bagian pesanan. Ditampilkan di blok c agar
+     * "Penghasilan Akhir" sama dengan Seller Centre; dicatat terpisah (Penerimaan Kas:
+     * Dr Saldo Penjualan / Cr Retur Penjualan). `tercatat` = ada jurnal Saldo Penjualan
+     * posted bernominal sama dalam ±3 hari (aturan pencocokan mutasi yang sama).
+     *
+     * @return array<int, array{tanggal:string, deskripsi:string, jumlah:float, tercatat:?string}>
+     */
+    private function penyesuaianLuarRetur(SalesInvoice $inv, ?int $dompetId): array
+    {
+        if (!$inv->sales_order_id || !\Illuminate\Support\Facades\Schema::hasTable('shopee_wallet_transactions')) {
+            return [];
+        }
+        $sn = DB::table('shopee_orders')->where('sales_order_id', $inv->sales_order_id)->value('order_sn');
+        if (!$sn) {
+            return [];
+        }
+
+        return DB::table('shopee_wallet_transactions')
+            ->where(fn ($q) => $q->where(fn ($q) => $q->where('order_sn', $sn)->where('kategori', 'kompensasi'))
+                ->orWhere(fn ($q) => $q->whereNull('order_sn')->where('deskripsi', 'like', '%' . $sn . '%')))
+            ->orderBy('waktu')
+            ->get(['waktu', 'deskripsi', 'jumlah'])
+            ->map(function ($m) use ($dompetId) {
+                $tgl = \Carbon\Carbon::parse($m->waktu);
+                $jurnal = $dompetId ? DB::table('journal_lines as l')->join('journals as j', 'j.id', '=', 'l.journal_id')
+                    ->where('l.account_id', $dompetId)->where('j.status', 'posted')
+                    ->whereBetween('j.date', [$tgl->copy()->subDays(3)->toDateString(), $tgl->copy()->addDays(3)->toDateString()])
+                    ->whereRaw('ABS((l.debit - l.credit) - ?) < 1', [(float) $m->jumlah])
+                    ->value('j.journal_number') : null;
+
+                return [
+                    'tanggal'   => $tgl->toDateString(),
+                    'deskripsi' => (string) $m->deskripsi,
+                    'jumlah'    => round((float) $m->jumlah, 2),
+                    'tercatat'  => $jurnal,
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     /** Tujuan dana yang masuk akal untuk faktur ini (pilihan di blok Pembalikan). */
