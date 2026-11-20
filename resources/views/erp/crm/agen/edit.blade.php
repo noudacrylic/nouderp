@@ -64,7 +64,7 @@
                 </span>
             </label>
 
-            @if($agen->kode === \App\Modules\CRM\Models\CrmAgent::CS_SHOPEE)
+            @if(in_array($agen->kode, [\App\Modules\CRM\Models\CrmAgent::CS_SHOPEE, \App\Modules\CRM\Models\CrmAgent::CS_WHATSAPP], true))
                 <div class="rounded border border-amber-200 bg-amber-50 p-3">
                     <label class="block text-xs font-semibold text-amber-900 mb-1">Kirim otomatis</label>
                     <select name="kirim_otomatis" class="w-full border rounded px-3 py-2 text-sm bg-white">

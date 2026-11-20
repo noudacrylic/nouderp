@@ -65,8 +65,8 @@ class CrmAgenController extends Controller
             'kirim_otomatis' => ['nullable', 'in:' . implode(',', [CrmAgent::KIRIM_MATI, CrmAgent::KIRIM_BAYANGAN, CrmAgent::KIRIM_OTOMATIS, CrmAgent::KIRIM_PENUH])],
         ]);
 
-        // Kirim otomatis luar jam hanya ada untuk CS Shopee (Saran AI Tahap 3).
-        $data['kirim_otomatis'] = $agen->kode === CrmAgent::CS_SHOPEE
+        // Kirim otomatis luar jam: CS Shopee & CS WhatsApp (WA sejak 21 Nov 2026, lahir Mati).
+        $data['kirim_otomatis'] = in_array($agen->kode, [CrmAgent::CS_SHOPEE, CrmAgent::CS_WHATSAPP], true)
             ? ($data['kirim_otomatis'] ?? $agen->kirim_otomatis ?? CrmAgent::KIRIM_MATI)
             : CrmAgent::KIRIM_MATI;
 

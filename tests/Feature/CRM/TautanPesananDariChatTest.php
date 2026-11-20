@@ -133,6 +133,24 @@ class TautanPesananDariChatTest extends TestCase
         $this->assertSame($pelanggan, (int) $chat->fresh()->customer_id, 'Lead dikenali sebagai pembeli');
     }
 
+    public function test_nomor_pesanan_shopee_dan_tiktok_di_chat_wa_menautkan_so(): void
+    {
+        [$so] = $this->soTanpaTautan('2611-0000001');
+        $so->forceFill(['customer_po_number' => 'SP-261121TJS7G200'])->saveQuietly();
+        $chat = $this->chat('628561533363');
+
+        $this->pesanMasuk($chat, 'kak ini logonya, wa saya 6285612345678');
+        $this->assertNull($this->tertautKe($so), 'Nomor HP bukan nomor pesanan.');
+
+        $this->pesanMasuk($chat, 'kak ini logonya, no pesanan shopee 261121tjs7g200');
+        $this->assertSame($chat->id, $this->tertautKe($so));
+
+        DB::table('crm_pesanan_chat')->where('sales_order_id', $so->id)->delete();
+        $so->forceFill(['customer_po_number' => 'TT-587292634186614426-127338'])->saveQuietly();
+        $this->pesanMasuk($chat, 'yang tiktok 587292634186614426 ya kak');
+        $this->assertSame($chat->id, $this->tertautKe($so));
+    }
+
     public function test_nomor_pesanan_tanpa_tanda_hubung_rapat_tidak_dianggap(): void
     {
         [$so] = $this->soTanpaTautan('2610-1181750');

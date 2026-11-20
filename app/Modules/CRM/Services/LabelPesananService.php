@@ -161,15 +161,37 @@ class LabelPesananService
      */
     public function tautkanDariTeks(CrmConversation $chat, ?string $teks): array
     {
-        // Format NumberGeneratorService::webOrderNumber(): ym-7 digit.
-        if (! $teks || ! preg_match_all('/(?<!\d)(\d{4})\s*-\s*(\d{7})(?!\d)/', $teks, $m, PREG_SET_ORDER)) {
+        if (! $teks) {
             return [];
         }
 
+        // Format NumberGeneratorService::webOrderNumber(): ym-7 digit.
+        preg_match_all('/(?<!\d)(\d{4})\s*-\s*(\d{7})(?!\d)/', $teks, $m, PREG_SET_ORDER);
         $nomor = collect($m)->map(fn ($x) => $x[1] . '-' . $x[2])->unique()->take(5);
+
+        // Nomor pesanan marketplace (21 Nov 2026: pembeli marketplace mengirim desain lewat WA).
+        // Shopee: 6 angka tanggal + 8 huruf/angka (SO `SP-<sn>`); TikTok/Tokopedia/Lazada:
+        // 15–18 angka (SO `TT-<no>-…`, `TP-<no>-…`, `LZ-<no>-…`). Nomor HP paling panjang 13 angka.
+        preg_match_all('/(?<![A-Z0-9])(\d{6}[A-Z0-9]{8})(?![A-Z0-9])/i', $teks, $sp);
+        $shopee = collect($sp[1])->map(fn ($x) => 'SP-' . strtoupper($x))
+            ->filter(fn ($x) => preg_match('/[A-Z]/', substr($x, 3)))->unique()->take(5);
+        preg_match_all('/(?<!\d)(\d{15,18})(?!\d)/', $teks, $mp);
+        $lain = collect($mp[1])->unique()->take(5);
+
+        if ($nomor->isEmpty() && $shopee->isEmpty() && $lain->isEmpty()) {
+            return [];
+        }
+
         $tertaut = [];
 
-        SalesOrder::whereIn('order_number', $nomor)
+        SalesOrder::where(function ($q) use ($nomor, $shopee, $lain) {
+            $q->whereIn('order_number', $nomor)->orWhereIn('customer_po_number', $shopee);
+            foreach ($lain as $no) {
+                foreach (['TT', 'TP', 'LZ'] as $awalan) {
+                    $q->orWhere('customer_po_number', 'like', $awalan . '-' . $no . '-%');
+                }
+            }
+        })
             ->whereNotIn('status', ['void', 'cancelled'])
             ->whereNotExists(fn ($q) => $q->from('crm_pesanan_chat')->whereColumn('crm_pesanan_chat.sales_order_id', 'sales_orders.id'))
             ->get()
