@@ -155,6 +155,55 @@ class ShopeeIklanJadwalTest extends TestCase
         $this->assertSame(2, DB::table('shopee_iklan_aksi')->where('hasil', 'dilewati')->count());
     }
 
+    public function test_jadwal_manual_diikuti_persis_sisanya_bergiliran(): void
+    {
+        $k = $this->kelompok(['jam_ramai' => [10], 'aktif_sepi' => 1, 'jadwal_manual' => ['1' => [2, 3], '4' => [2]]]);
+        $this->iklan(1, $k);
+        $this->iklan(2, $k);
+        $this->iklan(3, $k);
+        $this->iklan(4, $k, stok: 0); // manual tapi stok habis → tetap tidak tayang
+
+        $jam2 = $this->svc->aktifPada($k, now()->setTime(2, 0));
+        $this->assertContains(1, $jam2);
+        $this->assertNotContains(4, $jam2);
+        $this->assertCount(2, $jam2, 'manual 1 + satu giliran otomatis dari 2/3');
+
+        // Jam ramai: anggota otomatis semua tayang, manual hanya di jamnya sendiri.
+        $this->assertSame([2, 3], collect($this->svc->aktifPada($k, now()->setTime(10, 0)))->sort()->values()->all());
+
+        $this->svc->jalankan(now()->setTime(10, 0));
+        $this->assertSame('jadwal manual', DB::table('shopee_iklan_aksi')->where('campaign_id', 1)->value('alasan'));
+    }
+
+    public function test_simpan_dan_kembalikan_jadwal_manual_dari_grid(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $k = $this->kelompok();
+        $this->iklan(1, $k);
+        $this->iklan(2, $k);
+        $this->iklan(7, null); // bukan anggota
+
+        $this->actingAs($admin)->put(route('sales.iklan-shopee.kelompok.jadwal-manual', $k), [
+            'baris' => ['1' => '5,3,3,99', '2' => '', '7' => '1,2'],
+        ])->assertRedirect();
+        $k->refresh();
+        $this->assertSame([3, 5], $k->jamManual(1));
+        $this->assertSame([], $k->jamManual(2), 'baris kosong = tidak pernah tayang');
+        $this->assertNull($k->jamManual(7));
+
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.edit', $k))->assertOk()->assertSee('↺ otomatis');
+
+        $this->actingAs($admin)->put(route('sales.iklan-shopee.kelompok.jadwal-manual', $k), ['otomatis' => 1])->assertRedirect();
+        $this->assertNull($k->refresh()->jamManual(1));
+        $this->assertSame([], $k->jamManual(2));
+
+        // Keluar dari kelompok → jadwal manualnya ikut dibuang.
+        $this->actingAs($admin)->put(route('sales.iklan-shopee.kelompok.update', $k), [
+            'nama' => $k->nama, 'mode' => 'bayangan', 'aktif_sepi' => 1, 'rotasi_jam' => 3, 'anggota' => [1],
+        ])->assertRedirect();
+        $this->assertNull($k->refresh()->jadwal_manual);
+    }
+
     public function test_halaman_kelompok_simpan_anggota_dan_tolak_otomatis(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);

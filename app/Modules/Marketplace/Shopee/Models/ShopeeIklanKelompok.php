@@ -19,11 +19,12 @@ class ShopeeIklanKelompok extends Model
         'otomatis' => 'Otomatis (mengubah iklan di Shopee)',
     ];
 
-    protected $fillable = ['env', 'nama', 'mode', 'jam_ramai', 'aktif_sepi', 'rotasi_jam', 'batas_belanja', 'status_simulasi', 'dijalankan_at'];
+    protected $fillable = ['env', 'nama', 'mode', 'jam_ramai', 'aktif_sepi', 'rotasi_jam', 'batas_belanja', 'jadwal_manual', 'status_simulasi', 'dijalankan_at'];
 
     protected $casts = [
         'jam_ramai'       => 'array',
         'status_simulasi' => 'array',
+        'jadwal_manual'   => 'array',
         'aktif_sepi'      => 'integer',
         'rotasi_jam'      => 'integer',
         'batas_belanja'   => 'decimal:2',
@@ -38,6 +39,14 @@ class ShopeeIklanKelompok extends Model
     public function jamRamai(): array
     {
         return array_values(array_map('intval', $this->jam_ramai ?? []));
+    }
+
+    /** Jam tayang manual satu iklan, atau null bila iklan itu ikut giliran otomatis. */
+    public function jamManual(int $campaignId): ?array
+    {
+        $m = $this->jadwal_manual ?? [];
+
+        return array_key_exists((string) $campaignId, $m) ? array_values(array_map('intval', $m[(string) $campaignId])) : null;
     }
 
     /** "06–11, 13–17" dari daftar jam. */

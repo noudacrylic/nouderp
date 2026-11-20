@@ -20,6 +20,9 @@ use Illuminate\Support\Facades\DB;
  * kebagian, yang ROAS-nya bagus lebih sering. Pilihan awal digeser per tanggal agar urutan
  * tidak sama tiap hari.
  *
+ * Iklan ber-jadwal manual (klik di grid) tayang persis di jam pilihannya dan tidak ikut
+ * giliran; `aktif_sepi` berlaku untuk anggota otomatis saja.
+ *
  * Mode bayangan: rencana dibandingkan dengan status simulasi kelompok (bukan status asli),
  * lalu dicatat di shopee_iklan_aksi tanpa memanggil Shopee. Mode otomatis belum dibuka
  * sampai pause/lanjut lewat API teruji.
@@ -59,7 +62,7 @@ class ShopeeIklanJadwalService
             ->whereIn('item_id', $iklan->flatMap(fn ($i) => $i->item_ids ?? [])->unique()->values())
             ->groupBy('item_id')->selectRaw('item_id, SUM(stok) stok')->pluck('stok', 'item_id');
 
-        return $iklan->map(function (ShopeeIklan $i) use ($kin, $rataRoas, $stokPerItem) {
+        return $iklan->map(function (ShopeeIklan $i) use ($k, $kin, $rataRoas, $stokPerItem) {
             $r     = $kin[$i->campaign_id] ?? null;
             $biaya = (float) ($r->biaya ?? 0);
             $gmv   = (float) ($r->gmv ?? 0);
@@ -85,6 +88,7 @@ class ShopeeIklanJadwalService
                 'stok'   => $stok,
                 'layak'  => $alasan === null,
                 'alasan' => $alasan,
+                'manual' => $k->jamManual($i->campaign_id),
             ];
         })->sortByDesc('bobot')->values();
     }
@@ -123,20 +127,26 @@ class ShopeeIklanJadwalService
     public function aktifPada(Kelompok $k, Carbon $waktu, ?Collection $anggota = null, bool $hitungBatas = true): array
     {
         $anggota ??= $this->anggota($k);
-        $layak = $anggota->where('layak', true)->values();
-        if ($layak->isEmpty()) {
-            return [];
+        $jam   = (int) $waktu->format('G');
+        $layak = $anggota->where('layak', true);
+
+        // Jadwal manual diikuti persis (stok habis / iklan selesai tetap tidak tayang).
+        $manual = $layak->filter(fn ($a) => $a['manual'] !== null && in_array($jam, $a['manual'], true))
+            ->map(fn ($a) => $a['iklan']->campaign_id)->values()->all();
+
+        $otomatis = $layak->filter(fn ($a) => $a['manual'] === null)->values();
+        if ($otomatis->isEmpty()) {
+            return $manual;
         }
 
-        $jam      = (int) $waktu->format('G');
         $lewatBatas = $hitungBatas && $k->batas_belanja !== null && (float) $k->batas_belanja > 0
             && $this->belanjaHariIni($k) >= (float) $k->batas_belanja;
 
-        if (in_array($jam, $k->jamRamai(), true) && !$lewatBatas) {
-            return $layak->map(fn ($a) => $a['iklan']->campaign_id)->all();
-        }
+        $auto = in_array($jam, $k->jamRamai(), true) && !$lewatBatas
+            ? $otomatis->map(fn ($a) => $a['iklan']->campaign_id)->all()
+            : $this->giliran($otomatis, max(1, $k->aktif_sepi), max(1, $k->rotasi_jam), $waktu);
 
-        return $this->giliran($layak, max(1, $k->aktif_sepi), max(1, $k->rotasi_jam), $waktu);
+        return array_values(array_merge($manual, $auto));
     }
 
     /**
@@ -232,7 +242,8 @@ class ShopeeIklanJadwalService
                 $kini = array_key_exists((string) $i->campaign_id, $sim) ? (bool) $sim[(string) $i->campaign_id] : $i->status === 'ongoing';
                 $mau  = isset($target[$i->campaign_id]);
                 if ($kini !== $mau) {
-                    $rencana[] = [$i->campaign_id, $mau ? 'lanjut' : 'jeda', $mau ? $alasan : ($a['alasan'] ?? $alasan)];
+                    $why = $a['alasan'] ?? ($a['manual'] !== null ? 'jadwal manual' : $alasan);
+                    $rencana[] = [$i->campaign_id, $mau ? 'lanjut' : 'jeda', $why];
                 }
                 $sim[(string) $i->campaign_id] = $kini;
             }

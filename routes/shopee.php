@@ -50,6 +50,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/kelompok/{kelompok}', [IklanKelompokController::class, 'edit'])->whereNumber('kelompok')->name('kelompok.edit');
         Route::put('/kelompok/{kelompok}', [IklanKelompokController::class, 'update'])->whereNumber('kelompok')->name('kelompok.update');
         Route::delete('/kelompok/{kelompok}', [IklanKelompokController::class, 'destroy'])->whereNumber('kelompok')->name('kelompok.destroy');
+        Route::put('/kelompok/{kelompok}/jadwal-manual', [IklanKelompokController::class, 'jadwalManual'])->whereNumber('kelompok')->name('kelompok.jadwal-manual');
     });
 
     Route::prefix('erp/finance/cash-bank/settlements/mutasi-shopee')->name('finance.cash-bank.settlements.mutasi-shopee.')->group(function () {

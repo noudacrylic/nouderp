@@ -120,35 +120,65 @@
     <div class="bg-white rounded shadow p-3 mb-3">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-2 text-sm">
             <div class="font-semibold">Rencana tayang hari ini</div>
-            <div class="text-xs text-gray-500">± {{ $aksiPerHari }} aksi pause/lanjut per hari · hijau = tayang · kolom bertanda ▲ = jam ramai</div>
+            <div class="text-xs text-gray-500">± {{ $aksiPerHari }} aksi pause/lanjut per hari · hijau = tayang · ▲ = jam ramai · ✎ = jadwal manual</div>
         </div>
         @if ($anggota->isEmpty())
             <p class="text-xs text-gray-400">Belum ada anggota.</p>
         @else
-            <div class="overflow-x-auto">
-                <table class="text-[10px] border-collapse min-w-[760px] w-full">
-                    <thead><tr>
-                        <th class="text-left font-normal text-gray-500 pr-2">Iklan</th>
-                        @for ($j = 0; $j < 24; $j++)
-                            <th class="font-normal w-6 {{ $j === (int) now()->format('G') ? 'text-blue-700 font-semibold' : 'text-gray-500' }}">{{ sprintf('%02d', $j) }}{!! in_array($j, $k->jamRamai(), true) ? '<br>▲' : '<br>&nbsp;' !!}</th>
-                        @endfor
-                    </tr></thead>
-                    <tbody>
-                    @foreach ($anggota as $a)
-                        <tr>
-                            <td class="pr-2 py-0.5 max-w-[16rem] truncate {{ $a['layak'] ? '' : 'text-gray-400 line-through' }}" title="{{ $a['iklan']->nama }}">{{ $a['iklan']->nama }}</td>
+            <p class="text-xs text-gray-500 mb-2">Klik kotak (atau tahan &amp; seret) untuk mengatur sendiri jam tayang satu iklan. Iklan yang diatur sendiri tayang persis di jam pilihan dan tidak ikut giliran; iklan lain tetap bergiliran otomatis. Stok habis tetap tidak ditayangkan.</p>
+            <form method="POST" action="{{ route('sales.iklan-shopee.kelompok.jadwal-manual', $k) }}" id="form-manual">
+                @csrf @method('PUT')
+                <div class="overflow-x-auto select-none">
+                    <table class="text-[10px] border-collapse min-w-[820px] w-full">
+                        <thead><tr>
+                            <th class="text-left font-normal text-gray-500 pr-2">Iklan</th>
                             @for ($j = 0; $j < 24; $j++)
-                                <td class="p-0.5"><div class="h-4 rounded-sm {{ in_array($a['iklan']->campaign_id, $rencana[$j], true) ? 'bg-green-500' : 'bg-gray-100' }} {{ $j === (int) now()->format('G') ? 'ring-1 ring-blue-500' : '' }}"></div></td>
+                                <th class="font-normal w-6 {{ $j === (int) now()->format('G') ? 'text-blue-700 font-semibold' : 'text-gray-500' }}">{{ sprintf('%02d', $j) }}{!! in_array($j, $k->jamRamai(), true) ? '<br>▲' : '<br>&nbsp;' !!}</th>
                             @endfor
+                            <th></th>
+                        </tr></thead>
+                        <tbody>
+                        @foreach ($anggota as $a)
+                            @php
+                                $cid = $a['iklan']->campaign_id;
+                                $manual = $a['manual'];
+                                $tayang = fn ($j) => $manual !== null ? in_array($j, $manual, true) : in_array($cid, $rencana[$j], true);
+                            @endphp
+                            <tr class="baris-grid" data-cid="{{ $cid }}">
+                                <td class="pr-2 py-0.5 max-w-[16rem]">
+                                    <div class="truncate {{ $a['layak'] ? '' : 'text-gray-400 line-through' }}" title="{{ $a['iklan']->nama }}">
+                                        @if ($manual !== null)<span class="text-blue-700 no-underline" title="Jadwal manual">✎</span>@endif
+                                        {{ $a['iklan']->nama }}
+                                    </div>
+                                    @if (!$a['layak'])<div class="text-[10px] text-red-600">tidak ditayangkan: {{ $a['alasan'] }}</div>@endif
+                                </td>
+                                @for ($j = 0; $j < 24; $j++)
+                                    <td class="p-0.5">
+                                        <div class="sel h-4 rounded-sm cursor-pointer {{ $tayang($j) ? ($a['layak'] ? 'bg-green-500' : 'bg-green-200') : 'bg-gray-100 hover:bg-gray-200' }} {{ $j === (int) now()->format('G') ? 'ring-1 ring-blue-500' : '' }}"
+                                             data-jam="{{ $j }}" data-on="{{ $tayang($j) ? 1 : 0 }}"></div>
+                                    </td>
+                                @endfor
+                                <td class="pl-1 whitespace-nowrap">
+                                    @if ($manual !== null)
+                                        <button name="otomatis" value="{{ $cid }}" class="text-[10px] text-blue-700" title="Kembalikan ke giliran otomatis">↺ otomatis</button>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                        <tr class="text-gray-500">
+                            <td class="pr-2 pt-1">Jumlah tayang</td>
+                            @for ($j = 0; $j < 24; $j++)<td class="text-center pt-1">{{ count($rencana[$j]) }}</td>@endfor
+                            <td></td>
                         </tr>
-                    @endforeach
-                    <tr class="text-gray-500">
-                        <td class="pr-2 pt-1">Jumlah tayang</td>
-                        @for ($j = 0; $j < 24; $j++)<td class="text-center pt-1">{{ count($rencana[$j]) }}</td>@endfor
-                    </tr>
-                    </tbody>
-                </table>
-            </div>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="bar-manual" class="hidden mt-2 flex items-center gap-2 text-xs">
+                    <button class="bg-blue-600 text-white px-3 py-1.5 rounded">Simpan jadwal manual</button>
+                    <a href="{{ url()->current() }}" class="text-gray-500">batal</a>
+                    <span class="text-gray-500" id="info-manual"></span>
+                </div>
+            </form>
         @endif
     </div>
 
@@ -214,6 +244,49 @@
     }
     baris.forEach(function (b) { b.querySelector('input').addEventListener('change', hitung); });
     hitung();
+
+    // Grid jadwal manual: klik / tahan & seret untuk mengubah jam tayang satu iklan.
+    var formManual = document.getElementById('form-manual');
+    if (formManual) {
+        var cat = null;
+        var berubah = {};
+        var bar = document.getElementById('bar-manual');
+        var infoManual = document.getElementById('info-manual');
+
+        function setel(sel, on) {
+            sel.dataset.on = on ? '1' : '0';
+            sel.classList.toggle('bg-green-500', on);
+            sel.classList.toggle('bg-gray-100', !on);
+            sel.classList.remove('bg-green-200');
+            var tr = sel.closest('tr');
+            var cid = tr.dataset.cid;
+            berubah[cid] = true;
+            var jam = [];
+            tr.querySelectorAll('.sel').forEach(function (s) { if (s.dataset.on === '1') jam.push(s.dataset.jam); });
+            var input = formManual.querySelector('input[name="baris[' + cid + ']"]');
+            if (!input) {
+                input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'baris[' + cid + ']';
+                formManual.appendChild(input);
+            }
+            input.value = jam.join(',');
+            bar.classList.remove('hidden');
+            infoManual.textContent = Object.keys(berubah).length + ' iklan diubah — belum disimpan';
+        }
+
+        formManual.querySelectorAll('.sel').forEach(function (sel) {
+            sel.addEventListener('pointerdown', function (e) {
+                e.preventDefault();
+                cat = sel.dataset.on !== '1';
+                setel(sel, cat);
+            });
+            sel.addEventListener('pointerenter', function () {
+                if (cat !== null) setel(sel, cat);
+            });
+        });
+        document.addEventListener('pointerup', function () { cat = null; });
+    }
 })();
 </script>
 @endsection

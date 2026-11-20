@@ -71,6 +71,35 @@ class IklanKelompokController extends Controller
         return back()->with('success', 'Kelompok iklan disimpan.');
     }
 
+    /**
+     * Simpan jadwal manual dari grid. `baris[campaign_id]` = jam tayang dipisah koma (boleh kosong
+     * = tidak pernah tayang); `otomatis` = campaign_id yang dikembalikan ke giliran otomatis.
+     */
+    public function jadwalManual(Request $request, Kelompok $kelompok)
+    {
+        $anggota = $kelompok->iklan()->pluck('campaign_id')->map(fn ($id) => (string) $id)->all();
+        $manual  = array_intersect_key($kelompok->jadwal_manual ?? [], array_flip($anggota));
+
+        foreach ((array) $request->input('baris', []) as $cid => $csv) {
+            if (!in_array((string) $cid, $anggota, true)) {
+                continue;
+            }
+            $jam = array_values(array_unique(array_filter(
+                array_map('intval', array_filter(explode(',', (string) $csv), fn ($x) => trim($x) !== '')),
+                fn ($j) => $j >= 0 && $j <= 23,
+            )));
+            sort($jam);
+            $manual[(string) $cid] = $jam;
+        }
+        if ($request->filled('otomatis')) {
+            unset($manual[(string) $request->input('otomatis')]);
+        }
+
+        $kelompok->update(['jadwal_manual' => $manual ?: null]);
+
+        return back()->with('success', $request->filled('otomatis') ? 'Iklan dikembalikan ke giliran otomatis.' : 'Jadwal manual disimpan.');
+    }
+
     public function destroy(Kelompok $kelompok)
     {
         $kelompok->iklan()->update(['kelompok_id' => null]);
@@ -144,6 +173,13 @@ class IklanKelompokController extends Controller
                 ->where(fn ($q) => $q->whereNull('kelompok_id')->orWhere('kelompok_id', $k->id))
                 ->update(['kelompok_id' => $k->id]);
         });
+
+        // Jadwal manual milik iklan yang sudah keluar dari kelompok dibuang.
+        $tetap = $k->iklan()->pluck('campaign_id')->map(fn ($id) => (string) $id)->all();
+        $manual = array_intersect_key($k->jadwal_manual ?? [], array_flip($tetap));
+        if ($manual !== ($k->jadwal_manual ?? [])) {
+            $k->update(['jadwal_manual' => $manual ?: null]);
+        }
     }
 
     /** Jumlah pergantian status sepanjang hari menurut rencana (termasuk awal hari dari status jam 23). */
