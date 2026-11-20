@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Marketplace\Shopee\Controllers\IklanShopeeController;
 use App\Modules\Marketplace\Shopee\Controllers\MutasiShopeeController;
 use App\Modules\Marketplace\Shopee\Controllers\ShopeeBayanganController;
 use App\Modules\Marketplace\Shopee\Controllers\ShopeePushController;
@@ -36,6 +37,12 @@ Route::middleware('auth')->group(function () {
     // Alamat kembali dari halaman izin Shopee (domainnya didaftarkan di app Shopee).
     Route::get('erp/integrasi/shopee/callback', [ShopeeSettingController::class, 'callback'])
         ->name('settings.integrations.shopee.callback');
+
+    // Penjualan › Iklan Shopee (tahap 1: baca saja).
+    Route::prefix('erp/sales/iklan-shopee')->name('sales.iklan-shopee.')->group(function () {
+        Route::get('/', [IklanShopeeController::class, 'index'])->name('index');
+        Route::post('/tarik', [IklanShopeeController::class, 'tarik'])->name('tarik');
+    });
 
     Route::prefix('erp/finance/cash-bank/settlements/mutasi-shopee')->name('finance.cash-bank.settlements.mutasi-shopee.')->group(function () {
         Route::get('/', [MutasiShopeeController::class, 'index'])->name('index');

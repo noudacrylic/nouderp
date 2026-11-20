@@ -109,6 +109,7 @@ return [
              */
             'sales.cek-ongkir'  => ['label' => 'Cek Ongkir',  'url' => '/erp/sales/cek-ongkir',     'hidden' => true, 'route_patterns' => ['sales.cek-ongkir*']],
             'sales.promosi'     => ['label' => 'Promosi',     'url' => '/erp/sales/promosi',        'route_patterns' => ['sales.promosi.*']],
+            'sales.iklan-shopee' => ['label' => 'Iklan Shopee', 'url' => '/erp/sales/iklan-shopee', 'route_patterns' => ['sales.iklan-shopee.*'], 'role_gate' => ['super_admin', 'admin']],
         ],
     ],
 
