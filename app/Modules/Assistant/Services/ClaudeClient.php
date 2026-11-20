@@ -39,7 +39,7 @@ class ClaudeClient
      * (mis. 529 overloaded). Return respons terdekode, atau
      * ['_error' => '...', '_status' => int|null].
      */
-    public function messages(array $payload): array
+    public function messages(array $payload, int $timeout = 60, array $beta = []): array
     {
         if (! $this->enabled()) {
             return ['_error' => 'ANTHROPIC_API_KEY belum diatur (Settings → Integrasi → Claude AI atau .env).'];
@@ -51,11 +51,12 @@ class ClaudeClient
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
-                $resp = Http::withHeaders([
+                $resp = Http::withHeaders(array_filter([
                     'x-api-key'         => $this->key,
                     'anthropic-version' => '2023-06-01',
                     'content-type'      => 'application/json',
-                ])->timeout(60)->post($this->base . '/messages', $payload);
+                    'anthropic-beta'    => $beta ? implode(',', $beta) : null,
+                ]))->timeout($timeout)->post($this->base . '/messages', $payload);
 
                 if ($resp->successful()) {
                     return $resp->json() ?? [];

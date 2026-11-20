@@ -730,6 +730,18 @@ Route::prefix('erp/store')->group(function () {
     Route::put   ('/homepage',       [\App\Http\Controllers\Store\StoreHomepageController::class, 'update'])->name('store.homepage.update');
     Route::post  ('/homepage/reset', [\App\Http\Controllers\Store\StoreHomepageController::class, 'reset'])->name('store.homepage.reset');
 
+    // Bank kata kunci SEO (riset AI + Search Console + manual) — bahan caption foto Galeri web.
+    Route::prefix('kata-kunci')->name('store.kata-kunci.')->controller(\App\Modules\Seo\Controllers\KataKunciController::class)->group(function () {
+        Route::get   ('/',              'index')->name('index');
+        Route::post  ('/',              'simpan')->name('simpan');
+        Route::put   ('/{kata}',        'ubah')->whereNumber('kata')->name('ubah');
+        Route::delete('/{kata}',        'hapus')->whereNumber('kata')->name('hapus');
+        Route::post  ('/riset',         'riset')->name('riset');
+        Route::post  ('/jenis',         'simpanJenis')->name('jenis.simpan');
+        Route::put   ('/jenis/{jenis}', 'ubahJenis')->whereNumber('jenis')->name('jenis.ubah');
+        Route::post  ('/tarik-gsc',     'tarikGsc')->name('tarik-gsc');
+    });
+
     // Kategori
     Route::get('/categories',            [\App\Http\Controllers\Store\StoreCategoryController::class, 'index'])->name('store.categories.index');
     Route::get('/categories/create',     [\App\Http\Controllers\Store\StoreCategoryController::class, 'create'])->name('store.categories.create');

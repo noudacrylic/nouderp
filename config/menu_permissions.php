@@ -167,6 +167,7 @@ return [
                 ],
             ],
             'store.products'   => ['label' => 'Produk Store',   'url' => '/erp/store/products',   'route_patterns' => ['store.products.*']],
+            'store.kata-kunci' => ['label' => 'Kata Kunci SEO', 'url' => '/erp/store/kata-kunci', 'route_patterns' => ['store.kata-kunci.*']],
             'store.articles'   => ['label' => 'Blog / Artikel', 'url' => '/erp/store/articles',   'route_patterns' => ['store.articles.*']],
             'store.tutorials'  => ['label' => 'Tutorial',       'url' => '/erp/store/tutorials',  'route_patterns' => ['store.tutorials.*']],
             'store.web-payments' => ['label' => 'Pembayaran Web', 'url' => '/erp/store/web-payments', 'route_patterns' => ['store.web-payments.*']],

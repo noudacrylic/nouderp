@@ -77,6 +77,15 @@ return [
         'key'               => env('ANTHROPIC_API_KEY'),
         'model_text'        => env('ANTHROPIC_MODEL_TEXT', 'claude-sonnet-4-6'),
         'model_vision'      => env('ANTHROPIC_MODEL_VISION', 'claude-opus-4-8'),
+        // Riset bank kata kunci SEO (Claude + pencarian web) — lihat RisetKataKunciService.
+        'model_seo'         => env('ANTHROPIC_MODEL_SEO', 'claude-sonnet-5-5'),
+    ],
+
+    // Google Search Console → bank kata kunci (SearchConsoleService). Kunci service account
+    // (JSON) disimpan privat; email akunnya ditambahkan sebagai pengguna di properti GSC.
+    'gsc' => [
+        'kredensial' => env('GSC_KREDENSIAL', storage_path('app/private/gsc-service-account.json')),
+        'situs'      => env('GSC_SITUS', 'sc-domain:noudakrilik.com'),
     ],
 
     // Web Push (PWA Karyawan) — VAPID. Tanpa kunci, WebPushNotifier no-op aman.

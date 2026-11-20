@@ -34,7 +34,7 @@ class FakeClaudeClient extends ClaudeClient
         return true;
     }
 
-    public function messages(array $payload): array
+    public function messages(array $payload, int $timeout = 60, array $beta = []): array
     {
         $this->diterima[] = $payload;
 

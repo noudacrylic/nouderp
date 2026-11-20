@@ -26,6 +26,38 @@ Artisan::command('galeri:sapu-kotak', function () {
 })->purpose('Buang berkas Kotak Porto yang tak dilampirkan');
 Schedule::command('galeri:sapu-kotak')->dailyAt('03:30')->name('galeri-sapu-kotak')->withoutOverlapping();
 
+// Bank kata kunci SEO. Riset AI (±1–3 menit/jenis) tak boleh di request web: tombol di halaman
+// hanya menandai riset_diminta_at, penjadwal tiap menit mengerjakan satu jenis.
+Artisan::command('seo:riset-kata-kunci {jenis? : id atau nama jenis} {--antrean : kerjakan satu jenis yang diminta dari halaman}', function () {
+    $svc = app(\App\Modules\Seo\Services\RisetKataKunciService::class);
+    $q = \App\Modules\Seo\Models\SeoJenis::query();
+    if ($this->option('antrean')) {
+        $q->whereNotNull('riset_diminta_at')->orderBy('riset_diminta_at')->limit(1);
+    } elseif ($j = $this->argument('jenis')) {
+        $q->where(fn ($w) => $w->where('id', $j)->orWhere('nama', $j));
+    } else {
+        $q->where('aktif', true)->orderBy('urutan');
+    }
+    foreach ($q->get() as $jenis) {
+        try {
+            $h = $svc->riset($jenis);
+            $this->info("{$jenis->nama}: {$h['baru']} baru, {$h['ada']} sudah ada, {$h['cari']} pencarian, Rp{$h['biaya_rp']}");
+        } catch (\Throwable $e) {
+            $jenis->update(['riset_diminta_at' => null, 'riset_ringkasan' => 'Gagal: ' . mb_substr($e->getMessage(), 0, 200)]);
+            $this->error("{$jenis->nama}: " . $e->getMessage());
+        }
+    }
+})->purpose('Riset kata kunci SEO per jenis produk (Claude + pencarian web)');
+Schedule::command('seo:riset-kata-kunci --antrean')->everyMinute()->name('seo-riset-antrean')->withoutOverlapping(30)->runInBackground();
+
+Artisan::command('seo:tarik-gsc', function () {
+    $gsc = app(\App\Modules\Seo\Services\SearchConsoleService::class);
+    if (!$gsc->tersambung()) return $this->warn('Search Console belum disambungkan (kunci service account belum dipasang).');
+    $h = $gsc->tarik();
+    $this->info("{$h['baris']} kata pencarian ditarik, {$h['baru']} kata baru.");
+})->purpose('Tarik kata pencarian Google Search Console ke bank kata kunci');
+Schedule::command('seo:tarik-gsc')->dailyAt('04:10')->name('seo-tarik-gsc')->withoutOverlapping();
+
 // Hutang PPh Final UMKM masa bulan lalu (Dr 5012 / Cr 2114). Tombol manual: rincian masa Laporan Pajak.
 Schedule::command('pajak:bukukan-hutang')
     ->monthlyOn(1, '02:15')->name('pajak-bukukan-hutang')->withoutOverlapping();
