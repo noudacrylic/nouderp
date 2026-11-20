@@ -187,6 +187,12 @@ class SaranAiService
             report($e);
         }
 
+        // Chat yang sudah dipegang orang tak butuh saran "saya teruskan ke admin…" (keputusan owner
+        // 21 Nov 2026): yang membaca saran justru orang yang dituju lemparan itu.
+        if ($saran->status === CrmSaranAi::BARU && $saran->lempar_ke && $c->refresh()->owner_user_id) {
+            $saran->update(['status' => CrmSaranAi::TAK_PERLU, 'catatan' => 'Dilempar; chat sudah dipegang admin.']);
+        }
+
         return $saran;
     }
 
@@ -198,8 +204,7 @@ class SaranAiService
      */
     private function kirimOtomatis(CrmConversation $c, CrmMessage $pesan, CrmSaranAi $saran, CrmAgent $agen): void
     {
-        // WhatsApp baru mode saran (16 Nov 2026): kirim otomatis dikunci di kode, bukan hanya di layar.
-        $mode     = $c->shopee() ? ($agen->kirim_otomatis ?: CrmAgent::KIRIM_MATI) : CrmAgent::KIRIM_MATI;
+        $mode     = $agen->kirim_otomatis ?: CrmAgent::KIRIM_MATI;
         $luarJam  = AgenPrompt::diLuarJamKerja();
         if ($mode === CrmAgent::KIRIM_MATI || $saran->status !== CrmSaranAi::BARU
             || (!$luarJam && $mode !== CrmAgent::KIRIM_PENUH)) {
@@ -215,16 +220,15 @@ class SaranAiService
             return;
         }
 
-        // Chat yang dipegang owner (biasanya custom yang sedang dirundingkan): di luar jam AI tidak
-        // menjawab isinya, cukup kalimat penahan sekali semalam supaya chat tetap terbalas.
-        if ($luarJam && $this->dipegangOwner($c)) {
-            if ($this->sudahDitahanMalamIni($c)) {
+        // Chat yang sudah dipegang admin & pertanyaannya tak bisa dijawab AI: tidak dilempar lagi,
+        // cukup info kapan admin aktif — sekali semalam. Yang bisa dijawab tetap dijawab AI.
+        if ($luarJam && $saran->lempar_ke && $c->owner_user_id) {
+            if (AgenPrompt::kabarJamSudahDisampaikan($c->id)) {
                 $this->tandaiMenungguAdmin($c);
 
                 return;
             }
-            $teks = self::teksPenahanLuarJam();
-            $saran->lempar_ke ??= 'owner';
+            $teks = self::teksInfoAdminAktif();
         }
 
         // Kabar "admin aktif lagi" cukup sekali semalam: lemparan yang isinya hanya kabar itu
@@ -300,20 +304,9 @@ class SaranAiService
         return 'Pesan kakak sudah kami terima & diteruskan ke admin yang menangani 🙏 admin aktif lagi ' . AgenPrompt::adminAktifLagi() . ' ya kak.';
     }
 
-    /** Pemegang chat anggota meja Owner. */
-    private function dipegangOwner(CrmConversation $c): bool
+    private static function teksInfoAdminAktif(): string
     {
-        return $c->owner_user_id
-            && MejaKerjaPeran::where('peran', 'owner')->where('user_id', $c->owner_user_id)->exists();
-    }
-
-    /** AI sudah mengirim (atau menandai bayangan) sesuatu ke chat ini sejak toko tutup. */
-    private function sudahDitahanMalamIni(CrmConversation $c): bool
-    {
-        return CrmSaranAi::where('conversation_id', $c->id)
-            ->whereIn('otomatis', [CrmSaranAi::OTO_BAYANGAN, CrmSaranAi::OTO_TERKIRIM])
-            ->where('created_at', '>=', AgenPrompt::awalLuarJam())
-            ->exists();
+        return 'Mohon maaf kak, admin yang menangani sedang offline 🙏 admin aktif lagi ' . AgenPrompt::adminAktifLagi() . ', nanti langsung dibantu ya kak.';
     }
 
     /**
@@ -323,9 +316,9 @@ class SaranAiService
      */
     private function arahkanKePeran(CrmConversation $c, ?string $lempar): void
     {
-        // WhatsApp (mode saran, 16 Nov 2026): chat belum dioper otomatis — sarannya dinilai dulu.
+        // WhatsApp ikut dioper dengan pola yang sama sejak 21 Nov 2026 (keputusan owner).
         $peran = ['desain' => 'desain', 'admin' => 'layanan', 'owner' => 'owner'][$lempar] ?? null;
-        if (!$peran || !$c->shopee()) {
+        if (!$peran) {
             return;
         }
 

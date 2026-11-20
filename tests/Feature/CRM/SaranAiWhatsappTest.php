@@ -5,6 +5,7 @@ namespace Tests\Feature\CRM;
 use App\Core\Inventory\Warehouse;
 use App\Models\Customer;
 use App\Models\User;
+use App\Modules\Tasks\MejaKerja\Models\MejaKerjaPeran;
 use App\Modules\Assistant\Services\ClaudeClient;
 use App\Modules\Assistant\Services\FakeClaudeClient;
 use App\Modules\CRM\Agents\AgenPrompt;
@@ -118,21 +119,36 @@ class SaranAiWhatsappTest extends TestCase
         $this->assertSame(0, CrmSaranAi::count());
     }
 
-    public function test_lemparan_wa_tidak_mengirim_dan_tidak_mengoper_chat(): void
+    public function test_lemparan_wa_dioper_per_peran_dan_mode_mati_tidak_mengirim(): void
     {
         $this->travelTo(now()->next('Monday')->setTime(22, 0));
-        $pemegang = User::factory()->create();
-        $c = $this->chat('kak bisa custom kotak 20x30?');
-        $c->forceFill(['owner_user_id' => $pemegang->id])->save();
-        CrmAgent::where('kode', CrmAgent::CS_WHATSAPP)->update(['kirim_otomatis' => CrmAgent::KIRIM_PENUH]);
-        $this->claude->antrekan($this->usul('D1', 'bisa kak, tebalnya mau 2 mm atau 3 mm?', 'owner'));
+        $desain = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        MejaKerjaPeran::create(['peran' => 'desain', 'user_id' => $desain->id, 'urutan' => 1]);
+        $c = $this->chat('kak logonya mau diganti');
+        $this->claude->antrekan($this->usul('C3', 'saya teruskan ke admin desain ya kak', 'desain'));
 
         $this->artisan('crm:saran-ai')->assertSuccessful();
 
-        $s = CrmSaranAi::firstOrFail();
-        $this->assertSame(['owner', null], [$s->lempar_ke, $s->otomatis]);
-        $this->assertSame($pemegang->id, (int) $c->refresh()->owner_user_id, 'Mode saran WA: chat tidak dioper.');
-        $this->assertSame(1, CrmMessage::where('direction', CrmMessage::KELUAR)->count(), 'Agen WA tak punya mode kirim di layar; tetap tidak mengirim.');
+        $this->assertSame($desain->id, (int) $c->refresh()->owner_user_id, 'WA dioper seperti Shopee.');
+        $this->assertSame(CrmSaranAi::TAK_PERLU, CrmSaranAi::firstOrFail()->status, 'Lemparan ke chat yang sudah dipegang: tanpa saran.');
+        $this->assertSame(1, CrmMessage::where('direction', CrmMessage::KELUAR)->count(), 'Mode Mati: tidak mengirim.');
+    }
+
+    public function test_wa_mode_otomatis_luar_jam_chat_dipegang_diberi_info_admin_aktif(): void
+    {
+        $this->travelTo(now()->next('Monday')->setTime(22, 0));
+        CrmAgent::where('kode', CrmAgent::CS_WHATSAPP)->update(['kirim_otomatis' => CrmAgent::KIRIM_OTOMATIS]);
+        $pemegang = User::factory()->create();
+        $c = $this->chat('kak bisa custom kotak 20x30?');
+        $c->forceFill(['owner_user_id' => $pemegang->id])->save();
+        $this->claude->antrekan($this->usul('D1', 'saya teruskan ke admin produksi ya kak', 'owner'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $ai = CrmMessage::where('source', CrmMessage::SOURCE_AI)->pluck('content')->all();
+        $this->assertCount(1, $ai);
+        $this->assertStringContainsString('admin aktif lagi', $ai[0]);
+        $this->assertStringNotContainsString('teruskan', $ai[0], 'Tidak melempar lagi, cukup info.');
     }
 
     public function test_info_pesanan_wa_membaca_so_pelanggan(): void
