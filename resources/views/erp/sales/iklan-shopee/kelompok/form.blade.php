@@ -120,12 +120,12 @@
     <div class="bg-white rounded shadow p-3 mb-3">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-2 text-sm">
             <div class="font-semibold">Rencana tayang hari ini</div>
-            <div class="text-xs text-gray-500">± {{ $aksiPerHari }} aksi pause/lanjut per hari · hijau = tayang · ▲ = jam ramai · ✎ = jadwal manual</div>
+            <div class="text-xs text-gray-500">± {{ $aksiPerHari }} aksi pause/lanjut per hari · hijau = tayang · hijau muda = dijadwalkan, menunggu stok · ▲ = jam ramai · ✎ = jadwal manual</div>
         </div>
         @if ($anggota->isEmpty())
             <p class="text-xs text-gray-400">Belum ada anggota.</p>
         @else
-            <p class="text-xs text-gray-500 mb-2">Klik kotak (atau tahan &amp; seret) untuk mengatur sendiri jam tayang satu iklan. Iklan yang diatur sendiri tayang persis di jam pilihan dan tidak ikut giliran; iklan lain tetap bergiliran otomatis. Stok habis tetap tidak ditayangkan.</p>
+            <p class="text-xs text-gray-500 mb-2">Klik kotak (atau tahan &amp; seret) untuk mengatur sendiri jam tayang satu iklan. Iklan yang diatur sendiri tayang persis di jam pilihan dan tidak ikut giliran; iklan lain tetap bergiliran otomatis. Iklan yang stoknya habis juga bisa disiapkan jadwalnya: begitu stok ada lagi, iklan langsung tayang sesuai jadwal itu tanpa perlu diatur ulang.</p>
             <form method="POST" action="{{ route('sales.iklan-shopee.kelompok.jadwal-manual', $k) }}" id="form-manual">
                 @csrf @method('PUT')
                 <div class="overflow-x-auto select-none">
@@ -144,13 +144,17 @@
                                 $manual = $a['manual'];
                                 $tayang = fn ($j) => $manual !== null ? in_array($j, $manual, true) : in_array($cid, $rencana[$j], true);
                             @endphp
-                            <tr class="baris-grid" data-cid="{{ $cid }}">
+                            <tr class="baris-grid" data-cid="{{ $cid }}" data-layak="{{ $a['layak'] ? 1 : 0 }}">
                                 <td class="pr-2 py-0.5 max-w-[16rem]">
-                                    <div class="truncate {{ $a['layak'] ? '' : 'text-gray-400 line-through' }}" title="{{ $a['iklan']->nama }}">
+                                    <div class="truncate {{ $a['layak'] ? '' : 'text-gray-400' }}" title="{{ $a['iklan']->nama }}">
                                         @if ($manual !== null)<span class="text-blue-700 no-underline" title="Jadwal manual">✎</span>@endif
                                         {{ $a['iklan']->nama }}
                                     </div>
-                                    @if (!$a['layak'])<div class="text-[10px] text-red-600">tidak ditayangkan: {{ $a['alasan'] }}</div>@endif
+                                    @if (!$a['layak'])
+                                        <div class="text-[10px] text-red-600">sementara tidak tayang: {{ $a['alasan'] }}
+                                            <span class="text-gray-500">— {{ $manual !== null ? 'jadwal hijau muda dipakai lagi saat bisa tayang' : 'klik kotak untuk menyiapkan jadwalnya; tanpa itu ikut giliran otomatis' }}</span>
+                                        </div>
+                                    @endif
                                 </td>
                                 @for ($j = 0; $j < 24; $j++)
                                     <td class="p-0.5">
@@ -255,10 +259,12 @@
 
         function setel(sel, on) {
             sel.dataset.on = on ? '1' : '0';
-            sel.classList.toggle('bg-green-500', on);
-            sel.classList.toggle('bg-gray-100', !on);
-            sel.classList.remove('bg-green-200');
             var tr = sel.closest('tr');
+            var layak = tr.dataset.layak === '1';
+            // Baris yang sementara tak bisa tayang (mis. stok habis): jadwalnya hijau muda.
+            sel.classList.toggle('bg-green-500', on && layak);
+            sel.classList.toggle('bg-green-200', on && !layak);
+            sel.classList.toggle('bg-gray-100', !on);
             var cid = tr.dataset.cid;
             berubah[cid] = true;
             var jam = [];

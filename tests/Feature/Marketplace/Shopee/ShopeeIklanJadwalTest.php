@@ -175,6 +175,23 @@ class ShopeeIklanJadwalTest extends TestCase
         $this->assertSame('jadwal manual', DB::table('shopee_iklan_aksi')->where('campaign_id', 1)->value('alasan'));
     }
 
+    public function test_jadwal_iklan_stok_habis_disiapkan_dan_dipakai_saat_stok_ada(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $k = $this->kelompok();
+        $this->iklan(1, $k);
+        $this->iklan(2, $k, stok: 0);
+
+        $this->actingAs($admin)->put(route('sales.iklan-shopee.kelompok.jadwal-manual', $k), ['baris' => ['2' => '8,9']])->assertRedirect();
+        $k->refresh();
+        $this->assertNotContains(2, $this->svc->aktifPada($k, now()->setTime(8, 0)));
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.edit', $k))->assertOk()->assertSee('hijau muda dipakai lagi');
+
+        ShopeeItem::where('item_id', 20)->update(['stok' => 7]);
+        $this->assertContains(2, $this->svc->aktifPada($k, now()->setTime(8, 0)));
+        $this->assertNotContains(2, $this->svc->aktifPada($k, now()->setTime(10, 0)));
+    }
+
     public function test_simpan_dan_kembalikan_jadwal_manual_dari_grid(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
