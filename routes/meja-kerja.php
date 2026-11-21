@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\Route;
 | tertangkap parameter {task}. Nama rute tasks.meja.* → hak akses menu Task Manager.
 */
 
-Route::middleware('auth')->prefix('erp/tasks/meja')->name('tasks.meja.')->group(function () {
+// SinkronSetelahAksi: tiap tombol (POST/DELETE) langsung diikuti sinkron Meja Kerja.
+Route::middleware(['auth', \App\Modules\Tasks\MejaKerja\SinkronSetelahAksi::class])->prefix('erp/tasks/meja')->name('tasks.meja.')->group(function () {
     Route::get('/', [MejaKerjaController::class, 'index'])->name('index');
     Route::get('/lencana', [MejaKerjaController::class, 'lencana'])->name('lencana');
     Route::post('/sinkron', [MejaKerjaController::class, 'sinkron'])->name('sinkron');

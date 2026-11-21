@@ -185,4 +185,22 @@ class TugasOwnerTest extends TestCase
         $this->assertSame(Tugas::BATAL, $t->fresh()->tahap);
         $this->aksi($this->owner, $t, 'komentar', ['isi' => 'x'])->assertSessionHas('error');
     }
+
+    /** 21 Nov 2026: tugas dikirim tapi kartunya baru muncul setelah sinkron 2 menitan. */
+    public function test_kirim_tugas_langsung_jadi_kartu_tanpa_sinkron_manual(): void
+    {
+        app(\App\Modules\KaryawanVirtual\Services\KaryawanVirtualService::class)
+            ->ubahMode('admin.tugas-owner', \App\Modules\KaryawanVirtual\Contracts\Skill::OTOMATIS, null);
+        $kartu = fn () => \App\Modules\Tasks\Models\Task::where('skill', 'tugas-owner')->whereIn('status', ['open', 'in_progress'])->first();
+        $t = $this->tugas();
+
+        $this->aksi($this->owner, $t, 'brief', ['isi' => 'Edit jalur evakuasi']);
+        $this->assertNotNull($k = $kartu(), 'Kartu langsung ada begitu tugas dikirim.');
+        $this->assertSame($this->admin->id, (int) $k->assignee_user_id);
+
+        // Admin menulis pemahaman → kartunya langsung selesai (giliran owner).
+        $this->aksi($this->admin, $t, 'ringkasan', ['isi' => 'Paham']);
+        $this->assertSame('done', $k->fresh()->status);
+        $this->assertNull($kartu());
+    }
 }

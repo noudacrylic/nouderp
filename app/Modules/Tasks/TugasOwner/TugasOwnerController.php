@@ -72,7 +72,7 @@ class TugasOwnerController extends Controller
         $data = $request->validate(['prioritas' => ['required', Rule::in(array_keys(\App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS))]]);
         $tugas->update(['prioritas' => $data['prioritas']]);
 
-        return back()->with('success', 'Prioritas tugas: ' . \App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS[$data['prioritas']] . '. Letak kartunya di meja admin menyesuaikan dalam ±2 menit.');
+        return back()->with('success', 'Prioritas tugas: ' . \App\Modules\Tasks\MejaKerja\Skills\TugasOwnerSkill::PRIORITAS[$data['prioritas']] . '. Letak kartunya di meja admin sudah menyesuaikan.');
     }
 
     public function aksi(Request $request, Tugas $tugas, string $aksi)
