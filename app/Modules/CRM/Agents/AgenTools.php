@@ -501,10 +501,12 @@ class AgenTools
             ], $items);
             $judul = 'Ongkir kurir instan ke shareloc pembeli (' . mb_substr($tempat, 0, 120) . ')';
         } else {
-            $wilayah = $ongkir->cariWilayah($tujuan);
-            if (! $wilayah && preg_match('/\b\d{5}\b/', $tujuan, $kodePos)) {
-                $wilayah = $ongkir->cariWilayah($kodePos[0]);
+            // Satu kata saja ("Semarang") ambigu: ada kelurahan bernama Semarang di Bengkulu & Banjarnegara.
+            $kataTujuan = array_filter(preg_split('/[\s,.\/]+/u', $tujuan), fn ($w) => mb_strlen($w) >= 3 && ! ctype_digit($w));
+            if (! preg_match('/\b\d{5}\b/', $tujuan) && count($kataTujuan) < 2) {
+                return ['content' => 'Tujuan "' . $tujuan . '" kurang lengkap. Tanyakan kecamatan + kota (atau kode pos) pembeli dulu.'];
             }
+            $wilayah = $ongkir->cariWilayahLonggar($tujuan);
             if (! $wilayah) {
                 return ['content' => 'Wilayah "' . $tujuan . '" tidak ditemukan. Tanyakan kecamatan + kota (atau kode pos) pembeli.'];
             }

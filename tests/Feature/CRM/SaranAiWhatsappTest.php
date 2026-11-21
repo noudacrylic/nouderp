@@ -206,6 +206,35 @@ class SaranAiWhatsappTest extends TestCase
         $this->assertSame($p->id, $p->fresh()->id);
     }
 
+    public function test_cek_ongkir_alamat_beberapa_kata_dicari_per_kata_dan_satu_kata_ditolak(): void
+    {
+        \App\Core\Inventory\Product::create(['sku' => 'KS-3K', 'name' => 'Kotak Saran 3 Kotak', 'sale_type' => 'ready',
+            'base_unit' => 'pcs', 'base_price' => 100000, 'is_active' => true, 'is_sellable' => true, 'weight_gram' => 800]);
+        $penyedia = \Mockery::mock(\App\Modules\Shipping\Contracts\ShippingProvider::class);
+        // Seperti Jubelio: kueri beberapa kata tidak menemukan apa pun.
+        $penyedia->shouldReceive('searchAreas')->andReturnUsing(fn ($q) => ['areas' => match (mb_strtolower($q)) {
+            'coblong' => [
+                ['id' => 'X9', 'postal_code' => '99999', 'subdistrict' => 'Coblong', 'district' => 'Lain', 'city' => 'Kab. Entah', 'province' => 'Riau'],
+                ['id' => 'B2', 'postal_code' => '40132', 'subdistrict' => 'Lebak Gede', 'district' => 'Coblong', 'city' => 'KOTA BANDUNG', 'province' => 'Jawa Barat'],
+            ],
+            default => [],
+        }]);
+        $this->mock(\App\Modules\Shipping\ShippingManager::class, function ($m) use ($penyedia) {
+            $m->shouldReceive('defaultProviderKey')->andReturn('jubelio_shipment');
+            $m->shouldReceive('provider')->andReturn($penyedia);
+            $m->shouldReceive('rates')->withArgs(fn ($b) => $b['destination_area_id'] === 'B2')
+                ->andReturn(['rates' => [['courier_name' => 'J&T', 'service_name' => 'EZ', 'price' => 25000, 'etd' => '2-3 hari']], 'errors' => []]);
+        });
+        $alat = app(\App\Modules\CRM\Agents\AgenTools::class);
+        $wa = CrmAgent::kode(CrmAgent::CS_WHATSAPP);
+
+        $hasil = $alat->jalankan('cek_ongkir', ['tujuan' => 'kec. Coblong, Bandung', 'barang' => [['sku' => 'KS-3K', 'jumlah' => 1]]], null, $wa)['content'];
+        $this->assertStringContainsString('Ongkir ke Lebak Gede, Coblong, KOTA BANDUNG, Jawa Barat 40132', $hasil, 'Yang cocok kecamatan + kota didahulukan.');
+
+        $satu = $alat->jalankan('cek_ongkir', ['tujuan' => 'Semarang', 'barang' => [['sku' => 'KS-3K', 'jumlah' => 1]]], null, $wa)['content'];
+        $this->assertStringContainsString('kurang lengkap', $satu);
+    }
+
     public function test_cek_ongkir_instan_dari_shareloc_pembeli(): void
     {
         \App\Core\Inventory\Product::create(['sku' => 'KS-3K', 'name' => 'Kotak Saran 3 Kotak', 'sale_type' => 'ready',

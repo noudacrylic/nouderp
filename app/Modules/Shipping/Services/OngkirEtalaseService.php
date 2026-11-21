@@ -36,6 +36,45 @@ class OngkirEtalaseService
     }
 
     /**
+     * Alamat ketikan pembeli ("Tembalang Semarang", "kec. coblong, bandung 40132") → wilayah,
+     * urut paling cocok. Jubelio tak menemukan apa pun untuk kueri beberapa kata (lihat
+     * PointAddressResolver), jadi dicari per kata/kode pos lalu dinilai dengan semua kata.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function cariWilayahLonggar(string $teks): array
+    {
+        $bersih = mb_strtolower(preg_replace('/\b(kec(amatan)?|kel(urahan)?|kab(upaten)?|kota|desa|kode\s*pos)\b\.?/iu', ' ', $teks));
+        $kata   = array_values(array_unique(array_filter(preg_split('/[\s,.\/]+/u', $bersih), fn ($w) => mb_strlen($w) >= 3)));
+
+        $kueri = array_merge(preg_match('/\b\d{5}\b/', $teks, $kp) ? [$kp[0]] : [], [trim($teks)], array_filter($kata, fn ($w) => ! ctype_digit($w)));
+        $calon = [];
+        foreach (array_slice(array_unique($kueri), 0, 5) as $q) {
+            foreach ($this->cariWilayah($q) as $a) {
+                $calon[(string) ($a['id'] ?? '')] ??= $a;
+            }
+            // Hasil dari kode pos / kueri utuh cukup bila ada yang memuat semua kata.
+            if (collect($calon)->contains(fn ($c) => $this->skorWilayah($c, $kata) === count($kata))) {
+                break;
+            }
+        }
+
+        $calon = array_values(array_filter($calon, fn ($a) => ($a['id'] ?? '') !== ''));
+        usort($calon, fn ($x, $y) => $this->skorWilayah($y, $kata) <=> $this->skorWilayah($x, $kata));
+
+        return $calon && $this->skorWilayah($calon[0], $kata) > 0 ? $calon : [];
+    }
+
+    /** Banyaknya kata pembeli yang muncul di nama wilayah (kelurahan, kecamatan, kota, provinsi, kode pos). */
+    private function skorWilayah(array $a, array $kata): int
+    {
+        $nama = mb_strtolower(implode(' ', array_filter([$a['subdistrict'] ?? null, $a['district'] ?? null, $a['city'] ?? null,
+            $a['province'] ?? null, $a['postal_code'] ?? null, $a['name'] ?? null])));
+
+        return count(array_filter($kata, fn ($w) => str_contains($nama, $w)));
+    }
+
+    /**
      * Titik (shareloc / pin peta) → alamat + area kurir + kode pos. Kurir instan menghitung
      * dari koordinat, tapi Jubelio tetap mewajibkan kode pos & area tujuan.
      *
