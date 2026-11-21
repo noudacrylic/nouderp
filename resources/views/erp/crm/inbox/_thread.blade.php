@@ -575,8 +575,17 @@
                             <span class="text-violet-500" x-text="saran?.alasan ?? ''"></span>
                         </div>
                         <div x-show="saran?.teks" class="mt-1 whitespace-pre-line text-gray-800" x-text="saran?.teks ?? ''"></div>
+                        {{-- Pesanan yang disiapkan AI (WA, produk ready): SO draft + tautan bayar baru dibuat saat diklik. --}}
+                        <div x-show="saran?.pesanan" class="mt-2 rounded border border-emerald-300 bg-white px-2 py-1.5">
+                            <div class="text-xs font-semibold text-emerald-800">🛒 Pesanan siap dibuat (dicek ulang saat diklik)</div>
+                            <div class="mt-1 whitespace-pre-line text-xs text-gray-700" x-text="saran?.pesanan ?? ''"></div>
+                            <div x-show="galat" class="mt-1 text-xs text-red-600" x-text="galat"></div>
+                        </div>
                         <div class="flex gap-2 mt-2">
-                            <button type="button" x-show="saran?.teks" @click="pakai()"
+                            <button type="button" x-show="saran?.pesanan" @click="buatPesanan()" :disabled="memproses"
+                                    class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold"
+                                    x-text="memproses ? 'Membuat pesanan…' : 'Buat pesanan & sisipkan tautan bayar'"></button>
+                            <button type="button" x-show="saran?.teks && !saran?.pesanan" @click="pakai()"
                                     class="px-3 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold">Pakai</button>
                             <button type="button" @click="abaikan()"
                                     class="px-3 py-1 rounded border border-violet-300 text-violet-700 hover:bg-violet-100 text-xs">Abaikan</button>
@@ -1776,6 +1785,33 @@
                                 this.terpakai = this.saran.id;
                                 window.dispatchEvent(new CustomEvent('pakai-saran', { detail: { id: this.saran.id, teks: this.saran.teks } }));
                                 this.saran = null;
+                            },
+                            memproses: false,
+                            galat: '',
+                            // Pesanan AI: SO draft + tautan bayar dibuat di server, lalu teks + rincian masuk kotak ketik.
+                            async buatPesanan() {
+                                const s = this.saran;
+                                if (!s?.pesanan_url || this.memproses) return;
+                                this.memproses = true;
+                                this.galat = '';
+                                try {
+                                    const r = await fetch(s.pesanan_url, { method: 'POST', headers: {
+                                        'Accept': 'application/json',
+                                        'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content ?? '',
+                                    } });
+                                    const j = await r.json().catch(() => ({}));
+                                    if (!r.ok || !j.success) {
+                                        this.galat = j.error || 'Pesanan gagal dibuat.';
+                                        return;
+                                    }
+                                    this.terpakai = s.id;
+                                    window.dispatchEvent(new CustomEvent('pakai-saran', { detail: { id: s.id, teks: j.teks } }));
+                                    this.saran = null;
+                                } catch (e) {
+                                    this.galat = 'Pesanan gagal dibuat — coba lagi.';
+                                } finally {
+                                    this.memproses = false;
+                                }
                             },
                             async abaikan() {
                                 const s = this.saran;

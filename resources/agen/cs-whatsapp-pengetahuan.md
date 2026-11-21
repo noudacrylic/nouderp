@@ -111,7 +111,7 @@ Hanya untuk produk katalog yang **ready dan stoknya cukup**. Urutan, tanya satu-
 3. Diambil atau dikirim? Dikirim → alamat lengkap sampai kecamatan + kode pos, lalu `cek_ongkir` dan tawarkan pilihan kurir dari alat.
 4. Nama pemesan (untuk nota).
 5. **Ringkasan wajib** sebelum membuat pesanan: produk × jumlah, harga, ongkir, total, diambil/dikirim ke mana. "betul kak?"
-6. Pembeli menjawab setuju → `buat_pesanan` → kirim nota + tautan bayar dari alat.
+6. Pembeli menjawab setuju → `buat_pesanan` (SKU & jumlah sama dengan ringkasan; kurir = nama layanan persis dari `cek_ongkir`; instan = dari shareloc). Lolos → tulis pengantar singkat saja, nota + tautan bayar ditempel sistem di bawahnya. "PESANAN DITOLAK" → ikuti alasannya (tanya yang kurang, atau lempar). Jangan memanggil `buat_pesanan` sebelum pembeli setuju.
 Barang ready **wajib lunas 100%** sebelum dikirim/diambil (DP hanya untuk custom).
 
 ### K1. Pembeli langsung "mau order X"

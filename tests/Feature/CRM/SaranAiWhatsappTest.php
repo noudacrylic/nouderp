@@ -76,11 +76,11 @@ class SaranAiWhatsappTest extends TestCase
         $this->assertSame(CrmAgent::CS_WHATSAPP, $s->run->agent->kode);
 
         $muatan = $this->claude->diterima[0];
-        $this->assertSame(['cek_stok', 'info_pesanan', 'deskripsi_produk', 'cek_ongkir', 'usulkan_balasan'], array_column($muatan['tools'], 'name'));
+        $this->assertSame(['cek_stok', 'info_pesanan', 'deskripsi_produk', 'cek_ongkir', 'buat_pesanan', 'usulkan_balasan'], array_column($muatan['tools'], 'name'));
         $this->assertStringContainsString('Bukan pelanggan', $muatan['system'][0]['text'], 'Pengetahuan = daftar tanya-jawab WA.');
         $this->assertStringContainsString('chat WHATSAPP', $muatan['system'][0]['text']);
         $this->assertStringNotContainsString('DRAF', $muatan['system'][0]['text']);
-        $this->assertStringContainsString('Z2', json_encode($muatan['tools'][4], JSON_UNESCAPED_UNICODE), 'Kode butir WA, bukan I1/I2 Shopee.');
+        $this->assertStringContainsString('Z2', json_encode($muatan['tools'][5], JSON_UNESCAPED_UNICODE), 'Kode butir WA, bukan I1/I2 Shopee.');
 
         $this->assertNotNull(app(SaranAiService::class)->berlaku($c->refresh()), 'Sambutan sesudah pesan tidak membuat saran basi.');
         $this->assertSame(1, CrmMessage::where('direction', CrmMessage::KELUAR)->count(), 'Mode saran: tidak ada yang dikirim.');

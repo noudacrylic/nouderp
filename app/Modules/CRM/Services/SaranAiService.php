@@ -164,6 +164,13 @@ class SaranAiService
         $lempar = in_array($usul['lempar_ke'] ?? null, ['admin', 'desain', 'owner'], true) ? $usul['lempar_ke'] : null;
         $butir  = mb_substr(trim((string) ($usul['butir'] ?? '')), 0, 10) ?: null;
 
+        // Pesanan yang lolos pagar `buat_pesanan` (WA): masukannya disimpan, SO dibuat nanti.
+        $siap = collect($hasil['jejak'])->filter(fn ($j) => ($j['alat'] ?? null) === 'buat_pesanan'
+            && str_starts_with((string) ($j['hasil'] ?? ''), \App\Modules\CRM\Agents\AgenTools::PESANAN_SIAP))->last();
+        if ($siap && $lempar === null && $teks === '') {
+            $teks = 'baik kak, ini rincian pesanan & tautan pembayarannya ya 🙏';
+        }
+
         $saran = CrmSaranAi::create([
             'conversation_id'  => $c->id,
             'untuk_message_id' => $pesan->id,
@@ -173,6 +180,10 @@ class SaranAiService
             'lempar_ke'        => $lempar,
             'alasan'           => mb_substr(trim((string) ($usul['alasan'] ?? '')), 0, 255) ?: null,
             'status'           => $teks === '' && !$lempar ? CrmSaranAi::TAK_PERLU : CrmSaranAi::BARU,
+            'pesanan'          => $siap && !$lempar ? (array) ($siap['input'] ?? []) : null,
+            'pesanan_ringkasan' => $siap && !$lempar
+                ? trim(mb_substr((string) $siap['hasil'], mb_strlen(\App\Modules\CRM\Agents\AgenTools::PESANAN_SIAP)), " \n")
+                : null,
         ]);
 
         try {
@@ -256,6 +267,19 @@ class SaranAiService
             $saran->update(['otomatis' => CrmSaranAi::OTO_BAYANGAN]);
 
             return;
+        }
+
+        // Pesanan AI (WA): SO + tautan bayar dibuat tepat sebelum dikirim, pagar diperiksa ulang.
+        if ($saran->pesanan) {
+            try {
+                $teks .= "\n\n" . app(PesananAiService::class)->wujudkan($saran)['teks'];
+            } catch (\Throwable $e) {
+                Log::warning('[CRM] pesanan AI gagal dibuat', ['conversation' => $c->id, 'error' => $e->getMessage()]);
+                $saran->update(['otomatis' => CrmSaranAi::OTO_GAGAL, 'catatan' => mb_substr($e->getMessage(), 0, 255)]);
+                $this->tandaiMenungguAdmin($c);
+
+                return;
+            }
         }
 
         $hasil = app(CrmReplyService::class)->balas($c, $teks);

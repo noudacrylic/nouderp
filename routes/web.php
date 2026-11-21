@@ -276,6 +276,7 @@ Route::prefix('erp')->group(function () {
         // Saran balasan AI CS Shopee (mode saran) — dibaca kotak 💡 di atas kotak ketik.
         Route::get ('/{conversation}/saran-ai', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'saranAi'])->name('inbox.saran-ai');
         Route::post('/{conversation}/saran-ai/{saran}/abaikan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'abaikanSaranAi'])->name('inbox.saran-ai.abaikan');
+        Route::post('/{conversation}/saran-ai/{saran}/pesanan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pesananSaranAi'])->name('inbox.saran-ai.pesanan');
         // Pancingan: template bertombol yang membuka lagi jendela 24 jam yang
         // habis di tengah pembahasan (hari libur, di luar jam kerja).
         Route::post('/{conversation}/pancingan', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pancingan'])->name('inbox.pancingan');

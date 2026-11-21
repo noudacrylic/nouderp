@@ -61,7 +61,7 @@ class AgenTools
             CrmAgent::CS_SHOPEE   => [$this->skemaCekStok(), $this->skemaInfoPesanan(), $this->skemaDeskripsiProduk(), $this->skemaUsulkan()],
             // Nama alat sama dengan CS Shopee (daftar tanya-jawab menyebutnya), isinya untuk WhatsApp:
             // harga & link web boleh, pesanan = SO ERP pelanggan ini.
-            CrmAgent::CS_WHATSAPP => [$this->skemaCekStokWa(), $this->skemaInfoPesananWa(), $this->skemaDeskripsiProduk(), $this->skemaCekOngkir(), $this->skemaUsulkan(true)],
+            CrmAgent::CS_WHATSAPP => [$this->skemaCekStokWa(), $this->skemaInfoPesananWa(), $this->skemaDeskripsiProduk(), $this->skemaCekOngkir(), $this->skemaBuatPesanan(), $this->skemaUsulkan(true)],
             // Penjualan & cetak belum dikerjakan; keduanya minimal punya pintu
             // menyerah supaya tidak pernah terjebak mengarang jawaban.
             default => [$this->skemaLempar()],
@@ -82,6 +82,7 @@ class AgenTools
             'info_pesanan'      => $wa ? $this->infoPesananWa($percakapan) : $this->infoPesanan($percakapan),
             'deskripsi_produk'  => $this->deskripsiProduk($input, ! $wa),
             'cek_ongkir'        => $wa ? $this->cekOngkir($input, $percakapan) : ['content' => 'Alat cek_ongkir hanya untuk WhatsApp.'],
+            'buat_pesanan'      => $wa ? $this->buatPesanan($input, $percakapan) : ['content' => 'Alat buat_pesanan hanya untuk WhatsApp.'],
             'usulkan_balasan'   => $this->usulkan($input),
             default             => ['content' => 'Alat "' . $nama . '" tidak ada. Jangan panggil lagi.'],
         };
@@ -419,9 +420,6 @@ class AgenTools
 
     /* ------------------------------------------------------------ cek ongkir (WA) */
 
-    /** Shareloc pembeli yang dipakai kurir instan: pesan lokasi terbaru dalam batas ini. */
-    private const JAM_SHARELOC = 72;
-
     private function skemaCekOngkir(): array
     {
         return [
@@ -487,7 +485,7 @@ class AgenTools
         if ($instan) {
             $titik = $this->sharelocTerakhir($percakapan);
             if (! $titik) {
-                return ['content' => 'Belum ada shareloc dari pembeli di chat ini (' . self::JAM_SHARELOC . ' jam terakhir). '
+                return ['content' => 'Belum ada shareloc dari pembeli di chat ini (' . \App\Modules\CRM\Services\PesananAiService::JAM_SHARELOC . ' jam terakhir). '
                     . 'Minta pembeli kirim lokasi lewat fitur Lokasi WhatsApp (bukan ketik alamat), lalu cek lagi.'];
             }
             $w = $ongkir->wilayahDariTitik($titik['lat'], $titik['lng']);
@@ -528,12 +526,7 @@ class AgenTools
             $harga = (float) $r['price'];
             $pot   = (float) ($r['discount'] ?? 0);
 
-            // Jubelio sering mengulang nama kurir di nama layanan ("Anteraja" + "Anteraja Same Day").
-            $kurir   = trim((string) ($r['courier_name'] ?? ''));
-            $layanan = trim((string) ($r['service_name'] ?? ''));
-            $nama    = $kurir !== '' && stripos($layanan, $kurir) === 0 ? $layanan : trim($kurir . ' ' . $layanan);
-
-            return '- ' . $nama . ': ' . $rp($harga)
+            return '- ' . \App\Modules\Shipping\Services\OngkirEtalaseService::namaLayanan($r) . ': ' . $rp($harga)
                 . ($pot > 0 ? ', potongan ongkir ' . $rp($pot) . ' → dibayar ' . $rp($harga - $pot) : '')
                 . (($r['etd'] ?? '') !== '' ? ', estimasi ' . $r['etd'] : '');
         });
@@ -548,16 +541,63 @@ class AgenTools
     /** @return array{lat: float, lng: float, nama: ?string, alamat: ?string}|null shareloc terbaru pembeli */
     private function sharelocTerakhir(?CrmConversation $percakapan): ?array
     {
+        return $percakapan ? app(\App\Modules\CRM\Services\PesananAiService::class)->sharelocTerakhir($percakapan) : null;
+    }
+
+    /* ------------------------------------------------------------ buat pesanan (WA) */
+
+    private function skemaBuatPesanan(): array
+    {
+        return [
+            'name'        => 'buat_pesanan',
+            'description' => 'Siapkan pesanan produk katalog READY setelah pembeli MENYETUJUI ringkasan (produk × jumlah, '
+                . 'harga, ongkir, total). Sistem memeriksa stok, harga ERP, ongkir, dan batas total; bila lolos, nota + '
+                . 'tautan bayar ditambahkan sistem di bawah balasanmu. Jangan dipakai untuk custom, pre-order, grosir, '
+                . 'atau nego.',
+            'input_schema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'nama_pemesan' => ['type' => 'string', 'description' => 'Nama untuk nota (wajib bila pembeli belum terdaftar).'],
+                    'barang'       => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'sku'    => ['type' => 'string', 'description' => 'SKU dari hasil cek_stok.'],
+                                'jumlah' => ['type' => 'integer', 'description' => 'Jumlah barang.'],
+                            ],
+                            'required' => ['sku', 'jumlah'],
+                        ],
+                    ],
+                    'pengiriman' => ['type' => 'string', 'enum' => ['ambil', 'kurir', 'instan'], 'description' => 'ambil di toko, kurir reguler, atau kurir instan (dari shareloc).'],
+                    'tujuan'     => ['type' => 'string', 'description' => 'Kurir reguler: kecamatan + kota atau kode pos, sama dengan saat cek_ongkir.'],
+                    'alamat'     => ['type' => 'string', 'description' => 'Kurir/instan: alamat lengkap (jalan, nomor rumah, RT/RW, patokan).'],
+                    'kurir'      => ['type' => 'string', 'description' => 'Kurir/instan: nama layanan persis dari hasil cek_ongkir, mis. "J&T EZ".'],
+                ],
+                'required' => ['barang', 'pengiriman'],
+            ],
+        ];
+    }
+
+    private function buatPesanan(array $input, ?CrmConversation $percakapan): array
+    {
         if (! $percakapan) {
-            return null;
+            return ['content' => 'Tidak ada percakapan — pesanan tidak bisa disiapkan.'];
         }
 
-        return \App\Modules\CRM\Models\CrmMessage::where('conversation_id', $percakapan->id)
-            ->where('direction', \App\Modules\CRM\Models\CrmMessage::MASUK)
-            ->where('sent_at', '>=', now()->subHours(self::JAM_SHARELOC))
-            ->latest('sent_at')->limit(50)->get()
-            ->map(fn ($m) => $m->lokasi())->filter()->first();
+        $siap = app(\App\Modules\CRM\Services\PesananAiService::class)->siapkan($input, $percakapan);
+        if (! $siap['ok']) {
+            return ['content' => 'PESANAN DITOLAK: ' . $siap['pesan']];
+        }
+
+        return ['content' => self::PESANAN_SIAP . "\n" . $siap['ringkasan'] . "\n"
+            . 'Pesanan BELUM dibuat: sistem membuat nota + tautan bayar saat balasanmu dikirim dan menempelkannya di bawah. '
+            . 'Tulis balasan pengantar singkat saja (mis. "baik kak, ini rincian pesanan & tautan pembayarannya ya 🙏"), '
+            . 'jangan menulis ulang rincian, nomor nota, atau tautan.'];
     }
+
+    /** Awalan hasil buat_pesanan yang lolos pagar — SaranAiService membacanya dari jejak. */
+    public const PESANAN_SIAP = 'PESANAN SIAP (lolos pemeriksaan):';
 
     private function skemaInfoPesananWa(): array
     {

@@ -34,10 +34,12 @@ class CrmSaranAi extends Model
         'conversation_id', 'untuk_message_id', 'agent_run_id', 'butir', 'teks', 'lempar_ke', 'alasan',
         'status', 'otomatis', 'teks_terkirim', 'diubah', 'catatan', 'diputus_oleh', 'diputus_at',
         'tinjauan', 'koreksi', 'ditinjau_oleh', 'ditinjau_at',
+        'pesanan', 'pesanan_ringkasan', 'pesanan_so_id',
     ];
 
     protected $casts = [
         'diubah'      => 'boolean',
+        'pesanan'     => 'array',
         'diputus_at'  => 'datetime',
         'ditinjau_at' => 'datetime',
     ];

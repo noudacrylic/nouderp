@@ -20,6 +20,18 @@ class OngkirEtalaseService
         private PackageDefaults $package,
     ) {}
 
+    /**
+     * Nama layanan untuk pembeli & pencocokan pilihan kurir. Jubelio sering mengulang nama
+     * kurir di nama layanan ("Anteraja" + "Anteraja Same Day") — yang dobel tidak diulang.
+     */
+    public static function namaLayanan(array $r): string
+    {
+        $kurir   = trim((string) ($r['courier_name'] ?? ''));
+        $layanan = trim((string) ($r['service_name'] ?? ''));
+
+        return $kurir !== '' && stripos($layanan, $kurir) === 0 ? $layanan : trim($kurir . ' ' . $layanan);
+    }
+
     /** Provider ongkir etalase — satu saja, supaya pembeli tidak disodori tarif ganda. */
     public function providerKey(): ?string
     {
