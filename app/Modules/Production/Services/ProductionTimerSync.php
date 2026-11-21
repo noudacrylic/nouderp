@@ -153,8 +153,15 @@ class ProductionTimerSync
                 ? $this->resolver->effectiveStartTime($sched, $checkInTime)
                 : $now;
 
+            // Scan sebelum jam kerja (mis. 07:15, masuk 08:00) TIDAK menjalankan timer — dulu timer
+            // jalan semenit sampai tick menjedanya, dan di layar operator terlihat berjalan (21 Nov).
+            // Tick per menit yang menjalankannya tepat saat jam kerja/lembur dimulai.
+            $status = $this->resolver->currentStatus($sched, $now, $this->resolver->hasOvertimeIn($karyawanId, $now));
+            $dalamJamKerja = in_array($status, ['in_work', 'in_overtime'], true);
+
             foreach ($statuses as $st) {
                 if ($st->paused_reason === 'manual') continue;
+                if (!$dalamJamKerja) continue;
                 if (!$st->is_active) {
                     $st->update([
                         'is_active'     => true,
