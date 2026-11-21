@@ -13,7 +13,7 @@
     <a href="{{ route('sales.iklan-shopee.kelompok.index') }}" class="text-sm text-blue-700">← Kelompok</a>
     <h1 class="text-lg font-semibold">{{ $k->exists ? $k->nama : 'Kelompok iklan baru' }}</h1>
     @if ($k->exists)
-        <span class="text-xs rounded px-1.5 py-0.5 {{ $k->mode === 'bayangan' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-500' }}">{{ $k->labelMode() }}</span>
+        <span class="text-xs rounded px-1.5 py-0.5 {{ $k->mode === 'bayangan' ? 'bg-amber-100 text-amber-800' : ($k->mode === 'otomatis' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500') }}">{{ $k->labelMode() }}</span>
     @endif
 </div>
 
@@ -37,8 +37,9 @@
                 <select name="mode" class="border rounded px-2 py-1.5 w-full">
                     <option value="mati" @selected(old('mode', $k->mode) === 'mati')>Mati — jadwal tidak dijalankan</option>
                     <option value="bayangan" @selected(old('mode', $k->mode) === 'bayangan')>Bayangan — hanya mencatat, iklan tidak diubah</option>
-                    <option value="otomatis" disabled>Otomatis — menunggu uji pause/lanjut lewat API</option>
+                    <option value="otomatis" @selected(old('mode', $k->mode) === 'otomatis')>Otomatis — menjeda &amp; melanjutkan iklan di Shopee</option>
                 </select>
+                <p class="text-xs text-gray-500 mt-1">Otomatis: tiap awal jam status asli dibaca dari Shopee lalu iklan anggota dijeda/dilanjutkan sesuai rencana di bawah. Iklan anggota yang dijeda/dilanjutkan manual di Seller Centre akan dikembalikan ke rencana pada jam berikutnya — untuk berhenti, pilih Mati atau keluarkan iklannya dari kelompok. Saat diganti ke Mati, iklan dibiarkan pada status terakhirnya.</p>
             </div>
             <div class="grid grid-cols-3 gap-2">
                 <div>

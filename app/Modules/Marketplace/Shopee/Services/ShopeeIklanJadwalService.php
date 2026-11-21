@@ -5,6 +5,8 @@ namespace App\Modules\Marketplace\Shopee\Services;
 use App\Modules\Marketplace\Shopee\Models\ShopeeIklan;
 use App\Modules\Marketplace\Shopee\Models\ShopeeIklanKelompok as Kelompok;
 use App\Modules\Marketplace\Shopee\Models\ShopeeItem;
+use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Notifications\Services\TelegramNotifier;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -24,8 +26,8 @@ use Illuminate\Support\Facades\DB;
  * giliran; `aktif_sepi` berlaku untuk anggota otomatis saja.
  *
  * Mode bayangan: rencana dibandingkan dengan status simulasi kelompok (bukan status asli),
- * lalu dicatat di shopee_iklan_aksi tanpa memanggil Shopee. Mode otomatis belum dibuka
- * sampai pause/lanjut lewat API teruji.
+ * lalu dicatat di shopee_iklan_aksi tanpa memanggil Shopee. Mode otomatis menjeda/melanjutkan
+ * sungguhan lewat ShopeeIklanAksiService (teruji ke Shopee asli 21 Nov 2026).
  */
 class ShopeeIklanJadwalService
 {
@@ -34,7 +36,11 @@ class ShopeeIklanJadwalService
 
     private const HARI_SKOR = 14;
 
-    public function __construct(private ShopeeClient $client) {}
+    public function __construct(
+        private ShopeeClient $client,
+        private ShopeeIklanAksiService $aksi,
+        private TelegramNotifier $telegram,
+    ) {}
 
     /**
      * Bobot & data anggota kelompok yang layak, urut bobot terbesar.
@@ -212,21 +218,46 @@ class ShopeeIklanJadwalService
     }
 
     /**
-     * Jalankan jadwal untuk jam $waktu (dipanggil tiap jam). Mode bayangan mencatat saja.
+     * Jalankan jadwal untuk jam $waktu (dipanggil tiap jam).
+     *  - bayangan : dibandingkan dengan status simulasi, hanya dicatat.
+     *  - otomatis : status asli dibaca dulu dari Shopee, lalu jeda/lanjut sungguhan.
+     * Lanjut dikerjakan sebelum jeda; bila ada lanjut yang gagal, jeda kelompok itu ditunda
+     * jam ini supaya kelompok tidak mati total. Batas aksi harian dihitung terpisah untuk
+     * aksi nyata dan bayangan. Kegagalan dikirim ke Telegram approver.
      *
-     * @return array{kelompok:int, aksi:int, dilewati:int}
+     * @return array{kelompok:int, aksi:int, dilewati:int, gagal:int}
      */
     public function jalankan(?Carbon $waktu = null): array
     {
         $waktu ??= now();
         $env   = $this->client->env();
         $maks  = (int) config('services.shopee.iklan_maks_aksi', 100);
-        $sudah = DB::table('shopee_iklan_aksi')->where('env', $env)
-            ->where('created_at', '>=', $waktu->copy()->startOfDay())
-            ->whereIn('hasil', ['bayangan', 'berhasil'])->count();
+        $hari  = DB::table('shopee_iklan_aksi')->where('env', $env)->where('created_at', '>=', $waktu->copy()->startOfDay());
+        $sudah = [
+            'bayangan' => (clone $hari)->where('mode', 'bayangan')->where('hasil', 'bayangan')->count(),
+            'nyata'    => (clone $hari)->where('mode', '!=', 'bayangan')->whereIn('hasil', ['berhasil', 'gagal'])->count(),
+        ];
 
-        $hasil = ['kelompok' => 0, 'aksi' => 0, 'dilewati' => 0];
-        foreach (Kelompok::where('env', $env)->where('mode', 'bayangan')->get() as $k) {
+        $hasil = ['kelompok' => 0, 'aksi' => 0, 'dilewati' => 0, 'gagal' => 0];
+        $laporGagal = [];
+        $shop = null;
+
+        foreach (Kelompok::where('env', $env)->whereIn('mode', ['bayangan', 'otomatis'])->orderBy('id')->get() as $k) {
+            $nyata = $k->mode === 'otomatis';
+            if ($nyata) {
+                $shop ??= ShopeeShop::aktif();
+                if (!$shop || $shop->perluHubungkanUlang()) {
+                    $laporGagal[] = "{$k->nama}: toko Shopee belum terhubung";
+                    continue;
+                }
+                try {
+                    $this->aksi->segarkanStatus($shop, $k->iklan()->get());
+                } catch (ShopeeException $e) {
+                    $laporGagal[] = "{$k->nama}: gagal membaca status — {$e->getMessage()}";
+                    continue;
+                }
+            }
+
             $hasil['kelompok']++;
             $anggota = $this->anggota($k);
             $target  = array_flip($this->aktifPada($k, $waktu, $anggota));
@@ -239,38 +270,72 @@ class ShopeeIklanJadwalService
                 if (!$i->bisaDiatur()) {
                     continue;
                 }
-                $kini = array_key_exists((string) $i->campaign_id, $sim) ? (bool) $sim[(string) $i->campaign_id] : $i->status === 'ongoing';
-                $mau  = isset($target[$i->campaign_id]);
+                $kini = !$nyata && array_key_exists((string) $i->campaign_id, $sim)
+                    ? (bool) $sim[(string) $i->campaign_id]
+                    : $i->status === 'ongoing';
+                $mau = isset($target[$i->campaign_id]);
                 if ($kini !== $mau) {
                     $why = $a['alasan'] ?? ($a['manual'] !== null ? 'jadwal manual' : $alasan);
-                    $rencana[] = [$i->campaign_id, $mau ? 'lanjut' : 'jeda', $why];
+                    $rencana[] = [$i, $mau ? 'lanjut' : 'jeda', $why];
                 }
                 $sim[(string) $i->campaign_id] = $kini;
             }
             // Lanjutkan dulu baru jeda: bila batas aksi tercapai di tengah, kelompok tidak mati total.
             usort($rencana, fn ($a, $b) => ($a[1] === 'lanjut' ? 0 : 1) <=> ($b[1] === 'lanjut' ? 0 : 1));
 
-            foreach ($rencana as [$cid, $aksi, $why]) {
-                $boleh = $sudah < $maks;
-                DB::table('shopee_iklan_aksi')->insert([
-                    'env' => $env, 'kelompok_id' => $k->id, 'campaign_id' => $cid, 'aksi' => $aksi,
-                    'mode' => 'bayangan', 'hasil' => $boleh ? 'bayangan' : 'dilewati',
-                    'alasan' => $boleh ? $why : 'batas aksi harian tercapai',
-                    'created_at' => $waktu, 'updated_at' => $waktu,
-                ]);
-                if ($boleh) {
-                    $sudah++;
-                    $hasil['aksi']++;
-                    $sim[(string) $cid] = $aksi === 'lanjut';
-                } else {
+            $lanjutGagal = false;
+            $kunci = $nyata ? 'nyata' : 'bayangan';
+            foreach ($rencana as [$i, $aksi, $why]) {
+                $lewati = match (true) {
+                    $sudah[$kunci] >= $maks          => 'batas aksi harian tercapai',
+                    $aksi === 'jeda' && $lanjutGagal => 'ada iklan yang gagal dilanjutkan — jeda ditunda',
+                    default                          => null,
+                };
+                if ($lewati) {
+                    $this->catat($env, $k->id, $i->campaign_id, $aksi, $k->mode, 'dilewati', $lewati, $waktu);
                     $hasil['dilewati']++;
+                    continue;
+                }
+
+                $sudah[$kunci]++;
+                if (!$nyata) {
+                    $this->catat($env, $k->id, $i->campaign_id, $aksi, 'bayangan', 'bayangan', $why, $waktu);
+                    $sim[(string) $i->campaign_id] = $aksi === 'lanjut';
+                    $hasil['aksi']++;
+                    continue;
+                }
+
+                $r = $this->aksi->ubah($shop, $i, $aksi, 'otomatis', $k->id, $why);
+                if ($r['ok']) {
+                    $hasil['aksi']++;
+                } else {
+                    $hasil['gagal']++;
+                    $lanjutGagal = $lanjutGagal || $aksi === 'lanjut';
+                    $laporGagal[] = "{$k->nama}: {$aksi} \"" . mb_substr((string) $i->nama, 0, 50) . "\" gagal — {$r['pesan']} (status " . ($r['status'] ?? '?') . ')';
                 }
             }
 
-            $k->update(['status_simulasi' => $sim, 'dijalankan_at' => $waktu]);
+            $k->update(['status_simulasi' => $nyata ? null : $sim, 'dijalankan_at' => $waktu]);
+        }
+
+        if ($laporGagal) {
+            try {
+                $this->telegram->notifyApprovers('⚠️ Jadwal iklan Shopee jam ' . $waktu->format('H.i') . ":\n- " . implode("\n- ", array_slice($laporGagal, 0, 10)));
+            } catch (\Throwable) {
+                // Telegram hanya kabar; jadwal tetap jalan.
+            }
         }
 
         return $hasil;
+    }
+
+    private function catat(string $env, int $kelompokId, int $campaignId, string $aksi, string $mode, string $hasil, string $alasan, Carbon $waktu): void
+    {
+        DB::table('shopee_iklan_aksi')->insert([
+            'env' => $env, 'kelompok_id' => $kelompokId, 'campaign_id' => $campaignId, 'aksi' => $aksi,
+            'mode' => $mode, 'hasil' => $hasil, 'alasan' => mb_substr($alasan, 0, 100),
+            'created_at' => $waktu, 'updated_at' => $waktu,
+        ]);
     }
 
     private function alasan(Kelompok $k, Carbon $waktu): string

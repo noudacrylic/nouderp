@@ -181,7 +181,7 @@ class IklanKelompokController extends Controller
         $request->merge(['batas_belanja' => $request->filled('batas_belanja') ? clean_number($request->input('batas_belanja')) : null]);
         $data = $request->validate([
             'nama'          => 'required|string|max:100',
-            'mode'          => ['required', Rule::in(['mati', 'bayangan'])], // otomatis dibuka setelah uji pause/lanjut
+            'mode'          => ['required', Rule::in(['mati', 'bayangan', 'otomatis'])],
             'jam_ramai'     => 'array',
             'jam_ramai.*'   => 'integer|between:0,23',
             'aktif_sepi'    => 'required|integer|between:1,20',

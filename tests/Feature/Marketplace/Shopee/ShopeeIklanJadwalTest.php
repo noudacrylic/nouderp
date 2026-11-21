@@ -221,7 +221,7 @@ class ShopeeIklanJadwalTest extends TestCase
         $this->assertNull($k->refresh()->jadwal_manual);
     }
 
-    public function test_halaman_kelompok_simpan_anggota_dan_tolak_otomatis(): void
+    public function test_halaman_kelompok_simpan_anggota_dan_tolak_mode_asing(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
         $lain  = $this->kelompok(['nama' => 'Kotak Saran']);
@@ -244,7 +244,7 @@ class ShopeeIklanJadwalTest extends TestCase
         $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.index'))->assertOk()->assertSee('Brosur');
 
         $this->actingAs($admin)->put(route('sales.iklan-shopee.kelompok.update', $k), [
-            'nama' => 'Brosur', 'mode' => 'otomatis', 'aktif_sepi' => 1, 'rotasi_jam' => 3,
+            'nama' => 'Brosur', 'mode' => 'ngawur', 'aktif_sepi' => 1, 'rotasi_jam' => 3,
         ])->assertSessionHasErrors('mode');
     }
 }

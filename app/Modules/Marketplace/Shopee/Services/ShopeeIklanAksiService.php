@@ -30,6 +30,22 @@ class ShopeeIklanAksiService
         return $status;
     }
 
+    /** Perbarui status beberapa iklan sekaligus dari Shopee (maks 100 per panggilan). */
+    public function segarkanStatus(ShopeeShop $shop, \Illuminate\Support\Collection $iklan): void
+    {
+        foreach ($iklan->chunk(100) as $potong) {
+            $r = $this->client->panggil($shop, 'GET', '/api/v2/ads/get_product_level_campaign_setting_info', [
+                'campaign_id_list' => $potong->pluck('campaign_id')->implode(','), 'info_type_list' => '1',
+            ]);
+            $status = collect($r['campaign_list'] ?? [])->mapWithKeys(fn ($c) => [(int) $c['campaign_id'] => $c['common_info']['campaign_status'] ?? null]);
+            foreach ($potong as $i) {
+                if ($status->get($i->campaign_id)) {
+                    $i->update(['status' => $status[$i->campaign_id], 'disinkron_at' => now()]);
+                }
+            }
+        }
+    }
+
     /**
      * Jeda atau lanjutkan. Untuk "lanjut" dicoba edit_action `resume`, lalu `start` bila Shopee
      * menolak nama aksinya.
