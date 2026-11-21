@@ -76,11 +76,11 @@ class SaranAiWhatsappTest extends TestCase
         $this->assertSame(CrmAgent::CS_WHATSAPP, $s->run->agent->kode);
 
         $muatan = $this->claude->diterima[0];
-        $this->assertSame(['cek_stok', 'info_pesanan', 'deskripsi_produk', 'usulkan_balasan'], array_column($muatan['tools'], 'name'));
+        $this->assertSame(['cek_stok', 'info_pesanan', 'deskripsi_produk', 'cek_ongkir', 'usulkan_balasan'], array_column($muatan['tools'], 'name'));
         $this->assertStringContainsString('Bukan pelanggan', $muatan['system'][0]['text'], 'Pengetahuan = daftar tanya-jawab WA.');
         $this->assertStringContainsString('chat WHATSAPP', $muatan['system'][0]['text']);
         $this->assertStringNotContainsString('DRAF', $muatan['system'][0]['text']);
-        $this->assertStringContainsString('Z2', json_encode($muatan['tools'][3], JSON_UNESCAPED_UNICODE), 'Kode butir WA, bukan I1/I2 Shopee.');
+        $this->assertStringContainsString('Z2', json_encode($muatan['tools'][4], JSON_UNESCAPED_UNICODE), 'Kode butir WA, bukan I1/I2 Shopee.');
 
         $this->assertNotNull(app(SaranAiService::class)->berlaku($c->refresh()), 'Sambutan sesudah pesan tidak membuat saran basi.');
         $this->assertSame(1, CrmMessage::where('direction', CrmMessage::KELUAR)->count(), 'Mode saran: tidak ada yang dikirim.');
@@ -167,6 +167,72 @@ class SaranAiWhatsappTest extends TestCase
         $this->assertStringContainsString('SO-WA-0001', $hasil);
         $this->assertStringContainsString('diambil di toko', $hasil);
         $this->assertStringContainsString('sisa Rp150.000', $hasil);
+    }
+
+    public function test_cek_ongkir_wa_memakai_wilayah_tarif_dan_potongan_ongkir(): void
+    {
+        $p = \App\Core\Inventory\Product::create(['sku' => 'KS-3K', 'name' => 'Kotak Saran 3 Kotak', 'sale_type' => 'ready',
+            'base_unit' => 'pcs', 'base_price' => 100000, 'is_active' => true, 'is_sellable' => true, 'weight_gram' => 800]);
+        $penyedia = \Mockery::mock(\App\Modules\Shipping\Contracts\ShippingProvider::class);
+        $penyedia->shouldReceive('searchAreas')->with('Tembalang Semarang')->andReturn(['areas' => [
+            ['id' => 'A1', 'postal_code' => '50275', 'subdistrict' => 'Tembalang', 'district' => 'Tembalang', 'city' => 'Kota Semarang', 'province' => 'Jawa Tengah'],
+        ]]);
+        $this->mock(\App\Modules\Shipping\ShippingManager::class, function ($m) use ($penyedia) {
+            $m->shouldReceive('defaultProviderKey')->andReturn('jubelio_shipment');
+            $m->shouldReceive('provider')->andReturn($penyedia);
+            $m->shouldReceive('rates')->withArgs(fn ($b) => $b['destination_area_id'] === 'A1' && $b['destination_postal_code'] === '50275'
+                && $b['items'][0]['quantity'] === 2)
+                ->andReturn(['rates' => [
+                    ['courier_name' => 'J&T', 'service_name' => 'EZ', 'price' => 18000, 'etd' => '1-2 hari'],
+                    ['courier_name' => 'JNE', 'service_name' => 'REG', 'price' => 21000, 'etd' => '2-3 hari'],
+                ], 'errors' => []]);
+        });
+        $this->mock(\App\Modules\Sales\Services\PromotionService::class, function ($m) {
+            $m->shouldReceive('resolveItemDiscounts')->andReturn([]);
+            $m->shouldReceive('resolveShippingDiscount')->andReturn(['discount_amount' => 20000]);
+        });
+
+        $hasil = app(\App\Modules\CRM\Agents\AgenTools::class)->jalankan('cek_ongkir',
+            ['tujuan' => 'Tembalang Semarang', 'barang' => [['sku' => 'ks-3k', 'jumlah' => 2]]], null, CrmAgent::kode(CrmAgent::CS_WHATSAPP))['content'];
+
+        $this->assertStringContainsString('Tembalang, Tembalang, Kota Semarang, Jawa Tengah 50275', $hasil);
+        $this->assertStringContainsString('J&T EZ: Rp18.000, potongan ongkir Rp18.000 → dibayar Rp0', $hasil, 'Potongan tak melebihi ongkir.');
+        $this->assertStringContainsString('JNE REG: Rp21.000, potongan ongkir Rp20.000 → dibayar Rp1.000, estimasi 2-3 hari', $hasil);
+        $this->assertStringContainsString('jangan pernah "gratis ongkir"', $hasil);
+
+        $salah = app(\App\Modules\CRM\Agents\AgenTools::class)->jalankan('cek_ongkir',
+            ['tujuan' => 'Tembalang', 'barang' => [['sku' => 'TIDAK-ADA', 'jumlah' => 1]]], null, CrmAgent::kode(CrmAgent::CS_WHATSAPP))['content'];
+        $this->assertStringContainsString('SKU tidak dikenal: TIDAK-ADA', $salah);
+        $this->assertSame($p->id, $p->fresh()->id);
+    }
+
+    public function test_cek_ongkir_instan_dari_shareloc_pembeli(): void
+    {
+        \App\Core\Inventory\Product::create(['sku' => 'KS-3K', 'name' => 'Kotak Saran 3 Kotak', 'sale_type' => 'ready',
+            'base_unit' => 'pcs', 'base_price' => 100000, 'is_active' => true, 'is_sellable' => true, 'weight_gram' => 800]);
+        $c = $this->chat('kak bisa gosend?');
+        $alat = app(\App\Modules\CRM\Agents\AgenTools::class);
+        $wa = CrmAgent::kode(CrmAgent::CS_WHATSAPP);
+        $input = ['instan' => true, 'barang' => [['sku' => 'KS-3K', 'jumlah' => 1]]];
+
+        $this->assertStringContainsString('Belum ada shareloc', $alat->jalankan('cek_ongkir', $input, $c, $wa)['content']);
+
+        CrmMessage::create(['conversation_id' => $c->id, 'direction' => CrmMessage::MASUK, 'message_type' => 'location',
+            'content' => null, 'sent_at' => now()->subMinute(), 'raw' => ['location' => ['latitude' => -7.05, 'longitude' => 110.44, 'name' => 'Rumah']]]);
+        $this->mock(\App\Modules\Shipping\Services\PointAddressResolver::class, fn ($m) => $m->shouldReceive('resolve')
+            ->withArgs(fn ($lat, $lng) => $lat == -7.05 && $lng == 110.44)
+            ->andReturn(['address' => 'Jl. Banjarsari, Tembalang', 'area_id' => 'A1', 'area_label' => 'Tembalang', 'postal_code' => '50275', 'error' => null]));
+        $this->mock(\App\Modules\Shipping\ShippingManager::class, function ($m) {
+            $m->shouldReceive('defaultProviderKey')->andReturn('jubelio_shipment');
+            $m->shouldReceive('provider')->andReturn(\Mockery::mock(\App\Modules\Shipping\Contracts\ShippingProvider::class));
+            $m->shouldReceive('rates')->withArgs(fn ($b) => $b['mode'] === 'instant' && $b['destination_latitude'] == -7.05
+                && $b['destination_postal_code'] === '50275')
+                ->andReturn(['rates' => [['courier_name' => 'GoSend', 'service_name' => 'Instant', 'price' => 25000, 'etd' => '1-2 jam']], 'errors' => []]);
+        });
+
+        $hasil = $alat->jalankan('cek_ongkir', $input, $c, $wa)['content'];
+        $this->assertStringContainsString('kurir instan ke shareloc pembeli (Jl. Banjarsari, Tembalang)', $hasil);
+        $this->assertStringContainsString('GoSend Instant: Rp25.000', $hasil);
     }
 
     public function test_info_pesanan_wa_tanpa_pelanggan_minta_nomor_nota(): void

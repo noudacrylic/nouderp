@@ -61,7 +61,7 @@ class AgenTools
             CrmAgent::CS_SHOPEE   => [$this->skemaCekStok(), $this->skemaInfoPesanan(), $this->skemaDeskripsiProduk(), $this->skemaUsulkan()],
             // Nama alat sama dengan CS Shopee (daftar tanya-jawab menyebutnya), isinya untuk WhatsApp:
             // harga & link web boleh, pesanan = SO ERP pelanggan ini.
-            CrmAgent::CS_WHATSAPP => [$this->skemaCekStokWa(), $this->skemaInfoPesananWa(), $this->skemaDeskripsiProduk(), $this->skemaUsulkan(true)],
+            CrmAgent::CS_WHATSAPP => [$this->skemaCekStokWa(), $this->skemaInfoPesananWa(), $this->skemaDeskripsiProduk(), $this->skemaCekOngkir(), $this->skemaUsulkan(true)],
             // Penjualan & cetak belum dikerjakan; keduanya minimal punya pintu
             // menyerah supaya tidak pernah terjebak mengarang jawaban.
             default => [$this->skemaLempar()],
@@ -81,6 +81,7 @@ class AgenTools
             'cek_stok'          => $wa ? $this->cekStokWa($input) : $this->cekStok($input),
             'info_pesanan'      => $wa ? $this->infoPesananWa($percakapan) : $this->infoPesanan($percakapan),
             'deskripsi_produk'  => $this->deskripsiProduk($input, ! $wa),
+            'cek_ongkir'        => $wa ? $this->cekOngkir($input, $percakapan) : ['content' => 'Alat cek_ongkir hanya untuk WhatsApp.'],
             'usulkan_balasan'   => $this->usulkan($input),
             default             => ['content' => 'Alat "' . $nama . '" tidak ada. Jangan panggil lagi.'],
         };
@@ -414,6 +415,141 @@ class AgenTools
         }, $hasil);
 
         return ['content' => "Hasil cek stok (sebutkan apa adanya, jangan dibulatkan; SKU hanya untukmu):\n" . implode("\n", $baris)];
+    }
+
+    /* ------------------------------------------------------------ cek ongkir (WA) */
+
+    /** Shareloc pembeli yang dipakai kurir instan: pesan lokasi terbaru dalam batas ini. */
+    private const JAM_SHARELOC = 72;
+
+    private function skemaCekOngkir(): array
+    {
+        return [
+            'name'        => 'cek_ongkir',
+            'description' => 'Hitung ongkir dari toko ke pembeli untuk barang katalog, lengkap dengan potongan ongkir promo '
+                . '(sama dengan checkout web). WAJIB dipakai sebelum menyebut ongkir atau potongan ongkir. Butuh SKU dari '
+                . 'cek_stok + jumlah. Kurir reguler: tujuan sampai kecamatan + kota (atau kode pos). Kurir instan '
+                . '(GoSend/Grab, dalam kota): isi instan = true — dihitung dari shareloc terakhir pembeli di chat ini, '
+                . 'jadi minta pembeli kirim lokasinya dulu.',
+            'input_schema' => [
+                'type'       => 'object',
+                'properties' => [
+                    'tujuan' => ['type' => 'string', 'description' => 'Kecamatan + kota tujuan, atau kode pos, mis. "Tembalang Semarang" atau "50275". Boleh kosong bila instan.'],
+                    'instan' => ['type' => 'boolean', 'description' => 'true = kurir instan dari shareloc pembeli.'],
+                    'barang' => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'sku'    => ['type' => 'string', 'description' => 'SKU dari hasil cek_stok.'],
+                                'jumlah' => ['type' => 'integer', 'description' => 'Jumlah barang.'],
+                            ],
+                            'required' => ['sku', 'jumlah'],
+                        ],
+                    ],
+                ],
+                'required' => ['barang'],
+            ],
+        ];
+    }
+
+    private function cekOngkir(array $input, ?CrmConversation $percakapan): array
+    {
+        $tujuan = trim((string) ($input['tujuan'] ?? ''));
+        $instan = (bool) ($input['instan'] ?? false);
+        $barang = collect($input['barang'] ?? [])->filter(fn ($b) => is_array($b) && trim((string) ($b['sku'] ?? '')) !== '');
+        if ($barang->isEmpty() || (! $instan && $tujuan === '')) {
+            return ['content' => 'Barang wajib diisi, dan tujuan untuk kurir reguler. Tanyakan barang + jumlah dan kecamatan + kota tujuan dulu.'];
+        }
+
+        $produk = Product::where('is_sellable', true)
+            ->whereIn('sku', $barang->pluck('sku')->map(fn ($s) => trim((string) $s))->all())
+            ->get(['id', 'sku', 'name'])->keyBy(fn ($p) => mb_strtolower($p->sku));
+        $items = [];
+        $hilang = [];
+        foreach ($barang as $b) {
+            $p = $produk->get(mb_strtolower(trim((string) $b['sku'])));
+            if ($p) {
+                $items[] = ['product_id' => $p->id, 'qty' => max(1, (int) ($b['jumlah'] ?? 1))];
+            } else {
+                $hilang[] = $b['sku'];
+            }
+        }
+        if ($hilang) {
+            return ['content' => 'SKU tidak dikenal: ' . implode(', ', $hilang) . '. Pakai SKU persis dari hasil cek_stok.'];
+        }
+
+        $ongkir = app(\App\Modules\Shipping\Services\OngkirEtalaseService::class);
+        $label  = fn (array $a) => implode(', ', array_filter([$a['subdistrict'] ?? null, $a['district'] ?? null, $a['city'] ?? null, $a['province'] ?? null]))
+            . (($a['postal_code'] ?? null) ? ' ' . $a['postal_code'] : '');
+        $lain   = '';
+
+        if ($instan) {
+            $titik = $this->sharelocTerakhir($percakapan);
+            if (! $titik) {
+                return ['content' => 'Belum ada shareloc dari pembeli di chat ini (' . self::JAM_SHARELOC . ' jam terakhir). '
+                    . 'Minta pembeli kirim lokasi lewat fitur Lokasi WhatsApp (bukan ketik alamat), lalu cek lagi.'];
+            }
+            $w = $ongkir->wilayahDariTitik($titik['lat'], $titik['lng']);
+            if (! $w['postal_code']) {
+                return ['content' => 'Lokasi pembeli belum bisa dikenali kurir (' . ($w['error'] ?? 'kode pos kosong') . '). Lempar ke admin gudang.'];
+            }
+            $tempat = $w['address'] ?: ($titik['alamat'] ?: ($titik['nama'] ?: 'titik shareloc'));
+            $hasil  = $ongkir->tarif([
+                'mode' => 'instant', 'destination_area_id' => $w['area_id'], 'destination_postal_code' => $w['postal_code'],
+                'destination_latitude' => $titik['lat'], 'destination_longitude' => $titik['lng'],
+            ], $items);
+            $judul = 'Ongkir kurir instan ke shareloc pembeli (' . mb_substr($tempat, 0, 120) . ')';
+        } else {
+            $wilayah = $ongkir->cariWilayah($tujuan);
+            if (! $wilayah && preg_match('/\b\d{5}\b/', $tujuan, $kodePos)) {
+                $wilayah = $ongkir->cariWilayah($kodePos[0]);
+            }
+            if (! $wilayah) {
+                return ['content' => 'Wilayah "' . $tujuan . '" tidak ditemukan. Tanyakan kecamatan + kota (atau kode pos) pembeli.'];
+            }
+            $area  = $wilayah[0];
+            $hasil = $ongkir->tarif(['destination_area_id' => $area['id'] ?? null, 'destination_postal_code' => $area['postal_code'] ?? null], $items);
+            $judul = 'Ongkir ke ' . $label($area);
+            $lain  = collect($wilayah)->slice(1, 3)->map($label)->implode(' | ');
+        }
+
+        if (! $hasil['rates']) {
+            return ['content' => 'Ongkir gagal dihitung (' . (implode('; ', $hasil['errors']) ?: 'tidak ada kurir') . '). '
+                . ($instan ? 'Mungkin di luar jangkauan kurir instan — tawarkan kurir reguler, atau lempar ke admin gudang.' : 'Jangan menebak ongkir: lempar ke admin gudang.')];
+        }
+
+        $berat = collect($ongkir->rateItems($items))->sum(fn ($r) => $r['weight'] * $r['quantity']);
+        $rp    = fn (float $n) => 'Rp' . number_format($n, 0, ',', '.');
+
+        $baris = collect($hasil['rates'])->sortBy('price')->take(6)->map(function ($r) use ($rp) {
+            $harga = (float) $r['price'];
+            $pot   = (float) ($r['discount'] ?? 0);
+
+            return '- ' . trim(($r['courier_name'] ?? '') . ' ' . ($r['service_name'] ?? '')) . ': ' . $rp($harga)
+                . ($pot > 0 ? ', potongan ongkir ' . $rp($pot) . ' → dibayar ' . $rp($harga - $pot) : '')
+                . (($r['etd'] ?? '') !== '' ? ', estimasi ' . $r['etd'] : '');
+        });
+
+        return ['content' => $judul . ' (berat paket ±' . $this->angka($berat / 1000) . ' kg):' . "\n"
+            . $baris->implode("\n") . "\n"
+            . ($lain !== '' ? 'Wilayah lain yang mirip: ' . $lain . '. Bila bukan yang dimaksud pembeli, tanyakan kecamatannya.' . "\n" : '')
+            . ($instan ? 'Tarif instan bisa berubah saat dipesan (jarak & ketersediaan driver). ' : 'Estimasi dihitung sejak paket diserahkan ke kurir. ')
+            . 'Tawarkan 2–3 pilihan saja. Sebut "potongan ongkir", jangan pernah "gratis ongkir".'];
+    }
+
+    /** @return array{lat: float, lng: float, nama: ?string, alamat: ?string}|null shareloc terbaru pembeli */
+    private function sharelocTerakhir(?CrmConversation $percakapan): ?array
+    {
+        if (! $percakapan) {
+            return null;
+        }
+
+        return \App\Modules\CRM\Models\CrmMessage::where('conversation_id', $percakapan->id)
+            ->where('direction', \App\Modules\CRM\Models\CrmMessage::MASUK)
+            ->where('sent_at', '>=', now()->subHours(self::JAM_SHARELOC))
+            ->latest('sent_at')->limit(50)->get()
+            ->map(fn ($m) => $m->lokasi())->filter()->first();
     }
 
     private function skemaInfoPesananWa(): array

@@ -164,32 +164,9 @@ class CheckoutController extends Controller
             'items.*.qty'         => 'required|numeric|min:1',
         ]);
 
-        $key = $this->rateProviderKey();
-
-        $res = $this->shipping->rates([
-            'provider'            => $key,
-            // Kirim area id ke SEMUA kunci provider — nilainya memang berasal dari
-            // provider aktif itu sendiri, dan provider lain sedang tidak dipakai.
-            'destination_area_id'     => $data['destination_area_id'] ?? null,
-            'destination_jubelio_id'  => $data['destination_area_id'] ?? null,
-            'destination_postal_code' => $data['destination_postal_code'] ?? null,
-            'mode'                    => $data['mode'] ?? 'regular',
-            'destination_latitude'    => $data['destination_latitude'] ?? null,
-            'destination_longitude'   => $data['destination_longitude'] ?? null,
-            'items'                   => $this->rateItems($data['items']),
-        ]);
-
-        // Sisipkan diskon ongkir (promo) per layanan → etalase tampilkan potongannya.
-        // Rincian barang WAJIB ikut: promo ongkir yang dibatasi daftar produk menghitung
-        // ambang belanjanya hanya dari produk itu — tanpa items ambangnya selalu 0.
-        $basis    = $this->goodsBasis($data['items']);
-        $subtotal = $basis['subtotal'];
-        $rates = collect($res['rates'] ?? [])->map(function ($r) use ($subtotal, $basis) {
-            $gross = (float) ($r['price'] ?? 0);
-            $disc  = $this->promotions->resolveShippingDiscount($subtotal, $gross, null, $basis['items']);
-            $r['discount'] = $disc ? (float) min($disc['discount_amount'], $gross) : 0;
-            return $r;
-        })->all();
+        // Satu aturan dengan agen AI WhatsApp (OngkirEtalaseService): berat, dimensi, potongan ongkir.
+        $res   = app(\App\Modules\Shipping\Services\OngkirEtalaseService::class)->tarif($data, $data['items']);
+        $rates = $res['rates'];
 
         return response()->json(['data' => $rates, 'errors' => $res['errors']]);
     }
@@ -282,23 +259,7 @@ class CheckoutController extends Controller
      */
     private function goodsBasis(array $items): array
     {
-        $ids = collect($items)->pluck('product_id')->map(fn ($v) => (int) $v)->unique();
-        $products = Product::whereIn('id', $ids)->where('is_sellable', true)->get()->keyBy('id');
-
-        $input = [];
-        foreach ($items as $it) {
-            $p = $products->get((int) $it['product_id']);
-            if (! $p) continue;
-            $input[] = ['product_id' => $p->id, 'qty' => (float) $it['qty'], 'unit_price' => (float) ($p->display_price ?? 0)];
-        }
-        $discounts = $input ? $this->promotions->resolveItemDiscounts($input) : [];
-
-        $subtotal = 0.0;
-        foreach ($input as $pi) {
-            $disc = (float) ($discounts[$pi['product_id']]['discount_amount'] ?? 0);
-            $subtotal += $pi['qty'] * $pi['unit_price'] - $disc;
-        }
-        return ['subtotal' => max(0, $subtotal), 'items' => $input];
+        return app(\App\Modules\Shipping\Services\OngkirEtalaseService::class)->goodsBasis($items);
     }
 
     /**
@@ -755,26 +716,7 @@ class CheckoutController extends Controller
      */
     private function rateItems(array $items): array
     {
-        $ids = collect($items)->pluck('product_id')->map(fn ($v) => (int) $v)->unique();
-        $products = Product::whereIn('id', $ids)->get()->keyBy('id');
-
-        return collect($items)->map(function ($it) use ($products) {
-            $p = $products[(int) $it['product_id']] ?? null;
-
-            $row = [
-                'name'     => 'Paket',
-                'weight'   => max(1, $p ? $this->package->beratSatuan($p) : 0),
-                'quantity' => max(1, (int) $it['qty']),
-            ];
-
-            foreach (['length' => 'length_cm', 'width' => 'width_cm', 'height' => 'height_cm'] as $k => $col) {
-                if ($p && (float) ($p->{$col} ?? 0) > 0) {
-                    $row[$k] = (float) $p->{$col};
-                }
-            }
-
-            return $row;
-        })->all();
+        return app(\App\Modules\Shipping\Services\OngkirEtalaseService::class)->rateItems($items);
     }
 
     /** Cari customer by no. HP (non-marketplace) atau buat baru; perbarui alamat. */
