@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Marketplace\Shopee\Models\ShopeeIklan;
 use App\Modules\Marketplace\Shopee\Models\ShopeeIklanKelompok as Kelompok;
 use App\Modules\Marketplace\Shopee\Models\ShopeeShop;
+use App\Modules\Marketplace\Shopee\Services\ShopeeIklanAksiService;
 use App\Modules\Marketplace\Shopee\Services\ShopeeIklanJadwalService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,6 +28,12 @@ class ShopeeIklanAksiTest extends TestCase
 
     private bool $tolakResume = false;
 
+    /** Berapa kali lagi edit ditolak karena batas kecepatan per toko. */
+    private int $batasKali = 0;
+
+    /** @var array<int, float> lama tunggu yang diminta */
+    private array $tunggu = [];
+
     /** @var array<int, int> campaign yang perintahnya selalu gagal */
     private array $rusak = [];
 
@@ -46,6 +53,11 @@ class ShopeeIklanAksiTest extends TestCase
                 $a   = $r->data()['edit_action'];
                 $cid = (int) $r->data()['campaign_id'];
                 $this->aksi[] = "$a:$cid";
+                if ($this->batasKali > 0) {
+                    $this->batasKali--;
+
+                    return Http::response(['error' => 'ads.rate_limit.exceed_shop_api', 'message' => 'Too many requests for the shop at the moment, please try again later.']);
+                }
                 if (($a === 'resume' && $this->tolakResume) || in_array($cid, $this->rusak, true)) {
                     return Http::response(['error' => 'error_param', 'message' => 'ditolak']);
                 }
@@ -163,6 +175,41 @@ class ShopeeIklanAksiTest extends TestCase
 
         $svc->jalankan(now()->setTime(10, 0)); // jam ramai: batas sudah habis, lanjut tetap dikerjakan
         $this->assertSame(['ongoing', 'ongoing', 'ongoing'], [$this->status[21], $this->status[22], $this->status[23]]);
+    }
+
+    private function aksiTanpaTunggu(): ShopeeIklanAksiService
+    {
+        $svc = app(ShopeeIklanAksiService::class);
+        $svc->tidur = function (float $d) { $this->tunggu[] = $d; };
+        $this->app->instance(ShopeeIklanAksiService::class, $svc);
+
+        return $svc;
+    }
+
+    public function test_batas_kecepatan_diulang_dengan_jeda_lalu_berhasil(): void
+    {
+        $svc = $this->aksiTanpaTunggu();
+        $this->batasKali = 2;
+
+        $r = $svc->ubah(ShopeeShop::first(), ShopeeIklan::where('campaign_id', 11)->first(), 'jeda', 'otomatis');
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame(['pause:11', 'pause:11', 'pause:11'], $this->aksi);
+        $this->assertSame([2.0, 5.0], $this->tunggu);
+    }
+
+    public function test_batas_kecepatan_terus_menerus_gagal_tanpa_mencoba_start(): void
+    {
+        $svc = $this->aksiTanpaTunggu();
+        $this->status[11] = 'paused';
+        $this->batasKali = 99;
+
+        $r = $svc->ubah(ShopeeShop::first(), ShopeeIklan::where('campaign_id', 11)->first(), 'lanjut', 'otomatis');
+
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('ads.rate_limit.exceed_shop_api', $r['pesan']);
+        $this->assertSame(['resume:11', 'resume:11', 'resume:11', 'resume:11'], $this->aksi, '1 kirim + 3 ulang, tak beralih ke start');
+        $this->assertSame([2.0, 5.0, 10.0], $this->tunggu);
     }
 
     public function test_mode_otomatis_bisa_dipilih_di_halaman(): void

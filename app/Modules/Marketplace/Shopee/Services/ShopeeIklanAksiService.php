@@ -14,7 +14,58 @@ use Illuminate\Support\Str;
  */
 class ShopeeIklanAksiService
 {
-    public function __construct(private ShopeeClient $client) {}
+    /** Jarak minimal antar-perintah tulis (detik) supaya tak kena batas kecepatan per toko. */
+    public const JARAK_DETIK = 0.5;
+
+    /** Tunggu sebelum mengulang saat kena batas kecepatan (ads.rate_limit.*). */
+    public const TUNGGU_ULANG = [2, 5, 10];
+
+    /** @var callable(float):void penunda — diganti di tes agar tak benar-benar menunggu */
+    public $tidur;
+
+    private float $terakhir = 0.0;
+
+    public function __construct(private ShopeeClient $client)
+    {
+        $this->tidur = fn (float $detik) => usleep((int) round($detik * 1_000_000));
+    }
+
+    /**
+     * Batas kecepatan Ads API (dokumentasi edit_manual_product_ads): ads.rate_limit.exceed_api (5),
+     * .campaign_level (24), .exceed_shop_api (26), .exceed_partner_api (29) — "coba lagi nanti".
+     */
+    public static function batasKecepatan(ShopeeException $e): bool
+    {
+        return str_starts_with($e->kode, 'ads.rate_limit');
+    }
+
+    /** Satu perintah edit, diberi jarak dari perintah sebelumnya dan diulang bila kena batas kecepatan. */
+    private function kirimEdit(ShopeeShop $shop, ShopeeIklan $iklan, string $editAction): void
+    {
+        $sela = self::JARAK_DETIK - (microtime(true) - $this->terakhir);
+        if ($this->terakhir > 0 && $sela > 0) {
+            ($this->tidur)($sela);
+        }
+
+        foreach ([...self::TUNGGU_ULANG, null] as $tunggu) {
+            try {
+                $this->client->panggil($shop, 'POST', '/api/v2/ads/edit_manual_product_ads', [
+                    'reference_id' => 'noud-' . $editAction . '-' . $iklan->campaign_id . '-' . Str::lower(Str::random(8)),
+                    'campaign_id'  => (int) $iklan->campaign_id,
+                    'edit_action'  => $editAction,
+                ]);
+                $this->terakhir = microtime(true);
+
+                return;
+            } catch (ShopeeException $e) {
+                $this->terakhir = microtime(true);
+                if ($tunggu === null || !self::batasKecepatan($e)) {
+                    throw $e;
+                }
+                ($this->tidur)($tunggu);
+            }
+        }
+    }
 
     /** Status iklan langsung dari Shopee (bukan salinan ERP). */
     public function statusDiShopee(ShopeeShop $shop, ShopeeIklan $iklan): ?string
@@ -59,16 +110,15 @@ class ShopeeIklanAksiService
         $ok     = false;
         foreach ($daftar as $editAction) {
             try {
-                $this->client->panggil($shop, 'POST', '/api/v2/ads/edit_manual_product_ads', [
-                    'reference_id' => 'noud-' . $editAction . '-' . $iklan->campaign_id . '-' . Str::lower(Str::random(8)),
-                    'campaign_id'  => (int) $iklan->campaign_id,
-                    'edit_action'  => $editAction,
-                ]);
+                $this->kirimEdit($shop, $iklan, $editAction);
                 $ok    = true;
                 $pesan = $editAction;
                 break;
             } catch (ShopeeException $e) {
                 $pesan = $editAction . ': ' . $e->getMessage();
+                if (self::batasKecepatan($e)) {
+                    break; // ditolak karena terlalu rapat, bukan karena nama aksinya — jangan coba 'start'
+                }
             }
         }
 
