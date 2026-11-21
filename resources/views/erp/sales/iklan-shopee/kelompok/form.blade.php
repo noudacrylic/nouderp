@@ -2,6 +2,17 @@
 
 @php
     $rp = fn ($n) => 'Rp' . number_format((float) $n, 0, ',', '.');
+    // ROAS: < 10 satu desimal, ≥ 10 bulat; tanpa belanja = kosong.
+    $fRoas = fn ($r) => $r === null ? '' : ($r < 10 ? number_format($r, 1, ',', '.') : number_format($r, 0, ',', '.'));
+    $rataRoas = $kinerja['rata'] ?? null;
+    // Warna relatif ROAS rata-rata kelompok: < ½ merah, > 1,2× hijau.
+    $warnaRoas = function ($r) use ($rataRoas) {
+        if ($r === null || !$rataRoas) return 'text-gray-400';
+        if ($r < $rataRoas * 0.5) return 'text-red-600';
+        if ($r > $rataRoas * 1.2) return 'text-green-700';
+        return 'text-amber-700';
+    };
+    $judulSel = fn ($c, $label) => $c ? $label . ': belanja ' . $rp($c['biaya']) . ' · ' . $c['klik'] . ' klik · ' . $c['pesanan'] . ' pesanan · omzet ' . $rp($c['gmv']) . ' · ROAS ' . ($c['roas'] === null ? '—' : number_format($c['roas'], 1, ',', '.')) : $label . ': belum ada belanja';
     $jamRamai = old('jam_ramai', $k->jamRamai());
     $jamRamai = array_map('intval', is_array($jamRamai) ? $jamRamai : []);
     $idAnggota = array_map('intval', old('anggota', $k->exists ? $k->iklan()->pluck('campaign_id')->all() : []));
@@ -120,7 +131,16 @@
     {{-- Rencana hari ini --}}
     <div class="bg-white rounded shadow p-3 mb-3">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-2 text-sm">
-            <div class="font-semibold">Rencana tayang hari ini</div>
+            <div class="font-semibold flex items-center gap-2 flex-wrap">Rencana tayang hari ini
+                <form method="GET" class="inline font-normal text-xs text-gray-500">angka = ROAS
+                    <select name="roas" onchange="this.form.submit()" class="border rounded px-1 py-0.5 text-xs">
+                        @foreach (\App\Modules\Marketplace\Shopee\Controllers\IklanKelompokController::HARI_ROAS as $h)
+                            <option value="{{ $h }}" @selected($hariRoas === $h)>{{ $h }} hari</option>
+                        @endforeach
+                    </select>
+                    terakhir (rata-rata kelompok {{ $rataRoas === null ? '—' : number_format($rataRoas, 1, ',', '.') }})
+                </form>
+            </div>
             <div class="text-xs {{ $aksiPerHari > $maksAksi ? 'text-red-600 font-semibold' : 'text-gray-500' }}">± {{ $aksiPerHari }} aksi pause/lanjut per hari{{ $aksiPerHari > $maksAksi ? ' (melebihi batas ' . $maksAksi . ')' : '' }} · hijau = tayang · hijau muda = dijadwalkan, menunggu stok · ▲ = jam ramai · ✎ = jadwal manual</div>
         </div>
         @if ($pecahanRamai > 2 && $anggota->count() > $k->aktif_sepi)
@@ -143,6 +163,7 @@
                             @for ($j = 0; $j < 24; $j++)
                                 <th class="font-normal w-6 {{ $j === (int) now()->format('G') ? 'text-blue-700 font-semibold' : 'text-gray-500' }}">{{ sprintf('%02d', $j) }}{!! in_array($j, $k->jamRamai(), true) ? '<br>▲' : '<br>&nbsp;' !!}</th>
                             @endfor
+                            <th class="font-normal text-gray-500 text-right pl-2" title="ROAS iklan ini dalam rentang terpilih">ROAS</th>
                             <th class="font-normal text-gray-500 text-right pl-2" title="Belanja hari ini / modal ERP per hari. Habis → dijeda sampai besok.">Hari ini / modal ERP</th>
                             <th></th>
                         </tr></thead>
@@ -166,11 +187,14 @@
                                     @endif
                                 </td>
                                 @for ($j = 0; $j < 24; $j++)
+                                    @php $c = $kinerja['iklan'][$cid][$j] ?? null; $on = $tayang($j); @endphp
                                     <td class="p-0.5">
-                                        <div class="sel h-4 rounded-sm cursor-pointer {{ $tayang($j) ? ($a['layak'] ? 'bg-green-500' : 'bg-green-200') : 'bg-gray-100 hover:bg-gray-200' }} {{ $j === (int) now()->format('G') ? 'ring-1 ring-blue-500' : '' }}"
-                                             data-jam="{{ $j }}" data-on="{{ $tayang($j) ? 1 : 0 }}"></div>
+                                        <div class="sel h-5 rounded-sm cursor-pointer text-[9px] leading-5 text-center font-medium {{ $on ? ($a['layak'] ? 'bg-green-500 text-white' : 'bg-green-200 text-green-900') : 'bg-gray-100 hover:bg-gray-200 text-gray-500' }} {{ $j === (int) now()->format('G') ? 'ring-1 ring-blue-500' : '' }}"
+                                             data-jam="{{ $j }}" data-on="{{ $on ? 1 : 0 }}" title="{{ $judulSel($c, sprintf('Jam %02d, %d hari', $j, $hariRoas)) }}">{{ $c ? $fRoas($c['roas']) : '' }}</div>
                                     </td>
                                 @endfor
+                                @php $t = $kinerja['total_iklan'][$cid] ?? null; @endphp
+                                <td class="pl-2 text-right whitespace-nowrap font-semibold {{ $warnaRoas($t['roas'] ?? null) }}" title="{{ $judulSel($t, $hariRoas . ' hari') }}">{{ $t && $t['roas'] !== null ? number_format($t['roas'], 1, ',', '.') : '—' }}</td>
                                 <td class="pl-2 whitespace-nowrap text-right">
                                     <span class="{{ $a['modal_erp'] !== null && $a['hari_ini'] >= $a['modal_erp'] ? 'text-red-600 font-semibold' : 'text-gray-500' }}">{{ number_format($a['hari_ini'] / 1000, 1, ',', '.') }}rb /</span>
                                     <input name="modal_erp[{{ $cid }}]" value="{{ $a['modal_erp'] !== null ? (int) $a['modal_erp'] : '' }}" placeholder="—"
@@ -184,8 +208,27 @@
                             </tr>
                         @endforeach
                         <tr class="text-gray-500">
+                            <td class="pr-2 pt-1 font-semibold text-gray-700">ROAS kelompok</td>
+                            @for ($j = 0; $j < 24; $j++)
+                                @php $c = $kinerja['jam'][$j] ?? null; @endphp
+                                <td class="text-center pt-1 font-semibold {{ $warnaRoas($c['roas'] ?? null) }}" title="{{ $judulSel($c, sprintf('Semua anggota jam %02d, %d hari', $j, $hariRoas)) }}">{{ $c ? $fRoas($c['roas']) : '' }}</td>
+                            @endfor
+                            <td class="text-right pl-2 pt-1 font-semibold">{{ $rataRoas === null ? '—' : number_format($rataRoas, 1, ',', '.') }}</td>
+                            <td></td><td></td>
+                        </tr>
+                        <tr class="text-gray-500">
+                            <td class="pr-2 pt-1">Belanja/hari</td>
+                            @for ($j = 0; $j < 24; $j++)
+                                @php $c = $kinerja['jam'][$j] ?? null; @endphp
+                                <td class="text-center pt-1 text-[9px]">{{ $c ? number_format($c['biaya'] / $hariRoas / 1000, 1, ',', '.') : '' }}</td>
+                            @endfor
+                            <td class="text-right pl-2 pt-1 text-[9px]">rb</td>
+                            <td></td><td></td>
+                        </tr>
+                        <tr class="text-gray-500">
                             <td class="pr-2 pt-1">Jumlah tayang</td>
                             @for ($j = 0; $j < 24; $j++)<td class="text-center pt-1">{{ count($rencana[$j]) }}</td>@endfor
+                            <td></td>
                             <td class="text-right pl-2 pt-1">{{ number_format($anggota->sum('hari_ini') / 1000, 1, ',', '.') }}rb / {{ number_format($anggota->sum(fn ($a) => $a['modal_erp'] ?? 0) / 1000, 0, ',', '.') }}rb</td>
                             <td></td>
                         </tr>
@@ -280,6 +323,9 @@
             sel.classList.toggle('bg-green-500', on && layak);
             sel.classList.toggle('bg-green-200', on && !layak);
             sel.classList.toggle('bg-gray-100', !on);
+            sel.classList.toggle('text-white', on && layak);
+            sel.classList.toggle('text-green-900', on && !layak);
+            sel.classList.toggle('text-gray-500', !on);
             var cid = tr.dataset.cid;
             berubah[cid] = true;
             var jam = [];

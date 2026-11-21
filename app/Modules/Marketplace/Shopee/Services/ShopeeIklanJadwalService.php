@@ -153,6 +153,47 @@ class ShopeeIklanJadwalService
         return $kosong->count();
     }
 
+    /**
+     * Kinerja anggota per jam dalam $hari hari penuh terakhir (s.d. kemarin), bahan angka ROAS
+     * di grid rencana.
+     *
+     * @return array{iklan: array<int, array<int, array>>, total_iklan: array<int, array>, jam: array<int, array>, rata: ?float}
+     *   tiap sel: ['biaya','gmv','pesanan','klik','roas']
+     */
+    public function kinerjaPerJam(Kelompok $k, int $hari = 14): array
+    {
+        $ids  = $k->iklan()->pluck('campaign_id');
+        $rows = $ids->isEmpty() ? collect() : DB::table('shopee_iklan_jam')->where('env', $k->env)->whereIn('campaign_id', $ids)
+            ->whereBetween('tanggal', [now()->subDays($hari)->toDateString(), now()->subDay()->toDateString()])
+            ->groupBy('campaign_id', 'jam')
+            ->selectRaw('campaign_id, jam, SUM(biaya) biaya, SUM(gmv) gmv, SUM(pesanan) pesanan, SUM(klik) klik')->get();
+
+        $sel = function (float $biaya, float $gmv, int $pesanan, int $klik): array {
+            return ['biaya' => $biaya, 'gmv' => $gmv, 'pesanan' => $pesanan, 'klik' => $klik, 'roas' => $biaya > 0 ? $gmv / $biaya : null];
+        };
+        $hasil = ['iklan' => [], 'total_iklan' => [], 'jam' => [], 'rata' => null];
+        $tambah = function (array &$wadah, $kunci, $r) {
+            $w = $wadah[$kunci] ?? ['biaya' => 0.0, 'gmv' => 0.0, 'pesanan' => 0, 'klik' => 0];
+            $wadah[$kunci] = ['biaya' => $w['biaya'] + $r->biaya, 'gmv' => $w['gmv'] + $r->gmv, 'pesanan' => $w['pesanan'] + $r->pesanan, 'klik' => $w['klik'] + $r->klik];
+        };
+        $perIklan = $jam = [];
+        foreach ($rows as $r) {
+            $hasil['iklan'][$r->campaign_id][$r->jam] = $sel((float) $r->biaya, (float) $r->gmv, (int) $r->pesanan, (int) $r->klik);
+            $tambah($perIklan, $r->campaign_id, $r);
+            $tambah($jam, $r->jam, $r);
+        }
+        foreach ($perIklan as $cid => $w) {
+            $hasil['total_iklan'][$cid] = $sel($w['biaya'], $w['gmv'], $w['pesanan'], $w['klik']);
+        }
+        foreach ($jam as $j => $w) {
+            $hasil['jam'][$j] = $sel($w['biaya'], $w['gmv'], $w['pesanan'], $w['klik']);
+        }
+        $b = array_sum(array_column($jam, 'biaya'));
+        $hasil['rata'] = $b > 0 ? array_sum(array_column($jam, 'gmv')) / $b : null;
+
+        return $hasil;
+    }
+
     /** Belanja anggota kelompok hari ini (dari data per jam terakhir). */
     public function belanjaHariIni(Kelompok $k): float
     {

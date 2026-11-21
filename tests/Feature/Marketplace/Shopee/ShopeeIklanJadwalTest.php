@@ -193,6 +193,21 @@ class ShopeeIklanJadwalTest extends TestCase
         $this->assertNotContains(2, $this->svc->aktifPada($k, now()->setTime(10, 0)));
     }
 
+    public function test_grid_menampilkan_roas_per_jam_dan_kelompok(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $k = $this->kelompok();
+        $this->iklan(1, $k, biaya: 1000, gmv: 12500);  // jam 10, 2 hari lalu → ROAS 12,5
+        $this->iklan(2, $k, biaya: 2000, gmv: 5000);   // ROAS 2,5
+
+        $kin = $this->svc->kinerjaPerJam($k, 14);
+        $this->assertEqualsWithDelta(12.5, $kin['iklan'][1][10]['roas'], 0.001);
+        $this->assertEqualsWithDelta(17500 / 3000, $kin['jam'][10]['roas'], 0.001);
+
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.edit', ['kelompok' => $k, 'roas' => 7]))
+            ->assertOk()->assertSee('ROAS kelompok')->assertSee('>13<', false)->assertSee('>2,5<', false)->assertSee('7 hari');
+    }
+
     public function test_simpan_dan_kembalikan_jadwal_manual_dari_grid(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);

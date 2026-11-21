@@ -64,9 +64,13 @@ class IklanKelompokController extends Controller
         return redirect()->route('sales.iklan-shopee.kelompok.edit', $k)->with('success', 'Kelompok iklan dibuat.');
     }
 
-    public function edit(Kelompok $kelompok)
+    public const HARI_ROAS = [7, 14, 30];
+
+    public function edit(Request $request, Kelompok $kelompok)
     {
-        return $this->form($kelompok);
+        $hari = in_array((int) $request->input('roas'), self::HARI_ROAS, true) ? (int) $request->input('roas') : 14;
+
+        return $this->form($kelompok, $hari);
     }
 
     public function update(Request $request, Kelompok $kelompok)
@@ -155,7 +159,7 @@ class IklanKelompokController extends Controller
         return redirect()->route('sales.iklan-shopee.kelompok.index')->with('success', 'Kelompok dihapus. Iklan anggotanya tidak diubah.');
     }
 
-    private function form(Kelompok $k)
+    private function form(Kelompok $k, int $hariRoas = 14)
     {
         $env = $this->client->env();
         // Calon anggota: iklan yang masih bisa diatur dan belum masuk kelompok lain.
@@ -176,6 +180,8 @@ class IklanKelompokController extends Controller
             'anggota'    => $anggota,
             'rencana'    => $rencana,
             'aksiPerHari' => $rencana ? $this->hitungAksi($rencana) : 0,
+            'kinerja'     => $k->exists ? $this->jadwal->kinerjaPerJam($k, $hariRoas) : ['iklan' => [], 'total_iklan' => [], 'jam' => [], 'rata' => null],
+            'hariRoas'    => $hariRoas,
             'maksAksi'    => (int) config('services.shopee.iklan_maks_aksi', 100),
             'pecahanRamai' => $k->exists ? max(0, count(array_filter(explode(',', $k->ringkasJamRamai()), fn ($x) => trim($x) !== '—'))) : 0,
             'saranJam'   => $this->jadwal->saranJamRamai($idSaran, $env),
