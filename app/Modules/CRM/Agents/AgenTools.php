@@ -528,7 +528,12 @@ class AgenTools
             $harga = (float) $r['price'];
             $pot   = (float) ($r['discount'] ?? 0);
 
-            return '- ' . trim(($r['courier_name'] ?? '') . ' ' . ($r['service_name'] ?? '')) . ': ' . $rp($harga)
+            // Jubelio sering mengulang nama kurir di nama layanan ("Anteraja" + "Anteraja Same Day").
+            $kurir   = trim((string) ($r['courier_name'] ?? ''));
+            $layanan = trim((string) ($r['service_name'] ?? ''));
+            $nama    = $kurir !== '' && stripos($layanan, $kurir) === 0 ? $layanan : trim($kurir . ' ' . $layanan);
+
+            return '- ' . $nama . ': ' . $rp($harga)
                 . ($pot > 0 ? ', potongan ongkir ' . $rp($pot) . ' → dibayar ' . $rp($harga - $pot) : '')
                 . (($r['etd'] ?? '') !== '' ? ', estimasi ' . $r['etd'] : '');
         });
