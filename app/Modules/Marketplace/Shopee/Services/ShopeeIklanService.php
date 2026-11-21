@@ -32,7 +32,7 @@ class ShopeeIklanService
 
     public const CACHE_TARIK = 'shopee_iklan_tarik_terakhir';
 
-    public function __construct(private ShopeeClient $client) {}
+    public function __construct(private ShopeeClient $client, private \App\Modules\Notifications\Services\TelegramNotifier $telegram) {}
 
     /**
      * Tarik semuanya: daftar iklan, saldo, dan kinerja hari ini + $hariMundur hari ke belakang.
@@ -78,7 +78,9 @@ class ShopeeIklanService
             $offset += 100;
         } while (($r['has_next_page'] ?? false) && $offset < 10000);
 
-        $env = $this->client->env();
+        $env      = $this->client->env();
+        $lama     = ShopeeIklan::where('env', $env)->whereNotNull('kelompok_id')->get(['campaign_id', 'modal_harian', 'nama'])->keyBy('campaign_id');
+        $naik     = [];
         foreach (array_chunk($ids, 100) as $potong) {
             $r = $this->client->panggil($shop, 'GET', '/api/v2/ads/get_product_level_campaign_setting_info', [
                 'campaign_id_list' => implode(',', $potong),
@@ -86,6 +88,11 @@ class ShopeeIklanService
             ]);
             foreach ($r['campaign_list'] ?? [] as $c) {
                 $u    = $c['common_info'] ?? [];
+                $sblm = $lama[(int) $c['campaign_id']] ?? null;
+                if ($sblm && (float) ($u['campaign_budget'] ?? 0) > (float) $sblm->modal_harian) {
+                    $naik[] = mb_substr((string) $sblm->nama, 0, 45) . ': Rp' . number_format((float) $sblm->modal_harian, 0, ',', '.')
+                        . ' → Rp' . number_format((float) $u['campaign_budget'], 0, ',', '.');
+                }
                 $masa = $u['campaign_duration'] ?? [];
                 ShopeeIklan::updateOrCreate(
                     ['env' => $env, 'campaign_id' => (int) $c['campaign_id']],
@@ -104,6 +111,15 @@ class ShopeeIklanService
                         'disinkron_at'   => now(),
                     ],
                 );
+            }
+        }
+
+        if ($naik) {
+            try {
+                $this->telegram->notifyApprovers("ℹ️ Modal harian Shopee naik pada " . count($naik) . " iklan anggota kelompok "
+                    . "(belanja tetap dijaga modal ERP):\n- " . implode("\n- ", array_slice($naik, 0, 15)));
+            } catch (\Throwable) {
+                // kabar saja
             }
         }
 

@@ -28,6 +28,9 @@ class ShopeeIklanAksiTest extends TestCase
 
     private bool $tolakResume = false;
 
+    /** @var array<int, int> modal harian per campaign di "Shopee" (bawaan 5000) */
+    private array $modal = [];
+
     /** Berapa kali lagi edit ditolak karena batas kecepatan per toko. */
     private int $batasKali = 0;
 
@@ -65,9 +68,14 @@ class ShopeeIklanAksiTest extends TestCase
 
                 return Http::response(['response' => ['campaign_id' => $cid]]);
             }
+            if ($path === '/api/v2/ads/get_product_level_campaign_id_list') {
+                return Http::response(['response' => ['has_next_page' => false,
+                    'campaign_list' => array_map(fn ($id) => ['campaign_id' => $id], array_keys($this->status))]]);
+            }
             if ($path === '/api/v2/ads/get_product_level_campaign_setting_info') {
                 parse_str((string) parse_url($r->url(), PHP_URL_QUERY), $q);
-                $list = array_map(fn ($id) => ['campaign_id' => (int) $id, 'common_info' => ['campaign_status' => $this->status[(int) $id] ?? 'ended']],
+                $list = array_map(fn ($id) => ['campaign_id' => (int) $id, 'common_info' => ['campaign_status' => $this->status[(int) $id] ?? 'ended',
+                    'ad_name' => "Iklan $id", 'campaign_budget' => $this->modal[(int) $id] ?? 5000]],
                     explode(',', $q['campaign_id_list']));
 
                 return Http::response(['response' => ['campaign_list' => $list]]);
@@ -210,6 +218,81 @@ class ShopeeIklanAksiTest extends TestCase
         $this->assertStringContainsString('ads.rate_limit.exceed_shop_api', $r['pesan']);
         $this->assertSame(['resume:11', 'resume:11', 'resume:11', 'resume:11'], $this->aksi, '1 kirim + 3 ulang, tak beralih ke start');
         $this->assertSame([2.0, 5.0, 10.0], $this->tunggu);
+    }
+
+    private function belanja(int $cid, string $tgl, int $jam, float $biaya): void
+    {
+        DB::table('shopee_iklan_jam')->upsert([['env' => 'test', 'campaign_id' => $cid, 'tanggal' => $tgl, 'jam' => $jam,
+            'biaya' => $biaya, 'gmv' => 0, 'created_at' => now(), 'updated_at' => now()]], ['env', 'campaign_id', 'tanggal', 'jam'], ['biaya']);
+    }
+
+    public function test_modal_erp_awal_dari_median_belanja_sebelum_21_nov(): void
+    {
+        $k = $this->kelompokOtomatis();
+        foreach (['2026-11-14' => 6998, '2026-11-15' => 7001, '2026-11-16' => 7000, '2026-11-21' => 25000] as $tgl => $b) {
+            $this->belanja(21, $tgl, 9, $b); // 21 Nov (sesudah modal dinaikkan) tak ikut dihitung
+        }
+        $this->belanja(22, '2026-11-10', 9, 4200);
+        $this->belanja(22, '2026-11-11', 9, 5900);
+        ShopeeIklan::where('campaign_id', 23)->update(['modal_harian' => 25000]); // tanpa riwayat & modal sudah dinaikkan
+
+        $this->assertSame(3, app(ShopeeIklanJadwalService::class)->isiModalErpAwal($k));
+        $this->assertEquals(7000, (float) ShopeeIklan::where('campaign_id', 21)->value('modal_erp'));
+        $this->assertEquals(5000, (float) ShopeeIklan::where('campaign_id', 22)->value('modal_erp'), 'median 4200 & 5900 = 5050 → 5000');
+        $this->assertEquals(ShopeeIklanJadwalService::MODAL_ERP_CADANGAN, (float) ShopeeIklan::where('campaign_id', 23)->value('modal_erp'));
+    }
+
+    public function test_modal_erp_habis_dijeda_walau_jam_ramai_dan_dilanjutkan_besok(): void
+    {
+        Carbon::setTestNow('2026-11-22 10:15:00'); // jam ramai
+        $this->kelompokOtomatis();
+        ShopeeIklan::whereIn('campaign_id', [21, 22, 23])->update(['modal_erp' => 7000]);
+        $this->belanja(22, '2026-11-22', 9, 7300);   // sudah lewat modal ERP
+        $this->belanja(23, '2026-11-22', 9, 3000);
+        $svc = app(ShopeeIklanJadwalService::class);
+
+        $svc->jalankan(now()->startOfHour());
+        $this->assertSame('paused', $this->status[22]);
+        $this->assertSame('ongoing', $this->status[21]);
+        $this->assertSame('ongoing', $this->status[23]);
+        $this->assertSame('modal ERP hari ini habis', DB::table('shopee_iklan_aksi')->where('campaign_id', 22)->value('alasan'));
+
+        // Jam ramai berikutnya di hari yang sama: tetap dijeda.
+        $svc->jalankan(now()->setTime(13, 0));
+        $this->assertSame('paused', $this->status[22]);
+
+        // Besok jam ramai: hitungan mulai dari nol, dilanjutkan lagi.
+        Carbon::setTestNow('2026-11-23 10:01:00');
+        $svc->jalankan(now()->startOfHour());
+        $this->assertSame('ongoing', $this->status[22]);
+    }
+
+    public function test_simpan_modal_erp_dari_grid(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $k = $this->kelompokOtomatis();
+
+        $this->actingAs($admin)->put(route('sales.iklan-shopee.kelompok.jadwal-manual', $k), [
+            'modal_erp' => ['21' => '7.500', '22' => '', '11' => '1.000'],
+        ])->assertRedirect();
+
+        $this->assertEquals(7500, (float) ShopeeIklan::where('campaign_id', 21)->value('modal_erp'));
+        $this->assertNull(ShopeeIklan::where('campaign_id', 22)->value('modal_erp'), 'kosong = tak diubah');
+        $this->assertNull(ShopeeIklan::where('campaign_id', 11)->value('modal_erp'), 'bukan anggota');
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.edit', $k))->assertOk()->assertSee('modal_erp[21]', false);
+    }
+
+    public function test_kabar_telegram_bila_modal_shopee_anggota_naik(): void
+    {
+        $this->kelompokOtomatis();
+        $this->modal = [21 => 25000, 11 => 25000]; // 11 bukan anggota kelompok → tak dikabarkan
+        $telegram = \Mockery::mock(\App\Modules\Notifications\Services\TelegramNotifier::class);
+        $telegram->shouldReceive('notifyApprovers')->once()->withArgs(fn ($t) => str_contains($t, 'Brosur 21') && str_contains($t, 'Rp25.000') && !str_contains($t, 'Iklan kecil') && !str_contains($t, 'Brosur 22'))->andReturn(1);
+        $this->app->instance(\App\Modules\Notifications\Services\TelegramNotifier::class, $telegram);
+
+        app(\App\Modules\Marketplace\Shopee\Services\ShopeeIklanService::class)->tarikDaftar(ShopeeShop::first());
+
+        $this->assertEquals(25000, (float) ShopeeIklan::where('campaign_id', 21)->value('modal_harian'));
     }
 
     public function test_mode_otomatis_bisa_dipilih_di_halaman(): void

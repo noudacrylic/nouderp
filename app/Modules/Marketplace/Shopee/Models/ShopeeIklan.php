@@ -22,13 +22,14 @@ class ShopeeIklan extends Model
 
     protected $fillable = [
         'env', 'shop_id', 'kelompok_id', 'campaign_id', 'ad_type', 'nama', 'status', 'bidding_method', 'placement',
-        'modal_harian', 'roas_target', 'item_ids', 'mulai_at', 'selesai_at', 'disinkron_at',
+        'modal_harian', 'modal_erp', 'roas_target', 'item_ids', 'mulai_at', 'selesai_at', 'disinkron_at',
     ];
 
     protected $casts = [
         'shop_id'      => 'integer',
         'campaign_id'  => 'integer',
         'modal_harian' => 'decimal:2',
+        'modal_erp'    => 'decimal:2',
         'roas_target'  => 'decimal:2',
         'item_ids'     => 'array',
         'mulai_at'     => 'datetime',

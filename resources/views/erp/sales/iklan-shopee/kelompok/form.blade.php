@@ -132,7 +132,8 @@
         @if ($anggota->isEmpty())
             <p class="text-xs text-gray-400">Belum ada anggota.</p>
         @else
-            <p class="text-xs text-gray-500 mb-2">Klik kotak (atau tahan &amp; seret) untuk mengatur sendiri jam tayang satu iklan. Iklan yang diatur sendiri tayang persis di jam pilihan dan tidak ikut giliran; iklan lain tetap bergiliran otomatis. Iklan yang stoknya habis juga bisa disiapkan jadwalnya: begitu stok ada lagi, iklan langsung tayang sesuai jadwal itu tanpa perlu diatur ulang.</p>
+            <p class="text-xs text-gray-500 mb-2">Klik kotak (atau tahan &amp; seret) untuk mengatur sendiri jam tayang satu iklan. Iklan yang diatur sendiri tayang persis di jam pilihan dan tidak ikut giliran; iklan lain tetap bergiliran otomatis. Iklan yang stoknya habis juga bisa disiapkan jadwalnya: begitu stok ada lagi, iklan langsung tayang sesuai jadwal itu tanpa perlu diatur ulang.
+                <b>Modal ERP</b>: belanja per hari yang dijaga ERP — begitu tercapai, iklan dijeda sampai besok (modal di Shopee hanya batas atas; Shopee menaikkannya ke modal minimal saat iklan dilanjutkan). Data belanja Shopee tertinggal ±1 jam, jadi bisa sedikit lewat.</p>
             <form method="POST" action="{{ route('sales.iklan-shopee.kelompok.jadwal-manual', $k) }}" id="form-manual">
                 @csrf @method('PUT')
                 <div class="overflow-x-auto select-none">
@@ -142,6 +143,7 @@
                             @for ($j = 0; $j < 24; $j++)
                                 <th class="font-normal w-6 {{ $j === (int) now()->format('G') ? 'text-blue-700 font-semibold' : 'text-gray-500' }}">{{ sprintf('%02d', $j) }}{!! in_array($j, $k->jamRamai(), true) ? '<br>▲' : '<br>&nbsp;' !!}</th>
                             @endfor
+                            <th class="font-normal text-gray-500 text-right pl-2" title="Belanja hari ini / modal ERP per hari. Habis → dijeda sampai besok.">Hari ini / modal ERP</th>
                             <th></th>
                         </tr></thead>
                         <tbody>
@@ -169,6 +171,11 @@
                                              data-jam="{{ $j }}" data-on="{{ $tayang($j) ? 1 : 0 }}"></div>
                                     </td>
                                 @endfor
+                                <td class="pl-2 whitespace-nowrap text-right">
+                                    <span class="{{ $a['modal_erp'] !== null && $a['hari_ini'] >= $a['modal_erp'] ? 'text-red-600 font-semibold' : 'text-gray-500' }}">{{ number_format($a['hari_ini'] / 1000, 1, ',', '.') }}rb /</span>
+                                    <input name="modal_erp[{{ $cid }}]" value="{{ $a['modal_erp'] !== null ? (int) $a['modal_erp'] : '' }}" placeholder="—"
+                                           class="rupiah-input modal-erp border rounded px-1 py-0.5 w-16 text-right text-[10px]" title="Modal ERP per hari (Shopee: Rp{{ number_format((float) $a['iklan']->modal_harian, 0, ',', '.') }})">
+                                </td>
                                 <td class="pl-1 whitespace-nowrap">
                                     @if ($manual !== null)
                                         <button name="otomatis" value="{{ $cid }}" class="text-[10px] text-blue-700" title="Kembalikan ke giliran otomatis">↺ otomatis</button>
@@ -179,13 +186,14 @@
                         <tr class="text-gray-500">
                             <td class="pr-2 pt-1">Jumlah tayang</td>
                             @for ($j = 0; $j < 24; $j++)<td class="text-center pt-1">{{ count($rencana[$j]) }}</td>@endfor
+                            <td class="text-right pl-2 pt-1">{{ number_format($anggota->sum('hari_ini') / 1000, 1, ',', '.') }}rb / {{ number_format($anggota->sum(fn ($a) => $a['modal_erp'] ?? 0) / 1000, 0, ',', '.') }}rb</td>
                             <td></td>
                         </tr>
                         </tbody>
                     </table>
                 </div>
                 <div id="bar-manual" class="hidden mt-2 flex items-center gap-2 text-xs">
-                    <button class="bg-blue-600 text-white px-3 py-1.5 rounded">Simpan jadwal manual</button>
+                    <button class="bg-blue-600 text-white px-3 py-1.5 rounded">Simpan jadwal &amp; modal ERP</button>
                     <a href="{{ url()->current() }}" class="text-gray-500">batal</a>
                     <span class="text-gray-500" id="info-manual"></span>
                 </div>
@@ -299,6 +307,12 @@
             });
         });
         document.addEventListener('pointerup', function () { cat = null; });
+        formManual.querySelectorAll('.modal-erp').forEach(function (inp) {
+            inp.addEventListener('input', function () {
+                bar.classList.remove('hidden');
+                infoManual.textContent = 'modal ERP diubah — belum disimpan';
+            });
+        });
     }
 })();
 </script>

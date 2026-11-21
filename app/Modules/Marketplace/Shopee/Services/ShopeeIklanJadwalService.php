@@ -36,6 +36,15 @@ class ShopeeIklanJadwalService
 
     private const HARI_SKOR = 14;
 
+    /**
+     * Modal ERP awal = median belanja harian sebelum Shopee menaikkan modal iklan yang dijeda→
+     * dilanjutkan (pertama terjadi 21 Nov 2026). Jendela 14 hari berakhir di tanggal ini.
+     */
+    public const ACUAN_MODAL_SAMPAI = '2026-11-20';
+
+    /** Cadangan modal ERP bila iklan tak punya riwayat belanja di jendela acuan. */
+    public const MODAL_ERP_CADANGAN = 5000;
+
     public function __construct(
         private ShopeeClient $client,
         private ShopeeIklanAksiService $aksi,
@@ -64,11 +73,15 @@ class ShopeeIklanJadwalService
         $totalBiaya = (float) $kin->sum('biaya');
         $rataRoas   = $totalBiaya > 0 ? (float) $kin->sum('gmv') / $totalBiaya : 0.0;
 
+        $belanjaKini = DB::table('shopee_iklan_jam')->where('env', $k->env)
+            ->whereIn('campaign_id', $iklan->pluck('campaign_id'))->where('tanggal', now()->toDateString())
+            ->groupBy('campaign_id')->selectRaw('campaign_id, SUM(biaya) biaya')->pluck('biaya', 'campaign_id');
+
         $stokPerItem = ShopeeItem::where('env', $k->env)
             ->whereIn('item_id', $iklan->flatMap(fn ($i) => $i->item_ids ?? [])->unique()->values())
             ->groupBy('item_id')->selectRaw('item_id, SUM(stok) stok')->pluck('stok', 'item_id');
 
-        return $iklan->map(function (ShopeeIklan $i) use ($k, $kin, $rataRoas, $stokPerItem) {
+        return $iklan->map(function (ShopeeIklan $i) use ($k, $kin, $rataRoas, $stokPerItem, $belanjaKini) {
             $r     = $kin[$i->campaign_id] ?? null;
             $biaya = (float) ($r->biaya ?? 0);
             $gmv   = (float) ($r->gmv ?? 0);
@@ -81,10 +94,14 @@ class ShopeeIklanJadwalService
                 }
             }
 
+            $hariIni = (float) ($belanjaKini[$i->campaign_id] ?? 0);
+            $modal   = $i->modal_erp !== null ? (float) $i->modal_erp : null;
+
             $alasan = match (true) {
-                !$i->bisaDiatur() => 'iklan ' . strtolower($i->labelStatus()),
-                $stok === 0       => 'stok habis',
-                default           => null,
+                !$i->bisaDiatur()                  => 'iklan ' . strtolower($i->labelStatus()),
+                $stok === 0                        => 'stok habis',
+                $modal !== null && $hariIni >= $modal => 'modal ERP hari ini habis',
+                default                            => null,
             };
 
             return [
@@ -95,8 +112,45 @@ class ShopeeIklanJadwalService
                 'layak'  => $alasan === null,
                 'alasan' => $alasan,
                 'manual' => $k->jamManual($i->campaign_id),
+                'hari_ini' => $hariIni,
+                'modal_erp' => $modal,
             ];
         })->sortByDesc('bobot')->values();
+    }
+
+    /**
+     * Isi modal ERP anggota yang masih kosong: median belanja harian (hari yang berbelanja) dalam
+     * 14 hari s.d. ACUAN_MODAL_SAMPAI, dibulatkan ke ribuan; tanpa riwayat → modal Shopee bila
+     * di bawah Rp25 rb, selain itu MODAL_ERP_CADANGAN.
+     *
+     * @return int jumlah iklan yang diisi
+     */
+    public function isiModalErpAwal(Kelompok $k): int
+    {
+        $kosong = $k->iklan()->whereNull('modal_erp')->get();
+        if ($kosong->isEmpty()) {
+            return 0;
+        }
+        $sampai = \Carbon\Carbon::parse(self::ACUAN_MODAL_SAMPAI);
+        $harian = DB::table('shopee_iklan_jam')->where('env', $k->env)
+            ->whereIn('campaign_id', $kosong->pluck('campaign_id'))
+            ->whereBetween('tanggal', [$sampai->copy()->subDays(13)->toDateString(), $sampai->toDateString()])
+            ->groupBy('campaign_id', 'tanggal')->selectRaw('campaign_id, tanggal, SUM(biaya) biaya')
+            ->having('biaya', '>', 0)->get()->groupBy('campaign_id');
+
+        foreach ($kosong as $i) {
+            $nilai = collect($harian[$i->campaign_id] ?? [])->pluck('biaya')->map(fn ($b) => (float) $b)->sort()->values();
+            if ($nilai->isNotEmpty()) {
+                $n      = $nilai->count();
+                $median = $n % 2 ? $nilai[intdiv($n, 2)] : ($nilai[$n / 2 - 1] + $nilai[$n / 2]) / 2;
+                $modal  = max(1000, round($median / 1000) * 1000);
+            } else {
+                $modal = (float) $i->modal_harian > 0 && (float) $i->modal_harian < 25000 ? (float) $i->modal_harian : self::MODAL_ERP_CADANGAN;
+            }
+            $i->update(['modal_erp' => $modal]);
+        }
+
+        return $kosong->count();
     }
 
     /** Belanja anggota kelompok hari ini (dari data per jam terakhir). */
@@ -244,6 +298,7 @@ class ShopeeIklanJadwalService
 
         foreach (Kelompok::where('env', $env)->whereIn('mode', ['bayangan', 'otomatis'])->orderBy('id')->get() as $k) {
             $nyata = $k->mode === 'otomatis';
+            $this->isiModalErpAwal($k);
             if ($nyata) {
                 $shop ??= ShopeeShop::aktif();
                 if (!$shop || $shop->perluHubungkanUlang()) {

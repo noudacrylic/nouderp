@@ -99,10 +99,16 @@ class IklanKelompokController extends Controller
         if ($request->filled('otomatis')) {
             unset($manual[(string) $request->input('otomatis')]);
         }
+        foreach ((array) $request->input('modal_erp', []) as $cid => $nilai) {
+            if (in_array((string) $cid, $anggota, true) && trim((string) $nilai) !== '') {
+                ShopeeIklan::where('kelompok_id', $kelompok->id)->where('campaign_id', (int) $cid)
+                    ->update(['modal_erp' => max(0, (float) clean_number($nilai))]);
+            }
+        }
 
         $kelompok->update(['jadwal_manual' => $manual ?: null]);
 
-        return back()->with('success', $request->filled('otomatis') ? 'Iklan dikembalikan ke giliran otomatis.' : 'Jadwal manual disimpan.');
+        return back()->with('success', $request->filled('otomatis') ? 'Iklan dikembalikan ke giliran otomatis.' : 'Jadwal & modal ERP disimpan.');
     }
 
     /**
@@ -211,11 +217,13 @@ class IklanKelompokController extends Controller
 
         $ids = array_map('intval', $data['anggota'] ?? []);
         DB::transaction(function () use ($k, $ids) {
-            ShopeeIklan::where('kelompok_id', $k->id)->whereNotIn('campaign_id', $ids ?: [0])->update(['kelompok_id' => null]);
+            ShopeeIklan::where('kelompok_id', $k->id)->whereNotIn('campaign_id', $ids ?: [0])->update(['kelompok_id' => null, 'modal_erp' => null]);
             ShopeeIklan::where('env', $k->env)->whereIn('campaign_id', $ids)
                 ->where(fn ($q) => $q->whereNull('kelompok_id')->orWhere('kelompok_id', $k->id))
                 ->update(['kelompok_id' => $k->id]);
         });
+
+        $this->jadwal->isiModalErpAwal($k);
 
         // Jadwal manual milik iklan yang sudah keluar dari kelompok dibuang.
         $tetap = $k->iklan()->pluck('campaign_id')->map(fn ($id) => (string) $id)->all();
