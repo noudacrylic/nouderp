@@ -178,7 +178,13 @@ class AgenPrompt
             ->where('created_at', '>=', self::awalLuarJam())
             ->get(['teks', 'teks_terkirim'])
             ->contains(fn ($s) => trim((string) $s->teks) === ''
-                || preg_match('/\bjam\s*\d{1,2}([.:]\d{2})?\b/iu', (string) ($s->teks_terkirim ?: $s->teks)));
+                || self::menyebutJam((string) ($s->teks_terkirim ?: $s->teks)));
+    }
+
+    /** Teks menyebut jam ("jam 8", "jam 08.00") — tanda kabar kapan admin aktif sudah disampaikan. */
+    public static function menyebutJam(string $teks): bool
+    {
+        return (bool) preg_match('/\bjam\s*\d{1,2}([.:]\d{2})?\b/iu', $teks);
     }
 
     private static function hariLibur(CarbonInterface $hari): bool

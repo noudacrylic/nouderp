@@ -409,6 +409,29 @@ class SaranAiTest extends TestCase
         $this->assertSame('di Semarang kak', $this->pesanAi()->last()->content, 'Yang bisa dijawab tetap dijawab AI.');
     }
 
+    public function test_luar_jam_custom_pertanyaan_brief_tetap_dikirim_dengan_kabar_jam_sekali(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 20:00'));
+        $this->modeKirim(CrmAgent::KIRIM_OTOMATIS);
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $c = $this->chat('bisa buat wadah plakat kak?');
+        $c->forceFill(['owner_user_id' => $owner->id])->save();
+        $this->claude->antrekan($this->usul('D1', 'bisa dicek kak, boleh kirim gambar contohnya? ukuran & tebalnya berapa kak?', 'owner'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $kirim = $this->pesanAi()->pluck('content')->all();
+        $this->assertCount(1, $kirim);
+        $this->assertStringStartsWith('bisa dicek kak, boleh kirim gambar contohnya?', $kirim[0]);
+        $this->assertStringContainsString('admin produksi aktif lagi', $kirim[0], 'Kabar jam ditambahkan.');
+
+        $this->travelTo(now()->addMinutes(10));
+        $this->pesan($c, CrmMessage::MASUK, '30x15 cm, 3mm', now()->subMinutes(2));
+        $c->forceFill(['last_inbound_at' => now()->subMinutes(2)])->save();
+        $this->claude->antrekan($this->usul('D1', 'jumlahnya berapa kak?', 'owner'));
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+        $this->assertSame('jumlahnya berapa kak?', $this->pesanAi()->last()->content, 'Kabar jam tidak diulang.');
+    }
+
     public function test_jam_kerja_lemparan_ke_chat_dipegang_tidak_jadi_saran(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 10:00'));

@@ -222,8 +222,15 @@ class SaranAiService
 
         // Chat yang sudah dipegang admin & pertanyaannya tak bisa dijawab AI: tidak dilempar lagi,
         // cukup info kapan admin aktif — sekali semalam. Yang bisa dijawab tetap dijawab AI.
-        if ($luarJam && $saran->lempar_ke && $c->owner_user_id) {
-            if (AgenPrompt::kabarJamSudahDisampaikan($c->id)) {
+        // Custom (owner, 22 Nov 2026): pertanyaan AI yang mengumpulkan referensi/tebal/ukuran/jumlah
+        // tetap dikirim supaya pagi harinya admin produksi tinggal menghitung; kabar jam ikut sekali.
+        $kabarSudah = $luarJam && $saran->lempar_ke && $c->owner_user_id && AgenPrompt::kabarJamSudahDisampaikan($c->id);
+        if ($luarJam && $saran->lempar_ke === 'owner' && $c->owner_user_id && str_contains($teks, '?')) {
+            if (!$kabarSudah && !AgenPrompt::menyebutJam($teks)) {
+                $teks .= "\nadmin produksi aktif lagi " . AgenPrompt::adminAktifLagi() . ' ya kak 🙏';
+            }
+        } elseif ($luarJam && $saran->lempar_ke && $c->owner_user_id) {
+            if ($kabarSudah) {
                 $this->tandaiMenungguAdmin($c);
 
                 return;
