@@ -109,8 +109,12 @@ class PengawasanProduksiSkill implements SkillOwner, PunyaJawaban
     public function jawab(Task $task, string $kunci, User $u): string
     {
         app(PenilaianKinerjaService::class)->putuskan((int) $task->taskable_id, $kunci, $u->id);
+        $teks = PenilaianKinerjaService::PUTUSAN[$kunci] ?? $kunci;
 
-        return 'Putusan disimpan: ' . (PenilaianKinerjaService::PUTUSAN[$kunci] ?? $kunci) . '.';
+        // Kartu langsung ditutup — tidak menunggu sinkron 2 menitan (keadaan() juga menutupnya, ini hanya dipercepat).
+        app(\App\Modules\Tasks\MejaKerja\MejaKerjaService::class)->ubahStatus($task, 'done', $u, "Diputus: {$teks}.");
+
+        return "Putusan disimpan: {$teks}.";
     }
 
     private function ringkasRasio(array $o): string
