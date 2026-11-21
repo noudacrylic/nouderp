@@ -150,6 +150,21 @@ class ShopeeIklanAksiTest extends TestCase
         $this->assertSame('ongoing', $this->status[22], 'tidak dijeda karena penggantinya gagal tayang');
     }
 
+    public function test_batas_aksi_hanya_menahan_jeda_lanjut_tetap_dikerjakan(): void
+    {
+        Carbon::setTestNow('2026-11-21 02:00:00');
+        config(['services.shopee.iklan_maks_aksi' => 1]);
+        $this->kelompokOtomatis();
+        $svc = app(ShopeeIklanJadwalService::class);
+
+        $svc->jalankan(now()); // jam sepi: perlu 2 jeda, batas 1 → 1 jeda, 1 ditunda
+        $this->assertSame(1, DB::table('shopee_iklan_aksi')->where('aksi', 'jeda')->where('hasil', 'berhasil')->count());
+        $this->assertSame(1, DB::table('shopee_iklan_aksi')->where('aksi', 'jeda')->where('hasil', 'dilewati')->count());
+
+        $svc->jalankan(now()->setTime(10, 0)); // jam ramai: batas sudah habis, lanjut tetap dikerjakan
+        $this->assertSame(['ongoing', 'ongoing', 'ongoing'], [$this->status[21], $this->status[22], $this->status[23]]);
+    }
+
     public function test_mode_otomatis_bisa_dipilih_di_halaman(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);

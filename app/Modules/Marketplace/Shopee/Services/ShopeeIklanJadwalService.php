@@ -286,8 +286,10 @@ class ShopeeIklanJadwalService
             $lanjutGagal = false;
             $kunci = $nyata ? 'nyata' : 'bayangan';
             foreach ($rencana as [$i, $aksi, $why]) {
+                // Batas hanya menahan JEDA aksi nyata: lanjut selalu dicoba agar iklan tak
+                // tertinggal mati di jam ramai; bayangan hanya catatan, tak dibatasi.
                 $lewati = match (true) {
-                    $sudah[$kunci] >= $maks          => 'batas aksi harian tercapai',
+                    $nyata && $aksi === 'jeda' && $sudah[$kunci] >= $maks => 'batas aksi harian tercapai — jeda ditunda',
                     $aksi === 'jeda' && $lanjutGagal => 'ada iklan yang gagal dilanjutkan — jeda ditunda',
                     default                          => null,
                 };

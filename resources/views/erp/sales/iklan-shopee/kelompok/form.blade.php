@@ -121,8 +121,14 @@
     <div class="bg-white rounded shadow p-3 mb-3">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-2 text-sm">
             <div class="font-semibold">Rencana tayang hari ini</div>
-            <div class="text-xs text-gray-500">± {{ $aksiPerHari }} aksi pause/lanjut per hari · hijau = tayang · hijau muda = dijadwalkan, menunggu stok · ▲ = jam ramai · ✎ = jadwal manual</div>
+            <div class="text-xs {{ $aksiPerHari > $maksAksi ? 'text-red-600 font-semibold' : 'text-gray-500' }}">± {{ $aksiPerHari }} aksi pause/lanjut per hari{{ $aksiPerHari > $maksAksi ? ' (melebihi batas ' . $maksAksi . ')' : '' }} · hijau = tayang · hijau muda = dijadwalkan, menunggu stok · ▲ = jam ramai · ✎ = jadwal manual</div>
         </div>
+        @if ($pecahanRamai > 2 && $anggota->count() > $k->aktif_sepi)
+            <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded p-2 text-xs mb-2">
+                Jam ramai terpecah jadi {{ $pecahanRamai }} bagian ({{ $k->ringkasJamRamai() }}). Tiap peralihan ramai↔sepi menjeda/melanjutkan banyak iklan sekaligus —
+                menyatukannya (mis. satu rentang pagi–malam) bisa memangkas aksi/hari dengan hasil hampir sama.
+            </div>
+        @endif
         @if ($anggota->isEmpty())
             <p class="text-xs text-gray-400">Belum ada anggota.</p>
         @else

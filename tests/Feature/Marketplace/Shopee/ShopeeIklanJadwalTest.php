@@ -140,7 +140,7 @@ class ShopeeIklanJadwalTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_batas_aksi_harian_lanjut_didahulukan(): void
+    public function test_bayangan_tidak_dibatasi_batas_aksi(): void
     {
         config(['services.shopee.iklan_maks_aksi' => 1]);
         $k = $this->kelompok(['aktif_sepi' => 1, 'status_simulasi' => ['1' => false, '2' => true, '3' => true]]);
@@ -149,10 +149,11 @@ class ShopeeIklanJadwalTest extends TestCase
         }
 
         $this->svc->jalankan(now()->setTime(10, 0)); // jam ramai: 1 perlu dilanjutkan
-        $this->svc->jalankan(now()->setTime(13, 0)); // jam sepi: 2 perlu dijeda, batas sudah habis
+        $this->svc->jalankan(now()->setTime(13, 0)); // jam sepi: 2 perlu dijeda
 
-        $this->assertSame(1, DB::table('shopee_iklan_aksi')->where('hasil', 'bayangan')->where('aksi', 'lanjut')->count());
-        $this->assertSame(2, DB::table('shopee_iklan_aksi')->where('hasil', 'dilewati')->count());
+        // Bayangan hanya catatan perkiraan: semua tercatat walau melebihi batas.
+        $this->assertSame(3, DB::table('shopee_iklan_aksi')->where('hasil', 'bayangan')->count());
+        $this->assertSame(0, DB::table('shopee_iklan_aksi')->where('hasil', 'dilewati')->count());
     }
 
     public function test_jadwal_manual_diikuti_persis_sisanya_bergiliran(): void

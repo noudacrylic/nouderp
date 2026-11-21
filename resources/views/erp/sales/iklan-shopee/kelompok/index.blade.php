@@ -12,8 +12,14 @@
     Di <b>jam ramai</b> semua iklan anggota tayang; di <b>jam sepi</b> hanya beberapa yang tayang, bergiliran (yang ROAS-nya bagus lebih sering kebagian).
     Iklan yang stok listingnya habis tidak diberi giliran. Jadwal dijalankan tiap awal jam.
     Mode <b>Bayangan</b> hanya mencatat apa yang akan dilakukan — iklan di Shopee belum diubah.
-    Aksi hari ini: {{ $aksiHariIni }} dari batas {{ $maksAksi }}/hari.
+    Aksi nyata hari ini: {{ $aksiHariIni }} (batas {{ $maksAksi }}/hari hanya menahan jeda — lanjut selalu dikerjakan agar iklan tak tertinggal mati).
 </p>
+@if ($totalRencanaOtomatis > $maksAksi)
+    <div class="bg-red-50 border border-red-200 text-red-700 rounded p-2 text-xs mb-3">
+        Rencana kelompok Otomatis ± {{ $totalRencanaOtomatis }} aksi/hari, melebihi batas {{ $maksAksi }}. Sisa jeda hari ini akan ditunda (iklan tetap tayang, lebih boros).
+        Kurangi dengan menyatukan jam ramai yang terpecah (mis. 07, 09, 12–23 → 07–23) atau memperpanjang giliran jam sepi.
+    </div>
+@endif
 
 <div class="bg-white rounded shadow mb-3 overflow-x-auto">
     <table class="w-full text-sm">
@@ -36,7 +42,7 @@
                 <td class="text-right px-2">{{ $k->iklan_count }}</td>
                 <td class="px-2 text-xs">{{ $k->ringkasJamRamai() }}</td>
                 <td class="px-2 text-xs">{{ $k->aktif_sepi }} iklan, ganti tiap {{ $k->rotasi_jam }} jam</td>
-                <td class="text-right px-2">{{ $ringkas[$k->id]['aksi'] }}</td>
+                <td class="text-right px-2 {{ $ringkas[$k->id]['aksi'] > $maksAksi ? 'text-red-600 font-semibold' : '' }}">{{ $ringkas[$k->id]['aksi'] }}</td>
                 <td class="text-right px-3">{{ $ringkas[$k->id]['aktif_kini'] }}</td>
             </tr>
         @empty

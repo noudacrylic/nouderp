@@ -44,7 +44,8 @@ class IklanKelompokController extends Controller
             'maksAksi'   => (int) config('services.shopee.iklan_maks_aksi', 100),
             'calonUji'   => ShopeeIklan::where('env', $env)->where('status', 'ongoing')->orderBy('modal_harian')->orderBy('nama')->get(['campaign_id', 'nama', 'modal_harian']),
             'aksiHariIni' => DB::table('shopee_iklan_aksi')->where('env', $env)->where('created_at', '>=', now()->startOfDay())
-                ->whereIn('hasil', ['bayangan', 'berhasil'])->count(),
+                ->where('mode', '!=', 'bayangan')->whereIn('hasil', ['berhasil', 'gagal'])->count(),
+            'totalRencanaOtomatis' => $kelompok->where('mode', 'otomatis')->sum(fn ($k) => $ringkas[$k->id]['aksi']),
         ]);
     }
 
@@ -169,6 +170,8 @@ class IklanKelompokController extends Controller
             'anggota'    => $anggota,
             'rencana'    => $rencana,
             'aksiPerHari' => $rencana ? $this->hitungAksi($rencana) : 0,
+            'maksAksi'    => (int) config('services.shopee.iklan_maks_aksi', 100),
+            'pecahanRamai' => $k->exists ? max(0, count(array_filter(explode(',', $k->ringkasJamRamai()), fn ($x) => trim($x) !== '—'))) : 0,
             'saranJam'   => $this->jadwal->saranJamRamai($idSaran, $env),
             'belanja'    => $k->exists ? $this->jadwal->belanjaHariIni($k) : 0,
             'log'        => $log,
