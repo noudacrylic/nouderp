@@ -20,7 +20,7 @@ use Carbon\Carbon;
  * wajar (dihitung sesuai timer) / abaikan (tidak ikut penilaian) / tidak wajar (0 poin).
  *
  * DIAM-DIAM: karyawan tidak diberi tahu (pemberitahuan efek jera baru dibuat bila ada kasus).
- * Batas janggal = parameter "Batas perlu dicek" di Dashboard Penilaian.
+ * Batas janggal = parameter "Batas perlu dicek" di Pengaturan & Analisa Penilaian.
  */
 class PengawasanProduksiSkill implements SkillOwner, PunyaJawaban
 {
@@ -64,7 +64,7 @@ class PengawasanProduksiSkill implements SkillOwner, PunyaJawaban
                 'deskripsi'     => $this->bukti($o),
                 'taskable_type' => ProductionOrderStep::class,
                 'taskable_id'   => $o['step_id'],
-                'meta'          => ['op_id' => $o['op_id'], 'bulan' => $o['selesai']->format('Y-m')],
+                'meta'          => ['op_id' => $o['op_id'], 'bulan' => $o['selesai']->format('Y-m'), 'orang' => $o['pelaksana'][0]['id'] ?? null],
                 'dibuat_at'     => $o['selesai']->copy()->max($sejak),
             ];
         }
@@ -90,7 +90,7 @@ class PengawasanProduksiSkill implements SkillOwner, PunyaJawaban
         if (!empty($meta['op_id'])) {
             $aksi[] = ['label' => 'Lihat OP', 'url' => route('production.orders.show', $meta['op_id']), 'utama' => true];
         }
-        $aksi[] = ['label' => 'Dashboard Penilaian', 'url' => route('production.waktu-standar.penilaian', array_filter(['dari' => $meta['bulan'] ?? null, 'sampai' => $meta['bulan'] ?? null]))];
+        $aksi[] = ['label' => 'Penilaian Karyawan', 'url' => route('production.waktu-standar.rapor', array_filter(['orang' => $meta['orang'] ?? null, 'bulan' => $meta['bulan'] ?? null]))];
 
         return $aksi;
     }

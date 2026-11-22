@@ -135,6 +135,27 @@ class PengawasanProduksiTest extends TestCase
         $this->assertSame('cancelled', $t->fresh()->status);
     }
 
+    public function test_rapor_per_orang_mengelompokkan_op_per_poin_dan_menjelaskan_asal_nilai(): void
+    {
+        $this->op(80, '2026-11-17 15:00');   // 80% → 2 poin
+        $this->op(100, '2026-11-18 15:00');  // 100% → 1 poin
+        $this->op(130, '2026-11-19 15:00');  // 130% → 0 poin
+        $this->op(15, '2026-11-19 16:00');   // 15% → ditahan
+
+        $this->actingAs($this->owner)->get(route('production.waktu-standar.rapor', ['orang' => $this->novan->id, 'bulan' => '2026-11']))
+            ->assertOk()
+            ->assertSee('Novan')
+            ->assertSee('2 poin — lebih cepat dari target')
+            ->assertSee('1 poin — sesuai target')
+            ->assertSee('0 poin — lebih lambat dari target')
+            ->assertSee('Ditahan — menunggu putusan owner')
+            ->assertSee('(1 × 2 + 1 × 1 + 1 × 0) ÷ 3 OP', false)
+            ->assertSee('1,00');
+
+        $admin = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+        $this->actingAs($admin)->get(route('production.waktu-standar.rapor'))->assertForbidden();
+    }
+
     public function test_dashboard_mengirim_putusan_ke_browser(): void
     {
         $step = $this->op(15);

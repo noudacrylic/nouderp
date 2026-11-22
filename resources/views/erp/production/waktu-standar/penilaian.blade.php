@@ -3,7 +3,9 @@
 @section('content')
 <div class="w-full px-6 py-4" x-data="penilaianDash()" x-cloak>
     <div class="mb-3">
-        <h1 class="text-xl font-bold text-gray-800">Dashboard Penilaian — {{ $divisi->firstWhere('id', $deptId)?->name }}</h1>
+        <h1 class="text-xl font-bold text-gray-800">Pengaturan & Analisa Penilaian — {{ $divisi->firstWhere('id', $deptId)?->name }}</h1>
+        <p class="text-xs text-blue-700 mb-1">Untuk melihat nilai satu karyawan beserta asal-usulnya, buka
+            <a href="{{ route('production.waktu-standar.rapor') }}" class="underline font-semibold">Penilaian Karyawan</a>.</p>
         <p class="text-xs text-gray-500 max-w-5xl">
             Tiap OP punya <b>jatah waktu</b> = Σ (pcs × waktu standar). Rasio = timer ÷ jatah (di bawah 100% = lebih cepat).
             Poin: lebih cepat dari pita = <b class="text-emerald-700">2</b>, di dalam pita = <b>1</b>, lebih lambat = <b class="text-red-600">0</b>.

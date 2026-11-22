@@ -159,7 +159,7 @@ class PenilaianKinerjaTest extends TestCase
 
         $this->actingAs($admin)->get(route('production.waktu-standar.penilaian'))->assertForbidden();
         $this->actingAs($owner)->get(route('production.waktu-standar.penilaian', ['dari' => '2026-09', 'sampai' => '2026-10']))
-            ->assertOk()->assertSee('Novan')->assertSee('OP-PK-')->assertSee('Dashboard Penilaian');
+            ->assertOk()->assertSee('Novan')->assertSee('OP-PK-')->assertSee('Pengaturan & Analisa Penilaian', false);
 
         $param = ['pita' => '0.12', 'faktor_cek' => '2.5', 'min_op' => '8', 'bobot' => 'op', 'tingkat' => [
             ['label' => 'Istimewa', 'min' => '1.3', 'bonus' => '550000'],

@@ -1491,6 +1491,7 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     // Waktu Standar — menit/pcs per SKU, dasar penilaian kinerja (owner saja, role_gate di menu).
     Route::get ('waktu-standar', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'index'])->name('waktu-standar.index');
     Route::post('waktu-standar', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'simpan'])->name('waktu-standar.simpan');
+    Route::get ('waktu-standar/rapor', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'rapor'])->name('waktu-standar.rapor');
     Route::get ('waktu-standar/penilaian', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'penilaian'])->name('waktu-standar.penilaian');
     Route::post('waktu-standar/penilaian/pengaturan', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'simpanParam'])->name('waktu-standar.penilaian.simpan');
     Route::post('waktu-standar/sampel/{stepId}/coret', [\App\Modules\Production\Controllers\WaktuStandarController::class, 'coretSampel'])->whereNumber('stepId')->name('waktu-standar.sampel.coret');

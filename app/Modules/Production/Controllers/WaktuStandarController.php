@@ -218,6 +218,68 @@ class WaktuStandarController extends Controller
         ]);
     }
 
+    /**
+     * Rapor per orang (owner): A. ringkasan nilai satu bulan, B. Performa = daftar OP
+     * dikelompokkan per poin supaya asal nilainya bisa ditelusuri, C. komponen lain (hasil kerja,
+     * keterampilan) menyusul. Memakai parameter TERSIMPAN & standar resmi (tanpa simulasi) —
+     * ini angka "yang benar", bukan tempat mencoba parameter.
+     */
+    public function rapor(Request $request, PenilaianKinerjaService $pk)
+    {
+        $this->khususOwner($request);
+        $deptId = (int) $request->input('divisi', self::DIVISI[0]);
+        abort_unless(in_array($deptId, self::DIVISI, true), 404);
+        $bulan = preg_match('/^\d{4}-\d{2}$/', (string) $request->input('bulan')) ? Carbon::parse($request->input('bulan') . '-01') : now()->startOfMonth();
+
+        $hasil = $pk->bulan($deptId, $bulan);
+        $semuaOrang = DepartmentExecutor::where('department_id', $deptId)->orderByDesc('is_active')->orderBy('name')
+            ->get(['id', 'name', 'is_active', 'created_at']);
+        $orangId = (int) $request->input('orang', 0)
+            ?: ($hasil['pelaksana']->sortByDesc('n')->first()['id'] ?? $semuaOrang->first()?->id);
+        $orang = $semuaOrang->firstWhere('id', $orangId);
+        abort_unless($orang, 404);
+
+        $nilai = $hasil['pelaksana']->firstWhere('id', $orangId);
+        $milik = fn ($o) => collect($o['pelaksana'])->contains('id', $orangId);
+        $ops = $hasil['op']->filter($milik)->values();
+        $tanpa = $hasil['tanpa_standar']->filter($milik)->values();
+
+        // Langkah yang timernya pernah dikoreksi owner — ditandai di daftar.
+        $dikoreksi = \App\Modules\Production\Models\ProductionStepTimeLog::whereIn('production_order_step_id', $ops->pluck('step_id'))
+            ->whereNotNull('koreksi_grup')->distinct()->pluck('production_order_step_id')->flip();
+
+        $kelompok = [
+            'p2'        => ['judul' => '2 poin — lebih cepat dari target', 'warna' => 'emerald', 'op' => $ops->where('status', 'dinilai')->where('poin', 2)],
+            'p1'        => ['judul' => '1 poin — sesuai target', 'warna' => 'gray', 'op' => $ops->where('status', 'dinilai')->where('poin', 1)],
+            'p0'        => ['judul' => '0 poin — lebih lambat dari target', 'warna' => 'red', 'op' => $ops->where('status', 'dinilai')->where('poin', 0)],
+            'cek'       => ['judul' => 'Ditahan — menunggu putusan owner (Meja Owner)', 'warna' => 'amber', 'op' => $ops->where('status', 'cek')],
+            'diabaikan' => ['judul' => 'Diabaikan owner — tidak ikut nilai', 'warna' => 'slate', 'op' => $ops->where('status', 'diabaikan')],
+        ];
+
+        // Tren 3 bulan terakhir (sampai bulan dipilih) untuk orang ini.
+        $tren = [];
+        for ($b = $bulan->copy()->subMonths(2); $b->lte($bulan); $b->addMonth()) {
+            $r = $b->eq($bulan) ? $nilai : $pk->bulan($deptId, $b)['pelaksana']->firstWhere('id', $orangId);
+            $tren[] = ['label' => $b->translatedFormat('M Y'), 'rata' => $r['rata'] ?? null, 'n' => $r['n'] ?? 0, 'tingkat' => $r['tingkat'] ?? null];
+        }
+
+        return view('erp.production.waktu-standar.rapor', [
+            'divisi'     => Department::whereIn('id', self::DIVISI)->get(['id', 'name']),
+            'deptId'     => $deptId,
+            'bulan'      => $bulan,
+            'semuaOrang' => $semuaOrang,
+            'orang'      => $orang,
+            'percobaan'  => $orang->created_at && $orang->created_at->gt(now()->subDays(WaktuStandarService::HARI_PERCOBAAN)),
+            'nilai'      => $nilai,
+            'kelompok'   => $kelompok,
+            'tanpa'      => $tanpa,
+            'dikoreksi'  => $dikoreksi,
+            'tren'       => $tren,
+            'param'      => $pk->param(),
+            'berjalan'   => $bulan->isSameMonth(now()),
+        ]);
+    }
+
     public function simpanParam(Request $request, PenilaianKinerjaService $pk)
     {
         $this->khususOwner($request);

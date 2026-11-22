@@ -259,7 +259,8 @@ return [
             'production.waktu-standar'       => ['label' => 'Waktu Standar',     'url' => '/erp/production/waktu-standar',      'route_patterns' => ['production.waktu-standar.*'], 'role_gate' => ['super_admin'],
                 'subtabs' => [
                     ['label' => 'Waktu Standar', 'url' => '/erp/production/waktu-standar',           'route_patterns' => ['production.waktu-standar.index', 'production.waktu-standar.simpan']],
-                    ['label' => 'Dashboard Penilaian', 'url' => '/erp/production/waktu-standar/penilaian', 'route_patterns' => ['production.waktu-standar.penilaian*']],
+                    ['label' => 'Penilaian Karyawan', 'url' => '/erp/production/waktu-standar/rapor', 'route_patterns' => ['production.waktu-standar.rapor']],
+                    ['label' => 'Pengaturan & Analisa', 'url' => '/erp/production/waktu-standar/penilaian', 'route_patterns' => ['production.waktu-standar.penilaian*']],
                 ],
             ],
         ],
