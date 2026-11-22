@@ -267,6 +267,26 @@ class ShopeeIklanAksiTest extends TestCase
         $this->assertSame('ongoing', $this->status[22]);
     }
 
+    public function test_jeda_modal_erp_habis_tidak_ditahan_batas_aksi_dan_dilewati_tak_berulang(): void
+    {
+        Carbon::setTestNow('2026-11-22 13:16:00'); // jam sepi (jam ramai hanya 10)
+        config(['services.shopee.iklan_maks_aksi' => 0]); // batas sudah habis
+        $this->kelompokOtomatis();
+        ShopeeIklan::whereIn('campaign_id', [21, 22, 23])->update(['modal_erp' => 7000]);
+        $this->belanja(22, '2026-11-22', 12, 9000); // modal ERP habis
+        $svc = app(ShopeeIklanJadwalService::class);
+
+        $svc->jalankan(now()->startOfHour());
+        $this->assertSame('paused', $this->status[22], 'penjaga uang tetap dijalankan');
+        $this->assertSame(1, DB::table('shopee_iklan_aksi')->where('campaign_id', 22)->where('hasil', 'berhasil')->count());
+        // Rotasi jam sepi: satu dari 21/23 perlu dijeda, tapi ditahan batas.
+        $this->assertSame(1, DB::table('shopee_iklan_aksi')->where('hasil', 'dilewati')->count());
+
+        Carbon::setTestNow('2026-11-22 13:31:00');
+        $svc->jalankan(now()->startOfHour());
+        $this->assertSame(1, DB::table('shopee_iklan_aksi')->where('hasil', 'dilewati')->count(), 'tidak dicatat ulang tiap 15 menit');
+    }
+
     public function test_simpan_modal_erp_dari_grid(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);

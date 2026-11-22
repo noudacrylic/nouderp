@@ -382,10 +382,12 @@ class ShopeeIklanJadwalService
             $lanjutGagal = false;
             $kunci = $nyata ? 'nyata' : 'bayangan';
             foreach ($rencana as [$i, $aksi, $why]) {
-                // Batas hanya menahan JEDA aksi nyata: lanjut selalu dicoba agar iklan tak
-                // tertinggal mati di jam ramai; bayangan hanya catatan, tak dibatasi.
+                // Batas hanya menahan JEDA karena rotasi jadwal. Lanjut selalu dicoba agar iklan
+                // tak tertinggal mati di jam ramai; jeda penjaga uang (modal ERP habis, batas
+                // belanja kelompok) juga selalu dikerjakan; bayangan hanya catatan, tak dibatasi.
+                $penjagaUang = in_array($why, ['modal ERP hari ini habis', 'batas belanja kelompok tercapai'], true);
                 $lewati = match (true) {
-                    $nyata && $aksi === 'jeda' && $sudah[$kunci] >= $maks => 'batas aksi harian tercapai — jeda ditunda',
+                    $nyata && $aksi === 'jeda' && !$penjagaUang && $sudah[$kunci] >= $maks => 'batas aksi harian tercapai — jeda ditunda',
                     $aksi === 'jeda' && $lanjutGagal => 'ada iklan yang gagal dilanjutkan — jeda ditunda',
                     default                          => null,
                 };
@@ -429,6 +431,11 @@ class ShopeeIklanJadwalService
 
     private function catat(string $env, int $kelompokId, int $campaignId, string $aksi, string $mode, string $hasil, string $alasan, Carbon $waktu): void
     {
+        // Jadwal jalan tiap 15 menit: "dilewati" yang sama cukup dicatat sekali per jam.
+        if ($hasil === 'dilewati' && DB::table('shopee_iklan_aksi')->where('campaign_id', $campaignId)->where('aksi', $aksi)
+            ->where('hasil', 'dilewati')->where('created_at', $waktu)->exists()) {
+            return;
+        }
         DB::table('shopee_iklan_aksi')->insert([
             'env' => $env, 'kelompok_id' => $kelompokId, 'campaign_id' => $campaignId, 'aksi' => $aksi,
             'mode' => $mode, 'hasil' => $hasil, 'alasan' => mb_substr($alasan, 0, 100),
