@@ -145,7 +145,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                    @foreach($g['op']->sortBy('rasio') as $o)
+                    @foreach($g['op']->sortByDesc(fn ($x) => $x['selesai']?->timestamp ?? 0) as $o)
                         @php
                             $rekan = collect($o['pelaksana'])->where('id', '!=', $orang->id)->pluck('name');
                             $ket = [];
@@ -178,7 +178,7 @@
                     Tidak dinilai — produk belum punya waktu standar <span class="font-normal">· {{ $tanpa->count() }} OP</span>
                 </div>
                 <div class="mt-1.5 flex flex-wrap gap-1.5 text-xs">
-                    @foreach($tanpa as $o)
+                    @foreach($tanpa->sortByDesc(fn ($x) => $x['selesai']?->timestamp ?? 0) as $o)
                         <a href="{{ route('production.orders.show', $o['op_id']) }}" class="px-2 py-0.5 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">
                             {{ $o['op'] }} <span class="text-gray-400">({{ implode(', ', $o['kurang']) }})</span>
                         </a>
