@@ -194,6 +194,26 @@ class ShopeeIklanJadwalService
         return $hasil;
     }
 
+    /**
+     * Keramaian toko per jam: rata-rata pesanan Shopee per hari di tiap jam (semua pesanan,
+     * bukan hanya dari iklan) dalam $hari hari penuh terakhir.
+     *
+     * @return array<int, float> jam => pesanan/hari
+     */
+    public function pesananPerJam(string $env, int $hari = 14): array
+    {
+        $rows = DB::table('shopee_orders')->where('env', $env)
+            ->whereBetween('dibuat_shopee_at', [now()->subDays($hari)->startOfDay(), now()->startOfDay()])
+            ->selectRaw('HOUR(dibuat_shopee_at) jam, COUNT(*) n')->groupBy('jam')->pluck('n', 'jam');
+
+        $hasil = [];
+        for ($j = 0; $j < 24; $j++) {
+            $hasil[$j] = (int) ($rows[$j] ?? 0) / $hari;
+        }
+
+        return $hasil;
+    }
+
     /** Belanja anggota kelompok hari ini (dari data per jam terakhir). */
     public function belanjaHariIni(Kelompok $k): float
     {

@@ -12,6 +12,19 @@
         if ($r > $rataRoas * 1.2) return 'text-green-700';
         return 'text-amber-700';
     };
+    // Keramaian toko per jam (pesanan Shopee/hari): 5 tingkat relatif jam teramai.
+    $maksRamai = max(0.0001, max($keramaian ?: [0]));
+    $kelasRamai = function ($n) use ($maksRamai) {
+        $r = $n / $maksRamai;
+        return match (true) {
+            $r >= 0.8 => 'bg-orange-500 text-white',
+            $r >= 0.6 => 'bg-orange-400 text-white',
+            $r >= 0.4 => 'bg-orange-300 text-orange-950',
+            $r >= 0.2 => 'bg-orange-200 text-orange-900',
+            $r > 0    => 'bg-orange-100 text-orange-800',
+            default   => 'bg-gray-50 text-gray-400',
+        };
+    };
     $judulSel = fn ($c, $label) => $c ? $label . ': belanja ' . $rp($c['biaya']) . ' · ' . $c['klik'] . ' klik · ' . $c['pesanan'] . ' pesanan · omzet ' . $rp($c['gmv']) . ' · ROAS ' . ($c['roas'] === null ? '—' : number_format($c['roas'], 1, ',', '.')) : $label . ': belum ada belanja';
     $jamRamai = old('jam_ramai', $k->jamRamai());
     $jamRamai = array_map('intval', is_array($jamRamai) ? $jamRamai : []);
@@ -141,7 +154,7 @@
                     terakhir (rata-rata kelompok {{ $rataRoas === null ? '—' : number_format($rataRoas, 1, ',', '.') }})
                 </form>
             </div>
-            <div class="text-xs {{ $aksiPerHari > $maksAksi ? 'text-red-600 font-semibold' : 'text-gray-500' }}">± {{ $aksiPerHari }} aksi pause/lanjut per hari{{ $aksiPerHari > $maksAksi ? ' (melebihi batas ' . $maksAksi . ')' : '' }} · hijau = tayang · hijau muda = dijadwalkan, menunggu stok · ▲ = jam ramai · ✎ = jadwal manual</div>
+            <div class="text-xs {{ $aksiPerHari > $maksAksi ? 'text-red-600 font-semibold' : 'text-gray-500' }}">± {{ $aksiPerHari }} aksi pause/lanjut per hari{{ $aksiPerHari > $maksAksi ? ' (melebihi batas ' . $maksAksi . ')' : '' }} · hijau = tayang · hijau muda = dijadwalkan, menunggu stok · ▲ = jam ramai · ✎ = jadwal manual · warna jam = keramaian toko (pesanan Shopee/hari)</div>
         </div>
         @if ($pecahanRamai > 2 && $anggota->count() > $k->aktif_sepi)
             <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded p-2 text-xs mb-2">
@@ -161,7 +174,13 @@
                         <thead><tr>
                             <th class="text-left font-normal text-gray-500 pr-2">Iklan</th>
                             @for ($j = 0; $j < 24; $j++)
-                                <th class="font-normal w-6 {{ $j === (int) now()->format('G') ? 'text-blue-700 font-semibold' : 'text-gray-500' }}">{{ sprintf('%02d', $j) }}{!! in_array($j, $k->jamRamai(), true) ? '<br>▲' : '<br>&nbsp;' !!}</th>
+                                <th class="font-normal w-6 p-0.5">
+                                    <div class="rounded-sm py-0.5 {{ $kelasRamai($keramaian[$j] ?? 0) }} {{ $j === (int) now()->format('G') ? 'ring-2 ring-blue-500 font-semibold' : '' }}"
+                                         title="Jam {{ sprintf('%02d', $j) }}: rata-rata {{ number_format($keramaian[$j] ?? 0, 1, ',', '.') }} pesanan Shopee/hari ({{ $hariRoas }} hari){{ in_array($j, $k->jamRamai(), true) ? ' · jam ramai kelompok' : '' }}">
+                                        {{ sprintf('%02d', $j) }}<br><span class="text-[9px]">{{ number_format($keramaian[$j] ?? 0, 1, ',', '.') }}</span>
+                                    </div>
+                                    <div class="text-gray-500 leading-3">{!! in_array($j, $k->jamRamai(), true) ? '▲' : '&nbsp;' !!}</div>
+                                </th>
                             @endfor
                             <th class="font-normal text-gray-500 text-right pl-2" title="ROAS iklan ini dalam rentang terpilih">ROAS</th>
                             <th class="font-normal text-gray-500 text-right pl-2" title="Belanja hari ini / modal ERP per hari. Habis → dijeda sampai besok.">Hari ini / modal ERP</th>
@@ -231,6 +250,14 @@
                             <td></td>
                             <td class="text-right pl-2 pt-1">{{ number_format($anggota->sum('hari_ini') / 1000, 1, ',', '.') }}rb / {{ number_format($anggota->sum(fn ($a) => $a['modal_erp'] ?? 0) / 1000, 0, ',', '.') }}rb</td>
                             <td></td>
+                        </tr>
+                        <tr class="text-gray-600">
+                            <td class="pr-2 pt-1 font-semibold" title="Jumlah iklan yang dinyalakan + dijeda di awal jam itu menurut rencana">Langkah (nyala/jeda)</td>
+                            @for ($j = 0; $j < 24; $j++)
+                                <td class="text-center pt-1 {{ $aksiPerJam[$j] >= 10 ? 'text-red-600 font-semibold' : '' }}">{{ $aksiPerJam[$j] ?: '' }}</td>
+                            @endfor
+                            <td class="text-right pl-2 pt-1 font-semibold whitespace-nowrap {{ $aksiPerHari > $maksAksi ? 'text-red-600' : '' }}">{{ $aksiPerHari }} / hari</td>
+                            <td></td><td></td>
                         </tr>
                         </tbody>
                     </table>

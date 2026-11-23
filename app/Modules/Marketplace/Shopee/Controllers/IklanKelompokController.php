@@ -186,6 +186,8 @@ class IklanKelompokController extends Controller
             'aksiPerHari' => $rencana ? $this->hitungAksi($rencana) : 0,
             'kinerja'     => $k->exists ? $this->jadwal->kinerjaPerJam($k, $hariRoas) : ['iklan' => [], 'total_iklan' => [], 'jam' => [], 'rata' => null],
             'hariRoas'    => $hariRoas,
+            'keramaian'   => $this->jadwal->pesananPerJam($env, $hariRoas),
+            'aksiPerJam'  => $rencana ? $this->aksiPerJam($rencana) : array_fill(0, 24, 0),
             'maksAksi'    => (int) config('services.shopee.iklan_maks_aksi', 100),
             'pecahanRamai' => $k->exists ? max(0, count(array_filter(explode(',', $k->ringkasJamRamai()), fn ($x) => trim($x) !== '—'))) : 0,
             'saranJam'   => $this->jadwal->saranJamRamai($idSaran, $env),
@@ -245,6 +247,18 @@ class IklanKelompokController extends Controller
     }
 
     /** Jumlah pergantian status sepanjang hari menurut rencana (termasuk awal hari dari status jam 23). */
+    /** Jumlah pergantian (nyala + jeda) di awal tiap jam menurut rencana. @return array<int, int> */
+    private function aksiPerJam(array $rencana): array
+    {
+        $hasil = [];
+        for ($j = 0; $j < 24; $j++) {
+            $sebelum   = $rencana[($j + 23) % 24];
+            $hasil[$j] = count(array_diff($rencana[$j], $sebelum)) + count(array_diff($sebelum, $rencana[$j]));
+        }
+
+        return $hasil;
+    }
+
     private function hitungAksi(array $rencana): int
     {
         $n = 0;

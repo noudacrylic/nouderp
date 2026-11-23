@@ -222,6 +222,27 @@ class ShopeeIklanJadwalTest extends TestCase
         $this->actingAs($admin)->get(route('sales.iklan-shopee.index'))->assertOk()->assertSee('TBKD-A4-T1, TBKD-A5-T1');
     }
 
+    public function test_keramaian_pesanan_per_jam_dan_baris_langkah(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $k = $this->kelompok(['jam_ramai' => [10], 'aktif_sepi' => 1]);
+        foreach ([1, 2, 3] as $id) {
+            $this->iklan($id, $k);
+        }
+        foreach ([['2026-11-19 10:15', 'A'], ['2026-11-19 10:40', 'B'], ['2026-11-20 10:05', 'C'], ['2026-11-20 14:00', 'D'], ['2026-11-21 10:30', 'HARI-INI']] as [$t, $sn]) {
+            DB::table('shopee_orders')->insert(['env' => 'test', 'shop_id' => 555, 'order_sn' => $sn, 'status' => 'COMPLETED',
+                'dibuat_shopee_at' => $t, 'created_at' => now(), 'updated_at' => now()]);
+        }
+
+        $ramai = $this->svc->pesananPerJam('test', 7);
+        $this->assertEqualsWithDelta(3 / 7, $ramai[10], 0.0001, 'pesanan hari ini tidak dihitung');
+        $this->assertEqualsWithDelta(1 / 7, $ramai[14], 0.0001);
+
+        // Rencana: jam 10 ramai (3 tayang), jam lain 1 → langkah di awal jam 10 = 2 nyala, jam 11 = 2 jeda.
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.edit', ['kelompok' => $k, 'roas' => 7]))
+            ->assertOk()->assertSee('Langkah (nyala/jeda)')->assertSee('bg-orange-500', false)->assertSee('pesanan Shopee/hari');
+    }
+
     public function test_simpan_dan_kembalikan_jadwal_manual_dari_grid(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
