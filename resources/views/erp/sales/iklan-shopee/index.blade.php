@@ -181,7 +181,7 @@
                 @endphp
                 <tr class="border-b border-gray-100 hover:bg-gray-50">
                     <td class="px-3 py-1.5 max-w-[22rem]">
-                        <div class="truncate" title="{{ $i->nama }}">{{ $i->nama ?: 'Iklan ' . $i->campaign_id }}</div>
+                        <div class="truncate font-medium" title="{{ $i->nama }}">{{ $sku[$i->campaign_id] ?? ($i->nama ?: 'Iklan ' . $i->campaign_id) }}</div>
                         <div class="text-[10px] text-gray-400">@if ($i->kelompok_id)<span class="text-blue-700">{{ $namaKelompok[$i->kelompok_id] ?? '' }}</span> · @endif#{{ $i->campaign_id }} · {{ $i->bidding_method === 'auto' ? 'otomatis' . ($i->roas_target ? ' (target ROAS ' . (float) $i->roas_target . ')' : '') : 'manual' }}</div>
                     </td>
                     <td class="px-2">

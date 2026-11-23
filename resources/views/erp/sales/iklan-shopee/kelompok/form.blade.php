@@ -104,10 +104,10 @@
             <div class="overflow-y-auto max-h-96">
                 @forelse ($calon as $i)
                     @php $info = $infoAnggota[$i->campaign_id] ?? null; @endphp
-                    <label class="flex items-start gap-2 px-3 py-1.5 border-b border-gray-50 hover:bg-gray-50 cursor-pointer baris-iklan" data-nama="{{ mb_strtolower($i->nama) }}">
+                    <label class="flex items-start gap-2 px-3 py-1.5 border-b border-gray-50 hover:bg-gray-50 cursor-pointer baris-iklan" data-nama="{{ mb_strtolower(($sku[$i->campaign_id] ?? '') . ' ' . $i->nama) }}">
                         <input type="checkbox" name="anggota[]" value="{{ $i->campaign_id }}" class="mt-0.5" @checked(in_array($i->campaign_id, $idAnggota, true))>
                         <span class="flex-1 min-w-0">
-                            <span class="block truncate text-xs" title="{{ $i->nama }}">{{ $i->nama }}</span>
+                            <span class="block truncate text-xs font-medium" title="{{ $i->nama }}">{{ $sku[$i->campaign_id] ?? $i->nama }}</span>
                             <span class="text-[10px] text-gray-400">#{{ $i->campaign_id }} · {{ $i->labelStatus() }} · modal {{ (float) $i->modal_harian > 0 ? $rp($i->modal_harian) : 'tanpa batas' }}
                                 @if ($info) · ROAS {{ $info['roas'] !== null ? number_format($info['roas'], 1, ',', '.') : '—' }} · bobot {{ number_format($info['bobot'], 1, ',', '.') }}{{ $info['stok'] !== null ? ' · stok ' . $info['stok'] : '' }}@endif
                             </span>
@@ -176,9 +176,9 @@
                             @endphp
                             <tr class="baris-grid" data-cid="{{ $cid }}" data-layak="{{ $a['layak'] ? 1 : 0 }}">
                                 <td class="pr-2 py-0.5 max-w-[16rem]">
-                                    <div class="truncate {{ $a['layak'] ? '' : 'text-gray-400' }}" title="{{ $a['iklan']->nama }}">
+                                    <div class="truncate {{ $a['layak'] ? '' : 'text-gray-400' }}" title="{{ $a['iklan']->nama }}{{ isset($sku[$cid]) ? ' — ' . $sku[$cid] : '' }}">
                                         @if ($manual !== null)<span class="text-blue-700 no-underline" title="Jadwal manual">✎</span>@endif
-                                        {{ $a['iklan']->nama }}
+                                        {{ $sku[$cid] ?? $a['iklan']->nama }}
                                     </div>
                                     @if (!$a['layak'])
                                         <div class="text-[10px] text-red-600">sementara tidak tayang: {{ $a['alasan'] }}
@@ -254,7 +254,7 @@
                 </tr></thead>
                 <tbody>
                 @forelse ($log as $l)
-                    @include('erp.sales.iklan-shopee.kelompok._log_baris', ['l' => $l, 'nama' => $namaIklan[$l->campaign_id] ?? null])
+                    @include('erp.sales.iklan-shopee.kelompok._log_baris', ['l' => $l, 'nama' => $sku[$l->campaign_id] ?? ($namaIklan[$l->campaign_id] ?? null)])
                 @empty
                     <tr><td colspan="5" class="px-3 py-4 text-center text-gray-400">Belum ada catatan — jadwal berjalan tiap awal jam.</td></tr>
                 @endforelse

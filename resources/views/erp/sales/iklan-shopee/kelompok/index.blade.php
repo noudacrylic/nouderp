@@ -60,7 +60,7 @@
         @csrf
         <select name="campaign_id" required class="border rounded px-2 py-1.5 text-xs max-w-full w-[32rem]">
             @foreach ($calonUji as $c)
-                <option value="{{ $c->campaign_id }}">Rp{{ number_format((float) $c->modal_harian, 0, ',', '.') }} · {{ \Illuminate\Support\Str::limit($c->nama, 80) }}</option>
+                <option value="{{ $c->campaign_id }}">Rp{{ number_format((float) $c->modal_harian, 0, ',', '.') }} · {{ \Illuminate\Support\Str::limit($sku[$c->campaign_id] ?? $c->nama, 80) }}</option>
             @endforeach
         </select>
         <button class="border border-amber-400 text-amber-800 bg-amber-50 px-3 py-1.5 rounded text-xs">Uji jeda &amp; lanjut</button>
@@ -77,7 +77,7 @@
             </tr></thead>
             <tbody>
             @forelse ($log as $l)
-                @include('erp.sales.iklan-shopee.kelompok._log_baris', ['l' => $l, 'nama' => $l->nama_iklan, 'kelompok' => $l->nama_kelompok, 'tampilKelompok' => true])
+                @include('erp.sales.iklan-shopee.kelompok._log_baris', ['l' => $l, 'nama' => $sku[$l->campaign_id] ?? $l->nama_iklan, 'kelompok' => $l->nama_kelompok, 'tampilKelompok' => true])
             @empty
                 <tr><td colspan="6" class="px-3 py-4 text-center text-gray-400">Belum ada catatan.</td></tr>
             @endforelse

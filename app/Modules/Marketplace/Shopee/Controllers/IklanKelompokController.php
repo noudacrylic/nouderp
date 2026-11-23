@@ -37,12 +37,16 @@ class IklanKelompokController extends Controller
             ->where('a.env', $env)->orderByDesc('a.id')->limit(100)
             ->get(['a.*', 'i.nama as nama_iklan', 'k.nama as nama_kelompok']);
 
+        $calonUji = ShopeeIklan::where('env', $env)->where('status', 'ongoing')->orderBy('modal_harian')->orderBy('nama')->get();
+        $sku = ShopeeIklan::petaSku(ShopeeIklan::where('env', $env)->whereIn('campaign_id', $log->pluck('campaign_id')->merge($calonUji->pluck('campaign_id'))->unique())->get());
+
         return view('erp.sales.iklan-shopee.kelompok.index', [
             'kelompok'   => $kelompok,
             'ringkas'    => $ringkas,
             'log'        => $log,
             'maksAksi'   => (int) config('services.shopee.iklan_maks_aksi', 100),
-            'calonUji'   => ShopeeIklan::where('env', $env)->where('status', 'ongoing')->orderBy('modal_harian')->orderBy('nama')->get(['campaign_id', 'nama', 'modal_harian']),
+            'calonUji'   => $calonUji,
+            'sku'        => $sku,
             'aksiHariIni' => DB::table('shopee_iklan_aksi')->where('env', $env)->where('created_at', '>=', now()->startOfDay())
                 ->where('mode', '!=', 'bayangan')->whereIn('hasil', ['berhasil', 'gagal'])->count(),
             'totalRencanaOtomatis' => $kelompok->where('mode', 'otomatis')->sum(fn ($k) => $ringkas[$k->id]['aksi']),
@@ -188,6 +192,7 @@ class IklanKelompokController extends Controller
             'belanja'    => $k->exists ? $this->jadwal->belanjaHariIni($k) : 0,
             'log'        => $log,
             'namaIklan'  => $calon->pluck('nama', 'campaign_id'),
+            'sku'        => ShopeeIklan::petaSku($calon->merge(ShopeeIklan::where('env', $env)->whereIn('campaign_id', $log->pluck('campaign_id'))->get())),
         ]);
     }
 

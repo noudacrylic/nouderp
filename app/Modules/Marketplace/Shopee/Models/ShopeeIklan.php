@@ -48,6 +48,37 @@ class ShopeeIklan extends Model
         return in_array($this->status, ['ongoing', 'paused'], true);
     }
 
+    /**
+     * SKU varian listing tiap iklan (dari Peta SKU / shopee_items), urut alami, dipisah koma.
+     * Iklan tanpa SKU tercatat tidak muncul di hasil — pakai nama iklannya.
+     *
+     * @param  iterable<ShopeeIklan>  $iklan
+     * @return array<int, string> campaign_id => "TBKD-A4-T1-M3, TBKD-A5-T1-M3"
+     */
+    public static function petaSku(iterable $iklan): array
+    {
+        $iklan = collect($iklan);
+        $items = $iklan->flatMap(fn ($i) => $i->item_ids ?? [])->unique()->values();
+        if ($items->isEmpty()) {
+            return [];
+        }
+        $skuPerItem = ShopeeItem::whereIn('item_id', $items)->where('env', $iklan->first()->env)
+            ->get(['item_id', 'model_id', 'item_sku', 'model_sku'])
+            ->groupBy('item_id')
+            ->map(fn ($v) => $v->map(fn ($x) => $x->sku())->filter()->unique()->values()->all());
+
+        $hasil = [];
+        foreach ($iklan as $i) {
+            $sku = collect($i->item_ids ?? [])->flatMap(fn ($id) => $skuPerItem[$id] ?? [])->unique()->all();
+            if ($sku) {
+                natsort($sku);
+                $hasil[$i->campaign_id] = implode(', ', $sku);
+            }
+        }
+
+        return $hasil;
+    }
+
     public function labelStatus(): string
     {
         return self::LABEL_STATUS[$this->status] ?? (string) $this->status;

@@ -208,6 +208,20 @@ class ShopeeIklanJadwalTest extends TestCase
             ->assertOk()->assertSee('ROAS kelompok')->assertSee('>13<', false)->assertSee('>2,5<', false)->assertSee('7 hari');
     }
 
+    public function test_iklan_ditampilkan_dengan_sku_varian_dipisah_koma(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $k = $this->kelompok();
+        $this->iklan(1, $k);
+        foreach ([['TBKD-A5-T1', 2], ['TBKD-A4-T1', 1], ['TBKD-A4-T1', 3]] as [$sku, $model]) {
+            ShopeeItem::create(['env' => 'test', 'shop_id' => 555, 'item_id' => 10, 'model_id' => $model, 'model_sku' => $sku, 'nama' => 'Item 1', 'stok' => 5]);
+        }
+
+        $this->assertSame([1 => 'TBKD-A4-T1, TBKD-A5-T1'], ShopeeIklan::petaSku(ShopeeIklan::all()));
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.edit', $k))->assertOk()->assertSee('TBKD-A4-T1, TBKD-A5-T1');
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.index'))->assertOk()->assertSee('TBKD-A4-T1, TBKD-A5-T1');
+    }
+
     public function test_simpan_dan_kembalikan_jadwal_manual_dari_grid(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);

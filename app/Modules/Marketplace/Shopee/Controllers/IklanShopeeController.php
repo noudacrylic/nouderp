@@ -71,6 +71,7 @@ class IklanShopeeController extends Controller
             'tarik'        => Cache::get(ShopeeIklanService::CACHE_TARIK),
             'shop'         => $shop,
             'stok'         => $this->stokListing($perIklan),
+            'sku'          => \App\Modules\Marketplace\Shopee\Models\ShopeeIklan::petaSku(array_column($perIklan, 'iklan')),
             'namaKelompok' => \App\Modules\Marketplace\Shopee\Models\ShopeeIklanKelompok::pluck('nama', 'id'),
         ]);
     }
