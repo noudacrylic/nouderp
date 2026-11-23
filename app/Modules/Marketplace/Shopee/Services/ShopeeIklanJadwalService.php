@@ -77,11 +77,16 @@ class ShopeeIklanJadwalService
             ->whereIn('campaign_id', $iklan->pluck('campaign_id'))->where('tanggal', now()->toDateString())
             ->groupBy('campaign_id')->selectRaw('campaign_id, SUM(biaya) biaya')->pluck('biaya', 'campaign_id');
 
+        // Kemarin per jam: kapan belanja kumulatif mencapai modal ERP & jam terakhir berbelanja.
+        $kemarinJam = DB::table('shopee_iklan_jam')->where('env', $k->env)
+            ->whereIn('campaign_id', $iklan->pluck('campaign_id'))->where('tanggal', now()->subDay()->toDateString())
+            ->where('biaya', '>', 0)->orderBy('jam')->get(['campaign_id', 'jam', 'biaya'])->groupBy('campaign_id');
+
         $stokPerItem = ShopeeItem::where('env', $k->env)
             ->whereIn('item_id', $iklan->flatMap(fn ($i) => $i->item_ids ?? [])->unique()->values())
             ->groupBy('item_id')->selectRaw('item_id, SUM(stok) stok')->pluck('stok', 'item_id');
 
-        return $iklan->map(function (ShopeeIklan $i) use ($k, $kin, $rataRoas, $stokPerItem, $belanjaKini) {
+        return $iklan->map(function (ShopeeIklan $i) use ($k, $kin, $rataRoas, $stokPerItem, $belanjaKini, $kemarinJam) {
             $r     = $kin[$i->campaign_id] ?? null;
             $biaya = (float) ($r->biaya ?? 0);
             $gmv   = (float) ($r->gmv ?? 0);
@@ -113,6 +118,7 @@ class ShopeeIklanJadwalService
                 'alasan' => $alasan,
                 'manual' => $k->jamManual($i->campaign_id),
                 'hari_ini' => $hariIni,
+                'kemarin'  => $this->ringkasKemarin($kemarinJam[$i->campaign_id] ?? collect(), $modal),
                 'modal_erp' => $modal,
             ];
         })->sortByDesc('bobot')->values();
@@ -212,6 +218,26 @@ class ShopeeIklanJadwalService
         }
 
         return $hasil;
+    }
+
+    /**
+     * Belanja kemarin satu iklan: total, jam belanja kumulatif mencapai modal ERP (sekarang),
+     * dan jam terakhir masih berbelanja.
+     *
+     * @return array{biaya: float, habis_jam: ?int, akhir_jam: ?int}
+     */
+    public function ringkasKemarin(\Illuminate\Support\Collection $perJam, ?float $modal): array
+    {
+        $kumulatif = 0.0;
+        $habis     = null;
+        foreach ($perJam as $r) {
+            $kumulatif += (float) $r->biaya;
+            if ($habis === null && $modal !== null && $modal > 0 && $kumulatif >= $modal) {
+                $habis = (int) $r->jam;
+            }
+        }
+
+        return ['biaya' => $kumulatif, 'habis_jam' => $habis, 'akhir_jam' => $perJam->isEmpty() ? null : (int) $perJam->last()->jam];
     }
 
     /** Belanja anggota kelompok hari ini (dari data per jam terakhir). */

@@ -243,6 +243,26 @@ class ShopeeIklanJadwalTest extends TestCase
             ->assertOk()->assertSee('Langkah (nyala/jeda)')->assertSee('bg-orange-500', false)->assertSee('pesanan Shopee/hari');
     }
 
+    public function test_kolom_kemarin_jam_modal_erp_habis(): void
+    {
+        $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $k = $this->kelompok();
+        $this->iklan(1, $k)->update(['modal_erp' => 7000]);
+        $this->iklan(2, $k)->update(['modal_erp' => 10000]);
+        $kemarin = now()->subDay()->toDateString();
+        foreach ([[1, 8, 3000], [1, 11, 4500], [1, 15, 900], [2, 9, 2000], [2, 20, 1500]] as [$cid, $jam, $b]) {
+            DB::table('shopee_iklan_jam')->insert(['env' => 'test', 'campaign_id' => $cid, 'tanggal' => $kemarin, 'jam' => $jam,
+                'biaya' => $b, 'gmv' => 0, 'created_at' => now(), 'updated_at' => now()]);
+        }
+
+        $a = $this->svc->anggota($k)->keyBy(fn ($x) => $x['iklan']->campaign_id);
+        $this->assertSame(['biaya' => 8400.0, 'habis_jam' => 11, 'akhir_jam' => 15], $a[1]['kemarin']);
+        $this->assertSame(['biaya' => 3500.0, 'habis_jam' => null, 'akhir_jam' => 20], $a[2]['kemarin']);
+
+        $this->actingAs($admin)->get(route('sales.iklan-shopee.kelompok.edit', $k))
+            ->assertOk()->assertSee('habis ±11.00')->assertSee('s.d. 20.00');
+    }
+
     public function test_simpan_dan_kembalikan_jadwal_manual_dari_grid(): void
     {
         $admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);

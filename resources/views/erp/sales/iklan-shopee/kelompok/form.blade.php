@@ -183,6 +183,7 @@
                                 </th>
                             @endfor
                             <th class="font-normal text-gray-500 text-right pl-2" title="ROAS iklan ini dalam rentang terpilih">ROAS</th>
+                            <th class="font-normal text-gray-500 text-right pl-2" title="Belanja kemarin, dan jam belanja kumulatif mencapai modal ERP sekarang (merah) — atau jam terakhir iklan masih berbelanja">Kemarin</th>
                             <th class="font-normal text-gray-500 text-right pl-2" title="Belanja hari ini / modal ERP per hari. Habis → dijeda sampai besok.">Hari ini / modal ERP</th>
                             <th></th>
                         </tr></thead>
@@ -214,6 +215,15 @@
                                 @endfor
                                 @php $t = $kinerja['total_iklan'][$cid] ?? null; @endphp
                                 <td class="pl-2 text-right whitespace-nowrap font-semibold {{ $warnaRoas($t['roas'] ?? null) }}" title="{{ $judulSel($t, $hariRoas . ' hari') }}">{{ $t && $t['roas'] !== null ? number_format($t['roas'], 1, ',', '.') : '—' }}</td>
+                                @php $km = $a['kemarin']; @endphp
+                                <td class="pl-2 whitespace-nowrap text-right leading-tight">
+                                    <div class="text-gray-700">{{ $km['biaya'] > 0 ? number_format($km['biaya'] / 1000, 1, ',', '.') . 'rb' : '—' }}</div>
+                                    @if ($km['habis_jam'] !== null)
+                                        <div class="text-[9px] text-red-600 font-semibold" title="Belanja kemarin mencapai modal ERP sekarang di jam ini">habis ±{{ sprintf('%02d', $km['habis_jam']) }}.00</div>
+                                    @elseif ($km['akhir_jam'] !== null)
+                                        <div class="text-[9px] text-gray-400" title="Jam terakhir iklan masih berbelanja kemarin">s.d. {{ sprintf('%02d', $km['akhir_jam']) }}.00</div>
+                                    @endif
+                                </td>
                                 <td class="pl-2 whitespace-nowrap text-right">
                                     <span class="{{ $a['modal_erp'] !== null && $a['hari_ini'] >= $a['modal_erp'] ? 'text-red-600 font-semibold' : 'text-gray-500' }}">{{ number_format($a['hari_ini'] / 1000, 1, ',', '.') }}rb /</span>
                                     <input name="modal_erp[{{ $cid }}]" value="{{ $a['modal_erp'] !== null ? (int) $a['modal_erp'] : '' }}" placeholder="—"
@@ -233,7 +243,7 @@
                                 <td class="text-center pt-1 font-semibold {{ $warnaRoas($c['roas'] ?? null) }}" title="{{ $judulSel($c, sprintf('Semua anggota jam %02d, %d hari', $j, $hariRoas)) }}">{{ $c ? $fRoas($c['roas']) : '' }}</td>
                             @endfor
                             <td class="text-right pl-2 pt-1 font-semibold">{{ $rataRoas === null ? '—' : number_format($rataRoas, 1, ',', '.') }}</td>
-                            <td></td><td></td>
+                            <td></td><td></td><td></td>
                         </tr>
                         <tr class="text-gray-500">
                             <td class="pr-2 pt-1">Belanja/hari</td>
@@ -242,12 +252,13 @@
                                 <td class="text-center pt-1 text-[9px]">{{ $c ? number_format($c['biaya'] / $hariRoas / 1000, 1, ',', '.') : '' }}</td>
                             @endfor
                             <td class="text-right pl-2 pt-1 text-[9px]">rb</td>
-                            <td></td><td></td>
+                            <td></td><td></td><td></td>
                         </tr>
                         <tr class="text-gray-500">
                             <td class="pr-2 pt-1">Jumlah tayang</td>
                             @for ($j = 0; $j < 24; $j++)<td class="text-center pt-1">{{ count($rencana[$j]) }}</td>@endfor
                             <td></td>
+                            <td class="text-right pl-2 pt-1 text-gray-700" title="Total belanja kemarin semua anggota">{{ number_format($anggota->sum(fn ($a) => $a['kemarin']['biaya']) / 1000, 1, ',', '.') }}rb</td>
                             <td class="text-right pl-2 pt-1">{{ number_format($anggota->sum('hari_ini') / 1000, 1, ',', '.') }}rb / {{ number_format($anggota->sum(fn ($a) => $a['modal_erp'] ?? 0) / 1000, 0, ',', '.') }}rb</td>
                             <td></td>
                         </tr>
@@ -257,7 +268,7 @@
                                 <td class="text-center pt-1 {{ $aksiPerJam[$j] >= 10 ? 'text-red-600 font-semibold' : '' }}">{{ $aksiPerJam[$j] ?: '' }}</td>
                             @endfor
                             <td class="text-right pl-2 pt-1 font-semibold whitespace-nowrap {{ $aksiPerHari > $maksAksi ? 'text-red-600' : '' }}">{{ $aksiPerHari }} / hari</td>
-                            <td></td><td></td>
+                            <td></td><td></td><td></td>
                         </tr>
                         </tbody>
                     </table>
