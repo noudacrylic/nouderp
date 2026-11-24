@@ -2,6 +2,7 @@
 
 namespace App\Modules\Seo\Services;
 
+use App\Modules\Seo\Models\SeoGoogleAkun;
 use App\Modules\Seo\Models\SeoJenis;
 use App\Modules\Seo\Models\SeoKataKunci;
 use Illuminate\Support\Facades\Cache;
@@ -42,13 +43,85 @@ class SearchConsoleService
 
     public function tersambung(): bool
     {
-        $k = $this->kredensial();
-        return $k && !empty($k['client_email']) && !empty($k['private_key']);
+        return $this->pakaiServiceAccount() || filled($this->akun()?->refresh_token);
     }
 
     public function emailAkun(): ?string
     {
-        return $this->kredensial()['client_email'] ?? null;
+        return $this->pakaiServiceAccount() ? ($this->kredensial()['client_email'] ?? null) : $this->akun()?->email;
+    }
+
+    private function pakaiServiceAccount(): bool
+    {
+        $k = $this->kredensial();
+        return $k && !empty($k['client_email']) && !empty($k['private_key']);
+    }
+
+    private function akun(): ?SeoGoogleAkun
+    {
+        return SeoGoogleAkun::query()->first();
+    }
+
+    // ───────────── Login Google (OAuth) ─────────────
+
+    private const SCOPE = 'openid email https://www.googleapis.com/auth/webmasters.readonly';
+
+    /** OAuth client (ID + secret) sudah diisi di halaman? */
+    public function klienSiap(): bool
+    {
+        $a = $this->akun();
+        return $a && filled($a->client_id) && filled($a->client_secret);
+    }
+
+    /** Halaman persetujuan Google. access_type=offline + prompt=consent → selalu dapat refresh_token. */
+    public function urlSambung(string $state, string $redirect): string
+    {
+        return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
+            'client_id' => $this->akun()?->client_id, 'redirect_uri' => $redirect, 'response_type' => 'code',
+            'scope' => self::SCOPE, 'access_type' => 'offline', 'prompt' => 'consent', 'include_granted_scopes' => 'true',
+            'state' => $state,
+        ]);
+    }
+
+    /** Tukar kode dari Google → refresh token; kembalikan email akun yang tersambung. */
+    public function tukarKode(string $kode, string $redirect, ?int $userId = null): string
+    {
+        $a = $this->akun() ?? throw new \RuntimeException('OAuth client belum diisi.');
+        $resp = Http::asForm()->timeout(30)->post('https://oauth2.googleapis.com/token', [
+            'code' => $kode, 'client_id' => $a->client_id, 'client_secret' => $a->client_secret,
+            'redirect_uri' => $redirect, 'grant_type' => 'authorization_code',
+        ]);
+        if (!$resp->successful() || !$resp->json('refresh_token')) {
+            throw new \RuntimeException('Google menolak sambungan: ' . ($resp->json('error_description') ?? $resp->json('error') ?? 'refresh token tidak diberikan'));
+        }
+
+        // id_token berisi email akun (JWT; cukup dibaca, sudah datang langsung dari Google lewat HTTPS).
+        $bagian = explode('.', (string) $resp->json('id_token'));
+        $klaim = json_decode((string) base64_decode(strtr($bagian[1] ?? '', '-_', '+/')), true) ?: [];
+
+        $a->update(['refresh_token' => $resp->json('refresh_token'), 'email' => $klaim['email'] ?? null,
+            'tersambung_at' => now(), 'user_id' => $userId]);
+        Cache::forget('seo.gsc.token');
+
+        return (string) ($klaim['email'] ?? 'akun Google');
+    }
+
+    public function putus(): void
+    {
+        $a = $this->akun();
+        if ($a?->refresh_token) {
+            Http::asForm()->timeout(15)->post('https://oauth2.googleapis.com/revoke', ['token' => $a->refresh_token]);
+        }
+        $a?->update(['refresh_token' => null, 'email' => null, 'tersambung_at' => null]);
+        Cache::forget('seo.gsc.token');
+    }
+
+    /** Properti GSC yang bisa dibaca akun tersambung — untuk memastikan situs kita ada. */
+    public function daftarSitus(): array
+    {
+        $resp = Http::withToken($this->token())->timeout(30)->get('https://www.googleapis.com/webmasters/v3/sites');
+        if (!$resp->successful()) throw new \RuntimeException('Search Console: ' . ($resp->json('error.message') ?? 'HTTP ' . $resp->status()));
+        return collect($resp->json('siteEntry') ?? [])->pluck('siteUrl')->all();
     }
 
     /** @return array{waktu?: string, baris?: int, baru?: int, galat?: string}|null */
@@ -134,8 +207,21 @@ class SearchConsoleService
     private function token(): string
     {
         return Cache::remember('seo.gsc.token', 3000, function () {
+            // Login Google (OAuth): refresh token → access token.
+            if (!$this->pakaiServiceAccount()) {
+                $a = $this->akun();
+                if (!$a?->refresh_token) throw new \RuntimeException('Search Console belum disambungkan.');
+                $resp = Http::asForm()->timeout(30)->post('https://oauth2.googleapis.com/token', [
+                    'grant_type' => 'refresh_token', 'refresh_token' => $a->refresh_token,
+                    'client_id' => $a->client_id, 'client_secret' => $a->client_secret,
+                ]);
+                if (!$resp->successful()) {
+                    throw new \RuntimeException('Sambungan Google kedaluwarsa/dicabut — sambungkan ulang (' . ($resp->json('error') ?? 'HTTP ' . $resp->status()) . ').');
+                }
+                return (string) $resp->json('access_token');
+            }
+
             $k = $this->kredensial();
-            if (!$k) throw new \RuntimeException('Kunci service account Search Console belum dipasang.');
 
             $b64 = fn (string $s) => rtrim(strtr(base64_encode($s), '+/', '-_'), '=');
             $kepala = $b64(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));

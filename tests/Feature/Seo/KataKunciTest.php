@@ -136,6 +136,50 @@ class KataKunciTest extends TestCase
         @unlink($file);
     }
 
+    public function test_sambung_google_oauth_lalu_tarik_dengan_refresh_token(): void
+    {
+        config(['services.gsc.kredensial' => '']); // tanpa kunci JSON (diblokir kebijakan org)
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->actingAs($owner)->get(route('store.kata-kunci.index'))->assertOk()->assertSee(route('store.kata-kunci.google.callback'));
+
+        $this->post(route('store.kata-kunci.google.klien'), ['client_id' => 'abc.apps.googleusercontent.com', 'client_secret' => 'rahasia'])->assertSessionHas('success');
+        $this->assertNotSame('rahasia', \DB::table('seo_google_akun')->value('client_secret'), 'Secret terenkripsi di DB.');
+
+        $r = $this->get(route('store.kata-kunci.google.sambung'));
+        $url = $r->headers->get('Location');
+        $this->assertStringStartsWith('https://accounts.google.com/o/oauth2/v2/auth?', $url);
+        parse_str(parse_url($url, PHP_URL_QUERY), $p);
+        $this->assertSame(['offline', 'consent', route('store.kata-kunci.google.callback')], [$p['access_type'], $p['prompt'], $p['redirect_uri']]);
+        $this->assertStringContainsString('webmasters.readonly', $p['scope']);
+
+        $idToken = 'x.' . rtrim(strtr(base64_encode(json_encode(['email' => 'owner@noudakrilik.com'])), '+/', '-_'), '=') . '.y';
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::sequence()
+                ->push(['refresh_token' => 'rt-1', 'access_token' => 'at-1', 'id_token' => $idToken])
+                ->push(['access_token' => 'at-2']),
+            'www.googleapis.com/webmasters/v3/sites' => Http::response(['siteEntry' => [['siteUrl' => 'sc-domain:noudakrilik.com']]]),
+            'www.googleapis.com/webmasters/v3/sites/*' => Http::response(['rows' => [['keys' => ['box mahar akrilik'], 'clicks' => 2, 'impressions' => 40, 'position' => 5]]]),
+            'oauth2.googleapis.com/revoke' => Http::response([]),
+        ]);
+
+        // State salah ditolak; state benar → tersambung.
+        $this->get(route('store.kata-kunci.google.callback', ['state' => 'palsu', 'code' => 'k']))->assertSessionHas('error');
+        $this->get(route('store.kata-kunci.google.sambung'));
+        $state = session('seo_google_state');
+        $this->get(route('store.kata-kunci.google.callback', ['state' => $state, 'code' => 'kode-1']))->assertSessionHas('success');
+
+        $gsc = app(SearchConsoleService::class);
+        $this->assertTrue($gsc->tersambung());
+        $this->assertSame('owner@noudakrilik.com', $gsc->emailAkun());
+        $this->assertSame(['baris' => 1, 'baru' => 1], $gsc->tarik());
+        $this->assertSame(40, SeoKataKunci::where('kata', 'box mahar akrilik')->value('gsc_tayang'));
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'oauth2.googleapis.com/token') && ($req->data()['grant_type'] ?? null) === 'authorization_code' && $req->data()['code'] === 'kode-1');
+
+        $this->post(route('store.kata-kunci.google.putus'))->assertSessionHas('success');
+        $this->assertFalse(app(SearchConsoleService::class)->tersambung());
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/revoke'));
+    }
+
     public function test_halaman_kata_kunci_tambah_ubah_hapus(): void
     {
         $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);

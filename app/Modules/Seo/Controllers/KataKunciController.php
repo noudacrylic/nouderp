@@ -2,6 +2,7 @@
 
 namespace App\Modules\Seo\Controllers;
 
+use App\Modules\Seo\Models\SeoGoogleAkun;
 use App\Modules\Seo\Models\SeoJenis;
 use App\Modules\Seo\Models\SeoKataKunci;
 use App\Modules\Seo\Services\SearchConsoleService;
@@ -40,7 +41,9 @@ class KataKunciController extends Controller
             'q'          => $q,
             'kata'       => $kata,
             'tanpaJenis' => SeoKataKunci::whereNull('seo_jenis_id')->count(),
-            'gsc'        => ['tersambung' => $this->gsc->tersambung(), 'email' => $this->gsc->emailAkun(), 'status' => $this->gsc->status()],
+            'gsc'        => ['tersambung' => $this->gsc->tersambung(), 'email' => $this->gsc->emailAkun(), 'status' => $this->gsc->status(),
+                             'klien' => $this->gsc->klienSiap(), 'callback' => route('store.kata-kunci.google.callback'),
+                             'client_id' => SeoGoogleAkun::query()->value('client_id')],
         ]);
     }
 
@@ -97,6 +100,52 @@ class KataKunciController extends Controller
         $d = $request->validate(['petunjuk' => 'nullable|string|max:500', 'aktif' => 'nullable|boolean']);
         $jenis->update(array_intersect_key($d, $request->all()));
         return back()->with('success', "Jenis \"{$jenis->nama}\" diperbarui.");
+    }
+
+    // ───────────── Sambungan Google (OAuth) ─────────────
+
+    /** OAuth client ID + secret dari Google Cloud (diisi sekali di halaman ini). */
+    public function simpanKlien(Request $request)
+    {
+        $d = $request->validate(['client_id' => 'required|string|max:255', 'client_secret' => 'required|string|max:255']);
+        $a = SeoGoogleAkun::satu();
+        $a->fill(['client_id' => trim($d['client_id']), 'client_secret' => trim($d['client_secret'])])->save();
+        return back()->with('success', 'OAuth client tersimpan. Sekarang tekan "Sambungkan Google".');
+    }
+
+    public function sambung(Request $request)
+    {
+        if (!$this->gsc->klienSiap()) return back()->with('error', 'Isi OAuth client ID & secret dulu.');
+        $state = bin2hex(random_bytes(16));
+        $request->session()->put('seo_google_state', $state);
+        return redirect()->away($this->gsc->urlSambung($state, route('store.kata-kunci.google.callback')));
+    }
+
+    public function callback(Request $request)
+    {
+        $state = $request->session()->pull('seo_google_state');
+        $balik = redirect()->route('store.kata-kunci.index');
+        if (!$state || !hash_equals($state, (string) $request->query('state'))) return $balik->with('error', 'Sambungan dibatalkan (sesi tidak cocok). Coba lagi.');
+        if ($request->query('error')) return $balik->with('error', 'Google: ' . $request->query('error'));
+
+        try {
+            $email = $this->gsc->tukarKode((string) $request->query('code'), route('store.kata-kunci.google.callback'), (int) $request->user()->id);
+            $situs = $this->gsc->daftarSitus();
+        } catch (\Throwable $e) {
+            return $balik->with('error', $e->getMessage());
+        }
+
+        $target = (string) config('services.gsc.situs');
+        if (!in_array($target, $situs, true)) {
+            return $balik->with('error', "Tersambung sebagai $email, tapi akun ini tidak punya akses ke $target di Search Console. Tambahkan $email sebagai pengguna properti itu, atau sambungkan dengan akun pemiliknya.");
+        }
+        return $balik->with('success', "Search Console tersambung sebagai $email. Tekan \"Tarik sekarang\" untuk mengambil data pertama.");
+    }
+
+    public function putus()
+    {
+        $this->gsc->putus();
+        return back()->with('success', 'Sambungan Google diputus.');
     }
 
     public function tarikGsc()

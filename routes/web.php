@@ -741,6 +741,11 @@ Route::prefix('erp/store')->group(function () {
         Route::post  ('/jenis',         'simpanJenis')->name('jenis.simpan');
         Route::put   ('/jenis/{jenis}', 'ubahJenis')->whereNumber('jenis')->name('jenis.ubah');
         Route::post  ('/tarik-gsc',     'tarikGsc')->name('tarik-gsc');
+        // Sambungan Search Console lewat login Google (OAuth) — kunci JSON diblokir kebijakan org.
+        Route::post  ('/google/klien',    'simpanKlien')->name('google.klien');
+        Route::get   ('/google/sambung',  'sambung')->name('google.sambung');
+        Route::get   ('/google/callback', 'callback')->name('google.callback');
+        Route::post  ('/google/putus',    'putus')->name('google.putus');
     });
 
     // Kategori

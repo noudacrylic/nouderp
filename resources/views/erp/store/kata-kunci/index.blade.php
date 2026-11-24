@@ -27,14 +27,35 @@
             @endif
         @else
             <span class="ml-1 text-xs bg-amber-100 text-amber-800 rounded px-1.5 py-0.5">belum disambungkan</span>
-            <div class="text-xs text-gray-500 mt-0.5">Pasang kunci service account di server (lihat panduan dari tim IT). Sampai itu, bank hanya berisi hasil riset AI & manual.</div>
+            <div class="text-xs text-gray-500 mt-0.5">Sampai disambungkan, bank hanya berisi hasil riset AI & manual.</div>
         @endif
     </div>
     @if ($gsc['tersambung'])
-        <form method="POST" action="{{ route('store.kata-kunci.tarik-gsc') }}">@csrf
-            <button class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Tarik sekarang</button>
-        </form>
+        <div class="flex gap-2">
+            <form method="POST" action="{{ route('store.kata-kunci.tarik-gsc') }}">@csrf
+                <button class="bg-gray-700 text-white px-3 py-1.5 rounded text-sm">Tarik sekarang</button>
+            </form>
+            <form method="POST" action="{{ route('store.kata-kunci.google.putus') }}" onsubmit="return confirm('Putuskan sambungan Google Search Console?')">@csrf
+                <button class="border border-gray-300 text-gray-600 px-3 py-1.5 rounded text-sm">Putuskan</button>
+            </form>
+        </div>
+    @elseif ($gsc['klien'])
+        <a href="{{ route('store.kata-kunci.google.sambung') }}" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm">🔗 Sambungkan Google</a>
     @endif
+
+    {{-- OAuth client dari Google Cloud: diisi sekali (secret disimpan terenkripsi). --}}
+    @unless ($gsc['tersambung'])
+        <details class="w-full" @unless ($gsc['klien']) open @endunless>
+            <summary class="cursor-pointer text-xs text-blue-700">{{ $gsc['klien'] ? 'Ganti OAuth client' : 'Langkah 1: isi OAuth client dari Google Cloud' }}</summary>
+            <form method="POST" action="{{ route('store.kata-kunci.google.klien') }}" class="mt-2 space-y-1.5 max-w-xl">@csrf
+                <div class="text-xs text-gray-500">Authorized redirect URI di Google Cloud harus persis:
+                    <code class="bg-gray-100 px-1 rounded select-all">{{ $gsc['callback'] }}</code></div>
+                <input name="client_id" required value="{{ $gsc['client_id'] }}" placeholder="Client ID (…apps.googleusercontent.com)" class="w-full border rounded px-2 py-1 text-xs">
+                <input name="client_secret" required type="password" autocomplete="off" placeholder="Client secret" class="w-full border rounded px-2 py-1 text-xs">
+                <button class="bg-gray-700 text-white px-3 py-1 rounded text-xs">Simpan</button>
+            </form>
+        </details>
+    @endunless
 </div>
 
 <div class="flex gap-3 items-start flex-col lg:flex-row">
