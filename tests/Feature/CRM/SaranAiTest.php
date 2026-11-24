@@ -831,7 +831,7 @@ class SaranAiTest extends TestCase
 
         $utuh = $alat->jalankan('cek_stok', ['kata_kunci' => 'mahar 30 x 40'], null)['content'];
         $this->assertStringContainsString('AM-40x30x6-L', $utuh, 'Semua kata cocok walau P×L terbalik.');
-        $this->assertStringNotContainsString('Cocok SEBAGIAN', $utuh);
+        $this->assertStringContainsString('Cocok SEBAGIAN', $utuh, 'Ukuran terbalik tetap dikonfirmasi dengan link (owner 24 Nov).');
 
         $sebagian = $alat->jalankan('cek_stok', ['kata_kunci' => 'akrilik box 30x40x6 gantungan landscape'], null)['content'];
         $this->assertStringContainsString('AM-40x30x6-L', $sebagian);
@@ -860,6 +860,7 @@ class SaranAiTest extends TestCase
         $this->assertLessThan(strpos($isi, 'SKU AM-40x30x6 '), strpos($isi, 'SKU AM-40x30x6-L '), 'Landscape di atas Tanpa Gantungan.');
         $this->assertLessThan(strpos($isi, 'SKU AM-40x30x6-P '), strpos($isi, 'SKU AM-40x30x6-L '), 'Landscape di atas Potrait.');
         $this->assertStringContainsString('urut dari yang paling cocok', $isi);
+        $this->assertStringNotContainsString('Cocok SEBAGIAN', $isi, 'Ukuran persis tak perlu konfirmasi.');
     }
 
     /** Kata umum tak dipotong batas kecil, dan deskripsi mendahulukan nama yang berawalan kata itu. */

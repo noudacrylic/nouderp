@@ -229,8 +229,20 @@ class AgenTools
                 $perSku[$p['sku'] ?: $p['nama']] = $p;
             }
         }
+        $hasil = array_slice($this->urutkanMenurutKata(array_values($perSku), $kata), 0, self::BATAS_CARI_SHOPEE);
 
-        return array_slice($this->urutkanMenurutKata(array_values($perSku), $kata), 0, self::BATAS_CARI_SHOPEE);
+        // Ukuran pembeli baru cocok setelah P×L dibalik (30x40 → 40x30): tetap konfirmasi dengan link
+        // (permintaan owner 24 Nov 2026) — bisa saja pembeli memang mencari ukuran lain.
+        if ($hasil && ! $this->cocokSebagian) {
+            $teks = $this->normalUkuran(mb_strtolower($hasil[0]['nama'] . ' ' . $hasil[0]['sku']));
+            foreach (array_filter($this->pecahKata(mb_strtolower($kata)), fn ($w) => $this->kataUkuran($w)) as $w) {
+                if (! preg_match('/(?<![\p{L}\p{N}])' . preg_quote($w, '/') . '(?![\p{N}])/u', $teks)) {
+                    $this->cocokSebagian = true;
+                }
+            }
+        }
+
+        return $hasil;
     }
 
     /**
@@ -259,7 +271,7 @@ class AgenTools
     /** Hasil cari terakhir hanya cocok sebagian kata (ukuran terbalik ditoleransi) — wajib dikonfirmasi ke pembeli. */
     private bool $cocokSebagian = false;
 
-    private const CATATAN_SEBAGIAN = 'Cocok SEBAGIAN dengan sebutan pembeli (tidak semua kata ada di nama produk). '
+    private const CATATAN_SEBAGIAN = 'Cocok SEBAGIAN dengan sebutan pembeli (ukuran disebut terbalik, atau tidak semua kata ada di nama produk). '
         . 'WAJIB konfirmasi dulu: kirim link produknya dan tanya "apakah produk yang dimaksud yang ini kak?" — '
         . 'baru lanjut stok/harga/checkout setelah pembeli mengiyakan.';
 
