@@ -80,10 +80,13 @@
                     <td class="text-xs">QC / print rusak / perbaikan — belum diukur</td>
                     <td class="text-right">—</td><td class="text-right">—</td>
                 </tr>
-                <tr class="text-gray-400">
-                    <td class="py-2 font-semibold">D. Keterampilan</td>
-                    <td class="text-xs">Ragam produk yang dikuasai — belum diukur</td>
-                    <td class="text-right">—</td><td class="text-right">—</td>
+                <tr>
+                    <td class="py-2 font-semibold"><a href="#keterampilan" class="hover:underline">D. Keterampilan</a></td>
+                    <td class="text-gray-500 text-xs">
+                        Dikuasai: {{ collect($keterampilan['kelompok'])->where('status', 'dikuasai')->pluck('label')->implode(', ') ?: 'belum ada' }}
+                    </td>
+                    <td class="text-right font-bold">{{ $keterampilan['dikuasai'] }}/{{ $keterampilan['total'] }}</td>
+                    <td class="text-right text-gray-400 text-xs">belum masuk nilai</td>
                 </tr>
             </tbody>
         </table>
@@ -189,15 +192,63 @@
         @endif
     </div>
 
-    {{-- ================= C & D. KOMPONEN BERIKUTNYA ================= --}}
-    <div class="grid md:grid-cols-2 gap-4">
-        <div class="bg-white rounded-2xl border border-dashed border-gray-200 p-4 text-sm text-gray-400">
-            <div class="font-bold text-gray-500">C. Hasil kerja (mutu)</div>
-            Belum diukur. Rencana: hasil QC, print rusak & perbaikan yang berasal dari pekerjaan orang ini — supaya cepat tidak asal cepat.
-        </div>
-        <div class="bg-white rounded-2xl border border-dashed border-gray-200 p-4 text-sm text-gray-400">
-            <div class="font-bold text-gray-500">D. Keterampilan</div>
-            Belum diukur. Rencana: produk / jenis pekerjaan yang sudah dikuasai sesuai standar.
+    {{-- ================= C. HASIL KERJA ================= --}}
+    <div class="bg-white rounded-2xl border border-dashed border-gray-200 p-4 text-sm text-gray-400">
+        <div class="font-bold text-gray-500">C. Hasil kerja (mutu)</div>
+        Belum diukur. Rencana: hasil QC, print rusak & perbaikan yang berasal dari pekerjaan orang ini — supaya cepat tidak asal cepat.
+    </div>
+
+    {{-- ================= D. KETERAMPILAN ================= --}}
+    <div id="keterampilan" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <h2 class="font-bold text-gray-800">D. Keterampilan — {{ $keterampilan['dikuasai'] }} dari {{ $keterampilan['total'] }} kelompok dikuasai</h2>
+        <p class="text-xs text-gray-500 mt-1 max-w-4xl">
+            <b>Dikuasai</b> = minimal {{ \App\Modules\Production\Services\KeterampilanService::MIN_OP_BAIK }} OP dengan waktu baik
+            (timer ≤ {{ 100 + $pitaPct }}% target, 1–2 poin) <b>dan</b> minimal separuh dari semua OP di kelompok itu baik.
+            Tidak hilang karena lama tidak dikerjakan, tapi kembali "sedang belajar" bila belakangan lebih banyak lambat.
+            Dihitung dari seluruh riwayat sejak waktu standar berlaku sampai akhir {{ $bulan->translatedFormat('F Y') }}. Produk AF (cuma potong) tidak dihitung.
+        </p>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+            @foreach($keterampilan['kelompok'] as $kunci => $k)
+                @php
+                    $gaya = ['dikuasai' => 'border-emerald-200 bg-emerald-50', 'belajar' => 'border-amber-200 bg-amber-50', 'belum' => 'border-gray-200 bg-gray-50'][$k['status']];
+                    $label = ['dikuasai' => '✓ Dikuasai', 'belajar' => 'Sedang belajar', 'belum' => 'Belum pernah'][$k['status']];
+                    $warnaLabel = ['dikuasai' => 'text-emerald-700', 'belajar' => 'text-amber-700', 'belum' => 'text-gray-400'][$k['status']];
+                @endphp
+                <details class="rounded-xl border p-3 text-sm {{ $gaya }}">
+                    <summary class="cursor-pointer list-none">
+                        <div class="flex items-baseline justify-between gap-2">
+                            <span class="font-bold text-gray-800">{{ $k['label'] }}</span>
+                            <span class="text-xs font-bold {{ $warnaLabel }}">{{ $label }}</span>
+                        </div>
+                        <div class="text-xs text-gray-600 mt-1">
+                            @if($k['n'])
+                                {{ $k['baik'] }} dari {{ $k['n'] }} OP waktu baik ({{ $pct($k['baik'] / $k['n']) }})
+                                @if($k['dikuasai_sejak']) · dikuasai sejak {{ $k['dikuasai_sejak']->format('d/m/Y') }} @endif
+                                <div class="text-gray-400">Terakhir dikerjakan {{ $k['terakhir']?->format('d/m/Y') }}</div>
+                                @if($k['status'] === 'belajar')
+                                    @php $kurang = max(0, \App\Modules\Production\Services\KeterampilanService::MIN_OP_BAIK - $k['baik']); @endphp
+                                    <div class="text-amber-700">{{ $kurang ? "Butuh $kurang OP baik lagi" : 'OP baik sudah cukup, porsinya masih di bawah separuh' }}</div>
+                                @endif
+                            @else
+                                Belum pernah mengerjakan produk kelompok ini.
+                            @endif
+                        </div>
+                    </summary>
+                    @if($k['op'])
+                        <table class="w-full text-xs mt-2 border-t border-black/5">
+                            @foreach($k['op'] as $o)
+                                <tr>
+                                    <td class="py-0.5"><a href="{{ route('production.orders.show', $o['op_id']) }}" class="text-blue-700 hover:underline">{{ $o['op'] }}</a></td>
+                                    <td class="text-gray-500">{{ $o['selesai']?->format('d/m') }}</td>
+                                    <td class="text-gray-500 truncate max-w-[8rem]" title="{{ $o['isi'] }}">{{ $o['isi'] }}</td>
+                                    <td class="text-right">{{ $pct($o['rasio']) }}</td>
+                                    <td class="text-right font-bold {{ $o['poin'] >= 1 ? 'text-emerald-700' : 'text-red-600' }}">{{ $o['poin'] }}</td>
+                                </tr>
+                            @endforeach
+                        </table>
+                    @endif
+                </details>
+            @endforeach
         </div>
     </div>
 </div>

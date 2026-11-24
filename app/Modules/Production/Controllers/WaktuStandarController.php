@@ -263,6 +263,10 @@ class WaktuStandarController extends Controller
             $tren[] = ['label' => $b->translatedFormat('M Y'), 'rata' => $r['rata'] ?? null, 'n' => $r['n'] ?? 0, 'tingkat' => $r['tingkat'] ?? null];
         }
 
+        // Keterampilan memakai instance $pk yang sama → hasil opBulan bulan-bulan tadi dipakai ulang.
+        $keterampilan = (new \App\Modules\Production\Services\KeterampilanService($pk))
+            ->orang($deptId, $orangId, $bulan->copy()->endOfMonth());
+
         return view('erp.production.waktu-standar.rapor', [
             'divisi'     => Department::whereIn('id', self::DIVISI)->get(['id', 'name']),
             'deptId'     => $deptId,
@@ -277,6 +281,7 @@ class WaktuStandarController extends Controller
             'tren'       => $tren,
             'param'      => $pk->param(),
             'berjalan'   => $bulan->isSameMonth(now()),
+            'keterampilan' => $keterampilan,
         ]);
     }
 

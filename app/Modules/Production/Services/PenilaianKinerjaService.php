@@ -144,8 +144,18 @@ class PenilaianKinerjaService
         ];
     }
 
+    /** @var array<string, array> hasil opBulan per (divisi, bulan, simulasi, param) dalam satu permintaan */
+    private array $memoBulan = [];
+
     /** Daftar OP satu bulan beserta jatah & rasio; status dinilai/cek mengikuti param(). */
     public function opBulan(int $departmentId, Carbon $bulan, bool $simulasi = false): array
+    {
+        $kunci = $departmentId . '|' . $bulan->format('Y-m') . '|' . (int) $simulasi . '|' . md5(json_encode($this->param()));
+
+        return $this->memoBulan[$kunci] ??= $this->hitungOpBulan($departmentId, $bulan, $simulasi);
+    }
+
+    private function hitungOpBulan(int $departmentId, Carbon $bulan, bool $simulasi): array
     {
         $awal  = $bulan->copy()->startOfMonth();
         $akhir = $awal->copy()->addMonth();
@@ -389,6 +399,7 @@ class PenilaianKinerjaService
         if (!array_key_exists($putusan, self::PUTUSAN)) {
             throw new \InvalidArgumentException("Putusan tidak dikenal: $putusan");
         }
+        $this->memoBulan = [];
         \Illuminate\Support\Facades\DB::table('production_order_steps')->where('id', $stepId)->update([
             'penilaian_putusan'    => $putusan,
             'penilaian_putusan_at' => now(),
