@@ -207,7 +207,7 @@ class AgenTools
             . (($link = $this->linkShopee($p['sku'])) ? ' | link Shopee ' . $link : ''), $hasil);
 
         return ['content' => ($this->cocokSebagian ? self::CATATAN_SEBAGIAN . "\n" : '')
-            . "Hasil cek stok (sebutkan apa adanya; SKU hanya untukmu, jangan disebut ke pembeli):\n" . implode("\n", $baris)];
+            . "Hasil cek stok, urut dari yang paling cocok dengan kata pembeli (sebutkan apa adanya; SKU hanya untukmu, jangan disebut ke pembeli):\n" . implode("\n", $baris)];
     }
 
     /**
@@ -220,7 +220,7 @@ class AgenTools
         $this->cocokSebagian = false;
         $hasil = $this->pencarian->untukAgen($kata, self::BATAS_CARI_SHOPEE);
         if ($hasil) {
-            return $hasil;
+            return $this->urutkanMenurutKata($hasil, $kata);
         }
 
         $perSku = [];
@@ -230,7 +230,30 @@ class AgenTools
             }
         }
 
-        return array_slice(array_values($perSku), 0, self::BATAS_CARI_SHOPEE);
+        return array_slice($this->urutkanMenurutKata(array_values($perSku), $kata), 0, self::BATAS_CARI_SHOPEE);
+    }
+
+    /**
+     * Varian yang paling banyak memuat kata pembeli di atas (permintaan owner 24 Nov 2026):
+     * "gantungan landscape" menaruh varian Landscape sebelum "Tanpa Gantungan". Yang dibaca:
+     * label varian web, nama ERP (label web bisa salah ketik, mis. "Landcsape"), dan SKU.
+     * Urutan asli dipertahankan untuk skor yang sama.
+     */
+    private function urutkanMenurutKata(array $hasil, string $kata): array
+    {
+        $kataList = $this->pecahKata(mb_strtolower($kata));
+        if (count($hasil) < 2 || ! $kataList) {
+            return $hasil;
+        }
+
+        $namaErp = Product::whereIn('sku', array_filter(array_column($hasil, 'sku')))->pluck('name', 'sku');
+        $skor = fn (array $p) => count(array_filter($kataList, fn ($w) => $this->kataCocok(
+            $this->normalUkuran(mb_strtolower($p['nama'] . ' ' . ($namaErp[$p['sku']] ?? '') . ' ' . $p['sku'])), $w)));
+
+        $berskor = array_map(fn ($p, $i) => [$skor($p), $i, $p], $hasil, array_keys($hasil));
+        usort($berskor, fn ($a, $b) => [$b[0], $a[1]] <=> [$a[0], $b[1]]);
+
+        return array_column($berskor, 2);
     }
 
     /** Hasil cari terakhir hanya cocok sebagian kata (ukuran terbalik ditoleransi) — wajib dikonfirmasi ke pembeli. */
@@ -253,10 +276,14 @@ class AgenTools
             ->get(['nama', 'model_sku', 'item_sku'])->toBase()
             ->map(fn ($i) => ['teks' => (string) $i->nama, 'sku' => [$i->model_sku ?: $i->item_sku]])
             ->concat(StoreProduct::published()
-                ->with('variants.product:id,sku')
+                ->with('variants.product:id,sku,name')
                 ->get(['id', 'name', 'short_description', 'meta_title', 'meta_description'])->toBase()
-                ->map(fn ($h) => ['teks' => "{$h->name} {$h->short_description} {$h->meta_title} {$h->meta_description}",
-                    'sku' => $h->variants->map(fn ($v) => $v->product?->sku)->all()]));
+                // Per VARIAN: teks halaman + label varian + nama ERP-nya, supaya "gantungan landscape"
+                // (yang hanya ada di label/nama varian) ikut terbaca.
+                ->flatMap(fn ($h) => $h->variants->filter(fn ($v) => $v->product)->map(fn ($v) => [
+                    'teks' => "{$h->name} {$h->short_description} {$h->meta_title} {$h->meta_description} {$v->variant_label} {$v->product->name}",
+                    'sku'  => [$v->product->sku],
+                ])));
 
         $semua = $kandidat->filter(fn ($k) => $this->memuatSemuaKata($k['teks'], $kata));
         $kataList = $this->pecahKata($kata);
@@ -474,7 +501,7 @@ class AgenTools
         }, $hasil);
 
         return ['content' => ($this->cocokSebagian ? self::CATATAN_SEBAGIAN . "\n" : '')
-            . "Hasil cek stok (sebutkan apa adanya, jangan dibulatkan; SKU hanya untukmu):\n" . implode("\n", $baris)];
+            . "Hasil cek stok, urut dari yang paling cocok dengan kata pembeli (sebutkan apa adanya, jangan dibulatkan; SKU hanya untukmu):\n" . implode("\n", $baris)];
     }
 
     /* ------------------------------------------------------------ cek ongkir (WA) */

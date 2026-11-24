@@ -74,6 +74,19 @@ Pertanyaan yang ada di daftar tetap dijawab. Yang perlu manusia: teruskan ke adm
 
 ---
 
+## Kenali produk dari kode SKU
+
+- KS = Kotak Saran · BC = Box Charger / charging station · NM = Nama Meja / price tag · FF = Frame Foto · AM = Mahar (box/frame mahar)
+- TBKD / TB = Tempat Brosur (knock down / biasa) · TH = Tent Holder · KN = Tempat Kartu Nama · AF = Frame Poster · TS = Tempat Tissue · RP = Rak Bolpoin · KOIN = koin kotak saran · LBR = akrilik lembaran
+- Produk knockdown (dikirim lembaran, dirakit sendiri): awalan TBKD, RP, TS, KN
+- Ukuran di SKU = P × L × T cm (AM-40x30x6 = mahar 40×30×6). Pembeli sering menyebutnya terbalik (30x40) — itu ukuran yang sama.
+- Akhiran varian (dibaca dari SKU yang ada, 24 Nov 2026):
+  - tanpa akhiran = Buble Only (instant / ambil di toko) · KD = tambah kardus · EX = extra buble · PK = packing kayu
+  - Mahar: L = gantungan landscape · P = gantungan potrait · G = pakai gantungan (ukuran persegi); digabung: LEX, LPK, PEX, PPK, GEX, GPK, L-KD, LPK-KD
+  - Lembaran (LBR): TR = transparan/bening · PS = putih susu · HTM = hitam; angka sebelumnya = tebal mm
+  - NM …-M1 / -M2 = 1 sisi / 2 sisi · -TXT = termasuk cetak
+- Pembeli menyebut varian ("gantungan landscape", "packing kayu") → cari dengan SKU-nya langsung bila tahu (mis. `cek_stok` "AM-40x30x6-L"); hasil `cek_stok` sudah diurutkan dari yang paling cocok dengan kata pembeli.
+
 ## B. Produk katalog, stok & harga
 
 ### B1. Ready? / stok berapa?

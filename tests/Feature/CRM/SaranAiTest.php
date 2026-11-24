@@ -841,6 +841,27 @@ class SaranAiTest extends TestCase
         $this->assertStringContainsString('Tidak ada barang', $alat->jalankan('cek_stok', ['kata_kunci' => 'box 50x40 gantungan'], null)['content']);
     }
 
+    /** Varian paling cocok dengan kata pembeli di atas; label web salah ketik ditolong nama ERP. */
+    public function test_varian_diurutkan_sesuai_kata_pembeli(): void
+    {
+        $kat = DB::table('store_categories')->insertGetId(['name' => 'Mahar', 'slug' => 'mahar', 'created_at' => now(), 'updated_at' => now()]);
+        $hal = DB::table('store_products')->insertGetId(['store_category_id' => $kat, 'slug' => 'box-mahar-40x30x6', 'name' => 'Box Mahar Akrilik 40x30x6',
+            'status' => 'published', 'description' => 'Deskripsi', 'created_at' => now(), 'updated_at' => now()]);
+        foreach ([['AM-40x30x6', 'Frame Mahar Akrilik 40x30x6 Instant', 'Tanpa Gantungan / Buble Only'],
+                  ['AM-40x30x6-P', 'Frame Mahar Akrilik 40x30x6 Potrait Instant', 'Gantungan Potrait / Buble Only'],
+                  ['AM-40x30x6-L', 'Frame Mahar Akrilik 40x30x6 Landscape Instant', 'Gantungan Landcsape / Buble Only']] as $i => [$sku, $nama, $label]) {
+            $p = Product::create(['sku' => $sku, 'name' => $nama, 'sale_type' => 'ready', 'base_unit' => 'pcs', 'base_price' => 1000, 'is_active' => true, 'is_sellable' => true]);
+            DB::table('store_product_variants')->insert(['store_product_id' => $hal, 'product_id' => $p->id, 'variant_label' => $label, 'sort_order' => $i,
+                'created_at' => now(), 'updated_at' => now()]);
+        }
+
+        $isi = app(AgenTools::class)->jalankan('cek_stok', ['kata_kunci' => '40x30x6 gantungan landscape'], null, CrmAgent::kode(CrmAgent::CS_WHATSAPP))['content'];
+
+        $this->assertLessThan(strpos($isi, 'SKU AM-40x30x6 '), strpos($isi, 'SKU AM-40x30x6-L '), 'Landscape di atas Tanpa Gantungan.');
+        $this->assertLessThan(strpos($isi, 'SKU AM-40x30x6-P '), strpos($isi, 'SKU AM-40x30x6-L '), 'Landscape di atas Potrait.');
+        $this->assertStringContainsString('urut dari yang paling cocok', $isi);
+    }
+
     /** Kata umum tak dipotong batas kecil, dan deskripsi mendahulukan nama yang berawalan kata itu. */
     public function test_kata_umum_mencakup_produk_utama_dan_deskripsi_tepat(): void
     {
