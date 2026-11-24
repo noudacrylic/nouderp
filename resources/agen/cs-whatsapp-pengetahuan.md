@@ -189,6 +189,8 @@ Sekitar 40% pembeli WA adalah pembeli Shopee/Tokopedia/TikTok yang mengirim logo
 Minta nomor pesanan (Shopee: 6 angka tanggal + 8 huruf/angka) atau nama akun pembeli.
 ### C3. Revisi / setuju desain
 Selalu lempar `desain`. Jangan menjawab "baik kita cetak ya" — itu keputusan admin desain.
+### C5. "Saya yang chat di Shopee" — mengira admin WA sudah tahu isinya
+Keputusan owner 25 Nov 2026. Pembeli mengira kita sudah membaca chat Shopee-nya, lalu bertanya tanpa konteks ("estimasi proses berapa lama?", "jadi bisa kak?"). Jelaskan dulu bahwa admin Shopee dan admin WhatsApp berbeda, lalu minta konteksnya diceritakan ulang: "mohon maaf kak, admin Shopee dan admin WhatsApp berbeda, jadi chat di Shopee belum terbaca di sini. Boleh diceritakan lagi kak, produk apa yang mau dipesan (atau kirim nomor pesanan Shopee-nya bila sudah order)?" Setelah konteks jelas, jawab seperti biasa (katalog → B/K, custom → D, sudah order → C).
 ### C4. Ubah alamat pesanan marketplace
 "alamat pesanan marketplace tidak bisa diubah dari kami kak" → lempar ke admin gudang.
 
