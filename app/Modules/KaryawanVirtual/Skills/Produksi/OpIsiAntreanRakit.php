@@ -30,7 +30,7 @@ class OpIsiAntreanRakit implements BisaDiusulkan
 
     public function deskripsi(): string
     {
-        return 'Di jam kerja (Senin–Sabtu 08–16), bila divisi Assembling tidak punya pekerjaan di antrean, '
+        return 'Di jam kerja (Senin–Sabtu 08–16), bila divisi Assembling tidak punya pekerjaan yang antre (yang sedang dikerjakan tidak dihitung), '
             . 'membuat satu OP rakit BNM → NM untuk NM berstok terendah: 150 pcs bila BNM ≥ 150, selebihnya '
             . 'sebanyak BNM (minimal ' . NmDariBnmService::PENGISI_MIN_BNM . '), tanpa potong lembar. '
             . 'Skor antrean Prioritas Rendah; dinaikkan ke Otomatis bila NM-nya menipis selagi OP masih berjalan.';

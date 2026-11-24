@@ -41,6 +41,19 @@ class AntreanProduksiService
     }
 
     /**
+     * Jumlah pekerjaan yang benar-benar MENUNGGU diambil (kolom antre di Proses Produksi):
+     * langkah pending yang gilirannya sudah tiba. Yang sedang dikerjakan / dijeda tidak
+     * dihitung, begitu pula langkah QC & Desain (bukan pekerjaan divisi). Dipakai pengisi
+     * Assembling agar OP baru sudah siap sebelum pekerjaan berjalan selesai (owner 24 Nov 2026).
+     */
+    public function jumlahMenunggu(Department $dept): int
+    {
+        return $this->pekerjaan($dept)
+            ->filter(fn ($step) => $step->status === 'pending' && !$step->is_qc && $step->desain === null)
+            ->count();
+    }
+
+    /**
      * Langkah-langkah di antrean divisi (definisi sama dengan jumlah()), beserta produk utama
      * OP-nya — dipakai memilah antrean CNC per kelompok mesin.
      *

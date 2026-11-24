@@ -298,8 +298,8 @@ class NmDariBnmService
     public function isiAntreanRakitUntuk(Product $nm): array
     {
         $rakit = $this->departemenRakit();
-        if ($rakit && ($n = $this->antrean->jumlah($rakit)) > 0) {
-            return array_merge($this->barisBuat($nm), ['reason' => "Antrean Assembling sudah berisi {$n} pekerjaan."]);
+        if ($rakit && ($n = $this->antrean->jumlahMenunggu($rakit)) > 0) {
+            return array_merge($this->barisBuat($nm), ['reason' => "Antrean Assembling sudah berisi {$n} pekerjaan menunggu."]);
         }
         $bnm = Product::where('sku', 'B' . $nm->sku)->first();
         if (!$bnm) {
@@ -319,8 +319,8 @@ class NmDariBnmService
         if (!$rakit) {
             return 'Departemen "Assembling" tidak ditemukan.';
         }
-        if (($n = $this->antrean->jumlah($rakit)) > 0) {
-            return "Antrean Assembling masih berisi {$n} pekerjaan.";
+        if (($n = $this->antrean->jumlahMenunggu($rakit)) > 0) {
+            return "Antrean Assembling masih berisi {$n} pekerjaan menunggu (yang sedang dikerjakan tidak dihitung).";
         }
         // Pengisi yang gagal dikonfirmasi tetap draft & tak tampil di antrean — tanpa rem ini
         // tiap 30 menit lahir pengisi baru untuk NM berikutnya.

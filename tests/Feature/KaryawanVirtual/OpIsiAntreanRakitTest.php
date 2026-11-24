@@ -118,12 +118,23 @@ class OpIsiAntreanRakitTest extends TestCase
     public function test_antrean_berisi_tidak_membuat_op(): void
     {
         $this->pasangan('7X20-M1', 60, 300);
-        $this->opLain([[$this->rakit, 'paused']]);
+        $this->opLain([[$this->rakit, 'pending']]);
 
         $hasil = $this->isi();
 
         $this->assertCount(0, $this->pengisi());
-        $this->assertStringContainsString('masih berisi 1 pekerjaan', $hasil[0]['reason']);
+        $this->assertStringContainsString('masih berisi 1 pekerjaan menunggu', $hasil[0]['reason']);
+    }
+
+    public function test_pekerjaan_sedang_dikerjakan_atau_dijeda_tidak_menahan_pengisi(): void
+    {
+        $this->pasangan('7X20-M1', 60, 300);
+        $this->opLain([[$this->rakit, 'in_progress']]);
+        $this->opLain([[$this->rakit, 'paused']]);
+
+        $this->isi();
+
+        $this->assertCount(1, $this->pengisi(), 'Yang antre kosong → OP baru siap sebelum pekerjaan berjalan selesai.');
     }
 
     public function test_langkah_assembling_yang_belum_gilirannya_tidak_dihitung_antrean(): void
