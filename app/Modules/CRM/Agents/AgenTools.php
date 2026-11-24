@@ -206,7 +206,8 @@ class AgenTools
             : ($p['preorder'] ? 'PRE-ORDER, stok ' : 'ready, stok ') . $this->angka($p['stok']))
             . (($link = $this->linkShopee($p['sku'])) ? ' | link Shopee ' . $link : ''), $hasil);
 
-        return ['content' => "Hasil cek stok (sebutkan apa adanya; SKU hanya untukmu, jangan disebut ke pembeli):\n" . implode("\n", $baris)];
+        return ['content' => ($this->cocokSebagian ? self::CATATAN_SEBAGIAN . "\n" : '')
+            . "Hasil cek stok (sebutkan apa adanya; SKU hanya untukmu, jangan disebut ke pembeli):\n" . implode("\n", $baris)];
     }
 
     /**
@@ -216,6 +217,7 @@ class AgenTools
      */
     private function cariBarangShopee(string $kata): array
     {
+        $this->cocokSebagian = false;
         $hasil = $this->pencarian->untukAgen($kata, self::BATAS_CARI_SHOPEE);
         if ($hasil) {
             return $hasil;
@@ -231,39 +233,95 @@ class AgenTools
         return array_slice(array_values($perSku), 0, self::BATAS_CARI_SHOPEE);
     }
 
-    /** @return string[] SKU listing/halaman yang namanya memuat SEMUA kata dalam sebutan pembeli */
+    /** Hasil cari terakhir hanya cocok sebagian kata (ukuran terbalik ditoleransi) — wajib dikonfirmasi ke pembeli. */
+    private bool $cocokSebagian = false;
+
+    private const CATATAN_SEBAGIAN = 'Cocok SEBAGIAN dengan sebutan pembeli (tidak semua kata ada di nama produk). '
+        . 'WAJIB konfirmasi dulu: kirim link produknya dan tanya "apakah produk yang dimaksud yang ini kak?" — '
+        . 'baru lanjut stok/harga/checkout setelah pembeli mengiyakan.';
+
+    /**
+     * SKU listing/halaman yang namanya memuat SEMUA kata dalam sebutan pembeli. Tak ada → yang
+     * ukurannya cocok (P×L boleh terbalik: "30x40x6" = "40x30x6", keluhan owner 24 Nov 2026)
+     * dengan kata cocok terbanyak; hasil begini ditandai `cocokSebagian`.
+     *
+     * @return string[]
+     */
     private function skuDariSebutan(string $kata): array
     {
-        $sku = ShopeeItem::where('env', $this->shopee->env())->where('status', 'NORMAL')
+        $kandidat = ShopeeItem::where('env', $this->shopee->env())->where('status', 'NORMAL')
             ->get(['nama', 'model_sku', 'item_sku'])->toBase()
-            ->filter(fn ($i) => $this->memuatSemuaKata((string) $i->nama, $kata))
-            ->map(fn ($i) => $i->model_sku ?: $i->item_sku);
+            ->map(fn ($i) => ['teks' => (string) $i->nama, 'sku' => [$i->model_sku ?: $i->item_sku]])
+            ->concat(StoreProduct::published()
+                ->with('variants.product:id,sku')
+                ->get(['id', 'name', 'short_description', 'meta_title', 'meta_description'])->toBase()
+                ->map(fn ($h) => ['teks' => "{$h->name} {$h->short_description} {$h->meta_title} {$h->meta_description}",
+                    'sku' => $h->variants->map(fn ($v) => $v->product?->sku)->all()]));
 
-        $web = StoreProduct::published()
-            ->with('variants.product:id,sku')
-            ->get(['id', 'name', 'short_description', 'meta_title', 'meta_description'])->toBase()
-            ->filter(fn ($h) => $this->memuatSemuaKata("{$h->name} {$h->short_description} {$h->meta_title} {$h->meta_description}", $kata))
-            ->flatMap(fn ($h) => $h->variants->map(fn ($v) => $v->product?->sku));
+        $semua = $kandidat->filter(fn ($k) => $this->memuatSemuaKata($k['teks'], $kata));
+        $kataList = $this->pecahKata($kata);
+        $ukuran   = array_filter($kataList, fn ($w) => $this->kataUkuran($w));
+        // Cocok sebagian hanya bila pembeli menyebut ukuran: tanpa ukuran, kata umum ("box charger
+        // pigura") terlalu mudah menyeret produk lain.
+        if ($semua->isEmpty() && $ukuran) {
+            $skor     = $kandidat->map(fn ($k) => $k + ['skor' => count(array_filter($kataList, fn ($w) => $this->kataCocok($this->normalUkuran($k['teks']), $w)))])
+                // Ukuran yang disebut WAJIB cocok (ukuran lain = produk lain), plus minimal satu kata lain.
+                ->filter(fn ($k) => collect($ukuran)->every(fn ($w) => $this->kataCocok($this->normalUkuran($k['teks']), $w))
+                    && $k['skor'] >= min(count($kataList), count($ukuran) + 1));
+            $terbaik  = $skor->max('skor');
+            $semua    = $skor->filter(fn ($k) => $k['skor'] === $terbaik);
+            $this->cocokSebagian = $semua->isNotEmpty();
+        }
 
-        return $sku->concat($web)->filter()->unique()->values()->all();
+        return $semua->flatMap(fn ($k) => $k['sku'])->filter()->unique()->values()->all();
     }
 
     /**
      * Semua kata ada di teks. Angka harus utuh: "4 kotak" tidak boleh cocok dengan "14 kotak"
-     * atau "A4", karena jawabannya jadi ukuran produk lain.
+     * atau "A4", karena jawabannya jadi ukuran produk lain. Ukuran P×L boleh terbalik.
      */
     private function memuatSemuaKata(string $teks, string $kata): bool
     {
-        foreach (array_filter(preg_split('/\s+/u', $kata)) as $w) {
-            $cocok = ctype_digit($w)
-                ? preg_match('/(?<![\p{L}\p{N}])' . $w . '(?![\p{L}\p{N}])/u', $teks)
-                : mb_stripos($teks, $w) !== false;
-            if (! $cocok) {
+        $teks = $this->normalUkuran($teks);
+        foreach ($this->pecahKata($kata) as $w) {
+            if (! $this->kataCocok($teks, $w)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /** @return string[] kata sebutan pembeli; ukuran "40 x 30" dirapatkan jadi satu kata "40x30" */
+    private function pecahKata(string $kata): array
+    {
+        return array_values(array_filter(preg_split('/\s+/u', $this->normalUkuran($kata))));
+    }
+
+    /** "40 X 30 x 6" / "40×30" → "40x30x6", supaya ukuran dibandingkan sebagai satu kata. */
+    private function normalUkuran(string $teks): string
+    {
+        return preg_replace_callback('/(\d+)\s*[x×*]\s*(\d+)(?:\s*[x×*]\s*(\d+))?/iu',
+            fn ($m) => $m[1] . 'x' . $m[2] . (isset($m[3]) && $m[3] !== '' ? 'x' . $m[3] : ''), $teks);
+    }
+
+    private function kataUkuran(string $w): bool
+    {
+        return (bool) preg_match('/^\d+x\d+(x\d+)?$/i', $w);
+    }
+
+    private function kataCocok(string $teksNormal, string $w): bool
+    {
+        if ($this->kataUkuran($w)) {
+            $d = explode('x', mb_strtolower($w));
+            $varian = array_unique([implode('x', $d), implode('x', [$d[1], $d[0]] + $d)]);
+
+            return collect($varian)->contains(fn ($v) => preg_match('/(?<![\p{L}\p{N}])' . preg_quote($v, '/') . '(?![\p{N}])/iu', $teksNormal));
+        }
+
+        return ctype_digit($w)
+            ? (bool) preg_match('/(?<![\p{L}\p{N}])' . $w . '(?![\p{L}\p{N}])/u', $teksNormal)
+            : mb_stripos($teksNormal, $w) !== false;
     }
 
     /** Halaman yang NAMANYA memuat angka dalam kata kunci didahulukan: "4 kotak" membaca halaman 4 Kotak. */
@@ -415,7 +473,8 @@ class AgenTools
                 . ' | ' . $harga . ($p['url'] ? ' | link ' . $p['url'] : '');
         }, $hasil);
 
-        return ['content' => "Hasil cek stok (sebutkan apa adanya, jangan dibulatkan; SKU hanya untukmu):\n" . implode("\n", $baris)];
+        return ['content' => ($this->cocokSebagian ? self::CATATAN_SEBAGIAN . "\n" : '')
+            . "Hasil cek stok (sebutkan apa adanya, jangan dibulatkan; SKU hanya untukmu):\n" . implode("\n", $baris)];
     }
 
     /* ------------------------------------------------------------ cek ongkir (WA) */

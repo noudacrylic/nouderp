@@ -813,6 +813,34 @@ class SaranAiTest extends TestCase
         $this->assertStringContainsString('Tidak ada barang', $alat->jalankan('cek_stok', ['kata_kunci' => 'box charger pigura'], null)['content']);
     }
 
+    /** Keluhan owner 24 Nov: "akrilik box 30x40x6 gantungan landscape" = Box Mahar 40x30x6 (ukuran terbalik). */
+    public function test_ukuran_terbalik_cocok_sebagian_dan_wajib_konfirmasi(): void
+    {
+        $env = app(\App\Modules\Marketplace\Shopee\Services\ShopeeClient::class)->env();
+        foreach ([['AM-40x30x6-L', 'Box Mahar Akrilik 40 x 30 x 6 Frame Seserahan Landscape'], ['AM-30x20x6', 'Box Mahar Akrilik 30x20x6 Frame Seserahan']] as $i => [$sku, $nama]) {
+            $p = Product::create(['sku' => $sku, 'name' => $nama, 'sale_type' => 'ready', 'base_unit' => 'pcs', 'base_price' => 1000, 'is_active' => true, 'is_sellable' => true]);
+            // cek_stok membaca barang lewat halaman web-nya.
+            $kat = DB::table('store_categories')->insertGetId(['name' => "K $sku", 'slug' => "k-$sku", 'created_at' => now(), 'updated_at' => now()]);
+            $hal = DB::table('store_products')->insertGetId(['store_category_id' => $kat, 'slug' => "h-$sku", 'name' => "Halaman $i", 'status' => 'published',
+                'description' => 'Deskripsi', 'created_at' => now(), 'updated_at' => now()]);
+            DB::table('store_product_variants')->insert(['store_product_id' => $hal, 'product_id' => $p->id, 'variant_label' => 'V', 'created_at' => now(), 'updated_at' => now()]);
+            DB::table('shopee_items')->insert(['env' => $env, 'shop_id' => 101, 'item_id' => 900 + $i, 'model_id' => 0, 'item_sku' => $sku,
+                'nama' => $nama, 'stok' => 3, 'status' => 'NORMAL', 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $alat = app(AgenTools::class);
+
+        $utuh = $alat->jalankan('cek_stok', ['kata_kunci' => 'mahar 30 x 40'], null)['content'];
+        $this->assertStringContainsString('AM-40x30x6-L', $utuh, 'Semua kata cocok walau P×L terbalik.');
+        $this->assertStringNotContainsString('Cocok SEBAGIAN', $utuh);
+
+        $sebagian = $alat->jalankan('cek_stok', ['kata_kunci' => 'akrilik box 30x40x6 gantungan landscape'], null)['content'];
+        $this->assertStringContainsString('AM-40x30x6-L', $sebagian);
+        $this->assertStringNotContainsString('AM-30x20x6', $sebagian, 'Ukuran lain bukan produk yang dimaksud.');
+        $this->assertStringContainsString('apakah produk yang dimaksud yang ini kak?', $sebagian);
+
+        $this->assertStringContainsString('Tidak ada barang', $alat->jalankan('cek_stok', ['kata_kunci' => 'box 50x40 gantungan'], null)['content']);
+    }
+
     /** Kata umum tak dipotong batas kecil, dan deskripsi mendahulukan nama yang berawalan kata itu. */
     public function test_kata_umum_mencakup_produk_utama_dan_deskripsi_tepat(): void
     {
