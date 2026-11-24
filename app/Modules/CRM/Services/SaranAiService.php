@@ -222,6 +222,12 @@ class SaranAiService
             return;
         }
 
+        // "Tidak perlu dibalas" (WA Z2 / Shopee I2: kurir, notifikasi, OTP, spam) tak pernah dikirim —
+        // walau dilempar ke admin. Bayangan 23 Nov: info "admin offline" hampir terkirim ke bot J&T.
+        if (in_array($saran->butir, ['Z2', 'I2'], true)) {
+            return;
+        }
+
         $teks = $this->teksOtomatis($saran, $luarJam);
         if ($teks === null
             || $pesan->sent_at?->lt(now()->subMinutes(self::BATAS_OTOMATIS_MENIT))

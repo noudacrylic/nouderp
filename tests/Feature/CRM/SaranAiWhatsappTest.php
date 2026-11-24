@@ -134,6 +134,20 @@ class SaranAiWhatsappTest extends TestCase
         $this->assertSame(1, CrmMessage::where('direction', CrmMessage::KELUAR)->count(), 'Mode Mati: tidak mengirim.');
     }
 
+    public function test_wa_tidak_perlu_dibalas_tidak_dikirim_walau_dilempar(): void
+    {
+        $this->travelTo(now()->next('Monday')->setTime(22, 0));
+        CrmAgent::where('kode', CrmAgent::CS_WHATSAPP)->update(['kirim_otomatis' => CrmAgent::KIRIM_OTOMATIS]);
+        $pemegang = User::factory()->create();
+        $c = $this->chat('Halo, kami dari J&T Express akan melakukan proses pick-up paket');
+        $c->forceFill(['owner_user_id' => $pemegang->id])->save();
+        $this->claude->antrekan($this->usul('Z2', '', 'admin'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $this->assertSame(0, CrmMessage::where('source', CrmMessage::SOURCE_AI)->count(), 'Bot kurir tidak diberi info admin offline.');
+    }
+
     public function test_wa_mode_otomatis_luar_jam_chat_dipegang_diberi_info_admin_aktif(): void
     {
         $this->travelTo(now()->next('Monday')->setTime(22, 0));
