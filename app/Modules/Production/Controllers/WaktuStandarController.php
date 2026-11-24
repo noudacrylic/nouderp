@@ -285,6 +285,23 @@ class WaktuStandarController extends Controller
         ]);
     }
 
+    /** Penilaian operator CNC Tahap 0: mesin diam saat ada antrean (dari data ERP). */
+    public function cnc(Request $request, \App\Modules\Production\Services\JedaMesinService $jeda)
+    {
+        $this->khususOwner($request);
+        $bulan = preg_match('/^\d{4}-\d{2}$/', (string) $request->input('bulan')) ? Carbon::parse($request->input('bulan') . '-01') : now()->startOfMonth();
+        $semua = \App\Modules\Production\Services\JedaMesinService::operator();
+        $operator = $semua->firstWhere('id', (int) $request->input('orang')) ?? $semua->first();
+
+        return view('erp.production.waktu-standar.cnc', [
+            'semua'    => $semua,
+            'operator' => $operator,
+            'bulan'    => $bulan,
+            'hasil'    => $operator ? $jeda->bulan($operator, $bulan) : null,
+            'berjalan' => $bulan->isSameMonth(now()),
+        ]);
+    }
+
     public function simpanParam(Request $request, PenilaianKinerjaService $pk)
     {
         $this->khususOwner($request);

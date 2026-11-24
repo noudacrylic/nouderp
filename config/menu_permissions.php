@@ -260,6 +260,7 @@ return [
                 'subtabs' => [
                     ['label' => 'Waktu Standar', 'url' => '/erp/production/waktu-standar',           'route_patterns' => ['production.waktu-standar.index', 'production.waktu-standar.simpan']],
                     ['label' => 'Penilaian Karyawan', 'url' => '/erp/production/waktu-standar/rapor', 'route_patterns' => ['production.waktu-standar.rapor']],
+                    ['label' => 'Operator CNC', 'url' => '/erp/production/waktu-standar/cnc', 'route_patterns' => ['production.waktu-standar.cnc']],
                     ['label' => 'Pengaturan & Analisa', 'url' => '/erp/production/waktu-standar/penilaian', 'route_patterns' => ['production.waktu-standar.penilaian*']],
                 ],
             ],
