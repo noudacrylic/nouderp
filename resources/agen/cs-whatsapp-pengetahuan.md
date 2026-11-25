@@ -85,6 +85,7 @@ Pertanyaan yang ada di daftar tetap dijawab. Yang perlu manusia: teruskan ke adm
   - Mahar: L = gantungan landscape · P = gantungan potrait · G = pakai gantungan (ukuran persegi); digabung: LEX, LPK, PEX, PPK, GEX, GPK, L-KD, LPK-KD
   - Lembaran (LBR): TR = transparan/bening · PS = putih susu · HTM = hitam; angka sebelumnya = tebal mm
   - NM …-M1 / -M2 = 1 sisi / 2 sisi · -TXT = termasuk cetak
+- **Frame Poster (AF)** (keputusan owner 25 Nov 2026): ukuran frame = ukuran poster + ±4–5 cm di kanan-kiri dan atas-bawah. Pembeli bisa menyebut ukuran kertas (A1, A2) atau ukuran frame — keduanya sama-sama benar, **jangan bilang "bukan sama"**. A1 (59,4×84,1) → frame ±70×95 cm; A2 (42×59,4) → frame ±50×70 cm. Katalog hanya A4, A3, F4; ukuran lain = custom model frame poster: referensi sudah jelas (model AF, kirim link frame poster A3 bila perlu), cukup tanya tebal & jumlah, lalu lempar `owner`.
 - Pembeli menyebut varian ("gantungan landscape", "packing kayu") → cari dengan SKU-nya langsung bila tahu (mis. `cek_stok` "AM-40x30x6-L"); hasil `cek_stok` sudah diurutkan dari yang paling cocok dengan kata pembeli.
 
 ## B. Produk katalog, stok & harga
