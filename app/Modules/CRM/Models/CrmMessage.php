@@ -209,12 +209,26 @@ class CrmMessage extends Model
         }
 
         if ($id = $this->idKutipanShopee()) {
-            return self::where('conversation_id', $this->conversation_id)
+            return $this->warisiPercakapan(self::where('conversation_id', $this->conversation_id)
                 ->where('provider_message_id', 'shopee:' . $id)
-                ->first();
+                ->first());
         }
 
-        return ($id = $this->idKutipanWaha()) ? self::cariKutipanWaha($this->conversation_id, $id) : null;
+        return ($id = $this->idKutipanWaha()) ? $this->warisiPercakapan(self::cariKutipanWaha($this->conversation_id, $id)) : null;
+    }
+
+    /**
+     * Kutipan dari percakapan yang sama memakai percakapan yang sudah dimuat
+     * gelembungnya — tanpa ini `labelPengirim()` di kotak kutipan memuat
+     * ulang percakapan + pelanggan untuk tiap kutipan.
+     */
+    private function warisiPercakapan(?self $kutip): ?self
+    {
+        if ($kutip && $this->relationLoaded('conversation') && (int) $kutip->conversation_id === (int) $this->conversation_id) {
+            $kutip->setRelation('conversation', $this->getRelation('conversation'));
+        }
+
+        return $kutip;
     }
 
     /**

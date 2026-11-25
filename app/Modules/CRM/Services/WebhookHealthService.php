@@ -67,9 +67,21 @@ class WebhookHealthService
          * Shopee menyalakan pita palsu. Kanal resmi (api.co.id) kini tak
          * dipakai, jadi pitanya diam sampai jalur itu dipakai lagi.
          */
+        /*
+         * Daftar id percakapan resmi diambil DATAR lebih dulu, bukan whereHas:
+         * EXISTS per baris memaksa MariaDB menyusuri pesan Shopee/WAHA dari
+         * yang terbaru sampai ketemu satu pesan kanal resmi — kanal yang sudah
+         * lama tak dipakai, jadi hampir seluruh tabel (±100 ms tiap halaman).
+         */
+        $resmi = CrmConversation::query()->where('channel', CrmConversation::KANAL_RESMI)->pluck('id')->all();
+
+        if ($resmi === []) {
+            return null;
+        }
+
         $kirim = CrmMessage::keluar()
             ->whereIn('status', self::KELUAR_SUNGGUHAN)
-            ->whereHas('conversation', fn ($q) => $q->where('channel', CrmConversation::KANAL_RESMI))
+            ->whereIn('conversation_id', $resmi)
             ->orderByDesc('id')
             ->first(['id', 'status', 'sent_at', 'conversation_id']);
 
@@ -87,12 +99,20 @@ class WebhookHealthService
          * akan menyatakan jalur resmi sehat padahal ia sedang mati total, dan
          * pita peringatannya tidak akan pernah menyala lagi.
          */
-        $kabar = CrmWebhookEvent::query()
+        /*
+         * MAX(id) dulu, baru created_at lewat kunci utama. Kalau langsung
+         * `orderByDesc('id')->first()`, MariaDB memilih menyusuri tabel dari
+         * id terbesar — padahal hampir semua baris adalah WAHA, jadi yang
+         * terbaca seluruh tabel berikut payload-nya (±1,3 detik di server).
+         * MAX(id) cukup memindai indeks event_type yang kecil.
+         */
+        $idKabar = CrmWebhookEvent::query()
             ->where(fn ($q) => $q
                 ->whereNull('event_type')
                 ->orWhere('event_type', 'not like', WahaWebhookController::PREFIX . '%'))
-            ->orderByDesc('id')
-            ->first(['id', 'created_at'])?->created_at;
+            ->max('id');
+
+        $kabar = $idKabar ? CrmWebhookEvent::query()->whereKey($idKabar)->first(['id', 'created_at'])?->created_at : null;
 
         // Ada kabar SETELAH kiriman terakhir = jalurnya hidup. Status yang tidak
         // beranjak setelah itu urusan lain (HP pelanggan mati, misalnya), bukan

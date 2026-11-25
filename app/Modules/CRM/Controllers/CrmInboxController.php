@@ -434,7 +434,7 @@ class CrmInboxController extends Controller
              * untuk digambar ke kolom yang tidak ada di layar.
              */
             'pesan'    => $terpilih && ! $modeWa
-                ? $terpilih->messages()->with(self::MUATAN_GELEMBUNG)->orderBy('sent_at')->orderBy('id')->get()
+                ? self::pasangPercakapan($terpilih->messages()->with(self::MUATAN_GELEMBUNG)->orderBy('sent_at')->orderBy('id')->get(), $terpilih)
                 : collect(),
             'snippets' => $this->snippets(),
             /*
@@ -695,6 +695,30 @@ class CrmInboxController extends Controller
      * pelanggan adalah kalimat berkurung kurawal. Tempatnya di layar Chat Baru,
      * yang memang meminta isian tiap variabel.
      */
+    /**
+     * Pasang percakapan yang SUDAH dimuat ke tiap gelembung & kutipannya.
+     *
+     * Tanpa ini `labelPengirim()` (nama di atas gelembung masuk & kotak
+     * kutipan) memuat ulang percakapan + pelanggannya satu per satu: chat 355
+     * pesan = ±530 kueri dan hampir 1 detik hanya untuk nama yang sama.
+     */
+    private static function pasangPercakapan(Collection $pesan, CrmConversation $percakapan): Collection
+    {
+        foreach ($pesan as $m) {
+            $m->setRelation('conversation', $percakapan);
+
+            foreach (['dikutipWamid', 'dikutipVendor'] as $rel) {
+                $kutip = $m->relationLoaded($rel) ? $m->getRelation($rel) : null;
+
+                if ($kutip && (int) $kutip->conversation_id === (int) $percakapan->id) {
+                    $kutip->setRelation('conversation', $percakapan);
+                }
+            }
+        }
+
+        return $pesan;
+    }
+
     private function snippets()
     {
         return CrmTemplate::aktif()
@@ -1877,6 +1901,9 @@ class CrmInboxController extends Controller
             ->where('id', '>', $setelah)
             ->orderBy('sent_at')->orderBy('id')
             ->get();
+
+        $conversation->loadMissing('customer');
+        self::pasangPercakapan($baru, $conversation);
 
         // Pesan yang sudah tampil di layar admin sama saja dengan sudah dibaca;
         // membiarkan penghitung menumpuk membuat lencana "baru" berbohong.
