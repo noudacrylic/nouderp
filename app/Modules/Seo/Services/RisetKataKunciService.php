@@ -77,13 +77,14 @@ class RisetKataKunciService
                 $ada++;
                 $row->fill(array_filter([
                     'seo_jenis_id' => $row->seo_jenis_id ?: $jenis->id,
+                    'jenis_oleh'   => $row->seo_jenis_id ? null : 'riset',
                     'niat'         => $row->niat ?: $this->pilih($k['niat'] ?? null, array_keys(SeoKataKunci::NIAT)),
                     'perkiraan'    => $this->pilih($k['perkiraan'] ?? null, ['tinggi', 'sedang', 'rendah']) ?: $row->perkiraan,
                 ]))->save();
                 continue;
             }
             SeoKataKunci::create([
-                'seo_jenis_id' => $jenis->id, 'kata' => $kata, 'sumber' => 'riset',
+                'seo_jenis_id' => $jenis->id, 'jenis_oleh' => 'riset', 'kata' => $kata, 'sumber' => 'riset',
                 'niat'         => $this->pilih($k['niat'] ?? null, array_keys(SeoKataKunci::NIAT)),
                 'perkiraan'    => $this->pilih($k['perkiraan'] ?? null, ['tinggi', 'sedang', 'rendah']),
                 'catatan'      => isset($k['alasan']) ? mb_substr((string) $k['alasan'], 0, 255) : null,

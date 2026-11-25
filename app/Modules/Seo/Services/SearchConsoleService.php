@@ -152,7 +152,8 @@ class SearchConsoleService
                     if ($kata === '' || mb_strlen($kata) > 150) continue;
                     $row = SeoKataKunci::firstOrNew(['kata' => $kata]);
                     if (!$row->exists) {
-                        $row->fill(['sumber' => 'gsc', 'seo_jenis_id' => $this->cocokkanJenis($kata, $jenis)]);
+                        $jid = $this->cocokkanJenis($kata, $jenis);
+                        $row->fill(['sumber' => 'gsc', 'seo_jenis_id' => $jid, 'jenis_oleh' => $jid ? 'alias' : null]);
                         $baru++;
                     }
                     $row->fill([

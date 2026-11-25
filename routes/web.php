@@ -741,6 +741,7 @@ Route::prefix('erp/store')->group(function () {
         Route::post  ('/jenis',         'simpanJenis')->name('jenis.simpan');
         Route::put   ('/jenis/{jenis}', 'ubahJenis')->whereNumber('jenis')->name('jenis.ubah');
         Route::post  ('/tarik-gsc',     'tarikGsc')->name('tarik-gsc');
+        Route::post  ('/kelompokkan',   'kelompokkan')->name('kelompokkan');
         // Sambungan Search Console lewat login Google (OAuth) — kunci JSON diblokir kebijakan org.
         Route::post  ('/google/klien',    'simpanKlien')->name('google.klien');
         Route::get   ('/google/sambung',  'sambung')->name('google.sambung');

@@ -5,6 +5,7 @@ namespace App\Modules\Seo\Controllers;
 use App\Modules\Seo\Models\SeoGoogleAkun;
 use App\Modules\Seo\Models\SeoJenis;
 use App\Modules\Seo\Models\SeoKataKunci;
+use App\Modules\Seo\Services\KelompokKataKunciService;
 use App\Modules\Seo\Services\SearchConsoleService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -57,7 +58,7 @@ class KataKunciController extends Controller
         $kata = SeoKataKunci::baku($d['kata']);
         if (SeoKataKunci::where('kata', $kata)->exists()) return back()->with('error', "\"$kata\" sudah ada di bank.");
 
-        SeoKataKunci::create(['kata' => $kata, 'seo_jenis_id' => $d['seo_jenis_id'] ?? null, 'niat' => $d['niat'] ?? null, 'sumber' => 'manual']);
+        SeoKataKunci::create(['kata' => $kata, 'seo_jenis_id' => $d['seo_jenis_id'] ?? null, 'jenis_oleh' => 'manual', 'niat' => $d['niat'] ?? null, 'sumber' => 'manual']);
         return back()->with('success', "\"$kata\" ditambahkan.");
     }
 
@@ -68,7 +69,10 @@ class KataKunciController extends Controller
             'niat'         => ['nullable', Rule::in(array_keys(SeoKataKunci::NIAT))],
             'aktif'        => 'nullable|boolean',
         ]);
-        $kata->update(array_intersect_key($d, $request->all()));
+        $ubah = array_intersect_key($d, $request->all());
+        // Jenis dipilih orang → tak pernah ditimpa pengelompokan otomatis.
+        if (array_key_exists('seo_jenis_id', $ubah)) $ubah['jenis_oleh'] = 'manual';
+        $kata->update($ubah);
         return back()->with('success', "\"{$kata->kata}\" diperbarui.");
     }
 
@@ -100,6 +104,17 @@ class KataKunciController extends Controller
         $d = $request->validate(['petunjuk' => 'nullable|string|max:500', 'aktif' => 'nullable|boolean']);
         $jenis->update(array_intersect_key($d, $request->all()));
         return back()->with('success', "Jenis \"{$jenis->nama}\" diperbarui.");
+    }
+
+    /** Kelompokkan kata tanpa jenis / hasil alias dengan AI (Haiku; ±150 kata per panggilan, beberapa detik). */
+    public function kelompokkan(KelompokKataKunciService $kelompok)
+    {
+        try {
+            $k = $kelompok->kelompokkan(600);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+        return back()->with('success', "{$k['diperiksa']} kata diperiksa AI, {$k['berubah']} pindah jenis.");
     }
 
     // ───────────── Sambungan Google (OAuth) ─────────────
@@ -156,6 +171,15 @@ class KataKunciController extends Controller
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
-        return back()->with('success', "{$h['baris']} kata pencarian ditarik dari Search Console, {$h['baru']} kata baru.");
+        $pesan = "{$h['baris']} kata pencarian ditarik dari Search Console, {$h['baru']} kata baru.";
+        if ($h['baru']) {
+            try {
+                $k = app(KelompokKataKunciService::class)->kelompokkan(600);
+                $pesan .= " {$k['diperiksa']} dikelompokkan AI.";
+            } catch (\Throwable) {
+                $pesan .= ' (Pengelompokan AI gagal — coba tombol Kelompokkan.)';
+            }
+        }
+        return back()->with('success', $pesan);
     }
 }

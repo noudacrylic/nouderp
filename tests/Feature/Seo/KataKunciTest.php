@@ -37,7 +37,7 @@ class KataKunciTest extends TestCase
 
     public function test_jenis_awal_terisi_dari_kategori_toko_dan_custom(): void
     {
-        $this->assertSame(17, SeoJenis::count());
+        $this->assertSame(18, SeoJenis::count());
         $this->assertNotNull(SeoJenis::where('nama', 'Kotak Saran')->first());
         $this->assertNotNull(SeoJenis::where('nama', 'Plakat Akrilik')->whereNotNull('petunjuk')->first());
     }
@@ -180,6 +180,39 @@ class KataKunciTest extends TestCase
         Http::assertSent(fn ($req) => str_contains($req->url(), '/revoke'));
     }
 
+    public function test_kelompokkan_ai_tanpa_menyentuh_pilihan_manual(): void
+    {
+        $nm = $this->jenis('Nama Meja');
+        $sign = $this->jenis('Akrilik Sign / Papan Nama');
+        $a = SeoKataKunci::create(['kata' => 'papan nama akrilik meja', 'sumber' => 'gsc', 'seo_jenis_id' => $sign->id, 'jenis_oleh' => 'alias']);
+        $b = SeoKataKunci::create(['kata' => 'akrilik semarang', 'sumber' => 'gsc']);
+        $c = SeoKataKunci::create(['kata' => 'kaca film mobil', 'sumber' => 'gsc']);
+        $d = SeoKataKunci::create(['kata' => 'papan nama kantor', 'sumber' => 'gsc', 'seo_jenis_id' => $nm->id, 'jenis_oleh' => 'manual']);
+
+        $this->claude->jawaban = [FakeClaudeClient::teks(json_encode(['hasil' => [
+            ['kata' => 'papan nama akrilik meja', 'jenis' => 'Nama Meja'],
+            ['kata' => 'akrilik semarang', 'jenis' => 'Umum / Toko Akrilik'],
+            ['kata' => 'kaca film mobil', 'jenis' => null],
+            ['kata' => 'papan nama kantor', 'jenis' => 'Akrilik Sign / Papan Nama'], // tak ditanya, diabaikan
+        ]]))];
+
+        $this->assertSame(['diperiksa' => 3, 'berubah' => 2], app(\App\Modules\Seo\Services\KelompokKataKunciService::class)->kelompokkan());
+        $this->assertSame([$nm->id, 'ai'], [$a->fresh()->seo_jenis_id, $a->fresh()->jenis_oleh]);
+        $this->assertSame('Umum / Toko Akrilik', $b->fresh()->jenis->nama);
+        $this->assertSame([null, 'ai'], [$c->fresh()->seo_jenis_id, $c->fresh()->jenis_oleh]);
+        $this->assertSame($nm->id, $d->fresh()->seo_jenis_id, 'Pilihan manual tak disentuh.');
+        $this->assertStringNotContainsString('papan nama kantor', $this->claude->diterima[0]['messages'][0]['content']);
+        $this->assertSame('claude-haiku-5-5', $this->claude->diterima[0]['model']);
+
+        // Yang sudah dijawab AI tidak ditanya lagi.
+        $this->assertSame(['diperiksa' => 0, 'berubah' => 0], app(\App\Modules\Seo\Services\KelompokKataKunciService::class)->kelompokkan());
+
+        // Mengubah jenis dari halaman → manual.
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->actingAs($owner)->put(route('store.kata-kunci.ubah', $c->id), ['seo_jenis_id' => $sign->id]);
+        $this->assertSame('manual', $c->fresh()->jenis_oleh);
+    }
+
     public function test_halaman_kata_kunci_tambah_ubah_hapus(): void
     {
         $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
@@ -203,6 +236,6 @@ class KataKunciTest extends TestCase
         $this->assertSame(0, SeoKataKunci::count());
 
         $this->post(route('store.kata-kunci.jenis.simpan'), ['nama' => 'Akrilik Cetak UV'])->assertRedirect();
-        $this->assertSame(18, SeoJenis::count());
+        $this->assertSame(19, SeoJenis::count());
     }
 }

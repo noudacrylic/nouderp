@@ -55,7 +55,19 @@ Artisan::command('seo:tarik-gsc', function () {
     if (!$gsc->tersambung()) return $this->warn('Search Console belum disambungkan (kunci service account belum dipasang).');
     $h = $gsc->tarik();
     $this->info("{$h['baris']} kata pencarian ditarik, {$h['baru']} kata baru.");
+    // Kata baru langsung dikelompokkan AI (Haiku, murah); gagal tak menggagalkan tarikan.
+    try {
+        $k = app(\App\Modules\Seo\Services\KelompokKataKunciService::class)->kelompokkan();
+        $this->info("Dikelompokkan AI: {$k['diperiksa']} diperiksa, {$k['berubah']} berubah.");
+    } catch (\Throwable $e) {
+        $this->warn('Kelompok AI gagal: ' . $e->getMessage());
+    }
 })->purpose('Tarik kata pencarian Google Search Console ke bank kata kunci');
+
+Artisan::command('seo:kelompokkan', function () {
+    $k = app(\App\Modules\Seo\Services\KelompokKataKunciService::class)->kelompokkan();
+    $this->info("{$k['diperiksa']} kata diperiksa, {$k['berubah']} berubah jenis.");
+})->purpose('Kelompokkan kata kunci tanpa jenis / hasil alias ke jenis produk (Claude Haiku)');
 Schedule::command('seo:tarik-gsc')->dailyAt('04:10')->name('seo-tarik-gsc')->withoutOverlapping();
 
 // Hutang PPh Final UMKM masa bulan lalu (Dr 5012 / Cr 2114). Tombol manual: rincian masa Laporan Pajak.

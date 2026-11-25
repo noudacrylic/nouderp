@@ -79,6 +79,11 @@
                 <span>Belum dikelompokkan</span><span>{{ $tanpaJenis }}</span>
             </a>
         @endif
+        {{-- Kata tanpa jenis / hasil cocok-kata kasar → AI (Haiku). Jenis yang diubah orang tak disentuh. --}}
+        <form method="POST" action="{{ route('store.kata-kunci.kelompokkan') }}" class="px-3 py-2 border-t">@csrf
+            <button class="w-full border border-gray-300 text-gray-700 px-2 py-1 rounded text-xs hover:bg-gray-50"
+                    title="Kata yang jenisnya Anda pilih sendiri tidak diubah">🤖 Kelompokkan dengan AI</button>
+        </form>
         <details class="border-t">
             <summary class="px-3 py-2 cursor-pointer text-xs text-blue-700">+ Tambah jenis</summary>
             <form method="POST" action="{{ route('store.kata-kunci.jenis.simpan') }}" class="px-3 pb-3 space-y-1.5">@csrf

@@ -10,7 +10,7 @@ class SeoKataKunci extends Model
 {
     protected $table = 'seo_kata_kunci';
 
-    protected $fillable = ['seo_jenis_id', 'kata', 'niat', 'perkiraan', 'sumber', 'aktif', 'catatan',
+    protected $fillable = ['seo_jenis_id', 'jenis_oleh', 'kata', 'niat', 'perkiraan', 'sumber', 'aktif', 'catatan',
         'gsc_tayang', 'gsc_klik', 'gsc_posisi', 'gsc_sampai'];
 
     protected $casts = ['aktif' => 'boolean', 'gsc_sampai' => 'date', 'gsc_posisi' => 'float'];
