@@ -1506,8 +1506,15 @@
                                     if (!r.ok) throw new Error('HTTP ' + r.status);
                                     const d = await r.json();
 
-                                    const tinggi = gulir.scrollHeight;
-                                    const posisi = gulir.scrollTop;
+                                    /*
+                                     * Diukur dari letak gelembung acuan, BUKAN
+                                     * selisih scrollHeight: Chrome sudah menahan
+                                     * posisi sendiri (scroll anchoring) sedangkan
+                                     * Safari iOS tidak — koreksi selisih tinggi
+                                     * membuat Chrome terkoreksi dua kali dan
+                                     * layar melompat ribuan piksel.
+                                     */
+                                    const letak = pertama.getBoundingClientRect().top;
                                     if (d.html) {
                                         const wadah = document.createElement('template');
                                         wadah.innerHTML = d.html;
@@ -1516,7 +1523,7 @@
                                         });
                                         pertama.before(wadah.content);
                                     }
-                                    gulir.scrollTop = posisi + (gulir.scrollHeight - tinggi);
+                                    gulir.scrollTop += pertama.getBoundingClientRect().top - letak;
                                     this.adaLama = !!d.ada_lagi;
 
                                     return true;
