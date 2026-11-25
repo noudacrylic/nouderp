@@ -64,6 +64,23 @@ Artisan::command('seo:tarik-gsc', function () {
     }
 })->purpose('Tarik kata pencarian Google Search Console ke bank kata kunci');
 
+// Laporan "tampil tapi tak diklik" + usulan judul/deskripsi AI. Tombol halaman menandai antrean;
+// otomatis tiap Senin pagi (data GSC seminggu terakhir sudah masuk).
+Artisan::command('seo:saran-halaman {--antrean : hanya bila diminta dari halaman}', function () {
+    if ($this->option('antrean') && !\Illuminate\Support\Facades\Cache::pull(\App\Modules\Seo\Services\SaranHalamanService::KUNCI_ANTREAN)) return;
+    if (!app(\App\Modules\Seo\Services\SearchConsoleService::class)->tersambung()) return $this->warn('Search Console belum disambungkan.');
+    try {
+        $h = app(\App\Modules\Seo\Services\SaranHalamanService::class)->susun();
+        \Illuminate\Support\Facades\Cache::forever('seo.saran.terakhir', ['waktu' => now()->toDateTimeString()] + $h);
+        $this->info("{$h['halaman']} halaman tampil-tapi-tak-diklik, {$h['diusulkan']} diberi usulan.");
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Cache::forever('seo.saran.terakhir', ['waktu' => now()->toDateTimeString(), 'galat' => mb_substr($e->getMessage(), 0, 300)]);
+        $this->error($e->getMessage());
+    }
+})->purpose('Laporan halaman tampil tapi tak diklik + usulan judul/deskripsi (Claude)');
+Schedule::command('seo:saran-halaman --antrean')->everyMinute()->name('seo-saran-antrean')->withoutOverlapping(30)->runInBackground();
+Schedule::command('seo:saran-halaman')->weeklyOn(1, '05:00')->name('seo-saran-mingguan')->withoutOverlapping();
+
 Artisan::command('seo:kelompokkan', function () {
     $k = app(\App\Modules\Seo\Services\KelompokKataKunciService::class)->kelompokkan();
     $this->info("{$k['diperiksa']} kata diperiksa, {$k['berubah']} berubah jenis.");

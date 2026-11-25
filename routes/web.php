@@ -742,6 +742,11 @@ Route::prefix('erp/store')->group(function () {
         Route::put   ('/jenis/{jenis}', 'ubahJenis')->whereNumber('jenis')->name('jenis.ubah');
         Route::post  ('/tarik-gsc',     'tarikGsc')->name('tarik-gsc');
         Route::post  ('/kelompokkan',   'kelompokkan')->name('kelompokkan');
+        // Laporan halaman tampil-tapi-tak-diklik + usulan judul/deskripsi.
+        Route::get   ('/halaman',                 'halaman')->name('halaman');
+        Route::post  ('/halaman/susun',           'susunHalaman')->name('halaman.susun');
+        Route::post  ('/halaman/{saran}/pakai',   'pakaiSaran')->whereNumber('saran')->name('halaman.pakai');
+        Route::post  ('/halaman/{saran}/abaikan', 'abaikanSaran')->whereNumber('saran')->name('halaman.abaikan');
         // Sambungan Search Console lewat login Google (OAuth) — kunci JSON diblokir kebijakan org.
         Route::post  ('/google/klien',    'simpanKlien')->name('google.klien');
         Route::get   ('/google/sambung',  'sambung')->name('google.sambung');

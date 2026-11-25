@@ -192,6 +192,25 @@ class SearchConsoleService
 
     // ───────────── API Google ─────────────
 
+    /**
+     * Search Analytics 28 hari (tertinggal 2 hari) dengan dimensi bebas, mis. ['page'] atau
+     * ['query'] + filter halaman.
+     */
+    public function analitik(array $dimensi, ?string $halaman = null, int $batas = 1000): array
+    {
+        $situs = rawurlencode((string) config('services.gsc.situs'));
+        $resp = Http::withToken($this->token())->timeout(60)
+            ->post("https://www.googleapis.com/webmasters/v3/sites/$situs/searchAnalytics/query", array_filter([
+                'startDate' => now()->subDays(29)->toDateString(), 'endDate' => now()->subDays(2)->toDateString(),
+                'dimensions' => $dimensi, 'rowLimit' => $batas,
+                'dimensionFilterGroups' => $halaman ? [['filters' => [['dimension' => 'page', 'operator' => 'equals', 'expression' => $halaman]]]] : null,
+            ]));
+        if (!$resp->successful()) {
+            throw new \RuntimeException('Search Console: ' . ($resp->json('error.message') ?? 'HTTP ' . $resp->status()));
+        }
+        return $resp->json('rows') ?? [];
+    }
+
     private function kueri(string $dari, string $sampai): array
     {
         $situs = rawurlencode((string) config('services.gsc.situs'));

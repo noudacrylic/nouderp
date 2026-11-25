@@ -2,7 +2,10 @@
 
 @section('content')
 <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
-    <h1 class="text-lg font-semibold">Kata Kunci SEO</h1>
+    <div class="flex items-center gap-3">
+        <h1 class="text-lg font-semibold">Kata Kunci SEO</h1>
+        <a href="{{ route('store.kata-kunci.halaman') }}" class="text-sm text-blue-700">📉 Tampil tapi tak diklik →</a>
+    </div>
     <form method="POST" action="{{ route('store.kata-kunci.riset') }}" onsubmit="return confirm('Riset semua jenis aktif dengan AI + pencarian web? Perkiraan biaya ±Rp4.000–5.000 per jenis.')">
         @csrf <input type="hidden" name="jenis" value="semua">
         <button class="border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm hover:bg-gray-50">🔎 Riset semua jenis</button>

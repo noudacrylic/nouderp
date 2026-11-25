@@ -5,7 +5,10 @@ namespace App\Modules\Seo\Controllers;
 use App\Modules\Seo\Models\SeoGoogleAkun;
 use App\Modules\Seo\Models\SeoJenis;
 use App\Modules\Seo\Models\SeoKataKunci;
+use App\Modules\Seo\Models\SeoSaranHalaman;
 use App\Modules\Seo\Services\KelompokKataKunciService;
+use App\Modules\Seo\Services\SaranHalamanService;
+use Illuminate\Support\Facades\Cache;
 use App\Modules\Seo\Services\SearchConsoleService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -115,6 +118,42 @@ class KataKunciController extends Controller
             return back()->with('error', $e->getMessage());
         }
         return back()->with('success', "{$k['diperiksa']} kata diperiksa AI, {$k['berubah']} pindah jenis.");
+    }
+
+    // ───────────── Laporan "tampil tapi tak diklik" ─────────────
+
+    public function halaman()
+    {
+        return view('erp.store.kata-kunci.halaman', [
+            'saran'      => SeoSaranHalaman::orderByRaw("FIELD(status, 'baru', 'dipakai', 'diabaikan')")->orderByDesc('tayang')->get(),
+            'terakhir'   => Cache::get('seo.saran.terakhir'),
+            'antre'      => Cache::has(SaranHalamanService::KUNCI_ANTREAN),
+            'tersambung' => $this->gsc->tersambung(),
+        ]);
+    }
+
+    public function susunHalaman()
+    {
+        if (!$this->gsc->tersambung()) return back()->with('error', 'Search Console belum disambungkan.');
+        Cache::put(SaranHalamanService::KUNCI_ANTREAN, true, 3600);
+        return back()->with('success', 'Laporan sedang disusun (±1–2 menit). Muat ulang halaman ini sebentar lagi.');
+    }
+
+    public function pakaiSaran(Request $request, SeoSaranHalaman $saran, SaranHalamanService $svc)
+    {
+        $d = $request->validate(['judul' => 'required|string|max:255', 'deskripsi' => 'required|string|max:500']);
+        try {
+            $svc->pakai($saran, trim($d['judul']), trim($d['deskripsi']));
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+        return back()->with('success', 'Judul & deskripsi produk diperbarui — tayang di web ±5 menit, terlihat di Google setelah halamannya dirayapi ulang (beberapa hari).');
+    }
+
+    public function abaikanSaran(SeoSaranHalaman $saran)
+    {
+        $saran->update(['status' => $saran->status === 'diabaikan' ? 'baru' : 'diabaikan']);
+        return back();
     }
 
     // ───────────── Sambungan Google (OAuth) ─────────────

@@ -213,6 +213,53 @@ class KataKunciTest extends TestCase
         $this->assertSame('manual', $c->fresh()->jenis_oleh);
     }
 
+    public function test_laporan_tampil_tak_diklik_usulan_lalu_pakai_di_produk(): void
+    {
+        $kunci = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($kunci, $pem);
+        $file = tempnam(sys_get_temp_dir(), 'gsc');
+        file_put_contents($file, json_encode(['client_email' => 'erp@x.iam.gserviceaccount.com', 'private_key' => $pem]));
+        config(['services.gsc.kredensial' => $file]);
+
+        $produk = \DB::table('store_products')->insertGetId(['slug' => 'kotak-saran-akrilik', 'name' => 'Kotak Saran Akrilik', 'status' => 'published',
+            'created_at' => now(), 'updated_at' => now()]);
+        $url = 'https://noudakrilik.com/produk/kotak-saran-akrilik';
+
+        Http::fake(function ($req) use ($url) {
+            if (str_contains($req->url(), 'oauth2')) return Http::response(['access_token' => 't']);
+            if (str_contains($req->url(), 'searchAnalytics')) {
+                $d = $req->data();
+                if ($d['dimensions'] === ['page']) return Http::response(['rows' => [
+                    ['keys' => [$url], 'impressions' => 692, 'clicks' => 0, 'ctr' => 0, 'position' => 3.4],
+                    ['keys' => ['https://noudakrilik.com/'], 'impressions' => 400, 'clicks' => 40, 'ctr' => 0.1, 'position' => 2], // CTR bagus
+                    ['keys' => ['https://noudakrilik.com/kategori/x'], 'impressions' => 900, 'clicks' => 0, 'ctr' => 0, 'position' => 40], // terlalu bawah
+                ]]);
+                return Http::response(['rows' => [['keys' => ['kotak saran'], 'impressions' => 600, 'clicks' => 0, 'position' => 3.1]]]);
+            }
+            if ($req->url() === $url) return Http::response('<html><head><title>Kotak Saran Akrilik | Noud</title><meta name="description" content="Kotak saran lama"></head></html>');
+            return Http::response('', 404);
+        });
+        $this->claude->jawaban = [FakeClaudeClient::teks(json_encode(['usulan' => [[
+            'url' => $url, 'judul' => 'Kotak Saran Akrilik Custom Logo | Noud Acrylic', 'deskripsi' => 'Kotak saran akrilik bening, bisa nama instansi & logo.', 'alasan' => 'kejar "kotak saran"',
+        ]]]))];
+
+        $this->assertSame(['halaman' => 1, 'diusulkan' => 1], app(\App\Modules\Seo\Services\SaranHalamanService::class)->susun());
+        $s = \App\Modules\Seo\Models\SeoSaranHalaman::sole();
+        $this->assertSame(['produk', $produk, 'Kotak Saran Akrilik | Noud', 'Kotak saran lama'], [$s->jenis, $s->store_product_id, $s->judul_sekarang, $s->deskripsi_sekarang]);
+        $this->assertSame('kotak saran', $s->kueri[0]['kata']);
+        $this->assertStringContainsString('gratis ongkir', $this->claude->diterima[0]['system'], 'Aturan konten (larangan) ikut dikirim.');
+
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->actingAs($owner)->get(route('store.kata-kunci.halaman'))->assertOk()->assertSee('Kotak Saran Akrilik Custom Logo')->assertSee('Pakai di produk');
+        $this->post(route('store.kata-kunci.halaman.pakai', $s->id), ['judul' => 'Kotak Saran Akrilik Custom | Noud Acrylic', 'deskripsi' => 'Deskripsi baru.'])->assertSessionHas('success');
+        $this->assertSame(['Kotak Saran Akrilik Custom | Noud Acrylic', 'Deskripsi baru.'], array_values((array) \DB::table('store_products')->where('id', $produk)->first(['meta_title', 'meta_description'])));
+        $this->assertSame('dipakai', $s->fresh()->status);
+
+        $this->post(route('store.kata-kunci.halaman.susun'))->assertSessionHas('success');
+        $this->assertTrue(Cache::has(\App\Modules\Seo\Services\SaranHalamanService::KUNCI_ANTREAN));
+        @unlink($file);
+    }
+
     public function test_halaman_kata_kunci_tambah_ubah_hapus(): void
     {
         $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
