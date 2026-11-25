@@ -31,6 +31,9 @@ class ProductionCalendarController extends Controller
             'lastActive' => $this->service->lastActiveDate(),
             'executors'  => DepartmentExecutor::selectable()->with('department')->orderBy('department_id')->orderBy('name')->get(),
             'reasons'    => MachineDowntime::REASONS,
+            // Sinyal mesin CNC (dibaca server lewat LAN): pita keadaan di bawah baris mesin.
+            'sinyal'     => app(\App\Modules\Production\Services\PantauMesinService::class)->hari($date),
+            'punyaSinyal'=> DepartmentExecutor::whereNotNull('mesin_ip')->pluck('id')->flip(),
         ]);
     }
 

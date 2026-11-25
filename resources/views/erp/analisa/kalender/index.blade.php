@@ -27,6 +27,10 @@
 
     $hours = [];
     for ($t = $winStart->copy(); $t->lt($winEnd); $t->addHour()) $hours[] = $t->copy();
+
+    // Pita sinyal mesin (pengontrol CNC dibaca server lewat LAN).
+    $sinyalWarna = ['potong' => '#10b981', 'diam' => '#f59e0b', 'gerak' => '#60a5fa', 'putus' => '#94a3b8'];
+    $sinyalLabel = ['potong' => 'Memotong', 'diam' => 'Nyala, tidak memotong', 'gerak' => 'Atur posisi (bergerak tanpa memotong)', 'putus' => 'Mati / tak terjangkau'];
 @endphp
 
 @section('content')
@@ -154,6 +158,14 @@
         <span class="inline-flex items-center gap-1.5">
             <span class="w-4 h-3 rounded-sm border-2 border-red-500"></span> Timer belum ditutup
         </span>
+        @if($punyaSinyal->isNotEmpty())
+            <span class="inline-flex items-center gap-1.5 pl-3 border-l border-gray-200 font-semibold text-gray-600">Sinyal mesin:</span>
+            @foreach($sinyalLabel as $k => $l)
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="w-4 h-2 rounded-sm" style="background:{{ $sinyalWarna[$k] }}"></span> {{ $l }}
+                </span>
+            @endforeach
+        @endif
         <span class="ml-auto">Arahkan kursor ke blok untuk melihat rinciannya.</span>
     </div>
 
@@ -195,7 +207,13 @@
                     </div>
 
                     @foreach($dept['rows'] as $row)
-                        @php $shift = $row['shift']; @endphp
+                        @php
+                            $shift = $row['shift'];
+                            $adaSinyal = isset($punyaSinyal[$row['executor_id']]);
+                            $sin = $sinyal[$row['executor_id']] ?? null;
+                            $bawah = $adaSinyal ? 'bottom-6' : 'bottom-2';
+                            $bawahTipis = $adaSinyal ? 'bottom-6' : 'bottom-1';
+                        @endphp
                         <div class="flex border-b border-gray-50 last:border-b-0 hover:bg-blue-50/30">
                             <div class="w-44 shrink-0 px-4 py-2.5">
                                 <div class="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
@@ -219,7 +237,7 @@
                                 @endif
                             </div>
 
-                            <div class="flex-1 relative h-14 bg-gray-50/40">
+                            <div class="flex-1 relative {{ $adaSinyal ? 'h-20' : 'h-14' }} bg-gray-50/40">
                                 {{-- garis jam --}}
                                 @foreach($hours as $h)
                                     <div class="absolute top-0 bottom-0 border-l border-gray-100" style="left:{{ $pos($h) }}%"></div>
@@ -244,14 +262,14 @@
 
                                 {{-- lubang --}}
                                 @foreach($row['gaps'] as $g)
-                                    <div class="absolute top-1 bottom-1 rounded"
+                                    <div class="absolute top-1 {{ $bawahTipis }} rounded"
                                          style="left:{{ $pos($g['start']) }}%;width:{{ max(0.2, $pos($g['end']) - $pos($g['start'])) }}%;background:repeating-linear-gradient(45deg,#fde68a,#fde68a 3px,#fef3c7 3px,#fef3c7 6px)"
                                          title="Lubang {{ $g['start']->format('H:i') }}–{{ $g['end']->format('H:i') }} ({{ $jam($g['seconds']) }})"></div>
                                 @endforeach
 
                                 {{-- henti mesin: lubang yang sudah punya nama --}}
                                 @foreach($row['downtimes'] ?? [] as $h)
-                                    <div class="absolute top-1 bottom-1 rounded border border-slate-300 flex items-center px-1 overflow-hidden"
+                                    <div class="absolute top-1 {{ $bawahTipis }} rounded border border-slate-300 flex items-center px-1 overflow-hidden"
                                          style="left:{{ $pos($h['start']) }}%;width:{{ max(0.3, $pos($h['end']) - $pos($h['start'])) }}%;background:repeating-linear-gradient(45deg,#cbd5e1,#cbd5e1 3px,#e2e8f0 3px,#e2e8f0 6px)"
                                          title="{{ $h['label'] }} {{ $h['start']->format('H:i') }}–{{ $h['end']->format('H:i') }} ({{ $jam($h['seconds']) }}){{ $h['notes'] ? "
 " . $h['notes'] : '' }}">
@@ -279,7 +297,7 @@
                                                  . ($b['into_tomorrow'] ? "\n→ berlanjut ke hari berikutnya" : '');
                                     @endphp
                                     <a href="{{ route('production.orders.show', $b['order_id']) }}"
-                                       class="absolute top-2 bottom-2 rounded-md px-1.5 flex items-center overflow-hidden text-white text-[10px] font-semibold leading-tight hover:brightness-110 transition
+                                       class="absolute top-2 {{ $bawah }} rounded-md px-1.5 flex items-center overflow-hidden text-white text-[10px] font-semibold leading-tight hover:brightness-110 transition
                                               {{ $b['still_open'] ? 'ring-2 ring-red-500' : '' }}
                                               {{ $luar ? 'border-2 border-dashed border-purple-400' : '' }}"
                                        style="left:{{ $left }}%;width:{{ $width }}%;background:{{ $warna($b['order_number']) }}"
@@ -287,6 +305,17 @@
                                         <span class="truncate">{{ $b['product_name'] ?? $b['step_name'] }}</span>
                                     </a>
                                 @endforeach
+
+                                {{-- pita sinyal mesin: kosong putih = tidak ada data --}}
+                                @if($adaSinyal)
+                                    <div class="absolute left-0 right-0 bottom-1 h-4 bg-white border-y border-gray-200" title="Sinyal mesin — kosong = tidak ada data">
+                                        @foreach($sin['segmen'] ?? [] as $sg)
+                                            <div class="absolute top-0 bottom-0"
+                                                 style="left:{{ $pos($sg['start']) }}%;width:{{ max(0.1, $pos($sg['end']) - $pos($sg['start'])) }}%;background:{{ $sinyalWarna[$sg['keadaan']] ?? '#e5e7eb' }}"
+                                                 title="{{ $sinyalLabel[$sg['keadaan']] ?? $sg['keadaan'] }} {{ $sg['start']->format('H:i:s') }}–{{ $sg['end']->format('H:i:s') }} ({{ $sg['seconds'] >= 60 ? $jam($sg['seconds']) : $sg['seconds'] . ' dtk' }})"></div>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </div>
 
                             <div class="w-56 shrink-0 px-3 py-2.5 text-right">
@@ -310,6 +339,17 @@
                                         · <span class="text-red-600 font-semibold" title="Dua langkah tercatat berjalan bersamaan di eksekutor yang sama">tumpang tindih {{ $jam($row['overlap_seconds']) }}</span>
                                     @endif
                                 </div>
+                                @if($adaSinyal)
+                                    <div class="text-[10px] mt-0.5" title="Dari sinyal mesin, sepanjang hari">
+                                        @if($sin)
+                                            <span class="font-semibold" style="color:#059669">potong {{ $jam($sin['detik']['potong']) }}</span>
+                                            · <span class="font-semibold" style="color:#d97706">nyala tak memotong {{ $jam($sin['detik']['diam'] + $sin['detik']['gerak']) }}</span>
+                                            · <span class="text-slate-500">mati {{ $jam($sin['detik']['putus']) }}</span>
+                                        @else
+                                            <span class="text-gray-400">belum ada sinyal</span>
+                                        @endif
+                                    </div>
+                                @endif
                             </div>
                         </div>
                     @endforeach

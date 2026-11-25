@@ -31,6 +31,46 @@ class PantauMesinService
             ->where('is_active', true)->orderBy('name')->get();
     }
 
+    /**
+     * Potongan keadaan satu hari per mesin, dipotong ke hari itu — untuk pita sinyal di Kalender
+     * Produksi. Potongan yang masih terbuka berakhir "sekarang" bila pembacaannya masih segar,
+     * selain itu di pembacaan terakhir (sesudahnya = tanpa data).
+     *
+     * @return array<int, array{segmen: array, detik: array<string,int>}>
+     */
+    public function hari(Carbon $tanggal, ?Carbon $now = null): array
+    {
+        $now ??= now();
+        $awal = $tanggal->copy()->startOfDay();
+        $akhir = $tanggal->copy()->endOfDay()->min($now);
+        if ($akhir->lte($awal)) return [];
+
+        $rows = DB::table('production_mesin_keadaan')->where('mulai_at', '<', $akhir)
+            ->where(fn ($q) => $q->whereNull('sampai_at')->orWhere('sampai_at', '>', $awal))
+            ->orderBy('mulai_at')->orderBy('id')->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $mulai = Carbon::parse($r->mulai_at)->max($awal);
+            if ($r->sampai_at) {
+                $selesai = Carbon::parse($r->sampai_at);
+            } else {
+                $dilihat = Carbon::parse($r->dilihat_at ?? $r->mulai_at);
+                $selesai = $dilihat->diffInSeconds($now, false) <= self::BATAS_SENYAP_DETIK ? $now->copy() : $dilihat;
+            }
+            $selesai = $selesai->min($akhir);
+            $detik = (int) $mulai->diffInSeconds($selesai, false);
+            if ($detik <= 0) continue;
+
+            $e = (int) $r->executor_id;
+            $out[$e] ??= ['segmen' => [], 'detik' => ['potong' => 0, 'diam' => 0, 'gerak' => 0, 'putus' => 0]];
+            $out[$e]['segmen'][] = ['keadaan' => $r->keadaan, 'start' => $mulai, 'end' => $selesai, 'seconds' => $detik, 'kode' => $r->kode];
+            $out[$e]['detik'][$r->keadaan] = ($out[$e]['detik'][$r->keadaan] ?? 0) + $detik;
+        }
+
+        return $out;
+    }
+
     public static function keadaan(?int $status, bool $bergerak): string
     {
         if ($status === null) return 'putus';

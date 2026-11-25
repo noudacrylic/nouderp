@@ -2,7 +2,10 @@
 
 namespace Tests\Feature\Production;
 
+use App\Models\User;
 use App\Modules\Production\Mesin\RuidaKlien;
+use App\Modules\Production\Models\Department;
+use App\Modules\Production\Models\DepartmentExecutor;
 use App\Modules\Production\Services\PantauMesinService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -57,5 +60,32 @@ class PantauMesinTest extends TestCase
         $this->assertSame('2026-11-25 10:00:20', $rows[0]->dilihat_at);
         $this->assertSame('2026-11-25 10:00:23', $rows[1]->sampai_at, 'Selang tanpa data tidak dianggap diam.');
         $this->assertNull($rows[2]->sampai_at);
+    }
+
+    public function test_pita_sinyal_di_kalender_produksi(): void
+    {
+        Carbon::setTestNow('2026-11-25 15:00:00');
+        $cnc = Department::create(['code' => 'CNC', 'name' => 'CNC', 'type' => 'produksi', 'is_active' => true]);
+        $andi = DepartmentExecutor::create(['department_id' => $cnc->id, 'name' => 'Andi', 'is_active' => true]);
+        $m = DepartmentExecutor::create(['department_id' => $cnc->id, 'name' => 'Mesin 9', 'parent_executor_id' => $andi->id,
+            'is_active' => true, 'mesin_ip' => '192.168.1.99', 'mesin_protokol' => 'udp']);
+        DB::table('production_mesin_keadaan')->insert([
+            // dari kemarin → dipotong mulai 00:00
+            ['executor_id' => $m->id, 'keadaan' => 'putus', 'mulai_at' => '2026-11-24 20:00:00', 'sampai_at' => '2026-11-25 08:00:00', 'dilihat_at' => '2026-11-25 07:59:00'],
+            ['executor_id' => $m->id, 'keadaan' => 'potong', 'mulai_at' => '2026-11-25 08:00:00', 'sampai_at' => '2026-11-25 10:00:00', 'dilihat_at' => '2026-11-25 09:59:50'],
+            ['executor_id' => $m->id, 'keadaan' => 'diam', 'mulai_at' => '2026-11-25 10:00:00', 'sampai_at' => null, 'dilihat_at' => '2026-11-25 10:30:00'],
+        ]);
+
+        $h = app(PantauMesinService::class)->hari(Carbon::parse('2026-11-25'))[$m->id];
+        $this->assertSame(['potong' => 7200, 'diam' => 1800, 'gerak' => 0, 'putus' => 8 * 3600], $h['detik'],
+            'Diam berhenti di pembacaan terakhir 10:30 (sinyal basi), sesudahnya tanpa data.');
+
+        $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
+        $this->actingAs($owner)->get(route('analisa.kalender.index', ['date' => '2026-11-25']))
+            ->assertOk()
+            ->assertSee('Sinyal mesin:')
+            ->assertSee('Memotong 08:00:00–10:00:00 (2j)')
+            ->assertSee('potong 2j');
+        Carbon::setTestNow();
     }
 }
