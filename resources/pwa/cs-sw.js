@@ -39,6 +39,22 @@ async function ambilDariSimpanan(req) {
     return res;
 }
 
+async function ambilCss(req, url) {
+    const cache = await caches.open(CACHE);
+    const ada = await cache.match(req);
+    if (ada) return ada;
+
+    const res = await fetch(req);
+    if (res.ok) {
+        await cache.put(req, res.clone());
+        for (const k of await cache.keys()) {
+            const u = new URL(k.url);
+            if (u.pathname === url.pathname && u.search !== url.search) await cache.delete(k);
+        }
+    }
+    return res;
+}
+
 self.addEventListener('install', () => {
     self.skipWaiting();
 });
@@ -56,6 +72,17 @@ self.addEventListener('fetch', (event) => {
     if (req.method !== 'GET') return;
 
     const url = new URL(req.url);
+
+    /*
+     * CSS aplikasi (public/css/cs.css) diambil dari simpanan HP. Alamatnya
+     * membawa ?v=<waktu berkas>, jadi versi baru = alamat baru: salinan lama
+     * tak mungkin tertukar, dan yang lama dibuang begitu versi baru tersimpan.
+     */
+    if (url.origin === self.location.origin && url.pathname === '/css/cs.css') {
+        event.respondWith(ambilCss(req, url));
+        return;
+    }
+
     if ((url.origin === self.location.origin && POLA_LAMPIRAN.test(url.pathname)) || POLA_PDFJS.test(req.url)) {
         event.respondWith(ambilDariSimpanan(req));
         return;

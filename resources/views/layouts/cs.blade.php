@@ -22,7 +22,10 @@
          berdampingan di layar HP yang sama: dua ikon mirip berarti CS membuka
          aplikasi perizinan setiap kali buru-buru membalas pelanggan. --}}
     <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('icons/cs-icon-180.png') }}">
-    <script src="https://cdn.tailwindcss.com"></script>
+    {{-- CSS hasil build (npm run build:cs), BUKAN cdn.tailwindcss.com: CDN Play
+         menyusun CSS di HP tiap halaman dibuka dan tiap daftar/chat disegarkan.
+         ?v= ikut waktu berkas supaya HP tidak memakai salinan lama. --}}
+    <link rel="stylesheet" href="{{ asset('css/cs.css') }}?v={{ @filemtime(public_path('css/cs.css')) }}">
     <style>
         :root { --nav-h: 60px; }
         body {
@@ -166,7 +169,7 @@
         });
     </script>
 
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 
     {{-- Service worker (Add to Home Screen / installable). Scope /cs/ terpisah
          dari PWA Karyawan di /me/ — dua aplikasi, dua service worker, tidak

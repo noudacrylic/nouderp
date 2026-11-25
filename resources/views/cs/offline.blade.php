@@ -6,7 +6,8 @@
     <meta name="theme-color" content="#0f766e">
     <title>Offline — NOUD Chat</title>
     @include('layouts.partials._favicon')
-    <script src="https://cdn.tailwindcss.com"></script>
+    {{-- CSS lokal yang disimpan service worker — CDN justru tak terjangkau saat offline. --}}
+    <link rel="stylesheet" href="{{ asset('css/cs.css') }}?v={{ @filemtime(public_path('css/cs.css')) }}">
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-6 text-center">
     <div class="max-w-sm">
