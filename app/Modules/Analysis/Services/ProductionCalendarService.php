@@ -112,7 +112,8 @@ class ProductionCalendarService
         $holiday          = $this->holidayFor($date);
         $blocksByExecutor = $this->blocksFor($dayStart, $dayEnd, $now);
         $downtimes        = $this->downtimesFor($dayStart, $dayEnd);
-        $departments      = $this->rows($date, $blocksByExecutor, $holiday, $downtimes);
+        $pendings         = $this->pendingsFor($dayStart, $dayEnd, $now);
+        $departments      = $this->rows($date, $blocksByExecutor, $holiday, $downtimes, $pendings);
 
         [$winStart, $winEnd] = $this->window($date, $departments);
 
@@ -307,7 +308,7 @@ class ProductionCalendarService
 
     // ── Baris (eksekutor) ─────────────────────────────────────────────────────────
 
-    protected function rows(Carbon $date, array $blocksByExecutor, ?object $holiday, array $downtimes = []): array
+    protected function rows(Carbon $date, array $blocksByExecutor, ?object $holiday, array $downtimes = [], array $pendings = []): array
     {
         $executors = $this->memoEksekutor ??= DB::table('production_department_executors as e')
             ->join('production_departments as d', 'd.id', '=', 'e.department_id')
@@ -347,6 +348,7 @@ class ProductionCalendarService
                 'absence'        => $this->absenceLabel($absences[$ex->id] ?? null, $shifts[$ex->id]),
                 'blocks'         => $blocksByExecutor[$ex->id] ?? [],
                 'downtimes'      => $downtimes[$ex->id] ?? [],
+                'pendings'       => $pendings[$ex->id] ?? [],
             ];
         }
 
@@ -367,6 +369,7 @@ class ProductionCalendarService
                     'shift'          => $this->deptShift($date, $deptId, $shifts, $depts[$deptId]['rows']),
                     'blocks'         => $blocks->all(),
                     'downtimes'      => [],
+                    'pendings'       => [],
                 ];
             }
         }
@@ -502,6 +505,89 @@ class ProductionCalendarService
         }
 
         return $out;
+    }
+
+    /**
+     * Pending beralasan per eksekutor yang menyentuh hari ini: dari log `paused` ber-alasan
+     * sampai log mulai/lanjut/selesai berikutnya (atau sekarang bila langkah masih Pending).
+     * Ditarik sampai 7 hari ke belakang supaya Pending yang dibiarkan berhari-hari tetap tampil.
+     */
+    protected function pendingsFor(Carbon $dayStart, Carbon $dayEnd, Carbon $now): array
+    {
+        $stepIds = DB::table('production_step_time_logs')
+            ->where('event_type', 'paused')->whereNotNull('alasan')
+            ->whereBetween('occurred_at', [$dayStart->copy()->subDays(7), $dayEnd])
+            ->distinct()->pluck('production_order_step_id');
+        if ($stepIds->isEmpty()) {
+            return [];
+        }
+
+        $logs = DB::table('production_step_time_logs')->whereIn('production_order_step_id', $stepIds)
+            ->orderBy('occurred_at')->orderBy('id')->get()->groupBy('production_order_step_id');
+        $meta = DB::table('production_order_steps as s')
+            ->join('production_orders as o', 'o.id', '=', 's.production_order_id')
+            ->whereIn('s.id', $stepIds)
+            ->select('s.id', 's.status', 's.executor_id', 's.name as step_name', 'o.id as order_id', 'o.order_number')
+            ->get()->keyBy('id');
+        $execByStep = DB::table('production_order_step_executors')->whereIn('step_id', $stepIds)->get()->groupBy('step_id');
+        $supervisorIds = $this->memoPenaung ??= DB::table('production_department_executors')
+            ->whereNotNull('parent_executor_id')->distinct()->pluck('parent_executor_id')
+            ->map(fn ($v) => (int) $v)->all();
+        $label = \App\Modules\Production\Models\ProductionStepTimeLog::ALASAN_PENDING;
+
+        $out = [];
+        foreach ($stepIds as $stepId) {
+            $m = $meta[$stepId] ?? null;
+            if (!$m) {
+                continue;
+            }
+            $executorIds = ($execByStep[$stepId] ?? collect())->pluck('executor_id')->map(fn ($v) => (int) $v)->all();
+            if (empty($executorIds) && $m->executor_id) {
+                $executorIds = [(int) $m->executor_id];
+            }
+            $executorIds = array_values(array_diff($executorIds, $supervisorIds));
+
+            $buka = null;
+            foreach ($logs[$stepId] as $log) {
+                $at = Carbon::parse($log->occurred_at);
+                if ($buka) {
+                    if (!in_array($log->event_type, ['started', 'resumed', 'auto_resumed', 'completed', 'paused'], true)) {
+                        continue; // auto_paused selama Pending: tetap Pending
+                    }
+                    $this->tambahPending($out, $executorIds, $buka, $at, $m, $label, $dayStart, $dayEnd);
+                    $buka = null;
+                }
+                if ($log->event_type === 'paused' && $log->alasan) {
+                    $buka = ['at' => $at, 'alasan' => $log->alasan, 'notes' => $log->notes];
+                }
+            }
+            if ($buka && $m->status === 'paused') {
+                $this->tambahPending($out, $executorIds, $buka, $now, $m, $label, $dayStart, $dayEnd);
+            }
+        }
+
+        return $out;
+    }
+
+    private function tambahPending(array &$out, array $executorIds, array $buka, Carbon $sampai, $m, array $label, Carbon $dayStart, Carbon $dayEnd): void
+    {
+        $start = $buka['at']->copy()->max($dayStart);
+        $end   = $sampai->copy()->min($dayEnd);
+        if ($end->lte($start)) {
+            return;
+        }
+        foreach ($executorIds as $eid) {
+            $out[$eid][] = [
+                'start'        => $start,
+                'end'          => $end,
+                'seconds'      => (int) $start->diffInSeconds($end),
+                'alasan'       => $buka['alasan'],
+                'label'        => $label[$buka['alasan']]['label'] ?? $buka['alasan'],
+                'notes'        => $buka['notes'],
+                'order_id'     => (int) $m->order_id,
+                'order_number' => $m->order_number,
+            ];
+        }
     }
 
     /** Tanggal ini termasuk rentang yang sudah diborong hangatkan()? */
@@ -686,8 +772,22 @@ class ProductionCalendarService
         $hentiIn   = $this->intersect($henti, $work);
         $hentiSec  = array_sum(array_map(fn ($s) => (int) $s[0]->diffInSeconds($s[1]), $hentiIn));
 
+        // Pending beralasan (pelaksana menekan Pause & memilih alasan) juga lubang yang sudah
+        // punya nama. Bagian yang bertumpuk dengan timer lain yang berjalan tetap "terpakai".
+        $pending    = $this->merge(array_map(fn ($p) => [$p['start'], $p['end']], $row['pendings'] ?? []));
+        $pendingIn  = $this->intersect($this->subtract($pending, $merged), $work);
+        $pendingSec = array_sum(array_map(fn ($s) => (int) $s[0]->diffInSeconds($s[1]), $pendingIn));
+        // Yang digambar hanya bagian di jam kerja (Pending yang dibiarkan semalaman tidak
+        // membentang ke malam hari).
+        $pendingTampil = [];
+        foreach ($row['pendings'] ?? [] as $p) {
+            foreach ($this->intersect([[$p['start'], $p['end']]], $work) as [$a, $b]) {
+                $pendingTampil[] = ['start' => $a, 'end' => $b, 'seconds' => (int) $a->diffInSeconds($b)] + $p;
+            }
+        }
+
         $gaps = [];
-        foreach ($this->subtract($work, array_merge($merged, $henti)) as $g) {
+        foreach ($this->subtract($work, array_merge($merged, $henti, $pending)) as $g) {
             $sec = (int) $g[0]->diffInSeconds($g[1]);
             if ($sec >= self::GAP_MIN_SECONDS) {
                 $gaps[] = ['start' => $g[0], 'end' => $g[1], 'seconds' => $sec];
@@ -701,6 +801,8 @@ class ProductionCalendarService
             'outside_seconds'   => $outside,
             'overlap_seconds'   => max(0, $rawSum - $unionSec),
             'downtime_seconds'  => $hentiSec,
+            'pending_seconds'   => $pendingSec,
+            'pendings_tampil'   => $pendingTampil,
             'gap_seconds'       => array_sum(array_column($gaps, 'seconds')),
             'gaps'              => $gaps,
             'shift_seconds'     => $shiftSec,
@@ -720,6 +822,7 @@ class ProductionCalendarService
             'gap_seconds'      => (int) array_sum(array_column($slots, 'gap_seconds')),
             'outside_seconds'  => (int) array_sum(array_column($slots, 'outside_seconds')),
             'downtime_seconds' => (int) array_sum(array_column($slots, 'downtime_seconds')),
+            'pending_seconds'  => (int) array_sum(array_column($slots, 'pending_seconds')),
             'capacity_seconds' => (int) array_sum(array_column($slots, 'shift_seconds')),
         ] + $this->orphanStats($dept['rows']);
     }
@@ -768,13 +871,14 @@ class ProductionCalendarService
 
     protected function grandTotals(array $departments): array
     {
-        $busy = $cap = $gap = $out = $slots = $orphanSec = $orphanSteps = $henti = 0;
+        $busy = $cap = $gap = $out = $slots = $orphanSec = $orphanSteps = $henti = $pending = 0;
         foreach ($departments as $d) {
             $busy        += $d['busy_seconds'];
             $cap         += $d['capacity_seconds'];
             $gap         += $d['gap_seconds'];
             $out         += $d['outside_seconds'];
             $henti       += $d['downtime_seconds'];
+            $pending     += $d['pending_seconds'] ?? 0;
             $slots       += $d['slot_count'];
             $orphanSec   += $d['orphan_seconds'];
             $orphanSteps += $d['orphan_steps'];
@@ -787,6 +891,7 @@ class ProductionCalendarService
             'gap_seconds'      => $gap,
             'outside_seconds'  => $out,
             'downtime_seconds' => $henti,
+            'pending_seconds'  => $pending,
             'orphan_seconds'   => $orphanSec,
             'orphan_steps'     => $orphanSteps,
             'utilization'      => $cap > 0 ? round($busy / $cap * 100, 1) : null,

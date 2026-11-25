@@ -99,6 +99,10 @@
                     <div class="text-lg font-black text-slate-600">{{ $jam($tot['downtime_seconds']) }}</div>
                 </div>
                 <div>
+                    <div class="text-[11px] font-bold text-gray-400 uppercase">Pending</div>
+                    <div class="text-lg font-black text-violet-600">{{ $jam($tot['pending_seconds'] ?? 0) }}</div>
+                </div>
+                <div>
                     <div class="text-[11px] font-bold text-gray-400 uppercase">Di luar jam</div>
                     <div class="text-lg font-black text-purple-600">{{ $jam($tot['outside_seconds']) }}</div>
                 </div>
@@ -153,6 +157,9 @@
             <span class="w-4 h-3 rounded-sm" style="background:repeating-linear-gradient(45deg,#cbd5e1,#cbd5e1 3px,#e2e8f0 3px,#e2e8f0 6px)"></span> Henti mesin
         </span>
         <span class="inline-flex items-center gap-1.5">
+            <span class="w-4 h-3 rounded-sm border border-violet-300" style="background:repeating-linear-gradient(45deg,#ddd6fe,#ddd6fe 3px,#f5f3ff 3px,#f5f3ff 6px)"></span> Pending beralasan
+        </span>
+        <span class="inline-flex items-center gap-1.5">
             <span class="w-4 h-3 rounded-sm border-2 border-dashed border-purple-400"></span> Di luar jam kerja
         </span>
         <span class="inline-flex items-center gap-1.5">
@@ -184,6 +191,9 @@
                     @endif
                     @if($dept['downtime_seconds'] > 0)
                         · henti mesin <strong class="text-slate-600">{{ $jam($dept['downtime_seconds']) }}</strong>
+                    @endif
+                    @if(($dept['pending_seconds'] ?? 0) > 0)
+                        · pending <strong class="text-violet-600">{{ $jam($dept['pending_seconds']) }}</strong>
                     @endif
                     @if($dept['orphan_seconds'] > 0)
                         · <strong class="text-amber-700" title="Tercatat atas nama operator tanpa mesin — tidak masuk kapasitas">tanpa mesin {{ $jam($dept['orphan_seconds']) }}</strong>
@@ -277,6 +287,17 @@
                                     </div>
                                 @endforeach
 
+                                {{-- pending beralasan: pelaksana menekan Pause & memilih alasan --}}
+                                @foreach($row['pendings_tampil'] ?? [] as $p)
+                                    <a href="{{ route('production.orders.show', $p['order_id']) }}"
+                                       class="absolute top-1 {{ $bawahTipis }} rounded border border-violet-300 flex items-center px-1 overflow-hidden hover:brightness-95"
+                                       style="left:{{ $pos($p['start']) }}%;width:{{ max(0.3, $pos($p['end']) - $pos($p['start'])) }}%;background:repeating-linear-gradient(45deg,#ddd6fe,#ddd6fe 3px,#f5f3ff 3px,#f5f3ff 6px)"
+                                       title="Pending: {{ $p['label'] }}&#10;{{ $p['start']->format('H:i') }}–{{ $p['end']->format('H:i') }} ({{ $jam($p['seconds']) }})&#10;{{ $p['order_number'] }}{{ $p['notes'] ? "
+" . $p['notes'] : '' }}">
+                                        <span class="truncate text-[10px] font-semibold text-violet-700">{{ $p['label'] }}</span>
+                                    </a>
+                                @endforeach
+
                                 {{-- blok kerja --}}
                                 @foreach($row['blocks'] as $b)
                                     @php
@@ -331,6 +352,9 @@
                                     lubang {{ $jam($row['gap_seconds']) }}
                                     @if($row['downtime_seconds'] > 0)
                                         · <span class="text-slate-600 font-semibold">henti {{ $jam($row['downtime_seconds']) }}</span>
+                                    @endif
+                                    @if(($row['pending_seconds'] ?? 0) > 0)
+                                        · <span class="text-violet-600 font-semibold">pending {{ $jam($row['pending_seconds']) }}</span>
                                     @endif
                                     @if($row['outside_seconds'] > 0)
                                         · luar jam <span class="text-purple-600 font-semibold">{{ $jam($row['outside_seconds']) }}</span>
