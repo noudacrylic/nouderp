@@ -212,6 +212,46 @@ class GantiPesananTest extends TestCase
         $this->assertEqualsWithDelta(250000, (float) $old->fresh()->paid_amount, 0.01);
     }
 
+    private function opFinal(SalesOrder $so, int $produkId): array
+    {
+        $op = \App\Modules\Production\Models\ProductionOrder::create(['order_number' => 'OP-' . uniqid(),
+            'type' => 'custom', 'sales_order_id' => $so->id, 'warehouse_id' => $this->warehouseId,
+            'planned_cycles' => 1, 'planned_qty' => 1, 'production_date' => now()->toDateString(),
+            'status' => 'finalized', 'created_via' => 'manual']);
+        \App\Modules\Production\Models\ProductionOrderOutput::create(['production_order_id' => $op->id,
+            'product_id' => $produkId, 'qty_planned' => 1, 'qty_produced' => 1, 'output_type' => 'main', 'percentage' => 100]);
+        $batch = \App\Modules\Production\Models\ProductionFinalization::create(['production_order_id' => $op->id,
+            'sequence' => 1, 'is_closing' => true, 'wip_released' => 17700, 'wip_total_snapshot' => 17700]);
+        $layer = new \App\Core\Inventory\StockLayer();
+        $layer->forceFill(['product_id' => $produkId, 'warehouse_id' => $this->warehouseId, 'qty_in' => 1,
+            'qty_remaining' => 1, 'unit_cost' => 17700, 'source_type' => 'production_order', 'source_id' => $op->id,
+            'production_finalization_id' => $batch->id, 'sales_order_id' => $so->id])->save();
+
+        return [$op, $layer];
+    }
+
+    /** SO/2026/11/00027 → 00031: OP 00117 tertinggal di SO void, faktur SO baru macet. */
+    public function test_op_yang_sudah_dikerjakan_ikut_pindah_ke_so_baru(): void
+    {
+        [$old] = $this->paidOrder(500000, 250000);
+        [$op, $layer] = $this->opFinal($old, $this->productId);
+
+        $lain = Product::create(['sku' => 'CS9', 'name' => 'Custom Lain', 'sale_type' => 'ready',
+            'base_unit' => 'pcs', 'base_price' => 1, 'is_active' => true, 'is_sellable' => true])->id;
+        [$opLain] = $this->opFinal($old, $lain); // produknya tak dipesan lagi → tertinggal
+
+        $new = $this->order('SO-BARU', 5, 500000);
+        $res = app(SalesOrderReplacementService::class)->replace($old, $new);
+
+        $this->assertSame([$op->order_number], $res['moved_production']);
+        $this->assertSame([$opLain->order_number], $res['unfinished_production']);
+        $this->assertSame($new->id, (int) $op->fresh()->sales_order_id);
+        $this->assertSame($new->id, (int) $layer->fresh()->sales_order_id);
+        $this->assertSame($old->id, (int) $opLain->fresh()->sales_order_id);
+        $this->assertEqualsWithDelta(1.0, app(\App\Core\Inventory\FifoService::class)
+            ->sisaMilikSo($this->productId, $this->warehouseId, $new->id), 0.0001);
+    }
+
     public function test_so_tanpa_dp_tidak_bisa_diganti(): void
     {
         $so = $this->order('SO-TANPA-DP', 5, 500000);

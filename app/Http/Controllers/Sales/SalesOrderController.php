@@ -587,10 +587,13 @@ class SalesOrderController extends Controller
                 if ($res['to_balance'] > 0) {
                     $msg .= " Kelebihan DP {$fmt($res['to_balance'])} masuk Saldo Pelanggan.";
                 }
+                if (!empty($res['moved_production'])) {
+                    $msg .= ' Order produksi ' . implode(', ', $res['moved_production']) . ' ikut dipindah ke SO baru.';
+                }
                 $redirect = redirect()->route('sales.orders.show', $so->id);
                 if ($res['unfinished_production']) {
                     return $redirect->with('warning', $msg . ' Order produksi ' . implode(', ', $res['unfinished_production'])
-                        . ' (SO lama) sudah dikerjakan sehingga tidak bisa dibatalkan otomatis — bereskan manual.');
+                        . ' masih di SO lama (produknya tidak ada di SO baru / terlibat penggabungan) — bereskan manual.');
                 }
                 return $redirect->with('success', $msg);
             }

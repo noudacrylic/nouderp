@@ -114,7 +114,15 @@ class SalesOrderReplacementService
             $new->paid_amount = round((float) $new->paid_amount + $moved, 2);
             $new->save();
 
-            $unfinished = $this->orders->voidConfirmed($old);
+            $this->orders->voidConfirmed($old);
+
+            // OP yang sudah terlanjur dikerjakan (tak ikut dibatalkan voidConfirmed) ikut
+            // pindah ke SO baru — pelanggannya sama. Dulu tertinggal di SO void: hasil
+            // finalisasinya terikat SO lama sehingga faktur SO baru macet (produk custom
+            // hanya boleh memakai lapisan OP milik SO-nya — SO/2026/11/00031, OP 00117), dan
+            // pemicu preorder di bawah tak melihatnya sehingga bisa membuat OP dobel.
+            // Harus SEBELUM pemicu preorder: idempotensinya menghitung qty OP milik SO baru.
+            [$movedOps, $unfinished] = $this->pindahkanProduksi($old, $new);
 
             // SalesAdvanceObserver hanya bereaksi pada advance BARU; advance yang dipindah
             // tidak memicunya, jadi OP preorder SO baru dibuat manual di sini.
@@ -136,8 +144,59 @@ class SalesOrderReplacementService
                 }
             }
 
-            return ['moved' => $moved, 'to_balance' => $toBalance, 'unfinished_production' => $unfinished];
+            return [
+                'moved'                 => $moved,
+                'to_balance'            => $toBalance,
+                'moved_production'      => $movedOps,
+                'unfinished_production' => $unfinished,
+            ];
         });
+    }
+
+    /**
+     * Pindahkan OP SO lama (sudah void) yang masih hidup ke SO baru lewat Ganti SO, bila
+     * hasilnya ada di SO baru. Yang tak bisa dipindah (produk tak dipesan lagi, terlibat
+     * penggabungan) dikembalikan sebagai daftar untuk dibereskan manual.
+     *
+     * @return array{0: string[], 1: string[]} [nomor OP dipindah, nomor OP tertinggal]
+     */
+    protected function pindahkanProduksi(SalesOrder $old, SalesOrder $new): array
+    {
+        $produkBaru = $new->items()->pluck('product_id')->map(fn ($id) => (int) $id)->all();
+        $ops = \App\Modules\Production\Models\ProductionOrder::with('outputs')
+            ->where('sales_order_id', $old->id)
+            ->whereNotIn('status', ['cancelled', 'merged'])
+            ->orderBy('id')
+            ->get();
+
+        $dipindah = [];
+        $tertinggal = [];
+        foreach ($ops as $op) {
+            $cocok = $op->outputs->contains(fn ($o) => in_array((int) $o->product_id, $produkBaru, true));
+            if (!$cocok) {
+                $tertinggal[] = $op->order_number;
+                continue;
+            }
+            try {
+                app(\App\Modules\Production\Services\ProductionOrderService::class)->gantiSalesOrder(
+                    $op->id,
+                    $new->id,
+                    "Ganti Pesanan {$old->order_number} → {$new->order_number}",
+                    auth()->id(),
+                );
+                $dipindah[] = $op->order_number;
+            } catch (\Throwable $e) {
+                Log::warning('Ganti Pesanan: OP tidak bisa dipindah ke SO baru', [
+                    'production_order_id' => $op->id,
+                    'from'                => $old->id,
+                    'to'                  => $new->id,
+                    'message'             => $e->getMessage(),
+                ]);
+                $tertinggal[] = $op->order_number;
+            }
+        }
+
+        return [$dipindah, $tertinggal];
     }
 
     /** Alokasi DP pembayaran posted yang menempel di SO ini. */
