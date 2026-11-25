@@ -148,6 +148,18 @@ class SaranAiWhatsappTest extends TestCase
         $this->assertSame(0, CrmMessage::where('source', CrmMessage::SOURCE_AI)->count(), 'Bot kurir tidak diberi info admin offline.');
     }
 
+    public function test_chat_berlabel_distributor_tidak_dibalas_ai(): void
+    {
+        $c = $this->chat('siang Pak, hrg tiger naik 5%');
+        $c->forceFill(['queue_state' => CrmConversation::LABEL_DISTRIBUTOR])->save();
+        $this->claude->antrekan($this->usul('Z2', '', 'admin'));
+
+        $this->artisan('crm:saran-ai')->assertSuccessful();
+
+        $this->assertSame(0, CrmSaranAi::where('conversation_id', $c->id)->count(), 'Distributor tidak dibuatkan saran.');
+        $this->assertSame(CrmConversation::LABEL_DISTRIBUTOR, $c->refresh()->queue_state, 'Tidak dioper/diubah labelnya.');
+    }
+
     public function test_wa_mode_otomatis_luar_jam_chat_dipegang_diberi_info_admin_aktif(): void
     {
         $this->travelTo(now()->next('Monday')->setTime(22, 0));

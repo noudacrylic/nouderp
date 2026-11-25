@@ -125,7 +125,9 @@ class SaranAiService
 
         return $shopee->concat($wa)
             ->sortByDesc(fn (CrmConversation $c) => ($c->last_inbound_at ?? $c->last_message_at)?->timestamp)
-            ->filter(fn (CrmConversation $c) => ($m = $this->pesanTerakhir($c))
+            // Chat berlabel Distributor (pemasok) tidak dibalas AI (keputusan owner 25 Nov 2026).
+            ->filter(fn (CrmConversation $c) => $c->queue_state !== CrmConversation::LABEL_DISTRIBUTOR
+                && ($m = $this->pesanTerakhir($c))
                 && !CrmSaranAi::where('untuk_message_id', $m->id)->exists()
                 && !$this->lampiranMasihDiunduh($m))
             ->take($batas)
@@ -137,7 +139,8 @@ class SaranAiService
     {
         $agen  = $this->agenUntuk($c);
         $pesan = $this->pesanTerakhir($c);
-        if (!$agen || !$pesan || CrmSaranAi::where('untuk_message_id', $pesan->id)->exists()) {
+        if (!$agen || !$pesan || $c->queue_state === CrmConversation::LABEL_DISTRIBUTOR
+            || CrmSaranAi::where('untuk_message_id', $pesan->id)->exists()) {
             return null;
         }
 
