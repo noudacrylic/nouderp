@@ -169,7 +169,12 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
         }
 
         $no = ($task->meta ?? [])['order_number'] ?? 'OP';
-        $lanjut = $terakhir ? 'OP menunggu finalisasi' : 'produksi lanjut ke langkah berikutnya';
+        $lanjut = 'produksi lanjut ke langkah berikutnya';
+        if ($terakhir) {
+            // Langkah terakhir → langsung masuk stok, tanpa Konfirmasi Output owner.
+            $gagal = app(ProductionOrderService::class)->finalisasiOtomatis((int) $step?->production_order_id);
+            $lanjut = $gagal === null ? 'OP selesai & hasil masuk stok' : "OP menunggu finalisasi: $gagal";
+        }
 
         // Tempel sendiri → barang sudah berstiker, langsung difoto. Cetak saja → ditempel Assembling,
         // fotonya lewat kartu Foto custom sesudah OP selesai.

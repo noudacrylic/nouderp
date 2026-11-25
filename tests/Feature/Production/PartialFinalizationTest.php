@@ -313,6 +313,58 @@ class PartialFinalizationTest extends TestCase
         $this->assertEqualsWithDelta(0, $this->sisaWip($order), 0.01);
     }
 
+    /** OP/2026/11/00068: QC melepas 71 + 1 dari 72, langkah terakhir ditutup → penutup qty 0. */
+    public function test_penutup_tanpa_qty_saat_semua_hasil_sudah_masuk_stok(): void
+    {
+        $order = $this->makeOrder(wip: 2_800_000, byproductQty: null);
+        $mainId = $this->mainOutput($order)->id;
+        $this->service->finalizePartial($order->id, [['output_id' => $mainId, 'qty_produced' => 40]]);
+        $this->service->finalizePartial($order->id, [['output_id' => $mainId, 'qty_produced' => 24]]);
+        $order->update(['status' => 'completed']);
+        $layers = StockLayer::count();
+
+        $this->service->finalize($order->id, [['output_id' => $mainId, 'qty_produced' => 0]]);
+
+        $order->refresh();
+        $this->assertSame('finalized', $order->status);
+        $this->assertNotNull($order->finalized_at);
+        $this->assertSame($layers, StockLayer::count(), 'Tidak ada stok baru');
+        $this->assertEqualsWithDelta(64, (float) $this->mainOutput($order)->qty_produced, 0.0001);
+        $this->assertEqualsWithDelta(0, $this->sisaWip($order), 0.01);
+    }
+
+    public function test_penutup_tanpa_qty_ditolak_bila_masih_ada_sisa_wip(): void
+    {
+        $order = $this->makeOrder(wip: 2_800_000, byproductQty: null);
+        $mainId = $this->mainOutput($order)->id;
+        $this->service->finalizePartial($order->id, [['output_id' => $mainId, 'qty_produced' => 64]]);
+        $this->addWip($order, 50_000, 'production_material_addition', $this->fakeAdditionId($order));
+        $order->update(['status' => 'completed']);
+
+        try {
+            $this->service->finalize($order->id, [['output_id' => $mainId, 'qty_produced' => 0]]);
+            $this->fail('Harus ditolak');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('sisa biaya WIP', $e->getMessage());
+        }
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_finalisasi_otomatis_memakai_sisa_target(): void
+    {
+        $order = $this->makeOrder(wip: 2_800_000, byproductQty: null);
+        $mainId = $this->mainOutput($order)->id;
+        $this->service->finalizePartial($order->id, [['output_id' => $mainId, 'qty_produced' => 40]]);
+        $order->update(['status' => 'completed']);
+
+        $this->assertNull($this->service->finalisasiOtomatis($order->id));
+
+        $order->refresh();
+        $this->assertSame('finalized', $order->status);
+        $this->assertEqualsWithDelta(64, (float) $this->mainOutput($order)->qty_produced, 0.0001);
+        $this->assertEqualsWithDelta(0, $this->sisaWip($order), 0.01);
+    }
+
     public function test_kelebihan_potong_menurunkan_hpp_setelah_bahan_dicatat(): void
     {
         // Operator memotong 10 lembar padahal rencana 8 → 16 pcs ekstra.

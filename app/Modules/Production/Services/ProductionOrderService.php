@@ -1477,6 +1477,35 @@ class ProductionOrderService
     }
 
     /**
+     * Finalisasi otomatis begitu langkah terakhir ditutup di luar layar Proses Produksi
+     * (mis. langkah Desain dari Meja Kerja) — owner tidak mengonfirmasi output lagi; yang
+     * menutup langkah terakhir dipercaya. Qty penutup = sisa target yang belum masuk stok.
+     *
+     * @return string|null pesan gagal (OP tetap di "Menunggu Konfirmasi Output"), null bila sukses
+     */
+    public function finalisasiOtomatis(int $orderId): ?string
+    {
+        $order = ProductionOrder::with('outputs')->findOrFail($orderId);
+        if ($order->status !== 'completed') {
+            return null;
+        }
+
+        $tallies = $this->releasedTallies($orderId);
+        $outputs = $order->outputs->map(fn ($o) => [
+            'output_id'    => $o->id,
+            'qty_produced' => max(0.0, round((float) $o->qty_planned - (float) ($tallies['qty'][$o->id] ?? 0), 4)),
+        ])->all();
+
+        try {
+            $this->finalize($orderId, $outputs);
+            return null;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Finalisasi otomatis OP gagal',['production_order_id' => $orderId, 'message' => $e->getMessage()]);
+            return $e->getMessage();
+        }
+    }
+
+    /**
      * PENYELESAIAN SEBAGIAN: ambil hasil yang sudah jadi lebih dulu (mis. mengejar batas
      * kirim marketplace) sementara sisanya masih dikerjakan.
      *
@@ -1616,7 +1645,21 @@ class ProductionOrderService
             }
 
             if ($rows === []) {
-                throw new Exception('Qty output harus lebih dari 0.');
+                // Penutup TANPA qty baru: seluruh hasil sudah masuk stok lewat finalisasi
+                // sebagian (mis. QC melepas 71 + 1 dari target 72), lalu langkah terakhir
+                // ditutup → qty penutup = sisa = 0. Dulu ditolak di sini sehingga OP tersangkut
+                // di "Menunggu Konfirmasi Output" (OP/2026/11/00068). Boleh ditutup asal tak ada
+                // sisa biaya WIP yang perlu dibebankan ke unit.
+                $adaBatch = ProductionFinalization::where('production_order_id', $orderId)
+                    ->whereNull('voided_at')->exists();
+                if (!$closing || !$adaBatch) {
+                    throw new Exception('Qty output harus lebih dari 0.');
+                }
+                if ($sisaWip > 1.0) {
+                    throw new Exception('Semua hasil sudah masuk stok, tetapi masih ada sisa biaya WIP Rp'
+                        . number_format($sisaWip, 0, ',', '.')
+                        . ' (mis. dari Penambahan Bahan). Isi qty penutup agar biayanya terbebankan ke unit.');
+                }
             }
 
             // QC Timbang: produk ber-profil QC hanya boleh dilepas sebanyak bungkus yang lulus.
@@ -1624,7 +1667,9 @@ class ProductionOrderService
 
             $tallies = $this->releasedTallies($orderId);
 
-            if ($isPerbaikan) {
+            if ($rows === []) {
+                $costs = [];
+            } elseif ($isPerbaikan) {
                 $this->assertRepairQty($order, $rows, $tallies, $closing);
                 $costs = $this->allocateRepairCost($order, $rows, $totalWip, $sisaWip, $tallies, $closing);
             } else {
