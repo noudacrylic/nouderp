@@ -10,6 +10,8 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('production:auto-manage-sessions')->everyMinute();
+// Sinyal mesin CNC lewat LAN (server satu jaringan dgn mesin): pantau ±55 dtk tiap menit.
+Schedule::command('cnc:pantau')->everyMinute()->name('cnc-pantau')->withoutOverlapping(5)->runInBackground();
 Schedule::command('production:run-auto')->everyThirtyMinutes();
 
 // Periode akuntansi — buat periode bulan berjalan otomatis tiap tanggal 1 jam 00:01

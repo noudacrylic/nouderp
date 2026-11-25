@@ -95,16 +95,43 @@ class JedaMesinTest extends TestCase
         $this->assertSame([30, 'OP-1', ['OP-2']], [$lama['menit'], $lama['sebelum']['op'], array_column($lama['menunggu'], 'op')]);
     }
 
+    public function test_waktu_tanggap_dari_sinyal_mesin(): void
+    {
+        $this->skenario();
+        $baris = fn ($k, $a, $b) => DB::table('production_mesin_keadaan')->insert(['executor_id' => $this->mesin->id, 'keadaan' => $k,
+            'mulai_at' => self::HARI . " $a", 'sampai_at' => $b ? self::HARI . " $b" : null, 'dilihat_at' => self::HARI . ' ' . ($b ?? '16:30:00')]);
+        $baris('potong', '08:00:00', '09:00:00');
+        $baris('diam',   '09:00:00', '09:03:00');   // tanggap 3 mnt
+        $baris('potong', '09:03:00', '09:30:00');
+        $baris('diam',   '09:30:00', '09:30:10');   // kedip 10 dtk → satu pekerjaan
+        $baris('potong', '09:30:10', '11:58:00');
+        $baris('diam',   '11:58:00', '13:02:00');   // melewati istirahat: dihitung 2 + 2 mnt
+        $baris('potong', '13:02:00', '14:00:00');
+        $baris('diam',   '14:00:00', null);         // masih diam
+
+        $s = app(JedaMesinService::class)->bulan($this->andi, Carbon::parse('2026-11-01'))['mesin'][0]['sinyal'];
+        $this->assertSame([2, 180, 240, 210], [$s['n'], $s['median'], $s['tanggap'][0]['detik'], $s['rata']]);
+        $this->assertSame('11:58:00', $s['tanggap'][0]['selesai']->format('H:i:s'));
+        $this->assertSame(['diam', true], [$s['terakhir']['keadaan'], $s['terakhir']['berjalan']]);
+        $this->assertSame(60 + 175 + 58, $s['potong'], 'Memotong di jam kerja: 08–09, 09:03–11:58 (kedip digabung), 13:02–14.');
+    }
+
     public function test_halaman_khusus_owner(): void
     {
         $this->skenario();
+        foreach ([['potong', '08:00:00', '09:00:00'], ['diam', '09:00:00', '09:03:00'], ['potong', '09:03:00', null]] as [$k, $a, $b]) {
+            DB::table('production_mesin_keadaan')->insert(['executor_id' => $this->mesin->id, 'keadaan' => $k,
+                'mulai_at' => self::HARI . " $a", 'sampai_at' => $b ? self::HARI . " $b" : null, 'dilihat_at' => self::HARI . ' ' . ($b ?? '16:59:00')]);
+        }
         $owner = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
 
         $this->actingAs($owner)->get(route('production.waktu-standar.cnc', ['bulan' => '2026-11']))
             ->assertOk()
             ->assertSee('Penilaian Operator CNC')
-            ->assertSee('Mesin A — 2 kali diam saat ada antrean')
-            ->assertSee('OP-3');
+            ->assertSee('Diam antar-OP saat ada antrean — 2 kali')
+            ->assertSee('OP-3')
+            ->assertSee('tengah <b>3 mnt </b>', false)
+            ->assertSee('Memotong</span> sejak 18/11 09:03', false);
 
         $admin = User::factory()->create(['role' => 'admin', 'is_active' => true]);
         $this->actingAs($admin)->get(route('production.waktu-standar.cnc'))->assertForbidden();

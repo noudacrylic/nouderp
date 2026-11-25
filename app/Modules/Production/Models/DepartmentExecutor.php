@@ -11,6 +11,8 @@ class DepartmentExecutor extends Model
     protected $fillable = [
         'department_id', 'karyawan_id', 'parent_executor_id',
         'name', 'role', 'mesin_1', 'mesin_2', 'mesin_3', 'is_active', 'kepala_ganda',
+        // Sinyal mesin CNC lewat LAN — lihat PantauMesinService.
+        'mesin_ip', 'mesin_protokol',
     ];
 
     /** kepala_ganda: mesin CNC double head (Mesin 1) — pasangan products.cnc_kepala_ganda. */

@@ -87,6 +87,7 @@ class JedaMesinService
                 'diam_kosong'  => max(0, $diamKerja - $diamAntrean),
                 'langkah'      => $punya->filter(fn ($s) => $s->selesai && $s->selesai >= $dari->timestamp)->count(),
                 'jeda'         => array_reverse($jeda), // terbaru di atas
+                'sinyal'       => $this->sinyal($m->id, $dari, $sampai, $kerja, self::gabung(array_merge($sibuk, $antrean))),
             ];
         }
 
@@ -96,6 +97,85 @@ class JedaMesinService
             'dari'      => $dari,
             'sampai'    => $sampai,
             'ambang'    => self::AMBANG_MENIT,
+        ];
+    }
+
+    /** Jeda antar-potong lebih pendek dari ini dianggap satu pekerjaan (status sesaat). */
+    public const GABUNG_POTONG_DETIK = 20;
+
+    /**
+     * Dari sinyal mesin (production_mesin_keadaan): jam memotong sebenarnya & WAKTU TANGGAP —
+     * selang dari mesin selesai memotong sampai mulai memotong lagi, dihitung hanya di jam kerja
+     * operator selama ada pekerjaan (langkah berjalan di mesin itu atau antrean CNC).
+     * null bila mesin belum punya data sinyal di periode ini.
+     */
+    private function sinyal(int $mesinId, Carbon $dari, Carbon $sampai, array $kerja, array $adaKerjaan): ?array
+    {
+        $rows = DB::table('production_mesin_keadaan')->where('executor_id', $mesinId)
+            ->where('mulai_at', '<', $sampai)
+            ->where(fn ($q) => $q->whereNull('sampai_at')->orWhere('sampai_at', '>', $dari))
+            ->orderBy('mulai_at')->orderBy('id')->get();
+        $terakhir = DB::table('production_mesin_keadaan')->where('executor_id', $mesinId)
+            ->orderByDesc('mulai_at')->orderByDesc('id')->first();
+        if ($rows->isEmpty()) {
+            return $terakhir ? ['tercatat' => false, 'terakhir' => $this->ringkasBaris($terakhir)] : null;
+        }
+
+        $ts = fn ($v) => Carbon::parse($v)->timestamp;
+        $akhirBaris = fn ($r) => $r->sampai_at ? $ts($r->sampai_at) : min($sampai->timestamp, $ts($r->dilihat_at ?? $r->mulai_at));
+        $batas = [[$dari->timestamp, $sampai->timestamp]];
+
+        $potong = [];
+        foreach ($rows->where('keadaan', 'potong') as $r) {
+            $iv = [$ts($r->mulai_at), $akhirBaris($r)];
+            if ($potong && $iv[0] - $potong[count($potong) - 1][1] < self::GABUNG_POTONG_DETIK) {
+                $potong[count($potong) - 1][1] = max($potong[count($potong) - 1][1], $iv[1]);
+            } else {
+                $potong[] = $iv;
+            }
+        }
+        $potong = self::irisan(self::gabung($potong), $batas);
+        $tercatat = self::irisan(self::gabung($rows->map(fn ($r) => [$ts($r->mulai_at), $akhirBaris($r)])->all()), $batas);
+        $putus = self::gabung($rows->where('keadaan', 'putus')->map(fn ($r) => [$ts($r->mulai_at), $akhirBaris($r)])->all());
+        $hitung = self::irisan($kerja, $adaKerjaan);
+
+        $tanggap = [];
+        for ($i = 0; $i + 1 < count($potong); $i++) {
+            [$a, $b] = [$potong[$i][1], $potong[$i + 1][0]];
+            $detik = self::panjang(self::irisan([[$a, $b]], $hitung));
+            if ($detik <= 0) continue;
+            // Selang tanpa data (server/jaringan mati) tidak ditebak: ditandai, tetap ditampilkan.
+            $tanpaData = self::panjang(self::selisih([[$a, $b]], $tercatat)) + self::panjang(self::irisan([[$a, $b]], $putus));
+            $tanggap[] = [
+                'selesai'    => Carbon::createFromTimestamp($a, config('app.timezone')),
+                'mulai'      => Carbon::createFromTimestamp($b, config('app.timezone')),
+                'detik'      => $detik,
+                'tanpa_data' => $tanpaData > 60,
+            ];
+        }
+        $detik = collect($tanggap)->where('tanpa_data', false)->pluck('detik')->sort()->values();
+
+        return [
+            'tercatat'    => true,
+            'sejak'       => Carbon::createFromTimestamp($tercatat[0][0] ?? $dari->timestamp, config('app.timezone')),
+            'jam_tercatat'=> intdiv(self::panjang(self::irisan($tercatat, $kerja)), 60),
+            'potong'      => intdiv(self::panjang(self::irisan($potong, $kerja)), 60),
+            'n'           => $detik->count(),
+            'median'      => $detik->count() ? (int) $detik[intdiv($detik->count() - 1, 2)] : null,
+            'rata'        => $detik->count() ? (int) round($detik->avg()) : null,
+            'total'       => (int) $detik->sum(),
+            'tanggap'     => array_reverse($tanggap), // terbaru di atas
+            'terakhir'    => $terakhir ? $this->ringkasBaris($terakhir) : null,
+        ];
+    }
+
+    private function ringkasBaris(object $r): array
+    {
+        return [
+            'keadaan' => $r->keadaan,
+            'sejak'   => Carbon::parse($r->mulai_at),
+            'dilihat' => Carbon::parse($r->dilihat_at ?? $r->mulai_at),
+            'berjalan'=> $r->sampai_at === null,
         ];
     }
 
