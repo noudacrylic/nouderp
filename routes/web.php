@@ -290,6 +290,8 @@ Route::prefix('erp')->group(function () {
         Route::post('/{conversation}/titipan-stok', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'tandaiTitipanStok'])->name('inbox.titipan-stok.simpan');
         // Dipanggil berkala oleh thread supaya pesan masuk muncul tanpa muat ulang.
         Route::get('/{conversation}/pesan-baru', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pesanBaru'])->name('inbox.pesan-baru');
+        // Riwayat lebih tua — thread dibuka dengan 60 pesan terbaru saja.
+        Route::get('/{conversation}/pesan-lama', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'pesanLama'])->name('inbox.pesan-lama');
         Route::post('/{conversation}/oper', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'oper'])->name('inbox.oper');
         Route::post('/{conversation}/reset-pin-toko', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'resetPinToko'])->name('inbox.reset-pin-toko');
         Route::post('/{conversation}/antrean', [\App\Modules\CRM\Controllers\CrmInboxController::class, 'antrean'])->name('inbox.antrean');

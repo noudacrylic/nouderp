@@ -389,6 +389,10 @@ class CrmInboxController extends Controller
          * daftar yang sedang dilihat orang. Yang tinggal di sini hanya dua
          * penanda yang ikut dibaca layar.
          */
+        $potongan = $terpilih && ! $modeWa
+            ? $this->potonganPesan($terpilih)
+            : ['pesan' => collect(), 'ada_lagi' => false];
+
         return $this->dataDaftar($request, $terpilih) + [
             'dryRun'     => app(ChatManager::class)->isDryRun(),
             /*
@@ -433,9 +437,8 @@ class CrmInboxController extends Controller
              * pesan berikut lampiran & kutipannya (lihat MUATAN_GELEMBUNG)
              * untuk digambar ke kolom yang tidak ada di layar.
              */
-            'pesan'    => $terpilih && ! $modeWa
-                ? self::pasangPercakapan($terpilih->messages()->with(self::MUATAN_GELEMBUNG)->orderBy('sent_at')->orderBy('id')->get(), $terpilih)
-                : collect(),
+            'pesan'    => $potongan['pesan'],
+            'adaPesanLama' => $potongan['ada_lagi'],
             'snippets' => $this->snippets(),
             /*
              * Template pembuka chat untuk popup "Mulai Chat". Hanya yang sudah
@@ -695,6 +698,82 @@ class CrmInboxController extends Controller
      * pelanggan adalah kalimat berkurung kurawal. Tempatnya di layar Chat Baru,
      * yang memang meminta isian tiap variabel.
      */
+    /**
+     * Thread dibuka dengan pesan TERBARU saja; yang lebih tua dimuat saat
+     * digulir ke atas (pesanLama). Dulu seluruh riwayat digambar sekaligus:
+     * chat 355 pesan = HTML 1,3 MB yang harus diunduh & digambar HP setiap
+     * chat dibuka, padahal yang dibaca hampir selalu belasan pesan terakhir.
+     */
+    public const PESAN_SEKALI_MUAT = 60;
+
+    /**
+     * Potongan pesan berurutan lama → baru.
+     *
+     * $sebelum: hanya pesan yang lebih tua dari ini (urutan sent_at, id —
+     * sama dengan urutan tampil). $sampai: muat mundur sampai pesan ini ikut
+     * termuat (lompat ke kutipan lama), berapa pun jumlahnya.
+     *
+     * @return array{pesan: Collection, ada_lagi: bool}
+     */
+    private function potonganPesan(CrmConversation $percakapan, ?CrmMessage $sebelum = null, ?CrmMessage $sampai = null): array
+    {
+        $lebihTua = function ($q, CrmMessage $acuan, bool $termasuk = false) {
+            $q->where(fn ($w) => $w
+                ->where('sent_at', '<', $acuan->sent_at)
+                ->orWhere(fn ($x) => $x->where('sent_at', $acuan->sent_at)->where('id', $termasuk ? '<=' : '<', $acuan->id)));
+        };
+
+        $q = $percakapan->messages()->with(self::MUATAN_GELEMBUNG);
+
+        if ($sebelum) {
+            $lebihTua($q, $sebelum);
+        }
+
+        if ($sampai) {
+            // Semua pesan dari $sampai ke atas (sampai $sebelum) + sedikit konteks.
+            $q->where(fn ($w) => $w
+                ->where('sent_at', '>', $sampai->sent_at)
+                ->orWhere(fn ($x) => $x->where('sent_at', $sampai->sent_at)->where('id', '>=', $sampai->id)));
+            $pesan = $q->orderByDesc('sent_at')->orderByDesc('id')->get();
+        } else {
+            $pesan = $q->orderByDesc('sent_at')->orderByDesc('id')->limit(self::PESAN_SEKALI_MUAT + 1)->get();
+        }
+
+        if ($sampai) {
+            $pesan   = $pesan->reverse()->values();
+            $adaLagi = $pesan->isNotEmpty()
+                && $percakapan->messages()->where(fn ($q) => $lebihTua($q, $pesan->first()))->exists();
+        } else {
+            $adaLagi = $pesan->count() > self::PESAN_SEKALI_MUAT;
+            $pesan   = $pesan->take(self::PESAN_SEKALI_MUAT)->reverse()->values();
+        }
+
+        return ['pesan' => self::pasangPercakapan($pesan, $percakapan), 'ada_lagi' => $adaLagi];
+    }
+
+    /** Pesan yang lebih tua dari gelembung teratas — dipanggil saat thread digulir ke atas. */
+    public function pesanLama(Request $request, CrmConversation $conversation)
+    {
+        $milikSini = fn ($id) => $id ? $conversation->messages()->whereKey((int) $id)->first() : null;
+
+        $sebelum = $milikSini($request->input('sebelum'));
+        abort_unless($sebelum, 404);
+
+        $sampai = $milikSini($request->input('sampai'));
+        // Kutipan yang ternyata LEBIH BARU dari gelembung teratas sudah tampil; abaikan.
+        if ($sampai && ($sampai->sent_at > $sebelum->sent_at || ($sampai->sent_at == $sebelum->sent_at && $sampai->id >= $sebelum->id))) {
+            $sampai = null;
+        }
+
+        $conversation->loadMissing('customer');
+        $potongan = $this->potonganPesan($conversation, $sebelum, $sampai);
+
+        return response()->json([
+            'html'     => $potongan['pesan']->isEmpty() ? '' : view('erp.crm.inbox._bubbles', ['pesan' => $potongan['pesan']])->render(),
+            'ada_lagi' => $potongan['ada_lagi'],
+        ]);
+    }
+
     /**
      * Pasang percakapan yang SUDAH dimuat ke tiap gelembung & kutipannya.
      *

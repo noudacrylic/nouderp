@@ -83,7 +83,7 @@
      Zonanya hanya dipasang saat jendela 24 jam terbuka — kalau tidak, berkas
      yang dilepas hilang tanpa jejak karena kotak ketiknya memang tidak ada. --}}
 <div class="relative flex flex-col h-full min-h-0 overflow-hidden {{ $gayaWadah }} {{ $terpilih->shopee() ? 'crm-shopee' : '' }}"
-     x-data="threadCrm({{ $terpilih->id }}, {{ (int) ($pesan->max('id') ?? 0) }})"
+     x-data="threadCrm({{ $terpilih->id }}, {{ (int) ($pesan->max('id') ?? 0) }}, {{ ($adaPesanLama ?? false) ? 'true' : 'false' }})"
      {{-- Foto produk dikirim dari panel Produk di rail kanan. Yang MENGIRIM
           tetap thread, bukan panelnya: hanya di sini id pesan terakhir diketahui,
           dan tanpa itu jawabannya membawa ulang seluruh riwayat sebagai
@@ -419,6 +419,14 @@
     {{-- Daftar pesan: SATU-SATUNYA bagian yang menggulir. Kepala tetap di atas,
          kotak ketik tetap di bawah — seperti aplikasi chat. --}}
     <div x-ref="gulir" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2 {{ $terpilih->shopee() ? 'bg-[#eeebe7]' : 'bg-[#efeae2]' }}">
+            {{-- Thread dibuka dengan pesan terbaru saja (PESAN_SEKALI_MUAT);
+                 yang lebih tua menyusul saat digulir mendekati atas. Tombolnya
+                 tetap ada untuk peramban yang jarang memicu gulir. --}}
+            <div x-show="adaLama" x-cloak class="text-center py-1">
+                <button type="button" @click="muatLama()" :disabled="memuatLama"
+                        class="text-xs text-gray-600 bg-white/80 border border-gray-200 rounded-full px-3 py-1 shadow-sm"
+                        x-text="memuatLama ? 'Memuat…' : 'Muat pesan sebelumnya'"></button>
+            </div>
             @include('erp.crm.inbox._bubbles')
             <div x-ref="tambahan"></div>
             @if($pesan->isEmpty())
@@ -954,9 +962,11 @@
                      * permintaan ringan tiap beberapa detik jauh lebih murah
                      * daripada memasang infrastruktur baru yang harus dijaga.
                      */
-                    function threadCrm(percakapanId, terakhirId) {
+                    function threadCrm(percakapanId, terakhirId, adaLamaAwal = false) {
                         return {
                             terakhir: terakhirId,
+                            adaLama: adaLamaAwal,
+                            memuatLama: false,
                             kosong: terakhirId === 0,
                             sibuk: false,
                             galat: '',
@@ -1027,6 +1037,18 @@
                             init() {
                                 this.keBawah(true);
                                 this.mulaiJam();
+
+                                /*
+                                 * Mendekati atas → muat pesan lebih tua. Dipasang
+                                 * SETELAH gulir awal ke bawah: sebelum itu layar
+                                 * masih di posisi 0 dan akan langsung menarik
+                                 * riwayat yang belum tentu ingin dibaca.
+                                 */
+                                setTimeout(() => {
+                                    this.$refs.gulir.addEventListener('scroll', () => {
+                                        if (this.adaLama && !this.memuatLama && this.$refs.gulir.scrollTop < 300) this.muatLama();
+                                    }, { passive: true });
+                                }, 600);
 
                                 // Dibuka lewat tombol ← / → bisa berasal dari cache
                                 // HTTP: tarik SEGERA pesan yang belum tergambar.
@@ -1216,8 +1238,13 @@
                              * Tanpa sorotan, lompatan di tengah thread padat terasa
                              * seperti layar yang bergeser sendiri tanpa sebab.
                              */
-                            lompatKe(mid) {
-                                const el = this.$refs.gulir.querySelector('[data-mid=\'' + mid + '\']');
+                            async lompatKe(mid) {
+                                let el = this.$refs.gulir.querySelector('[data-mid=\'' + mid + '\']');
+
+                                // Kutipan lama yang belum termuat: muat mundur sampai pesan itu ikut.
+                                if (!el && this.adaLama && await this.muatLama(mid)) {
+                                    el = this.$refs.gulir.querySelector('[data-mid=\'' + mid + '\']');
+                                }
 
                                 if (!el) return;
 
@@ -1454,6 +1481,50 @@
                                 this.terakhir = Math.max(Number(this.terakhir) || 0, Number(lastId) || 0);
                                 this.kosong = false;
                                 if (dekatBawah) this.keBawah();
+                            },
+
+                            /*
+                             * Sisipkan pesan lebih tua di atas gelembung teratas
+                             * TANPA menggeser yang sedang dibaca: tinggi yang
+                             * bertambah di atas dikembalikan ke scrollTop.
+                             * sampai = id kutipan yang harus ikut termuat.
+                             */
+                            async muatLama(sampai = null) {
+                                const gulir = this.$refs.gulir;
+                                const pertama = gulir.querySelector('[data-mid]');
+
+                                if (this.memuatLama || !this.adaLama || !pertama) return false;
+
+                                this.memuatLama = true;
+                                try {
+                                    const q = new URLSearchParams({ sebelum: pertama.dataset.mid });
+                                    if (sampai) q.set('sampai', sampai);
+                                    const r = await fetch('/erp/crm/' + percakapanId + '/pesan-lama?' + q, {
+                                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                                        credentials: 'same-origin',
+                                    });
+                                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                                    const d = await r.json();
+
+                                    const tinggi = gulir.scrollHeight;
+                                    const posisi = gulir.scrollTop;
+                                    if (d.html) {
+                                        const wadah = document.createElement('template');
+                                        wadah.innerHTML = d.html;
+                                        wadah.content.querySelectorAll('[data-mid]').forEach((el) => {
+                                            if (gulir.querySelector('[data-mid="' + el.dataset.mid + '"]')) el.remove();
+                                        });
+                                        pertama.before(wadah.content);
+                                    }
+                                    gulir.scrollTop = posisi + (gulir.scrollHeight - tinggi);
+                                    this.adaLama = !!d.ada_lagi;
+
+                                    return true;
+                                } catch (e) {
+                                    return false; // jaringan putus: tombol tetap ada untuk dicoba lagi
+                                } finally {
+                                    this.memuatLama = false;
+                                }
                             },
 
                             diBawah() {
