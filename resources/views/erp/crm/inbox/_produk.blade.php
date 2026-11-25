@@ -38,7 +38,7 @@
         <input type="text" x-model="kata" @input.debounce.400ms="muat()"
                placeholder="Cari nama produk atau SKU…"
                class="flex-1 border rounded px-2 py-1.5 text-sm">
-        <button type="button" @click="muat()" title="Muat ulang"
+        <button type="button" @click="muat(true)" title="Muat ulang (stok Shopee dibaca ulang)"
                 class="shrink-0 border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50">↻</button>
     </div>
 
@@ -382,13 +382,22 @@
     <template x-if="sub === 'custom'">
         <div class="space-y-2">
             <template x-for="p in hasil" :key="p.id">
-                <div class="border border-gray-200 rounded p-2 space-y-2">
+                <div class="border rounded p-2 space-y-2"
+                     :class="p.stok_shopee > 0 ? 'border-amber-400 bg-amber-50/40' : 'border-gray-200'">
 
                     <div class="min-w-0">
                         <div class="text-sm font-medium break-words" x-text="p.nama"></div>
                         <div class="text-[11px] text-gray-500">
                             <span class="font-mono" x-text="p.sku"></span>
                             <span class="ml-1 px-1 rounded bg-violet-100 text-violet-700">custom</span>
+                            <span x-show="p.stok_shopee === 0" x-cloak class="ml-1 px-1 rounded bg-gray-100 text-gray-500">Shopee 0</span>
+                        </div>
+                        {{-- Stok listing Shopee > 0 = link sudah diberikan ke pembeli tapi belum
+                             di-checkout (checkout menurunkan stoknya). Jangan dipakai pembeli lain
+                             dengan harga berbeda sebelum yang ini beres. --}}
+                        <div x-show="p.stok_shopee > 0" x-cloak
+                             class="mt-1 text-[11px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5 inline-block">
+                            🔗 Link terbuka · stok Shopee <span x-text="angka(p.stok_shopee)"></span> — belum di-checkout
                         </div>
                     </div>
 
@@ -612,7 +621,7 @@ function panelProduk(percakapanId) {
             this.muat();
         },
 
-        async muat() {
+        async muat(segar = false) {
             this.sibuk = true;
             this.galat = '';
             try {
@@ -636,7 +645,8 @@ function panelProduk(percakapanId) {
                 } else {
                     const r = await fetch('{{ route('crm.produk.cari') }}?mode=' + this.sub
                                           + '&chat=' + (this.percakapan ?? '')
-                                          + '&q=' + encodeURIComponent(this.kata),
+                                          + '&q=' + encodeURIComponent(this.kata)
+                                          + (segar ? '&segar=1' : ''),
                                           { headers: { 'Accept': 'application/json' } });
                     const j = await r.json();
 
@@ -937,6 +947,7 @@ function panelProduk(percakapanId) {
 
                 this.pesanStok = j.pesan || j.message || (r.ok ? 'Stok terkirim.' : 'Stok gagal dikirim.');
                 this.stokGagal = ! r.ok || ! j.ok;
+                if (! this.stokGagal && p.jalur === 'shopee') p.stok_shopee = Number(this.stokBaru || 0);
             } catch (e) {
                 this.pesanStok = 'Jaringan bermasalah — stok belum dikirim.';
                 this.stokGagal = true;

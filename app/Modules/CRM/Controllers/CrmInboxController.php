@@ -1305,7 +1305,7 @@ class CrmInboxController extends Controller
          * cepat berbeda, dan bedanya baru ketahuan dari pembeli.
          */
         return response()->json($mode === 'custom'
-            ? $pencarian->custom($cari, $chatId)
+            ? $pencarian->custom($cari, $chatId, segarkanShopee: true, paksa: $request->boolean('segar'))
             : $pencarian->web($cari, $chatId));
     }
 

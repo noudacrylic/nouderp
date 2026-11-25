@@ -565,6 +565,35 @@ class RailProdukTest extends TestCase
         $this->assertSame(76, \App\Modules\Marketplace\Shopee\Models\ShopeeItem::first()->stok);
     }
 
+    /** Stok listing Shopee > 0 = link terbuka (belum di-checkout) — dibaca ulang dari Shopee. */
+    public function test_stok_shopee_custom_ditandai_dan_dibaca_ulang(): void
+    {
+        $cs3 = $this->sku('CS3', 'Produk Custom 3', ['sale_type' => 'preorder', 'made_to_order' => true, 'unit' => 'pcs']);
+        $this->shopeeCustom($cs3); // DB: stok 1, Shopee: stok 1
+        \App\Modules\Marketplace\Shopee\Models\ShopeeItem::query()->update(['stok' => 0]); // data basi
+
+        $cari = fn (array $q = []) => $this->actingAs($this->admin())
+            ->getJson(route('crm.produk.cari', ['mode' => 'custom', 'q' => 'CS3'] + $q))->assertOk();
+
+        $cari()->assertJsonPath('produk.0.stok_shopee', 1);
+
+        // Pembeli checkout → stok Shopee 0. Dalam semenit tanpa ↻ masih angka tersimpan.
+        \App\Modules\Marketplace\Shopee\Models\ShopeeItem::query()->update(['stok' => 1]);
+        $this->actingAs($this->admin())->postJson(route('crm.produk.stok-shopee', $cs3), ['stok' => 0])->assertOk();
+        \App\Modules\Marketplace\Shopee\Models\ShopeeItem::query()->update(['stok' => 1]);
+        $cari()->assertJsonPath('produk.0.stok_shopee', 1);
+        $cari(['segar' => 1])->assertJsonPath('produk.0.stok_shopee', 0);
+    }
+
+    public function test_stok_shopee_kosong_bila_tak_terpeta(): void
+    {
+        $this->sku('CS4', 'Produk Custom 4', ['sale_type' => 'preorder', 'made_to_order' => true]);
+
+        $this->actingAs($this->admin())
+            ->getJson(route('crm.produk.cari', ['mode' => 'custom', 'q' => 'CS4']))
+            ->assertOk()->assertJsonPath('produk.0.stok_shopee', null);
+    }
+
     /** Produk yang stoknya dipegang Jubelio tak boleh ditulis langsung ke Shopee. */
     public function test_stok_shopee_ditolak_untuk_produk_yang_disinkron_jubelio(): void
     {

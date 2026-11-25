@@ -104,7 +104,7 @@ class PencarianProdukService
      *
      * @return array{produk: array<int, array<string, mixed>>}
      */
-    public function custom(string $cari, int $chatId = 0, int $batas = 15): array
+    public function custom(string $cari, int $chatId = 0, int $batas = 15, bool $segarkanShopee = false, bool $paksa = false): array
     {
         $produk = Product::query()
             ->where('is_active', 1)
@@ -121,10 +121,14 @@ class PencarianProdukService
         $stok     = $this->stok->untuk($produk->pluck('id'));
         $diskon   = $this->diskonItem($produk);
         $ditandai = $this->titipanAktif($chatId, $produk->pluck('id'));
+        $shopee   = $this->stokShopee($produk, $segarkanShopee, $paksa);
 
         return [
             'produk' => $produk->map(fn ($p) => $this->barisVarian($p, $stok, $diskon, $ditandai, [
                 'berat'  => (int) ($p->weight_gram ?? 0),
+                // Stok listing Shopee > 0 = link sudah diberikan ke pembeli tapi belum
+                // di-checkout (checkout menurunkan stoknya). null = tak terpeta / belum terbaca.
+                'stok_shopee' => $shopee[$p->id] ?? null,
                 // Ke mana harga/berat/stok dikirim: produk tak disinkron Jubelio
                 // (custom CS*, hanya dijual di Shopee) langsung ke Shopee.
                 'jalur'  => $p->sync_to_jubelio ? 'jubelio' : 'shopee',
@@ -135,6 +139,45 @@ class PencarianProdukService
                 ])->values(),
             ]))->values(),
         ];
+    }
+
+    /**
+     * Stok listing Shopee per produk custom (jalur Shopee langsung, tanpa Jubelio).
+     * $segarkan: baca ulang dari Shopee — paling sering sekali per menit kecuali $paksa
+     * (tombol ↻), supaya membuka tab Custom berulang kali tak membanjiri API Shopee.
+     *
+     * @return array<int, int|null> product_id => total stok semua varian terpeta
+     */
+    private function stokShopee(\Illuminate\Support\Collection $produk, bool $segarkan, bool $paksa): array
+    {
+        $ids = $produk->filter(fn ($p) => ! $p->sync_to_jubelio)->pluck('id');
+        $shop = $ids->isNotEmpty() ? \App\Modules\Marketplace\Shopee\Models\ShopeeShop::aktif() : null;
+        if (! $shop) return [];
+
+        $baca = fn () => \App\Modules\Marketplace\Shopee\Models\ShopeeItem::where('env', $shop->env)
+            ->where('shop_id', $shop->shop_id)->where('status', 'NORMAL')
+            ->whereIn('product_id', $ids)->get();
+        $baris = $baca();
+
+        $kunci = 'crm:stok-shopee-custom';
+        $giliran = fn () => $paksa
+            ? (\Illuminate\Support\Facades\Cache::put($kunci, 1, 60) || true)
+            : \Illuminate\Support\Facades\Cache::add($kunci, 1, 60);
+        if ($segarkan && $baris->isNotEmpty() && $giliran()) {
+            try {
+                foreach ($baris->pluck('item_id')->unique()->chunk(50) as $potong) {
+                    app(\App\Modules\Marketplace\Shopee\Services\ShopeeHargaService::class)
+                        ->segarkan($shop, $potong->map(fn ($i) => (int) $i)->values()->all());
+                }
+                $baris = $baca();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Stok Shopee custom gagal disegarkan', ['message' => $e->getMessage()]);
+            }
+        }
+
+        return $baris->groupBy('product_id')->map(fn ($b) => $b->every(fn ($r) => $r->stok === null)
+            ? null
+            : (int) $b->sum(fn ($r) => (int) $r->stok))->all();
     }
 
     /**
