@@ -585,6 +585,30 @@ class RailProdukTest extends TestCase
         $cari(['segar' => 1])->assertJsonPath('produk.0.stok_shopee', 0);
     }
 
+    /** Umur link: dicatat saat stok 0 → >0, direset saat stok dikirim lagi, hilang saat 0. */
+    public function test_umur_link_terbuka(): void
+    {
+        $cs1 = $this->sku('CS1', 'Custom + Print 1', ['sale_type' => 'preorder', 'made_to_order' => true, 'unit' => 'pcs']);
+        $this->shopeeCustom($cs1);
+        $item = \App\Modules\Marketplace\Shopee\Models\ShopeeItem::first();
+        $this->assertNotNull($item->stok_terbuka_sejak, 'Dibuat dengan stok 1 → tercatat terbuka');
+
+        $item->update(['stok_terbuka_sejak' => now()->subDays(4)]);
+        $item->update(['stok' => 1]); // tarikan ulang dengan stok sama: umur tak berubah
+        $cari = fn () => $this->actingAs($this->admin())
+            ->getJson(route('crm.produk.cari', ['mode' => 'custom', 'q' => 'CS1', 'segar' => 1]))->assertOk();
+        $cari()->assertJsonPath('produk.0.terbuka_hari', 4)->assertJsonPath('produk.0.terbuka_lama', 3);
+
+        // Kirim stok untuk pembeli baru → umur mulai dari nol.
+        $this->actingAs($this->admin())->postJson(route('crm.produk.stok-shopee', $cs1), ['stok' => 2])->assertOk();
+        $cari()->assertJsonPath('produk.0.terbuka_hari', 0);
+
+        // Pembeli checkout sampai habis → tak lagi terbuka.
+        $this->actingAs($this->admin())->postJson(route('crm.produk.stok-shopee', $cs1), ['stok' => 0])->assertOk();
+        $this->assertNull($item->fresh()->stok_terbuka_sejak);
+        $cari()->assertJsonPath('produk.0.terbuka_hari', null);
+    }
+
     public function test_stok_shopee_kosong_bila_tak_terpeta(): void
     {
         $this->sku('CS4', 'Produk Custom 4', ['sale_type' => 'preorder', 'made_to_order' => true]);

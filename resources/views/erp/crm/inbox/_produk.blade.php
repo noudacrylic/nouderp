@@ -396,8 +396,13 @@
                              di-checkout (checkout menurunkan stoknya). Jangan dipakai pembeli lain
                              dengan harga berbeda sebelum yang ini beres. --}}
                         <div x-show="p.stok_shopee > 0" x-cloak
-                             class="mt-1 text-[11px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5 inline-block">
-                            🔗 Link terbuka · stok Shopee <span x-text="angka(p.stok_shopee)"></span> — belum di-checkout
+                             class="mt-1 text-[11px] font-semibold rounded px-1.5 py-0.5 inline-block border"
+                             :class="lamaTerbuka(p) ? 'text-red-800 bg-red-100 border-red-300' : 'text-amber-800 bg-amber-100 border-amber-300'"
+                             :title="p.terbuka_sejak ? 'Terbuka sejak ' + new Date(p.terbuka_sejak).toLocaleString('id-ID') : ''">
+                            🔗 Link terbuka <span x-text="umurLink(p)"></span> · stok Shopee <span x-text="angka(p.stok_shopee)"></span> — belum di-checkout
+                            <template x-if="lamaTerbuka(p)">
+                                <span class="block font-normal">Sudah terlalu lama — boleh dipakai pembeli lain.</span>
+                            </template>
                         </div>
                     </div>
 
@@ -619,6 +624,15 @@ function panelProduk(percakapanId) {
             this.kata = '';
             this.ubahPasar = this.ubahTautan = this.ubahHarga = null;
             this.muat();
+        },
+
+        umurLink(p) {
+            if (p.terbuka_hari === null || p.terbuka_hari === undefined) return '';
+            return p.terbuka_hari === 0 ? 'hari ini' : p.terbuka_hari + ' hari';
+        },
+        lamaTerbuka(p) {
+            return p.stok_shopee > 0 && p.terbuka_hari !== null && p.terbuka_hari !== undefined
+                && p.terbuka_hari >= (p.terbuka_lama || 3);
         },
 
         async muat(segar = false) {
@@ -947,7 +961,12 @@ function panelProduk(percakapanId) {
 
                 this.pesanStok = j.pesan || j.message || (r.ok ? 'Stok terkirim.' : 'Stok gagal dikirim.');
                 this.stokGagal = ! r.ok || ! j.ok;
-                if (! this.stokGagal && p.jalur === 'shopee') p.stok_shopee = Number(this.stokBaru || 0);
+                if (! this.stokGagal && p.jalur === 'shopee') {
+                    // Kirim stok > 0 = link dibuka untuk pembeli baru → umurnya mulai hari ini.
+                    p.stok_shopee = Number(this.stokBaru || 0);
+                    p.terbuka_sejak = p.stok_shopee > 0 ? new Date().toISOString() : null;
+                    p.terbuka_hari  = p.stok_shopee > 0 ? 0 : null;
+                }
             } catch (e) {
                 this.pesanStok = 'Jaringan bermasalah — stok belum dikirim.';
                 this.stokGagal = true;

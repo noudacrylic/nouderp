@@ -102,9 +102,10 @@ class ShopeeHargaService
                 }
             }
             foreach ($harga as $modelId => $p) {
+                // Per model (bukan mass update): hook saving mencatat stok_terbuka_sejak.
                 ShopeeItem::where('env', $shop->env)->where('shop_id', $shop->shop_id)
                     ->where('item_id', $itemId)->where('model_id', $modelId)
-                    ->update([
+                    ->get()->each->update([
                         'harga'        => $p['current_price'] ?? null,
                         'harga_asli'   => $p['original_price'] ?? null,
                         'stok'         => $stok[$modelId] ?? null,

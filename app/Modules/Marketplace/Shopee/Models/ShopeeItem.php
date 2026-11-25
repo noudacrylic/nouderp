@@ -17,7 +17,7 @@ class ShopeeItem extends Model
 
     protected $fillable = [
         'env', 'shop_id', 'item_id', 'model_id', 'item_sku', 'model_sku', 'nama', 'nama_model',
-        'harga', 'harga_asli', 'stok', 'berat_kg', 'status', 'product_id', 'peta_sumber', 'disinkron_at',
+        'harga', 'harga_asli', 'stok', 'stok_terbuka_sejak', 'berat_kg', 'status', 'product_id', 'peta_sumber', 'disinkron_at',
     ];
 
     protected $casts = [
@@ -29,7 +29,24 @@ class ShopeeItem extends Model
         'stok'         => 'integer',
         'berat_kg'     => 'decimal:3',
         'disinkron_at' => 'datetime',
+        'stok_terbuka_sejak' => 'datetime',
     ];
+
+    /**
+     * stok_terbuka_sejak mengikuti stok: tercatat saat stok berubah dari kosong menjadi
+     * > 0, dihapus saat kembali 0. Semua penulis stok (tarik katalog, segarkan, kirim
+     * stok) lewat save() model supaya aturan ini tak terlewat.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $i) {
+            if ((int) $i->stok > 0) {
+                $i->stok_terbuka_sejak ??= now();
+            } else {
+                $i->stok_terbuka_sejak = null;
+            }
+        });
+    }
 
     public function product(): BelongsTo
     {

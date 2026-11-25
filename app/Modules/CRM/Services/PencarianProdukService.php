@@ -22,6 +22,9 @@ use App\Modules\Sales\Services\PromotionService;
  */
 class PencarianProdukService
 {
+    /** Link custom Shopee terbuka selama ini (hari) dianggap terlalu lama — boleh dialihkan. */
+    public const UMUR_LINK_LAMA_HARI = 3;
+
     public function __construct(
         private StokTersediaService $stok,
         private PromotionService $promosi,
@@ -128,7 +131,14 @@ class PencarianProdukService
                 'berat'  => (int) ($p->weight_gram ?? 0),
                 // Stok listing Shopee > 0 = link sudah diberikan ke pembeli tapi belum
                 // di-checkout (checkout menurunkan stoknya). null = tak terpeta / belum terbaca.
-                'stok_shopee' => $shopee[$p->id] ?? null,
+                'stok_shopee' => $shopee[$p->id]['stok'] ?? null,
+                // Umur link terbuka: link yang menggantung terlalu lama boleh dialihkan ke
+                // pembeli lain (UMUR_LINK_LAMA_HARI).
+                'terbuka_sejak' => $shopee[$p->id]['sejak'] ?? null,
+                'terbuka_hari'  => isset($shopee[$p->id]['sejak'])
+                    ? (int) \Illuminate\Support\Carbon::parse($shopee[$p->id]['sejak'])->startOfDay()->diffInDays(now()->startOfDay())
+                    : null,
+                'terbuka_lama'  => self::UMUR_LINK_LAMA_HARI,
                 // Ke mana harga/berat/stok dikirim: produk tak disinkron Jubelio
                 // (custom CS*, hanya dijual di Shopee) langsung ke Shopee.
                 'jalur'  => $p->sync_to_jubelio ? 'jubelio' : 'shopee',
@@ -146,7 +156,8 @@ class PencarianProdukService
      * $segarkan: baca ulang dari Shopee — paling sering sekali per menit kecuali $paksa
      * (tombol ↻), supaya membuka tab Custom berulang kali tak membanjiri API Shopee.
      *
-     * @return array<int, int|null> product_id => total stok semua varian terpeta
+     * @return array<int, array{stok: int|null, sejak: string|null}> per product_id: total stok
+     *         semua varian terpeta & sejak kapan stoknya terbuka (varian terlama)
      */
     private function stokShopee(\Illuminate\Support\Collection $produk, bool $segarkan, bool $paksa): array
     {
@@ -175,9 +186,11 @@ class PencarianProdukService
             }
         }
 
-        return $baris->groupBy('product_id')->map(fn ($b) => $b->every(fn ($r) => $r->stok === null)
-            ? null
-            : (int) $b->sum(fn ($r) => (int) $r->stok))->all();
+        return $baris->groupBy('product_id')->map(fn ($b) => [
+            'stok'  => $b->every(fn ($r) => $r->stok === null) ? null : (int) $b->sum(fn ($r) => (int) $r->stok),
+            'sejak' => $b->filter(fn ($r) => $r->stok > 0 && $r->stok_terbuka_sejak)
+                ->min('stok_terbuka_sejak')?->toIso8601String(),
+        ])->all();
     }
 
     /**

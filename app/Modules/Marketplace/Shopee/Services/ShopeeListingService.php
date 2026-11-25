@@ -44,6 +44,13 @@ class ShopeeListingService
         $this->harga->segarkan($shop, $varian->pluck('item_id')->unique()->values()->all());
         $beda = ShopeeItem::terpetaKe($shop, $product)->filter(fn ($v) => (int) $v->stok !== $stok);
 
+        // Stok dikirim dengan sengaja = link dibuka (lagi) untuk pembeli baru → umurnya mulai
+        // dari sekarang, walau stok lama belum sempat habis.
+        if ($stok > 0 && !$gagal) {
+            ShopeeItem::terpetaKe($shop, $product)->where('stok', '>', 0)
+                ->each(fn ($v) => $v->update(['stok_terbuka_sejak' => now()]));
+        }
+
         if (!$gagal && $beda->isEmpty()) {
             return ['ok' => true, 'pesan' => "Stok Shopee kini {$stok} — dicek balik langsung ke Shopee."];
         }
