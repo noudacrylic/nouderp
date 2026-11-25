@@ -638,6 +638,31 @@ class BuatSoDariChatTest extends TestCase
         $this->assertStringContainsString($d['url'], $d['teks']);
     }
 
+    /** Lunas: tetap ada tautan — sebagai halaman status/lacak, bukan tagihan baru. */
+    public function test_rincian_pesanan_lunas_tetap_membawa_tautan_status(): void
+    {
+        $percakapan = $this->percakapan();
+        $this->actingAs($this->admin())
+            ->postJson(route('crm.inbox.buat-so', $percakapan), $this->muatan())->assertOk();
+        $so = SalesOrder::first();
+        $rincian = fn () => $this->actingAs($this->admin())
+            ->postJson(route('crm.inbox.pesanan.rincian', [$percakapan, $so]))->assertOk()->json();
+
+        // Belum pernah diberi link bayar → halaman lacak pesanan.
+        $so->forceFill(['paid_amount' => $so->grand_total, 'delivery_method' => 'ambil_toko'])->save();
+        $d = $rincian();
+        $this->assertStringContainsString('sudah lunas', $d['teks']);
+        $this->assertNotNull($d['url']);
+        $this->assertStringContainsString('/pesanan/' . $so->fresh()->public_token, $d['url']);
+        $this->assertStringContainsString($d['url'], $d['teks']);
+        $this->assertSame(0, \App\Models\MidtransTransaction::count(), 'Tak boleh membuat tautan bayar baru');
+
+        // Pernah diberi link bayar → link yang sama (kini halaman status).
+        $trx = app(\App\Modules\Payment\Services\PaymentLinkService::class)->getOrCreateForSalesOrder($so, null, null);
+        $trx->forceFill(['status' => 'settlement'])->save();
+        $this->assertStringContainsString('/pay/' . $trx->link_token, $rincian()['url']);
+    }
+
     /**
      * Pesanan milik pelanggan LAIN tidak boleh bocor lewat chat ini.
      *

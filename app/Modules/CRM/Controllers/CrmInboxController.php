@@ -2144,11 +2144,14 @@ class CrmInboxController extends Controller
             ->all();
     }
 
-    /** Pesanan WA/web yang dikirim (kurir/instant) — yang punya halaman lacak berguna. */
+    /**
+     * Pesanan WA/web yang punya halaman lacak. Ambil di toko ikut (25 Nov 2026): halamannya
+     * tetap berguna untuk memantau progres produksi & mengunduh nota, walau tanpa resi.
+     */
     private function bisaDilacak(SalesOrder $so): bool
     {
         return $so->status !== 'draft'
-            && $so->delivery_method !== 'ambil_toko'
+            && ! $so->dibatalkan()
             && ! $so->customer?->is_marketplace;
     }
 

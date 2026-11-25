@@ -117,15 +117,24 @@ class PesananChatService
         $sisa = (int) round($order->sisaTagihan());
 
         /*
-         * Tautan bayar hanya dibuat kalau memang masih ada yang harus dibayar.
-         * Mengirim tautan untuk pesanan lunas membuat pelanggan mengira ada
-         * tagihan kedua — dan itu jenis kebingungan yang berujung telepon.
+         * Pesanan lunas: tautan BAYAR baru tidak dibuat (pelanggan bisa mengira ada
+         * tagihan kedua), tapi tautannya tetap disertakan sebagai halaman STATUS —
+         * pembeli memantau progres & mengunduh notanya di sana. Tautan bayar lama
+         * dipakai lagi (halaman /pay berubah jadi halaman status begitu lunas);
+         * belum pernah ada → halaman lacak pesanan.
          */
         if ($sisa <= 0) {
             $baris[] = '';
             $baris[] = 'Pesanan ini sudah lunas. Terima kasih!';
 
-            return ['teks' => implode("\n", $baris), 'url' => null];
+            $url = $this->tautanStatus($order);
+            if ($url) {
+                $baris[] = '';
+                $baris[] = 'Progres pesanan bisa dipantau, dan nota pesanan (PDF) bisa diunduh, lewat tautan berikut:';
+                $baris[] = $url;
+            }
+
+            return ['teks' => implode("\n", $baris), 'url' => $url];
         }
 
         $trx = $this->links->getOrCreateForSalesOrder($order, $userId, $order->minDpAmount());
@@ -134,6 +143,29 @@ class PesananChatService
             'teks' => $this->links->waTextSo($trx, $order->customer?->name ?? 'Kak', $order->order_number, $sisa, $baris),
             'url'  => $this->links->publicUrl($trx),
         ];
+    }
+
+    /** Halaman status pesanan lunas: tautan bayar lama bila ada, kalau tidak halaman lacak. */
+    private function tautanStatus(SalesOrder $order): ?string
+    {
+        $order->loadMissing('customer');
+        if ($order->customer?->is_marketplace || $order->dibatalkan()) {
+            return null;
+        }
+
+        $trx = \App\Models\MidtransTransaction::where('sales_order_id', $order->id)
+            ->whereNull('sales_invoice_id')
+            ->where('source', 'link')
+            ->whereNotNull('link_token')
+            ->latest('id')
+            ->first();
+        if ($trx) {
+            return $this->links->publicUrl($trx);
+        }
+
+        $order->ensurePublicToken();
+
+        return $order->publicTrackUrl();
     }
 
     /**
