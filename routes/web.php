@@ -141,6 +141,8 @@ Route::prefix('erp')->group(function () {
     Route::prefix('intercom')->name('intercom.')->middleware('auth')->group(function () {
         Route::get('/', [\App\Http\Controllers\IntercomController::class, 'index'])->name('index');
         Route::post('/log', [\App\Http\Controllers\IntercomController::class, 'catat'])->name('log');
+        // Alarm "mesin CNC selesai memotong" untuk perangkat stasiun CNC.
+        Route::get('/mesin-cnc', \App\Modules\Production\Controllers\AlarmMesinController::class)->name('mesin-cnc');
     });
 
     // -- CRM: inbox percakapan, triase & notifikasi pesanan --

@@ -71,6 +71,44 @@ class PantauMesinService
         return $out;
     }
 
+    /** Selesai memotong lebih lama dari ini tidak dialarmkan lagi (mis. mesin dibiarkan sejak kemarin). */
+    public const ALARM_MAKS_MENIT = 180;
+
+    /**
+     * Mesin yang SELESAI MEMOTONG dan belum disentuh operator — untuk alarm di perangkat CNC
+     * (permintaan owner 28 Nov 2026: Mesin 1 paling jauh dari operator, jeda sering 17–19 mnt).
+     * Syarat: pembacaan masih segar, keadaan kini diam, potongan sebelumnya memotong, dan belum
+     * ada "gerak" sejak selesai (kepala digerakkan = operator sudah di mesin).
+     *
+     * @return array<int, array{id: int, nama: string, selesai: string, detik: int}>
+     */
+    public function menungguDiambil(?Carbon $now = null): array
+    {
+        $now ??= now();
+        $out = [];
+        foreach ($this->mesin() as $m) {
+            $akhir = DB::table('production_mesin_keadaan')->where('executor_id', $m->id)
+                ->orderByDesc('mulai_at')->orderByDesc('id')->limit(6)->get();
+            $kini = $akhir->first();
+            if (!$kini || $kini->sampai_at !== null || $kini->keadaan !== 'diam') continue;
+            if (Carbon::parse($kini->dilihat_at ?? $kini->mulai_at)->diffInSeconds($now, false) > self::BATAS_SENYAP_DETIK) continue;
+
+            // Mundur dari keadaan kini sampai ketemu potongan "potong"; diam/gerak di antaranya.
+            $selesai = null;
+            foreach ($akhir->skip(1) as $r) {
+                if ($r->keadaan === 'gerak' || $r->keadaan === 'putus') break;
+                if ($r->keadaan === 'potong') { $selesai = Carbon::parse($r->sampai_at ?? $kini->mulai_at); break; }
+            }
+            if (!$selesai) continue;
+            $detik = (int) $selesai->diffInSeconds($now, false);
+            if ($detik < 0 || $detik > self::ALARM_MAKS_MENIT * 60) continue;
+
+            $out[] = ['id' => $m->id, 'nama' => $m->name, 'selesai' => $selesai->format('H:i'), 'detik' => $detik];
+        }
+
+        return $out;
+    }
+
     public static function keadaan(?int $status, bool $bergerak): string
     {
         if ($status === null) return 'putus';

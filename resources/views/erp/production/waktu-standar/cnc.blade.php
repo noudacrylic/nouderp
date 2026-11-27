@@ -35,6 +35,26 @@
         <noscript><button class="px-4 py-1.5 rounded-xl border border-gray-300">Tampilkan</button></noscript>
     </form>
 
+    {{-- Alarm "mesin selesai" di perangkat ini (otomatis nyala di perangkat stasiun Intercom CNC) --}}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 flex flex-wrap items-center gap-3 text-sm">
+        <div class="font-semibold text-gray-700">🔔 Alarm mesin selesai di perangkat ini:</div>
+        <span id="alarmStatus" class="px-2 py-0.5 rounded font-bold text-xs bg-gray-100 text-gray-600">…</span>
+        <button type="button" onclick="CncAlarm.atur(true); alarmTampil()" class="px-3 py-1 rounded-lg border border-emerald-300 text-emerald-700 text-xs font-semibold">Nyalakan</button>
+        <button type="button" onclick="CncAlarm.atur(false); alarmTampil()" class="px-3 py-1 rounded-lg border border-gray-300 text-gray-600 text-xs font-semibold">Matikan</button>
+        <button type="button" onclick="CncAlarm.tes()" class="px-3 py-1 rounded-lg border border-gray-300 text-gray-600 text-xs font-semibold">Tes bunyi</button>
+        <span class="text-xs text-gray-400">Popup besar + bunyi saat mesin selesai memotong dan belum disentuh operator; hilang sendiri saat mesin mulai lagi.</span>
+    </div>
+    <script>
+        function alarmTampil() {
+            const el = document.getElementById('alarmStatus');
+            if (!el || !window.CncAlarm) return;
+            const on = CncAlarm.aktif();
+            el.textContent = on ? 'NYALA' : 'MATI';
+            el.className = 'px-2 py-0.5 rounded font-bold text-xs ' + (on ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600');
+        }
+        document.addEventListener('DOMContentLoaded', () => setTimeout(alarmTampil, 50));
+    </script>
+
     @if(!$hasil)
         <div class="bg-white rounded-2xl border border-gray-100 p-4 text-sm text-gray-500">Belum ada operator yang menaungi mesin (atur di Divisi → pelaksana induk).</div>
     @else

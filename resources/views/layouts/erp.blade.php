@@ -1426,6 +1426,12 @@
         @include('layouts.partials._intercom_mesin')
     @endauth
 
+    {{-- Alarm "mesin CNC selesai" — aktif hanya di perangkat stasiun CNC / yang dinyalakan manual --}}
+    @auth
+        <script>window.CNC_ALARM_CFG = { url: @json(route('intercom.mesin-cnc')) };</script>
+        <script src="{{ asset('js/cnc-alarm.js') }}?v={{ @filemtime(public_path('js/cnc-alarm.js')) }}" defer></script>
+    @endauth
+
     @yield('scripts')
     @stack('scripts')
 

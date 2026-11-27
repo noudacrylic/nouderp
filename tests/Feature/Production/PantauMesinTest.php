@@ -62,6 +62,38 @@ class PantauMesinTest extends TestCase
         $this->assertNull($rows[2]->sampai_at);
     }
 
+    public function test_alarm_mesin_selesai_belum_disentuh(): void
+    {
+        Carbon::setTestNow('2026-11-28 10:20:00');
+        $cnc = Department::create(['code' => 'CNC', 'name' => 'CNC', 'type' => 'produksi', 'is_active' => true]);
+        $mesin = fn ($n) => DepartmentExecutor::create(['department_id' => $cnc->id, 'name' => $n, 'is_active' => true,
+            'mesin_ip' => '192.168.1.9' . strlen($n), 'mesin_protokol' => 'udp']);
+        $m1 = $mesin('Mesin 1');
+        $m2 = $mesin('Mesin 22');
+        $m3 = $mesin('Mesin 333');
+        $baris = fn ($m, $k, $a, $b) => DB::table('production_mesin_keadaan')->insert(['executor_id' => $m->id, 'keadaan' => $k,
+            'mulai_at' => "2026-11-28 $a", 'sampai_at' => $b ? "2026-11-28 $b" : null, 'dilihat_at' => '2026-11-28 ' . ($b ?? '10:19:50')]);
+        // Mesin 1: selesai 10:18, diam → alarm.
+        $baris($m1, 'potong', '09:00:00', '10:18:00');
+        $baris($m1, 'diam', '10:18:00', null);
+        // Mesin 2: selesai lalu kepala digerakkan (operator sudah di mesin) → tidak alarm.
+        $baris($m2, 'potong', '09:00:00', '10:10:00');
+        $baris($m2, 'diam', '10:10:00', '10:15:00');
+        $baris($m2, 'gerak', '10:15:00', '10:15:05');
+        $baris($m2, 'diam', '10:15:05', null);
+        // Mesin 3: sedang memotong → tidak alarm.
+        $baris($m3, 'potong', '10:00:00', null);
+
+        $a = app(PantauMesinService::class)->menungguDiambil();
+        $this->assertSame([['id' => $m1->id, 'nama' => 'Mesin 1', 'selesai' => '10:18', 'detik' => 120]], $a);
+
+        // Siapa pun yang login boleh bertanya (perangkat stasiun, bukan hak menu).
+        $operator = User::factory()->create(['role' => 'user', 'is_active' => true]);
+        $this->actingAs($operator)->getJson(route('intercom.mesin-cnc'))
+            ->assertOk()->assertJsonPath('menunggu.0.nama', 'Mesin 1');
+        Carbon::setTestNow();
+    }
+
     public function test_pita_sinyal_di_kalender_produksi(): void
     {
         Carbon::setTestNow('2026-11-25 15:00:00');
