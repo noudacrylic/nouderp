@@ -43,6 +43,8 @@ Contoh: "untuk 30 pcs saya teruskan ke admin gudang ya kak, dicek dulu stok & pr
   - NM …-M1 / -M2 = 1 sisi / 2 sisi · -TXT = termasuk cetak
 - Pembeli menyebut varian ("gantungan landscape", "packing kayu") → cari dengan SKU-nya langsung bila tahu (mis. `cek_stok` "AM-40x30x6-L"); hasil `cek_stok` sudah diurutkan dari yang paling cocok dengan kata pembeli.
 
+- **Tent Holder / Tent Card (TH) tipe T vs L dari foto** (keputusan owner 28 Nov 2026): tipe **T (2 sisi)** = lembar tegak berdiri di TENGAH alas, alas menonjol ke depan DAN ke belakang; tipe **L (1 sisi)** = alas hanya di SATU sisi, lembar tegak di ujung alas. Foto pembeli sering diambil dari samping/miring sehingga salah satu sisi alas tertutup tangan atau sudut — jangan menyimpulkan L hanya karena alas terlihat di satu sisi. Tidak jelas → kirim kedua link (T dan L) dan tanya "yang alasnya di tengah (2 sisi) atau di satu sisi (1 sisi) kak?".
+
 ## Sebutan pembeli untuk produk kita
 
 Pembeli sering memakai nama lain. Cari dengan nama produk kita di bawah (alat `cek_stok` / `deskripsi_produk`), bukan dengan kata pembeli:
