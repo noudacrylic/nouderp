@@ -14,6 +14,9 @@ use App\Core\Inventory\Warehouse;
 
 class ProductionProcessController extends Controller
 {
+    /** Skor antrean kartu Potong Susulan (setara pre-order/custom). */
+    public const SKOR_SUSULAN = 300.0;
+
     public function index(Request $request)
     {
         $departmentId = $request->get('department_id');
@@ -149,6 +152,24 @@ class ProductionProcessController extends Controller
         $saranKomponen = $inProgressSteps->mapWithKeys(fn ($s) => [$s->productionOrder->order_number => $saranPerOrder[$s->production_order_id] ?? []])->all();
         $isCnc = $selectedDepartment && str_starts_with(strtoupper($selectedDepartment->name), 'CNC');
         $susulanMenunggu = $isCnc ? \App\Modules\Production\Models\KomponenLaporan::where('status', 'menunggu')->count() : 0;
+        // Kartu yang susulannya masih diproses CNC ditandai (Pending, atau sudah "lanjut dulu").
+        $susulanTandai = \App\Modules\Production\Models\KomponenLaporan::with('items')->where('status', 'menunggu')
+            ->whereIn('production_order_step_id', $pausedSteps->pluck('id')->merge($inProgressSteps->pluck('id')))
+            ->get()->groupBy('production_order_step_id')
+            ->map(fn ($ls) => $ls->map(fn ($l) => $l->ringkasItem())->implode('; '))->all();
+
+        // Susulan = kartu di panel Antre CNC dengan skor 300 (setara pre-order/custom, bukan
+        // 400 mendesak — keputusan owner 28 Nov); skor sama → urut umur master OP-nya.
+        // [posisi sisip di antara $pendingSteps => [laporan, ...]]
+        $susulanAntre = [];
+        if ($isCnc && $susulanMenunggu) {
+            foreach ($komponenSvc->menunggu()->load('productionOrder:id,order_number,created_at') as $lap) {
+                $dibuat = $lap->productionOrder?->created_at ?? $lap->created_at;
+                $posisi = $pendingSteps->filter(fn ($s) => $s->productionOrder->effective_score > self::SKOR_SUSULAN
+                    || ($s->productionOrder->effective_score == self::SKOR_SUSULAN && $s->productionOrder->created_at <= $dibuat))->count();
+                $susulanAntre[$posisi][] = $lap;
+            }
+        }
         $susulanSiap = \App\Modules\Production\Models\KomponenLaporan::with(['items', 'productionOrder:id,order_number'])
             ->where('status', 'selesai')->where('susulan_selesai_at', '>=', now()->subDays(7))
             ->whereIn('production_order_step_id', $pausedSteps->pluck('id'))->get()
@@ -159,7 +180,7 @@ class ProductionProcessController extends Controller
             'merkAkrilik', 'merkAkrilikWajib', 'merkTerakhir', 'maksLembar', 'targetWaktu',
             'pergantianMenunggu',
             'warehouses', 'defaultWarehouseId',
-            'saranKomponen', 'isCnc', 'susulanMenunggu', 'susulanSiap'
+            'saranKomponen', 'isCnc', 'susulanMenunggu', 'susulanSiap', 'susulanAntre', 'susulanTandai'
         ));
     }
 
@@ -335,10 +356,35 @@ class ProductionProcessController extends Controller
         }
     }
 
-    public function resumeStep(int $id, ProductionOrderService $service)
+    public function resumeStep(Request $request, int $id, ProductionOrderService $service)
     {
+        // Susulan CNC belum dipotong → peringatan dulu (bukan blokir, keputusan owner 28 Nov):
+        // "batal" = komponen sudah ada, susulan dibatalkan; "lanjut" = susulan tetap ditunggu.
+        $tunggu = \App\Modules\Production\Models\KomponenLaporan::with(['items', 'productionOrder:id,order_number'])
+            ->where('production_order_step_id', $id)->where('status', 'menunggu')->get();
+        $pilih = $request->input('susulan');
+        if ($tunggu->isNotEmpty() && !in_array($pilih, ['lanjut', 'batal'], true)) {
+            return back()->with('susulan_konfirmasi', [
+                'url'   => route('production.process.steps.resume', $id),
+                'op'    => $tunggu->first()->productionOrder?->order_number,
+                'isi'   => $tunggu->map(fn ($l) => $l->ringkasItem())->implode('; '),
+                'sejak' => $tunggu->min('created_at')?->format('d/m H:i'),
+            ]);
+        }
+
         try {
-            $service->resumeStep($id);
+            DB::transaction(function () use ($service, $id, $tunggu, $pilih) {
+                $service->resumeStep($id);
+                foreach ($tunggu as $lap) {
+                    $lap->update(['dilanjut_at' => now(), 'dilanjut_by' => auth()->id()]
+                        + ($pilih === 'batal' ? ['status' => 'dibatalkan'] : []));
+                }
+            });
+            if ($tunggu->isNotEmpty()) {
+                return back()->with('success', $pilih === 'batal'
+                    ? 'Langkah dilanjutkan — susulan dibatalkan (komponen sudah ada).'
+                    : 'Langkah dilanjutkan — susulan tetap ditunggu di antrean CNC.');
+            }
             return back()->with('success', 'Langkah dilanjutkan kembali.');
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());

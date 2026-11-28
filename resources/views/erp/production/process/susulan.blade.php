@@ -75,7 +75,7 @@
                         <td>{{ $lap->labelPenyebab() }}</td>
                         <td>{{ $lap->ringkasItem() }}</td>
                         <td class="whitespace-nowrap">{{ $lap->pelapor->name ?? '—' }} · {{ $lap->created_at->format('d/m H:i') }}</td>
-                        <td class="whitespace-nowrap">{{ $lap->susulan_selesai_at?->format('d/m H:i') ?? ($lap->status === 'tanpa_susulan' ? 'tanpa susulan' : '—') }}</td>
+                        <td class="whitespace-nowrap">{{ $lap->susulan_selesai_at?->format('d/m H:i') ?? ['tanpa_susulan' => 'tanpa susulan', 'dibatalkan' => 'dibatalkan Assembling (komponen sudah ada)'][$lap->status] ?? '—' }}</td>
                         <td>{{ ['stok' => 'stok', 'sisa' => 'sisa'][$lap->sumber_bahan] ?? '—' }}{{ $lap->material_addition_id ? ' · tercatat' : '' }}</td>
                     </tr>
                 @endforeach

@@ -203,7 +203,7 @@
 @endphp
 
 {{-- Data tersimpan di x-data agar tidak ada masalah JSON encoding di @click attribute --}}
-<div class="bg-white border border-gray-100 rounded-xl p-3 shadow-sm"
+<div class="bg-white border border-gray-100 rounded-xl p-3 shadow-sm" data-step-id="{{ $step->id }}"
      x-data="{
          detailData: {{ Js::from($detailPayload) }},
          selesaiData: {{ Js::from($selesaiPayload) }},

@@ -288,7 +288,7 @@
     @if(($isCnc ?? false) && $susulanMenunggu > 0)
         <a href="{{ route('production.process.susulan', ['department_id' => $selectedDepartment->id]) }}"
            class="mb-4 bg-red-50 border-2 border-red-300 text-red-800 px-5 py-3 rounded-xl text-sm font-bold flex items-center justify-between gap-4 hover:bg-red-100">
-            <span>🧩 {{ $susulanMenunggu }} permintaan potong susulan dari Assembling</span>
+            <span>🧩 {{ $susulanMenunggu }} permintaan potong susulan dari Assembling — ada di panel Antre (skor {{ (int) \App\Modules\Production\Controllers\ProductionProcessController::SKOR_SUSULAN }})</span>
             <span class="text-xs font-semibold underline">Buka daftar →</span>
         </a>
     @elseif($isCnc ?? false)
@@ -304,6 +304,41 @@
             ({{ $lap->ringkasItem() }}, {{ $lap->susulan_selesai_at->format('d/m H:i') }}). Silakan ambil & lanjutkan langkahnya.
         </div>
     @endforeach
+
+    {{-- Kartu yang susulannya masih diproses CNC: bingkai oranye + label (lewat data-step-id) --}}
+    @if(!empty($susulanTandai))
+        @php $cssStr = fn ($t) => str_replace(['\\', '"', "\n", "\r", '<'], ['\\\\', '\\"', ' ', ' ', '\\3c '], $t); @endphp
+        <style>
+            @foreach($susulanTandai as $stepId => $isi)
+                [data-step-id="{{ (int) $stepId }}"] { outline: 3px solid #f97316; outline-offset: 1px; }
+                [data-step-id="{{ (int) $stepId }}"]::before {
+                    content: "{!! $cssStr('⏳ Menunggu susulan CNC: ' . $isi) !!}";
+                    display: block; margin: -4px -4px 8px; padding: 4px 8px; border-radius: 8px;
+                    background: #ffedd5; color: #9a3412; font-size: 11px; font-weight: 700;
+                }
+            @endforeach
+        </style>
+    @endif
+
+    {{-- Peringatan: Lanjutkan ditekan saat susulan belum dipotong CNC --}}
+    @if($konf = session('susulan_konfirmasi'))
+        <div class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" x-data="{ buka: true }" x-show="buka">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-5">
+                <h3 class="font-black text-gray-800">⚠️ Komponen susulan belum dipotong CNC</h3>
+                <p class="text-sm text-gray-600 mt-2"><b>{{ $konf['op'] }}</b> — {{ $konf['isi'] }}
+                    <span class="text-gray-400">(dilaporkan {{ $konf['sejak'] }})</span></p>
+                <div class="mt-4 space-y-2">
+                    <form method="POST" action="{{ $konf['url'] }}">@csrf <input type="hidden" name="susulan" value="batal">
+                        <button class="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">Komponen sudah ada — batalkan susulan</button>
+                    </form>
+                    <form method="POST" action="{{ $konf['url'] }}">@csrf <input type="hidden" name="susulan" value="lanjut">
+                        <button class="w-full py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold">Lanjut dulu, susulan tetap ditunggu</button>
+                    </form>
+                    <button type="button" @click="buka = false" class="w-full py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-semibold">Batal</button>
+                </div>
+            </div>
+        </div>
+    @endif
 
     {{-- Banner: urutan antrean berubah --}}
     <div id="queue-changed-banner"
@@ -346,14 +381,24 @@
             <div class="px-4 py-2.5 flex items-center gap-2 bg-blue-600 rounded-t-2xl">
                 <span class="w-2 h-2 rounded-full bg-white/90 flex-shrink-0"></span>
                 <h2 class="font-black text-white text-xs tracking-widest uppercase">Antre</h2>
-                <span class="ml-auto text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-black border border-white/30">{{ $pendingSteps->count() }}</span>
+                <span class="ml-auto text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-black border border-white/30">{{ $pendingSteps->count() + collect($susulanAntre ?? [])->flatten(1)->count() }}</span>
             </div>
             <div class="flex-1 overflow-y-auto p-2.5 space-y-2">
+                {{-- Kartu Potong Susulan disisipkan sesuai skor 300 (lihat ProductionProcessController::SKOR_SUSULAN) --}}
+                @php $departmentId = $selectedDepartment?->id; @endphp
                 @forelse($pendingSteps as $step)
+                    @foreach(($susulanAntre ?? [])[$loop->index] ?? [] as $lap)
+                        @include('erp.production.process._susulan-card', ['lap' => $lap])
+                    @endforeach
                     @include('erp.production.process._step-card', ['step' => $step, 'panel' => 'pending', 'queueNumber' => $loop->iteration, 'busyExecutorIds' => $busyExecutorIds])
                 @empty
-                    <div class="py-10 text-center"><p class="text-xs text-gray-400">Tidak ada task dalam antrean</p></div>
+                    @if(empty($susulanAntre))
+                        <div class="py-10 text-center"><p class="text-xs text-gray-400">Tidak ada task dalam antrean</p></div>
+                    @endif
                 @endforelse
+                @foreach(collect($susulanAntre ?? [])->filter(fn ($v, $k) => $k >= $pendingSteps->count())->flatten(1) as $lap)
+                    @include('erp.production.process._susulan-card', ['lap' => $lap])
+                @endforeach
             </div>
         </div>
 

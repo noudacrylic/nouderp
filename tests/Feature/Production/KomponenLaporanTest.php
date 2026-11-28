@@ -49,9 +49,18 @@ class KomponenLaporanTest extends TestCase
         $this->admin = User::factory()->create(['role' => 'super_admin', 'is_active' => true]);
     }
 
-    private function opBaru(string $no): ProductionOrderStep
+    private function opBaru(string $no, string $nama = 'Budi'): ProductionOrderStep
     {
-        $ex = DepartmentExecutor::firstOrCreate(['department_id' => $this->asm->id, 'name' => 'Budi'], ['is_active' => true]);
+        // Pelaksana wajib ter-link karyawan (syarat Lanjutkan di ProductionOrderService::resumeStep).
+        $karyawan = \Illuminate\Support\Facades\DB::table('sdm_karyawan')->where('staf_code', 'K-' . $nama)->value('id')
+            ?? \Illuminate\Support\Facades\DB::table('sdm_karyawan')->insertGetId(['staf_code' => 'K-' . $nama, 'name' => $nama, 'created_at' => now(), 'updated_at' => now()]);
+        if (!\Illuminate\Support\Facades\DB::table('sdm_karyawan_schedule')->where('karyawan_id', $karyawan)->exists()) {
+            foreach (range(0, 6) as $dow) {
+                \Illuminate\Support\Facades\DB::table('sdm_karyawan_schedule')->insert(['karyawan_id' => $karyawan, 'day_of_week' => $dow,
+                    'jam_masuk' => '00:00:00', 'jam_pulang' => '23:59:00', 'has_lembur' => 0, 'is_off' => 0, 'created_at' => now(), 'updated_at' => now()]);
+            }
+        }
+        $ex = DepartmentExecutor::firstOrCreate(['department_id' => $this->asm->id, 'name' => $nama], ['is_active' => true, 'karyawan_id' => $karyawan]);
         $order = ProductionOrder::create(['order_number' => $no, 'type' => 'ready_stock', 'warehouse_id' => $this->gudang,
             'planned_cycles' => 1, 'planned_qty' => 1, 'production_date' => now()->toDateString(), 'status' => 'confirmed']);
         ProductionOrderOutput::create(['production_order_id' => $order->id, 'product_id' => $this->produk,
@@ -97,6 +106,60 @@ class KomponenLaporanTest extends TestCase
             ->assertSessionHasErrors('komp');
         $this->assertSame('in_progress', $this->step->fresh()->status);
         $this->assertSame(0, KomponenLaporan::count());
+    }
+
+    public function test_kartu_susulan_di_antre_cnc_dengan_skor_300(): void
+    {
+        $this->pause($this->step, ['alasan' => 'komponen', 'penyebab' => 'belum_dipotong', 'komp' => [1 => ['baris' => 1, 'nama' => 'Sekat', 'jumlah' => 3]]]);
+
+        // Antrean CNC: mendesak (400), pre-order lama & baru (300, lebih tua/muda dari master OP-UJI-1), biasa (0).
+        $antre = function (string $no, string $prioritas, string $dibuat) {
+            $o = ProductionOrder::create(['order_number' => $no, 'type' => 'ready_stock', 'warehouse_id' => $this->gudang,
+                'planned_cycles' => 1, 'planned_qty' => 1, 'production_date' => now()->toDateString(), 'status' => 'confirmed',
+                'score_type' => 'priority', 'priority_level' => $prioritas]);
+            $o->forceFill(['created_at' => \Carbon\Carbon::parse($dibuat)])->save();
+            ProductionOrderStep::create(['production_order_id' => $o->id, 'step_number' => 1, 'department_id' => $this->cnc->id,
+                'name' => 'Potong', 'status' => 'pending']);
+        };
+        ProductionOrder::where('order_number', 'OP-UJI-1')->update(['created_at' => '2026-11-20 10:00:00']);
+        $antre('OP-MENDESAK', 'urgent', '2026-11-25 10:00');
+        $antre('OP-PRE-LAMA', 'very_high', '2026-11-19 10:00');
+        $antre('OP-PRE-BARU', 'very_high', '2026-11-21 10:00');
+        $antre('OP-BIASA', 'low', '2026-11-01 10:00');
+
+        $this->actingAs($this->admin)->get(route('production.process.index', ['department_id' => $this->cnc->id]))
+            ->assertOk()
+            ->assertSeeInOrder(['OP-MENDESAK', 'OP-PRE-LAMA', 'POTONG SUSULAN', 'OP-UJI-1', 'OP-PRE-BARU', 'OP-BIASA'])
+            ->assertSee('Sekat');
+    }
+
+    public function test_lanjutkan_sebelum_susulan_selesai_diperingatkan_dan_kartu_ditandai(): void
+    {
+        $this->pause($this->step, ['alasan' => 'komponen', 'penyebab' => 'belum_dipotong', 'komp' => [1 => ['baris' => 1, 'nama' => 'Sekat', 'jumlah' => 2]]]);
+        $asm = route('production.process.index', ['department_id' => $this->asm->id]);
+        $this->actingAs($this->admin)->get($asm)->assertOk()
+            ->assertSee('data-step-id="' . $this->step->id . '"', false)
+            ->assertSee('Menunggu susulan CNC: Sekat ×2', false);
+
+        // Lanjutkan tanpa pilihan → peringatan, langkah tetap Pending.
+        $resume = route('production.process.steps.resume', $this->step->id);
+        $this->actingAs($this->admin)->from($asm)->post($resume)->assertRedirect($asm)->assertSessionHas('susulan_konfirmasi');
+        $this->assertSame('paused', $this->step->fresh()->status);
+        $this->actingAs($this->admin)->withSession(['susulan_konfirmasi' => ['url' => $resume, 'op' => 'OP-UJI-1', 'isi' => 'Sekat ×2', 'sejak' => '28/11 09:00']])
+            ->get($asm)->assertSee('Komponen susulan belum dipotong CNC')->assertSee('Lanjut dulu, susulan tetap ditunggu');
+
+        // "Lanjut dulu": langkah jalan, susulan tetap menunggu, kartu tetap ditandai.
+        $this->actingAs($this->admin)->from($asm)->post($resume, ['susulan' => 'lanjut'])->assertSessionHas('success')->assertSessionMissing('error');
+        $lap = KomponenLaporan::sole();
+        $this->assertSame(['in_progress', 'menunggu', true], [$this->step->fresh()->status, $lap->status, $lap->dilanjut_at !== null]);
+        $this->actingAs($this->admin)->get($asm)->assertSee('Menunggu susulan CNC: Sekat ×2', false);
+
+        // OP lain: "komponen sudah ada" → susulan dibatalkan, hilang dari antrean CNC.
+        $step2 = $this->opBaru('OP-UJI-2', 'Wawan');
+        $this->pause($step2, ['alasan' => 'komponen', 'penyebab' => 'salah_potong', 'komp' => [1 => ['baris' => 1, 'nama' => 'Kaki', 'jumlah' => 1]]]);
+        $this->actingAs($this->admin)->from($asm)->post(route('production.process.steps.resume', $step2->id), ['susulan' => 'batal']);
+        $this->assertSame(['in_progress', 'dibatalkan'], [$step2->fresh()->status, KomponenLaporan::where('production_order_step_id', $step2->id)->value('status')]);
+        $this->assertSame(1, KomponenLaporan::where('status', 'menunggu')->count());
     }
 
     public function test_bahan_beli_tidak_jadi_susulan(): void
