@@ -222,6 +222,64 @@ class ReturPenyelesaianFakturTest extends TestCase
         $this->assertSame([], $this->barisPencairan($inv));
     }
 
+    /**
+     * Retur selesai SETELAH dana pesanan dilepas (retur 312): Shopee memotong refund dari
+     * Saldo Penjual ("Pengembalian Barang/Dana setelah Dana Dilepaskan") dan membayar
+     * kompensasi terpisah. Banding menang pun, bawaan blok b harus membalik penjualan penuh
+     * dan memotong Saldo Penjualan PERSIS potongan Shopee — sisa biaya kembali ke Beban Admin —
+     * agar sisa dana pesanan = Penghasilan Akhir Shopee.
+     */
+    public function test_refund_setelah_dana_dilepas_mengikuti_potongan_shopee(): void
+    {
+        $returId = Account::firstOrCreate(['code' => '4004'], [
+            'name' => 'Retur Penjualan', 'type' => 'revenue', 'normal_balance' => 'debit', 'is_active' => true,
+        ])->id;
+        $feeId = Account::where('code', '5101')->value('id');
+
+        $inv = $this->faktur(sudahCair: true);
+        $inv->forceFill(['marketplace_fee' => 14000])->save();
+
+        $j = Journal::create([
+            'journal_number' => 'JRN-CAIR-1', 'date' => now()->toDateString(),
+            'reference_type' => 'sales_invoice_settlement', 'reference_id' => $inv->id,
+            'description' => 'cair', 'status' => 'posted',
+            'period_id' => AccountingPeriod::where('year', (int) now()->year)->where('month', (int) now()->month)->value('id'),
+        ]);
+        foreach ([[$this->walletId, 86000, 0], [$feeId, 14000, 0], [$this->holdId, 0, 100000]] as [$a, $d, $c]) {
+            DB::table('journal_lines')->insert(['journal_id' => $j->id, 'account_id' => $a, 'debit' => $d, 'credit' => $c,
+                'created_at' => now(), 'updated_at' => now()]);
+        }
+
+        DB::table('shopee_orders')->insert(['env' => 'live', 'shop_id' => 1, 'order_sn' => 'SN312', 'status' => 'COMPLETED',
+            'sales_order_id' => $this->so->id, 'created_at' => now(), 'updated_at' => now()]);
+        foreach ([['ADJUSTMENT_FOR_RR_AFTER_ESCROW_VERIFIED', 'penyesuaian_pesanan', -88000],
+                  ['RETURN_COMPENSATION_SERVICE_ADD', 'kompensasi', 40000]] as $i => [$tipe, $kat, $jml]) {
+            DB::table('shopee_wallet_transactions')->insert(['sumber' => 'api', 'kunci' => 'k' . $i, 'waktu' => now(),
+                'tipe' => $tipe, 'deskripsi' => $tipe, 'order_sn' => 'SN312', 'jumlah' => $jml, 'kategori' => $kat,
+                'created_at' => now(), 'updated_at' => now()]);
+        }
+        DB::table('marketplace_order_fees')->insert(['sales_order_id' => $this->so->id, 'kotor' => 100000,
+            'saldo_masuk' => 86000, 'saldo_akhir' => 38000, 'sumber' => 'shopee', 'final' => true,
+            'created_at' => now(), 'updated_at' => now()]);
+
+        $itemId = DB::table('sales_invoice_items')->where('sales_invoice_id', $inv->id)->value('id');
+        $b = app(SalesReturnService::class)->jurnalBawaan($inv->fresh(),
+            [['invoice_item_id' => $itemId, 'qty' => 2, 'condition' => 'tidak_kembali']], 'diajukan_konsumen', 'menang', 'wallet');
+
+        $this->assertEqualsWithDelta(100000, $b['dibalik'], 0.01);
+        $per = fn (int $akun, string $sisi) => collect($b['pembalikan'])->where('account_id', $akun)->sum($sisi);
+        $this->assertEqualsWithDelta(100000, $per($returId, 'debit'), 0.01);
+        $this->assertEqualsWithDelta(88000, $per($this->walletId, 'credit'), 0.01, 'Saldo Penjualan dipotong persis potongan Shopee');
+        $this->assertEqualsWithDelta(12000, $per($feeId, 'credit'), 0.01, 'biaya yang Shopee kembalikan');
+
+        $p = $b['konteks']['pencairan'];
+        $this->assertEqualsWithDelta(88000, $p['potongan_retur_sisa'], 0.01);
+        $this->assertEqualsWithDelta(38000, $p['penghasilan_akhir_shopee'], 0.01);
+        // Rumus sisaDanaPesanan() di form: dana masuk + kompensasi luar − potongan blok b.
+        $luar = collect($p['penyesuaian_luar'])->sum('jumlah');
+        $this->assertEqualsWithDelta(38000, $p['dana_masuk'] + $p['retur_lalu'] + $luar - $per($this->walletId, 'credit'), 0.01);
+    }
+
     public function test_void_retur_membatalkan_penyelesaian(): void
     {
         $inv   = $this->faktur();

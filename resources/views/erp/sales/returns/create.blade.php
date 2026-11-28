@@ -666,7 +666,16 @@
                             <div class="flex justify-between" x-show="(bawaan.konteks?.pencairan?.pajak || 0) !== 0"><span class="font-sans text-gray-600">Pajak</span><span x-text="'−' + formatNumber(bawaan.konteks?.pencairan?.pajak || 0)"></span></div>
                             <div class="flex justify-between font-bold border-t border-gray-200 pt-1"><span class="font-sans">Dana pesanan masuk Saldo Penjualan <span class="font-normal text-gray-400">(Total Penghasilan)</span></span><span x-text="formatNumber(bawaan.konteks?.pencairan?.dana_masuk || 0)"></span></div>
                             <div class="flex justify-between text-gray-600" x-show="(bawaan.konteks?.pencairan?.retur_lalu || 0) !== 0"><span class="font-sans">Retur sebelumnya</span><span x-text="formatNumber(bawaan.konteks?.pencairan?.retur_lalu || 0)"></span></div>
-                            <div class="flex justify-between text-red-600"><span class="font-sans">Retur ini — dipotong dari Saldo Penjualan (blok b)</span><span x-text="formatNumber(mutasi(selectedDoc?.akun?.dompet?.id, ['pembalikan']))"></span></div>
+                            <div class="flex justify-between gap-3 text-red-600">
+                                <span class="font-sans">Retur ini — dipotong dari Saldo Penjualan (blok b)
+                                    <template x-for="(p, i) in (bawaan.konteks?.pencairan?.potongan_retur || [])" :key="'pr' + i">
+                                        <span class="block text-[10px] text-gray-500" x-text="'Shopee memotong ' + formatNumber(Math.abs(p.jumlah)) + ' (' + tglPendek(p.tanggal) + ') — ' + p.deskripsi"></span>
+                                    </template>
+                                    <span class="block text-[10px] font-semibold text-amber-600" x-show="potonganBelumSama()"
+                                          x-text="'⚠ blok b memotong ' + formatNumber(-mutasi(selectedDoc?.akun?.dompet?.id, ['pembalikan'])) + ', Shopee memotong ' + formatNumber(bawaan.konteks?.pencairan?.potongan_retur_sisa || 0) + ' — klik Isi ulang dari bawaan di blok b'"></span>
+                                </span>
+                                <span class="whitespace-nowrap" x-text="formatNumber(mutasi(selectedDoc?.akun?.dompet?.id, ['pembalikan']))"></span>
+                            </div>
                             <template x-for="(p, i) in (bawaan.konteks?.pencairan?.penyesuaian_luar || [])" :key="i">
                                 <div class="flex justify-between gap-3 text-emerald-700">
                                     <span class="font-sans">
@@ -679,6 +688,14 @@
                                 </div>
                             </template>
                             <div class="flex justify-between font-black text-sm border-t border-gray-300 pt-1"><span class="font-sans">Sisa dana pesanan <span class="font-normal text-gray-400 text-xs">(Penghasilan Akhir)</span></span><span x-text="formatNumber(sisaDanaPesanan())"></span></div>
+                            <template x-if="bawaan.konteks?.pencairan?.penghasilan_akhir_shopee != null">
+                                <div class="flex justify-between gap-3 text-[11px]" :class="selisihShopee() ? 'text-red-600 font-bold' : 'text-emerald-600'">
+                                    <span class="font-sans" x-text="selisihShopee()
+                                        ? '⚠ Penghasilan Akhir di Shopee ' + formatNumber(bawaan.konteks.pencairan.penghasilan_akhir_shopee) + ' — selisih ' + formatNumber(sisaDanaPesanan() - bawaan.konteks.pencairan.penghasilan_akhir_shopee) + ', periksa blok b'
+                                        : '✓ sama dengan Penghasilan Akhir di Shopee'"></span>
+                                    <span x-text="formatNumber(bawaan.konteks.pencairan.penghasilan_akhir_shopee)"></span>
+                                </div>
+                            </template>
                         </div>
                         <p class="text-[10px] text-gray-500 mt-1.5" x-show="(bawaan.konteks?.pencairan?.penyesuaian_luar || []).length">
                             Penyesuaian di luar retur (mis. kompensasi / penggantian dana barang rusak dari Shopee) tidak masuk jurnal retur ini —
@@ -1066,7 +1083,7 @@ const PANDUAN = [
       penyelesaian: [['Dr', 'Uang Muka', 'sebesar kompensasi melunasi faktur'], ['Cr', 'Piutang Usaha', 'faktur lunas'],
                      ['Dr', 'Saldo Penjualan', 'Penghasilan Akhir Seller Centre'], ['Dr', 'Beban Admin', 'Biaya Lainnya / premi (mis. 350)'], ['Dr', 'PPh Final 0,5%', 'biasanya 0'],
                      ['Cr', 'Saldo Ditahan', 'sebesar kompensasi']],
-      catatan: 'Isi "Nilai dibalik / refund" = harga barang − kompensasi (mis. 99.999 − 80.000 = 19.999), lalu samakan Beban Admin & Pajak dengan Seller Centre. Manajer Admin mengisinya otomatis dari rincian dana Shopee.' },
+      catatan: 'Dana BELUM cair: isi "Nilai dibalik / refund" = harga barang − kompensasi (mis. 99.999 − 80.000 = 19.999), lalu samakan Beban Admin & Pajak dengan Seller Centre — Manajer Admin mengisinya otomatis. Dana SUDAH cair (Shopee memotong "Pengembalian setelah Dana Dilepaskan"): klik "Isi ulang dari bawaan" di blok b — penjualan dibalik penuh & Saldo Penjualan dipotong persis potongan Shopee; kompensasi dicatat terpisah lewat Penerimaan Kas.' },
     { grup: 'Diajukan Konsumen', key: 'K7', judul: 'Pelanggan non-marketplace',
       kapan: 'Toko, web, reseller — tidak ada saldo ditahan marketplace (terdeteksi otomatis).',
       uang: 'KITA yang mengembalikan uang ke pembeli: tagihan yang belum dibayar dihapus; yang sudah dibayar dikembalikan tunai/transfer atau dijadikan kredit belanja.',
@@ -1982,6 +1999,18 @@ function returForm(initialData = null, prefill = null) {
             if (!p) return 0;
             const luar = (p.penyesuaian_luar || []).reduce((s, x) => s + Number(x.jumlah || 0), 0);
             return Number(p.dana_masuk || 0) + Number(p.retur_lalu || 0) + luar + this.mutasi(this.selectedDoc?.akun?.dompet?.id, ['pembalikan']);
+        },
+
+        /** Sisa dana pesanan ERP ≠ Penghasilan Akhir rincian dana Shopee (final). */
+        selisihShopee() {
+            const s = this.bawaan.konteks?.pencairan?.penghasilan_akhir_shopee;
+            return s != null && Math.abs(this.sisaDanaPesanan() - Number(s)) >= 1;
+        },
+
+        /** Shopee sudah memotong refund setelah dana dilepas, tapi blok b memotong angka lain. */
+        potonganBelumSama() {
+            const pot = Number(this.bawaan.konteks?.pencairan?.potongan_retur_sisa || 0);
+            return pot > 0.5 && Math.abs(-this.mutasi(this.selectedDoc?.akun?.dompet?.id, ['pembalikan']) - pot) >= 1;
         },
 
         tglPendek(t) {

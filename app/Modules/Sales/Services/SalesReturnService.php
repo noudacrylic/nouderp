@@ -366,6 +366,17 @@ class SalesReturnService
         // tidak ditolak, atau banding yang menang.
         $tetapSah = ($jenis === 'paket_hilang' && $banding !== 'kalah') || $banding === 'menang';
         $dibalik  = $tetapSah ? 0.0 : $nilai;
+
+        // Dana pesanan sudah cair sebelum retur → tak ada blok Penyelesaian; form menampilkan
+        // pencairan yang sudah terjadi sebagai pembanding Seller Centre.
+        $pencairan = ($config && $inv->marketplace_processed) ? $this->pencairanLalu($inv, $akun, $config) : null;
+        // Shopee sudah memotong refund dari Saldo Penjual (retur setelah dana dilepas) → pembeli
+        // memang direfund, jadi penjualan dibalik walau banding menang (kompensasinya dicatat
+        // terpisah sebagai penyesuaian di luar retur).
+        $potonganShopee = (float) ($pencairan['potongan_retur_sisa'] ?? 0);
+        if ($potonganShopee > 0.5) {
+            $dibalik = $nilai;
+        }
         if ($dibalikDiminta !== null) {
             $dibalik = round(max(0, $dibalikDiminta), 2);
         }
@@ -392,7 +403,17 @@ class SalesReturnService
         $pembalikan = [];
         $uang = ['ar' => 0.0, 'hold' => 0.0];
         if ($dibalik > 0) {
-            $uang = $this->hitungUang($inv, $dibalik, $target);
+            // Refund ke Saldo Penjualan = persis yang Shopee potong; sisanya biaya yang Shopee
+            // kembalikan (Cr Beban Admin). Di luar batas wajar → kembali ke hitungan bawaan.
+            $uang = null;
+            if ($target === 'wallet' && $potonganShopee > 0.5) {
+                try {
+                    $uang = $this->hitungUang($inv, $dibalik, $target, $potonganShopee);
+                } catch (Exception) {
+                    $uang = null;
+                }
+            }
+            $uang ??= $this->hitungUang($inv, $dibalik, $target);
             $pembalikan[] = $baris($akun['retur'], $dibalik, 0, 'Retur penjualan - ' . $inv->invoice_number);
             if ($uang['ar'] > 0) {
                 $pembalikan[] = $baris($akun['piutang'], 0, $uang['ar'], 'Tagihan dihapus');
@@ -469,10 +490,7 @@ class SalesReturnService
                 'sisa_tagihan' => $sisaTagihan,
                 'sisa_ditahan' => $sisaDitahan,
                 'uang_muka'    => $uangMuka,
-                // Dana pesanan sudah cair sebelum retur → tak ada blok Penyelesaian; form
-                // menampilkan pencairan yang sudah terjadi sebagai pembanding Seller Centre.
-                'pencairan'    => ($config && $penyelesaian === null && $inv->marketplace_processed)
-                    ? $this->pencairanLalu($inv, $akun, $config) : null,
+                'pencairan'    => $penyelesaian === null ? $pencairan : null,
                 'akun'         => [
                     'piutang'   => $akun['piutang']['id'] ?? null,
                     'uang_muka' => $akun['uang_muka']['id'] ?? null,
@@ -508,6 +526,13 @@ class SalesReturnService
 
         $returLalu = DB::table('journals')->where('status', '!=', 'void')->where('reference_type', 'sales_return')
             ->whereIn('reference_id', SalesReturn::where('invoice_id', $inv->id)->where('status', 'posted')->pluck('id'));
+        $returLaluNilai = round($mutasi($returLalu, $dompetId), 2);
+
+        // Refund yang Shopee potong dari Saldo Penjual SETELAH dana pesanan dilepas — inilah
+        // yang harus dikeluarkan blok b dari Saldo Penjualan. Dikurangi yang sudah dipotong
+        // retur terdahulu (retur_lalu bertanda negatif).
+        $potonganRetur = $this->potonganReturShopee($inv);
+        $potonganSisa  = round(max(0, -collect($potonganRetur)->sum('jumlah') + $returLaluNilai), 2);
 
         return [
             'tanggal'      => \Carbon\Carbon::parse($tanggal)->toDateString(),
@@ -515,9 +540,58 @@ class SalesReturnService
             'admin'        => round($mutasi(clone $jurnal, $adminId), 2),
             'pajak'        => round($mutasi(clone $jurnal, $pajakId), 2),
             'dana_masuk'   => round($mutasi(clone $jurnal, $dompetId), 2),
-            'retur_lalu'   => round($mutasi($returLalu, $dompetId), 2),
+            'retur_lalu'   => $returLaluNilai,
             'penyesuaian_luar' => $this->penyesuaianLuarRetur($inv, $dompetId),
+            'potongan_retur'      => $potonganRetur,
+            'potongan_retur_sisa' => $potonganSisa,
+            // "Penghasilan Akhir" Seller Centre (rincian dana final) — pembanding sisa dana ERP.
+            'penghasilan_akhir_shopee' => $this->penghasilanAkhirShopee($inv),
         ];
+    }
+
+    /** Nomor pesanan Shopee faktur ini, atau null bila bukan pesanan Shopee. */
+    private function orderSnShopee(SalesInvoice $inv): ?string
+    {
+        if (!$inv->sales_order_id || !\Illuminate\Support\Facades\Schema::hasTable('shopee_orders')) {
+            return null;
+        }
+
+        return DB::table('shopee_orders')->where('sales_order_id', $inv->sales_order_id)->value('order_sn') ?: null;
+    }
+
+    /**
+     * "Pengembalian Barang/Dana setelah Dana Dilepaskan": refund pembeli yang Shopee potong
+     * dari Saldo Penjual karena dana pesanan sudah cair saat retur selesai.
+     *
+     * @return array<int, array{tanggal:string, deskripsi:string, jumlah:float}>
+     */
+    private function potonganReturShopee(SalesInvoice $inv): array
+    {
+        $sn = $this->orderSnShopee($inv);
+        if (!$sn || !\Illuminate\Support\Facades\Schema::hasTable('shopee_wallet_transactions')) {
+            return [];
+        }
+
+        return DB::table('shopee_wallet_transactions')
+            ->where('order_sn', $sn)->where('tipe', 'ADJUSTMENT_FOR_RR_AFTER_ESCROW_VERIFIED')
+            ->orderBy('waktu')->get(['waktu', 'deskripsi', 'jumlah'])
+            ->map(fn ($m) => [
+                'tanggal'   => \Carbon\Carbon::parse($m->waktu)->toDateString(),
+                'deskripsi' => (string) $m->deskripsi,
+                'jumlah'    => round((float) $m->jumlah, 2),
+            ])->values()->all();
+    }
+
+    /** Saldo akhir rincian dana Shopee yang sudah final, null bila belum ada. */
+    private function penghasilanAkhirShopee(SalesInvoice $inv): ?float
+    {
+        if (!$inv->sales_order_id || !\Illuminate\Support\Facades\Schema::hasTable('marketplace_order_fees')) {
+            return null;
+        }
+        $v = DB::table('marketplace_order_fees')->where('sales_order_id', $inv->sales_order_id)
+            ->where('sumber', 'shopee')->where('final', true)->value('saldo_akhir');
+
+        return $v === null ? null : round((float) $v, 2);
     }
 
     /**
@@ -533,11 +607,8 @@ class SalesReturnService
      */
     private function penyesuaianLuarRetur(SalesInvoice $inv, ?int $dompetId): array
     {
-        if (!$inv->sales_order_id || !\Illuminate\Support\Facades\Schema::hasTable('shopee_wallet_transactions')) {
-            return [];
-        }
-        $sn = DB::table('shopee_orders')->where('sales_order_id', $inv->sales_order_id)->value('order_sn');
-        if (!$sn) {
+        $sn = $this->orderSnShopee($inv);
+        if (!$sn || !\Illuminate\Support\Facades\Schema::hasTable('shopee_wallet_transactions')) {
             return [];
         }
 
