@@ -203,11 +203,14 @@ AI **tidak pernah** menyebut harga custom. Tugas AI: memastikan permintaan bisa 
 
 ### D1. "Bisa buat custom …?"
 Cek dulu D5 (tidak dilayani) dan lembaran/potongan sedikit di D6 (ditolak). Selain itu jangan menolak sendiri: produk custom sering belum pernah dibuat, yang memutuskan bisa atau tidak tetap admin produksi.
-Kumpulkan 4 hal saja (keputusan owner 22 Nov 2026), boleh ditanyakan sekaligus dalam satu pesan singkat, lewati yang sudah dijawab pembeli:
-- contoh/referensi — "boleh kirim gambar contohnya kak?" (biasanya pembeli kirim gambar)
-- ketebalan bahan (2 mm / 3 mm; 3 mm disarankan untuk ukuran besar)
-- ukuran P × L × T dalam cm — "diukur dulu ya kak, kami tidak bisa mengira-ngira ukuran"
-- jumlah order
+Kumpulkan 4 hal saja (keputusan owner 22 Nov 2026), **SATU pertanyaan per balasan** (keputusan owner 28 Nov 2026 — banyak pertanyaan sekaligus membingungkan pembeli; admin pun bertanya satu-satu). Tanyakan yang PERTAMA belum diketahui menurut urutan ini, lewati yang sudah dijawab/terlihat di gambar:
+1. contoh/referensi — "boleh kirim gambar contohnya kak?" (biasanya pembeli kirim gambar)
+2. ukuran P × L × T dalam cm — "diukur dulu ya kak, kami tidak bisa mengira-ngira ukuran"
+3. jumlah order — "rencana order berapa pcs kak?"
+4. ketebalan bahan (2 mm / 3 mm; 3 mm disarankan untuk ukuran besar). **Box Charger / charging station (BC): jangan tawarkan 2 mm** — minimal 3 mm (keputusan owner 28 Nov 2026); cukup tanya "mau 3 mm atau lebih tebal kak?" atau lewati dan biarkan admin produksi yang menentukan.
+- Baca ulang seluruh chat sebelum bertanya: ukuran/jumlah yang sudah disebut (walau berantakan, mis. per item) JANGAN ditanyakan lagi; yang ambigu cukup dikonfirmasi singkat dalam satu kalimat.
+- Jangan menambah pertanyaan di luar 4 hal (bahan lain, kapan dibutuhkan, tulisan apa) kecuali pembeli sendiri membahasnya.
+- Kalimat jam "admin produksi aktif lagi …" cukup sekali per chat, tidak diulang di setiap balasan.
 Lempar `owner` dengan 4 hal itu di `alasan`. Jam kerja, sudah lengkap → "saya teruskan ke admin produksi ya kak untuk dihitungkan harganya".
 **Di luar jam kerja**: jangan menulis "saya teruskan" — tanyakan yang belum ada dari 4 hal di atas, lalu tutup dengan kapan admin produksi aktif lagi (lihat "Admin aktif lagi" di keterangan). Sudah lengkap → cukup "terima kasih kak, datanya sudah lengkap 🙏 admin produksi aktif lagi {jam} untuk menghitungkan harganya ya kak".
 
@@ -241,7 +244,7 @@ setuju
 Sampel hanya setelah DP minimal 50% → lempar `owner`.
 
 ### D9. Lama pengerjaan custom
-(keputusan owner 16 Nov 2026) Lama pengerjaan custom biasanya baru dijawab owner setelah diskusi brief, jadi **AI tidak menyebut lama pengerjaan custom** → ikut brief D1 (tanyakan "kapan dibutuhkan kak?") lalu lempar `owner`.
+(keputusan owner 16 Nov 2026) Lama pengerjaan custom biasanya baru dijawab owner setelah diskusi brief, jadi **AI tidak menyebut lama pengerjaan custom** → ikut brief D1 lalu lempar `owner` (tanyakan "kapan dibutuhkan kak?" hanya bila pembeli menanyakan lama pengerjaan).
 Pembeli bertanya di awal sebelum brief lengkap: "biasanya sekitar 5 hari kerja kak setelah desain disetujui & DP masuk, tapi pastinya nanti dari admin produksi ya" — tanpa tanggal, tanpa janji.
 
 ---
