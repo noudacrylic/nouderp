@@ -5,6 +5,7 @@ namespace App\Modules\Analysis\Services;
 use App\Modules\Analysis\CustomPrice\Recipe;
 use App\Modules\Analysis\CustomPrice\Recipes\KotakRecipe;
 use App\Modules\Analysis\CustomPrice\Recipes\MaharRecipe;
+use App\Modules\Analysis\CustomPrice\Recipes\TempatObatRecipe;
 use App\Modules\Analysis\Models\CustomPriceCategory;
 use App\Modules\Analysis\Models\CustomPriceMaterial;
 use App\Modules\Analysis\Models\CustomPriceSample;
@@ -70,6 +71,8 @@ class CustomPriceService
     public const GROSIR_PARAMS = [
         'grosir_minimal_order' => ['label' => 'Grosir: minimal order (harga normal mulai)', 'default' => 2, 'unit' => 'pcs'],
         'grosir_mulai'         => ['label' => 'Grosir: harga grosir mulai',                 'default' => 6, 'unit' => 'pcs'],
+        // Mahar: di bawah minimal order = harga 1 pcs (lebih mahal). Tempat Obat: tetap harga normal.
+        'grosir_bawah_min_normal' => ['label' => 'Grosir: di bawah minimal order tetap harga normal (1 = ya, 0 = lebih mahal)', 'default' => 0, 'unit' => '1/0'],
     ];
 
     /** Potongan tambahan khusus produk custom per kanal (Shopee & TikTok +3%, 25 Nov 2026). */
@@ -111,7 +114,7 @@ class CustomPriceService
     public function recipes(): array
     {
         $out = [];
-        foreach ([new MaharRecipe(), new KotakRecipe()] as $r) {
+        foreach ([new MaharRecipe(), new TempatObatRecipe(), new KotakRecipe()] as $r) {
             $out[$r->code()] = $r;
         }
 
@@ -571,12 +574,16 @@ class CustomPriceService
     {
         $min    = max(1, (int) round($params['grosir_minimal_order']));
         $mulai  = max($min + 1, (int) round($params['grosir_mulai']));
+        // Ya = pesanan di bawah minimal order tetap dapat harga normal (tidak ada harga satuan).
+        $bawahNormal = !empty($params['grosir_bawah_min_normal']);
+        $rentang = fn (int $a, int $b) => $a === $b ? "{$a} pcs" : "{$a}–{$b} pcs";
 
         $groups = [];
-        if ($min > 1) {
-            $groups[] = ['key' => 'satuan', 'label' => $min > 2 ? '1–' . ($min - 1) . ' pcs' : '1 pcs', 'from' => 1, 'to' => $min - 1, 'basis' => 1];
+        if ($min > 1 && !$bawahNormal) {
+            $groups[] = ['key' => 'satuan', 'label' => $rentang(1, $min - 1), 'from' => 1, 'to' => $min - 1, 'basis' => 1];
         }
-        $groups[] = ['key' => 'normal', 'label' => $min === $mulai - 1 ? "{$min} pcs" : "{$min}–" . ($mulai - 1) . ' pcs', 'from' => $min, 'to' => $mulai - 1, 'basis' => $min];
+        $dari = $bawahNormal ? 1 : $min;
+        $groups[] = ['key' => 'normal', 'label' => $rentang($dari, $mulai - 1), 'from' => $dari, 'to' => $mulai - 1, 'basis' => $min];
         $groups[] = ['key' => 'grosir', 'label' => "{$mulai} pcs ke atas", 'from' => $mulai, 'to' => null, 'basis' => $mulai];
 
         foreach ($groups as &$g) {
@@ -614,6 +621,7 @@ class CustomPriceService
 
         return [
             'minimal_order' => $min,
+            'bawah_normal'  => $bawahNormal,
             'mulai'         => $mulai,
             'groups'        => $groups,
             'berlaku'       => $berlaku['label'],

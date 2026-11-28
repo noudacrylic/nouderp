@@ -303,8 +303,13 @@
                     <div class="px-5 py-3 border-b border-slate-100">
                         <div class="text-sm font-bold text-slate-700">Harga Grosir</div>
                         <div class="text-[11px] text-slate-500">
-                            Minimal order {{ $g['minimal_order'] }} pcs &middot; grosir mulai {{ $g['mulai'] }} pcs.
-                            Harga tiap kelompok terkunci (dihitung pada jumlah terkecil kelompoknya), tidak berubah mengikuti jumlah pesanan.
+                            @if($g['bawah_normal'])
+                                Harga normal dihitung pada {{ $g['minimal_order'] }} pcs, pesanan di bawahnya tetap harga normal &middot; grosir mulai {{ $g['mulai'] }} pcs (dihitung pada {{ $g['mulai'] }} pcs).
+                            @else
+                                Minimal order {{ $g['minimal_order'] }} pcs &middot; grosir mulai {{ $g['mulai'] }} pcs.
+                                Harga tiap kelompok dihitung pada jumlah terkecil kelompoknya.
+                            @endif
+                            Harga terkunci, tidak berubah mengikuti jumlah pesanan.
                         </div>
                     </div>
                     <div class="overflow-x-auto">
@@ -414,8 +419,11 @@
                         @endif
                     </div>
                     <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-5 text-sm">
-                        <div class="font-bold text-slate-700 mb-2">Berat per pcs</div>
-                        <div>Akrilik {{ $angka($r['weight_kg'], 2) }} kg &middot; volumetrik {{ $angka($r['volumetric_kg'], 2) }} kg</div>
+                        <div class="font-bold text-slate-700 mb-2">Berat</div>
+                        <div>Per pcs: akrilik {{ $angka($r['weight_kg'], 2) }} kg &middot; volumetrik {{ $angka($r['volumetric_kg'], 2) }} kg</div>
+                        <div class="font-semibold mt-1">
+                            {{ $r['qty'] }} pcs: akrilik {{ $angka($r['weight_kg'] * $r['qty'], 2) }} kg &middot; volumetrik {{ $angka($r['volumetric_kg'] * $r['qty'], 2) }} kg
+                        </div>
                         <div class="text-[11px] text-slate-400 mt-1">Volumetrik = (P+6)(L+5)(T+5) &divide; 5000, yang biasanya dipakai kurir.</div>
                     </div>
                 </div>

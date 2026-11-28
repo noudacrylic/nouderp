@@ -409,6 +409,50 @@ class CustomPriceServiceTest extends TestCase
         $this->assertSame($g10['pesanan']['shopee']['price'], $g50['pesanan']['shopee']['price']);
     }
 
+    public function test_geometri_tempat_obat_19x8x6(): void
+    {
+        $to = CustomPriceCategory::where('code', 'tempat_obat')->firstOrFail();
+        $to->update(['cnc_department_id' => $this->cnc, 'assembly_department_id' => $this->asm]);
+
+        $geo = app(CustomPriceService::class)->geometry($to->fresh(), [
+            'p' => '19', 'l' => '8', 't' => '6', 'bahan' => ['utama' => $this->bahan],
+        ]);
+
+        $this->assertTrue($geo['ok'], implode(' ', $geo['errors'] ?? []));
+        // bawah 19,5×8 + samping 2×19,5×6 + depan-belakang 2×8×6 + kantong 8×4,2
+        $this->assertEqualsWithDelta(156 + 234 + 96 + 33.6, $geo['area_total'], 0.001);
+        // keliling bawah 55 + 4 rusuk 24 + 2 sisi kantong 8,4
+        $this->assertEqualsWithDelta(87.4, $geo['lem_cm'], 0.001);
+        $this->assertEqualsWithDelta(6, $geo['komponen'], 0.001);
+        // ±4,7 menit — timer nyata Tempat Obat ready 4,9 menit/pcs
+        $this->assertEqualsWithDelta(6 * 15 + 87.4 * 2.2, $geo['asm_base_sec'], 0.001);
+        $this->assertEqualsWithDelta(2374, $geo['cut_mm'], 0.001);
+        $this->assertSame(['TO-8-M2-2'], $geo['ready_skus']);
+
+        $geo2 = app(CustomPriceService::class)->geometry($to->fresh(), [
+            'p' => '8', 'l' => '19', 't' => '6', 'bahan' => ['utama' => $this->bahan],
+        ]);
+        $this->assertSame(['TO-8-M2-2'], $geo2['ready_skus']);
+    }
+
+    public function test_grosir_tempat_obat_di_bawah_50_tetap_harga_normal(): void
+    {
+        $svc = app(CustomPriceService::class);
+        $to  = CustomPriceCategory::where('code', 'tempat_obat')->firstOrFail();
+        $to->update(['cnc_department_id' => $this->cnc, 'assembly_department_id' => $this->asm]);
+        $to  = $to->fresh();
+        $input = ['p' => '19', 'l' => '8', 't' => '6', 'bahan' => ['utama' => $this->bahan]];
+        $harga = fn (int $q) => $svc->calculate($to, $input, $q)['current']['price'];
+
+        $g = $svc->calculate($to, $input, 10)['grosir'];
+        $this->assertSame(['1–99 pcs', '100 pcs ke atas'], array_column($g['groups'], 'label'));
+        $this->assertSame([$harga(50), $harga(100)], array_column($g['groups'], 'price'));
+        $this->assertSame('1–99 pcs', $g['berlaku']);
+        $this->assertSame($harga(50), $g['pesanan']['nonmp']['price']);   // 10 pcs bayar harga normal
+
+        $this->assertSame('100 pcs ke atas', $svc->calculate($to, $input, 250)['grosir']['berlaku']);
+    }
+
     public function test_cek_silang_produk_ready_ukuran_sama(): void
     {
         DB::table('products')->insert([
