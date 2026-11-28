@@ -301,7 +301,9 @@ return [
             'analisa.harga'          => [
                 'label' => 'Harga Produk',
                 'url'   => '/erp/analisa/harga',
-                'route_patterns' => ['analisa.harga*'],
+                // Sengaja `analisa.harga.*`, bukan `analisa.harga*`: yang terakhir ikut
+                // menelan `analisa.harga-custom.*` milik menu Harga Custom di bawah.
+                'route_patterns' => ['analisa.harga.*'],
                 'role_gate' => ['super_admin', 'admin'],
                 'subtabs' => [
                     ['label' => 'Harga',    'url' => '/erp/analisa/harga',          'route_patterns' => ['analisa.harga.index', 'analisa.harga.save', 'analisa.harga.push', 'analisa.harga.terapkan', 'analisa.harga.tarik', 'analisa.harga.component.*']],
@@ -310,6 +312,20 @@ return [
                     // Simulasi diskon: dua bentuk (keranjang & per produk) di balik satu sub-tab,
                     // karena keduanya menjawab pertanyaan yang sama dari dua arah.
                     ['label' => 'Promo',    'url' => '/erp/analisa/harga/promo',    'route_patterns' => ['analisa.harga.promo*']],
+                ],
+            ],
+            // Harga produk custom yang belum pernah dibuat, dihitung dari ukurannya. Satu rumus
+            // untuk semua jenis produk; tiap jenis hanya beda resep. Faktor Waktu memakai OP
+            // sampel supaya waktu kerjanya terukur, bukan perasaan.
+            'analisa.harga-custom'   => [
+                'label' => 'Harga Custom',
+                'url'   => '/erp/analisa/harga-custom',
+                'route_patterns' => ['analisa.harga-custom.*'],
+                'role_gate' => ['super_admin', 'admin'],
+                'subtabs' => [
+                    ['label' => 'Hitung',       'url' => '/erp/analisa/harga-custom',              'route_patterns' => ['analisa.harga-custom.index']],
+                    ['label' => 'Faktor Waktu', 'url' => '/erp/analisa/harga-custom/faktor-waktu', 'route_patterns' => ['analisa.harga-custom.faktor*', 'analisa.harga-custom.sampel.*']],
+                    ['label' => 'Pengaturan',   'url' => '/erp/analisa/harga-custom/pengaturan',   'route_patterns' => ['analisa.harga-custom.pengaturan*']],
                 ],
             ],
         ],

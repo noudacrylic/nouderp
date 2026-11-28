@@ -1783,6 +1783,19 @@ Route::prefix('erp/analisa')->name('analisa.')->group(function () {
     // Dari kanal Website: samakan seluruh marketplace dengan harga dasar lalu kirim ke Jubelio.
     Route::post('harga/{productId}/terapkan-marketplace', [\App\Modules\Analysis\Controllers\ProductPriceController::class, 'applyToMarketplaces'])->whereNumber('productId')->name('harga.terapkan');
 
+    // Harga Custom — harga produk yang belum pernah dibuat, dihitung dari ukurannya.
+    // Hitung lewat GET supaya hasilnya bisa dibuka ulang dan dibagikan apa adanya.
+    Route::get ('harga-custom',                                 [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'index'])->name('harga-custom.index');
+    Route::get ('harga-custom/faktor-waktu',                    [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'factors'])->name('harga-custom.faktor');
+    Route::post('harga-custom/faktor-waktu',                    [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'saveFactors'])->name('harga-custom.faktor.save');
+    Route::post('harga-custom/faktor-waktu/sampel',             [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'storeSample'])->name('harga-custom.sampel.store');
+    Route::post('harga-custom/faktor-waktu/sampel/{id}/coret',  [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'toggleSample'])->whereNumber('id')->name('harga-custom.sampel.toggle');
+    Route::delete('harga-custom/faktor-waktu/sampel/{id}',      [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'destroySample'])->whereNumber('id')->name('harga-custom.sampel.destroy');
+    Route::get ('harga-custom/pengaturan',                      [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'settings'])->name('harga-custom.pengaturan');
+    Route::post('harga-custom/pengaturan',                      [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'saveSettings'])->name('harga-custom.pengaturan.save');
+    Route::post('harga-custom/pengaturan/harga',                [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'saveDefaults'])->name('harga-custom.pengaturan.harga');
+    Route::post('harga-custom/pengaturan/bahan',               [\App\Modules\Analysis\Controllers\CustomPriceController::class, 'saveMaterials'])->name('harga-custom.pengaturan.bahan');
+
     // Kalender Produksi — sebaran waktu satu hari per mesin & operator
     Route::get('kalender', [\App\Modules\Analysis\Controllers\ProductionCalendarController::class, 'index'])->name('kalender.index');
     Route::post('kalender/henti-mesin',        [\App\Modules\Analysis\Controllers\ProductionCalendarController::class, 'storeDowntime'])->name('kalender.downtime.store');

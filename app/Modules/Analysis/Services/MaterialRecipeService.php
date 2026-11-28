@@ -328,8 +328,13 @@ class MaterialRecipeService
         return $memo[$pid] = $total > 0 ? $total : null;
     }
 
-    /** @return array<int,array{price:float,date:?string,source:?string}> */
-    private function latestPrices(array $productIds): array
+    /**
+     * Juga dipakai Harga Custom untuk bahan lembaran & engsel — satu definisi "harga beli
+     * terakhir" untuk seluruh Analisa.
+     *
+     * @return array<int,array{price:float,date:?string,source:?string}>
+     */
+    public function latestPrices(array $productIds): array
     {
         if (empty($productIds)) {
             return [];
