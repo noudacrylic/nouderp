@@ -29,13 +29,26 @@
     $bulkResiIds   = $shipDeliveries->filter(fn ($d) => !empty($d->tracking_number))->pluck('id')->implode(','); // SJ ber-resi (utk Cetak Resi)
     $bulkGenIds    = $shipDeliveries->filter(fn ($d) => empty($d->tracking_number))->pluck('id')->implode(',');  // SJ belum resi (utk Generate Resi)
 
-    $qtyRow = function ($ln) use ($fmtQty) {
+    // Gambar dari produk web (GambarProdukService). SKU wajib-gambar (Akrilik Sign: bedanya cuma
+    // desain/arah panah) tampil besar; tanpa gambar → peringatan supaya packing cek manual.
+    $gambar = app(\App\Modules\POS\Services\GambarProdukService::class);
+    $qtyRow = function ($ln) use ($fmtQty, $gambar) {
         $isService = !empty($ln['is_service']);
         $shipped = (float) $ln['shipped'];
         $remaining = (float) $ln['remaining'];
-        $nameCell = '<span class="flex-1 text-gray-700">' . e($ln['name'])
+        $wajibGambar = !$isService && \App\Modules\POS\Services\GambarProdukService::wajib($ln['sku'] ?? null);
+        $url = $isService ? null : $gambar->url($ln['product_id'] ?? null);
+        $imgCell = $url
+            ? '<a href="' . e($url) . '" target="_blank" rel="noopener" class="shrink-0 mr-2" title="Perbesar gambar">'
+                . '<img src="' . e($url) . '" alt="" loading="lazy" class="' . ($wajibGambar ? 'w-24 h-24' : 'w-10 h-10')
+                . ' object-contain rounded border border-gray-200 bg-white"></a>'
+            : '';
+        $nameCell = $imgCell . '<span class="flex-1 text-gray-700">' . e($ln['name'])
             . ($isService ? '<span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-100 text-violet-700 align-middle">JASA</span>' : '')
-            . ($ln['sku'] ? '<span class="text-gray-400"> · ' . e($ln['sku']) . '</span>' : '') . '</span>';
+            . ($ln['sku'] ? '<span class="text-gray-400"> · ' . e($ln['sku']) . '</span>' : '')
+            . ($wajibGambar && !$url ? '<span class="block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 w-fit"'
+                . ' title="Upload produk web + gambar variannya untuk SKU ini">⚠ Tanpa gambar — cek desain manual</span>' : '')
+            . '</span>';
         if ($isService) {
             // Jasa/non-stok: tampil di daftar tapi tak dikirim → kolom Dikirim/Belum kosong.
             return '<div class="flex items-start px-3 py-1.5 border-t border-gray-200">'

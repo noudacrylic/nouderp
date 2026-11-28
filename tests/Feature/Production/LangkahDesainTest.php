@@ -121,6 +121,9 @@ class LangkahDesainTest extends TestCase
         $this->assertSame($this->desainer->id, $t->assignee_user_id);
         $this->assertSame(2, app(ProductionOrderService::class)->activeStepNumber($op->fresh('steps')));
 
+        // Kartu tempel wajib di-Mulai dulu (alat tempel satu — AlatTempelService).
+        $this->assertSame([], $meja->skill('langkah-desain')->jawaban($t));
+        $this->actingAs($this->desainer)->post(route('tasks.meja.mulai', $t->id));
         $this->actingAs($this->desainer)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => 'selesai'])
             ->assertSessionHas('success');
 
@@ -142,6 +145,7 @@ class LangkahDesainTest extends TestCase
         $t = Task::where('skill', 'langkah-desain')->firstOrFail();
         $jawab = fn (string $k) => $this->actingAs($this->desainer)->post(route('tasks.meja.jawab', $t->id), ['jawaban' => $k]);
 
+        $this->actingAs($this->desainer)->post(route('tasks.meja.mulai', $t->id));
         $jawab('selesai')->assertSessionHas('success');
         $t->refresh();
         $this->assertSame('completed', $this->langkah($op, 2)->status, 'Langkah OP tetap ditutup — produksi lanjut.');

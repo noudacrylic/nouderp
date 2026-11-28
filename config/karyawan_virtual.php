@@ -42,11 +42,12 @@ return [
             'produksi.coret-sampel-mesin' => \App\Modules\KaryawanVirtual\Skills\Produksi\CoretSampelMesin::class,
             'produksi.op-yatim'           => \App\Modules\KaryawanVirtual\Skills\Produksi\OpYatim::class,
             'produksi.op-koin'            => \App\Modules\KaryawanVirtual\Skills\Produksi\OpKoin::class,
+            'produksi.op-akrilik-sign'    => \App\Modules\KaryawanVirtual\Skills\Produksi\OpAkrilikSign::class,
             'produksi.ganti-pelaksana'    => \App\Modules\KaryawanVirtual\Skills\Produksi\GantiPelaksana::class,
         ],
         // Skill yang masih diuji: diberi label "Dalam percobaan" di halaman & pesan Telegram.
         // Hapus dari daftar ini setelah hasilnya dipercaya (biasanya bersamaan naik ke Otomatis).
-        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc', 'produksi.op-yatim', 'produksi.op-koin'],
+        'percobaan' => ['produksi.op-nm-dari-bnm', 'produksi.isi-antrean-rakit', 'produksi.isi-antrean-cnc', 'produksi.op-yatim', 'produksi.op-koin', 'produksi.op-akrilik-sign'],
     ],
 
     // Membagi kerja ke manusia: tiap skill memindai pekerjaan terbuka di ERP lalu menaruhnya

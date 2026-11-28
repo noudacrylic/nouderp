@@ -160,6 +160,8 @@ class BomController extends Controller
             'outputs.*.output_type'     => 'required|in:main,by_product',
             'outputs.*.percentage'      => 'required|numeric|min:0|max:100',
             'outputs.*.unit_percentage' => 'nullable|numeric|min:0|max:100',
+            'steps'                     => 'nullable|array',
+            'steps.*.department_id'     => ['nullable', $this->aturanPilihanLangkah()],
         ]);
 
         try {
@@ -195,6 +197,8 @@ class BomController extends Controller
             'outputs.*.output_type'     => 'required|in:main,by_product',
             'outputs.*.percentage'      => 'required|numeric|min:0|max:100',
             'outputs.*.unit_percentage' => 'nullable|numeric|min:0|max:100',
+            'steps'                     => 'nullable|array',
+            'steps.*.department_id'     => ['nullable', $this->aturanPilihanLangkah()],
         ]);
 
         try {
@@ -204,6 +208,17 @@ class BomController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage())->withInput();
         }
+    }
+
+    /** Kotak divisi langkah: id divisi produksi, atau "desain:tempel"/"desain:cetak". */
+    private function aturanPilihanLangkah(): \Closure
+    {
+        return function (string $attr, $nilai, \Closure $gagal) {
+            $p = \App\Modules\Production\Models\ProductionOrderStep::uraiPilihan($nilai);
+            if (!$p['desain'] && !($p['department_id'] && Department::whereKey($p['department_id'])->exists())) {
+                $gagal('Divisi langkah tidak dikenal.');
+            }
+        };
     }
 
     public function destroy(int $id, BomService $service)

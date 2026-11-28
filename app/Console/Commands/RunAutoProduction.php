@@ -75,6 +75,15 @@ class RunAutoProduction extends Command
             }
         }
 
+        // Akrilik Sign: jalur cetak & tempel Admin Desain / cetak → Assembling menurut beban admin.
+        $sign = $kv->jalankan('produksi.op-akrilik-sign', KaryawanVirtualService::PEMICU_JADWAL);
+        foreach ($sign['hasil'] as $r) {
+            if ($r['created'] || $r['simulasi'] || $r['jenis'] === 'diubah') {
+                $this->line('  ' . ($r['created'] ? '<info>CREATED</info>' : '<info>' . strtoupper($r['jenis']) . '</info>')
+                    . " sign {$r['sku']}" . ($r['created'] ? " → {$r['order_number']}" : '') . " — {$r['reason']}");
+            }
+        }
+
         // OP milik pesanan pre-order yang batal: dibatalkan / dilepas / diambil alih pesanan baru —
         // sebelum sapuan pre-order, supaya pesanan yang mengambil alih tak dibuatkan OP kedua.
         $yatim = $kv->jalankan('produksi.op-yatim', KaryawanVirtualService::PEMICU_JADWAL);

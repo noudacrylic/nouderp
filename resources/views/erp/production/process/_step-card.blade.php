@@ -87,6 +87,9 @@
     $isLastStep = (int) $step->step_number === (int) $totalSteps;
     // Stiker dicetak Admin Desain di langkah sebelumnya, menempelnya tugas divisi ini.
     $tempelDariDesain = $order->steps->first(fn ($s) => $s->desain === 'cetak' && (int) $s->step_number === (int) $step->step_number - 1);
+    // Alat tempel cuma satu: sedang dipakai Admin Desain / OP lain → peringatan (bukan blokir).
+    $alatTempel = $tempelDariDesain ? app(\App\Modules\Production\Services\AlatTempelService::class)->dipakai() : null;
+    $alatTempel = $alatTempel && $alatTempel['op'] !== $order->order_number ? $alatTempel : null;
 
     // QC Timbang = langkah terakhir OP yang hasilnya wajib QC. Qty penutup dibatasi bungkus lulus.
     $qcStep    = $order->steps->firstWhere('is_qc', true);
@@ -339,6 +342,10 @@
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
             @endif
+            @if($alatTempel)
+                <span class="bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold"
+                      title="Alat tempel cuma satu — tunggu sampai selesai dipakai">⏳ Alat tempel dipakai {{ $alatTempel['oleh'] }} ({{ $alatTempel['op'] }})</span>
+            @endif
         @else
             @php
                 $execNames = $step->executors->isNotEmpty()
@@ -361,6 +368,10 @@
             @endif
             @if($tempelDariDesain)
                 <span class="bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-1.5 py-0.5 rounded font-bold" title="Stiker dicetak Admin Desain di langkah sebelumnya">🏷 Termasuk tempel stiker</span>
+            @endif
+            @if($alatTempel)
+                <span class="bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold"
+                      title="Alat tempel cuma satu — tunggu sampai selesai dipakai">⏳ Alat tempel dipakai {{ $alatTempel['oleh'] }} ({{ $alatTempel['op'] }})</span>
             @endif
             @if($tanpaPelaksana)
                 <span class="bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded font-bold"

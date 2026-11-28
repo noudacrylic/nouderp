@@ -46,6 +46,8 @@
                                    placeholder="Misal: 10"
                                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                             <p class="text-[10px] text-gray-400 mt-1">Biasanya BOM ini dikerjakan berapa siklus sekali jalan?</p>
+                            {{-- Bahan pecahan (mis. stiker 0,25 lembar = 4 per lembar): jumlah bukan kelipatan → slot lembar terbuang. Saran saja. --}}
+                            <p x-show="sisaLembar()" x-text="sisaLembar()" class="text-[10px] text-amber-700 font-semibold mt-1"></p>
                         </div>
                         <div class="col-span-2">
                             <label class="block text-xs font-bold text-gray-500 mb-1">Deskripsi</label>
@@ -241,6 +243,10 @@
                                         @foreach($departments as $dept)
                                             <option value="{{ $dept->id }}">{{ $dept->name }}</option>
                                         @endforeach
+                                        {{-- Langkah Desain tanpa divisi: cetak/tempel stiker oleh Admin Desain, tanpa timer. --}}
+                                        @foreach(\App\Modules\Production\Models\ProductionOrderStep::DESAIN as $kunci => $labelDesain)
+                                            <option value="desain:{{ $kunci }}">{{ $labelDesain }}</option>
+                                        @endforeach
                                     </select>
                                     <button type="button" @click="steps.splice(idx, 1)"
                                             class="text-red-400 hover:text-red-600 text-xs px-1">✕</button>
@@ -317,7 +323,7 @@
         return ['product_id' => $o->product_id, 'productQuery' => ($o->product?->sku ?? '') . ' - ' . ($o->product?->name ?? ''), 'qty_per_cycle' => $fmtQty($o->qty_per_cycle), 'output_type' => $o->output_type, 'percentage' => $o->percentage, 'unit_percentage' => $o->unit_percentage, 'archived' => $o->product && !$o->product->is_active, 'results' => [], 'showDrop' => false];
     })->values()->all() : [];
     $initSteps = isset($bom) ? $bom->steps->map(function($s) {
-        return ['name' => $s->name, 'description' => $s->description, 'department_id' => $s->department_id, 'estimated_hours' => $s->estimated_hours];
+        return ['name' => $s->name, 'description' => $s->description, 'department_id' => $s->pilihan, 'estimated_hours' => $s->estimated_hours];
     })->values()->all() : [];
 @endphp
 
@@ -449,6 +455,20 @@ function bomForm() {
             this.recalcPercentages();
         },
         addStep()     { this.steps.push({ name: '', description: '', department_id: '', estimated_hours: '' }); },
+
+        // Bahan < 1 per siklus = pecahan lembar (stiker 0,25 → 4 slot/lembar). Jumlah siklus yang
+        // bukan kelipatannya menyisakan slot terbuang — diingatkan, tidak ditolak.
+        sisaLembar() {
+            const siklus = parseInt(this.typicalCycles) || 1;
+            for (const m of this.materials) {
+                const q = parseFloat(String(m.qty_per_cycle ?? '').replace(',', '.'));
+                if (!(q > 0 && q < 1)) continue;
+                const isi = Math.round(1 / q);
+                const sisa = (isi - siklus % isi) % isi;
+                if (sisa > 0) return `⚠ ${m.productQuery || 'Bahan pecahan'}: sisa ${sisa} dari ${isi} slot per lembar — pakai kelipatan ${isi}.`;
+            }
+            return '';
+        },
 
         async searchProduct(idx, list) {
             const q = this[list][idx].productQuery;

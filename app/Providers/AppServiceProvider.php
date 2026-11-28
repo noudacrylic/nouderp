@@ -32,6 +32,12 @@ class AppServiceProvider extends ServiceProvider
         // tab (badge jumlah) berbagi instance → tidak query dobel.
         $this->app->singleton(\App\Modules\POS\Services\FulfillmentReadinessService::class);
 
+        // Peta gambar produk web untuk kartu packing — dimuat sekali per permintaan.
+        $this->app->scoped(\App\Modules\POS\Services\GambarProdukService::class);
+
+        // Pemakai alat tempel stiker (Desain/Assembling) — dicek banyak kartu Proses Produksi sekali buka.
+        $this->app->scoped(\App\Modules\Production\Services\AlatTempelService::class);
+
         // Resep bahan berjenjang di-memo per-request. Singleton karena satu halaman bisa
         // memakainya lewat beberapa jalan sekaligus (HPP Ready, HPP Bundle, Harga Produk),
         // dan menyusun resepnya jauh lebih mahal daripada membacanya.

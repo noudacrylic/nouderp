@@ -104,7 +104,7 @@
                             $skill = $skills[$t->skill] ?? null;
                             $bayang = (bool) $t->getAttribute('bayangan');
                             $lewat = $t->tenggat_at && $t->tenggat_at->isPast();
-                            $pakaiMulai = \App\Modules\Tasks\MejaKerja\MejaKerjaService::butuhMulai($skill);
+                            $pakaiMulai = \App\Modules\Tasks\MejaKerja\MejaKerjaService::butuhMulai($skill, $t);
                         @endphp
                         <div class="rounded-md p-3 text-sm {{ $bayang ? 'bg-violet-50/60 border-2 border-dashed border-violet-300' : 'bg-white border ' . ($lewat ? 'border-red-300' : 'border-gray-200') }}">
                             <div class="flex items-start justify-between gap-2">

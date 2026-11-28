@@ -110,9 +110,13 @@ class MejaKerjaService
      * Skill yang pekerjaannya punya masa kerja nyata (desain di CorelDraw) memakai tombol Mulai.
      * Skill lain cukup Antre → selesai sendiri saat dokumen ERP-nya dibuat.
      */
-    public static function butuhMulai(?SkillAdmin $s): bool
+    public static function butuhMulai(?SkillAdmin $s, ?Task $t = null): bool
     {
-        return $s !== null && method_exists($s, 'butuhMulai') && $s->butuhMulai();
+        if ($s === null) return false;
+        // Skill boleh memutuskan per kartu (mis. langkah Desain: hanya kartu tempel yang ber-Mulai).
+        if ($t && method_exists($s, 'butuhMulaiUntuk')) return $s->butuhMulaiUntuk($t);
+
+        return method_exists($s, 'butuhMulai') && $s->butuhMulai();
     }
 
     /**
@@ -620,7 +624,7 @@ class MejaKerjaService
     /** Pending → kembali: skill ber-Mulai yang sudah dimulai ke Dikerjakan, lainnya ke Antre. */
     public function lanjutkan(Task $t, ?User $u, string $catatan = 'Dilanjutkan'): void
     {
-        $ke = self::butuhMulai($this->skill($t->skill)) && $t->mulai_at ? 'in_progress' : 'open';
+        $ke = self::butuhMulai($this->skill($t->skill), $t) && $t->mulai_at ? 'in_progress' : 'open';
         $this->ubahStatus($t, $ke, $u, $catatan);
     }
 

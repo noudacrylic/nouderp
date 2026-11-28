@@ -117,7 +117,7 @@ class MejaKerjaController extends Controller
     {
         $u = $request->user();
         $this->bolehPegang($u, $task);
-        abort_unless(MejaKerjaService::butuhMulai($this->meja->skill($task->skill)), 422, 'Task ini tidak perlu dimulai — langsung kerjakan dari tombolnya.');
+        abort_unless(MejaKerjaService::butuhMulai($this->meja->skill($task->skill), $task), 422, 'Task ini tidak perlu dimulai — langsung kerjakan dari tombolnya.');
         abort_unless($task->status === 'open', 422, 'Task tidak bisa dimulai dari status ini.');
         if ($this->penuh($u)) {
             return back()->with('error', 'Maksimal ' . MejaKerjaService::MAKS_DIKERJAKAN . ' task dikerjakan bersamaan.');

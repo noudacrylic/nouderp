@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Galeri\Services\FotoProdukService;
 use App\Modules\Production\Models\ProductionOrder;
 use App\Modules\Production\Models\ProductionOrderStep;
+use App\Modules\Production\Services\AlatTempelService;
 use App\Modules\Production\Services\ProductionOrderService;
 use App\Modules\Sales\Models\SalesOrder;
 use App\Modules\Tasks\MejaKerja\Contracts\JadiSkillManajer;
@@ -33,6 +34,8 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
     use JadiSkillManajer, TahapFoto;
 
     private const PERINGATAN = '⚠️ ';
+    /** Kartu tempel yang menunggu alat tempel (sedang dipakai Assembling / kartu tempel lain). */
+    private const TUNGGU_ALAT = '⏳ ';
 
     public function key(): string { return 'langkah-desain'; }
 
@@ -52,6 +55,15 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
     public function slaMenitBawaan(): int { return 240; }
 
     public function tersedia(): bool { return Schema::hasColumn('production_order_steps', 'desain'); }
+
+    /**
+     * Kartu TEMPEL wajib di-Mulai: alat tempel cuma satu (dipakai bergantian dengan Assembling),
+     * jadi ERP perlu tahu kapan alat sedang dipakai (AlatTempelService). Kartu cetak saja tidak.
+     */
+    public function butuhMulaiUntuk(Task $task): bool
+    {
+        return ProductionOrderStep::whereKey((int) (($task->meta ?? [])['step_id'] ?? 0))->value('desain') === 'tempel';
+    }
 
     public function pindai(Carbon $sejak): iterable
     {
@@ -113,9 +125,18 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
         }
         if (!$step->isDesain()) return ['cancelled', 'Langkah bukan lagi langkah Desain.'];
 
-        // Tanda ⚠️ dilepas begitu gambar disetujui (kartu desain gambarnya ditutup).
-        if (str_starts_with($task->title, self::PERINGATAN) && !$this->gambarBelumDisetujui($step->productionOrder)) {
-            $task->title = substr($task->title, strlen(self::PERINGATAN));
+        // Awalan judul mengikuti keadaan: ⏳ selama alat tempel dipakai orang lain (kartu tempel yang
+        // belum di-Mulai), ⚠️ selama gambar belum disetujui (dilepas saat kartu desain gambarnya ditutup).
+        $isi = $task->title;
+        foreach ([self::TUNGGU_ALAT, self::PERINGATAN] as $awalan) {
+            if (str_starts_with($isi, $awalan)) $isi = substr($isi, strlen($awalan));
+        }
+        $peringatan = str_starts_with($task->title, self::TUNGGU_ALAT . self::PERINGATAN) || str_starts_with($task->title, self::PERINGATAN);
+        $peringatan = $peringatan && $this->gambarBelumDisetujui($step->productionOrder);
+        $tunggu = $step->desain === 'tempel' && $task->status === 'open' && $this->alatDipakaiLain($task);
+        $judul = ($tunggu ? self::TUNGGU_ALAT : '') . ($peringatan ? self::PERINGATAN : '') . $isi;
+        if ($judul !== $task->title) {
+            $task->title = $judul;
             $task->save();
         }
         return null;
@@ -149,6 +170,8 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
 
         $step = ProductionOrderStep::find((int) (($task->meta ?? [])['step_id'] ?? 0));
         if (!$step || $step->status === 'completed') return [];
+        // Tempel: tekan Mulai dulu (tanda alat tempel sedang dipakai), baru tombol Selesai muncul.
+        if ($step->desain === 'tempel' && $task->status === 'open') return [];
 
         return [['kunci' => 'selesai', 'label' => $step->desain === 'cetak' ? '✓ Cetak selesai' : '✓ Cetak & tempel selesai', 'utama' => true]];
     }
@@ -193,6 +216,13 @@ class LangkahDesainSkill implements SkillAdmin, PunyaJawaban
     {
         $utama = $op->outputs->firstWhere('output_type', 'main')?->product?->sku;
         return ($step->desain === 'cetak' ? 'Cetak stiker ' : 'Cetak & tempel stiker ') . $op->order_number . ($utama ? " — $utama" : '');
+    }
+
+    /** Alat tempel sedang dipakai pekerjaan LAIN (Assembling, atau kartu tempel lain yang sudah di-Mulai). */
+    private function alatDipakaiLain(Task $task): bool
+    {
+        $pakai = app(AlatTempelService::class)->dipakai();
+        return $pakai !== null && $pakai['op'] !== (($task->meta ?? [])['order_number'] ?? null);
     }
 
     /**

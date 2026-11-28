@@ -7,6 +7,7 @@ use App\Modules\Production\Models\BomMaterial;
 use App\Modules\Production\Models\BomOutput;
 use App\Modules\Production\Models\BomStep;
 use App\Modules\Production\Models\ProductionByproduct;
+use App\Modules\Production\Models\ProductionOrderStep;
 use App\Core\Inventory\Product;
 use App\Services\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
@@ -326,6 +327,7 @@ class BomService
                     'bom_id'           => $newBom->id,
                     'step_number'      => $s->step_number,
                     'department_id'    => $s->department_id,
+                    'desain'           => $s->desain,
                     'name'             => $s->name,
                     'description'      => $s->description,
                     'estimated_hours'  => $s->estimated_hours,
@@ -340,10 +342,12 @@ class BomService
     {
         $bom = Bom::with('steps.department')->findOrFail($bomId);
 
+        // department_id = nilai kotak divisi: id divisi, atau "desain:<jenis>" untuk langkah Desain —
+        // syncSteps OP mengurainya lewat ProductionOrderStep::uraiPilihan.
         return $bom->steps->map(fn($s) => [
             'name'            => $s->name,
-            'department_id'   => $s->department_id,
-            'department_name' => $s->department?->name ?? '',
+            'department_id'   => $s->desain ? $s->pilihan : $s->department_id,
+            'department_name' => $s->desain ? (ProductionOrderStep::DESAIN[$s->desain] ?? $s->name) : ($s->department?->name ?? ''),
         ])->values()->toArray();
     }
 
@@ -422,14 +426,18 @@ class BomService
     {
         $bom->steps()->delete();
 
-        foreach ($steps as $i => $s) {
-            if (empty($s['name'])) continue;
+        $no = 0;
+        foreach ($steps as $s) {
+            // "desain:tempel"/"desain:cetak" = langkah Desain tanpa divisi.
+            $p = ProductionOrderStep::uraiPilihan($s['department_id'] ?? '');
+            if (empty($s['name']) && !$p['desain']) continue;
 
             BomStep::create([
                 'bom_id'          => $bom->id,
-                'step_number'     => $i + 1,
-                'department_id'   => $s['department_id'] ?? null,
-                'name'            => $s['name'],
+                'step_number'     => ++$no,
+                'department_id'   => $p['department_id'],
+                'desain'          => $p['desain'],
+                'name'            => $p['desain'] ? ProductionOrderStep::DESAIN[$p['desain']] : $s['name'],
                 'description'     => $s['description'] ?? null,
                 'estimated_hours' => $s['estimated_hours'] ?? null,
             ]);

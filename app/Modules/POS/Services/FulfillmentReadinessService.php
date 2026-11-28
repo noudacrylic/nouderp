@@ -1726,6 +1726,7 @@ class FulfillmentReadinessService
             $expected = (float) $si->qty * (float) ($si->conversion_to_base ?? 1);
             if ($isService) {
                 $lines[] = [
+                    'product_id' => $si->product_id,
                     'name'       => $si->description ?: ($product->name ?? '-'),
                     'sku'        => $product->sku ?? null,
                     'ordered'    => $expected,
@@ -1742,6 +1743,7 @@ class FulfillmentReadinessService
             if ($remaining > 0.0001) $allFull = false;
 
             $lines[] = [
+                'product_id' => $si->product_id,
                 'name'       => $si->description ?: ($product->name ?? '-'),
                 'sku'        => $product->sku ?? null,
                 'ordered'    => $expected,
