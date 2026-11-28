@@ -98,8 +98,13 @@ class ProductionMaterialAdditionController extends Controller
               ->orWhereIn('account_category', ['cash', 'cash_equivalent']);
         })->where('is_active', true)->orderBy('code')->get();
 
+        // Dari Potong Susulan (bahan diambil dari stok): laporan komponen dihubungkan saat disimpan.
+        $komponenLaporan = $request->get('komponen_laporan_id')
+            ? \App\Modules\Production\Models\KomponenLaporan::with('items')->find($request->get('komponen_laporan_id'))
+            : null;
+
         return view('erp.production.material-additions.create', compact(
-            'departments', 'activeSteps', 'departmentId', 'cashAccounts', 'preSelectedStepId'
+            'departments', 'activeSteps', 'departmentId', 'cashAccounts', 'preSelectedStepId', 'komponenLaporan'
         ));
     }
 
@@ -143,6 +148,7 @@ class ProductionMaterialAdditionController extends Controller
 
         DB::transaction(function () use ($request) {
             $step  = ProductionOrderStep::with('productionOrder')->findOrFail($request->production_order_step_id);
+            $komponenLaporanId = (int) $request->input('komponen_laporan_id');
             $order = $step->productionOrder;
 
             $addition = ProductionMaterialAddition::create([
@@ -151,6 +157,10 @@ class ProductionMaterialAdditionController extends Controller
                 'addition_number'          => NumberGeneratorService::generate('MAT'),
                 'notes'                    => $request->notes,
             ]);
+            if ($komponenLaporanId) {
+                \App\Modules\Production\Models\KomponenLaporan::whereKey($komponenLaporanId)
+                    ->whereNull('material_addition_id')->update(['material_addition_id' => $addition->id]);
+            }
 
             $wipAccount       = Account::where('code', AccountCodeEnum::WIP)->firstOrFail();
             $inventoryAccount = Account::where('code', AccountCodeEnum::INVENTORY)->firstOrFail();

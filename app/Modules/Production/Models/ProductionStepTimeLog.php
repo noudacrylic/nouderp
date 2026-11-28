@@ -20,6 +20,8 @@ class ProductionStepTimeLog extends Model
         'perbaikan_kecil'  => ['label' => '🛠 Memperbaiki kerusakan kecil (alat, barang, tempat)', 'keterangan' => true],
         'belanja'          => ['label' => '🛒 Belanja keperluan (galon, komponen, plastik, …)', 'keterangan' => true],
         'perintah_owner'   => ['label' => '👑 Diperintah owner', 'keterangan' => false],
+        // Komponen kurang/rusak: form tambahan (penyebab + daftar komponen + foto) → KomponenLaporan.
+        'komponen'         => ['label' => '🧩 Komponen kurang / rusak', 'keterangan' => false],
         'tunggu_bahan'     => ['label' => '⏳ Menunggu bahan / komponen', 'keterangan' => false],
         'alat_bermasalah'  => ['label' => '🔧 Alat / mesin bermasalah', 'keterangan' => false],
         'dipanggil_atasan' => ['label' => '🙋 Dipanggil atasan', 'keterangan' => false],

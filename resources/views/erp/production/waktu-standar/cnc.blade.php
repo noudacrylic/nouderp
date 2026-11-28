@@ -105,7 +105,14 @@
                         <td class="text-right font-bold {{ $ct['faktor'] < 1 ? 'text-red-600' : 'text-emerald-700' }}">{{ $ct['faktor'] < 1 ? '× ' . $fmt($ct['faktor']) : 'memenuhi' }}</td>
                     </tr>
                     <tr class="border-b border-gray-50 text-gray-400">
-                        <td class="py-2 font-semibold">D. Mutu</td><td class="text-xs">Potong salah / bahan rusak — belum dicatat</td><td class="text-right">—</td>
+                        <td class="py-2 font-semibold">D. Mutu</td>
+                        <td class="text-xs">
+                            @php $mk = $mutuKomponen ?? []; @endphp
+                            Laporan Assembling: kurang dari CNC {{ $mk['belum_dipotong'] ?? 0 }} · salah potong {{ $mk['salah_potong'] ?? 0 }}
+                            <span class="text-gray-300">· rusak saat dirakit {{ $mk['rusak_rakit'] ?? 0 }} · bahan beli {{ $mk['bahan_beli'] ?? 0 }}</span>
+                            — dikumpulkan dulu, belum dinilai
+                        </td>
+                        <td class="text-right">—</td>
                     </tr>
                     <tr class="text-gray-400">
                         <td class="py-2 font-semibold">E. Keterampilan</td><td class="text-xs">Mesin & merk yang dikuasai — informasi, belum dinilai</td><td class="text-right">—</td>

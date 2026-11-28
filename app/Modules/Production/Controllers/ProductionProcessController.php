@@ -141,11 +141,25 @@ class ProductionProcessController extends Controller
         $warehouses         = Warehouse::orderBy('name')->get(['id', 'name']);
         $defaultWarehouseId = Warehouse::defaultId();
 
+        // Komponen kurang/rusak (28 Nov 2026): saran nama komponen per OP (kunci nomor OP, dipakai
+        // modal Pending), jumlah permintaan potong susulan (layar CNC), dan susulan yang sudah
+        // dipotong untuk langkah yang masih Pending di divisi ini (layar Assembling).
+        $komponenSvc = app(\App\Modules\Production\Services\KomponenLaporanService::class);
+        $saranPerOrder = $komponenSvc->saranUntukOrder($inProgressSteps->pluck('production_order_id')->unique()->values()->all());
+        $saranKomponen = $inProgressSteps->mapWithKeys(fn ($s) => [$s->productionOrder->order_number => $saranPerOrder[$s->production_order_id] ?? []])->all();
+        $isCnc = $selectedDepartment && str_starts_with(strtoupper($selectedDepartment->name), 'CNC');
+        $susulanMenunggu = $isCnc ? \App\Modules\Production\Models\KomponenLaporan::where('status', 'menunggu')->count() : 0;
+        $susulanSiap = \App\Modules\Production\Models\KomponenLaporan::with(['items', 'productionOrder:id,order_number'])
+            ->where('status', 'selesai')->where('susulan_selesai_at', '>=', now()->subDays(7))
+            ->whereIn('production_order_step_id', $pausedSteps->pluck('id'))->get()
+            ->filter(fn ($l) => optional($pausedSteps->firstWhere('id', $l->production_order_step_id))->paused_at <= $l->susulan_selesai_at);
+
         return view('erp.production.process.index', compact(
             'pendingSteps', 'inProgressSteps', 'pausedSteps', 'selectedDepartment', 'busyExecutorIds', 'testingMode', 'alasanPendingWajib',
             'merkAkrilik', 'merkAkrilikWajib', 'merkTerakhir', 'maksLembar', 'targetWaktu',
             'pergantianMenunggu',
-            'warehouses', 'defaultWarehouseId'
+            'warehouses', 'defaultWarehouseId',
+            'saranKomponen', 'isCnc', 'susulanMenunggu', 'susulanSiap'
         ));
     }
 
@@ -282,7 +296,38 @@ class ProductionProcessController extends Controller
             'keterangan' => ['nullable', 'string', 'max:255'],
         ], ['alasan.required' => 'Pilih dulu alasan pending.']);
 
+        // Komponen kurang/rusak: penyebab + daftar komponen (nama, jumlah, foto opsional per komponen).
+        $komponen = $request->input('alasan') === 'komponen';
+        if ($komponen) {
+            $request->merge(['komp' => array_values(array_filter((array) $request->input('komp', []), fn ($r) => trim((string) ($r['nama'] ?? '')) !== ''))]);
+            $request->validate([
+                'penyebab'     => ['required', \Illuminate\Validation\Rule::in(array_keys(\App\Modules\Production\Models\KomponenLaporan::PENYEBAB))],
+                'komp'         => ['required', 'array', 'min:1', 'max:20'],
+                'komp.*.nama'  => ['required', 'string', 'max:120'],
+                'komp.*.jumlah'=> ['required', 'integer', 'min:1', 'max:9999'],
+                'komp_foto'    => ['nullable', 'array'],
+                'komp_foto.*'  => ['nullable', 'image', 'max:8192'],
+            ], [
+                'penyebab.required' => 'Pilih penyebab komponen kurang / rusak.',
+                'komp.required'     => 'Tambahkan minimal satu komponen.',
+            ]);
+        }
+
         try {
+            if ($komponen) {
+                $items = $request->input('komp');
+                $penyebab = $request->input('penyebab');
+                // Foto dikirim per baris asli (sebelum baris kosong dibuang) → cocokkan lewat kunci 'baris'.
+                $fotoMentah = (array) $request->file('komp_foto', []);
+                $foto = array_map(fn ($r) => $fotoMentah[$r['baris'] ?? -1] ?? null, $items);
+                DB::transaction(function () use ($service, $id, $penyebab, $items, $foto) {
+                    $service->pauseStep($id, 'komponen', \App\Modules\Production\Services\KomponenLaporanService::keterangan($penyebab, $items));
+                    app(\App\Modules\Production\Services\KomponenLaporanService::class)
+                        ->catat(\App\Modules\Production\Models\ProductionOrderStep::findOrFail($id), $penyebab, $items, $foto, auth()->id());
+                });
+                $susulan = \App\Modules\Production\Models\KomponenLaporan::PENYEBAB[$penyebab]['susulan'] ?? false;
+                return back()->with('success', 'Langkah dipending' . ($susulan ? ' — permintaan potong susulan dikirim ke CNC.' : '.'));
+            }
             $service->pauseStep($id, $request->input('alasan'), $request->input('keterangan'));
             return back()->with('success', 'Langkah dipending.');
         } catch (\Exception $e) {

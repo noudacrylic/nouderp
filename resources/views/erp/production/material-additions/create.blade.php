@@ -83,6 +83,9 @@
                         {{-- Searchable Task Dropdown --}}
                         <div class="flex-1 relative" @click.outside="taskOpen = false">
                             <input type="hidden" name="production_order_step_id" :value="selectedStepId">
+                            @if($komponenLaporan ?? null)
+                                <input type="hidden" name="komponen_laporan_id" value="{{ $komponenLaporan->id }}">
+                            @endif
 
                             {{-- Trigger --}}
                             <button type="button"
@@ -279,7 +282,7 @@
                     <h3 class="font-bold text-gray-700 mb-4">Catatan</h3>
                     <textarea name="notes" rows="4"
                               placeholder="Alasan penambahan bahan, nomor laporan kerusakan, dll..."
-                              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none">{{ old('notes') }}</textarea>
+                              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none">{{ old('notes', ($komponenLaporan ?? null) ? 'Potong susulan (' . $komponenLaporan->labelPenyebab() . '): ' . $komponenLaporan->ringkasItem() : '') }}</textarea>
 
                     <div class="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700">
                         <p class="font-bold mb-1">Perhatian</p>

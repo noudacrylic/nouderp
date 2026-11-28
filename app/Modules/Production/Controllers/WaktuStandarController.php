@@ -300,6 +300,9 @@ class WaktuStandarController extends Controller
             'hasil'    => $operator ? $jeda->bulan($operator, $bulan) : null,
             'nilai'    => $operator ? app(\App\Modules\Production\Services\PenilaianCncService::class)->bulan($operator, $bulan) : null,
             'param'    => app(PenilaianKinerjaService::class)->param(),
+            // D. Mutu (28 Nov 2026): laporan komponen kurang/rusak dari Assembling — data dulu, belum dinilai.
+            'mutuKomponen' => \App\Modules\Production\Models\KomponenLaporan::whereBetween('created_at', [$bulan->copy()->startOfMonth(), $bulan->copy()->endOfMonth()])
+                ->selectRaw('penyebab, count(*) as n')->groupBy('penyebab')->pluck('n', 'penyebab')->all(),
             'berjalan' => $bulan->isSameMonth(now()),
         ]);
     }

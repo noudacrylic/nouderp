@@ -9,6 +9,51 @@
          ganti: null,
          catatan: null,
          pending: null, pendingAlasan: '', pendingKet: '',
+         // Komponen kurang/rusak (28 Nov 2026): penyebab + baris komponen (nama, jumlah, foto).
+         penyebab: '', komp: [], kompSeq: 0,
+         penyebabKomponen: {{ Js::from(\App\Modules\Production\Models\KomponenLaporan::PENYEBAB) }},
+         saranKomponen: {{ Js::from($saranKomponen ?? []) }},
+         kam: { buka: false, baris: null, stream: null, perangkat: [], pilih: '' },
+         kompTambah() { this.komp.push({ id: ++this.kompSeq, nama: '', jumlah: 1, foto: null }); },
+         kompHapus(r) { this.komp = this.komp.filter(x => x.id !== r.id); },
+         kompSah() { return this.penyebab && this.komp.some(r => r.nama.trim() && Number(r.jumlah) > 0); },
+         fotoDipilih(r, ev) { const f = ev.target.files[0]; r.foto = f ? URL.createObjectURL(f) : null; },
+         async kamBuka(r) {
+             this.kam.baris = r; this.kam.buka = true;
+             try {
+                 const semua = await navigator.mediaDevices.enumerateDevices();
+                 this.kam.perangkat = semua.filter(d => d.kind === 'videoinput');
+                 let simpan = ''; try { simpan = localStorage.getItem('komponen.kamera') || ''; } catch (e) {}
+                 if (!this.kam.pilih) this.kam.pilih = this.kam.perangkat.some(d => d.deviceId === simpan) ? simpan : (this.kam.perangkat[0]?.deviceId || '');
+                 await this.kamNyala();
+             } catch (e) { alert('Kamera tidak bisa dibuka: ' + e.message); this.kamTutup(); }
+         },
+         async kamNyala() {
+             if (this.kam.stream) this.kam.stream.getTracks().forEach(t => t.stop());
+             this.kam.stream = await navigator.mediaDevices.getUserMedia({ video: this.kam.pilih ? { deviceId: { exact: this.kam.pilih } } : true });
+             try { localStorage.setItem('komponen.kamera', this.kam.pilih); } catch (e) {}
+             this.$refs.kamVideo.srcObject = this.kam.stream;
+             // Label perangkat baru terbaca setelah izin diberikan.
+             this.kam.perangkat = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+         },
+         kamTutup() {
+             if (this.kam.stream) this.kam.stream.getTracks().forEach(t => t.stop());
+             this.kam.stream = null; this.kam.buka = false;
+         },
+         kamAmbil() {
+             const v = this.$refs.kamVideo, c = document.createElement('canvas');
+             c.width = v.videoWidth; c.height = v.videoHeight;
+             c.getContext('2d').drawImage(v, 0, 0);
+             const r = this.kam.baris;
+             c.toBlob(b => {
+                 const f = new File([b], 'komponen-' + r.id + '.jpg', { type: 'image/jpeg' });
+                 const dt = new DataTransfer(); dt.items.add(f);
+                 const inp = document.getElementById('komp-foto-' + r.id);
+                 if (inp) inp.files = dt.files;
+                 r.foto = URL.createObjectURL(f);
+                 this.kamTutup();
+             }, 'image/jpeg', 0.85);
+         },
          merk: null, merkUbah: {}, merkWajib: {{ $merkAkrilikWajib ? 'true' : 'false' }},
          // Merk akrilik + jumlah lembar (objek {merk: n}); dipakai _merk-chips.
          totalMerk(o) { return Object.values(o || {}).reduce((s, n) => s + (Number(n) || 0), 0); },
@@ -174,7 +219,7 @@
      @open-mulai.window="mulai = $event.detail"
      @open-ganti.window="ganti = $event.detail"
      @open-catatan.window="catatan = $event.detail"
-     @open-pending.window="pending = $event.detail; pendingAlasan = ''; pendingKet = ''"
+     @open-pending.window="pending = $event.detail; pendingAlasan = ''; pendingKet = ''; penyebab = ''; komp = []; kompTambah()"
      @open-merk.window="merk = $event.detail; merkUbah = { ...$event.detail.merk }">
 
     {{-- Flash message (mis. gagal Mulai: belum scan check-in, di luar jam kerja, dll.) --}}
@@ -238,6 +283,27 @@
                     class="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">Batal</button>
         </div>
     </div>
+
+    {{-- Banner: permintaan potong susulan (layar CNC) --}}
+    @if(($isCnc ?? false) && $susulanMenunggu > 0)
+        <a href="{{ route('production.process.susulan', ['department_id' => $selectedDepartment->id]) }}"
+           class="mb-4 bg-red-50 border-2 border-red-300 text-red-800 px-5 py-3 rounded-xl text-sm font-bold flex items-center justify-between gap-4 hover:bg-red-100">
+            <span>🧩 {{ $susulanMenunggu }} permintaan potong susulan dari Assembling</span>
+            <span class="text-xs font-semibold underline">Buka daftar →</span>
+        </a>
+    @elseif($isCnc ?? false)
+        <div class="mb-3 text-right">
+            <a href="{{ route('production.process.susulan', ['department_id' => $selectedDepartment->id]) }}" class="text-xs text-gray-500 hover:underline">🧩 Riwayat potong susulan</a>
+        </div>
+    @endif
+
+    {{-- Banner: susulan sudah dipotong CNC untuk langkah yang masih Pending (layar Assembling) --}}
+    @foreach($susulanSiap ?? [] as $lap)
+        <div class="mb-3 bg-emerald-50 border border-emerald-300 text-emerald-800 px-5 py-2.5 rounded-xl text-sm">
+            ✅ <b>{{ $lap->productionOrder->order_number ?? '' }}</b> — komponen susulan sudah dipotong CNC
+            ({{ $lap->ringkasItem() }}, {{ $lap->susulan_selesai_at->format('d/m H:i') }}). Silakan ambil & lanjutkan langkahnya.
+        </div>
+    @endforeach
 
     {{-- Banner: urutan antrean berubah --}}
     <div id="queue-changed-banner"
@@ -539,7 +605,8 @@
 
         <div x-show="pending !== null"
              x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
-             class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+             class="bg-white rounded-2xl shadow-xl w-full overflow-hidden max-h-[92vh] overflow-y-auto"
+             :class="pendingAlasan === 'komponen' ? 'max-w-xl' : 'max-w-sm'">
 
             <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                 <div>
@@ -550,7 +617,7 @@
                         class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center text-sm">✕</button>
             </div>
 
-            <form method="POST" class="p-5" :action="pending ? pending.action_url : '#'">
+            <form method="POST" class="p-5" :action="pending ? pending.action_url : '#'" enctype="multipart/form-data">
                 @csrf
                 <div class="space-y-1.5 mb-3">
                     <template x-for="(a, kunci) in alasanPending" :key="kunci">
@@ -561,7 +628,63 @@
                         </label>
                     </template>
                 </div>
-                <div class="mb-4" x-show="pendingAlasan">
+                {{-- Komponen kurang / rusak --}}
+                <template x-if="pendingAlasan === 'komponen'">
+                    <div class="mb-4 space-y-3">
+                        <div>
+                            <div class="text-xs font-bold text-gray-600 mb-1.5">Penyebab <span class="text-red-500 font-normal">(wajib)</span></div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                <template x-for="(p, k) in penyebabKomponen" :key="k">
+                                    <label class="flex items-center gap-2 px-3 py-2 border rounded-xl cursor-pointer text-xs transition"
+                                           :class="penyebab === k ? 'border-orange-400 bg-orange-50 font-semibold text-orange-800' : 'border-gray-200 hover:bg-gray-50 text-gray-700'">
+                                        <input type="radio" name="penyebab" :value="k" x-model="penyebab" class="text-orange-500">
+                                        <span x-text="p.label"></span>
+                                    </label>
+                                </template>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-gray-600 mb-1.5">Komponen yang perlu diganti</div>
+                            <datalist id="saran-komponen">
+                                <template x-for="n in (saranKomponen[pending?.order_number] || [])" :key="n"><option :value="n"></option></template>
+                            </datalist>
+                            <template x-for="(r, i) in komp" :key="r.id">
+                                <div class="border border-gray-200 rounded-xl p-2.5 mb-2">
+                                    <div class="flex gap-2 items-start">
+                                        <input type="hidden" :name="'komp[' + r.id + '][baris]'" :value="r.id">
+                                        <div class="flex-1">
+                                            <label class="block text-[10px] font-bold text-gray-500">Komponen</label>
+                                            <input type="text" :name="'komp[' + r.id + '][nama]'" x-model="r.nama" list="saran-komponen" maxlength="120"
+                                                   placeholder="Mis. sekat, tutup belakang, kaki kanan"
+                                                   class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300">
+                                        </div>
+                                        <div class="w-20">
+                                            <label class="block text-[10px] font-bold text-gray-500">Jumlah</label>
+                                            <input type="number" min="1" max="9999" :name="'komp[' + r.id + '][jumlah]'" x-model="r.jumlah"
+                                                   class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-300">
+                                        </div>
+                                        <button type="button" @click="kompHapus(r)" x-show="komp.length > 1"
+                                                class="mt-4 w-7 h-7 rounded-full bg-gray-100 hover:bg-red-100 text-gray-500 text-xs">✕</button>
+                                    </div>
+                                    <div class="flex items-center gap-2 mt-2 text-xs">
+                                        <span class="font-bold text-gray-500">Foto (jika perlu):</span>
+                                        <button type="button" @click="kamBuka(r)" class="px-2 py-1 rounded-lg border border-gray-300 hover:bg-gray-50">📷 Webcam</button>
+                                        <label class="px-2 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 cursor-pointer">
+                                            🖼 Pilih file
+                                            <input type="file" accept="image/*" capture="environment" class="hidden" :id="'komp-foto-' + r.id"
+                                                   :name="'komp_foto[' + r.id + ']'" @change="fotoDipilih(r, $event)">
+                                        </label>
+                                        <img x-show="r.foto" :src="r.foto" class="h-10 w-14 object-cover rounded border border-gray-200">
+                                    </div>
+                                </div>
+                            </template>
+                            <button type="button" @click="kompTambah()" class="text-xs font-semibold text-orange-700 hover:underline">+ Tambah komponen</button>
+                            <p class="text-[11px] text-gray-400 mt-1" x-show="penyebab && penyebabKomponen[penyebab]?.susulan">Permintaan potong susulan otomatis dikirim ke CNC.</p>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="mb-4" x-show="pendingAlasan && pendingAlasan !== 'komponen'">
                     <label class="block text-xs font-bold text-gray-600 mb-1.5">
                         Keterangan
                         <span class="font-normal" :class="alasanPending[pendingAlasan]?.keterangan ? 'text-red-500' : 'text-gray-400'"
@@ -573,7 +696,7 @@
                 </div>
                 <div class="flex gap-2">
                     <button type="submit"
-                            :disabled="!pendingAlasan || (alasanPending[pendingAlasan]?.keterangan && !pendingKet.trim())"
+                            :disabled="!pendingAlasan || (pendingAlasan === 'komponen' ? !kompSah() : (alasanPending[pendingAlasan]?.keterangan && !pendingKet.trim()))"
                             class="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed">
                         Pending
                     </button>
@@ -583,6 +706,23 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    {{-- ===== WEBCAM: foto komponen ===== --}}
+    <div x-show="kam.buka" class="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4" style="display:none;">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+                <div class="font-bold text-sm text-gray-800">📷 Foto komponen</div>
+                <select x-show="kam.perangkat.length > 1" x-model="kam.pilih" @change="kamNyala()" class="border border-gray-200 rounded-lg px-2 py-1 text-xs">
+                    <template x-for="(d, i) in kam.perangkat" :key="d.deviceId"><option :value="d.deviceId" x-text="d.label || ('Kamera ' + (i + 1))"></option></template>
+                </select>
+            </div>
+            <video x-ref="kamVideo" autoplay playsinline muted class="w-full rounded-xl bg-black aspect-video object-contain"></video>
+            <div class="flex gap-2 mt-3">
+                <button type="button" @click="kamAmbil()" class="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-xl">Ambil foto</button>
+                <button type="button" @click="kamTutup()" class="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl">Batal</button>
+            </div>
         </div>
     </div>
 

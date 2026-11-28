@@ -1563,6 +1563,9 @@ Route::prefix('erp/production')->name('production.')->group(function () {
     // Proses produksi (eksekusi per divisi)
     Route::get('process',[\App\Modules\Production\Controllers\ProductionProcessController::class, 'index'])->name('process.index');
     Route::get('process/queue-scores', [\App\Modules\Production\Controllers\ProductionProcessController::class, 'queueScores'])->name('process.queue-scores');
+    // Potong susulan: komponen kurang/rusak dari Pending Assembling (akses ikut ?department_id CNC).
+    Route::get('process/susulan', [\App\Modules\Production\Controllers\PotongSusulanController::class, 'index'])->name('process.susulan');
+    Route::post('process/susulan/{id}/selesai', [\App\Modules\Production\Controllers\PotongSusulanController::class, 'selesai'])->whereNumber('id')->name('process.susulan.selesai');
     Route::get('process/step-timers',  [\App\Modules\Production\Controllers\ProductionProcessController::class, 'stepTimers'])->name('process.step-timers');
     Route::post('process/steps/{id}/start',    [\App\Modules\Production\Controllers\ProductionProcessController::class, 'startStep'])->name('process.steps.start');
     Route::post('process/steps/{id}/revert',   [\App\Modules\Production\Controllers\ProductionProcessController::class, 'revertStep'])->name('process.steps.revert');
