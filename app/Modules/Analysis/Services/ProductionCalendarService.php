@@ -512,7 +512,7 @@ class ProductionCalendarService
      * sampai log mulai/lanjut/selesai berikutnya (atau sekarang bila langkah masih Pending).
      * Ditarik sampai 7 hari ke belakang supaya Pending yang dibiarkan berhari-hari tetap tampil.
      */
-    protected function pendingsFor(Carbon $dayStart, Carbon $dayEnd, Carbon $now): array
+    public function pendingsFor(Carbon $dayStart, Carbon $dayEnd, Carbon $now): array
     {
         $stepIds = DB::table('production_step_time_logs')
             ->where('event_type', 'paused')->whereNotNull('alasan')

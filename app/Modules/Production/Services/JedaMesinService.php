@@ -180,7 +180,7 @@ class JedaMesinService
     }
 
     /** Interval jam kerja reguler operator (detik unix), per menit dari jadwal + scan. */
-    private function jamKerja(int $karyawanId, Carbon $dari, Carbon $sampai): array
+    public function jamKerja(int $karyawanId, Carbon $dari, Carbon $sampai): array
     {
         $iv = [];
         for ($hari = $dari->copy()->startOfDay(); $hari->lte($sampai); $hari->addDay()) {
@@ -206,7 +206,7 @@ class JedaMesinService
      * Langkah divisi yang menyentuh periode: mulai/selesai (unix), mesin pelaksana, dan saat
      * SIAP dikerjakan (OP dibuat & langkah sebelumnya selesai; null = belum siap s/d kini).
      */
-    private function langkah(int $departmentId, Carbon $dari, Carbon $sampai)
+    public function langkah(int $departmentId, Carbon $dari, Carbon $sampai)
     {
         $rows = DB::table('production_order_steps as s')
             ->join('production_orders as o', 'o.id', '=', 's.production_order_id')

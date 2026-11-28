@@ -298,6 +298,8 @@ class WaktuStandarController extends Controller
             'operator' => $operator,
             'bulan'    => $bulan,
             'hasil'    => $operator ? $jeda->bulan($operator, $bulan) : null,
+            'nilai'    => $operator ? app(\App\Modules\Production\Services\PenilaianCncService::class)->bulan($operator, $bulan) : null,
+            'param'    => app(PenilaianKinerjaService::class)->param(),
             'berjalan' => $bulan->isSameMonth(now()),
         ]);
     }

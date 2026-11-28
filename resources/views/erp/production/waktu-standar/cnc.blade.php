@@ -55,6 +55,130 @@
         document.addEventListener('DOMContentLoaded', () => setTimeout(alarmTampil, 50));
     </script>
 
+    {{-- ================= RAPOR OPERATOR (disetujui owner 28 Nov 2026) ================= --}}
+    @if($nilai && $operator)
+        @php
+            $nl = $nilai['nilai'];
+            $ct = $nilai['pencatatan'];
+            $fmt = fn ($v, $n = 2) => $v === null ? '—' : number_format($v, $n, ',', '.');
+            $tingkatUrut = collect($param['tingkat'])->values();
+            $warnaTingkat = function ($t) use ($tingkatUrut) {
+                $i = $t ? $tingkatUrut->search(fn ($x) => $x['label'] === $t['label']) : false;
+                return ['bg-emerald-100 text-emerald-800', 'bg-blue-100 text-blue-800', 'bg-amber-100 text-amber-800', 'bg-red-100 text-red-800'][$i === false ? 9 : $i] ?? 'bg-gray-200 text-gray-800';
+            };
+            $kelompokK = [
+                ['judul' => '2 poin — tanggap ≤ 3 menit', 'chip' => 'bg-emerald-50 border-emerald-200 text-emerald-800', 'k' => $nilai['kejadian']->where('status', 'dinilai')->where('poin', 2)],
+                ['judul' => '1 poin — 3 sampai 8 menit', 'chip' => 'bg-gray-50 border-gray-200 text-gray-700', 'k' => $nilai['kejadian']->where('status', 'dinilai')->where('poin', 1)],
+                ['judul' => '0 poin — lebih dari 8 menit', 'chip' => 'bg-red-50 border-red-200 text-red-800', 'k' => $nilai['kejadian']->where('status', 'dinilai')->where('poin', 0)],
+                ['judul' => 'Ditahan — lebih dari 30 menit, menunggu putusan owner (Meja Owner)', 'chip' => 'bg-amber-50 border-amber-200 text-amber-800', 'k' => $nilai['kejadian']->where('status', 'cek')],
+                ['judul' => 'Diabaikan owner — tidak ikut nilai', 'chip' => 'bg-slate-50 border-slate-200 text-slate-600', 'k' => $nilai['kejadian']->where('status', 'diabaikan')],
+            ];
+        @endphp
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <div class="text-lg font-bold text-gray-800">Rapor {{ $operator->name }}</div>
+                    <div class="text-sm text-gray-500">{{ $bulan->translatedFormat('F Y') }}
+                        @if($berjalan)<span class="text-amber-700">· bulan berjalan, nilai masih bisa berubah</span>@endif
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-xs text-gray-500">Nilai bulan ini</div>
+                    <div class="text-3xl font-black text-gray-800">{{ $fmt($nl['akhir']) }}</div>
+                    @if($nl['tingkat'])<span class="px-2 py-0.5 rounded-lg text-xs font-bold {{ $warnaTingkat($nl['tingkat']) }}">{{ $nl['tingkat']['label'] }}</span>@endif
+                </div>
+            </div>
+            <table class="w-full text-sm mt-4">
+                <thead class="text-xs text-gray-400 border-b border-gray-100">
+                    <tr><th class="text-left font-normal py-1">Komponen</th><th class="text-left font-normal">Ukuran</th><th class="text-right font-normal">Nilai</th></tr>
+                </thead>
+                <tbody>
+                    <tr class="border-b border-gray-50">
+                        <td class="py-2 font-semibold"><a href="#tanggap" class="hover:underline">B. Tanggap</a></td>
+                        <td class="text-xs text-gray-500">Rata-rata poin {{ $nl['n'] }} kejadian · tengah {{ $dtk($nl['median']) }}
+                            @if($nl['ditahan']) · <span class="text-amber-700">{{ $nl['ditahan'] }} ditahan</span>@endif</td>
+                        <td class="text-right font-bold">{{ $fmt($nl['rata']) }}</td>
+                    </tr>
+                    <tr class="border-b border-gray-50">
+                        <td class="py-2 font-semibold"><a href="#pencatatan" class="hover:underline">C. Pencatatan</a> <span class="text-xs font-normal text-gray-400">(syarat)</span></td>
+                        <td class="text-xs text-gray-500">{{ $ct['persen'] === null ? '—' : number_format($ct['persen'] * 100, 1, ',', '.') . '%' }} waktu memotong tercatat di OP berjalan (syarat ≥ 95%)</td>
+                        <td class="text-right font-bold {{ $ct['faktor'] < 1 ? 'text-red-600' : 'text-emerald-700' }}">{{ $ct['faktor'] < 1 ? '× ' . $fmt($ct['faktor']) : 'memenuhi' }}</td>
+                    </tr>
+                    <tr class="border-b border-gray-50 text-gray-400">
+                        <td class="py-2 font-semibold">D. Mutu</td><td class="text-xs">Potong salah / bahan rusak — belum dicatat</td><td class="text-right">—</td>
+                    </tr>
+                    <tr class="text-gray-400">
+                        <td class="py-2 font-semibold">E. Keterampilan</td><td class="text-xs">Mesin & merk yang dikuasai — informasi, belum dinilai</td><td class="text-right">—</td>
+                    </tr>
+                </tbody>
+            </table>
+            @if($nl['n'])
+                <div class="mt-3 p-3 rounded-xl bg-gray-50 border border-gray-100 text-sm">
+                    <b>Asal nilai {{ $fmt($nl['akhir']) }}:</b>
+                    ({{ $nl['poin2'] }} × 2 + {{ $nl['poin1'] }} × 1 + {{ $nl['poin0'] }} × 0) ÷ {{ $nl['n'] }} kejadian = {{ $fmt($nl['rata']) }}
+                    @if($ct['faktor'] < 1) × pencatatan {{ $fmt($ct['faktor']) }} = <b>{{ $fmt($nl['akhir']) }}</b>@endif
+                </div>
+            @endif
+        </div>
+
+        <div id="tanggap" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <h2 class="font-bold text-gray-800">B. Tanggap — mesin selesai memotong sampai memotong lagi</h2>
+            <p class="text-xs text-gray-500 mt-1 max-w-4xl">
+                ≤ 3 mnt = <b class="text-emerald-700">2 poin</b>, 3–8 mnt = <b>1 poin</b>, &gt; 8 mnt = <b class="text-red-600">0 poin</b>; &gt; 30 mnt ditahan untuk diputus owner.
+                Hanya jam kerja, selama ada pekerjaan, tanpa Pending beralasan. <b>Aturan antre:</b> bila operator sedang melayani mesin lain yang selesai lebih dulu,
+                waktu baru dihitung sejak mesin itu jalan lagi.
+            </p>
+            @forelse(collect($kelompokK)->filter(fn ($g) => $g['k']->isNotEmpty()) as $g)
+                <details class="mt-3" @if($loop->first) open @endif>
+                    <summary class="cursor-pointer list-none inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs font-bold {{ $g['chip'] }}">
+                        {{ $g['judul'] }} <span class="font-normal">· {{ $g['k']->count() }} kali</span>
+                    </summary>
+                    <div class="overflow-x-auto">
+                    <table class="w-full text-xs mt-1.5">
+                        <thead class="text-gray-400"><tr>
+                            <th class="text-left font-normal py-1">Mesin</th><th class="text-left font-normal">Selesai memotong</th><th class="text-left font-normal">Memotong lagi</th>
+                            <th class="text-right font-normal">Dihitung</th><th class="text-left font-normal pl-3">Keterangan</th>
+                        </tr></thead>
+                        <tbody>
+                        @foreach($g['k'] as $k)
+                            <tr class="border-t border-gray-100">
+                                <td class="py-1 font-semibold">{{ $k['mesin'] }}</td>
+                                <td class="whitespace-nowrap">{{ $k['selesai']->translatedFormat('D d/m H:i:s') }}</td>
+                                <td class="whitespace-nowrap">{{ $k['mulai']->translatedFormat($k['mulai']->isSameDay($k['selesai']) ? 'H:i:s' : 'D d/m H:i:s') }}</td>
+                                <td class="text-right font-bold">{{ $dtk($k['detik']) }}</td>
+                                <td class="pl-3 text-gray-500">
+                                    @if($k['antre'] > 0) antre {{ $dtk($k['antre']) }} (melayani mesin lain) @endif
+                                    @if($k['putusan']) · diputus owner: {{ \App\Modules\Production\Services\PenilaianKinerjaService::PUTUSAN[$k['putusan']] ?? $k['putusan'] }} @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                    </div>
+                </details>
+            @empty
+                <p class="text-sm text-gray-400 mt-2">Belum ada kejadian bersinyal di bulan ini.</p>
+            @endforelse
+        </div>
+
+        <div id="pencatatan" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <h2 class="font-bold text-gray-800">C. Pencatatan — mesin memotong harus tercatat di langkah OP yang berjalan</h2>
+            <p class="text-xs text-gray-500 mt-1">Bolong = mesin memotong tanpa langkah OP berjalan di mesin itu (lupa Mulai / Selesai ditekan terlalu cepat). Data ini dipakai HPP & waktu standar.</p>
+            <table class="text-sm mt-2">
+                @foreach($ct['mesin'] as $c)
+                    <tr>
+                        <td class="pr-6 py-0.5 font-semibold">{{ $c['nama'] }}</td>
+                        <td class="pr-6">memotong {{ PK::teksMenit($c['potong'] / 60) }}</td>
+                        <td class="pr-6">tercatat {{ $c['potong'] ? number_format($c['tercatat'] / $c['potong'] * 100, 1, ',', '.') . '%' : '—' }}</td>
+                        <td class="{{ $c['potong'] - $c['tercatat'] > 600 ? 'text-red-600 font-semibold' : 'text-gray-500' }}">bolong {{ PK::teksMenit(($c['potong'] - $c['tercatat']) / 60) }}</td>
+                    </tr>
+                @endforeach
+            </table>
+        </div>
+
+        <div class="text-xs font-bold text-gray-400 uppercase tracking-wide pt-2">Informasi (tidak dinilai)</div>
+    @endif
+
     @if(!$hasil)
         <div class="bg-white rounded-2xl border border-gray-100 p-4 text-sm text-gray-500">Belum ada operator yang menaungi mesin (atur di Divisi → pelaksana induk).</div>
     @else
