@@ -370,12 +370,13 @@ class SalesReturnService
         // Dana pesanan sudah cair sebelum retur → tak ada blok Penyelesaian; form menampilkan
         // pencairan yang sudah terjadi sebagai pembanding Seller Centre.
         $pencairan = ($config && $inv->marketplace_processed) ? $this->pencairanLalu($inv, $akun, $config) : null;
-        // Shopee sudah memotong refund dari Saldo Penjual (retur setelah dana dilepas) → pembeli
-        // memang direfund, jadi penjualan dibalik walau banding menang (kompensasinya dicatat
-        // terpisah sebagai penyesuaian di luar retur).
-        $potonganShopee = (float) ($pencairan['potongan_retur_sisa'] ?? 0);
-        if ($potonganShopee > 0.5) {
-            $dibalik = $nilai;
+        // Shopee sudah menyesuaikan Saldo Penjual atas retur ini (refund ditarik setelah dana
+        // dilepas ± kompensasi banding) → pembeli memang direfund: penjualan yang dibalik =
+        // harga barang − kompensasi, sama seperti K8 yang dananya belum cair.
+        $bersihShopee = (float) ($pencairan['penyesuaian_retur_bersih'] ?? 0);
+        $pakaiShopee  = !empty($pencairan['penyesuaian_retur']) && abs($bersihShopee) > 0.5;
+        if ($pakaiShopee) {
+            $dibalik = round(max(0, $nilai - (float) $pencairan['kompensasi_retur']), 2);
         }
         if ($dibalikDiminta !== null) {
             $dibalik = round(max(0, $dibalikDiminta), 2);
@@ -402,18 +403,26 @@ class SalesReturnService
         // ── b. Pembalikan ──
         $pembalikan = [];
         $uang = ['ar' => 0.0, 'hold' => 0.0];
-        if ($dibalik > 0) {
-            // Refund ke Saldo Penjualan = persis yang Shopee potong; sisanya biaya yang Shopee
-            // kembalikan (Cr Beban Admin). Di luar batas wajar → kembali ke hitungan bawaan.
-            $uang = null;
-            if ($target === 'wallet' && $potonganShopee > 0.5) {
-                try {
-                    $uang = $this->hitungUang($inv, $dibalik, $target, $potonganShopee);
-                } catch (Exception) {
-                    $uang = null;
-                }
+        if ($dibalik > 0 && $pakaiShopee && $target === 'wallet' && (float) $inv->remaining_amount <= 0.005) {
+            // Satu angka bersih ke Saldo Penjualan = persis mutasi Shopee; selisihnya biaya yang
+            // Shopee kembalikan (komisi, layanan, proses — dan pajak bila seluruh pesanan diretur).
+            $pembalikan[] = $baris($akun['retur'], $dibalik, 0, 'Retur penjualan - ' . $inv->invoice_number . ' (dikurangi kompensasi Shopee)');
+            $pembalikan[] = $baris($akun['dompet'], max(0, $bersihShopee), max(0, -$bersihShopee), 'Penyesuaian pesanan Shopee (refund − kompensasi)');
+            $biayaKembali = round($dibalik + $bersihShopee, 2);
+            $pajakKembali = 0.0;
+            $pajakAkun    = $akunId($config?->account_tax_id);
+            if ($pajakAkun && abs($nilai - (float) $inv->grand_total) < 0.5) {
+                $pajakKembali = round(min(max(0, $biayaKembali), (float) ($pencairan['pajak'] ?? 0)), 2);
             }
-            $uang ??= $this->hitungUang($inv, $dibalik, $target);
+            if ($pajakKembali > 0) {
+                $pembalikan[] = $baris($pajakAkun, 0, $pajakKembali, 'Pajak dikembalikan Shopee');
+            }
+            $sisaBiaya = round($biayaKembali - $pajakKembali, 2);
+            if (abs($sisaBiaya) > 0.005) {
+                $pembalikan[] = $baris($akun['admin'], max(0, -$sisaBiaya), max(0, $sisaBiaya), 'Biaya admin dikembalikan Shopee');
+            }
+        } elseif ($dibalik > 0) {
+            $uang = $this->hitungUang($inv, $dibalik, $target);
             $pembalikan[] = $baris($akun['retur'], $dibalik, 0, 'Retur penjualan - ' . $inv->invoice_number);
             if ($uang['ar'] > 0) {
                 $pembalikan[] = $baris($akun['piutang'], 0, $uang['ar'], 'Tagihan dihapus');
@@ -528,22 +537,42 @@ class SalesReturnService
             ->whereIn('reference_id', SalesReturn::where('invoice_id', $inv->id)->where('status', 'posted')->pluck('id'));
         $returLaluNilai = round($mutasi($returLalu, $dompetId), 2);
 
-        // Refund yang Shopee potong dari Saldo Penjual SETELAH dana pesanan dilepas — inilah
-        // yang harus dikeluarkan blok b dari Saldo Penjualan. Dikurangi yang sudah dipotong
-        // retur terdahulu (retur_lalu bertanda negatif).
-        $potonganRetur = $this->potonganReturShopee($inv);
-        $potonganSisa  = round(max(0, -collect($potonganRetur)->sum('jumlah') + $returLaluNilai), 2);
+        $danaMasuk = round($mutasi(clone $jurnal, $dompetId), 2);
+
+        // Retur selesai SETELAH dana pesanan dilepas: Shopee menarik refund dari Saldo Penjual
+        // ("Pengembalian Barang/Dana setelah Dana Dilepaskan") dan — bila banding menang —
+        // membayar kompensasi. Keduanya satu "Penyesuaian pesanan" yang masuk jurnal retur ini
+        // sebagai SATU angka bersih, sehingga Penghasilan Akhir langsung sama dengan Shopee.
+        $potongan = $this->potonganReturShopee($inv);
+        $luar     = $this->penyesuaianLuarRetur($inv, $dompetId);
+        $kompensasi = [];
+        if ($potongan) {
+            [$kompensasi, $luar] = collect($luar)
+                ->partition(fn ($x) => $x['jumlah'] > 0 && !$x['tercatat'])
+                ->map(fn ($c) => $c->values()->all())->all();
+        }
+        $penyesuaian = array_merge(
+            array_map(fn ($x) => $x + ['jenis' => 'potongan'], $potongan),
+            array_map(fn ($x) => $x + ['jenis' => 'kompensasi'], $kompensasi),
+        );
+        $ditarik = -collect($potongan)->sum('jumlah');
 
         return [
             'tanggal'      => \Carbon\Carbon::parse($tanggal)->toDateString(),
             'nilai_faktur' => round((float) $inv->grand_total, 2),
             'admin'        => round($mutasi(clone $jurnal, $adminId), 2),
             'pajak'        => round($mutasi(clone $jurnal, $pajakId), 2),
-            'dana_masuk'   => round($mutasi(clone $jurnal, $dompetId), 2),
+            'dana_masuk'   => $danaMasuk,
             'retur_lalu'   => $returLaluNilai,
-            'penyesuaian_luar' => $this->penyesuaianLuarRetur($inv, $dompetId),
-            'potongan_retur'      => $potonganRetur,
-            'potongan_retur_sisa' => $potonganSisa,
+            'penyesuaian_luar'  => $luar,
+            'penyesuaian_retur' => $penyesuaian,
+            // Angka bersih yang mesti dipotong blok b dari Saldo Penjualan (negatif = keluar),
+            // dikurangi yang sudah dipotong retur terdahulu (retur_lalu juga bertanda negatif).
+            'penyesuaian_retur_bersih' => $penyesuaian ? round(collect($penyesuaian)->sum('jumlah') - $returLaluNilai, 2) : 0.0,
+            'kompensasi_retur' => round(collect($kompensasi)->sum('jumlah'), 2),
+            // Penjelas: Shopee menarik seluruh dana masuk + biaya yang tak dikembalikan
+            // (affiliate, premi) — mis. 78.328 = 72.872 + 5.456.
+            'biaya_tak_kembali' => $potongan ? round(max(0, $ditarik - $danaMasuk), 2) : 0.0,
             // "Penghasilan Akhir" Seller Centre (rincian dana final) — pembanding sisa dana ERP.
             'penghasilan_akhir_shopee' => $this->penghasilanAkhirShopee($inv),
         ];

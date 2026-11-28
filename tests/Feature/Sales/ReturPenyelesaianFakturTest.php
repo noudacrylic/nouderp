@@ -266,18 +266,35 @@ class ReturPenyelesaianFakturTest extends TestCase
         $b = app(SalesReturnService::class)->jurnalBawaan($inv->fresh(),
             [['invoice_item_id' => $itemId, 'qty' => 2, 'condition' => 'tidak_kembali']], 'diajukan_konsumen', 'menang', 'wallet');
 
-        $this->assertEqualsWithDelta(100000, $b['dibalik'], 0.01);
+        // Satu penyesuaian bersih: −88.000 + 40.000 = −48.000; dibalik = 100.000 − 40.000.
+        $this->assertEqualsWithDelta(60000, $b['dibalik'], 0.01);
         $per = fn (int $akun, string $sisi) => collect($b['pembalikan'])->where('account_id', $akun)->sum($sisi);
-        $this->assertEqualsWithDelta(100000, $per($returId, 'debit'), 0.01);
-        $this->assertEqualsWithDelta(88000, $per($this->walletId, 'credit'), 0.01, 'Saldo Penjualan dipotong persis potongan Shopee');
+        $this->assertEqualsWithDelta(60000, $per($returId, 'debit'), 0.01);
+        $this->assertEqualsWithDelta(48000, $per($this->walletId, 'credit'), 0.01, 'Saldo Penjualan = penyesuaian bersih Shopee');
         $this->assertEqualsWithDelta(12000, $per($feeId, 'credit'), 0.01, 'biaya yang Shopee kembalikan');
 
         $p = $b['konteks']['pencairan'];
-        $this->assertEqualsWithDelta(88000, $p['potongan_retur_sisa'], 0.01);
+        $this->assertEqualsWithDelta(-48000, $p['penyesuaian_retur_bersih'], 0.01);
+        $this->assertEqualsWithDelta(2000, $p['biaya_tak_kembali'], 0.01, '88.000 = dana masuk 86.000 + 2.000');
+        $this->assertSame([], $p['penyesuaian_luar'], 'kompensasi masuk retur, bukan dicatat terpisah');
         $this->assertEqualsWithDelta(38000, $p['penghasilan_akhir_shopee'], 0.01);
-        // Rumus sisaDanaPesanan() di form: dana masuk + kompensasi luar − potongan blok b.
-        $luar = collect($p['penyesuaian_luar'])->sum('jumlah');
-        $this->assertEqualsWithDelta(38000, $p['dana_masuk'] + $p['retur_lalu'] + $luar - $per($this->walletId, 'credit'), 0.01);
+        $this->assertEqualsWithDelta(38000, $p['dana_masuk'] + $p['retur_lalu'] - $per($this->walletId, 'credit'), 0.01);
+
+        // Posting dengan blok b bawaan → Saldo Penjualan pesanan ini = Penghasilan Akhir Shopee.
+        $retur = app(SalesReturnService::class)->post(new SalesReturnDTO(
+            customer_id: $inv->customer_id,
+            items: [['invoice_item_id' => $itemId, 'qty' => 2, 'condition' => 'tidak_kembali']],
+            date: now()->toDateString(), invoice_id: $inv->id,
+            return_type: 'diajukan_konsumen', refund_target: 'wallet', appeal_result: 'menang',
+            journal_reversal: $b['pembalikan'], return_case: 'K8',
+        ));
+        $dompet = (float) DB::table('journal_lines as l')->join('journals as j', 'j.id', '=', 'l.journal_id')
+            ->where('j.status', 'posted')->where('l.account_id', $this->walletId)->selectRaw('SUM(l.debit - l.credit) v')->value('v');
+        $this->assertSame('posted', $retur->fresh()->status);
+        $this->assertEqualsWithDelta(38000, $dompet, 0.01);
+        $this->assertEqualsWithDelta(0, app(SalesReturnService::class)->jurnalBawaan($inv->fresh(),
+            [['invoice_item_id' => $itemId, 'qty' => 2, 'condition' => 'tidak_kembali']], 'diajukan_konsumen', 'menang', 'wallet')
+            ['konteks']['pencairan']['penyesuaian_retur_bersih'] ?? 0, 0.01, 'sudah dipotong retur ini');
     }
 
     public function test_void_retur_membatalkan_penyelesaian(): void
